@@ -20,7 +20,7 @@ project with available work, implements one ticket inside a sandboxed agent, ope
 queues a separate review of that PR to run in a fresh context.
 
 The loop is **budget-gated**. Before every run it reads my own Claude usage from local session logs,
-computes rolling 5-hour and 7-day token totals, and refuses to start if that would eat into a reserve
+computes 5-hour and weekly token totals, and refuses to start if that would eat into a reserve
 held back for my own work. It never asks permission and never surprises me: what it did, what it
 cost, and what now needs me arrives as one summary issue each morning.
 
@@ -47,7 +47,7 @@ the manager leaves every project working.
 10. As a developer, I want the loop to measure my recent token usage before starting, so that it never begins work it can't afford.
 11. As a developer, I want a reserve of my weekly allowance held back, so that I can still do my own expensive Opus work — grilling, specs, wayfinding — after the loop has run.
 12. As a developer, I want to set that reserve as a fraction I can tune, so that I can adjust once I've seen real consumption.
-13. As a developer, I want the loop to check both the rolling 5-hour and 7-day windows, so that it respects both limits I'm actually subject to.
+13. As a developer, I want the loop to check both the 5-hour and the weekly window, so that it respects both limits I am actually subject to.
 14. As a developer, I want each sandbox run to carry its own hard spend ceiling, so that one pathological ticket can't drain the week before the next gate check.
 15. As a developer, I want the gate re-checked between every run, so that a long session can't overshoot.
 16. As a developer, I want the agents to run on Sonnet rather than Opus, so that the mechanical half of the work is the cheap half.
@@ -144,13 +144,15 @@ different authors and different change rates.
 label. Selection is: review tickets before implementation tickets; then explicit priority; then least
 recently worked. One project per iteration.
 
-**The budget gate.** Before each run the ledger computes rolling 5-hour and 7-day token totals from
-local Claude session logs, which record per-message token counts with timestamps. A run starts only
-if projected consumption leaves the configured reserve fraction of the weekly window intact. Two
-imprecisions are accepted deliberately: a rolling 7-day window approximates the provider's actual
-reset boundary, and local logs cannot observe usage from Claude chat or other machines, so the ledger
-under-counts. The reserve is sized generously to absorb both. Each run additionally carries a hard
-per-run spend ceiling enforced by the agent CLI itself.
+**The budget gate.** Before each run the ledger computes 5-hour and weekly token totals from local
+Claude session logs, which record per-message token counts with timestamps. Neither window is a
+lookback from now: the 5-hour window opens with the first message of the current block, and the
+weekly window opens on Sunday, so the ledger must find each window's opening boundary before it can
+total anything inside it. A run starts only if projected consumption leaves the configured reserve
+fraction of the weekly window intact. One imprecision is accepted deliberately: local logs cannot
+observe usage from Claude chat or other machines, so the ledger under-counts. The reserve is sized
+generously to absorb it. Each run additionally carries a hard per-run spend ceiling enforced by the
+agent CLI itself.
 
 **Review is a separate job, not a phase.** When an implementation run produces a draft PR, the
 manager — not the agent — creates a sub-issue of the original ticket asking for that PR to be
@@ -209,12 +211,13 @@ faked. This is the highest available seam and carries the bulk of the suite. Beh
 - a dry queue produces the explicit notice rather than silence
 - the summary lists every attempt and what awaits the developer
 
-**Secondary seam: the usage-ledger parser.** A pure function from session-log files to rolling window
-totals, tested against fixture logs captured from real session history. This seam exists because the
-log format is an external fact rather than something tests may invent, and because rolling-window
-arithmetic is far clearer to assert directly than through the loop. Cases: empty history, entries
-outside both windows, entries straddling a window boundary, malformed lines, and totals aggregating
-input, output, and both cache token fields.
+**Secondary seam: the usage-ledger parser.** A pure function from session-log files to the two
+windows in force at a given instant, tested against fixture logs captured from real session history.
+This seam exists because the log format is an external fact rather than something tests may invent,
+and because window arithmetic is far clearer to assert directly than through the loop. Cases: empty
+history, entries before either window opened, an instant that falls on a window boundary, a weekly
+boundary crossed mid-history, malformed lines, and totals aggregating input, output, and both cache
+token fields.
 
 **Deliberately not given their own seams.** Selection ordering and budget arithmetic are tested
 through the primary seam, so they remain free to be restructured. The new-project command is

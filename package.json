@@ -1,0 +1,26 @@
+{
+  "name": "side-projects-manager",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Manager for side projects: the morning loop and the new-project command.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "morning-run": "./dist/bin/morning-run.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "morning-run": "node src/bin/morning-run.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.9.2"
+  }
+}
