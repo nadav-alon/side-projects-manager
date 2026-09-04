@@ -21,16 +21,17 @@ export interface MorningRunPorts {
 }
 
 export type MorningRunOutcome =
-  /** No registered project had a ready-for-agent ticket. A quiet morning. */
-  | "no-work-available"
-  /** A project had work. Choosing and running it arrives with #11 and #7. */
-  | "work-available";
+  /** No registered project had an eligible ticket. A quiet morning. */
+  | "dry-queue"
+  /** An iteration selected a project with work. Running it is #7. */
+  | "work-selected";
 
-/** What one invocation of the loop did. The summary issue (#14) is written from this. */
+/** What one invocation did. The summary issue (#14) is written from this. */
 export interface MorningRunReport {
+  /** When the invocation started. */
   startedAt: Date;
   outcome: MorningRunOutcome;
-  /** Every registered project the loop looked at, in the order it looked. */
+  /** Every registered project the invocation looked at, in the order it looked. */
   projectsConsidered: RepoSlug[];
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
@@ -39,48 +40,57 @@ export interface MorningRunReport {
 /**
  * One invocation of the morning loop.
  *
- * Today it establishes the seam and the quiet-morning path: it asks the store
- * which projects are registered and the tracker what each has ready, stopping
- * at the first project with work, since a morning works one project. Which
- * project that should be, whether the budget allows it, and everything that
- * follows from running it — sandbox, draft PR, review sub-issue, failure
- * handling, summary — are later tickets hanging off this signature.
+ * An invocation iterates, and each iteration works one project: select, check
+ * the gate, run, report. Today an invocation performs a single iteration and
+ * stops after selection, because the gate is #12 and running a ticket is #7.
  */
 export async function morningRun(
   ports: MorningRunPorts,
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
-  const projects = await ports.store.loadProjects();
-
-  const projectsConsidered: RepoSlug[] = [];
-  let workAvailable = false;
-
-  for (const project of projects) {
-    projectsConsidered.push(project.repo);
-    const readyTickets = await ports.tracker.listReadyTickets(project.repo);
-    if (readyTickets.length > 0) {
-      workAvailable = true;
-      break;
-    }
-  }
+  const selection = await selectProject(ports);
 
   return {
     startedAt,
-    projectsConsidered,
-    outcome: workAvailable ? "work-available" : "no-work-available",
-    message: summaryLine(projectsConsidered, workAvailable),
+    projectsConsidered: selection.considered,
+    outcome: selection.selected === undefined ? "dry-queue" : "work-selected",
+    message: summaryLine(selection),
   };
 }
 
-function summaryLine(
-  projectsConsidered: RepoSlug[],
-  workAvailable: boolean,
-): string {
-  const count = projectsConsidered.length;
-  const projects = `${count} ${count === 1 ? "project" : "projects"}`;
-  if (!workAvailable) {
-    return `Nothing to do: considered ${projects}, no ready-for-agent tickets available.`;
+interface Selection {
+  /** The projects looked at before settling, in order. */
+  considered: RepoSlug[];
+  /** The project this iteration would work, or undefined for a dry queue. */
+  selected: RepoSlug | undefined;
+}
+
+/**
+ * The first step of an iteration: find a project with an eligible ticket.
+ *
+ * Ordering — reviews before implementations, then explicit priority, then
+ * least recently worked — is #11. Today it is registry order, and the first
+ * project with a backlog wins.
+ */
+async function selectProject(ports: MorningRunPorts): Promise<Selection> {
+  const considered: RepoSlug[] = [];
+
+  for (const project of await ports.store.loadProjects()) {
+    considered.push(project.repo);
+    const backlog = await ports.tracker.listEligibleTickets(project.repo);
+    if (backlog.length > 0) {
+      return { considered, selected: project.repo };
+    }
   }
-  const project = projectsConsidered[count - 1];
-  return `Work available in ${project}; running it is not wired up yet.`;
+
+  return { considered, selected: undefined };
+}
+
+function summaryLine({ considered, selected }: Selection): string {
+  if (selected !== undefined) {
+    return `Work available in ${selected}; running it is not wired up yet.`;
+  }
+  const count = considered.length;
+  const projects = `${count} ${count === 1 ? "project" : "projects"}`;
+  return `Nothing to do: considered ${projects}, no ready-for-agent tickets available.`;
 }

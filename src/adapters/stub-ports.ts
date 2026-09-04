@@ -22,7 +22,7 @@ export const stubStore: Store = {
 
 /** Replaced by the `gh`-backed tracker (#4). */
 export const stubIssueTracker: IssueTracker = {
-  listReadyTickets: async (): Promise<Ticket[]> => [],
+  listEligibleTickets: async (): Promise<Ticket[]> => [],
 };
 
 /** Replaced by the session-log parser (#5). */

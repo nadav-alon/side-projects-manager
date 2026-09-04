@@ -1,8 +1,8 @@
 import type { IssueTracker, RepoSlug, Ticket } from "../ports/index.ts";
 
 /**
- * An in-memory backlog per project. Everything put here is ready-for-agent —
- * the fake has no notion of an ineligible ticket, because the real port never
+ * An in-memory backlog per project. Everything put here is eligible — the
+ * fake has no notion of an ineligible ticket, because the real port never
  * returns one.
  */
 export class FakeIssueTracker implements IssueTracker {
@@ -10,8 +10,8 @@ export class FakeIssueTracker implements IssueTracker {
   readonly listedRepos: RepoSlug[] = [];
   readonly #backlogs = new Map<RepoSlug, Ticket[]>();
 
-  /** Puts a ready-for-agent ticket in `repo`'s backlog and returns it. */
-  addReadyTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
+  /** Puts an eligible ticket in `repo`'s backlog and returns it. */
+  addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
     const stored: Ticket = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];
     backlog.push(stored);
@@ -19,7 +19,7 @@ export class FakeIssueTracker implements IssueTracker {
     return stored;
   }
 
-  async listReadyTickets(repo: RepoSlug): Promise<Ticket[]> {
+  async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
     this.listedRepos.push(repo);
     return [...(this.#backlogs.get(repo) ?? [])];
   }

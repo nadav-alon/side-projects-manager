@@ -5,24 +5,24 @@ import { morningRun } from "./morning-run.ts";
 import { fakePorts } from "./testing/index.ts";
 
 describe("morningRun", () => {
-  it("reports there was nothing to do when nothing is registered", async () => {
+  it("reports a dry queue when nothing is registered", async () => {
     const ports = fakePorts();
 
     const report = await morningRun(ports);
 
-    assert.equal(report.outcome, "no-work-available");
+    assert.equal(report.outcome, "dry-queue");
     assert.deepEqual(report.projectsConsidered, []);
     assert.match(report.message, /nothing to do/i);
   });
 
-  it("reports there was nothing to do when every backlog is empty", async () => {
+  it("reports a dry queue when every backlog is empty", async () => {
     const ports = fakePorts();
     ports.store.register("nadav-alon/side-projects-manager");
     ports.store.register("nadav-alon/pilot");
 
     const report = await morningRun(ports);
 
-    assert.equal(report.outcome, "no-work-available");
+    assert.equal(report.outcome, "dry-queue");
     assert.deepEqual(report.projectsConsidered, [
       "nadav-alon/side-projects-manager",
       "nadav-alon/pilot",
@@ -43,7 +43,7 @@ describe("morningRun", () => {
     ]);
   });
 
-  it("never runs an agent when no project has work", async () => {
+  it("never runs an agent when the queue is dry", async () => {
     const ports = fakePorts();
     ports.store.register("nadav-alon/pilot");
 
@@ -52,25 +52,25 @@ describe("morningRun", () => {
     assert.deepEqual(ports.sandbox.runs, []);
   });
 
-  it("reports the project it found work in", async () => {
+  it("selects the project it found work in", async () => {
     const ports = fakePorts();
     ports.store.register("nadav-alon/pilot");
-    ports.tracker.addReadyTicket("nadav-alon/pilot", {
+    ports.tracker.addEligibleTicket("nadav-alon/pilot", {
       number: 7,
       title: "Add the thing",
     });
 
     const report = await morningRun(ports);
 
-    assert.equal(report.outcome, "work-available");
+    assert.equal(report.outcome, "work-selected");
     assert.match(report.message, /nadav-alon\/pilot/);
   });
 
-  it("stops looking once a project has work, since a morning works one project", async () => {
+  it("stops considering projects once one is selected, since an iteration works one project", async () => {
     const ports = fakePorts();
     ports.store.register("nadav-alon/pilot");
     ports.store.register("nadav-alon/side-projects-manager");
-    ports.tracker.addReadyTicket("nadav-alon/pilot", {
+    ports.tracker.addEligibleTicket("nadav-alon/pilot", {
       number: 7,
       title: "Add the thing",
     });

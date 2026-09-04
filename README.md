@@ -4,7 +4,9 @@ This repo tracks coding related side project shared files. This includes the wor
 ## The morning loop
 
 One job, run once a day, that picks a side project with available work and moves it forward.
-The full spec is [`docs/specs/morning-loop.md`](docs/specs/morning-loop.md).
+The full spec is [`docs/specs/morning-loop.md`](docs/specs/morning-loop.md), and
+[`CONTEXT.md`](CONTEXT.md) is the glossary the code and the tickets are both written in — an
+invocation, an iteration and a run are three different things.
 
 `morningRun` ([`src/morning-run.ts`](src/morning-run.ts)) is the loop's single entry point. It reaches
 the outside world only through five injected ports — issue tracker, sandbox, usage ledger, clock and
