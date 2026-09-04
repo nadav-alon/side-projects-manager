@@ -1,7 +1,9 @@
+import type { RepoSlug } from "./repo-slug.ts";
+
 /** A ticket the loop may work on: an issue carrying the ready-for-agent label. */
 export interface Ticket {
-  /** `owner/repo` of the project the ticket lives in. */
-  repo: string;
+  /** The project the ticket lives in. */
+  repo: RepoSlug;
   number: number;
   title: string;
 }
@@ -20,5 +22,5 @@ export interface IssueTracker {
    * an empty backlog returns an empty list; that is a normal morning, not an
    * error.
    */
-  listReadyTickets(repo: string): Promise<Ticket[]>;
+  listReadyTickets(repo: RepoSlug): Promise<Ticket[]>;
 }

@@ -1,16 +1,12 @@
-import type { RegisteredProject, Store } from "../ports/index.ts";
+import type { RegisteredProject, RepoSlug, Store } from "../ports/index.ts";
 
 /** An in-memory registry. Empty by default: nothing configured. */
 export class FakeStore implements Store {
-  readonly #projects: RegisteredProject[];
+  readonly #projects: RegisteredProject[] = [];
 
-  constructor(projects: RegisteredProject[] = []) {
-    this.#projects = [...projects];
-  }
-
-  /** Registers a project by `owner/repo` slug. */
-  register(slug: string): void {
-    this.#projects.push({ slug });
+  /** Registers a project, as the developer hand-editing the registry would. */
+  register(repo: RepoSlug): void {
+    this.#projects.push({ repo });
   }
 
   async loadProjects(): Promise<RegisteredProject[]> {

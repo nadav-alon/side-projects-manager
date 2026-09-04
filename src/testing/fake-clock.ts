@@ -1,8 +1,8 @@
 import type { Clock } from "../ports/index.ts";
 
-/** A clock frozen at a given instant, advanced explicitly by the test. */
+/** A clock frozen at a given instant. */
 export class FakeClock implements Clock {
-  #now: Date;
+  readonly #now: Date;
 
   constructor(now: Date = new Date("2026-01-01T06:00:00.000Z")) {
     this.#now = now;
@@ -10,9 +10,5 @@ export class FakeClock implements Clock {
 
   now(): Date {
     return new Date(this.#now);
-  }
-
-  advanceBy(milliseconds: number): void {
-    this.#now = new Date(this.#now.getTime() + milliseconds);
   }
 }

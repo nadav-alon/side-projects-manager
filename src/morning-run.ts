@@ -1,9 +1,9 @@
 import type {
   Clock,
   IssueTracker,
+  RepoSlug,
   Sandbox,
   Store,
-  Ticket,
   UsageLedger,
 } from "./ports/index.ts";
 
@@ -23,17 +23,15 @@ export interface MorningRunPorts {
 export type MorningRunOutcome =
   /** No registered project had a ready-for-agent ticket. A quiet morning. */
   | "no-work-available"
-  /** Work was found. Selecting and running it arrives with #11 and #7. */
+  /** A project had work. Choosing and running it arrives with #11 and #7. */
   | "work-available";
 
 /** What one invocation of the loop did. The summary issue (#14) is written from this. */
 export interface MorningRunReport {
   startedAt: Date;
   outcome: MorningRunOutcome;
-  /** `owner/repo` of every registered project the loop looked at. */
-  projectsConsidered: string[];
-  /** Every ready-for-agent ticket found across those projects. */
-  ticketsAvailable: Ticket[];
+  /** Every registered project the loop looked at, in the order it looked. */
+  projectsConsidered: RepoSlug[];
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -42,10 +40,11 @@ export interface MorningRunReport {
  * One invocation of the morning loop.
  *
  * Today it establishes the seam and the quiet-morning path: it asks the store
- * which projects are registered, asks the tracker what each of them has ready,
- * and reports. Selection, the budget gate, sandbox runs, draft PRs, review
- * sub-issues and failure handling are all later tickets hanging off this
- * signature.
+ * which projects are registered and the tracker what each has ready, stopping
+ * at the first project with work, since a morning works one project. Which
+ * project that should be, whether the budget allows it, and everything that
+ * follows from running it — sandbox, draft PR, review sub-issue, failure
+ * handling, summary — are later tickets hanging off this signature.
  */
 export async function morningRun(
   ports: MorningRunPorts,
@@ -53,31 +52,35 @@ export async function morningRun(
   const startedAt = ports.clock.now();
   const projects = await ports.store.loadProjects();
 
-  const ticketsAvailable: Ticket[] = [];
-  for (const project of projects) {
-    ticketsAvailable.push(...(await ports.tracker.listReadyTickets(project.slug)));
-  }
+  const projectsConsidered: RepoSlug[] = [];
+  let workAvailable = false;
 
-  const projectsConsidered = projects.map((project) => project.slug);
+  for (const project of projects) {
+    projectsConsidered.push(project.repo);
+    const readyTickets = await ports.tracker.listReadyTickets(project.repo);
+    if (readyTickets.length > 0) {
+      workAvailable = true;
+      break;
+    }
+  }
 
   return {
     startedAt,
     projectsConsidered,
-    ticketsAvailable,
-    outcome: ticketsAvailable.length === 0 ? "no-work-available" : "work-available",
-    message: describe(projectsConsidered.length, ticketsAvailable.length),
+    outcome: workAvailable ? "work-available" : "no-work-available",
+    message: summaryLine(projectsConsidered, workAvailable),
   };
 }
 
-function describe(projectCount: number, ticketCount: number): string {
-  const projects = `${projectCount} ${plural(projectCount, "project")}`;
-  if (ticketCount === 0) {
+function summaryLine(
+  projectsConsidered: RepoSlug[],
+  workAvailable: boolean,
+): string {
+  const count = projectsConsidered.length;
+  const projects = `${count} ${count === 1 ? "project" : "projects"}`;
+  if (!workAvailable) {
     return `Nothing to do: considered ${projects}, no ready-for-agent tickets available.`;
   }
-  const tickets = `${ticketCount} ready-for-agent ${plural(ticketCount, "ticket")}`;
-  return `Found ${tickets} across ${projects}; running them is not wired up yet.`;
-}
-
-function plural(count: number, word: string): string {
-  return count === 1 ? word : `${word}s`;
+  const project = projectsConsidered[count - 1];
+  return `Work available in ${project}; running it is not wired up yet.`;
 }

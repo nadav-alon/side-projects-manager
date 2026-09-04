@@ -1,9 +1,5 @@
 import type { Ticket } from "./issue-tracker.ts";
 
-export interface SandboxRunRequest {
-  ticket: Ticket;
-}
-
 export interface SandboxRunResult {
   /** Branch the agent left its commits on. */
   branch: string;
@@ -21,5 +17,5 @@ export interface SandboxRunResult {
  * built by #6. The loop never runs an agent on the host.
  */
 export interface Sandbox {
-  run(request: SandboxRunRequest): Promise<SandboxRunResult>;
+  run(ticket: Ticket): Promise<SandboxRunResult>;
 }

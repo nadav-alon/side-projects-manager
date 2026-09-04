@@ -12,7 +12,6 @@ describe("morningRun", () => {
 
     assert.equal(report.outcome, "no-work-available");
     assert.deepEqual(report.projectsConsidered, []);
-    assert.deepEqual(report.ticketsAvailable, []);
     assert.match(report.message, /nothing to do/i);
   });
 
@@ -53,10 +52,10 @@ describe("morningRun", () => {
     assert.deepEqual(ports.sandbox.runs, []);
   });
 
-  it("collects the ready-for-agent tickets it found", async () => {
+  it("reports the project it found work in", async () => {
     const ports = fakePorts();
     ports.store.register("nadav-alon/pilot");
-    const ticket = ports.tracker.addReadyTicket("nadav-alon/pilot", {
+    ports.tracker.addReadyTicket("nadav-alon/pilot", {
       number: 7,
       title: "Add the thing",
     });
@@ -64,7 +63,21 @@ describe("morningRun", () => {
     const report = await morningRun(ports);
 
     assert.equal(report.outcome, "work-available");
-    assert.deepEqual(report.ticketsAvailable, [ticket]);
+    assert.match(report.message, /nadav-alon\/pilot/);
+  });
+
+  it("stops looking once a project has work, since a morning works one project", async () => {
+    const ports = fakePorts();
+    ports.store.register("nadav-alon/pilot");
+    ports.store.register("nadav-alon/side-projects-manager");
+    ports.tracker.addReadyTicket("nadav-alon/pilot", {
+      number: 7,
+      title: "Add the thing",
+    });
+
+    await morningRun(ports);
+
+    assert.deepEqual(ports.tracker.listedRepos, ["nadav-alon/pilot"]);
   });
 
   it("timestamps the report from the injected clock, not wall time", async () => {

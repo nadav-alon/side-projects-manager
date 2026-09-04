@@ -1,7 +1,8 @@
+import type { RepoSlug } from "./repo-slug.ts";
+
 /** A project the developer has registered with the manager. */
 export interface RegisteredProject {
-  /** `owner/repo`. */
-  slug: string;
+  repo: RepoSlug;
 }
 
 /**

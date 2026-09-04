@@ -18,13 +18,12 @@ export interface FakePorts extends MorningRunPorts {
  * A whole world with nothing in it: no registered projects, no backlogs, no
  * usage. Tests arrange from here by putting things into the fakes.
  */
-export function fakePorts(overrides: Partial<FakePorts> = {}): FakePorts {
+export function fakePorts(): FakePorts {
   return {
     tracker: new FakeIssueTracker(),
     sandbox: new FakeSandbox(),
     ledger: new FakeUsageLedger(),
     clock: new FakeClock(),
     store: new FakeStore(),
-    ...overrides,
   };
 }

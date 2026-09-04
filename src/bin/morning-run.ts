@@ -13,7 +13,7 @@ import { morningRun } from "../morning-run.ts";
  * schedule, the logon guard and any future cloud trigger (#15) are callers of
  * `morningRun`, exactly like this one.
  */
-async function main(): Promise<number> {
+async function main(): Promise<void> {
   const report = await morningRun({
     tracker: stubIssueTracker,
     sandbox: stubSandbox,
@@ -23,19 +23,13 @@ async function main(): Promise<number> {
   });
 
   console.log(report.message);
-  return 0;
 }
 
-main().then(
-  (code) => {
-    process.exitCode = code;
-  },
-  (error: unknown) => {
-    // A failed morning reports what happened; it never greets the developer
-    // with a stack trace.
-    console.error(
-      `morning-run failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    process.exitCode = 1;
-  },
-);
+main().catch((error: unknown) => {
+  // A failed morning reports what happened; it never greets the developer
+  // with a stack trace.
+  console.error(
+    `morning-run failed: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exitCode = 1;
+});

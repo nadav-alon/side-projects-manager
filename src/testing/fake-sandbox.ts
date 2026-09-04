@@ -1,29 +1,20 @@
-import type {
-  Sandbox,
-  SandboxRunRequest,
-  SandboxRunResult,
-} from "../ports/index.ts";
+import type { Sandbox, SandboxRunResult, Ticket } from "../ports/index.ts";
 
 /**
- * Records every run it was asked for. Tests assert on `runs` — including
- * asserting it stayed empty, which is how "the loop did no work" is checked.
+ * Records every ticket it was asked to run. Tests assert on `runs` —
+ * including asserting it stayed empty, which is how "the loop did no work"
+ * is checked.
  */
 export class FakeSandbox implements Sandbox {
-  readonly runs: SandboxRunRequest[] = [];
-  #result: SandboxRunResult = {
-    branch: "fake-branch",
-    commits: [],
-    output: "",
-    tokensUsed: 0,
-  };
+  readonly runs: Ticket[] = [];
 
-  /** Sets what the next runs return. */
-  willReturn(result: Partial<SandboxRunResult>): void {
-    this.#result = { ...this.#result, ...result };
-  }
-
-  async run(request: SandboxRunRequest): Promise<SandboxRunResult> {
-    this.runs.push(request);
-    return { ...this.#result };
+  async run(ticket: Ticket): Promise<SandboxRunResult> {
+    this.runs.push(ticket);
+    return {
+      branch: `fake/${ticket.repo}/${ticket.number}`,
+      commits: [],
+      output: "",
+      tokensUsed: 0,
+    };
   }
 }
