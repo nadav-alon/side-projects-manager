@@ -1,15 +1,13 @@
 import type { Sandbox, SandboxRunResult, Ticket } from "../ports/index.ts";
 
 /**
- * Records every ticket it was asked to run. Tests assert on `runs` —
- * including asserting it stayed empty, which is how "the loop did no work"
- * is checked.
+ * A sandbox that runs nothing and reports a successful, empty run.
+ *
+ * Tests that care whether the loop ran an agent at all spy on `run` with
+ * `t.mock.method`; the fake does not record calls itself.
  */
 export class FakeSandbox implements Sandbox {
-  readonly runs: Ticket[] = [];
-
   async run(ticket: Ticket): Promise<SandboxRunResult> {
-    this.runs.push(ticket);
     return {
       branch: `fake/${ticket.repo}/${ticket.number}`,
       commits: [],

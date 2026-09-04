@@ -11,10 +11,10 @@ export interface Ticket {
 /**
  * Reads and writes the tickets the loop works from.
  *
- * The real implementation wraps the `gh` CLI (#4). Only the read path the
- * skeleton needs is declared here; writing back to the tracker — comments,
- * relabelling, review tickets, the summary — arrives with the tickets that
- * own those behaviours.
+ * Only the read path is declared. Writing back — comments, relabelling,
+ * review tickets, the summary — is declared by the code that needs it.
+ *
+ * TODO[#4]: back this with the `gh` CLI.
  */
 export interface IssueTracker {
   /**

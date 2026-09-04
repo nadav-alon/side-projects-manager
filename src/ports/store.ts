@@ -8,8 +8,8 @@ export interface RegisteredProject {
 /**
  * Reads the developer's registry and the machine-written state alongside it.
  *
- * The documents themselves, and the pause/priority/last-worked fields they
- * carry, are #3. The skeleton needs only the list of registered projects.
+ * TODO[#3]: the documents themselves, and the paused, priority and
+ * last-worked fields they carry.
  */
 export interface Store {
   loadProjects(): Promise<RegisteredProject[]>;

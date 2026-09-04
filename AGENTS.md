@@ -4,6 +4,11 @@ Shared files for coding side projects: workflow, harnesses, agentic principles.
 
 ## Agent skills
 
+### Coding standards
+
+Branded primitives over bare ones, and comments that outlive the review (`TODO[#n]`, never ticket
+narration). See `docs/agents/coding-standards.md`.
+
 ### Issue tracker
 
 Issues live as GitHub issues, driven via the `gh` CLI. See `docs/agents/issue-tracker.md`.

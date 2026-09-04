@@ -1,14 +1,37 @@
 import type { UsageLedger, UsageWindows } from "../ports/index.ts";
+import { FROZEN_NOW } from "./fake-clock.ts";
 
-/** Reports whatever totals the test was built with. No usage by default. */
+/**
+ * The windows in force at `FROZEN_NOW`, with nothing spent in either. The
+ * boundaries are written out rather than computed: deriving them from a
+ * timestamp is the real ledger's job, and a fake that did it too would be
+ * asserting its own arithmetic.
+ */
+export const NO_USAGE: UsageWindows = {
+  fiveHour: {
+    openedAt: FROZEN_NOW,
+    resetsAt: new Date("2026-01-01T11:00:00.000Z"),
+    tokensUsed: 0,
+  },
+  weekly: {
+    openedAt: new Date("2025-12-28T00:00:00.000Z"),
+    resetsAt: new Date("2026-01-04T00:00:00.000Z"),
+    tokensUsed: 0,
+  },
+};
+
+/** Reports whatever windows the test was built with. No usage by default. */
 export class FakeUsageLedger implements UsageLedger {
   readonly #windows: UsageWindows;
 
-  constructor(windows: UsageWindows = { last5Hours: 0, last7Days: 0 }) {
+  constructor(windows: UsageWindows = NO_USAGE) {
     this.#windows = windows;
   }
 
   async read(): Promise<UsageWindows> {
-    return { ...this.#windows };
+    return {
+      fiveHour: { ...this.#windows.fiveHour },
+      weekly: { ...this.#windows.weekly },
+    };
   }
 }

@@ -17,6 +17,9 @@ guards and any future cloud trigger are callers of `morningRun` exactly like it 
 Most ports are still stubbed ([`src/adapters/stub-ports.ts`](src/adapters/stub-ports.ts)); each stub
 names the ticket that replaces it.
 
+House rules for source — branded primitives, and what a comment is allowed to say — are in
+[`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
+
 ## Development
 
 Requires Node 22.18 or newer — TypeScript runs directly, and tests use the built-in runner.

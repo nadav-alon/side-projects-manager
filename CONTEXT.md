@@ -107,8 +107,10 @@ What reports rolling token consumption. Knowingly under-counts, since it cannot 
 _Avoid_: usage tracker, meter, monitor
 
 **Window**:
-One of the two rolling periods consumption is measured over: 5-hour and 7-day.
-_Avoid_: period, interval, bucket
+One of the two periods consumption is measured against. The 5-hour window opens with the first
+message of the current block; the weekly window opens on Sunday. Neither is a lookback from now, so
+a window has an opening instant and a reset instant, and both matter to the gate.
+_Avoid_: period, interval, bucket, rolling window, last 5 hours, last 7 days
 
 **Spend ceiling**:
 The hard per-run cap enforced by the agent CLI itself, distinct from the gate.

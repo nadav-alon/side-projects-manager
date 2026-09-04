@@ -11,10 +11,10 @@ export interface SandboxRunResult {
 }
 
 /**
- * Runs a coding agent against one ticket, in a container, on a worktree.
+ * Runs a coding agent against one ticket, in a container, on a worktree. The
+ * loop never runs an agent on the host.
  *
- * The real implementation delegates to sandcastle (#7) against the image
- * built by #6. The loop never runs an agent on the host.
+ * TODO[#7]: delegate to sandcastle, against the image built by #6.
  */
 export interface Sandbox {
   run(ticket: Ticket): Promise<SandboxRunResult>;
