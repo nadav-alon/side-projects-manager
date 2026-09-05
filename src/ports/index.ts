@@ -1,4 +1,5 @@
 export type { Clock } from "./clock.ts";
+export { READY_FOR_AGENT_LABEL } from "./issue-tracker.ts";
 export type { IssueTracker, Ticket } from "./issue-tracker.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
