@@ -34,8 +34,13 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin marketplace update claude-plugins-official \
     && claude plugin install mattpocock-skills@claude-plugins-official -y
 
-# TODO[#7]: sandcastle should run this with --user matching the mounted
-# worktree's owner, and supply GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL — nothing in
-# this image sets a non-root user or a git identity.
+# TODO[#7]: nothing in this image sets a non-root user or a git identity.
+# TODO[#21]: no CI builds this image or checks the harness survived the build.
+
+# ENTRYPOINT rather than CMD: `docker run <image> -p "…" …` reads as invoking
+# claude directly, matching how it's invoked outside a container. No ENV for
+# CLAUDE_CODE_OAUTH_TOKEN here — `claude` itself reads it from the environment
+# at startup (see the credential comment at the top of this file); declaring
+# it, even with an empty default, trips Docker's secrets-in-ENV lint.
 WORKDIR /repo
 ENTRYPOINT ["claude"]

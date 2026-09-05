@@ -66,11 +66,17 @@ variable — never an API key:
 
 ```sh
 docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN=<token> side-projects-sandbox \
-  -p "say hi" --permission-prompts none
+  -p "List the names of every skill available to you, one per line." --permission-prompts none
 ```
 
+Names like `tdd` and `code-review` in the output are the harness: the `mattpocock-skills` plugin,
+already installed at build time, not fetched on this run. `--permission-prompts none` auto-denies
+anything that would otherwise prompt for an answer nobody in a container can give; listing skills
+needs no tool, so it isn't affected.
+
 A container with no token set fails cleanly (`Not logged in`) rather than falling back to any
-`ANTHROPIC_API_KEY`, since none is ever set in the image or required by it.
+`ANTHROPIC_API_KEY`, since none is ever set in the image or required by it. See #21 for making this
+build-and-verify check automated.
 
 ## Development
 
