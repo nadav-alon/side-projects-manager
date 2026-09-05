@@ -1,4 +1,5 @@
 import type { Ticket } from "./issue-tracker.ts";
+import type { TokenCount } from "./token-count.ts";
 
 export interface SandboxRunResult {
   /** Branch the agent left its commits on. */
@@ -7,7 +8,7 @@ export interface SandboxRunResult {
   /** The agent's own output, for the ticket comment on failure. */
   output: string;
   /** Tokens the run consumed, fed back to the ledger and the summary. */
-  tokensUsed: number;
+  tokensUsed: TokenCount;
 }
 
 /**

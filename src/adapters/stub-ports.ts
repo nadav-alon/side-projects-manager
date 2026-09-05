@@ -2,22 +2,16 @@ import type {
   IssueTracker,
   Sandbox,
   SandboxRunResult,
-  Store,
   Ticket,
   UsageLedger,
   UsageWindows,
 } from "../ports/index.ts";
+import { tokenCount } from "../ports/index.ts";
 
 /**
  * Stand-ins wired into `morning-run` until the real adapters land. Each does
- * the least a caller can be asked to handle: nothing registered, nothing
- * eligible, nothing spent.
+ * the least a caller can be asked to handle: nothing eligible, nothing spent.
  */
-
-/** TODO[#3]: replace with the registry and state documents. */
-export const stubStore: Store = {
-  loadProjects: async () => [],
-};
 
 /** TODO[#4]: replace with the `gh`-backed tracker. */
 export const stubIssueTracker: IssueTracker = {
@@ -27,8 +21,8 @@ export const stubIssueTracker: IssueTracker = {
 /** TODO[#5]: replace with the session-log parser. */
 export const stubUsageLedger: UsageLedger = {
   read: async (now: Date): Promise<UsageWindows> => ({
-    fiveHour: { openedAt: now, resetsAt: now, tokensUsed: 0 },
-    weekly: { openedAt: now, resetsAt: now, tokensUsed: 0 },
+    fiveHour: { openedAt: now, resetsAt: now, tokensUsed: tokenCount(0) },
+    weekly: { openedAt: now, resetsAt: now, tokensUsed: tokenCount(0) },
   }),
 };
 

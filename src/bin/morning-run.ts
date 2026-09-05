@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+import { documentStore } from "../adapters/document-store.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import {
   stubIssueTracker,
   stubSandbox,
-  stubStore,
   stubUsageLedger,
 } from "../adapters/stub-ports.ts";
 import { morningRun } from "../morning-run.ts";
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
     sandbox: stubSandbox,
     ledger: stubUsageLedger,
     clock: systemClock,
-    store: stubStore,
+    store: documentStore(),
   });
 
   console.log(report.message);
