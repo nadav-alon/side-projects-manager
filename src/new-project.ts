@@ -98,7 +98,11 @@ export async function newProject(
     directory,
     agentInstructions({ repo, description }),
   );
-  await ports.host.commitAndPush(directory, "Install the agent harness");
+  await ports.host.commitAndPush(
+    directory,
+    "Install the agent harness",
+    scaffolded,
+  );
 
   const registered = await register(ports.store, repo);
   await ports.grilling.start(directory);

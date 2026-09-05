@@ -21,8 +21,15 @@ export interface RepoHost {
    */
   clone(repo: RepoSlug): Promise<string>;
   /**
-   * Commits everything in the checkout at `directory` and pushes it, setting
-   * upstream. A checkout with nothing to commit is left alone.
+   * Commits `paths` in the checkout at `directory` and pushes, setting
+   * upstream. A checkout where none of them changed is left alone.
+   *
+   * Only the named paths: a checkout that already existed is the developer's,
+   * and work they had in progress there is not this command's to commit.
    */
-  commitAndPush(directory: string, message: string): Promise<void>;
+  commitAndPush(
+    directory: string,
+    message: string,
+    paths: string[],
+  ): Promise<void>;
 }

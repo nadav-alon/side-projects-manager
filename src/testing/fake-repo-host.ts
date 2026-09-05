@@ -4,6 +4,8 @@ import type { RepoHost, RepoSlug } from "../ports/index.ts";
 export interface FakePush {
   directory: string;
   message: string;
+  /** The paths committed, and nothing else in the checkout. */
+  paths: string[];
 }
 
 /**
@@ -46,7 +48,11 @@ export class FakeRepoHost implements RepoHost {
     return `${FakeRepoHost.MANAGED_LOCATION}/${repo.split("/")[1]}`;
   }
 
-  async commitAndPush(directory: string, message: string): Promise<void> {
-    this.pushes.push({ directory, message });
+  async commitAndPush(
+    directory: string,
+    message: string,
+    paths: string[],
+  ): Promise<void> {
+    this.pushes.push({ directory, message, paths: [...paths] });
   }
 }

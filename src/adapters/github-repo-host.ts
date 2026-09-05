@@ -51,20 +51,43 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       return directory;
     },
 
-    async commitAndPush(directory: string, message: string): Promise<void> {
-      await run("git", ["-C", directory, "add", "--all"]);
+    async commitAndPush(
+      directory: string,
+      message: string,
+      paths: string[],
+    ): Promise<void> {
+      if (paths.length === 0) {
+        return;
+      }
+      await run("git", ["-C", directory, "add", "--", ...paths]);
 
+      // Nothing staged means the checkout already had these files as they
+      // stand, which is what re-scaffolding an up-to-date project looks like.
       const { stdout } = await run("git", [
         "-C",
         directory,
-        "status",
-        "--porcelain",
+        "diff",
+        "--cached",
+        "--name-only",
+        "--",
+        ...paths,
       ]);
       if (stdout.trim() === "") {
         return;
       }
 
-      await run("git", ["-C", directory, "commit", "--message", message]);
+      // `--only`: a checkout that already existed may have the developer's own
+      // staged work in it, and this commit is not the place for it.
+      await run("git", [
+        "-C",
+        directory,
+        "commit",
+        "--only",
+        "--message",
+        message,
+        "--",
+        ...paths,
+      ]);
       // `HEAD` rather than a branch name: a repo created moments ago has
       // whatever default branch the clone gave it, and this is the push that
       // decides it.

@@ -57,6 +57,14 @@ describe("starting a new project", () => {
     assert.equal(ports.host.pushes[0]?.directory, PILOT_CHECKOUT);
   });
 
+  it("commits what it scaffolded and nothing else in the checkout", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, IDEA);
+
+    assert.deepEqual(ports.host.pushes[0]?.paths, report.scaffolded);
+  });
+
   it("appends the project to the registry, behind the ones already there", async () => {
     const ports = fakeNewProjectPorts();
     ports.store.register(MANAGER, { priority: priority(1) });
