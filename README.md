@@ -49,6 +49,37 @@ Both documents live in the manager home — this checkout, unless
 House rules for source — branded primitives, and what a comment is allowed to say — are in
 [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
 
+## The sandbox image
+
+[`Dockerfile`](Dockerfile) builds the image every run happens in: the agent CLI and the skills
+harness (the `mattpocock-skills` plugin), installed at build time so a run never reinstalls them.
+Building it needs a one-year subscription token, generated once with `claude setup-token`, passed as
+a BuildKit secret — it's used only to fetch the plugin during the build and is never written into an
+image layer:
+
+```sh
+claude setup-token   # opens a browser once, prints the token — copy just the token
+echo -n '<paste the printed token, nothing else>' > /tmp/claude-build-token.txt
+DOCKER_BUILDKIT=1 docker build \
+  --secret id=claude_oauth_token,src=/tmp/claude-build-token.txt \
+  -t side-projects-sandbox .
+rm /tmp/claude-build-token.txt
+```
+
+Copy the token by hand rather than redirecting `claude setup-token`'s stdout straight to the file:
+anything else it prints alongside the token would land in the secret and break the build's auth call.
+
+Running the built image needs its own token — a second `claude setup-token`, kept as the sandbox's
+long-lived credential — supplied as an environment variable, never an API key:
+
+```sh
+docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN=<token> side-projects-sandbox \
+  -p "say hi" --permission-prompts none
+```
+
+A container with no token set fails cleanly (`Not logged in`) rather than falling back to any
+`ANTHROPIC_API_KEY`, since none is ever set in the image or required by it.
+
 ## Development
 
 Requires Node 22.18 or newer — TypeScript runs directly, and tests use the built-in runner.
