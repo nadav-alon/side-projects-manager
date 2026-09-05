@@ -5,22 +5,21 @@ name: Sandbox image
 
 on:
   push:
-    branches: [master]
     paths:
       - Dockerfile
       - .dockerignore
-      - scripts/verify-harness.mjs
+      - scripts/verify-harness.ts
       - .github/workflows/sandbox-image.yml
   pull_request:
     paths:
       - Dockerfile
       - .dockerignore
-      - scripts/verify-harness.mjs
+      - scripts/verify-harness.ts
       - .github/workflows/sandbox-image.yml
   # The likeliest way the harness disappears changes no file here: the image
   # installs the CLI and the plugin unpinned, so a marketplace that drops the
   # plugin, or a CLI release that moves where plugins live, breaks a build the
-  # paths above would never trigger. The weekly run is what notices that.
+  # paths above would never trigger. The weekly build is what notices that.
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
@@ -41,15 +40,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Both steps are npm scripts so the docker invocations have one
+      # definition (package.json) that CI and a local check share.
       - name: Build the image
-        run: docker build -t side-projects-sandbox:ci .
+        run: npm run sandbox:build
 
       # No credential is passed: the check reads the installed plugin off disk
       # rather than prompting, so it needs no subscription token. The script is
       # mounted rather than copied so the image stays what a run actually gets.
       - name: Verify the harness
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/scripts:/scripts:ro" \
-            --entrypoint node \
-            side-projects-sandbox:ci /scripts/verify-harness.mjs
+        run: npm run sandbox:verify

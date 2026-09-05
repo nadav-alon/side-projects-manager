@@ -28,11 +28,16 @@ RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 # after would truncate those keys back out.
 RUN mkdir -p /root/.claude && printf '{"model":"sonnet"}\n' > /root/.claude/settings.json
 
+# Declared in the image rather than only passed to the install below, so the
+# CI check reads which plugin to assert about off the image itself
+# (scripts/verify-harness.ts) instead of restating the id and going stale.
+ENV HARNESS_PLUGIN=mattpocock-skills@claude-plugins-official
+
 # `install` enables the plugin as a side effect; a separate `enable` call
 # fails the build with "already enabled".
 RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin marketplace update claude-plugins-official \
-    && claude plugin install mattpocock-skills@claude-plugins-official -y
+    && claude plugin install "$HARNESS_PLUGIN" -y
 
 # TODO[#7]: nothing in this image sets a non-root user or a git identity.
 
