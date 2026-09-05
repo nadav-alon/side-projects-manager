@@ -9,13 +9,30 @@ The full spec is [`docs/specs/morning-loop.md`](docs/specs/morning-loop.md), and
 invocation, an iteration and a run are three different things.
 
 `morningRun` ([`src/morning-run.ts`](src/morning-run.ts)) is the loop's single entry point. It reaches
-the outside world only through five injected ports — issue tracker, sandbox, usage ledger, clock and
-store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
+the outside world only through six injected ports — issue tracker, repo host, sandbox, usage ledger,
+clock and store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
 ([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: schedules, logon
 guards and any future cloud trigger are callers of `morningRun` exactly like it is.
 
-Most ports are still stubbed ([`src/adapters/stub-ports.ts`](src/adapters/stub-ports.ts)); each stub
-names the ticket that replaces it.
+## Running a ticket
+
+The sandbox ([`src/adapters/container-sandbox.ts`](src/adapters/container-sandbox.ts)) clones the
+project's checkout into a throwaway workspace, puts the agent on a branch of its own there, and
+bind-mounts that workspace into the image the harness is baked into ([`Dockerfile`](Dockerfile)).
+The branch the developer's checkout sits on is never committed to and never checked out from under
+them. When the run ends, a branch that gained commits is fetched back into the checkout and the
+workspace is deleted.
+
+A clone rather than a `git worktree`: a worktree's `.git` is a file pointing at an absolute path
+inside the parent repository, so a worktree mounted on its own is not a repository at all from
+inside the container.
+
+Runs are serialized within one process — a second run waits for the first rather than starting a
+container beside it. Two separate invocations are not covered by that; the once-per-day lock is
+[#15](https://github.com/nadav-alon/side-projects-manager/issues/15). Build the image with
+`npm run sandbox:build`, and export `CLAUDE_CODE_OAUTH_TOKEN` before a run — the container
+authenticates on the subscription, not on a metered API key. Export `GH_TOKEN` too if you want the
+agent to be able to read the ticket it was given.
 
 ## Starting a project
 

@@ -2,20 +2,25 @@ import type {
   Clock,
   IssueTracker,
   ProjectState,
+  RegisteredProject,
+  RepoHost,
   RepoSlug,
   Sandbox,
+  SandboxRunResult,
   State,
   Store,
+  Ticket,
   UsageLedger,
 } from "./ports/index.ts";
 
 /**
- * The five outside-world dependencies of the loop. Everything it knows about
+ * The six outside-world dependencies of the loop. Everything it knows about
  * GitHub, containers, session logs, the filesystem and the wall clock arrives
  * through these.
  */
 export interface MorningRunPorts {
   tracker: IssueTracker;
+  repoHost: RepoHost;
   sandbox: Sandbox;
   ledger: UsageLedger;
   clock: Clock;
@@ -41,7 +46,11 @@ export type ProjectVerdict =
 export interface ProjectOutcome {
   repo: RepoSlug;
   verdict: ProjectVerdict;
-  /** When an iteration last worked it. Absent means never worked. */
+  /**
+   * When an iteration last worked it, as the invocation found it. A project
+   * this invocation went on to work still reads as it did beforehand, so the
+   * report says what was true when the decision was made.
+   */
   lastWorkedAt?: Date;
 }
 
@@ -56,8 +65,23 @@ export interface MorningRunReport {
    * an iteration stops once it has a project to work.
    */
   projects: ProjectOutcome[];
+  /** What the run left behind. Absent on a morning that ran nothing. */
+  run?: SandboxRunResult;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
+}
+
+/** The project an iteration works, and the ticket it works there. */
+interface Selection {
+  project: RegisteredProject;
+  ticket: Ticket;
+}
+
+/** What considering the registry came to: the verdicts, and any work found. */
+interface Consideration {
+  outcomes: ProjectOutcome[];
+  /** Absent when no project had an eligible ticket. */
+  selection?: Selection;
 }
 
 /**
@@ -68,27 +92,35 @@ export interface MorningRunReport {
  * eligible ticket costs one iteration, not the morning.
  *
  * TODO[#12]: check the gate before each run, and again between iterations.
- * TODO[#7]: run the selected ticket, then iterate — an invocation currently
- * stops after the first selection.
+ * TODO[#11]: iterate — an invocation currently stops after the first run.
  */
 export async function morningRun(
   ports: MorningRunPorts,
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
-  const state = await ports.store.loadState();
-  const projects = await considerProjects(ports, state);
+  const state = new Map(await ports.store.loadState());
+  const { outcomes, selection } = await considerProjects(ports, state);
 
-  // State is written back at the end of every invocation, including one that
-  // worked nothing, so that a machine which has run the loop always has a
-  // state document to read next morning.
-  // TODO[#7]: record the project as worked, and what its run cost.
-  await ports.store.saveState(state);
+  let run: SandboxRunResult | undefined;
+  try {
+    if (selection !== undefined) {
+      run = await work(ports, selection, state);
+    }
+  } finally {
+    // State is written back at the end of every invocation, including one that
+    // worked nothing and one whose run failed part way, so that a machine
+    // which has run the loop always has a state document to read next morning.
+    // A run that fell over still spent tokens, and the morning it spent them
+    // on is exactly the one worth having recorded.
+    await ports.store.saveState(state);
+  }
 
   return {
     startedAt,
-    projects,
-    outcome: projects.some(isSelected) ? "work-selected" : "dry-queue",
-    message: summaryLine(projects),
+    projects: outcomes,
+    ...(run !== undefined && { run }),
+    outcome: selection === undefined ? "dry-queue" : "work-selected",
+    message: summaryLine(outcomes, run),
   };
 }
 
@@ -103,7 +135,7 @@ export async function morningRun(
 async function considerProjects(
   ports: MorningRunPorts,
   state: State,
-): Promise<ProjectOutcome[]> {
+): Promise<Consideration> {
   const outcomes: ProjectOutcome[] = [];
 
   for (const project of await ports.store.loadRegistry()) {
@@ -115,15 +147,42 @@ async function considerProjects(
     }
 
     const backlog = await ports.tracker.listEligibleTickets(project.repo);
-    if (backlog.length > 0) {
+    const ticket = backlog[0];
+    if (ticket !== undefined) {
       outcomes.push(outcome(project.repo, "selected", projectState));
-      return outcomes;
+      return { outcomes, selection: { project, ticket } };
     }
 
     outcomes.push(outcome(project.repo, "no-eligible-tickets", projectState));
   }
 
-  return outcomes;
+  return { outcomes };
+}
+
+/**
+ * The second step: run the selected ticket, and record what that cost.
+ *
+ * The checkout comes from the repo host rather than from anything the loop
+ * remembers, so a project whose clone has gone missing heals on the way into
+ * the run instead of failing the morning.
+ */
+async function work(
+  ports: MorningRunPorts,
+  selection: Selection,
+  state: Map<RepoSlug, ProjectState>,
+): Promise<SandboxRunResult> {
+  const repo = selection.project.repo;
+  const checkout = await ports.repoHost.clone(repo);
+  const run = await ports.sandbox.run(selection.ticket, checkout);
+
+  const at = ports.clock.now();
+  const worked = state.get(repo);
+  state.set(repo, {
+    lastWorkedAt: at,
+    runs: [...(worked?.runs ?? []), { at, tokensUsed: run.tokensUsed }],
+  });
+
+  return run;
 }
 
 function outcome(
@@ -155,7 +214,10 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
   }
 }
 
-function summaryLine(projects: ProjectOutcome[]): string {
+function summaryLine(
+  projects: ProjectOutcome[],
+  run: SandboxRunResult | undefined,
+): string {
   const selected = projects.find(isSelected);
   const skipped = projects.flatMap((project) => {
     const reason = skipReason(project.verdict);
@@ -164,10 +226,20 @@ function summaryLine(projects: ProjectOutcome[]): string {
 
   if (selected !== undefined) {
     const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
-    return `Work available in ${selected.repo}; running it is not wired up yet.${aside}`;
+    const landed =
+      run === undefined
+        ? "the run left nothing behind"
+        : `${commitCount(run)} on ${run.branch}`;
+    return `Worked ${selected.repo}: ${landed}.${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
+}
+
+/** How many commits the run left, said the way a person would say it. */
+function commitCount(run: SandboxRunResult): string {
+  const count = run.commits.length;
+  return count === 1 ? "1 commit" : `${count} commits`;
 }

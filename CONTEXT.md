@@ -151,7 +151,7 @@ _Avoid_: budget, limit, cap
 ### The seam
 
 **Port**:
-One of the five injected dependencies the loop reaches the outside world through: issue tracker, sandbox, usage ledger, clock, store.
+One of the six injected dependencies the loop reaches the outside world through: issue tracker, repo host, sandbox, usage ledger, clock, store.
 _Avoid_: service, client, interface, dependency
 
 **Adapter**:
@@ -167,7 +167,7 @@ A placeholder implementation wired into the real command until its adapter lands
 _Avoid_: fake (a fake works; a stub does nothing), no-op, dummy
 
 **Sandbox**:
-The container an unattended agent runs in, on a worktree of one project.
+The container an unattended agent runs in, on a throwaway clone of one project. The branch it leaves behind is fetched back into the project's checkout; the clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Harness**:
