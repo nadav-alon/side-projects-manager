@@ -1,4 +1,11 @@
+// The emitting half. `rootDir` and the narrower `include` live here rather
+// than in tsconfig.json so typechecking can cover scripts/ without those
+// files landing in dist/.
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/testing/**"]
 }

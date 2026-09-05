@@ -38,6 +38,9 @@ export function agentInstructions(project: ProjectDescription): string {
     "## Issue tracker",
     "Where this repo's issues live and how to drive them. See" +
       " `docs/agents/issue-tracker.md`.",
+    "## Ticket scope",
+    "One seam per ticket: acceptance criteria describe behaviors of one" +
+      " seam, never a list of them. See `docs/agents/ticket-scope.md`.",
     "## Triage labels",
     "The five canonical triage roles, used verbatim as label strings. See" +
       " `docs/agents/triage-labels.md`.",

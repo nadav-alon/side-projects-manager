@@ -25,6 +25,7 @@ describe("the agent instructions a new project gets", () => {
     for (const file of [
       "docs/agents/coding-standards.md",
       "docs/agents/issue-tracker.md",
+      "docs/agents/ticket-scope.md",
       "docs/agents/triage-labels.md",
       "docs/agents/domain.md",
     ]) {
