@@ -1,16 +1,14 @@
-# syntax=docker/dockerfile:1.7
-#
 # The sandbox image every run happens in (see CONTEXT.md: Sandbox, Harness).
 # The harness — the mattpocock-skills plugin the engineering skills ship as —
-# is installed here, at build time, so a run never reinstalls it. Building
-# needs a one-year subscription token (`claude setup-token`) passed as a
-# BuildKit secret, used only to fetch the plugin and never persisted in a
-# layer; running the built image needs its own token, supplied as the
-# CLAUDE_CODE_OAUTH_TOKEN environment variable at `docker run` time.
+# is installed here, at build time, so a run never reinstalls it. Installing
+# a plugin is a git clone plus a local file write with no Anthropic call in
+# it, so the build needs no credential; only running the built image does,
+# via the CLAUDE_CODE_OAUTH_TOKEN environment variable at `docker run` time.
 FROM node:22-slim
 
 # git and gh: the skills the harness ships shell out to both for every
-# tracker and branch operation (docs/agents/issue-tracker.md).
+# tracker and branch operation (docs/agents/issue-tracker.md). git doubles
+# as how the plugin install below clones the marketplace.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
@@ -25,19 +23,16 @@ RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
 # Sonnet, pinned explicitly rather than left to the default: the mechanical
 # half of the work stays on the cheap model (docs/specs/morning-loop.md).
-# Written before the plugin install below, which merges enabledPlugins into
-# this same file — writing it after would truncate that key back out.
+# Written before the plugin install below, which merges its own keys
+# (extraKnownMarketplaces, enabledPlugins) into this same file — writing it
+# after would truncate those keys back out.
 RUN mkdir -p /root/.claude && printf '{"model":"sonnet"}\n' > /root/.claude/settings.json
 
-# The build-time token never lands in a layer: it only ever exists in the
-# secret mount, and any credential file the CLI derives from it is deleted
-# in this same layer before the mount unmounts.
-RUN --mount=type=secret,id=claude_oauth_token \
-    export CLAUDE_CODE_OAUTH_TOKEN="$(cat /run/secrets/claude_oauth_token)" \
-    && claude marketplace add anthropics/claude-plugins-official \
-    && claude plugin install mattpocock-skills@claude-plugins-official -y \
-    && claude plugin enable mattpocock-skills@claude-plugins-official \
-    && rm -f /root/.claude/.credentials.json
+# `install` enables the plugin as a side effect; a separate `enable` call
+# fails the build with "already enabled".
+RUN claude plugin marketplace add anthropics/claude-plugins-official \
+    && claude plugin marketplace update claude-plugins-official \
+    && claude plugin install mattpocock-skills@claude-plugins-official -y
 
 # TODO[#7]: sandcastle should run this with --user matching the mounted
 # worktree's owner, and supply GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL — nothing in
