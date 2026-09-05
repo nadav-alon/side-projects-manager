@@ -8,16 +8,19 @@
     "node": ">=22.18"
   },
   "bin": {
-    "morning-run": "./dist/bin/morning-run.js"
+    "morning-run": "./dist/bin/morning-run.js",
+    "new-project": "./dist/bin/new-project.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs/agents"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
     "morning-run": "node src/bin/morning-run.ts",
+    "new-project": "node src/bin/new-project.ts",
     "sandbox:build": "docker build -t side-projects-sandbox:ci .",
     "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:ci /scripts/verify-harness.ts"
   },

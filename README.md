@@ -17,10 +17,62 @@ guards and any future cloud trigger are callers of `morningRun` exactly like it 
 Most ports are still stubbed ([`src/adapters/stub-ports.ts`](src/adapters/stub-ports.ts)); each stub
 names the ticket that replaces it.
 
+## Starting a project
+
+One command takes an idea to a project the morning loop can already see:
+
+```sh
+npm run new-project -- nadav-alon/pilot "A flight log that files itself."
+```
+
+It creates the repo, clones it to the managed location, scaffolds the harness into it, appends it to
+the registry, and then hands you an interactive session that grills the idea into the project's
+first tickets, writing the terms you settle on into its `CONTEXT.md` as you agree them. That last
+step is interactive on purpose: starting a project is when you most want to be in the conversation,
+because those tickets are what the next month of mornings will build.
+
+Scaffolding puts two kinds of file into the new repo. The uniform files
+([`docs/agents/`](docs/agents)) are copied byte for byte, so improving a convention here improves it
+in every project. `AGENTS.md` is generated for that project, naming it and its purpose — never
+copied, since a project that inherited another repo's instructions would describe a codebase it is
+not in. Neither half refers back to this repo: a project carries no reference to the manager and no
+live coupling to it, so you can walk away with just the project.
+
+A repo that predates the manager joins with `--existing`, which registers and scaffolds it without
+creating anything. Its grilling starts by reading the codebase for the language it already uses, so
+the glossary you agree describes the project you have rather than a parallel one, and any gap
+between the two becomes a ticket rather than a rename mid-conversation:
+
+```sh
+npm run new-project -- nadav-alon/older-thing "" --existing
+```
+
+Nothing lands on a branch you already had. On the `--existing` path the scaffold is committed to a
+`harness` branch and opened as a draft pull request, and your checkout is put back on the branch it
+was found on; the project is registered **paused**, so the loop leaves it alone until you have
+merged that request and unpaused it. The request names the uniform files it overwrote, because
+those are copied byte for byte and a repo that predates the manager never agreed to that. If the
+pull request cannot be opened — pull requests disabled, no base branch to open against — the branch
+is still pushed and the command says so rather than losing it.
+
+Re-running the command on a project already registered leaves your registry entry — paused flag,
+priority and all — exactly as you wrote it, and leaves an `AGENTS.md` the project already has alone.
+A re-run while a `harness` request is still open adds to that same branch.
+
+Projects are cloned to `~/side-projects/<owner>/<repo>`, unless `SIDE_PROJECTS_MANAGED_LOCATION`
+says otherwise. Owner-qualified, so two people's repos of the same name are two directories. A
+clone already there is reused rather than replaced — that is what makes a missing clone
+self-healing — but only once its `origin` proves it is that project; a directory holding somebody
+else's clone stops the command rather than being scaffolded into. The clones you have scattered
+elsewhere are never touched.
+
+`new-project` rewrites `registry.json` in full when it appends, from the fields it models (`repo`,
+`paused`, `priority`). Anything else you put in that file does not survive the write.
+
 ## Registering a project
 
-[`registry.json`](registry.json) is yours to edit. It says which projects exist, which are paused,
-and which has the mornings:
+[`registry.json`](registry.json) is yours to edit — `new-project` appends to it, and nothing else
+writes it. It says which projects exist, which are paused, and which has the mornings:
 
 ```json
 {

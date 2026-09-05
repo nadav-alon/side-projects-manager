@@ -4,6 +4,10 @@ Shared files for coding side projects: workflow, harnesses, agentic principles.
 
 ## Agent skills
 
+The five files under `docs/agents/` are also the uniform half of the harness: `new-project` copies
+them byte for byte into every project it scaffolds. Editing one changes what every project reads, so
+keep them true of any repo — nothing in them may name this one.
+
 ### Coding standards
 
 Branded primitives over bare ones, and comments that outlive the review (`TODO[#n]`, never ticket

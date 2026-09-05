@@ -10,18 +10,7 @@ import type {
   Store,
 } from "../ports/index.ts";
 import { isPriority, isRepoSlug, isTokenCount } from "../ports/index.ts";
-
-/**
- * The manager's own checkout, where the two documents live and are committed.
- * Not the managed location: that is where projects are cloned to.
- *
- * Resolved from this file rather than the working directory, so the loop finds
- * its documents whatever it was started from, and overridable for a second
- * checkout or a test.
- */
-const MANAGER_HOME =
-  process.env["SIDE_PROJECTS_MANAGER_HOME"] ||
-  path.resolve(import.meta.dirname, "..", "..");
+import { MANAGER_HOME } from "./manager-home.ts";
 
 const REGISTRY_FILE = "registry.json";
 const STATE_FILE = "state.json";
@@ -44,20 +33,31 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       return parseRegistry(await readDocument(registryFile), registryFile);
     },
 
+    async saveRegistry(projects: RegisteredProject[]): Promise<void> {
+      await writeDocument(home, registryFile, formatRegistry(projects));
+    },
+
     async loadState(): Promise<State> {
       return parseState(await readDocument(stateFile), stateFile);
     },
 
     async saveState(state: State): Promise<void> {
-      await mkdir(home, { recursive: true });
-      // Written beside the document and renamed over it, so an invocation
-      // interrupted mid-write leaves the previous state intact rather than
-      // half a file.
-      const pending = `${stateFile}.pending`;
-      await writeFile(pending, formatState(state), "utf8");
-      await rename(pending, stateFile);
+      await writeDocument(home, stateFile, formatState(state));
     },
   };
+}
+
+async function writeDocument(
+  home: string,
+  file: string,
+  contents: string,
+): Promise<void> {
+  await mkdir(home, { recursive: true });
+  // Written beside the document and renamed over it, so a write interrupted
+  // part way leaves the previous document intact rather than half a file.
+  const pending = `${file}.pending`;
+  await writeFile(pending, contents, "utf8");
+  await rename(pending, file);
 }
 
 /** The document's parsed contents, or undefined if it is absent or empty. */
@@ -221,6 +221,21 @@ function fieldOf(value: unknown, field: string, where: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The registry as the developer would have written it by hand: defaults left
+ * out, so a project they never paused and never prioritised stays the one
+ * field it started as.
+ */
+function formatRegistry(projects: RegisteredProject[]): string {
+  const entries = projects.map((project) => ({
+    repo: project.repo,
+    ...(project.paused && { paused: true }),
+    ...(project.priority !== undefined && { priority: project.priority }),
+  }));
+
+  return `${JSON.stringify({ projects: entries }, undefined, 2)}\n`;
 }
 
 /** Indented and newline-terminated: the document is read in diffs. */

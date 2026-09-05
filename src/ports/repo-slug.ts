@@ -31,6 +31,14 @@ export function isRepoSlug(value: string): value is RepoSlug {
   );
 }
 
+/**
+ * The `repo` half of `owner/repo`: what the project is called day to day, and
+ * the directory it is cloned into.
+ */
+export function repoName(repo: RepoSlug): string {
+  return repo.slice(repo.indexOf("/") + 1);
+}
+
 /** Narrows `value` to a `RepoSlug`, throwing if it is not shaped like one. */
 export function repoSlug(value: string): RepoSlug {
   if (!isRepoSlug(value)) {
