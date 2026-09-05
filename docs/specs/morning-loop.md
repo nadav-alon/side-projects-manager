@@ -118,11 +118,14 @@ the manager leaves every project working.
 new-project command. The loop is a library function with a thin trigger script around it, so the
 schedule, the logon guard, and any future cloud trigger are all just callers.
 
-**Sandboxing.** Agent runs are delegated to sandcastle, which puts a coding agent in a container on a
-worktree and returns the commits, the branch, and the agent's output. This replaces any use of
-blanket permission-skipping: the blast radius of an unattended run is one worktree of one project.
-The sandbox image is defined by a Dockerfile the manager owns, with the skills harness installed at
-image build time rather than per run.
+**Sandboxing.** Agent runs happen in a container the manager drives itself, against an image defined
+by a Dockerfile the manager owns, with the skills harness installed at image build time rather than
+per run. The sandbox clones the project checkout into a throwaway workspace, runs the agent on a
+branch there, and fetches back a branch that gained commits; it clones rather than using a worktree
+because a worktree's `.git` is a pointer into its parent repo and does not survive a bind mount.
+This replaces any use of blanket permission-skipping: the blast radius of an unattended run is one
+throwaway clone of one project. See `docs/adr/0001-manager-owns-its-container-adapter.md` — an
+earlier draft of this spec delegated the run to sandcastle, which the implementation does not.
 
 **Authentication.** The sandbox authenticates with a long-lived subscription OAuth token, not an API
 key. This keeps runs on the subscription rather than metered billing, and is why the budget is
@@ -131,9 +134,10 @@ denominated in quota rather than money.
 **Model selection.** Both the implementing and reviewing agents are pinned to Sonnet explicitly,
 not left to the default. Opus is reserved for the developer's own interactive work.
 
-**Ports.** The loop depends on five injected ports rather than reaching for the world directly: an
-issue-tracker port, a sandbox port, a usage-ledger port, a clock, and a store. Real implementations
-wrap the GitHub CLI, sandcastle, the local session logs, and the registry/state documents.
+**Ports.** The loop depends on six injected ports rather than reaching for the world directly: an
+issue-tracker port, a repo-host port, a sandbox port, a usage-ledger port, a clock, and a store.
+Real implementations wrap the GitHub CLI, docker, the local session logs, and the registry/state
+documents.
 
 **Registry and state are separate concerns.** The registry expresses developer intent — which
 projects exist, which are paused, which has priority — and is hand-edited. State is machine-written:
@@ -196,7 +200,7 @@ state changed. They do not assert how selection or budgeting is computed interna
 would still pass after a reasonable refactor of the internals, and fail if the loop made the wrong
 decision, is the target.
 
-**Primary seam: the morning loop entry point.** The loop is exercised end to end with all five ports
+**Primary seam: the morning loop entry point.** The loop is exercised end to end with all six ports
 faked. This is the highest available seam and carries the bulk of the suite. Behaviours covered:
 
 - reviews are selected before implementations
