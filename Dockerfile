@@ -35,7 +35,6 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin install mattpocock-skills@claude-plugins-official -y
 
 # TODO[#7]: nothing in this image sets a non-root user or a git identity.
-# TODO[#21]: no CI builds this image or checks the harness survived the build.
 
 # ENTRYPOINT rather than CMD: `docker run <image> -p "…" …` reads as invoking
 # claude directly, matching how it's invoked outside a container. No ENV for
