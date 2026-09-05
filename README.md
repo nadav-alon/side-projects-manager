@@ -49,6 +49,35 @@ Both documents live in the manager home — this checkout, unless
 House rules for source — branded primitives, and what a comment is allowed to say — are in
 [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
 
+## The sandbox image
+
+[`Dockerfile`](Dockerfile) builds the image every run happens in: the agent CLI and the skills
+harness (the `mattpocock-skills` plugin), installed at build time so a run never reinstalls them.
+Installing a plugin is a git clone plus a local file write with no Anthropic call in it, so building
+the image needs no credential at all:
+
+```sh
+docker build -t side-projects-sandbox .
+```
+
+Running the built image does need a credential: a one-year subscription token, generated once with
+`claude setup-token`, kept as the sandbox's long-lived credential and supplied as an environment
+variable — never an API key:
+
+```sh
+docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN=<token> side-projects-sandbox \
+  -p "List the names of every skill available to you, one per line." --permission-prompts none
+```
+
+Names like `tdd` and `code-review` in the output are the harness: the `mattpocock-skills` plugin,
+already installed at build time, not fetched on this run. `--permission-prompts none` auto-denies
+anything that would otherwise prompt for an answer nobody in a container can give; listing skills
+needs no tool, so it isn't affected.
+
+A container with no token set fails cleanly (`Not logged in`) rather than falling back to any
+`ANTHROPIC_API_KEY`, since none is ever set in the image or required by it. See #21 for making this
+build-and-verify check automated.
+
 ## Development
 
 Requires Node 22.18 or newer — TypeScript runs directly, and tests use the built-in runner.

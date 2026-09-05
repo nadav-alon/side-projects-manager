@@ -1,0 +1,7 @@
+{"parentUuid":null,"isSidechain":false,"message":{"model":"claude-sonnet-5","id":"msg_0001","type":"message","role":"assistant","content":"REDACTED","stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":40,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":10}},"type":"assistant","uuid":"e1000000-0000-0000-0000-000000000001","timestamp":"2026-09-05T11:00:00.000Z","sessionId":"fixture-malformed","version":"2.1.261"}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":
+
+"not json at all, just a stray line written mid-crash"
+{"type":"assistant","timestamp":"2026-09-05T11:10:00.000Z","message":{"role":"assistant","usage":{"input_tokens":"NaN","output_tokens":10}}}
+
+{"parentUuid":"e1000000-0000-0000-0000-000000000002","isSidechain":false,"type":"attachment","uuid":"e1000000-0000-0000-0000-000000000003","timestamp":"2026-09-05T11:20:00.000Z","sessionId":"fixture-malformed","version":"2.1.261"}

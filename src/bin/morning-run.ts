@@ -2,7 +2,8 @@
 import { documentStore } from "../adapters/document-store.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { systemClock } from "../adapters/system-clock.ts";
-import { stubSandbox, stubUsageLedger } from "../adapters/stub-ports.ts";
+import { stubSandbox } from "../adapters/stub-ports.ts";
+import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { morningRun } from "../morning-run.ts";
 
 /**
@@ -16,7 +17,7 @@ async function main(): Promise<void> {
   const report = await morningRun({
     tracker: ghIssueTracker(),
     sandbox: stubSandbox,
-    ledger: stubUsageLedger,
+    ledger: sessionLogUsageLedger,
     clock: systemClock,
     store: documentStore(),
   });
