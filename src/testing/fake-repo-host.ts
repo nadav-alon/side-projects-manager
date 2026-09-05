@@ -45,7 +45,7 @@ export class FakeRepoHost implements RepoHost {
 
   async clone(repo: RepoSlug): Promise<string> {
     this.clones.push(repo);
-    return `${FakeRepoHost.MANAGED_LOCATION}/${repo.split("/")[1]}`;
+    return `${FakeRepoHost.MANAGED_LOCATION}/${repo}`;
   }
 
   async commitAndPush(

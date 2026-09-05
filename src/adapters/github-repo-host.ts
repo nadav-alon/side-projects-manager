@@ -1,10 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import type { RepoHost, RepoSlug } from "../ports/index.ts";
-import { repoName } from "../ports/index.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -13,9 +12,10 @@ const run = promisify(execFile);
  * GitHub through `gh`, and the checkout through `git`, exactly as the harness
  * inside the sandbox reaches them (docs/agents/issue-tracker.md).
  *
- * Clones land under `location`, one directory per repo name, which is what
- * makes a missing clone self-healing: the path is derivable rather than
- * remembered, so nothing has to record where a project went.
+ * Clones land under `location` at `owner/repo`, the same shape the project is
+ * named by everywhere else. Derivable rather than remembered, which is what
+ * makes a missing clone self-healing, and owner-qualified so that two people's
+ * repos of the same name are two directories rather than one.
  */
 export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
   return {
@@ -24,10 +24,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         await run("gh", ["repo", "view", repo, "--json", "name"]);
         return true;
       } catch (error) {
-        // `gh` fails the same way for a repo that isn't there and for a
-        // credential that can't see it. Only the first is an answer; the
-        // second has to reach the developer rather than become "create it".
-        if (isNotFound(error)) {
+        if (isUnresolvable(error)) {
           return false;
         }
         throw error;
@@ -40,14 +37,24 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async clone(repo: RepoSlug): Promise<string> {
-      const directory = path.join(location, repoName(repo));
-      await mkdir(location, { recursive: true });
+      const directory = path.join(location, repo);
+      await mkdir(path.dirname(directory), { recursive: true });
 
-      // A clone already there is the developer's, and is left as it stands.
-      if (await isCheckout(directory)) {
+      const origin = await originOf(directory);
+      if (origin === undefined) {
+        await run("gh", ["repo", "clone", repo, directory]);
         return directory;
       }
-      await run("gh", ["repo", "clone", repo, directory]);
+
+      // A checkout already there is reused, but only once it has proved it is
+      // this project. Scaffolding into somebody else's clone would push the
+      // harness to their remote and register this project against a codebase
+      // that is not it.
+      if (!isCloneOf(origin, repo)) {
+        throw new Error(
+          `${directory} is a checkout of ${origin}, not of ${repo}. Move it aside, or clone ${repo} somewhere else yourself.`,
+        );
+      }
       return directory;
     },
 
@@ -59,6 +66,17 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       if (paths.length === 0) {
         return;
       }
+
+      // Asked before anything is committed: a detached HEAD can be committed
+      // to and then not pushed, which would leave the scaffold stranded in a
+      // checkout with nowhere to go.
+      const branch = await currentBranch(directory);
+      if (branch === undefined) {
+        throw new Error(
+          `${directory} is not on a branch, so the harness has nowhere to land. Check out a branch and run this again.`,
+        );
+      }
+
       await run("git", ["-C", directory, "add", "--", ...paths]);
 
       // Nothing staged means the checkout already had these files as they
@@ -88,28 +106,118 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         "--",
         ...paths,
       ]);
-      // `HEAD` rather than a branch name: a repo created moments ago has
-      // whatever default branch the clone gave it, and this is the push that
-      // decides it.
-      await run("git", ["-C", directory, "push", "--set-upstream", "origin", "HEAD"]);
+
+      // Upstream is set only when the branch has none, which is the case for a
+      // repo created moments ago. A branch of the developer's that already
+      // tracks something keeps tracking it.
+      const upstream = (await hasUpstream(directory)) ? [] : ["--set-upstream"];
+      await run("git", ["-C", directory, "push", ...upstream, "origin", branch]);
     },
   };
 }
 
-/** Whether `directory` is a git checkout rather than absent or a stray folder. */
-async function isCheckout(directory: string): Promise<boolean> {
+/**
+ * The origin of the checkout whose root is exactly `directory`, or undefined
+ * if there is no checkout there.
+ *
+ * The root has to match, because git answers questions about the nearest
+ * enclosing repository: a plain directory inside one would otherwise look like
+ * a checkout, and be committed and pushed into its parent.
+ */
+async function originOf(directory: string): Promise<string | undefined> {
+  let toplevel: string;
   try {
-    await run("git", ["-C", directory, "rev-parse", "--git-dir"]);
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+    toplevel = stdout.trim();
+  } catch {
+    return undefined;
+  }
+
+  if (!(await isSamePath(toplevel, directory))) {
+    return undefined;
+  }
+
+  try {
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
+    return stdout.trim();
+  } catch {
+    // A checkout with no origin is not this project's, whatever else it is.
+    return "";
+  }
+}
+
+async function isSamePath(one: string, other: string): Promise<boolean> {
+  try {
+    return (await realpath(one)) === (await realpath(other));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a remote URL names `repo`. Compares the `owner/repo` the URL ends
+ * with, so the same project over HTTPS, SSH and the `git@` shorthand is the
+ * same project.
+ */
+function isCloneOf(url: string, repo: RepoSlug): boolean {
+  const segments = url
+    .replace(/\.git$/, "")
+    .split(/[/:]/)
+    .filter((segment) => segment !== "");
+
+  return segments.slice(-2).join("/").toLowerCase() === repo.toLowerCase();
+}
+
+/** The branch the checkout is on, or undefined on a detached HEAD. */
+async function currentBranch(directory: string): Promise<string | undefined> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "branch",
+    "--show-current",
+  ]);
+  const branch = stdout.trim();
+  return branch === "" ? undefined : branch;
+}
+
+async function hasUpstream(directory: string): Promise<boolean> {
+  try {
+    await run("git", [
+      "-C",
+      directory,
+      "rev-parse",
+      "--abbrev-ref",
+      "--symbolic-full-name",
+      "@{upstream}",
+    ]);
     return true;
   } catch {
     return false;
   }
 }
 
-function isNotFound(error: unknown): boolean {
+/**
+ * Whether `gh` failed because it could not resolve the repository.
+ *
+ * GitHub answers a repo that is not there and a private repo the credential
+ * cannot see with the same message, deliberately, so this cannot tell them
+ * apart. Callers say both in the one sentence rather than asserting the first.
+ */
+function isUnresolvable(error: unknown): boolean {
   const stderr =
     typeof error === "object" && error !== null && "stderr" in error
       ? String(error.stderr)
       : "";
-  return /could not resolve to a repository|not found/i.test(stderr);
+  return /could not resolve to a repository|HTTP 404/i.test(stderr);
 }

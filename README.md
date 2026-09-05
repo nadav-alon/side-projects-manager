@@ -47,9 +47,15 @@ npm run new-project -- nadav-alon/older-thing "" --existing
 Re-running the command on a project already registered leaves your registry entry — paused flag,
 priority and all — exactly as you wrote it, and leaves an `AGENTS.md` the project already has alone.
 
-Projects are cloned to `~/side-projects/<repo>`, unless `SIDE_PROJECTS_MANAGED_LOCATION` says
-otherwise. A clone that is already there is reused rather than replaced, so a missing clone is
-self-healing and the clones you have scattered elsewhere are never touched.
+Projects are cloned to `~/side-projects/<owner>/<repo>`, unless `SIDE_PROJECTS_MANAGED_LOCATION`
+says otherwise. Owner-qualified, so two people's repos of the same name are two directories. A
+clone already there is reused rather than replaced — that is what makes a missing clone
+self-healing — but only once its `origin` proves it is that project; a directory holding somebody
+else's clone stops the command rather than being scaffolded into. The clones you have scattered
+elsewhere are never touched.
+
+`new-project` rewrites `registry.json` in full when it appends, from the fields it models (`repo`,
+`paused`, `priority`). Anything else you put in that file does not survive the write.
 
 ## Registering a project
 

@@ -54,6 +54,11 @@ export interface NewProjectReport {
    * a project keeps the developer's entry, paused flag and priority intact.
    */
   registered: boolean;
+  /**
+   * Whether the interactive session opened. False means the project is ready
+   * and the conversation is not: everything before it had already happened.
+   */
+  grilled: boolean;
   /** One line, suitable for printing to a terminal. */
   message: string;
 }
@@ -79,8 +84,10 @@ export async function newProject(
   const onHost = await ports.host.exists(repo);
 
   if (existing && !onHost) {
+    // GitHub answers an absent repo and a private one the credential cannot
+    // see identically, so both are offered rather than the first asserted.
     throw new Error(
-      `${repo} does not exist on GitHub. Drop --existing to create it.`,
+      `${repo} does not exist on GitHub, or your credential cannot see it. Check \`gh auth status\`, or drop --existing to create it.`,
     );
   }
   if (!existing && onHost) {
@@ -105,7 +112,7 @@ export async function newProject(
   );
 
   const registered = await register(ports.store, repo);
-  await ports.grilling.start(directory);
+  const grilling = await startGrilling(ports.grilling, directory);
 
   return {
     repo,
@@ -113,8 +120,30 @@ export async function newProject(
     directory,
     scaffolded,
     registered,
-    message: summaryLine(repo, directory, registered),
+    grilled: grilling === undefined,
+    message: summaryLine(repo, directory, registered, grilling),
   };
+}
+
+/**
+ * Starts the grilling, and returns why it could not start rather than
+ * throwing.
+ *
+ * By this point the project exists, is scaffolded and is registered. A session
+ * that never opened — no agent CLI on the path, most likely — must not be
+ * reported as a command that failed, or the developer is told nothing happened
+ * when in fact everything but the conversation did.
+ */
+async function startGrilling(
+  grilling: Grilling,
+  directory: string,
+): Promise<string | undefined> {
+  try {
+    await grilling.start(directory);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 /**
@@ -138,9 +167,14 @@ function summaryLine(
   repo: RepoSlug,
   directory: string,
   registered: boolean,
+  grillingFailure: string | undefined,
 ): string {
   const registry = registered
     ? "registered"
     : "already registered, so the registry is untouched";
-  return `${repo} is at ${directory} and ${registry}.`;
+  const line = `${repo} is at ${directory} and ${registry}.`;
+
+  return grillingFailure === undefined
+    ? line
+    : `${line} The session for its first tickets could not start (${grillingFailure}); start one in the checkout yourself.`;
 }

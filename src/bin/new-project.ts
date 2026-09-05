@@ -35,12 +35,23 @@ async function main(): Promise<void> {
 }
 
 /**
- * The developer's words as a request. A slug that isn't one, or a missing
- * one, is answered with the usage rather than a parse error: getting the
- * arguments wrong is the most likely way to reach this command, and the
- * command is meant to be the easy way to start something.
+ * The developer's words as a request.
+ *
+ * Anything wrong with them — a missing repo, a name that isn't `owner/repo`,
+ * a flag that doesn't exist, a description left unquoted — is answered with
+ * the usage. Getting the arguments wrong is the most likely way to reach this
+ * command, and the command is meant to be the easy way to start something.
  */
 function readRequest(argv: string[]): NewProjectRequest {
+  try {
+    return parseRequest(argv);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`${reason}\n\n${USAGE}`);
+  }
+}
+
+function parseRequest(argv: string[]): NewProjectRequest {
   const { values, positionals } = parseArgs({
     args: argv,
     options: { existing: { type: "boolean", default: false } },
@@ -49,11 +60,11 @@ function readRequest(argv: string[]): NewProjectRequest {
 
   const [repo, description = ""] = positionals;
   if (repo === undefined) {
-    throw new Error(`a repo to start is required.\n\n${USAGE}`);
+    throw new Error("a repo to start is required.");
   }
   if (positionals.length > 2) {
     throw new Error(
-      `unexpected argument ${JSON.stringify(positionals[2])}; quote the description.\n\n${USAGE}`,
+      `unexpected argument ${JSON.stringify(positionals[2])}; quote the description.`,
     );
   }
 

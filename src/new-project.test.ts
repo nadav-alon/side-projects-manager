@@ -8,7 +8,7 @@ import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const PILOT = repoSlug("nadav-alon/pilot");
 
-const PILOT_CHECKOUT = `${FakeRepoHost.MANAGED_LOCATION}/pilot`;
+const PILOT_CHECKOUT = `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`;
 
 const IDEA = { repo: PILOT, description: "A flight log that files itself." };
 
@@ -95,6 +95,29 @@ describe("starting a new project", () => {
     await newProject(ports, IDEA);
 
     assert.equal(registeredWhenGrilled, 1);
+  });
+
+  it("keeps the project when the session could not start at all", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.grilling.start = async () => {
+      throw new Error("spawn claude ENOENT");
+    };
+
+    const report = await newProject(ports, IDEA);
+
+    assert.equal(report.grilled, false);
+    assert.equal(report.registered, true);
+    assert.match(report.message, /spawn claude ENOENT/);
+    assert.match(report.message, new RegExp(PILOT_CHECKOUT));
+  });
+
+  it("reports a session that ran as one that ran", async () => {
+    const ports = fakeNewProjectPorts();
+
+    const report = await newProject(ports, IDEA);
+
+    assert.equal(report.grilled, true);
+    assert.doesNotMatch(report.message, /could not start/);
   });
 
   it("reports what it did in one line naming the project and the checkout", async () => {

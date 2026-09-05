@@ -12,7 +12,8 @@
     "new-project": "./dist/bin/new-project.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs/agents"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -54,9 +54,11 @@ export interface Store {
   /** Every registered project, in the order the registry lists them. */
   loadRegistry(): Promise<RegisteredProject[]>;
   /**
-   * Replaces the registry with `projects`. The document is hand-edited, so a
-   * writer preserves the order and the entries it was given rather than
-   * normalising them.
+   * Replaces the registry with `projects`, in the order given.
+   *
+   * A replacement, not a merge: the document is rewritten from these entries
+   * alone, so anything in it that no entry carries — a field nothing here
+   * models — does not survive the write.
    */
   saveRegistry(projects: RegisteredProject[]): Promise<void>;
   /** The state in force. Empty when nothing has been worked yet. */
