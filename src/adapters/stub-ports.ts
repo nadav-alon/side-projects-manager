@@ -4,8 +4,6 @@ import type {
   SandboxRunResult,
   Store,
   Ticket,
-  UsageLedger,
-  UsageWindows,
 } from "../ports/index.ts";
 
 /**
@@ -22,14 +20,6 @@ export const stubStore: Store = {
 /** TODO[#4]: replace with the `gh`-backed tracker. */
 export const stubIssueTracker: IssueTracker = {
   listEligibleTickets: async (): Promise<Ticket[]> => [],
-};
-
-/** TODO[#5]: replace with the session-log parser. */
-export const stubUsageLedger: UsageLedger = {
-  read: async (now: Date): Promise<UsageWindows> => ({
-    fiveHour: { openedAt: now, resetsAt: now, tokensUsed: 0 },
-    weekly: { openedAt: now, resetsAt: now, tokensUsed: 0 },
-  }),
 };
 
 /** TODO[#7]: replace with the sandcastle-backed sandbox. */
