@@ -27,8 +27,8 @@ do was `docker run` — and the manager already owned the image it would have ru
 Isolation is now exactly what the adapter's flags give and no more: one bind mount, `--rm`,
 credentials passed by name rather than value. There is no network restriction and no resource
 ceiling, and the container is root until #27. The spec's claim that the blast radius of an
-unattended run is one project's worktree is backed by this adapter's own choices, not by a sandbox
-someone else maintains — which means it is ours to keep true.
+unattended run is one throwaway clone of one project is backed by this adapter's own choices, not
+by a sandbox someone else maintains — which means it is ours to keep true.
 
 ## Reversing it
 
