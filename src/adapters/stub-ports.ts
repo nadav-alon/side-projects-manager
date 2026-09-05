@@ -3,10 +3,7 @@ import type {
   Sandbox,
   SandboxRunResult,
   Ticket,
-  UsageLedger,
-  UsageWindows,
 } from "../ports/index.ts";
-import { tokenCount } from "../ports/index.ts";
 
 /**
  * Stand-ins wired into `morning-run` until the real adapters land. Each does
@@ -16,14 +13,6 @@ import { tokenCount } from "../ports/index.ts";
 /** TODO[#4]: replace with the `gh`-backed tracker. */
 export const stubIssueTracker: IssueTracker = {
   listEligibleTickets: async (): Promise<Ticket[]> => [],
-};
-
-/** TODO[#5]: replace with the session-log parser. */
-export const stubUsageLedger: UsageLedger = {
-  read: async (now: Date): Promise<UsageWindows> => ({
-    fiveHour: { openedAt: now, resetsAt: now, tokensUsed: tokenCount(0) },
-    weekly: { openedAt: now, resetsAt: now, tokensUsed: tokenCount(0) },
-  }),
 };
 
 /** TODO[#7]: replace with the sandcastle-backed sandbox. */

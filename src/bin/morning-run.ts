@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 import { documentStore } from "../adapters/document-store.ts";
 import { systemClock } from "../adapters/system-clock.ts";
-import {
-  stubIssueTracker,
-  stubSandbox,
-  stubUsageLedger,
-} from "../adapters/stub-ports.ts";
+import { stubIssueTracker, stubSandbox } from "../adapters/stub-ports.ts";
+import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { morningRun } from "../morning-run.ts";
 
 /**
@@ -19,7 +16,7 @@ async function main(): Promise<void> {
   const report = await morningRun({
     tracker: stubIssueTracker,
     sandbox: stubSandbox,
-    ledger: stubUsageLedger,
+    ledger: sessionLogUsageLedger,
     clock: systemClock,
     store: documentStore(),
   });

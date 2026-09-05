@@ -30,9 +30,6 @@ export interface UsageWindows {
  *
  * Knowingly under-counts: it cannot see Claude chat or other machines. The
  * reserve is sized to absorb that.
- *
- * TODO[#5]: parse the local session logs, deriving each window's boundaries
- * rather than assuming a lookback from now.
  */
 export interface UsageLedger {
   /** The windows in force at `now`. */
