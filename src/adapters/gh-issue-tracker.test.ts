@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { ghIssueTracker } from "./gh-issue-tracker.ts";
-import { READY_FOR_AGENT_LABEL, repoSlug, type Ticket } from "../ports/index.ts";
+import { READY_FOR_AGENT_LABEL, repoSlug } from "../ports/index.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,11 +15,28 @@ const execFileAsync = promisify(execFile);
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 
 // A public repo the developer doesn't own, guaranteed to carry no
-// ready-for-agent issues. Verifies an empty backlog is not an error.
+// ready-for-agent issues. Verifies an empty backlog is not an error. Also
+// referenced from `morning-run.test.ts`, for the same reason.
 const EMPTY = repoSlug("octocat/Hello-World");
 
-function byNumber(a: Ticket, b: Ticket): number {
-  return a.number - b.number;
+type RawIssue = {
+  number: number;
+  title: string;
+  state: string;
+  labels: { name: string }[];
+};
+
+async function fetchIssue(repo: string, number: number): Promise<RawIssue> {
+  const { stdout } = await execFileAsync("gh", [
+    "issue",
+    "view",
+    String(number),
+    "--repo",
+    repo,
+    "--json",
+    "number,title,state,labels",
+  ]);
+  return JSON.parse(stdout) as RawIssue;
 }
 
 describe("ghIssueTracker", () => {
@@ -34,43 +51,49 @@ describe("ghIssueTracker", () => {
       "--json",
       "number,title,state,labels",
     ]);
-    const all = JSON.parse(stdout) as {
-      number: number;
-      title: string;
-      state: string;
-      labels: { name: string }[];
-    }[];
-    const isEligible = (issue: (typeof all)[number]): boolean =>
-      issue.state === "OPEN" &&
-      issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL);
+    const all = JSON.parse(stdout) as RawIssue[];
 
-    // The fixture repo must actually exercise both exclusion cases, or this
-    // test would pass whether or not the adapter filters anything.
+    const closedButLabelled = all.find(
+      (issue) =>
+        issue.state === "CLOSED" &&
+        issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
+    );
+    const openButUnlabelled = all.find(
+      (issue) =>
+        issue.state === "OPEN" &&
+        !issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
+    );
+    // The fixture repo must actually exercise both exclusion cases, or the
+    // assertions below would pass whether or not the adapter filters
+    // anything.
     assert.ok(
-      all.some(
-        (issue) =>
-          issue.state === "CLOSED" &&
-          issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
-      ),
+      closedButLabelled,
       "fixture repo needs a closed, labelled issue to prove state is filtered",
     );
     assert.ok(
-      all.some(
-        (issue) =>
-          issue.state === "OPEN" &&
-          !issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
-      ),
+      openButUnlabelled,
       "fixture repo needs an open, unlabelled issue to prove the label is filtered",
     );
 
-    const expected: Ticket[] = all
-      .filter(isEligible)
-      .map((issue) => ({ repo: MANAGER, number: issue.number, title: issue.title }))
-      .sort(byNumber);
-
     const tickets = await ghIssueTracker().listEligibleTickets(MANAGER);
+    const numbers = tickets.map((ticket) => ticket.number);
 
-    assert.deepEqual([...tickets].sort(byNumber), expected);
+    // Excluded by state, excluded by label: neither belongs in the result,
+    // checked against the fixtures found above rather than a JS
+    // reimplementation of the adapter's own filter.
+    assert.ok(!numbers.includes(closedButLabelled.number));
+    assert.ok(!numbers.includes(openButUnlabelled.number));
+
+    assert.ok(tickets.length > 0, "fixture repo needs at least one eligible issue");
+    for (const ticket of tickets) {
+      // Verified independently via `gh issue view`, not `gh issue list`'s own
+      // filtering flags, so a bug in those flags can't make this pass anyway.
+      const issue = await fetchIssue(MANAGER, ticket.number);
+      assert.equal(issue.state, "OPEN");
+      assert.ok(issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL));
+      assert.equal(ticket.title, issue.title);
+      assert.equal(ticket.repo, MANAGER);
+    }
   });
 
   it("returns an empty backlog for a project with no eligible tickets, without an error", async () => {

@@ -39,8 +39,9 @@ describe("the morning-run command", () => {
   });
 
   it("reports the registered projects it skipped, and why", async () => {
-    // octocat/Hello-World is a real, public repo the developer doesn't own,
-    // guaranteed to carry no ready-for-agent issues.
+    // octocat/Hello-World: guaranteed empty of ready-for-agent issues; see
+    // `EMPTY` in gh-issue-tracker.test.ts for why. Needed here too because
+    // `main()` now wires the real tracker, so this repo is actually queried.
     const directory = await home({
       projects: [
         { repo: "nadav-alon/pilot", paused: true },

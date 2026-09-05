@@ -6,37 +6,29 @@ import { READY_FOR_AGENT_LABEL } from "../ports/index.ts";
 
 const execFileAsync = promisify(execFile);
 
-const MAX_BACKLOG_SIZE = 1000;
-const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
-
 /**
  * The tracker port backed by the `gh` CLI, per `docs/agents/issue-tracker.md`.
  * Talks to whichever repo it is asked about; the developer's own `gh` login
  * is what authorizes it.
+ *
+ * TODO[#25]: `gh issue list` caps results at 30 by default with no override
+ * here, so a backlog past that size is silently truncated.
  */
 export function ghIssueTracker(): IssueTracker {
   return {
     async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
-      const { stdout } = await execFileAsync(
-        "gh",
-        [
-          "issue",
-          "list",
-          "--repo",
-          repo,
-          "--state",
-          "open",
-          "--label",
-          READY_FOR_AGENT_LABEL,
-          "--json",
-          "number,title",
-          // gh caps results at 30 by default; the backlog contract promises
-          // every eligible ticket, not a page of them.
-          "--limit",
-          String(MAX_BACKLOG_SIZE),
-        ],
-        { maxBuffer: MAX_OUTPUT_BYTES },
-      );
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--label",
+        READY_FOR_AGENT_LABEL,
+        "--json",
+        "number,title",
+      ]);
 
       return parseIssues(stdout, repo).map((issue) => ({ repo, ...issue }));
     },
