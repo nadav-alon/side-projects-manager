@@ -13,6 +13,11 @@ narration). See `docs/agents/coding-standards.md`.
 
 Issues live as GitHub issues, driven via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+### Ticket scope
+
+One seam per ticket: acceptance criteria describe behaviors of one seam, never a list of them. See
+`docs/agents/ticket-scope.md`.
+
 ### Triage labels
 
 The five canonical triage roles, used verbatim as label strings. See `docs/agents/triage-labels.md`.
