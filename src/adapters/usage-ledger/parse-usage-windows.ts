@@ -1,4 +1,5 @@
 import type { UsageWindow, UsageWindows } from "../../ports/index.ts";
+import { tokenCount } from "../../ports/index.ts";
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -157,14 +158,14 @@ function activeWindow(
       const tokensUsed = entries
         .filter((entry) => entry.timestamp.getTime() >= openedAt.getTime())
         .reduce((sum, entry) => sum + entry.tokensUsed, 0);
-      return { openedAt, resetsAt, tokensUsed };
+      return { openedAt, resetsAt, tokensUsed: tokenCount(tokensUsed) };
     }
   }
 
   return {
     openedAt: now,
     resetsAt: new Date(now.getTime() + durationMs),
-    tokensUsed: 0,
+    tokensUsed: tokenCount(0),
   };
 }
 

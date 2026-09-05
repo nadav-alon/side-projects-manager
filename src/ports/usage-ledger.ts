@@ -1,3 +1,5 @@
+import type { TokenCount } from "./token-count.ts";
+
 /**
  * One of the two windows the developer's consumption is measured against.
  *
@@ -11,7 +13,7 @@ export interface UsageWindow {
   /** When it resets and consumption returns to zero. */
   resetsAt: Date;
   /** Tokens consumed since `openedAt`. */
-  tokensUsed: number;
+  tokensUsed: TokenCount;
 }
 
 /** The two windows in force at a given instant. */

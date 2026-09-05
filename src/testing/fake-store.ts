@@ -1,15 +1,70 @@
-import type { RegisteredProject, RepoSlug, Store } from "../ports/index.ts";
+import type {
+  Priority,
+  ProjectState,
+  RegisteredProject,
+  RepoSlug,
+  RunCost,
+  State,
+  Store,
+} from "../ports/index.ts";
 
-/** An in-memory registry. Empty by default: nothing configured. */
+/** What the developer may say about a project when registering it. */
+export interface Registration {
+  paused?: boolean;
+  priority?: Priority;
+}
+
+/**
+ * The two documents in memory. Both start empty: nothing registered, nothing
+ * ever worked.
+ *
+ * Tests arrange the registry with `register` and the state with `markWorked`,
+ * which is what the developer's editor and a past invocation respectively
+ * would have left behind.
+ */
 export class FakeStore implements Store {
-  readonly #projects: RegisteredProject[] = [];
+  readonly #registry: RegisteredProject[] = [];
+  #state = new Map<RepoSlug, ProjectState>();
 
   /** Registers a project, as the developer hand-editing the registry would. */
-  register(repo: RepoSlug): void {
-    this.#projects.push({ repo });
+  register(repo: RepoSlug, registration: Registration = {}): void {
+    this.#registry.push({
+      repo,
+      paused: registration.paused ?? false,
+      ...(registration.priority !== undefined && {
+        priority: registration.priority,
+      }),
+    });
   }
 
-  async loadProjects(): Promise<RegisteredProject[]> {
-    return this.#projects.map((project) => ({ ...project }));
+  /** Records a project as worked, as a past invocation would have. */
+  markWorked(repo: RepoSlug, lastWorkedAt: Date, ...runs: RunCost[]): void {
+    const existing = this.#state.get(repo);
+    this.#state.set(repo, {
+      lastWorkedAt,
+      runs: [...(existing?.runs ?? []), ...runs],
+    });
+  }
+
+  async loadRegistry(): Promise<RegisteredProject[]> {
+    return this.#registry.map((project) => ({ ...project }));
+  }
+
+  async loadState(): Promise<State> {
+    return new Map(
+      [...this.#state].map(([repo, state]) => [
+        repo,
+        { ...state, runs: [...state.runs] },
+      ]),
+    );
+  }
+
+  async saveState(state: State): Promise<void> {
+    this.#state = new Map(
+      [...state].map(([repo, project]) => [
+        repo,
+        { ...project, runs: [...project.runs] },
+      ]),
+    );
   }
 }

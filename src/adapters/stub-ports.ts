@@ -2,20 +2,13 @@ import type {
   IssueTracker,
   Sandbox,
   SandboxRunResult,
-  Store,
   Ticket,
 } from "../ports/index.ts";
 
 /**
  * Stand-ins wired into `morning-run` until the real adapters land. Each does
- * the least a caller can be asked to handle: nothing registered, nothing
- * eligible, nothing spent.
+ * the least a caller can be asked to handle: nothing eligible, nothing spent.
  */
-
-/** TODO[#3]: replace with the registry and state documents. */
-export const stubStore: Store = {
-  loadProjects: async () => [],
-};
 
 /** TODO[#4]: replace with the `gh`-backed tracker. */
 export const stubIssueTracker: IssueTracker = {

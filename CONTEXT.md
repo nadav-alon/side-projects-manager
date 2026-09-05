@@ -51,16 +51,28 @@ How a project is named everywhere, as `owner/repo`.
 _Avoid_: repo name, full name, project id, url
 
 **Registry**:
-The hand-edited document of developer intent: which projects exist, which are paused, which has explicit priority.
+The hand-edited document of developer intent: which projects exist, which are paused, which has explicit priority. `registry.json` in the manager home.
 _Avoid_: config, settings, projects file
 
 **State**:
-The machine-written document alongside the registry: when each project was last worked, and what past runs cost. Separate from the registry because it has a different author and a different change rate.
+The machine-written document alongside the registry: when each project was last worked, and what past runs cost. Separate from the registry because it has a different author and a different change rate. `state.json` in the manager home.
 _Avoid_: cache, database, history file
 
 **Paused**:
 Registered but never considered.
 _Avoid_: disabled, archived, muted
+
+**Priority**:
+The explicit rank a project may carry in the registry, overriding least-recently-worked ordering. A whole number from 1 upwards, smaller worked first; a project without one sorts after every project with one.
+_Avoid_: rank, weight, importance, order
+
+**Never worked**:
+What a project looks like before its first run: no entry in the state document. Not an error, and indistinguishable from a project registered this morning.
+_Avoid_: unworked, new, cold
+
+**Manager home**:
+The manager's own checkout, holding the registry and the state document, both committed. Distinct from the managed location, which is where projects are cloned to.
+_Avoid_: config directory, data directory, root
 
 **Managed location**:
 The predictable place the manager clones projects to. Clones the developer already has elsewhere are never touched.

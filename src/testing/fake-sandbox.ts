@@ -1,4 +1,5 @@
 import type { Sandbox, SandboxRunResult, Ticket } from "../ports/index.ts";
+import { tokenCount } from "../ports/index.ts";
 
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
@@ -12,7 +13,7 @@ export class FakeSandbox implements Sandbox {
       branch: `fake/${ticket.repo}/${ticket.number}`,
       commits: [],
       output: "",
-      tokensUsed: 0,
+      tokensUsed: tokenCount(0),
     };
   }
 }

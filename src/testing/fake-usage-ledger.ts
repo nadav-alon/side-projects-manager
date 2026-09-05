@@ -1,4 +1,5 @@
 import type { UsageLedger, UsageWindows } from "../ports/index.ts";
+import { tokenCount } from "../ports/index.ts";
 import { FROZEN_NOW } from "./fake-clock.ts";
 
 /**
@@ -11,12 +12,12 @@ export const NO_USAGE: UsageWindows = {
   fiveHour: {
     openedAt: FROZEN_NOW,
     resetsAt: new Date("2026-01-01T11:00:00.000Z"),
-    tokensUsed: 0,
+    tokensUsed: tokenCount(0),
   },
   weekly: {
     openedAt: new Date("2025-12-28T00:00:00.000Z"),
     resetsAt: new Date("2026-01-04T00:00:00.000Z"),
-    tokensUsed: 0,
+    tokensUsed: tokenCount(0),
   },
 };
 

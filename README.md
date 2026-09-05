@@ -17,6 +17,35 @@ guards and any future cloud trigger are callers of `morningRun` exactly like it 
 Most ports are still stubbed ([`src/adapters/stub-ports.ts`](src/adapters/stub-ports.ts)); each stub
 names the ticket that replaces it.
 
+## Registering a project
+
+[`registry.json`](registry.json) is yours to edit. It says which projects exist, which are paused,
+and which has the mornings:
+
+```json
+{
+  "projects": [
+    { "repo": "nadav-alon/side-projects-manager" },
+    { "repo": "nadav-alon/pilot", "priority": 1 },
+    { "repo": "nadav-alon/on-ice", "paused": true }
+  ]
+}
+```
+
+A project is named by its repo slug, `owner/repo`. `paused` keeps it registered but never
+considered; `priority` is a whole number from 1 upwards, the smaller worked first, and a project
+without one is worked least-recently-first. Both are optional. A paused project is already passed
+over; ordering by priority and last-worked is not wired up yet, so the loop walks the registry top
+to bottom.
+
+`state.json` beside it is the machine's half: when each project was last worked, and what its runs
+cost. The loop writes it after every invocation and you never have to edit it; it is committed for
+the audit trail. It does not exist until the loop has run, and no state for a project means the
+project has never been worked.
+
+Both documents live in the manager home — this checkout, unless
+`SIDE_PROJECTS_MANAGER_HOME` says otherwise.
+
 House rules for source — branded primitives, and what a comment is allowed to say — are in
 [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
 
