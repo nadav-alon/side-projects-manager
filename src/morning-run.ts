@@ -167,7 +167,7 @@ function summaryLine(projects: ProjectOutcome[]): string {
     return `Work available in ${selected.repo}; running it is not wired up yet.${aside}`;
   }
   if (skipped.length === 0) {
-    return "Nothing to do: no projects registered.";
+    return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
 }
