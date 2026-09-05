@@ -1,12 +1,9 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { UsageLedger, UsageWindows } from "../../ports/index.ts";
 import { parseUsageWindows } from "./parse-usage-windows.ts";
-
-/** Matches the weekly window in parse-usage-windows.ts: nothing older can affect either window. */
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Where Claude Code keeps session logs: one directory per project, one
@@ -51,10 +48,7 @@ async function readIfPresent(path: string): Promise<string | undefined> {
   }
 }
 
-async function readLogFiles(
-  directory: string,
-  cutoff: Date,
-): Promise<string[]> {
+async function readLogFiles(directory: string): Promise<string[]> {
   const projectDirs = await listDirectory(directory);
 
   const perProject = await Promise.all(
@@ -65,19 +59,7 @@ async function readLogFiles(
       const files = await Promise.all(
         entries
           .filter((entry) => entry.endsWith(".jsonl"))
-          .map(async (entry) => {
-            const filePath = join(projectPath, entry);
-            // a file untouched since before the cutoff can't hold an entry
-            // newer than its own last write, so it can't affect either
-            // window; skipping it avoids parsing a developer's entire
-            // history on every invocation. Any trouble stat-ing it just
-            // means reading it instead, not skipping it.
-            const stats = await stat(filePath).catch(() => undefined);
-            if (stats !== undefined && stats.mtime < cutoff) {
-              return undefined;
-            }
-            return readIfPresent(filePath);
-          }),
+          .map((entry) => readIfPresent(join(projectPath, entry))),
       );
 
       return files.filter((file): file is string => file !== undefined);
@@ -87,11 +69,10 @@ async function readLogFiles(
   return perProject.flat();
 }
 
-/** Reads rolling window totals from the local Claude Code session logs. */
+/** Reads window totals from the local Claude Code session logs. */
 export const sessionLogUsageLedger: UsageLedger = {
   read: async (now: Date): Promise<UsageWindows> => {
-    const cutoff = new Date(now.getTime() - SEVEN_DAYS_MS);
-    const logFiles = await readLogFiles(logsDirectory(), cutoff);
+    const logFiles = await readLogFiles(logsDirectory());
     return parseUsageWindows(logFiles, now);
   },
 };

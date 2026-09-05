@@ -68,4 +68,51 @@ describe("parseUsageWindows", () => {
       assert.ok(windows.weekly.resetsAt > NOW);
     });
   });
+
+  it("treats a window as reset, not still open, at the instant `now` equals `resetsAt`", () => {
+    // one entry opens a block exactly five hours before `now`, so its
+    // `resetsAt` lands exactly on `now` — the reset instant is the boundary
+    // of the next window, not the last instant of this one
+    const entry = logLine({
+      timestamp: new Date(NOW.getTime() - 5 * 60 * 60 * 1000).toISOString(),
+      inputTokens: 40,
+      outputTokens: 10,
+    });
+
+    const windows = parseUsageWindows([entry], NOW);
+
+    assert.equal(windows.fiveHour.openedAt.toISOString(), NOW.toISOString());
+    assert.equal(windows.fiveHour.tokensUsed, 0);
+  });
 });
+
+function logLine(options: {
+  timestamp: string;
+  inputTokens: number;
+  outputTokens: number;
+}): string {
+  return JSON.stringify({
+    parentUuid: null,
+    isSidechain: false,
+    message: {
+      model: "claude-sonnet-5",
+      id: "msg_boundary",
+      type: "message",
+      role: "assistant",
+      content: "REDACTED",
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: options.inputTokens,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: options.outputTokens,
+      },
+    },
+    type: "assistant",
+    uuid: "c1000000-0000-0000-0000-000000000001",
+    timestamp: options.timestamp,
+    sessionId: "boundary-test",
+    version: "2.1.261",
+  });
+}

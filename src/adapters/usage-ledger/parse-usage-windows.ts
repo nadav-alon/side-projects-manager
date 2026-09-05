@@ -11,15 +11,13 @@ interface UsageLogEntry {
 }
 
 /**
- * Parses Claude Code session log files into the rolling window totals the
- * budget gate reads.
+ * Parses Claude Code session log files into the window totals the budget
+ * gate reads.
  *
  * Each element of `logFiles` is the full text of one `.jsonl` session log.
  * Lines that aren't a well-formed assistant message carrying usage — other
  * message types, truncated JSON, a usage object missing its token counts —
- * are skipped rather than aborting the parse. An entry timestamped after
- * `now` is also skipped: the ledger reports what happened up to `now`, not
- * what a clock-skewed or malformed future timestamp claims.
+ * are skipped rather than aborting the parse.
  */
 export function parseUsageWindows(
   logFiles: readonly string[],
@@ -28,8 +26,7 @@ export function parseUsageWindows(
   const entries = logFiles
     .flatMap((content) => content.split("\n"))
     .map(parseLogLine)
-    .filter((entry): entry is UsageLogEntry => entry !== undefined)
-    .filter((entry) => entry.timestamp.getTime() <= now.getTime());
+    .filter((entry): entry is UsageLogEntry => entry !== undefined);
 
   return {
     fiveHour: fiveHourWindow(entries, now),
