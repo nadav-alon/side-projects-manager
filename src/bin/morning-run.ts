@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 import { documentStore } from "../adapters/document-store.ts";
+import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { systemClock } from "../adapters/system-clock.ts";
-import {
-  stubIssueTracker,
-  stubSandbox,
-  stubUsageLedger,
-} from "../adapters/stub-ports.ts";
+import { stubSandbox, stubUsageLedger } from "../adapters/stub-ports.ts";
 import { morningRun } from "../morning-run.ts";
 
 /**
@@ -17,7 +14,7 @@ import { morningRun } from "../morning-run.ts";
  */
 async function main(): Promise<void> {
   const report = await morningRun({
-    tracker: stubIssueTracker,
+    tracker: ghIssueTracker(),
     sandbox: stubSandbox,
     ledger: stubUsageLedger,
     clock: systemClock,

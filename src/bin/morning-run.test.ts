@@ -39,10 +39,12 @@ describe("the morning-run command", () => {
   });
 
   it("reports the registered projects it skipped, and why", async () => {
+    // octocat/Hello-World is a real, public repo the developer doesn't own,
+    // guaranteed to carry no ready-for-agent issues.
     const directory = await home({
       projects: [
         { repo: "nadav-alon/pilot", paused: true },
-        { repo: "nadav-alon/side-projects-manager" },
+        { repo: "octocat/Hello-World" },
       ],
     });
 
@@ -51,7 +53,7 @@ describe("the morning-run command", () => {
     assert.match(stdout, /nadav-alon\/pilot \(paused\)/);
     assert.match(
       stdout,
-      /nadav-alon\/side-projects-manager \(no ready-for-agent tickets\)/,
+      /octocat\/Hello-World \(no ready-for-agent tickets\)/,
     );
   });
 
