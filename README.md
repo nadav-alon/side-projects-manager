@@ -27,8 +27,9 @@ npm run new-project -- nadav-alon/pilot "A flight log that files itself."
 
 It creates the repo, clones it to the managed location, scaffolds the harness into it, appends it to
 the registry, and then hands you an interactive session that grills the idea into the project's
-first tickets. That last step is interactive on purpose: starting a project is when you most want to
-be in the conversation, because those tickets are what the next month of mornings will build.
+first tickets, writing the terms you settle on into its `CONTEXT.md` as you agree them. That last
+step is interactive on purpose: starting a project is when you most want to be in the conversation,
+because those tickets are what the next month of mornings will build.
 
 Scaffolding puts two kinds of file into the new repo. The uniform files
 ([`docs/agents/`](docs/agents)) are copied byte for byte, so improving a convention here improves it
@@ -38,7 +39,9 @@ not in. Neither half refers back to this repo: a project carries no reference to
 live coupling to it, so you can walk away with just the project.
 
 A repo that predates the manager joins with `--existing`, which registers and scaffolds it without
-creating anything:
+creating anything. Its grilling starts by reading the codebase for the language it already uses, so
+the glossary you agree describes the project you have rather than a parallel one, and any gap
+between the two becomes a ticket rather than a rename mid-conversation:
 
 ```sh
 npm run new-project -- nadav-alon/older-thing "" --existing

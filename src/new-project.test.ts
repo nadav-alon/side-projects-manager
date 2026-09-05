@@ -82,7 +82,20 @@ describe("starting a new project", () => {
 
     await newProject(ports, IDEA);
 
-    assert.deepEqual(ports.grilling.started, [PILOT_CHECKOUT]);
+    assert.deepEqual(ports.grilling.started, [
+      { directory: PILOT_CHECKOUT, existing: false },
+    ]);
+  });
+
+  it("tells the session when the codebase came before the manager", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+
+    await newProject(ports, { ...IDEA, existing: true });
+
+    assert.deepEqual(ports.grilling.started, [
+      { directory: PILOT_CHECKOUT, existing: true },
+    ]);
   });
 
   it("grills only once the project is registered, so a walked-away-from session still counts", async () => {

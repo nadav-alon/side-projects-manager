@@ -1,6 +1,7 @@
 import { agentInstructions } from "./agent-instructions.ts";
 import type {
   Grilling,
+  GrillingSubject,
   Harness,
   RegisteredProject,
   RepoHost,
@@ -112,7 +113,7 @@ export async function newProject(
   );
 
   const registered = await register(ports.store, repo);
-  const grilling = await startGrilling(ports.grilling, directory);
+  const grilling = await startGrilling(ports.grilling, { directory, existing });
 
   return {
     repo,
@@ -136,10 +137,10 @@ export async function newProject(
  */
 async function startGrilling(
   grilling: Grilling,
-  directory: string,
+  subject: GrillingSubject,
 ): Promise<string | undefined> {
   try {
-    await grilling.start(directory);
+    await grilling.start(subject);
     return undefined;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -176,5 +177,5 @@ function summaryLine(
 
   return grillingFailure === undefined
     ? line
-    : `${line} The session for its first tickets could not start (${grillingFailure}); start one in the checkout yourself.`;
+    : `${line} Its grilling could not start (${grillingFailure}); start one in the checkout yourself.`;
 }

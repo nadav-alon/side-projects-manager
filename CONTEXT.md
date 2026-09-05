@@ -91,7 +91,7 @@ The other half: one file per project, generated for that project, saying what th
 _Avoid_: prompt, system prompt, rules file
 
 **Grilling**:
-The interactive session that turns an idea into a project's first tickets. Interactive by design: it decides what the next month of mornings builds.
+An interactive session that turns a conversation with the developer into tickets in a project's tracker, and into the vocabulary the project uses to talk about itself. Interactive by design: what comes out of it is what the mornings after it build. The new-project command opens a project's first one; it is not the only one a project gets, and later grillings are where more of its work comes from.
 _Avoid_: interview, kickoff, brainstorm, planning session
 
 ### Work

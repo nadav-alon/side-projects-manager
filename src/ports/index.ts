@@ -1,5 +1,5 @@
 export type { Clock } from "./clock.ts";
-export type { Grilling } from "./grilling.ts";
+export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness } from "./harness.ts";
 export type { IssueTracker, Ticket } from "./issue-tracker.ts";
 export { isPriority, priority } from "./priority.ts";
