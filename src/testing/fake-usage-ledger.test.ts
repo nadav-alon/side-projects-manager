@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { tokenCount } from "../ports/index.ts";
 import { FakeUsageLedger, NO_USAGE } from "./fake-usage-ledger.ts";
 
 /** The ledger has no caller in the loop yet, so its contract is pinned here. */
@@ -22,8 +23,8 @@ describe("FakeUsageLedger", () => {
 
   it("reports the usage it was given", async () => {
     const ledger = new FakeUsageLedger({
-      fiveHour: { ...NO_USAGE.fiveHour, tokensUsed: 120_000 },
-      weekly: { ...NO_USAGE.weekly, tokensUsed: 3_400_000 },
+      fiveHour: { ...NO_USAGE.fiveHour, tokensUsed: tokenCount(120_000) },
+      weekly: { ...NO_USAGE.weekly, tokensUsed: tokenCount(3_400_000) },
     });
 
     const windows = await ledger.read();
