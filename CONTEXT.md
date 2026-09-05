@@ -78,6 +78,22 @@ _Avoid_: config directory, data directory, root
 The predictable place the manager clones projects to. Clones the developer already has elsewhere are never touched.
 _Avoid_: workspace, checkout directory
 
+**Scaffold**:
+Installing the harness into a project checkout: the uniform files copied verbatim, and the project's agent instructions generated fresh for it.
+_Avoid_: bootstrap, template, generate (only half of it is generated)
+
+**Uniform files**:
+The half of the harness every project gets byte for byte, so that improving a convention improves it everywhere from one source.
+_Avoid_: shared files, common files, boilerplate
+
+**Agent instructions**:
+The other half: one file per project, generated for that project, saying what the project is and pointing at its own uniform files. Never copied from another repo.
+_Avoid_: prompt, system prompt, rules file
+
+**Grilling**:
+The interactive session that turns an idea into a project's first tickets. Interactive by design: it decides what the next month of mornings builds.
+_Avoid_: interview, kickoff, brainstorm, planning session
+
 ### Work
 
 **Ticket**:

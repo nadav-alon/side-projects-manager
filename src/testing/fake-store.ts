@@ -23,7 +23,7 @@ export interface Registration {
  * would have left behind.
  */
 export class FakeStore implements Store {
-  readonly #registry: RegisteredProject[] = [];
+  #registry: RegisteredProject[] = [];
   #state = new Map<RepoSlug, ProjectState>();
 
   /** Registers a project, as the developer hand-editing the registry would. */
@@ -48,6 +48,10 @@ export class FakeStore implements Store {
 
   async loadRegistry(): Promise<RegisteredProject[]> {
     return this.#registry.map((project) => ({ ...project }));
+  }
+
+  async saveRegistry(projects: RegisteredProject[]): Promise<void> {
+    this.#registry = projects.map((project) => ({ ...project }));
   }
 
   async loadState(): Promise<State> {

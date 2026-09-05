@@ -99,6 +99,65 @@ describe("the registry document", () => {
   });
 });
 
+describe("writing the registry document", () => {
+  it("reads back the projects it was given, in the order given", async () => {
+    const store = documentStore(await home());
+
+    await store.saveRegistry([
+      { repo: MANAGER, paused: false },
+      { repo: PILOT, paused: true, priority: priority(2) },
+    ]);
+
+    assert.deepEqual(await store.loadRegistry(), [
+      { repo: MANAGER, paused: false },
+      { repo: PILOT, paused: true, priority: priority(2) },
+    ]);
+  });
+
+  it("writes a document the developer can keep hand-editing", async () => {
+    const directory = await home();
+
+    await documentStore(directory).saveRegistry([
+      { repo: PILOT, paused: false },
+      { repo: MANAGER, paused: true, priority: priority(1) },
+    ]);
+
+    const written = await readFile(path.join(directory, "registry.json"), "utf8");
+    assert.equal(
+      written,
+      `${JSON.stringify(
+        {
+          projects: [
+            { repo: PILOT },
+            { repo: MANAGER, paused: true, priority: 1 },
+          ],
+        },
+        undefined,
+        2,
+      )}\n`,
+    );
+  });
+
+  it("keeps the comments-free defaults out, so an untouched project stays one line", async () => {
+    const directory = await home();
+
+    await documentStore(directory).saveRegistry([{ repo: PILOT, paused: false }]);
+
+    const written = await readFile(path.join(directory, "registry.json"), "utf8");
+    assert.doesNotMatch(written, /paused|priority/);
+  });
+
+  it("replaces what was registered before", async () => {
+    const store = documentStore(
+      await home({ registry: JSON.stringify({ projects: [{ repo: MANAGER }] }) }),
+    );
+
+    await store.saveRegistry([{ repo: PILOT, paused: false }]);
+
+    assert.deepEqual(await store.loadRegistry(), [{ repo: PILOT, paused: false }]);
+  });
+});
+
 describe("the state document", () => {
   it("reads when each project was last worked, and what its runs cost", async () => {
     const store = documentStore(

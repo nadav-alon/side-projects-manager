@@ -17,10 +17,44 @@ guards and any future cloud trigger are callers of `morningRun` exactly like it 
 Most ports are still stubbed ([`src/adapters/stub-ports.ts`](src/adapters/stub-ports.ts)); each stub
 names the ticket that replaces it.
 
+## Starting a project
+
+One command takes an idea to a project the morning loop can already see:
+
+```sh
+npm run new-project -- nadav-alon/pilot "A flight log that files itself."
+```
+
+It creates the repo, clones it to the managed location, scaffolds the harness into it, appends it to
+the registry, and then hands you an interactive session that grills the idea into the project's
+first tickets. That last step is interactive on purpose: starting a project is when you most want to
+be in the conversation, because those tickets are what the next month of mornings will build.
+
+Scaffolding puts two kinds of file into the new repo. The uniform files
+([`docs/agents/`](docs/agents)) are copied byte for byte, so improving a convention here improves it
+in every project. `AGENTS.md` is generated for that project, naming it and its purpose — never
+copied, since a project that inherited another repo's instructions would describe a codebase it is
+not in. Neither half refers back to this repo: a project carries no reference to the manager and no
+live coupling to it, so you can walk away with just the project.
+
+A repo that predates the manager joins with `--existing`, which registers and scaffolds it without
+creating anything:
+
+```sh
+npm run new-project -- nadav-alon/older-thing "" --existing
+```
+
+Re-running the command on a project already registered leaves your registry entry — paused flag,
+priority and all — exactly as you wrote it, and leaves an `AGENTS.md` the project already has alone.
+
+Projects are cloned to `~/side-projects/<repo>`, unless `SIDE_PROJECTS_MANAGED_LOCATION` says
+otherwise. A clone that is already there is reused rather than replaced, so a missing clone is
+self-healing and the clones you have scattered elsewhere are never touched.
+
 ## Registering a project
 
-[`registry.json`](registry.json) is yours to edit. It says which projects exist, which are paused,
-and which has the mornings:
+[`registry.json`](registry.json) is yours to edit — `new-project` appends to it, and nothing else
+writes it. It says which projects exist, which are paused, and which has the mornings:
 
 ```json
 {

@@ -12,7 +12,7 @@ or a repo's display name — and every one of those is a `string` too, so the co
 any of them. Branding makes the type say what the value actually is, and forces every value to enter
 through one checked door.
 
-The pattern, as in [`src/ports/repo-slug.ts`](../../src/ports/repo-slug.ts):
+The pattern:
 
 ```ts
 declare const repoSlugBrand: unique symbol;
@@ -75,11 +75,11 @@ work isn't worth an issue, it isn't worth a `TODO`.
 
 ### Why this is a product concern, not just house style
 
-This repo's agents write code into project repos, unattended, from a ticket. An agent narrating its
-own ticket into a doc comment leaves that narration behind permanently, in a file nobody will
-revisit. The convention is part of the harness the agents run under.
+Agents write code into this repo unattended, from a ticket. An agent narrating its own ticket into a
+doc comment leaves that narration behind permanently, in a file nobody will revisit. The convention
+is part of the harness the agents run under.
 
 ## Vocabulary
 
 Names in source use the glossary in [`CONTEXT.md`](../../CONTEXT.md), including the synonyms it
-tells you to avoid. An invocation, an iteration and a run are three different things.
+tells you to avoid. Where the glossary distinguishes two terms, source may not blur them.

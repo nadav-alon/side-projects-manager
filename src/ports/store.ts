@@ -45,12 +45,20 @@ export type State = ReadonlyMap<RepoSlug, ProjectState>;
  * alongside it.
  *
  * The two are separate documents with separate methods because they have
- * different authors: the developer writes the registry and the loop never
+ * different authors: the registry is the developer's, and the loop never
  * touches it, while the loop writes the state and the developer never has to.
+ * The new-project command is the one machine writer of the registry, and it
+ * writes it only to record a project the developer just asked for.
  */
 export interface Store {
   /** Every registered project, in the order the registry lists them. */
   loadRegistry(): Promise<RegisteredProject[]>;
+  /**
+   * Replaces the registry with `projects`. The document is hand-edited, so a
+   * writer preserves the order and the entries it was given rather than
+   * normalising them.
+   */
+  saveRegistry(projects: RegisteredProject[]): Promise<void>;
   /** The state in force. Empty when nothing has been worked yet. */
   loadState(): Promise<State>;
   /** Replaces the state document with `state`. */
