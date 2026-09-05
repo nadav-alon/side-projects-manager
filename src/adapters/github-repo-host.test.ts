@@ -62,6 +62,111 @@ async function pushedFiles(
   return filesIn(directory, branch);
 }
 
+/**
+ * Proposing against a bare repo on disk. The push is real; opening the pull
+ * request is not, because `gh` cannot resolve a local path to a repository —
+ * so every case here comes back as `pushed`, which is exactly the outcome the
+ * git half is responsible for getting right.
+ */
+describe("proposing a scaffold to a project that predates the manager", () => {
+  const propose = (directory: string, paths: string[]) =>
+    githubRepoHost().commitAndPropose(
+      directory,
+      "Install the agent harness",
+      "body",
+      paths,
+      "harness",
+    );
+
+  /** A checkout with history behind it, which is what "predates" means. */
+  async function existing(): Promise<string> {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    return directory;
+  }
+
+  it("commits to its own branch, leaving the one they were on untouched", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    assert.deepEqual(await pushedFiles(directory, "origin/harness"), [
+      "AGENTS.md",
+      "seed.md",
+    ]);
+    assert.deepEqual(await pushedFiles(directory), ["seed.md"]);
+  });
+
+  it("puts the developer back on the branch it found them on", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    await propose(directory, ["AGENTS.md"]);
+
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "branch",
+      "--show-current",
+    ]);
+    assert.equal(stdout.trim(), "main");
+  });
+
+  it("puts them back even when the repo had no commits to go back to", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    await propose(directory, ["AGENTS.md"]);
+
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "branch",
+      "--show-current",
+    ]);
+    assert.equal(stdout.trim(), "main");
+  });
+
+  it("leaves work the developer already had in the checkout uncommitted", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await writeFile(path.join(directory, "half-finished.ts"), "// mine\n");
+    await run("git", ["-C", directory, "add", "half-finished.ts"]);
+
+    await propose(directory, ["AGENTS.md"]);
+
+    assert.deepEqual(await pushedFiles(directory, "origin/harness"), [
+      "AGENTS.md",
+      "seed.md",
+    ]);
+    assert.equal(
+      await readFile(path.join(directory, "half-finished.ts"), "utf8"),
+      "// mine\n",
+    );
+  });
+
+  it("proposes nothing when the checkout already has the scaffold", async () => {
+    const directory = await existing();
+
+    const proposal = await propose(directory, ["seed.md"]);
+
+    assert.deepEqual(proposal, { kind: "unchanged" });
+  });
+
+  it("names the branch it pushed when no pull request could be opened", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind === "pushed" && proposal.branch, "harness");
+    assert.ok(proposal.kind === "pushed" && proposal.failure !== "");
+  });
+});
+
 describe("publishing a scaffold", () => {
   it("commits and pushes the paths it was given", async () => {
     const directory = await checkout();

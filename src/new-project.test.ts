@@ -153,9 +153,6 @@ describe("registering a repo that already exists", () => {
     assert.deepEqual(ports.host.created, []);
     assert.deepEqual(ports.host.clones, [PILOT]);
     assert.equal(report.outcome, "existing");
-    assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: PILOT, paused: false },
-    ]);
   });
 
   it("still scaffolds the harness, so the project can join the loop", async () => {
@@ -165,6 +162,77 @@ describe("registering a repo that already exists", () => {
     await newProject(ports, { ...IDEA, existing: true });
 
     assert.equal(ports.harness.installs[0]?.directory, PILOT_CHECKOUT);
+  });
+
+  it("proposes the harness rather than committing to a branch they had", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+
+    const report = await newProject(ports, { ...IDEA, existing: true });
+
+    assert.deepEqual(ports.host.pushes, []);
+    assert.equal(ports.host.proposals.length, 1);
+    assert.equal(ports.host.proposals[0]?.directory, PILOT_CHECKOUT);
+    assert.deepEqual(report.proposal, {
+      kind: "proposed",
+      branch: "harness",
+      url: FakeRepoHost.PULL_REQUEST,
+    });
+    assert.match(report.message, new RegExp(FakeRepoHost.PULL_REQUEST));
+  });
+
+  it("names the files it overwrote in the request, not only in its diff", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+    ports.harness.overwrites = ["docs/agents/issue-tracker.md"];
+
+    await newProject(ports, { ...IDEA, existing: true });
+
+    const body = ports.host.proposals[0]?.body ?? "";
+    assert.match(body, /Overwritten/);
+    assert.match(body, /docs\/agents\/issue-tracker\.md/);
+    assert.match(body, /Added:[\s\S]*AGENTS\.md/);
+  });
+
+  it("registers it paused, so the loop leaves it be until the harness merges", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+
+    const report = await newProject(ports, { ...IDEA, existing: true });
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: PILOT, paused: true },
+    ]);
+    assert.match(report.message, /unpause/);
+  });
+
+  it("registers it active when its harness was already in place", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+    ports.host.proposal = () => ({ kind: "unchanged" });
+
+    const report = await newProject(ports, { ...IDEA, existing: true });
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: PILOT, paused: false },
+    ]);
+    assert.doesNotMatch(report.message, /unpause/);
+  });
+
+  it("keeps the project when the pull request could not be opened", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.host.alreadyExists(PILOT);
+    ports.host.proposal = (branch) => ({
+      kind: "pushed",
+      branch,
+      failure: "pull requests are disabled",
+    });
+
+    const report = await newProject(ports, { ...IDEA, existing: true });
+
+    assert.equal(report.registered, true);
+    assert.match(report.message, /pull requests are disabled/);
+    assert.match(report.message, /harness/);
   });
 
   it("refuses a repo that is not there, rather than quietly creating one", async () => {

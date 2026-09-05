@@ -1,10 +1,10 @@
 export type { Clock } from "./clock.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
-export type { Harness } from "./harness.ts";
+export type { Harness, Scaffold } from "./harness.ts";
 export type { IssueTracker, Ticket } from "./issue-tracker.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
-export type { RepoHost } from "./repo-host.ts";
+export type { Proposal, RepoHost } from "./repo-host.ts";
 export { isRepoSlug, repoName, repoSlug } from "./repo-slug.ts";
 export type { RepoSlug } from "./repo-slug.ts";
 export type { Sandbox, SandboxRunResult } from "./sandbox.ts";

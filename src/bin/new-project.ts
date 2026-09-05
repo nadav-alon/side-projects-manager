@@ -15,7 +15,10 @@ const USAGE = `Usage: new-project <owner/repo> [description] [--existing]
   idea into the project's first tickets.
 
   --existing  Register a repo that is already on GitHub, rather than creating
-              one. For projects that predate the manager.`;
+              one. For projects that predate the manager. Its harness is
+              proposed as a draft pull request rather than committed to a
+              branch you had, and the project is registered paused until you
+              merge it.`;
 
 /** The composition root of the new-project command, and nothing else. */
 async function main(): Promise<void> {

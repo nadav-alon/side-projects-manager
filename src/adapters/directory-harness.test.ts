@@ -44,19 +44,39 @@ describe("scaffolding the harness into a project", () => {
   it("reports every path it wrote, relative to the checkout", async () => {
     const directory = await checkout();
 
-    const written = await directoryHarness().install(directory, INSTRUCTIONS);
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
 
-    assert.deepEqual(written, [...UNIFORM_FILES, "AGENTS.md"]);
+    assert.deepEqual(scaffold.paths, [...UNIFORM_FILES, "AGENTS.md"]);
+  });
+
+  it("reports nothing overwritten in a checkout that had none of it", async () => {
+    const directory = await checkout();
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
+
+    assert.deepEqual(scaffold.overwritten, []);
+  });
+
+  it("names the project's own files it replaced, so a review can see it", async () => {
+    const directory = await checkout();
+    const theirs = UNIFORM_FILES[0] ?? "";
+    await mkdir(path.join(directory, "docs", "agents"), { recursive: true });
+    await writeFile(path.join(directory, theirs), "# ours, from before\n");
+
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
+
+    assert.deepEqual(scaffold.overwritten, [theirs]);
   });
 
   it("leaves instructions a project already wrote for itself alone", async () => {
     const directory = await checkout();
     await writeFile(path.join(directory, "AGENTS.md"), "# mine\n");
 
-    const written = await directoryHarness().install(directory, INSTRUCTIONS);
+    const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
 
     assert.equal(await contentsOf(directory, "AGENTS.md"), "# mine\n");
-    assert.deepEqual(written, [...UNIFORM_FILES]);
+    assert.deepEqual(scaffold.paths, [...UNIFORM_FILES]);
+    assert.ok(!scaffold.overwritten.includes("AGENTS.md"));
   });
 
   it("replaces uniform files that have drifted, since uniform is the point", async () => {
@@ -72,9 +92,9 @@ describe("scaffolding the harness into a project", () => {
   it("installs nothing that points back at the manager", async () => {
     const directory = await checkout();
 
-    const written = await directoryHarness().install(directory, INSTRUCTIONS);
+    const { paths } = await directoryHarness().install(directory, INSTRUCTIONS);
 
-    for (const file of written) {
+    for (const file of paths) {
       assert.doesNotMatch(
         await contentsOf(directory, file),
         /side-projects-manager|morning loop|registry\.json|managed location/i,

@@ -3,9 +3,11 @@ import type {
   Grilling,
   GrillingSubject,
   Harness,
+  Proposal,
   RegisteredProject,
   RepoHost,
   RepoSlug,
+  Scaffold,
   Store,
 } from "./ports/index.ts";
 
@@ -49,6 +51,12 @@ export interface NewProjectReport {
   directory: string;
   /** What the harness put into the checkout, relative to it. */
   scaffolded: string[];
+  /**
+   * How the harness reached a repo that predates the manager, or undefined for
+   * a repo this command created — that one is committed straight to the branch
+   * the fresh clone is on, because there is nothing there to disturb.
+   */
+  proposal?: Proposal;
   /**
    * Whether this invocation added the project to the registry. False when it
    * was registered already, which is not an error: re-running the command on
@@ -102,28 +110,95 @@ export async function newProject(
   }
 
   const directory = await ports.host.clone(repo);
-  const scaffolded = await ports.harness.install(
+  const scaffold = await ports.harness.install(
     directory,
     agentInstructions({ repo, description }),
   );
-  await ports.host.commitAndPush(
-    directory,
-    "Install the agent harness",
-    scaffolded,
-  );
 
-  const registered = await register(ports.store, repo);
-  const grilling = await startGrilling(ports.grilling, { directory, existing });
+  // A repo created moments ago has nothing to disturb, so its harness lands
+  // where the loop will read it. A repo that predates the manager has history
+  // and possibly other people, so its harness is proposed and waits.
+  const proposal = existing
+    ? await ports.host.commitAndPropose(
+        directory,
+        SCAFFOLD_MESSAGE,
+        proposalBody(scaffold),
+        scaffold.paths,
+        HARNESS_BRANCH,
+      )
+    : undefined;
+  if (proposal === undefined) {
+    await ports.host.commitAndPush(directory, SCAFFOLD_MESSAGE, scaffold.paths);
+  }
+
+  // Paused only while the harness is somewhere the loop cannot read it: a
+  // project whose conventions are still in an unmerged branch would be worked
+  // without them. A proposal that changed nothing means they are already there.
+  const paused = proposal !== undefined && proposal.kind !== "unchanged";
+  const registered = await register(ports.store, repo, paused);
+  const grillingFailure = await startGrilling(ports.grilling, {
+    directory,
+    existing,
+  });
 
   return {
     repo,
     outcome: existing ? "existing" : "created",
     directory,
-    scaffolded,
+    scaffolded: scaffold.paths,
+    ...(proposal !== undefined && { proposal }),
     registered,
-    grilled: grilling === undefined,
-    message: summaryLine(repo, directory, registered, grilling),
+    grilled: grillingFailure === undefined,
+    message: summaryLine({
+      repo,
+      directory,
+      registered,
+      paused,
+      proposal,
+      grillingFailure,
+    }),
   };
+}
+
+/** What the scaffold commit says, whichever way it lands. */
+const SCAFFOLD_MESSAGE = "Install the agent harness";
+
+/** Where a proposed harness waits for the developer. */
+const HARNESS_BRANCH = "harness";
+
+/**
+ * What the pull request says the scaffold did.
+ *
+ * Overwritten files are named rather than left to the diff. Uniform files are
+ * copied byte for byte on purpose, but a project that predates the manager
+ * never agreed to that, and "this replaced something you wrote" is a fact the
+ * request should state in words before anyone merges it.
+ */
+function proposalBody(scaffold: Scaffold): string {
+  const added = scaffold.paths.filter(
+    (path) => !scaffold.overwritten.includes(path),
+  );
+  const sections = [
+    "The agent harness, so that this project can be worked unattended.",
+  ];
+
+  if (added.length > 0) {
+    sections.push(["Added:", ...added.map(bullet)].join("\n"));
+  }
+  if (scaffold.overwritten.length > 0) {
+    sections.push(
+      [
+        "Overwritten — this project's own copies were replaced byte for byte, so that every project reads the same conventions:",
+        ...scaffold.overwritten.map(bullet),
+      ].join("\n"),
+    );
+  }
+
+  return `${sections.join("\n\n")}\n`;
+}
+
+function bullet(path: string): string {
+  return `- \`${path}\``;
 }
 
 /**
@@ -154,28 +229,76 @@ async function startGrilling(
  * left exactly as they wrote it — a project they paused stays paused, even if
  * they point the command at it again.
  */
-async function register(store: Store, repo: RepoSlug): Promise<boolean> {
+async function register(
+  store: Store,
+  repo: RepoSlug,
+  paused: boolean,
+): Promise<boolean> {
   const projects: RegisteredProject[] = await store.loadRegistry();
   if (projects.some((project) => project.repo === repo)) {
     return false;
   }
 
-  await store.saveRegistry([...projects, { repo, paused: false }]);
+  await store.saveRegistry([...projects, { repo, paused }]);
   return true;
 }
 
-function summaryLine(
-  repo: RepoSlug,
-  directory: string,
-  registered: boolean,
-  grillingFailure: string | undefined,
-): string {
-  const registry = registered
-    ? "registered"
-    : "already registered, so the registry is untouched";
-  const line = `${repo} is at ${directory} and ${registry}.`;
+/** Everything the one printed line has to account for. */
+interface Summary {
+  repo: RepoSlug;
+  directory: string;
+  registered: boolean;
+  paused: boolean;
+  proposal: Proposal | undefined;
+  grillingFailure: string | undefined;
+}
 
-  return grillingFailure === undefined
-    ? line
-    : `${line} Its grilling could not start (${grillingFailure}); start one in the checkout yourself.`;
+/**
+ * What happened, in one line: where the project is, whether the registry now
+ * knows about it, where its harness got to, and whether the conversation
+ * opened. Each clause is there because it names something the developer might
+ * have to do next.
+ */
+function summaryLine(summary: Summary): string {
+  const sentences = [
+    `${summary.repo} is at ${summary.directory} and ${registryClause(summary)}.`,
+  ];
+
+  const harness = harnessSentence(summary.proposal);
+  if (harness !== undefined) {
+    sentences.push(harness);
+  }
+  if (summary.grillingFailure !== undefined) {
+    sentences.push(
+      `Its grilling could not start (${summary.grillingFailure}); start one in the checkout yourself.`,
+    );
+  }
+
+  return sentences.join(" ");
+}
+
+/** What the registry now says, and why, when the command did not write it. */
+function registryClause(summary: Summary): string {
+  if (!summary.registered) {
+    return "already registered, so the registry is untouched";
+  }
+  return summary.paused
+    ? "registered paused, so the loop leaves it alone until its harness is merged"
+    : "registered";
+}
+
+/** Where the harness got to, when it did not simply land. */
+function harnessSentence(proposal: Proposal | undefined): string | undefined {
+  if (proposal === undefined) {
+    return undefined;
+  }
+
+  switch (proposal.kind) {
+    case "unchanged":
+      return "Its harness was already in place, so nothing was pushed.";
+    case "proposed":
+      return `Its harness is proposed in ${proposal.url}; merge that and unpause the project.`;
+    case "pushed":
+      return `Its harness is pushed to ${proposal.branch}, but no pull request could be opened (${proposal.failure}); open and merge one, then unpause the project.`;
+  }
 }

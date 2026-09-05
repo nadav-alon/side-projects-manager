@@ -3,7 +3,7 @@ import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { RepoHost, RepoSlug } from "../ports/index.ts";
+import type { Proposal, RepoHost, RepoSlug } from "../ports/index.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -113,7 +113,151 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       const upstream = (await hasUpstream(directory)) ? [] : ["--set-upstream"];
       await run("git", ["-C", directory, "push", ...upstream, "origin", branch]);
     },
+
+    async commitAndPropose(
+      directory: string,
+      message: string,
+      body: string,
+      paths: string[],
+      branch: string,
+    ): Promise<Proposal> {
+      if (paths.length === 0 || !(await hasChanges(directory, paths))) {
+        return { kind: "unchanged" };
+      }
+
+      // Where to put the developer back. Asked before anything moves, because
+      // afterwards the checkout is on the branch this command made.
+      const found = await currentBranch(directory);
+
+      await switchTo(directory, branch);
+      try {
+        // Staged first, because a path git has never seen cannot be named to
+        // `commit --only`.
+        await run("git", ["-C", directory, "add", "--", ...paths]);
+
+        // `--only`: the checkout is the developer's, and work they had in
+        // progress there is not this command's to commit.
+        await run("git", [
+          "-C",
+          directory,
+          "commit",
+          "--only",
+          "--message",
+          message,
+          "--",
+          ...paths,
+        ]);
+        await run("git", [
+          "-C",
+          directory,
+          "push",
+          "--set-upstream",
+          "origin",
+          branch,
+        ]);
+      } finally {
+        // Whatever happened, the developer gets their checkout back as they
+        // left it. A branch switch carries their own uncommitted work across.
+        await returnTo(directory, found);
+      }
+
+      try {
+        const { stdout } = await run(
+          "gh",
+          [
+            "pr",
+            "create",
+            "--draft",
+            "--head",
+            branch,
+            "--title",
+            message,
+            "--body",
+            body,
+          ],
+          { cwd: directory },
+        );
+        return { kind: "proposed", branch, url: stdout.trim() };
+      } catch (error) {
+        // The branch is on the host by now. A repo with pull requests turned
+        // off, or a base branch nobody can open against, is a reason to say so
+        // rather than to lose the push that already happened.
+        return { kind: "pushed", branch, failure: errorMessage(error) };
+      }
+    },
   };
+}
+
+/** Whether any of `paths` differs from what the checkout has committed. */
+async function hasChanges(
+  directory: string,
+  paths: string[],
+): Promise<boolean> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "status",
+    "--porcelain",
+    "--",
+    ...paths,
+  ]);
+  return stdout.trim() !== "";
+}
+
+/**
+ * Puts the checkout on `branch`, creating it unless a previous run already
+ * did.
+ *
+ * Re-running the command while a proposal is still open adds to that branch
+ * rather than failing, which is what makes re-scaffolding after a convention
+ * changes the same command as scaffolding the first time.
+ */
+async function switchTo(directory: string, branch: string): Promise<void> {
+  try {
+    await run("git", ["-C", directory, "checkout", "-b", branch]);
+  } catch {
+    await run("git", ["-C", directory, "checkout", branch]);
+  }
+}
+
+/**
+ * Returns the checkout to where it was found.
+ *
+ * `checkout` covers a branch with commits on it and, as `-`, a detached HEAD.
+ * It cannot reach a branch that has none — an empty repo, whose HEAD points at
+ * a branch that does not exist yet — so HEAD is pointed back by hand rather
+ * than leaving the developer standing on the branch this command made.
+ */
+async function returnTo(
+  directory: string,
+  branch: string | undefined,
+): Promise<void> {
+  try {
+    await run("git", ["-C", directory, "checkout", branch ?? "-"]);
+  } catch (error) {
+    if (branch === undefined) {
+      throw error;
+    }
+    await run("git", [
+      "-C",
+      directory,
+      "symbolic-ref",
+      "HEAD",
+      `refs/heads/${branch}`,
+    ]);
+  }
+}
+
+/** What `gh` or `git` said, preferring its stderr over the exit-code message. */
+function errorMessage(error: unknown): string {
+  const stderr =
+    typeof error === "object" && error !== null && "stderr" in error
+      ? String(error.stderr).trim()
+      : "";
+  if (stderr !== "") {
+    return stderr;
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

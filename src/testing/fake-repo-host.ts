@@ -1,4 +1,4 @@
-import type { RepoHost, RepoSlug } from "../ports/index.ts";
+import type { Proposal, RepoHost, RepoSlug } from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
@@ -8,17 +8,27 @@ export interface FakePush {
   paths: string[];
 }
 
+/** One proposal the command made, in the order the fake received it. */
+export interface FakeProposal extends FakePush {
+  /** What the pull request says about the change. */
+  body: string;
+  /** The branch the scaffold was committed to, never the developer's own. */
+  branch: string;
+}
+
 /**
  * GitHub and git in memory: a set of repos that exist, and a managed location
  * that is a path shape rather than a real directory.
  *
  * Tests arrange with `alreadyExists`, which is what a repo predating the
- * manager looks like, and inspect `created`, `clones` and `pushes` to see what
- * the command did to the outside world.
+ * manager looks like, and inspect `created`, `clones`, `pushes` and
+ * `proposals` to see what the command did to the outside world.
  */
 export class FakeRepoHost implements RepoHost {
   /** The managed location every clone lands under. */
   static readonly MANAGED_LOCATION = "/side-projects";
+  /** The pull request `commitAndPropose` answers with by default. */
+  static readonly PULL_REQUEST = "https://github.com/pulls/1";
 
   readonly #existing = new Set<RepoSlug>();
 
@@ -26,8 +36,17 @@ export class FakeRepoHost implements RepoHost {
   readonly created: RepoSlug[] = [];
   /** Repos cloned, in the order they were cloned. */
   readonly clones: RepoSlug[] = [];
-  /** What was committed and pushed, in order. */
+  /** What was committed and pushed to the checkout's own branch, in order. */
   readonly pushes: FakePush[] = [];
+  /** What was proposed rather than pushed, in order. */
+  readonly proposals: FakeProposal[] = [];
+
+  /** What the next proposal comes to. A proposal that lands, unless set. */
+  proposal: (branch: string) => Proposal = (branch) => ({
+    kind: "proposed",
+    branch,
+    url: FakeRepoHost.PULL_REQUEST,
+  });
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -54,5 +73,22 @@ export class FakeRepoHost implements RepoHost {
     paths: string[],
   ): Promise<void> {
     this.pushes.push({ directory, message, paths: [...paths] });
+  }
+
+  async commitAndPropose(
+    directory: string,
+    message: string,
+    body: string,
+    paths: string[],
+    branch: string,
+  ): Promise<Proposal> {
+    this.proposals.push({
+      directory,
+      message,
+      body,
+      paths: [...paths],
+      branch,
+    });
+    return this.proposal(branch);
   }
 }

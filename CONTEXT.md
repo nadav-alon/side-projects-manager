@@ -82,6 +82,10 @@ _Avoid_: workspace, checkout directory
 Installing the harness into a project checkout: the uniform files copied verbatim, and the project's agent instructions generated fresh for it.
 _Avoid_: bootstrap, template, generate (only half of it is generated)
 
+**Proposal**:
+Scaffolding a project that predates the manager, put somewhere the developer has to say yes to: a branch and a draft pull request, never the branch their checkout was on. The project is registered paused until it merges, because a project whose conventions are still unmerged would be worked without them.
+_Avoid_: PR (say pull request), suggestion, patch
+
 **Uniform files**:
 The half of the harness every project gets byte for byte, so that improving a convention improves it everywhere from one source.
 _Avoid_: shared files, common files, boilerplate

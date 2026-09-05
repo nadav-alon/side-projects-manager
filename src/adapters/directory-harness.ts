@@ -1,7 +1,7 @@
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Harness } from "../ports/index.ts";
+import type { Harness, Scaffold } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 /**
@@ -35,23 +35,28 @@ const INSTRUCTIONS_FILE = "AGENTS.md";
  */
 export function directoryHarness(source: string = MANAGER_HOME): Harness {
   return {
-    async install(directory: string, instructions: string): Promise<string[]> {
-      const written: string[] = [];
+    async install(directory: string, instructions: string): Promise<Scaffold> {
+      const paths: string[] = [];
+      const overwritten: string[] = [];
 
       for (const file of UNIFORM_FILES) {
         const to = path.join(directory, file);
+        // Asked before the copy, because afterwards every one of them exists.
+        if (await exists(to)) {
+          overwritten.push(file);
+        }
         await mkdir(path.dirname(to), { recursive: true });
         await copyFile(path.join(source, file), to);
-        written.push(file);
+        paths.push(file);
       }
 
       const instructionsFile = path.join(directory, INSTRUCTIONS_FILE);
       if (!(await exists(instructionsFile))) {
         await writeFile(instructionsFile, instructions, "utf8");
-        written.push(INSTRUCTIONS_FILE);
+        paths.push(INSTRUCTIONS_FILE);
       }
 
-      return written;
+      return { paths, overwritten };
     },
   };
 }

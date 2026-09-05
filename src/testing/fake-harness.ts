@@ -1,4 +1,4 @@
-import type { Harness } from "../ports/index.ts";
+import type { Harness, Scaffold } from "../ports/index.ts";
 
 /** One scaffolding, as the command asked for it. */
 export interface FakeInstall {
@@ -21,8 +21,18 @@ export class FakeHarness implements Harness {
   /** Every install asked for, in order. */
   readonly installs: FakeInstall[] = [];
 
-  async install(directory: string, instructions: string): Promise<string[]> {
+  /**
+   * The paths the next install reports as having replaced a file the project
+   * already had, which is what scaffolding a repo that predates the manager
+   * looks like.
+   */
+  overwrites: string[] = [];
+
+  async install(directory: string, instructions: string): Promise<Scaffold> {
     this.installs.push({ directory, instructions });
-    return [...FakeHarness.UNIFORM_FILES, FakeHarness.INSTRUCTIONS_FILE];
+    return {
+      paths: [...FakeHarness.UNIFORM_FILES, FakeHarness.INSTRUCTIONS_FILE],
+      overwritten: [...this.overwrites],
+    };
   }
 }
