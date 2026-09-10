@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { githubRepoHost } from "./github-repo-host.ts";
-import { repoSlug } from "../ports/index.ts";
+import { repoSlug, type Ticket } from "../ports/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -297,6 +297,275 @@ describe("finding the checkout", () => {
     await assert.rejects(
       githubRepoHost(directory).clone(PILOT),
       (error: Error) => !/is a checkout of/.test(error.message),
+    );
+  });
+});
+
+/**
+ * Opening the pull request a completed run is handed over as.
+ *
+ * The push is real, against a bare repo on disk. The `gh` half is a stub on
+ * PATH that records how it was called: what this adapter owes the developer is
+ * a draft pull request against the ticket, and the arguments are where that
+ * promise is either kept or broken.
+ */
+describe("opening a draft pull request for a completed run", () => {
+  const TICKET: Ticket = {
+    repo: PILOT,
+    number: 7,
+    title: "Add the thing",
+  };
+
+  /** How one stubbed `gh` invocation is recorded: one argument per line. */
+  const CALL_SEPARATOR = "--- call ---";
+
+  /**
+   * Puts a `gh` on PATH for the length of the test, and answers with what it
+   * was called with. `body` is the script's, minus the shebang.
+   */
+  function stubGh(t: { after: (fn: () => void) => void }, body: string) {
+    const path_ = process.env["PATH"];
+    let calls: string;
+
+    const ready = (async () => {
+      const bin = await mkdtemp(path.join(tmpdir(), "gh-stub-"));
+      calls = path.join(bin, "calls");
+      await writeFile(
+        path.join(bin, "gh"),
+        `#!/bin/sh\nprintf '%s\\n' '${CALL_SEPARATOR}' "$@" >> "${calls}"\n${body}\n`,
+        { mode: 0o755 },
+      );
+      process.env["PATH"] = `${bin}:${path_ ?? ""}`;
+    })();
+
+    t.after(() => {
+      process.env["PATH"] = path_;
+    });
+
+    return {
+      ready,
+      /** Every invocation, as its argument list, in the order they happened. */
+      async calls(): Promise<string[][]> {
+        const recorded = await readFile(calls, "utf8").catch(() => "");
+        return recorded
+          .split(CALL_SEPARATOR)
+          .map((call) => call.split("\n").filter((line) => line !== ""))
+          .filter((call) => call.length > 0);
+      },
+    };
+  }
+
+  /**
+   * A checkout carrying a branch of committed work, which is what the sandbox
+   * fetches back when a run leaves commits behind.
+   */
+  async function ran(branch: string): Promise<string> {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+
+    await run("git", ["-C", directory, "switch", "--create", branch]);
+    await writeFile(path.join(directory, "thing.md"), "the thing\n");
+    await run("git", ["-C", directory, "add", "thing.md"]);
+    await run("git", ["-C", directory, "commit", "--message", "Add the thing"]);
+    await run("git", ["-C", directory, "switch", "main"]);
+    return directory;
+  }
+
+  it("pushes the branch the run left its commits on", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    assert.deepEqual(
+      await pushedFiles(directory, "origin/issue-7-add-the-thing"),
+      ["seed.md", "thing.md"],
+    );
+  });
+
+  it("leaves the checkout on the branch it found it on", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "branch",
+      "--show-current",
+    ]);
+    assert.equal(stdout.trim(), "main");
+  });
+
+  it("answers with the pull request it opened", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    const url = await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    assert.equal(url, "https://github.com/nadav-alon/pilot/pull/1");
+  });
+
+  it("opens it as a draft, from the run's branch", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), ["pr", "create"]);
+    assert.ok(call?.includes("--draft"));
+    assert.deepEqual(call?.slice(call.indexOf("--head"), call.indexOf("--head") + 2), [
+      "--head",
+      "issue-7-add-the-thing",
+    ]);
+  });
+
+  /** The value `flag` was given, so a test can name one argument at a time. */
+  function argument(call: string[] | undefined, flag: string): string | undefined {
+    const at = call?.indexOf(flag) ?? -1;
+    return at === -1 ? undefined : call?.[at + 1];
+  }
+
+  it("opens it against the branch the run was based on", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(argument(call, "--base"), "main");
+  });
+
+  it("names the project the ticket lives in, rather than letting gh choose", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(argument(call, "--repo"), PILOT);
+  });
+
+  it("says so when the branch cannot be pushed", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    // The host already has a branch of this name, carrying something else —
+    // which is what a re-cloned checkout cannot see, since it looks for a free
+    // branch name among its own refs.
+    await run("git", ["-C", directory, "push", "origin", "issue-7-add-the-thing"]);
+    await run("git", ["-C", directory, "switch", "issue-7-add-the-thing"]);
+    await writeFile(path.join(directory, "thing.md"), "something else\n");
+    await run("git", [
+      "-C",
+      directory,
+      "commit",
+      "--all",
+      "--amend",
+      "--message",
+      "Add the thing",
+    ]);
+    await run("git", ["-C", directory, "switch", "main"]);
+
+    await assert.rejects(
+      githubRepoHost().openDraftPullRequest(
+        directory,
+        "issue-7-add-the-thing",
+        TICKET,
+      ),
+      /Could not push issue-7-add-the-thing/,
+    );
+
+    // Nothing was asked of GitHub: there is no pushed branch to open against.
+    assert.deepEqual(await gh.calls(), []);
+  });
+
+  it("references the ticket it was run for", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    const [call] = await gh.calls();
+    const body = call?.[call.indexOf("--body") + 1] ?? "";
+    assert.match(body, /#7\b/);
+  });
+
+  it("never promotes it out of draft, and never merges it", async (t) => {
+    const gh = stubGh(t, "echo https://github.com/nadav-alon/pilot/pull/1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      "issue-7-add-the-thing",
+      TICKET,
+    );
+
+    // Everything this adapter asked GitHub to do, not just the first thing:
+    // a second call is exactly how a draft would stop being one.
+    const commands = (await gh.calls()).map((call) => call.slice(0, 2).join(" "));
+    assert.deepEqual(commands, ["pr create"]);
+  });
+
+  it("says where the commits are when the pull request cannot be opened", async (t) => {
+    const gh = stubGh(t, "echo 'pull requests are disabled' >&2\nexit 1");
+    await gh.ready;
+    const directory = await ran("issue-7-add-the-thing");
+
+    await assert.rejects(
+      githubRepoHost().openDraftPullRequest(
+        directory,
+        "issue-7-add-the-thing",
+        TICKET,
+      ),
+      /issue-7-add-the-thing/,
+    );
+
+    // The push happened before the pull request was asked for, so the work is
+    // on the host and the message is what tells the developer where.
+    assert.deepEqual(
+      await pushedFiles(directory, "origin/issue-7-add-the-thing"),
+      ["seed.md", "thing.md"],
     );
   });
 });

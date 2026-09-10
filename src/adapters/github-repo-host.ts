@@ -3,7 +3,12 @@ import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { Proposal, RepoHost, RepoSlug } from "../ports/index.ts";
+import type {
+  Proposal,
+  RepoHost,
+  RepoSlug,
+  Ticket,
+} from "../ports/index.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -185,7 +190,92 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         return { kind: "pushed", branch, failure: errorMessage(error) };
       }
     },
+
+    async openDraftPullRequest(
+      directory: string,
+      branch: string,
+      ticket: Ticket,
+    ): Promise<string> {
+      // What the run branched from: the sandbox clones this checkout at its
+      // HEAD, so the branch it is on is the base the commits actually sit on.
+      // Asked rather than left to `gh`, which would open against the remote's
+      // default branch and put every commit between the two in the diff.
+      const base = await currentBranch(directory);
+
+      // By name, not by checking it out: the branch came back from the sandbox
+      // as a ref in this checkout, and the developer's own checkout is never
+      // moved to push it.
+      try {
+        await run("git", [
+          "-C",
+          directory,
+          "push",
+          "--set-upstream",
+          "origin",
+          branch,
+        ]);
+      } catch (error) {
+        // Most likely a branch of this name already on the host from an
+        // earlier morning, which a checkout that has since been re-cloned
+        // cannot see. Said plainly, because the raw push output does not.
+        throw new Error(
+          `Could not push ${branch} to ${ticket.repo}: ${errorMessage(error)}`,
+        );
+      }
+
+      try {
+        const { stdout } = await run(
+          "gh",
+          [
+            "pr",
+            "create",
+            // Named rather than inferred: `gh` reads the base repo from the
+            // remotes, preferring `upstream`, and only `origin` was ever
+            // checked to be this project.
+            "--repo",
+            ticket.repo,
+            "--draft",
+            "--head",
+            branch,
+            ...(base === undefined ? [] : ["--base", base]),
+            "--title",
+            ticket.title,
+            "--body",
+            pullRequestBody(ticket),
+          ],
+          { cwd: directory },
+        );
+        return stdout.trim();
+      } catch (error) {
+        // The commits are on the host either way, so the branch is named here:
+        // a morning whose pull request could not be opened still produced work,
+        // and the developer needs to be able to find it.
+        //
+        // TODO[#13]: report this as a failed run rather than throwing, so the
+        // morning still says what it did and what it cost.
+        throw new Error(
+          `Pushed ${branch} to ${ticket.repo}, but could not open a pull request for it: ${errorMessage(error)}`,
+        );
+      }
+    },
   };
+}
+
+/**
+ * What the pull request says. Short on purpose: the ticket says what was
+ * wanted and the diff says what was done, and neither is worth restating.
+ *
+ * The closing reference is what links the two in GitHub's own UI. It closes
+ * nothing by itself — the pull request is a draft, and only a merge the
+ * developer makes acts on it.
+ */
+function pullRequestBody(ticket: Ticket): string {
+  return [
+    `Closes #${ticket.number}.`,
+    "",
+    "Implemented by the morning loop, in a sandbox, from the ticket above.",
+    "It stays a draft: promoting and merging it are yours.",
+  ].join("\n");
 }
 
 /** Whether any of `paths` differs from what the checkout has committed. */

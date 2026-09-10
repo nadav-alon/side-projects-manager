@@ -67,6 +67,11 @@ export interface MorningRunReport {
   projects: ProjectOutcome[];
   /** What the run left behind. Absent on a morning that ran nothing. */
   run?: SandboxRunResult;
+  /**
+   * The draft pull request the run's work is waiting in. Absent when the
+   * morning ran nothing, and when the run left no commits to open one for.
+   */
+  pullRequest?: string;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -75,6 +80,16 @@ export interface MorningRunReport {
 interface Selection {
   project: RegisteredProject;
   ticket: Ticket;
+}
+
+/**
+ * What working one project came to: the run, and the draft pull request its
+ * commits are waiting in.
+ */
+interface Work {
+  run: SandboxRunResult;
+  /** Absent when the run left no commits, so there was nothing to open. */
+  pullRequest?: string;
 }
 
 /** What considering the registry came to: the verdicts, and any work found. */
@@ -101,10 +116,10 @@ export async function morningRun(
   const state = new Map(await ports.store.loadState());
   const { outcomes, selection } = await considerProjects(ports, state);
 
-  let run: SandboxRunResult | undefined;
+  let worked: Work | undefined;
   try {
     if (selection !== undefined) {
-      run = await work(ports, selection, state);
+      worked = await work(ports, selection, state);
     }
   } finally {
     // State is written back at the end of every invocation, including one that
@@ -118,9 +133,12 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    ...(run !== undefined && { run }),
+    ...(worked !== undefined && { run: worked.run }),
+    ...(worked?.pullRequest !== undefined && {
+      pullRequest: worked.pullRequest,
+    }),
     outcome: selection === undefined ? "dry-queue" : "work-selected",
-    message: summaryLine(outcomes, run),
+    message: summaryLine(outcomes, worked),
   };
 }
 
@@ -160,29 +178,43 @@ async function considerProjects(
 }
 
 /**
- * The second step: run the selected ticket, and record what that cost.
+ * The second step: run the selected ticket, hand the work over as a draft
+ * pull request, and record what that cost.
  *
  * The checkout comes from the repo host rather than from anything the loop
  * remembers, so a project whose clone has gone missing heals on the way into
  * the run instead of failing the morning.
+ *
+ * A run that committed nothing is handed over to nobody: the sandbox leaves no
+ * branch behind for it, and a pull request with no commits in it is not
+ * something to open and not something to review.
  */
 async function work(
   ports: MorningRunPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
-): Promise<SandboxRunResult> {
+): Promise<Work> {
   const repo = selection.project.repo;
   const checkout = await ports.repoHost.clone(repo);
   const run = await ports.sandbox.run(selection.ticket, checkout);
 
   const at = ports.clock.now();
-  const worked = state.get(repo);
+  const recorded = state.get(repo);
   state.set(repo, {
     lastWorkedAt: at,
-    runs: [...(worked?.runs ?? []), { at, tokensUsed: run.tokensUsed }],
+    runs: [...(recorded?.runs ?? []), { at, tokensUsed: run.tokensUsed }],
   });
 
-  return run;
+  if (run.commits.length === 0) {
+    return { run };
+  }
+
+  const pullRequest = await ports.repoHost.openDraftPullRequest(
+    checkout,
+    run.branch,
+    selection.ticket,
+  );
+  return { run, pullRequest };
 }
 
 function outcome(
@@ -216,7 +248,7 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 
 function summaryLine(
   projects: ProjectOutcome[],
-  run: SandboxRunResult | undefined,
+  worked: Work | undefined,
 ): string {
   const selected = projects.find(isSelected);
   const skipped = projects.flatMap((project) => {
@@ -226,16 +258,26 @@ function summaryLine(
 
   if (selected !== undefined) {
     const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
-    const landed =
-      run === undefined
-        ? "the run left nothing behind"
-        : `${commitCount(run)} on ${run.branch}`;
-    return `Worked ${selected.repo}: ${landed}.${aside}`;
+    return `Worked ${selected.repo}: ${landed(worked)}.${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
+}
+
+/**
+ * Where the morning's work ended up.
+ *
+ * No pull request means no work to look at: either the morning ran nothing, or
+ * the run committed nothing, in which case the sandbox kept no branch for it
+ * and there is no branch worth naming.
+ */
+function landed(worked: Work | undefined): string {
+  if (worked?.pullRequest === undefined) {
+    return "the run left nothing behind";
+  }
+  return `${commitCount(worked.run)} on ${worked.run.branch} (${worked.pullRequest})`;
 }
 
 /** How many commits the run left, said the way a person would say it. */

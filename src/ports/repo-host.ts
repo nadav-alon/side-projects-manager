@@ -1,3 +1,4 @@
+import type { Ticket } from "./issue-tracker.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
 /**
@@ -73,4 +74,20 @@ export interface RepoHost {
     paths: string[],
     branch: string,
   ): Promise<Proposal>;
+  /**
+   * Pushes `branch` from the checkout at `directory` and opens a draft pull
+   * request for it against `ticket`, answering with the pull request's URL.
+   *
+   * Draft, and only ever draft: there is no verb here that promotes a pull
+   * request or merges one, because promoting and merging are the developer's
+   * and a port that could do them is a port an unattended morning could use.
+   *
+   * The branch is the agent's work, already committed and fetched back into
+   * the checkout by the sandbox, so nothing is committed here.
+   */
+  openDraftPullRequest(
+    directory: string,
+    branch: string,
+    ticket: Ticket,
+  ): Promise<string>;
 }

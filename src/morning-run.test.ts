@@ -3,7 +3,12 @@ import { describe, it } from "node:test";
 
 import { morningRun, type ProjectOutcome } from "./morning-run.ts";
 import { repoSlug, tokenCount } from "./ports/index.ts";
-import { FROZEN_NOW, FakeRepoHost, fakePorts } from "./testing/index.ts";
+import {
+  FROZEN_NOW,
+  FakeRepoHost,
+  type FakePorts,
+  fakePorts,
+} from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -375,6 +380,139 @@ describe("morningRun", () => {
 
       const state = await ports.store.loadState();
       assert.equal(state.get(PILOT), undefined);
+    });
+  });
+
+  describe("the draft pull request", () => {
+    /** A run that did the work: commits on a branch, against ticket #7. */
+    function ranSuccessfully(ports: FakePorts): void {
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: "issue-7-add-the-thing",
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+    }
+
+    it("is opened for the branch a run left commits on", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: "issue-7-add-the-thing",
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: "issue-7-add-the-thing",
+          ticket,
+        },
+      ]);
+    });
+
+    it("is reported, so the developer is told where to review", async () => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.pullRequest, FakeRepoHost.DRAFT_PULL_REQUEST);
+      assert.match(report.message, /https:\/\/github\.com\/pulls\/2/);
+    });
+
+    it("is not opened for a run that committed nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: "issue-7-add-the-thing",
+        commits: [],
+        output: "the agent gave up",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+    });
+
+    it("leaves the message saying nothing was left behind", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: "issue-7-add-the-thing",
+        commits: [],
+        output: "the agent gave up",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      // Never the branch: the sandbox keeps no branch for a run that
+      // committed nothing, so naming one would send the developer looking
+      // for something that was never created.
+      assert.match(report.message, /left nothing behind/);
+      assert.doesNotMatch(report.message, /issue-7-add-the-thing/);
+    });
+
+    it("is not opened on a morning that ran nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+    });
+
+    it("still leaves the project recorded as worked, at what the run cost", async () => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT), {
+        lastWorkedAt: FROZEN_NOW,
+        runs: [{ at: FROZEN_NOW, tokensUsed: tokenCount(42_000) }],
+      });
+    });
+
+    it("leaves the work recorded even when it could not be opened", async () => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+      ports.repoHost.draftPullRequest = async () => {
+        throw new Error("pull requests are disabled on this repository");
+      };
+
+      await assert.rejects(morningRun(ports), /pull requests are disabled/);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+      ]);
     });
   });
 
