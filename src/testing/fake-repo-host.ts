@@ -1,10 +1,13 @@
 import type {
+  Branch,
   Checkout,
   Proposal,
+  PullRequestUrl,
   RepoHost,
   RepoSlug,
+  Ticket,
 } from "../ports/index.ts";
-import { checkout } from "../ports/index.ts";
+import { checkout, pullRequestUrl } from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
@@ -22,19 +25,34 @@ export interface FakeProposal extends FakePush {
   branch: string;
 }
 
+/** One draft pull request the loop opened, in the order the fake received it. */
+export interface FakePullRequest {
+  /** The project checkout the branch was pushed from. */
+  directory: Checkout;
+  /** The branch the run left its commits on. */
+  branch: Branch;
+  /** The ticket the pull request is opened against. */
+  ticket: Ticket;
+}
+
 /**
  * GitHub and git in memory: a set of repos that exist, and a managed location
  * that is a path shape rather than a real directory.
  *
  * Tests arrange with `alreadyExists`, which is what a repo predating the
- * manager looks like, and inspect `created`, `clones`, `pushes` and
- * `proposals` to see what the command did to the outside world.
+ * manager looks like, and inspect `created`, `clones`, `pushes`, `proposals`
+ * and `pullRequests` to see what the command did to the outside world.
  */
 export class FakeRepoHost implements RepoHost {
   /** The managed location every clone lands under. */
   static readonly MANAGED_LOCATION = "/side-projects";
-  /** The pull request `commitAndPropose` answers with by default. */
-  static readonly PULL_REQUEST = "https://github.com/pulls/1";
+  /** The pull request a proposed scaffold waits in, unless a test says otherwise. */
+  static readonly PROPOSED_PULL_REQUEST =
+    "https://github.com/nadav-alon/pilot/pull/1";
+  /** The pull request a run's work waits in, unless a test says otherwise. */
+  static readonly RUN_PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/2",
+  );
 
   readonly #existing = new Set<RepoSlug>();
 
@@ -46,13 +64,19 @@ export class FakeRepoHost implements RepoHost {
   readonly pushes: FakePush[] = [];
   /** What was proposed rather than pushed, in order. */
   readonly proposals: FakeProposal[] = [];
+  /** The draft pull requests opened for runs, in order. */
+  readonly pullRequests: FakePullRequest[] = [];
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: string) => Proposal = (branch) => ({
     kind: "proposed",
     branch,
-    url: FakeRepoHost.PULL_REQUEST,
+    url: FakeRepoHost.PROPOSED_PULL_REQUEST,
   });
+
+  /** What the next draft pull request comes to. One that opens, unless set. */
+  draftPullRequest: () => Promise<PullRequestUrl> = async () =>
+    FakeRepoHost.RUN_PULL_REQUEST;
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -96,5 +120,14 @@ export class FakeRepoHost implements RepoHost {
       branch,
     });
     return this.proposal(branch);
+  }
+
+  async openDraftPullRequest(
+    directory: Checkout,
+    branch: Branch,
+    ticket: Ticket,
+  ): Promise<PullRequestUrl> {
+    this.pullRequests.push({ directory, branch, ticket });
+    return this.draftPullRequest();
   }
 }
