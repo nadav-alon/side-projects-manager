@@ -3,7 +3,7 @@ export { FakeGrilling } from "./fake-grilling.ts";
 export { FakeHarness, type FakeInstall } from "./fake-harness.ts";
 export { FakeIssueTracker } from "./fake-issue-tracker.ts";
 export { FakeRepoHost, type FakePush } from "./fake-repo-host.ts";
-export { FakeSandbox, type FakeRun } from "./fake-sandbox.ts";
+export { FakeSandbox } from "./fake-sandbox.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { NO_USAGE, FakeUsageLedger } from "./fake-usage-ledger.ts";
 export {

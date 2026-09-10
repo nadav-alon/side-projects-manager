@@ -3,7 +3,13 @@ import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { Proposal, RepoHost, RepoSlug } from "../ports/index.ts";
+import type {
+  Checkout,
+  Proposal,
+  RepoHost,
+  RepoSlug,
+} from "../ports/index.ts";
+import { checkout } from "../ports/index.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -36,8 +42,8 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       await run("gh", ["repo", "create", repo, "--private", ...options]);
     },
 
-    async clone(repo: RepoSlug): Promise<string> {
-      const directory = path.join(location, repo);
+    async clone(repo: RepoSlug): Promise<Checkout> {
+      const directory = checkout(path.join(location, repo));
       await mkdir(path.dirname(directory), { recursive: true });
 
       const origin = await originOf(directory);

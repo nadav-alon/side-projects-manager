@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { morningRun, type ProjectOutcome } from "./morning-run.ts";
-import { repoSlug, tokenCount } from "./ports/index.ts";
+import { branch, repoSlug, tokenCount } from "./ports/index.ts";
 import { FROZEN_NOW, FakeRepoHost, fakePorts } from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
@@ -263,7 +263,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1", "c0ffee2"],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
@@ -272,7 +272,7 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.deepEqual(report.run, {
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1", "c0ffee2"],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
@@ -296,7 +296,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1"],
         output: "",
         tokensUsed: tokenCount(42_000),
@@ -332,7 +332,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "",
         tokensUsed: tokenCount(42_000),

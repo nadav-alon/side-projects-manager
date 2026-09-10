@@ -12,6 +12,7 @@ import type {
   Ticket,
   UsageLedger,
 } from "./ports/index.ts";
+import { recordRun } from "./ports/index.ts";
 
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
@@ -77,8 +78,8 @@ interface Selection {
   ticket: Ticket;
 }
 
-/** What considering the registry came to: the verdicts, and any work found. */
-interface Consideration {
+/** What walking the registry came to: the verdicts, and any work found. */
+interface RegistryScan {
   outcomes: ProjectOutcome[];
   /** Absent when no project had an eligible ticket. */
   selection?: Selection;
@@ -135,7 +136,7 @@ export async function morningRun(
 async function considerProjects(
   ports: MorningRunPorts,
   state: State,
-): Promise<Consideration> {
+): Promise<RegistryScan> {
   const outcomes: ProjectOutcome[] = [];
 
   for (const project of await ports.store.loadRegistry()) {
@@ -173,14 +174,11 @@ async function work(
 ): Promise<SandboxRunResult> {
   const repo = selection.project.repo;
   const checkout = await ports.repoHost.clone(repo);
-  const run = await ports.sandbox.run(selection.ticket, checkout);
+  const run = await ports.sandbox.run({ ticket: selection.ticket, checkout });
 
   const at = ports.clock.now();
-  const worked = state.get(repo);
-  state.set(repo, {
-    lastWorkedAt: at,
-    runs: [...(worked?.runs ?? []), { at, tokensUsed: run.tokensUsed }],
-  });
+  const cost = { at, tokensUsed: run.tokensUsed };
+  state.set(repo, recordRun(state.get(repo), cost));
 
   return run;
 }
@@ -230,7 +228,11 @@ function summaryLine(
       run === undefined
         ? "the run left nothing behind"
         : `${commitCount(run)} on ${run.branch}`;
-    return `Worked ${selected.repo}: ${landed}.${aside}`;
+    // A failed agent that committed still says what it landed, and then why it
+    // stopped: the developer needs both to know whether to keep the branch.
+    const stopped =
+      run?.failure === undefined ? "" : ` The agent failed: ${run.failure}.`;
+    return `Worked ${selected.repo}: ${landed}.${stopped}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";

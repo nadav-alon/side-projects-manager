@@ -4,14 +4,25 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { Sandbox, SandboxRunResult, Ticket } from "../ports/index.ts";
-import { tokenCount, type TokenCount } from "../ports/index.ts";
+import type {
+  Branch,
+  Checkout,
+  RunRequest,
+  Sandbox,
+  SandboxRunResult,
+  Ticket,
+} from "../ports/index.ts";
+import {
+  branch,
+  checkout,
+  tokenCount,
+  type TokenCount,
+} from "../ports/index.ts";
 
 const run = promisify(execFile);
 
 /** The image the harness is baked into, as `npm run sandbox:build` tags it. */
-const IMAGE =
-  process.env["SIDE_PROJECTS_SANDBOX_IMAGE"] || "side-projects-sandbox:latest";
+const IMAGE = "side-projects-sandbox:latest";
 
 /**
  * How much of the agent's output to hold in memory. A full implementation run
@@ -20,26 +31,38 @@ const IMAGE =
  */
 const OUTPUT_LIMIT = 64 * 1024 * 1024;
 
-/** How many branches of one name to try before giving up on a free one. */
-const BRANCH_ATTEMPTS = 100;
+/**
+ * How many branches of one name to try before giving up on a free one.
+ *
+ * A ticket that has come round this many mornings running is not a naming
+ * problem; it is a ticket nobody is closing, and the developer should hear
+ * about it rather than collect another branch.
+ */
+const BRANCH_ATTEMPTS = 10;
 
 /** What one agent run in the container came back with. */
 export interface AgentRun {
   /** Everything the agent said, kept for the ticket comment on failure. */
   output: string;
   tokensUsed: TokenCount;
+  /**
+   * Why the run did not finish cleanly, absent when it did. Reported rather
+   * than thrown: an agent that fell over may have committed first, and its
+   * spend is real either way.
+   */
+  failure?: string;
 }
 
 /**
- * Runs the agent against the workspace mounted at `directory`, told to do
+ * Runs the agent against the clone mounted at `directory`, told to do
  * `prompt`.
  *
  * A parameter rather than a hard-wired `docker run` so that the git half of
- * the sandbox — the workspace, the branch, the commits — can be exercised
- * without docker, a credential, or a network.
+ * the sandbox — the clone, the branch, the commits — can be exercised without
+ * docker, a credential, or a network.
  */
 export type Container = (
-  directory: string,
+  directory: Checkout,
   prompt: string,
 ) => Promise<AgentRun>;
 
@@ -71,8 +94,8 @@ export function containerSandbox(
   let queue: Promise<unknown> = Promise.resolve();
 
   return {
-    async run(ticket: Ticket, checkout: string): Promise<SandboxRunResult> {
-      const result = queue.then(() => runOnClone(container, ticket, checkout));
+    async run(request: RunRequest): Promise<SandboxRunResult> {
+      const result = queue.then(() => runOnClone(container, request));
       queue = result.catch(() => undefined);
       return result;
     },
@@ -81,22 +104,24 @@ export function containerSandbox(
 
 async function runOnClone(
   container: Container,
-  ticket: Ticket,
-  checkout: string,
+  request: RunRequest,
 ): Promise<SandboxRunResult> {
-  const branch = await freeBranch(checkout, branchFor(ticket));
-  const workspace = await mkdtemp(path.join(tmpdir(), "side-projects-run-"));
+  const { ticket, checkout: project } = request;
+  const onto = await freeBranch(project, branchFor(ticket));
+  const clone = checkout(
+    await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
+  );
 
   try {
     // `--no-hardlinks`: the clone is handed to a container running as root
     // (TODO[#27]), and nothing it does should be able to reach an object file
     // the developer's own checkout is still using.
-    await run("git", ["clone", "--no-hardlinks", "--quiet", checkout, workspace]);
-    const base = await revision(workspace, "HEAD");
-    await run("git", ["-C", workspace, "switch", "--create", branch]);
+    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    const base = await revision(clone, "HEAD");
+    await run("git", ["-C", clone, "switch", "--create", onto]);
 
-    const agent = await container(workspace, promptFor(ticket));
-    const commits = await commitsSince(workspace, base);
+    const agent = await attempt(container, clone, promptFor(ticket));
+    const commits = await commitsSince(clone, base);
 
     // Only when the agent actually committed: a branch pointing at the commit
     // it started from is not work, and the checkout should not collect one
@@ -104,40 +129,74 @@ async function runOnClone(
     if (commits.length > 0) {
       await run("git", [
         "-C",
-        checkout,
+        project,
         "fetch",
         "--no-tags",
-        workspace,
-        `${branch}:${branch}`,
+        clone,
+        `${onto}:${onto}`,
       ]);
     }
 
     return {
-      branch,
+      branch: onto,
       commits,
       output: agent.output,
       tokensUsed: agent.tokensUsed,
+      ...(agent.failure !== undefined && { failure: agent.failure }),
     };
   } finally {
     // Whatever became of the run, the clone does not outlive it — and a clone
     // that will not delete never costs the caller its result. The agent runs
     // as root, so its files can be undeletable by the developer; that is worth
     // a warning, not the loss of a branch that was pushed successfully.
-    await rm(workspace, { recursive: true, force: true }).catch(
+    await rm(clone, { recursive: true, force: true }).catch(
       (error: unknown) => {
-        console.warn(`Left ${workspace} behind: ${describe(error)}`);
+        console.warn(`Left ${clone} behind: ${describe(error)}`);
       },
     );
   }
 }
 
-/** What the agent is asked to do. The repo's own instructions say how. */
+/**
+ * One agent run, however it ends.
+ *
+ * A container that throws is a failed run, not a failed sandbox: the commits
+ * it managed before it stopped are still work, its output is what says what
+ * went wrong, and the tokens it spent were spent. Losing all three because the
+ * process exited non-zero is the silent failure this adapter exists to avoid,
+ * so the throw becomes a result the loop can record and report.
+ */
+async function attempt(
+  container: Container,
+  clone: Checkout,
+  prompt: string,
+): Promise<AgentRun> {
+  try {
+    return await container(clone, prompt);
+  } catch (error: unknown) {
+    return {
+      output: describe(error),
+      tokensUsed: tokenCount(0),
+      failure: describe(error),
+    };
+  }
+}
+
+/**
+ * What the agent is asked to do. The repo's own instructions say how.
+ *
+ * `--repo` is spelled out because the clone's `origin` is a path on the host
+ * filesystem: `gh` cannot work out which GitHub repo that is, and an agent
+ * that cannot read its ticket implements the title and reports success.
+ */
 function promptFor(ticket: Ticket): string {
   return [
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
-    "Read the issue with `gh issue view` first, and follow this repo's own",
-    "agent instructions and coding standards. Commit your work to the branch",
-    "you are on; do not push, and do not open a pull request.",
+    `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
+    "first — this clone's origin is a local path, so gh cannot infer the repo",
+    "— and follow this repo's own agent instructions and coding standards.",
+    "Commit your work to the branch you are on; do not push, and do not open a",
+    "pull request.",
   ].join(" ");
 }
 
@@ -145,16 +204,16 @@ function promptFor(ticket: Ticket): string {
  * The branch a ticket's work lands on, in the `issue-<n>-<slug>` shape the
  * projects already use, so a branch reads the same whoever made it.
  */
-function branchFor(ticket: Ticket): string {
+function branchFor(ticket: Ticket): Branch {
   const slug = ticket.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
     .replace(/-+$/g, "");
-  return slug === ""
-    ? `issue-${ticket.number}`
-    : `issue-${ticket.number}-${slug}`;
+  return branch(
+    slug === "" ? `issue-${ticket.number}` : `issue-${ticket.number}-${slug}`,
+  );
 }
 
 /**
@@ -164,27 +223,27 @@ function branchFor(ticket: Ticket): string {
  * round again on a later morning. A second attempt gets its own branch rather
  * than failing the morning or writing over what the first one left.
  */
-async function freeBranch(checkout: string, wanted: string): Promise<string> {
+async function freeBranch(project: Checkout, wanted: Branch): Promise<Branch> {
   for (let attempt = 1; attempt <= BRANCH_ATTEMPTS; attempt++) {
-    const candidate = attempt === 1 ? wanted : `${wanted}-${attempt}`;
-    if (!(await hasBranch(checkout, candidate))) {
+    const candidate = attempt === 1 ? wanted : branch(`${wanted}-${attempt}`);
+    if (!(await hasBranch(project, candidate))) {
       return candidate;
     }
   }
   throw new Error(
-    `${checkout} already has ${BRANCH_ATTEMPTS} branches named after ${wanted}. Clear the old ones out.`,
+    `${project} already has ${BRANCH_ATTEMPTS} branches named after ${wanted}. Close the ticket, or clear the old ones out.`,
   );
 }
 
-async function hasBranch(checkout: string, branch: string): Promise<boolean> {
+async function hasBranch(project: Checkout, of: Branch): Promise<boolean> {
   try {
     await run("git", [
       "-C",
-      checkout,
+      project,
       "show-ref",
       "--verify",
       "--quiet",
-      `refs/heads/${branch}`,
+      `refs/heads/${of}`,
     ]);
     return true;
   } catch {
@@ -192,19 +251,16 @@ async function hasBranch(checkout: string, branch: string): Promise<boolean> {
   }
 }
 
-async function revision(directory: string, of: string): Promise<string> {
+async function revision(directory: Checkout, of: string): Promise<string> {
   const { stdout } = await run("git", ["-C", directory, "rev-parse", of]);
   return stdout.trim();
 }
 
 /** The commits the agent made, oldest first. Empty when it committed none. */
-async function commitsSince(
-  workspace: string,
-  base: string,
-): Promise<string[]> {
+async function commitsSince(clone: Checkout, base: string): Promise<string[]> {
   const { stdout } = await run(
     "git",
-    ["-C", workspace, "rev-list", "--reverse", `${base}..HEAD`],
+    ["-C", clone, "rev-list", "--reverse", `${base}..HEAD`],
     { maxBuffer: OUTPUT_LIMIT },
   );
   return stdout.split("\n").filter((line) => line !== "");
@@ -220,42 +276,68 @@ function describe(error: unknown): string {
  *
  * Credentials are passed through by name rather than by value, so no token
  * ever appears in an argument list. `gh` needs one of its own: the prompt asks
- * the agent to read the ticket, and projects are private.
+ * the agent to read the ticket, and projects are private. Both spellings are
+ * forwarded because `gh` accepts either, and which one a developer has
+ * exported is not this adapter's business.
  */
 const dockerContainer: Container = async (directory, prompt) => {
-  const { stdout } = await run(
-    "docker",
-    [
-      "run",
-      "--rm",
-      "--volume",
-      `${directory}:/repo`,
-      "--env",
-      "CLAUDE_CODE_OAUTH_TOKEN",
-      "--env",
-      "GH_TOKEN",
-      "--env",
-      "GITHUB_TOKEN",
-      IMAGE,
-      "--print",
-      prompt,
-      "--output-format",
-      "json",
-    ],
-    { maxBuffer: OUTPUT_LIMIT },
-  );
-  return readAgentRun(stdout);
+  const command = [
+    "run",
+    "--rm",
+    "--volume",
+    `${directory}:/repo`,
+    "--env",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "--env",
+    "GH_TOKEN",
+    "--env",
+    "GITHUB_TOKEN",
+    IMAGE,
+    "--print",
+    prompt,
+    "--output-format",
+    "json",
+  ];
+
+  try {
+    const { stdout, stderr } = await run("docker", command, {
+      maxBuffer: OUTPUT_LIMIT,
+    });
+    return readAgentRun(stdout, stderr);
+  } catch (error: unknown) {
+    // A non-zero exit is an agent that gave up, an image that is not built, or
+    // a credential that is not set — and in the first case it may have
+    // committed first. `execFile` hangs the output it did capture off the
+    // error, so the run still comes back with what it said and what it spent.
+    const { stdout, stderr } = captured(error);
+    return { ...readAgentRun(stdout, stderr), failure: describe(error) };
+  }
 };
+
+/** What `execFile` captured before it rejected. Empty when it captured none. */
+function captured(error: unknown): { stdout: string; stderr: string } {
+  const output = error as { stdout?: unknown; stderr?: unknown };
+  return {
+    stdout: typeof output.stdout === "string" ? output.stdout : "",
+    stderr: typeof output.stderr === "string" ? output.stderr : "",
+  };
+}
 
 /**
  * What `claude --output-format json` said. Output the manager cannot parse is
  * still output worth keeping, so an unreadable envelope reports the raw text
  * and no spend rather than failing the run.
+ *
+ * `stderr` is appended rather than dropped: a run that went wrong says so
+ * there, and that is exactly the run whose output somebody has to read.
  */
-export function readAgentRun(stdout: string): AgentRun {
+export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
-    return { output: stdout, tokensUsed: tokenCount(0) };
+    return {
+      output: withDiagnostics(stdout, stderr),
+      tokensUsed: tokenCount(0),
+    };
   }
 
   const { result, usage } = envelope as {
@@ -263,9 +345,19 @@ export function readAgentRun(stdout: string): AgentRun {
     usage?: unknown;
   };
   return {
-    output: typeof result === "string" ? result : stdout,
+    output: withDiagnostics(
+      typeof result === "string" ? result : stdout,
+      stderr,
+    ),
     tokensUsed: totalTokens(usage),
   };
+}
+
+function withDiagnostics(output: string, stderr: string): string {
+  if (stderr.trim() === "") {
+    return output;
+  }
+  return output === "" ? stderr : `${output}\n${stderr}`;
 }
 
 function parse(stdout: string): unknown {
