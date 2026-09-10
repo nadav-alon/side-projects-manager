@@ -16,23 +16,30 @@ guards and any future cloud trigger are callers of `morningRun` exactly like it 
 
 ## Running a ticket
 
-The sandbox ([`src/adapters/container-sandbox.ts`](src/adapters/container-sandbox.ts)) clones the
-project's checkout into a throwaway workspace, puts the agent on a branch of its own there, and
-bind-mounts that workspace into the image the harness is baked into ([`Dockerfile`](Dockerfile)).
+The sandbox ([`src/adapters/container-sandbox.ts`](src/adapters/container-sandbox.ts)) makes a
+throwaway clone of the project's checkout, puts the agent on a branch of its own there, and
+bind-mounts that clone into the image the harness is baked into ([`Dockerfile`](Dockerfile)).
 The branch the developer's checkout sits on is never committed to and never checked out from under
 them. When the run ends, a branch that gained commits is fetched back into the checkout and the
-workspace is deleted.
+clone is deleted.
 
 A clone rather than a `git worktree`: a worktree's `.git` is a file pointing at an absolute path
 inside the parent repository, so a worktree mounted on its own is not a repository at all from
 inside the container.
 
+An agent that fails does not fail the morning. Its commits, its output and what it spent all come
+back as a result carrying a `failure`, because a run that fell over is exactly the one worth having
+recorded — the summary line says the agent failed and why, and the loop writes the spend to state
+either way.
+
 Runs are serialized within one process — a second run waits for the first rather than starting a
 container beside it. Two separate invocations are not covered by that; the once-per-day lock is
 [#15](https://github.com/nadav-alon/side-projects-manager/issues/15). Build the image with
 `npm run sandbox:build`, and export `CLAUDE_CODE_OAUTH_TOKEN` before a run — the container
-authenticates on the subscription, not on a metered API key. Export `GH_TOKEN` too if you want the
-agent to be able to read the ticket it was given.
+authenticates on the subscription, not on a metered API key. Export `GH_TOKEN` (or `GITHUB_TOKEN`;
+either is forwarded) too, so the agent can read the ticket it was given — the prompt names the
+repo explicitly with `gh issue view --repo`, because the clone's `origin` is a path on this
+filesystem and `gh` can resolve nothing from it.
 
 ## Starting a project
 
@@ -126,7 +133,7 @@ Installing a plugin is a git clone plus a local file write with no Anthropic cal
 the image needs no credential at all:
 
 ```sh
-docker build -t side-projects-sandbox .
+docker build -t side-projects-sandbox:latest .
 ```
 
 Running the built image does need a credential: a one-year subscription token, generated once with
@@ -134,7 +141,7 @@ Running the built image does need a credential: a one-year subscription token, g
 variable — never an API key:
 
 ```sh
-docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN=<token> side-projects-sandbox \
+docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN=<token> side-projects-sandbox:latest \
   -p "List the names of every skill available to you, one per line." --permission-prompts none
 ```
 

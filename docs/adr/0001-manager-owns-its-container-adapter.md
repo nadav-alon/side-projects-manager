@@ -5,7 +5,7 @@ status: accepted
 # The manager owns its container adapter
 
 The spec said agent runs are delegated to sandcastle. They are not: the sandbox port is backed by
-`containerSandbox`, which clones the project checkout into a throwaway workspace, runs the image
+`containerSandbox`, which makes a throwaway clone of the project checkout, runs the image
 from #6 against it with `docker run`, and fetches back any branch that gained commits. This records
 that as the decision it is, because nothing else in the repo does — it arrived as an implementation
 detail of #7 rather than as a choice anyone made. The adapter itself lands with #28; this ADR is

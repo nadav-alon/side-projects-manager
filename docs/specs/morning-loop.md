@@ -120,7 +120,7 @@ schedule, the logon guard, and any future cloud trigger are all just callers.
 
 **Sandboxing.** Agent runs happen in a container the manager drives itself, against an image defined
 by a Dockerfile the manager owns, with the skills harness installed at image build time rather than
-per run. The sandbox clones the project checkout into a throwaway workspace, runs the agent on a
+per run. The sandbox makes a throwaway clone of the project checkout, runs the agent on a
 branch there, and fetches back a branch that gained commits; it clones rather than using a worktree
 because a worktree's `.git` is a pointer into its parent repo and does not survive a bind mount.
 This replaces any use of blanket permission-skipping: the blast radius of an unattended run is one
