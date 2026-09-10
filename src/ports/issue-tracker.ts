@@ -17,8 +17,8 @@ export interface Ticket {
 /**
  * Reads and writes the tickets the loop works from.
  *
- * Only the read path is declared. Writing back — comments, relabelling,
- * review tickets, the summary — is declared by the code that needs it.
+ * The write path is declared as the loop comes to need it: comments,
+ * relabelling and the summary are not here yet.
  */
 export interface IssueTracker {
   /**
@@ -28,4 +28,17 @@ export interface IssueTracker {
    * error.
    */
   listEligibleTickets(repo: RepoSlug): Promise<Ticket[]>;
+  /**
+   * Opens a review ticket against `ticket` — a sub-issue asking for the draft
+   * pull request at `pullRequest` to be reviewed — and answers with it.
+   *
+   * Born carrying ready-for-agent, the one place anything but the developer
+   * applies that label. Safe here because the ticket it creates is bounded by
+   * a pull request that already exists, and necessary because a review nobody
+   * labelled is a review that never happens on a morning nobody is around.
+   *
+   * `ticket` is read, never written: the review is queued beside the ticket
+   * that earned it, and closing or relabelling that one stays the developer's.
+   */
+  createReviewTicket(ticket: Ticket, pullRequest: string): Promise<Ticket>;
 }

@@ -87,6 +87,11 @@ export interface MorningRunReport {
    * failure, and says so rather than going quiet.
    */
   standDown?: StandDown;
+  /**
+   * The review ticket queued for that pull request. Absent wherever the pull
+   * request is, since a review is only ever queued for one that exists.
+   */
+  reviewTicket?: Ticket;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -99,7 +104,8 @@ interface Selection {
 
 /**
  * What working one project came to, and everything the report says about it:
- * the run, and the draft pull request its commits are waiting in.
+ * the run, the draft pull request its commits are waiting in, and the review
+ * queued for that pull request.
  *
  * Named for the handover rather than for the work, because the work is the
  * run — this is how it reaches the developer.
@@ -111,6 +117,8 @@ interface Handover {
    * or one the agent did not finish.
    */
   pullRequest?: PullRequestUrl;
+  /** Absent alongside the pull request, which is the thing it reviews. */
+  reviewTicket?: Ticket;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -158,9 +166,9 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    // Spread whole: a handover is exactly the run-and-pull-request the report
-    // owes, so re-splitting it field by field would be two places to keep the
-    // same shape.
+    // Spread whole: a handover is exactly the run, pull request and review the
+    // report owes, so re-splitting it field by field would be two places to
+    // keep the same shape.
     ...handover,
     ...(standDown !== undefined && { standDown }),
     outcome: outcomeOf(selection, standDown),
@@ -289,7 +297,16 @@ async function work(
     run.branch,
     selection.ticket,
   );
-  return { run, pullRequest };
+
+  // Queued here rather than asked of the agent that wrote the code: an agent
+  // that ran out of steam cannot forget to, and the review it asks for is a
+  // run of its own, budgeted and selected separately.
+  const reviewTicket = await ports.tracker.createReviewTicket(
+    selection.ticket,
+    pullRequest,
+  );
+
+  return { run, pullRequest, reviewTicket };
 }
 
 function outcome(

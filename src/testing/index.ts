@@ -1,7 +1,10 @@
 export { FROZEN_NOW, FakeClock } from "./fake-clock.ts";
 export { FakeGrilling } from "./fake-grilling.ts";
 export { FakeHarness, type FakeInstall } from "./fake-harness.ts";
-export { FakeIssueTracker } from "./fake-issue-tracker.ts";
+export {
+  FakeIssueTracker,
+  type FakeReviewTicket,
+} from "./fake-issue-tracker.ts";
 export {
   FakeRepoHost,
   type FakePullRequest,
