@@ -1,11 +1,16 @@
-import type { IssueTracker, RepoSlug, Ticket } from "../ports/index.ts";
+import type {
+  IssueTracker,
+  PullRequestUrl,
+  RepoSlug,
+  Ticket,
+} from "../ports/index.ts";
 
 /** One review ticket the loop opened, in the order the fake received it. */
 export interface FakeReviewTicket {
   /** The implementation ticket the review is a sub-issue of. */
   parent: Ticket;
   /** The draft pull request the review is for. */
-  pullRequest: string;
+  pullRequest: PullRequestUrl;
   /** The review ticket itself, as the fake numbered it. */
   ticket: Ticket;
 }
@@ -46,7 +51,7 @@ export class FakeIssueTracker implements IssueTracker {
    */
   async createReviewTicket(
     ticket: Ticket,
-    pullRequest: string,
+    pullRequest: PullRequestUrl,
   ): Promise<Ticket> {
     const backlog = this.#backlogs.get(ticket.repo) ?? [];
     const numbers = backlog.map((eligible) => eligible.number);

@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   READY_FOR_AGENT_LABEL,
+  pullRequestUrl,
   repoSlug,
   type Ticket,
 } from "../ports/index.ts";
@@ -128,7 +129,9 @@ describe("ghIssueTracker.createReviewTicket", () => {
     title: "Add the thing",
   };
 
-  const PULL_REQUEST = "https://github.com/nadav-alon/pilot/pull/12";
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/12",
+  );
   const REVIEW_URL = "https://github.com/nadav-alon/pilot/issues/42";
   /** The review's database id, which is what the sub-issues endpoint takes. */
   const REVIEW_ID = "2159872455";

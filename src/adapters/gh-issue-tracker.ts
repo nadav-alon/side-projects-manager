@@ -1,7 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { IssueTracker, RepoSlug, Ticket } from "../ports/index.ts";
+import type {
+  IssueTracker,
+  PullRequestUrl,
+  RepoSlug,
+  Ticket,
+} from "../ports/index.ts";
 import { READY_FOR_AGENT_LABEL } from "../ports/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -35,7 +40,7 @@ export function ghIssueTracker(): IssueTracker {
 
     async createReviewTicket(
       ticket: Ticket,
-      pullRequest: string,
+      pullRequest: PullRequestUrl,
     ): Promise<Ticket> {
       const title = reviewTitle(ticket);
       const body = reviewBody(ticket, pullRequest);
@@ -81,7 +86,7 @@ function reviewTitle(ticket: Ticket): string {
  * than a number: it is the one thing the reviewing run cannot work out for
  * itself, and the ticket is the only place it is written down.
  */
-function reviewBody(ticket: Ticket, pullRequest: string): string {
+function reviewBody(ticket: Ticket, pullRequest: PullRequestUrl): string {
   return [
     `Review ${pullRequest}, the draft pull request opened for #${ticket.number}.`,
     "",

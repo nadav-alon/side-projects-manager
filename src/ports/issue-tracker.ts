@@ -1,3 +1,4 @@
+import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
 /**
@@ -40,5 +41,5 @@ export interface IssueTracker {
    * `ticket` is read, never written: the review is queued beside the ticket
    * that earned it, and closing or relabelling that one stays the developer's.
    */
-  createReviewTicket(ticket: Ticket, pullRequest: string): Promise<Ticket>;
+  createReviewTicket(ticket: Ticket, pullRequest: PullRequestUrl): Promise<Ticket>;
 }
