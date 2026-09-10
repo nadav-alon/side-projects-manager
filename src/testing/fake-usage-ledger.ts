@@ -42,19 +42,30 @@ export function spent(consumed: {
   };
 }
 
-/** Reports whatever windows the test was built with. No usage by default. */
+/**
+ * Reports whatever windows the test told it to. No usage until told.
+ *
+ * Sealed behind `reports`, so a test says what the ledger sees in one place
+ * and the fake keeps one answer to the question rather than a settable field
+ * beside a constructor saying the same thing twice.
+ */
 export class FakeUsageLedger implements UsageLedger {
-  /** The windows the ledger reports. Tests reassign this to spend some. */
-  windows: UsageWindows;
+  #windows: UsageWindows = NO_USAGE;
 
-  constructor(windows: UsageWindows = NO_USAGE) {
-    this.windows = windows;
+  /** What the ledger reports from here on. */
+  reports(windows: UsageWindows): void {
+    this.#windows = windows;
+  }
+
+  /** What it will report, for a test that needs a boundary it did not name. */
+  get reported(): UsageWindows {
+    return this.#windows;
   }
 
   async read(): Promise<UsageWindows> {
     return {
-      fiveHour: { ...this.windows.fiveHour },
-      weekly: { ...this.windows.weekly },
+      fiveHour: { ...this.#windows.fiveHour },
+      weekly: { ...this.#windows.weekly },
     };
   }
 }

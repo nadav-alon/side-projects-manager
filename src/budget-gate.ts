@@ -22,7 +22,7 @@ export interface StandDown {
   tokensUsed: TokenCount;
   /** The most it may consume before the gate refuses. */
   spendable: TokenCount;
-  /** When that window resets, which is when headroom returns. */
+  /** When that window resets, which is when work could resume. */
   resetsAt: Date;
 }
 
@@ -37,11 +37,16 @@ export interface StandDown {
  * after the mornings have had theirs. The 5-hour window has no reserve of its
  * own — the reserve is a share of the week — and is measured against the
  * whole allowance, because a spent block is a wall the loop should not walk
- * into rather than headroom to ration.
+ * into rather than a supply to ration.
  *
  * When both windows refuse, the developer hears about whichever resets later:
  * that is when work could actually resume, and a trigger that came back at the
  * earlier instant would only stand down again.
+ *
+ * `ownSpend` is required rather than defaulting to none: a gate that counted
+ * no runs is not a cautious gate, it is the under-counting one the state
+ * document exists to fix, and a caller that forgot to pass it should not
+ * compile.
  *
  * Every number here is an inference. The provider reports consumption and
  * never remaining quota, and the ledger cannot see the developer's usage from
@@ -52,7 +57,7 @@ export interface StandDown {
 export function budgetGate(
   windows: UsageWindows,
   budget: Budget,
-  ownSpend: readonly RunCost[] = [],
+  ownSpend: readonly RunCost[],
 ): StandDown | undefined {
   const weekly = refusal(
     "weekly-reserve",
@@ -124,10 +129,14 @@ function consumedIn(
  * What is left of `allowance` once the reserve is held back.
  *
  * The reserve is taken out and rounded up, rather than the remainder being
- * computed as `allowance * (1 - reserveFraction)`. Both say the same thing in
- * arithmetic and not in floating point: a reserve of 0.9 against a
- * 500,000,000-token week comes out a token short the second way, and a
- * reserve that quietly shrinks is the one mistake the gate may not make.
+ * computed as `allowance * (1 - reserveFraction)`. The two agree in arithmetic
+ * and not in floating point, and the second form is not a token count: a
+ * reserve of 0.5 against a 1,001-token week leaves 500.5, and 0.7 against
+ * 1,000 leaves 300.00000000000006, so `tokenCount` below would throw on the
+ * first and the gate would hand back a fractional spendable on the second.
+ * Rounding the reserve up settles both the same way — a reserve that does not
+ * divide evenly is held back whole, because a reserve that quietly shrinks is
+ * the one mistake the gate may not make.
  */
 function spendableOf(
   allowance: TokenCount,

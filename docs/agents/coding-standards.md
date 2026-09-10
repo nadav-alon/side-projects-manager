@@ -52,7 +52,7 @@ Anything that only makes sense while the PR is open does not belong in the sourc
 
 - What the code is for, and why it is shaped the way it is.
 - Contracts a caller can't see from the signature: what an empty result means, what is guaranteed.
-- `TODO[#12]: re-check the gate between iterations.` — deferred work, tagged with its issue.
+- `TODO[#11]: re-check the gate between iterations.` — deferred work, tagged with its issue.
 
 **Don't write:**
 

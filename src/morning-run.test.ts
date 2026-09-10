@@ -439,7 +439,7 @@ describe("morningRun", () => {
 
     it("starts a run while the reserve is intact", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK - 1 });
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
 
       const report = await morningRun(ports);
 
@@ -450,7 +450,7 @@ describe("morningRun", () => {
 
     it("starts a run that leaves the reserve intact to the token", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK });
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK }));
 
       const report = await morningRun(ports);
 
@@ -460,7 +460,7 @@ describe("morningRun", () => {
 
     it("stands down rather than spend a token of the reserve", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
       const report = await morningRun(ports);
 
@@ -471,10 +471,10 @@ describe("morningRun", () => {
 
     it("stands down when the 5-hour window is spent, whatever the week looks like", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({
+      ports.ledger.reports(spent({
         fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
         weekly: 0,
-      });
+      }));
 
       const report = await morningRun(ports);
 
@@ -485,10 +485,10 @@ describe("morningRun", () => {
 
     it("names the window that resets later when both refuse", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({
+      ports.ledger.reports(spent({
         fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
         weekly: SPENDABLE_THIS_WEEK + 1,
-      });
+      }));
 
       const report = await morningRun(ports);
 
@@ -503,7 +503,7 @@ describe("morningRun", () => {
     it("names the 5-hour window when it is the one that outlasts the week", async () => {
       const ports = readyToWork();
       ports.clock = new FakeClock(new Date("2026-01-03T23:00:00.000Z"));
-      ports.ledger.windows = {
+      ports.ledger.reports({
         fiveHour: {
           openedAt: new Date("2026-01-03T22:00:00.000Z"),
           resetsAt: new Date("2026-01-04T03:00:00.000Z"),
@@ -514,7 +514,7 @@ describe("morningRun", () => {
           resetsAt: new Date("2026-01-04T00:00:00.000Z"),
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
         },
-      };
+      });
 
       const report = await morningRun(ports);
 
@@ -527,7 +527,7 @@ describe("morningRun", () => {
 
     it("clones nothing when it stands down", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
       await morningRun(ports);
 
@@ -536,7 +536,7 @@ describe("morningRun", () => {
 
     it("records nothing against a project it stood down on", async () => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
       await morningRun(ports);
 
@@ -546,7 +546,7 @@ describe("morningRun", () => {
 
     it("still writes state back on a morning it stood down", async (t) => {
       const ports = readyToWork();
-      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
       const saveState = t.mock.method(ports.store, "saveState");
 
       await morningRun(ports);
@@ -557,7 +557,7 @@ describe("morningRun", () => {
     describe("what the developer is told", () => {
       it("says it stood down for the budget, not that there was nothing to do", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
         const report = await morningRun(ports);
 
@@ -566,24 +566,24 @@ describe("morningRun", () => {
         assert.doesNotMatch(report.message, /nothing to do/i);
       });
 
-      it("says which project was ready and when headroom returns", async () => {
+      it("says which project was ready and when the window resets", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
         const report = await morningRun(ports);
 
         assert.match(report.message, /nadav-alon\/pilot/);
         assert.match(
           report.message,
-          new RegExp(ports.ledger.windows.weekly.resetsAt.toISOString()),
+          new RegExp(ports.ledger.reported.weekly.resetsAt.toISOString()),
         );
       });
 
       it("says the 5-hour window when that is what refused", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({
+        ports.ledger.reports(spent({
           fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
-        });
+        }));
 
         const report = await morningRun(ports);
 
@@ -592,7 +592,7 @@ describe("morningRun", () => {
 
       it("carries what was spent and what was spendable", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
         const report = await morningRun(ports);
 
@@ -600,7 +600,7 @@ describe("morningRun", () => {
         assert.equal(report.standDown?.spendable, SPENDABLE_THIS_WEEK);
         assert.deepEqual(
           report.standDown?.resetsAt,
-          ports.ledger.windows.weekly.resetsAt,
+          ports.ledger.reported.weekly.resetsAt,
         );
       });
     });
@@ -615,7 +615,7 @@ describe("morningRun", () => {
     describe("what the mornings themselves spent", () => {
       it("counts a recorded run the ledger cannot see", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ weekly: 0 });
+        ports.ledger.reports(spent({ weekly: 0 }));
         ports.store.markWorked(PILOT, YESTERDAY, {
           at: YESTERDAY,
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
@@ -630,7 +630,7 @@ describe("morningRun", () => {
 
       it("adds them to what the ledger did see", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK - 100 });
+        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 100 }));
         ports.store.markWorked(PILOT, YESTERDAY, {
           at: YESTERDAY,
           tokensUsed: tokenCount(101),
@@ -645,7 +645,7 @@ describe("morningRun", () => {
       it("counts every project's runs, not just the one being worked", async () => {
         const ports = readyToWork();
         ports.store.register(MANAGER);
-        ports.ledger.windows = spent({ weekly: 0 });
+        ports.ledger.reports(spent({ weekly: 0 }));
         ports.store.markWorked(MANAGER, YESTERDAY, {
           at: YESTERDAY,
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
@@ -658,7 +658,7 @@ describe("morningRun", () => {
 
       it("ignores runs from before the window opened", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ weekly: 0 });
+        ports.ledger.reports(spent({ weekly: 0 }));
         ports.store.markWorked(PILOT, LAST_WEEK, {
           at: LAST_WEEK,
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
@@ -677,7 +677,7 @@ describe("morningRun", () => {
        */
       it("leaves a run out of the 5-hour window it predates", async () => {
         const ports = readyToWork();
-        ports.ledger.windows = spent({ fiveHour: 0, weekly: 0 });
+        ports.ledger.reports(spent({ fiveHour: 0, weekly: 0 }));
         ports.store.markWorked(PILOT, YESTERDAY, {
           at: YESTERDAY,
           tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
@@ -697,7 +697,7 @@ describe("morningRun", () => {
           ...DEFAULT_BUDGET,
           reserveFraction: reserveFraction(0.9),
         };
-        ports.ledger.windows = spent({ weekly: 60_000_000 });
+        ports.ledger.reports(spent({ weekly: 60_000_000 }));
 
         const report = await morningRun(ports);
 
@@ -711,7 +711,7 @@ describe("morningRun", () => {
           ...DEFAULT_BUDGET,
           reserveFraction: reserveFraction(0),
         };
-        ports.ledger.windows = spent({ weekly: 60_000_000 });
+        ports.ledger.reports(spent({ weekly: 60_000_000 }));
 
         const report = await morningRun(ports);
 
@@ -725,7 +725,7 @@ describe("morningRun", () => {
           weeklyAllowance: tokenCount(1_000),
           reserveFraction: reserveFraction(0.5),
         };
-        ports.ledger.windows = spent({ weekly: 501 });
+        ports.ledger.reports(spent({ weekly: 501 }));
 
         const report = await morningRun(ports);
 

@@ -84,7 +84,7 @@ export interface Store {
   saveRegistry(projects: RegisteredProject[]): Promise<void>;
   /**
    * What the mornings are allowed to spend. A machine that has never been
-   * told falls back to `DEFAULT_BUDGET` rather than to no limit, because an
+   * told falls back to `DEFAULT_BUDGET` rather than to none at all, because an
    * absent budget document must never read as an absent budget.
    */
   loadBudget(): Promise<Budget>;

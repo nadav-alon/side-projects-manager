@@ -144,16 +144,18 @@ pause the projects.
 `reserveFraction` is the share of the weekly allowance held back for you. At the default of `0.5`
 the mornings may spend half the week: the gate refuses once more than half is gone. The 5-hour
 window has no reserve of its own — the reserve is a share of the week — and is measured against
-`fiveHourAllowance` whole, because a spent block is a wall rather than headroom to ration. When both
+`fiveHourAllowance` whole, because a spent block is a wall rather than a supply to ration. When both
 windows refuse, you are told about whichever resets later, since that is when work could actually
 resume.
 
-`spendCeiling` is dollars, and it is the one limit the manager does not enforce itself: it is passed
-to the agent CLI as `--max-budget-usd`, which stops the run from inside. The gate decides whether a
-run starts; the ceiling bounds how far a run that has started can go before the gate is asked again.
-The gate does not subtract the cost of the run it is about to authorise, so a run started at the
-boundary spends its ceiling out of the reserve — the ceiling is the size of that accepted overshoot,
-and the next gate check sees it.
+`spendCeiling` is the one ceiling the manager does not enforce itself: it is passed to the agent CLI
+as `--max-budget-usd`, which stops the run from inside. It is dollars because that flag is, not
+because anything is billed — on a subscription the CLI prices the run's own token usage at API rates
+and stops when the priced total crosses the figure, so this is a token ceiling stated in the CLI's
+units. The gate decides whether a run starts; the ceiling bounds how far a run that has started can
+go. The gate does not subtract the cost of the run it is about to authorise, so a run started at the
+boundary spends its ceiling out of the reserve — the ceiling is the size of that accepted overshoot.
+It is recorded in `state.json` either way, so the next morning's gate counts it.
 
 A field that is present but not a usable value fails the invocation rather than falling back, and so
 does a field that is not one of the four above. Every setting is optional, so `"reserve"` for

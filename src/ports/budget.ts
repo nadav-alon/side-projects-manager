@@ -17,7 +17,7 @@ export interface Budget {
   weeklyAllowance: TokenCount;
   /** The share of `weeklyAllowance` held back for the developer. */
   reserveFraction: ReserveFraction;
-  /** The hard per-run cap the agent CLI enforces on a single run. */
+  /** The most a single run may spend, enforced by the agent CLI itself. */
   spendCeiling: Usd;
 }
 
@@ -27,8 +27,13 @@ export interface Budget {
  * Deliberately cautious rather than accurate: the allowances are a starting
  * point, not a measurement, and the ledger under-counts beneath them. Half
  * the week is held back because the developer's own Opus work is the half
- * this whole design exists to protect. Calibrate against `state.json`, where
- * every run's real cost is recorded.
+ * this whole design exists to protect.
+ *
+ * These numbers are never revised by anything running here — nothing writes
+ * the budget document, and the provider reports consumption but never
+ * remaining quota, so there is nothing to derive a true allowance from. They
+ * are the developer's to raise or lower by hand in `budget.json`, against the
+ * run costs `state.json` accumulates.
  */
 export const DEFAULT_BUDGET: Budget = {
   fiveHourAllowance: tokenCount(50_000_000),

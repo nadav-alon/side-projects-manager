@@ -12,6 +12,7 @@ import type {
   State,
   Store,
   Ticket,
+  TokenCount,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -98,19 +99,13 @@ interface RegistryScan {
 }
 
 /**
- * One invocation of the morning loop.
- *
- * An invocation iterates until the queue is dry or the gate stands down. Each
- * iteration works one project and one ticket, so a project with a single
- * eligible ticket costs one iteration, not the morning.
+ * One invocation of the morning loop: one project, one ticket, one run.
  *
  * No run starts without the gate's say-so. The gate is asked from inside the
- * run path rather than at the top of the invocation, which is where it will
- * need to be once an invocation makes more than one run: what it reads is the
+ * run path rather than at the top of the invocation, so what it reads is the
  * state as it stands when a run would start, the previous run's cost included.
  *
- * TODO[#11]: iterate — an invocation currently stops after the first run, so
- * the gate is in fact asked once.
+ * TODO[#11]: iterate, and re-check the gate between iterations.
  */
 export async function morningRun(
   ports: MorningRunPorts,
@@ -293,12 +288,12 @@ function summaryLine(
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
   });
 
+  const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
+
   if (selected !== undefined && standDown !== undefined) {
-    const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
-    return `Stood down: ${standDownReason(standDown)}. ${selected.repo} was ready to work; headroom returns ${standDown.resetsAt.toISOString()}.${aside}`;
+    return `Stood down: ${standDownReason(standDown)}. ${selected.repo} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
   }
   if (selected !== undefined) {
-    const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
     const landed =
       run === undefined
         ? "the run left nothing behind"
@@ -326,7 +321,7 @@ function standDownReason(standDown: StandDown): string {
     : `the 5-hour window is spent (${spent})`;
 }
 
-function tokens(count: number): string {
+function tokens(count: TokenCount): string {
   return count.toLocaleString("en-US");
 }
 

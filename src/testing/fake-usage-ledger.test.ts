@@ -22,7 +22,8 @@ describe("FakeUsageLedger", () => {
   });
 
   it("reports the usage it was given", async () => {
-    const ledger = new FakeUsageLedger({
+    const ledger = new FakeUsageLedger();
+    ledger.reports({
       fiveHour: { ...NO_USAGE.fiveHour, tokensUsed: tokenCount(120_000) },
       weekly: { ...NO_USAGE.weekly, tokensUsed: tokenCount(3_400_000) },
     });

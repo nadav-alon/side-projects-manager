@@ -187,29 +187,29 @@ function parseBudget(document: unknown, file: string): Budget {
   rejectUnknownFields(document, BUDGET_FIELDS, file);
 
   return {
-    fiveHourAllowance: numberOr(
-      DEFAULT_BUDGET.fiveHourAllowance,
+    fiveHourAllowance: numberField(
       fieldOf(document, "fiveHourAllowance", file),
       isAllowance,
       `${file}: "fiveHourAllowance" must be a whole number of tokens above 0`,
+      DEFAULT_BUDGET.fiveHourAllowance,
     ),
-    weeklyAllowance: numberOr(
-      DEFAULT_BUDGET.weeklyAllowance,
+    weeklyAllowance: numberField(
       fieldOf(document, "weeklyAllowance", file),
       isAllowance,
       `${file}: "weeklyAllowance" must be a whole number of tokens above 0`,
+      DEFAULT_BUDGET.weeklyAllowance,
     ),
-    reserveFraction: numberOr(
-      DEFAULT_BUDGET.reserveFraction,
+    reserveFraction: numberField(
       fieldOf(document, "reserveFraction", file),
       isReserveFraction,
       `${file}: "reserveFraction" must be at least 0 and less than 1`,
+      DEFAULT_BUDGET.reserveFraction,
     ),
-    spendCeiling: numberOr(
-      DEFAULT_BUDGET.spendCeiling,
+    spendCeiling: numberField(
       fieldOf(document, "spendCeiling", file),
       isUsd,
       `${file}: "spendCeiling" must be a dollar amount above 0`,
+      DEFAULT_BUDGET.spendCeiling,
     ),
   };
 }
@@ -259,17 +259,17 @@ function rejectUnknownFields(
 }
 
 /** `value` narrowed by `is`, `fallback` when absent, an error when neither. */
-function numberOr<T extends number>(
-  fallback: T,
+function numberField<T extends number>(
   value: unknown,
   is: (candidate: number) => candidate is T,
-  complaint: string,
+  message: string,
+  fallback: T,
 ): T {
   if (value === undefined) {
     return fallback;
   }
   if (typeof value !== "number" || !is(value)) {
-    throw new Error(`${complaint}: ${JSON.stringify(value)}`);
+    throw new Error(`${message}: ${JSON.stringify(value)}`);
   }
   return value;
 }

@@ -312,7 +312,7 @@ const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
  *
  * Exported so the argument list can be asserted without docker installed. The
  * spend ceiling in particular has to be visible to a test: it is the only
- * limit on a run once the run has started, and a flag that quietly stopped
+ * thing bounding a run once the run has started, and a flag that quietly stopped
  * being passed would not fail anything until a morning had spent the week.
  */
 export function dockerCommand(

@@ -19,6 +19,17 @@ type InstalledPlugin = {
 };
 
 /**
+ * The flag the manager hands every run its spend ceiling through
+ * (CONTEXT.md: Spend ceiling). The manager cannot enforce a ceiling itself —
+ * nothing out here can stop a container that is already going — so the CLI
+ * accepting this flag is the whole of that enforcement. Two ways it can go,
+ * and only one is loud: a flag the CLI rejects fails every run at once; a flag
+ * it has renamed or dropped means no ceiling at all and nothing ever says so.
+ * This is the check that makes the silent one loud.
+ */
+const SPEND_CEILING_FLAG = "--max-budget-usd";
+
+/**
  * One skill the harness must expose. Naming a specific skill is what separates
  * "a plugin directory exists" from "claude can enumerate the skills in it". It
  * is a third-party name, so its absence is reported as an incomplete harness
@@ -135,6 +146,15 @@ if (!skills.includes(REQUIRED_SKILL)) {
   );
 }
 
+const usage = claude("--help");
+
+if (!usage.includes(SPEND_CEILING_FLAG)) {
+  fail(
+    `this image's claude accepts no ${SPEND_CEILING_FLAG}, so a run in it has no spend ceiling`,
+    usage,
+  );
+}
+
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} accepted`,
 );
