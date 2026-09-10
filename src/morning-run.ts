@@ -1,4 +1,5 @@
 import type {
+  Budget,
   Clock,
   IssueTracker,
   ProjectState,
@@ -6,14 +7,18 @@ import type {
   RegisteredProject,
   RepoHost,
   RepoSlug,
+  RunCost,
   Sandbox,
   SandboxRunResult,
   State,
   Store,
   Ticket,
+  TokenCount,
   UsageLedger,
+  Usd,
 } from "./ports/index.ts";
 import { recordRun } from "./ports/index.ts";
+import { budgetGate, type StandDown } from "./budget-gate.ts";
 
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
@@ -32,6 +37,8 @@ export interface MorningRunPorts {
 export type MorningRunOutcome =
   /** No registered project had an eligible ticket. A quiet morning. */
   | "dry-queue"
+  /** There was work, and the budget gate refused to start it. */
+  | "stood-down"
   /** An iteration selected a project with work. */
   | "work-selected";
 
@@ -74,6 +81,12 @@ export interface MorningRunReport {
    * morning ran nothing, and when the run left no commits to open one for.
    */
   pullRequest?: PullRequestUrl;
+  /**
+   * Why the gate refused, absent when it did not. A morning that stood down
+   * had work to do and declined to do it, which is neither a dry queue nor a
+   * failure, and says so rather than going quiet.
+   */
+  standDown?: StandDown;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -108,14 +121,13 @@ interface RegistryScan {
 }
 
 /**
- * One invocation of the morning loop.
+ * One invocation of the morning loop: one project, one ticket, one run.
  *
- * An invocation iterates until the queue is dry or the gate stands down. Each
- * iteration works one project and one ticket, so a project with a single
- * eligible ticket costs one iteration, not the morning.
+ * No run starts without the gate's say-so. The gate is asked from inside the
+ * run path rather than at the top of the invocation, so what it reads is the
+ * state as it stands when a run would start, the previous run's cost included.
  *
- * TODO[#12]: check the gate before each run, and again between iterations.
- * TODO[#11]: iterate — an invocation currently stops after the first run.
+ * TODO[#11]: iterate, and re-check the gate between iterations.
  */
 export async function morningRun(
   ports: MorningRunPorts,
@@ -125,9 +137,14 @@ export async function morningRun(
   const { outcomes, selection } = await considerProjects(ports, state);
 
   let handover: Handover | undefined;
+  let standDown: StandDown | undefined;
   try {
     if (selection !== undefined) {
-      handover = await work(ports, selection, state);
+      const budget = await ports.store.loadBudget();
+      standDown = await consultTheGate(ports, budget, state);
+      if (standDown === undefined) {
+        handover = await work(ports, selection, state, budget.spendCeiling);
+      }
     }
   } finally {
     // State is written back at the end of every invocation, including one that
@@ -145,9 +162,52 @@ export async function morningRun(
     // owes, so re-splitting it field by field would be two places to keep the
     // same shape.
     ...handover,
-    outcome: selection === undefined ? "dry-queue" : "work-selected",
-    message: summaryLine(outcomes, handover),
+    ...(standDown !== undefined && { standDown }),
+    outcome: outcomeOf(selection, standDown),
+    message: summaryLine(outcomes, handover, standDown),
   };
+}
+
+function outcomeOf(
+  selection: Selection | undefined,
+  standDown: StandDown | undefined,
+): MorningRunOutcome {
+  if (selection === undefined) {
+    return "dry-queue";
+  }
+  return standDown === undefined ? "work-selected" : "stood-down";
+}
+
+/**
+ * The budget gate, asked immediately before a run and never earlier: the
+ * windows it reads are the ones in force when the run would start, not the
+ * ones the invocation opened with.
+ *
+ * The state goes in with them. The ledger reads this machine's session logs
+ * and a run writes its log inside a container that is then thrown away, so
+ * what the mornings have spent is in the state document and nowhere else. A
+ * gate handed only the ledger would ration the developer and never the loop.
+ *
+ * A dry morning never gets here, so the loop reports a quiet queue as a quiet
+ * queue rather than reading the ledger to decline work that did not exist.
+ */
+async function consultTheGate(
+  ports: MorningRunPorts,
+  budget: Budget,
+  state: State,
+): Promise<StandDown | undefined> {
+  return budgetGate(
+    await ports.ledger.read(ports.clock.now()),
+    budget,
+    runsRecorded(state),
+  );
+}
+
+/** Every run the mornings have made, across every project, oldest first. */
+function runsRecorded(state: State): RunCost[] {
+  return [...state.values()]
+    .flatMap((project) => project.runs)
+    .sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
 /**
@@ -201,10 +261,15 @@ async function work(
   ports: MorningRunPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
 ): Promise<Handover> {
   const repo = selection.project.repo;
   const checkout = await ports.repoHost.clone(repo);
-  const run = await ports.sandbox.run({ ticket: selection.ticket, checkout });
+  const run = await ports.sandbox.run({
+    ticket: selection.ticket,
+    checkout,
+    spendCeiling,
+  });
 
   const at = ports.clock.now();
   const cost = { at, tokensUsed: run.tokensUsed };
@@ -259,6 +324,7 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 function summaryLine(
   projects: ProjectOutcome[],
   handover: Handover | undefined,
+  standDown: StandDown | undefined,
 ): string {
   const selected = projects.find(isSelected);
   const skipped = projects.flatMap((project) => {
@@ -266,8 +332,12 @@ function summaryLine(
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
   });
 
+  const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
+
+  if (selected !== undefined && standDown !== undefined) {
+    return `Stood down: ${standDownReason(standDown)}. ${selected.repo} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
+  }
   if (selected !== undefined) {
-    const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
     // A failed agent that committed still says what it landed, and then why it
     // stopped: the developer needs both to know whether to keep the branch.
     const stopped =
@@ -299,6 +369,21 @@ function landed(handover: Handover | undefined): string {
       ? handover.run.branch
       : `${handover.run.branch} (${handover.pullRequest})`;
   return `${commitCount(handover.run)} on ${where}`;
+}
+
+/**
+ * Why the gate refused, in the developer's terms: what was spent, against
+ * what it was measured, and which of the two windows said no.
+ */
+function standDownReason(standDown: StandDown): string {
+  const spent = `${tokens(standDown.tokensUsed)} of ${tokens(standDown.spendable)} tokens`;
+  return standDown.reason === "weekly-reserve"
+    ? `spending more of the week would eat into the reserve (${spent} spendable this week)`
+    : `the 5-hour window is spent (${spent})`;
+}
+
+function tokens(count: TokenCount): string {
+  return count.toLocaleString("en-US");
 }
 
 /** How many commits the run left, said the way a person would say it. */

@@ -135,12 +135,20 @@ _Avoid_: review task, review job, QA ticket
 ### Budget
 
 **Budget gate**:
-The check made before every run that refuses work which would eat into the reserve. Referred to as "the gate".
+The check made before a run starts that refuses work which would eat into the reserve. Reads the ledger's windows and adds the runs the state document records inside them, since a run's own log dies with its container. Referred to as "the gate".
 _Avoid_: throttle, rate limit, quota check
 
 **Reserve**:
 The fraction of the weekly window held back for the developer's own interactive work.
-_Avoid_: buffer, headroom, allowance
+_Avoid_: buffer, headroom
+
+**Budget document**:
+The hand-edited document of what the mornings may spend: the two allowances, the reserve fraction, and the spend ceiling. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+_Avoid_: budget file, limits, quota config
+
+**Allowance**:
+The tokens a window is declared to hold. Self-declared, because the provider reports consumption and never remaining quota.
+_Avoid_: quota, limit, capacity
 
 **Usage ledger**:
 What reports rolling token consumption. Knowingly under-counts, since it cannot see Claude chat or other machines. Referred to as "the ledger".
@@ -153,7 +161,7 @@ a window has an opening instant and a reset instant, and both matter to the gate
 _Avoid_: period, interval, bucket, rolling window, last 5 hours, last 7 days
 
 **Spend ceiling**:
-The hard per-run cap enforced by the agent CLI itself, distinct from the gate.
+The most a single run may spend, enforced by the agent CLI itself rather than by the gate.
 _Avoid_: budget, limit, cap
 
 ### The seam

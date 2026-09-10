@@ -1,4 +1,5 @@
 import type {
+  Budget,
   Priority,
   ProjectState,
   RegisteredProject,
@@ -7,6 +8,7 @@ import type {
   State,
   Store,
 } from "../ports/index.ts";
+import { DEFAULT_BUDGET } from "../ports/index.ts";
 
 /** What the developer may say about a project when registering it. */
 export interface Registration {
@@ -25,6 +27,8 @@ export interface Registration {
 export class FakeStore implements Store {
   #registry: RegisteredProject[] = [];
   #state = new Map<RepoSlug, ProjectState>();
+  /** What the developer declared they are willing to spend. */
+  budget: Budget = DEFAULT_BUDGET;
 
   /** Registers a project, as the developer hand-editing the registry would. */
   register(repo: RepoSlug, registration: Registration = {}): void {
@@ -52,6 +56,10 @@ export class FakeStore implements Store {
 
   async saveRegistry(projects: RegisteredProject[]): Promise<void> {
     this.#registry = projects.map((project) => ({ ...project }));
+  }
+
+  async loadBudget(): Promise<Budget> {
+    return { ...this.budget };
   }
 
   async loadState(): Promise<State> {

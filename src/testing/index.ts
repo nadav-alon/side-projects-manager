@@ -9,7 +9,7 @@ export {
 } from "./fake-repo-host.ts";
 export { FakeSandbox } from "./fake-sandbox.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
-export { NO_USAGE, FakeUsageLedger } from "./fake-usage-ledger.ts";
+export { NO_USAGE, FakeUsageLedger, spent } from "./fake-usage-ledger.ts";
 export {
   fakeNewProjectPorts,
   type FakeNewProjectPorts,

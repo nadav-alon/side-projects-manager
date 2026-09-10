@@ -2,6 +2,7 @@ import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import type { TokenCount } from "./token-count.ts";
+import type { Usd } from "./usd.ts";
 
 /** One ticket, and the project checkout it is to be worked against. */
 export interface RunRequest {
@@ -12,6 +13,13 @@ export interface RunRequest {
    * what the branch is fetched back into.
    */
   checkout: Checkout;
+  /**
+   * The most this run may spend, enforced by the agent CLI itself rather than
+   * by anything the manager can observe. Distinct from the budget gate: the
+   * gate decides whether a run starts, and the ceiling bounds how far a run
+   * that has started can take the windows before the gate is asked again.
+   */
+  spendCeiling: Usd;
 }
 
 export interface SandboxRunResult {

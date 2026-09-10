@@ -119,7 +119,56 @@ cost. The loop writes it after every invocation and you never have to edit it; i
 the audit trail. It does not exist until the loop has run, and no state for a project means the
 project has never been worked.
 
-Both documents live in the manager home — this checkout, unless
+## The budget
+
+`budget.json` is the other document that is yours, and it is what the loop asks before it starts
+anything:
+
+```json
+{
+  "fiveHourAllowance": 50000000,
+  "weeklyAllowance": 500000000,
+  "reserveFraction": 0.5,
+  "spendCeiling": 5
+}
+```
+
+Every field is optional and falls back to the default above, so moving the reserve alone is one
+line. The two allowances are tokens, and they are declarations rather than measurements: the
+provider reports what you have consumed and never what you have left, so these are your own numbers
+to calibrate against the run costs accumulating in `state.json`. Neither may be zero — an allowance
+of nothing leaves nothing spendable, and a window is let through while it has consumed no more than
+it may, so zero would authorise a run every morning rather than stopping them. To halt the mornings,
+pause the projects.
+
+`reserveFraction` is the share of the weekly allowance held back for you. At the default of `0.5`
+the mornings may spend half the week: the gate refuses once more than half is gone. The 5-hour
+window has no reserve of its own — the reserve is a share of the week — and is measured against
+`fiveHourAllowance` whole, because a spent block is a wall rather than a supply to ration. When both
+windows refuse, you are told about whichever resets later, since that is when work could actually
+resume.
+
+`spendCeiling` is the one ceiling the manager does not enforce itself: it is passed to the agent CLI
+as `--max-budget-usd`, which stops the run from inside. It is dollars because that flag is, not
+because anything is billed — on a subscription the CLI prices the run's own token usage at API rates
+and stops when the priced total crosses the figure, so this is a token ceiling stated in the CLI's
+units. The gate decides whether a run starts; the ceiling bounds how far a run that has started can
+go. The gate does not subtract the cost of the run it is about to authorise, so a run started at the
+boundary spends its ceiling out of the reserve — the ceiling is the size of that accepted overshoot.
+It is recorded in `state.json` either way, so the next morning's gate counts it.
+
+A field that is present but not a usable value fails the invocation rather than falling back, and so
+does a field that is not one of the four above. Every setting is optional, so `"reserve"` for
+`"reserveFraction"` is indistinguishable from leaving it out — and a reserve you believe you set and
+the loop silently ignored is the one way this document can go wrong expensively.
+
+What the gate counts is the ledger's totals **plus the run costs in `state.json`**. The ledger reads
+this machine's Claude Code session logs, and a run writes its log inside a container that is thrown
+away when it ends, so the mornings' own spend reaches the gate through `state.json` or not at all.
+What remains genuinely invisible is Claude chat and your other machines; the reserve is what absorbs
+that, which is why it is worth setting generously.
+
+All three documents live in the manager home — this checkout, unless
 `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
 House rules for source — branded primitives, and what a comment is allowed to say — are in
