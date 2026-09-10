@@ -1,6 +1,7 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
+import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
 /**
@@ -23,9 +24,9 @@ export type Proposal =
   | { kind: "pushed"; branch: string; failure: string };
 
 /**
- * How the new-project command reaches GitHub and git: creating a repo,
- * getting a checkout of it into the managed location, and publishing what was
- * scaffolded into it.
+ * How the manager reaches GitHub and git: creating a repo, getting a checkout
+ * of it into the managed location, publishing what the new-project command
+ * scaffolded into it, and handing a completed run's work to the developer.
  *
  * The managed location is the adapter's business, not the caller's. `clone`
  * returns the checkout it produced, so nothing above this port has to know
@@ -91,5 +92,5 @@ export interface RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-  ): Promise<string>;
+  ): Promise<PullRequestUrl>;
 }

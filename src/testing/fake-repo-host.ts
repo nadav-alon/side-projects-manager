@@ -2,11 +2,12 @@ import type {
   Branch,
   Checkout,
   Proposal,
+  PullRequestUrl,
   RepoHost,
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { checkout } from "../ports/index.ts";
+import { checkout, pullRequestUrl } from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
@@ -45,10 +46,13 @@ export interface FakePullRequest {
 export class FakeRepoHost implements RepoHost {
   /** The managed location every clone lands under. */
   static readonly MANAGED_LOCATION = "/side-projects";
-  /** The pull request `commitAndPropose` answers with by default. */
-  static readonly PULL_REQUEST = "https://github.com/pulls/1";
-  /** The pull request `openDraftPullRequest` answers with by default. */
-  static readonly DRAFT_PULL_REQUEST = "https://github.com/pulls/2";
+  /** The pull request a proposed scaffold waits in, unless a test says otherwise. */
+  static readonly PROPOSED_PULL_REQUEST =
+    "https://github.com/nadav-alon/pilot/pull/1";
+  /** The pull request a run's work waits in, unless a test says otherwise. */
+  static readonly RUN_PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/2",
+  );
 
   readonly #existing = new Set<RepoSlug>();
 
@@ -67,12 +71,12 @@ export class FakeRepoHost implements RepoHost {
   proposal: (branch: string) => Proposal = (branch) => ({
     kind: "proposed",
     branch,
-    url: FakeRepoHost.PULL_REQUEST,
+    url: FakeRepoHost.PROPOSED_PULL_REQUEST,
   });
 
   /** What the next draft pull request comes to. One that opens, unless set. */
-  draftPullRequest: (branch: Branch) => Promise<string> = async () =>
-    FakeRepoHost.DRAFT_PULL_REQUEST;
+  draftPullRequest: () => Promise<PullRequestUrl> = async () =>
+    FakeRepoHost.RUN_PULL_REQUEST;
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -122,8 +126,8 @@ export class FakeRepoHost implements RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-  ): Promise<string> {
+  ): Promise<PullRequestUrl> {
     this.pullRequests.push({ directory, branch, ticket });
-    return this.draftPullRequest(branch);
+    return this.draftPullRequest();
   }
 }

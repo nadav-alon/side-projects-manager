@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { morningRun, type ProjectOutcome } from "./morning-run.ts";
-import { branch, repoSlug, tokenCount } from "./ports/index.ts";
+import { branch, repoSlug, tokenCount, type Ticket } from "./ports/index.ts";
 import {
   FROZEN_NOW,
   FakeRepoHost,
@@ -384,41 +384,44 @@ describe("morningRun", () => {
   });
 
   describe("the draft pull request", () => {
-    /** A run that did the work: commits on a branch, against ticket #7. */
-    function ranSuccessfully(ports: FakePorts): void {
-      ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
-        title: "Add the thing",
-      });
-      ports.sandbox.result = () => ({
-        branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
-        output: "",
-        tokensUsed: tokenCount(42_000),
-      });
-    }
+    const BRANCH = branch("issue-7-add-the-thing");
 
-    it("is opened for the branch a run left commits on", async () => {
-      const ports = fakePorts();
+    /**
+     * A registered project with ticket #7 ready, and a run against it.
+     *
+     * What separates the cases here is only how the run ended, so that is all
+     * a test says: `ran(ports)` did the work, and the overrides are the two
+     * ways it can leave nothing to hand over.
+     */
+    function ran(
+      ports: FakePorts,
+      run: { commits?: string[]; failure?: string } = {},
+    ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
         number: 7,
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        branch: BRANCH,
+        commits: run.commits ?? ["c0ffee1"],
         output: "",
-        tokensUsed: tokenCount(0),
+        tokensUsed: tokenCount(42_000),
+        ...(run.failure !== undefined && { failure: run.failure }),
       });
+      return ticket;
+    }
+
+    it("is opened for the branch a run left commits on", async () => {
+      const ports = fakePorts();
+      const ticket = ran(ports);
 
       await morningRun(ports);
 
       assert.deepEqual(ports.repoHost.pullRequests, [
         {
           directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          branch: branch("issue-7-add-the-thing"),
+          branch: BRANCH,
           ticket,
         },
       ]);
@@ -426,27 +429,17 @@ describe("morningRun", () => {
 
     it("is reported, so the developer is told where to review", async () => {
       const ports = fakePorts();
-      ranSuccessfully(ports);
+      ran(ports);
 
       const report = await morningRun(ports);
 
-      assert.equal(report.pullRequest, FakeRepoHost.DRAFT_PULL_REQUEST);
-      assert.match(report.message, /https:\/\/github\.com\/pulls\/2/);
+      assert.equal(report.pullRequest, FakeRepoHost.RUN_PULL_REQUEST);
+      assert.match(report.message, new RegExp(FakeRepoHost.RUN_PULL_REQUEST));
     });
 
     it("is not opened for a run that committed nothing", async () => {
       const ports = fakePorts();
-      ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
-        title: "Add the thing",
-      });
-      ports.sandbox.result = () => ({
-        branch: branch("issue-7-add-the-thing"),
-        commits: [],
-        output: "the agent gave up",
-        tokensUsed: tokenCount(42_000),
-      });
+      ran(ports, { commits: [] });
 
       const report = await morningRun(ports);
 
@@ -456,17 +449,7 @@ describe("morningRun", () => {
 
     it("leaves the message saying nothing was left behind", async () => {
       const ports = fakePorts();
-      ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
-        title: "Add the thing",
-      });
-      ports.sandbox.result = () => ({
-        branch: branch("issue-7-add-the-thing"),
-        commits: [],
-        output: "the agent gave up",
-        tokensUsed: tokenCount(42_000),
-      });
+      ran(ports, { commits: [] });
 
       const report = await morningRun(ports);
 
@@ -479,18 +462,7 @@ describe("morningRun", () => {
 
     it("is not opened for a run the agent did not finish", async () => {
       const ports = fakePorts();
-      ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
-        title: "Add the thing",
-      });
-      ports.sandbox.result = () => ({
-        branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
-        output: "the tests are still red",
-        failure: "the agent gave up",
-        tokensUsed: tokenCount(42_000),
-      });
+      ran(ports, { failure: "the agent gave up" });
 
       const report = await morningRun(ports);
 
@@ -500,18 +472,7 @@ describe("morningRun", () => {
 
     it("leaves a failed run's commits named, so they can be judged", async () => {
       const ports = fakePorts();
-      ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
-        title: "Add the thing",
-      });
-      ports.sandbox.result = () => ({
-        branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
-        output: "the tests are still red",
-        failure: "the agent gave up",
-        tokensUsed: tokenCount(42_000),
-      });
+      ran(ports, { failure: "the agent gave up" });
 
       const report = await morningRun(ports);
 
@@ -531,7 +492,7 @@ describe("morningRun", () => {
 
     it("still leaves the project recorded as worked, at what the run cost", async () => {
       const ports = fakePorts();
-      ranSuccessfully(ports);
+      ran(ports);
 
       await morningRun(ports);
 
@@ -544,7 +505,7 @@ describe("morningRun", () => {
 
     it("leaves the work recorded even when it could not be opened", async () => {
       const ports = fakePorts();
-      ranSuccessfully(ports);
+      ran(ports);
       ports.repoHost.draftPullRequest = async () => {
         throw new Error("pull requests are disabled on this repository");
       };

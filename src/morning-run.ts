@@ -2,6 +2,7 @@ import type {
   Clock,
   IssueTracker,
   ProjectState,
+  PullRequestUrl,
   RegisteredProject,
   RepoHost,
   RepoSlug,
@@ -72,7 +73,7 @@ export interface MorningRunReport {
    * The draft pull request the run's work is waiting in. Absent when the
    * morning ran nothing, and when the run left no commits to open one for.
    */
-  pullRequest?: string;
+  pullRequest?: PullRequestUrl;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -84,16 +85,19 @@ interface Selection {
 }
 
 /**
- * What working one project came to: the run, and the draft pull request its
- * commits are waiting in.
+ * What working one project came to, and everything the report says about it:
+ * the run, and the draft pull request its commits are waiting in.
+ *
+ * Named for the handover rather than for the work, because the work is the
+ * run — this is how it reaches the developer.
  */
-interface Work {
+interface Handover {
   run: SandboxRunResult;
   /**
    * Absent when there was nothing to hand over: a run that committed nothing,
    * or one the agent did not finish.
    */
-  pullRequest?: string;
+  pullRequest?: PullRequestUrl;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -120,10 +124,10 @@ export async function morningRun(
   const state = new Map(await ports.store.loadState());
   const { outcomes, selection } = await considerProjects(ports, state);
 
-  let worked: Work | undefined;
+  let handover: Handover | undefined;
   try {
     if (selection !== undefined) {
-      worked = await work(ports, selection, state);
+      handover = await work(ports, selection, state);
     }
   } finally {
     // State is written back at the end of every invocation, including one that
@@ -137,12 +141,12 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    ...(worked !== undefined && { run: worked.run }),
-    ...(worked?.pullRequest !== undefined && {
-      pullRequest: worked.pullRequest,
-    }),
+    // Spread whole: a handover is exactly the run-and-pull-request the report
+    // owes, so re-splitting it field by field would be two places to keep the
+    // same shape.
+    ...handover,
     outcome: selection === undefined ? "dry-queue" : "work-selected",
-    message: summaryLine(outcomes, worked),
+    message: summaryLine(outcomes, handover),
   };
 }
 
@@ -197,7 +201,7 @@ async function work(
   ports: MorningRunPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
-): Promise<Work> {
+): Promise<Handover> {
   const repo = selection.project.repo;
   const checkout = await ports.repoHost.clone(repo);
   const run = await ports.sandbox.run({ ticket: selection.ticket, checkout });
@@ -207,9 +211,10 @@ async function work(
   state.set(repo, recordRun(state.get(repo), cost));
 
   // Only a run that finished and committed. A failed agent's commits are not
-  // work to review: #13 is what decides what becomes of them, and until it
-  // does, they stay on the branch in the checkout rather than becoming a
-  // pull request the developer has to judge.
+  // work to review, so they stay on the branch in the checkout rather than
+  // becoming a pull request the developer has to judge.
+  //
+  // TODO[#13]: decide what becomes of them.
   if (run.commits.length === 0 || run.failure !== undefined) {
     return { run };
   }
@@ -253,7 +258,7 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 
 function summaryLine(
   projects: ProjectOutcome[],
-  worked: Work | undefined,
+  handover: Handover | undefined,
 ): string {
   const selected = projects.find(isSelected);
   const skipped = projects.flatMap((project) => {
@@ -266,10 +271,10 @@ function summaryLine(
     // A failed agent that committed still says what it landed, and then why it
     // stopped: the developer needs both to know whether to keep the branch.
     const stopped =
-      worked?.run.failure === undefined
+      handover?.run.failure === undefined
         ? ""
-        : ` The agent failed: ${worked.run.failure}.`;
-    return `Worked ${selected.repo}: ${landed(worked)}.${stopped}${aside}`;
+        : ` The agent failed: ${handover.run.failure}.`;
+    return `Worked ${selected.repo}: ${landed(handover)}.${stopped}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
@@ -285,15 +290,15 @@ function summaryLine(
  * pull request are a failed agent's: the branch is in the checkout, and saying
  * where is how the developer decides whether to keep it.
  */
-function landed(worked: Work | undefined): string {
-  if (worked === undefined || worked.run.commits.length === 0) {
+function landed(handover: Handover | undefined): string {
+  if (handover === undefined || handover.run.commits.length === 0) {
     return "the run left nothing behind";
   }
   const where =
-    worked.pullRequest === undefined
-      ? worked.run.branch
-      : `${worked.run.branch} (${worked.pullRequest})`;
-  return `${commitCount(worked.run)} on ${where}`;
+    handover.pullRequest === undefined
+      ? handover.run.branch
+      : `${handover.run.branch} (${handover.pullRequest})`;
+  return `${commitCount(handover.run)} on ${where}`;
 }
 
 /** How many commits the run left, said the way a person would say it. */

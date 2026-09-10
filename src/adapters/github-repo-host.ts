@@ -7,11 +7,12 @@ import type {
   Branch,
   Checkout,
   Proposal,
+  PullRequestUrl,
   RepoHost,
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { checkout } from "../ports/index.ts";
+import { checkout, pullRequestUrl } from "../ports/index.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -198,25 +199,27 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       directory: Checkout,
       branch: Branch,
       ticket: Ticket,
-    ): Promise<string> {
+    ): Promise<PullRequestUrl> {
       // What the run branched from: the sandbox clones this checkout at its
       // HEAD, so the branch it is on is the base the commits actually sit on.
       // Asked rather than left to `gh`, which would open against the remote's
       // default branch and put every commit between the two in the diff.
       const base = await currentBranch(directory);
+      if (base === undefined) {
+        // A detached HEAD has no branch to name, and carrying on without
+        // `--base` would hand `gh` the default branch — the very diff the
+        // flag is here to avoid. Refused before the push, so a checkout in
+        // this state costs nothing on the host.
+        throw new Error(
+          `${directory} is not on a branch, so there is no base to open a pull request against. Check out a branch and run this again.`,
+        );
+      }
 
-      // By name, not by checking it out: the branch came back from the sandbox
-      // as a ref in this checkout, and the developer's own checkout is never
-      // moved to push it.
+      // By name, not by checking it out, and without upstream tracking: the
+      // branch came back from the sandbox as a ref in this checkout, and the
+      // developer's own checkout is never moved or reconfigured to push it.
       try {
-        await run("git", [
-          "-C",
-          directory,
-          "push",
-          "--set-upstream",
-          "origin",
-          branch,
-        ]);
+        await run("git", ["-C", directory, "push", "origin", branch]);
       } catch (error) {
         // Most likely a branch of this name already on the host from an
         // earlier morning, which a checkout that has since been re-cloned
@@ -226,6 +229,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         );
       }
 
+      let opened: string;
       try {
         const { stdout } = await run(
           "gh",
@@ -240,7 +244,8 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
             "--draft",
             "--head",
             branch,
-            ...(base === undefined ? [] : ["--base", base]),
+            "--base",
+            base,
             "--title",
             ticket.title,
             "--body",
@@ -248,18 +253,24 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
           ],
           { cwd: directory },
         );
-        return stdout.trim();
+        opened = stdout;
       } catch (error) {
         // The commits are on the host either way, so the branch is named here:
         // a morning whose pull request could not be opened still produced work,
-        // and the developer needs to be able to find it.
+        // and the developer needs to be able to find it. The base is named too,
+        // because a base the host does not have is the likeliest reason `gh`
+        // refused, and it is not visible from anything else in this message.
         //
-        // TODO[#13]: report this as a failed run rather than throwing, so the
-        // morning still says what it did and what it cost.
+        // TODO[#13]: return a failure rather than throwing.
         throw new Error(
-          `Pushed ${branch} to ${ticket.repo}, but could not open a pull request for it: ${errorMessage(error)}`,
+          `Pushed ${branch} to ${ticket.repo}, but could not open a pull request for it against ${base}: ${errorMessage(error)}`,
         );
       }
+
+      // Outside the catch: `gh` answering with something that is not a pull
+      // request is a different failure from `gh` refusing, and reporting it as
+      // the second would send the developer looking for a push that worked.
+      return pullRequestUrl(opened.trim());
     },
   };
 }

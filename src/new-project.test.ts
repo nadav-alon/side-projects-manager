@@ -176,9 +176,12 @@ describe("registering a repo that already exists", () => {
     assert.deepEqual(report.proposal, {
       kind: "proposed",
       branch: "harness",
-      url: FakeRepoHost.PULL_REQUEST,
+      url: FakeRepoHost.PROPOSED_PULL_REQUEST,
     });
-    assert.match(report.message, new RegExp(FakeRepoHost.PULL_REQUEST));
+    assert.match(
+      report.message,
+      new RegExp(FakeRepoHost.PROPOSED_PULL_REQUEST),
+    );
   });
 
   it("names the files it overwrote in the request, not only in its diff", async () => {
