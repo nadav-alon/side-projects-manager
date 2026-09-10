@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
@@ -13,6 +10,7 @@ import {
   repoSlug,
   type Ticket,
 } from "../ports/index.ts";
+import { callWith, recordingGh, valueOf } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -136,60 +134,6 @@ describe("ghIssueTracker.createReviewTicket", () => {
   /** The review's database id, which is what the sub-issues endpoint takes. */
   const REVIEW_ID = "2159872455";
 
-  /** What marks the start of one recorded invocation in the record. */
-  const CALL_SEPARATOR = "--- call ---";
-
-  /**
-   * A `gh` on PATH for the length of the test, recording how it was called.
-   * `body` is the script's, and decides what each invocation answers with.
-   *
-   * Arguments are recorded NUL-separated rather than one per line, because the
-   * argument worth asserting about is `--body`, and a body is several lines.
-   * Split on newlines, every assertion about one would silently be an
-   * assertion about its first line.
-   */
-  function recordingGh(t: { after: (fn: () => void) => void }, body: string) {
-    const path_ = process.env["PATH"];
-    let calls: string;
-
-    const ready = (async () => {
-      const bin = await mkdtemp(path.join(tmpdir(), "gh-recording-"));
-      calls = path.join(bin, "calls");
-      await writeFile(
-        path.join(bin, "gh"),
-        `#!/bin/sh\nprintf '%s\\0' '${CALL_SEPARATOR}' "$@" >> "${calls}"\n${body}\n`,
-        { mode: 0o755 },
-      );
-      process.env["PATH"] = `${bin}:${path_ ?? ""}`;
-    })();
-
-    t.after(() => {
-      process.env["PATH"] = path_;
-    });
-
-    return {
-      ready,
-      /** Every invocation, as its argument list, in the order they happened. */
-      async calls(): Promise<string[][]> {
-        const recorded = await readFile(calls, "utf8").catch(() => "");
-        const fields = recorded.split("\0");
-        // Every field is terminated rather than separated, so the last split
-        // is the empty tail after the final NUL and not an argument.
-        fields.pop();
-
-        const parsed: string[][] = [];
-        for (const field of fields) {
-          if (field === CALL_SEPARATOR) {
-            parsed.push([]);
-            continue;
-          }
-          parsed.at(-1)?.push(field);
-        }
-        return parsed;
-      },
-    };
-  }
-
   /** A tracker where creating, reading back and linking all succeed. */
   const WORKING = [
     `case "$1 $2" in`,
@@ -199,25 +143,8 @@ describe("ghIssueTracker.createReviewTicket", () => {
     `esac`,
   ].join("\n");
 
-  /** The first call matching `argument`, or undefined if there was none. */
-  function callWith(
-    calls: string[][],
-    ...arguments_: string[]
-  ): string[] | undefined {
-    return calls.find((call) =>
-      arguments_.every((argument) => call.includes(argument)),
-    );
-  }
-
-  /** The value `gh` was given for `flag`, in one recorded call. */
-  function valueOf(call: string[], flag: string): string | undefined {
-    const at = call.indexOf(flag);
-    return at === -1 ? undefined : call[at + 1];
-  }
-
   it("creates it in the project's own repo, carrying ready-for-agent", async (t) => {
-    const gh = recordingGh(t, WORKING);
-    await gh.ready;
+    const gh = await recordingGh(t, WORKING);
 
     await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
 
@@ -227,9 +154,52 @@ describe("ghIssueTracker.createReviewTicket", () => {
     assert.equal(valueOf(create, "--label"), READY_FOR_AGENT_LABEL);
   });
 
+  it("creates the ready-for-agent label first, since a project may have none", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
+
+    // `gh issue create --label` fails outright against a label that does not
+    // exist, and `gh issue list --label` does not, so a project can reach here
+    // without one — after the pull request is already open.
+    const calls = await gh.calls();
+    const label = callWith(calls, "label", "create");
+    assert.ok(label, "the label should be created");
+    assert.ok(label.includes(READY_FOR_AGENT_LABEL));
+    assert.equal(valueOf(label, "--repo"), PILOT);
+    const create = callWith(calls, "issue", "create");
+    assert.ok(create);
+    assert.ok(
+      calls.indexOf(label) < calls.indexOf(create),
+      "the label should exist before the review that carries it",
+    );
+  });
+
+  it("opens the review even where the label is already there", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "label create") echo "label already exists" >&2; exit 1 ;;`,
+        `  "issue create") echo ${REVIEW_URL} ;;`,
+        `  "api repos/nadav-alon/pilot/issues/42") echo ${REVIEW_ID} ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    // Every project the developer triages by hand answers that way, which is
+    // to say: the label exists, which is all this asked for.
+    const review = await ghIssueTracker().createReviewTicket(
+      TICKET,
+      PULL_REQUEST,
+    );
+
+    assert.equal(review.number, 42);
+  });
+
   it("names the pull request to review, and the ticket that earned it", async (t) => {
-    const gh = recordingGh(t, WORKING);
-    await gh.ready;
+    const gh = await recordingGh(t, WORKING);
 
     await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
 
@@ -237,18 +207,15 @@ describe("ghIssueTracker.createReviewTicket", () => {
     assert.ok(create);
     assert.match(valueOf(create, "--title") ?? "", /#7/);
 
-    // The whole body, not its first line: the URL is the one thing a reviewing
-    // run cannot work out for itself, and why the review is its own run is the
-    // rest of what the ticket has to say.
+    // The URL, which is the one thing a reviewing run cannot work out for
+    // itself, and the ticket that earned the review.
     const body = valueOf(create, "--body") ?? "";
     assert.match(body, /pull\/12/);
     assert.match(body, /#7/);
-    assert.match(body, /run of its own/);
   });
 
   it("answers with the review it opened", async (t) => {
-    const gh = recordingGh(t, WORKING);
-    await gh.ready;
+    const gh = await recordingGh(t, WORKING);
 
     const review = await ghIssueTracker().createReviewTicket(
       TICKET,
@@ -261,8 +228,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("hangs it off the ticket with the tracker's own sub-issue relationship", async (t) => {
-    const gh = recordingGh(t, WORKING);
-    await gh.ready;
+    const gh = await recordingGh(t, WORKING);
 
     await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
 
@@ -275,18 +241,17 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("falls back to a parent reference in its body where sub-issues are unavailable", async (t) => {
-    const gh = recordingGh(
+    const gh = await recordingGh(
       t,
       [
         `case "$1 $2" in`,
         `  "issue create") echo ${REVIEW_URL} ;;`,
         `  "api repos/nadav-alon/pilot/issues/42") echo ${REVIEW_ID} ;;`,
-        `  "api --method") echo "sub-issues are not available" >&2; exit 1 ;;`,
+        `  "api --method") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;`,
         `  *) : ;;`,
         `esac`,
       ].join("\n"),
     );
-    await gh.ready;
 
     const review = await ghIssueTracker().createReviewTicket(
       TICKET,
@@ -308,7 +273,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("does not guess at an issue id the tracker did not give it", async (t) => {
-    const gh = recordingGh(
+    const gh = await recordingGh(
       t,
       [
         `case "$1 $2" in`,
@@ -320,32 +285,58 @@ describe("ghIssueTracker.createReviewTicket", () => {
         `esac`,
       ].join("\n"),
     );
-    await gh.ready;
 
-    await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
+    await assert.rejects(
+      ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
+      /"id" was not an issue id: ""/,
+    );
 
-    // Nothing is POSTed on a blank answer, and the review keeps its parent by
-    // falling back rather than by linking to whatever `Number("")` comes to.
+    // Nothing is POSTed on a blank answer rather than whatever `Number("")`
+    // comes to, and nothing is written into a body either: an answer the
+    // tracker mangled is not a tracker that has no sub-issues.
     const calls = await gh.calls();
     assert.equal(callWith(calls, "api", "--method", "POST"), undefined);
-    const edit = callWith(calls, "issue", "edit");
-    assert.ok(edit, "the review should fall back to a parent reference");
-    assert.match(valueOf(edit, "--body") ?? "", /^Part of #7\./);
+    assert.equal(callWith(calls, "issue", "edit"), undefined);
   });
 
-  it("never edits or closes the ticket it reviews", async (t) => {
-    const gh = recordingGh(
+  it("refuses rather than downgrade the link when the tracker will not answer", async (t) => {
+    const gh = await recordingGh(
       t,
       [
         `case "$1 $2" in`,
         `  "issue create") echo ${REVIEW_URL} ;;`,
         `  "api repos/nadav-alon/pilot/issues/42") echo ${REVIEW_ID} ;;`,
-        `  "api --method") exit 1 ;;`,
+        // A tracker that has sub-issues and would not be asked: a token
+        // without the scope, a rate limit, a proxy in the way.
+        `  "api --method") echo "gh: Forbidden (HTTP 403)" >&2; exit 1 ;;`,
         `  *) : ;;`,
         `esac`,
       ].join("\n"),
     );
-    await gh.ready;
+
+    await assert.rejects(
+      ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
+      /HTTP 403/,
+    );
+
+    // The body reference is for a tracker that cannot do sub-issues at all.
+    // Written here it would permanently downgrade a relationship that was one
+    // retry away, and say nothing about the refusal.
+    assert.equal(callWith(await gh.calls(), "issue", "edit"), undefined);
+  });
+
+  it("never edits or closes the ticket it reviews", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue create") echo ${REVIEW_URL} ;;`,
+        `  "api repos/nadav-alon/pilot/issues/42") echo ${REVIEW_ID} ;;`,
+        `  "api --method") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
 
     // The fallback path, which is the one that writes to an issue body: even
     // there, the issue written to is the review and never its parent.
@@ -358,8 +349,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("says so when the tracker answers with something other than the new issue", async (t) => {
-    const gh = recordingGh(t, `echo "Creating issue in nadav-alon/pilot"`);
-    await gh.ready;
+    await recordingGh(t, `echo "Creating issue in nadav-alon/pilot"`);
 
     // Linking is by number, so a number that was never read is not a number
     // to guess at: better to stop than to hang the review off the wrong issue.
@@ -370,7 +360,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("says so when linking fails after the review was opened", async (t) => {
-    const gh = recordingGh(
+    const gh = await recordingGh(
       t,
       [
         `case "$1 $2" in`,
@@ -379,13 +369,18 @@ describe("ghIssueTracker.createReviewTicket", () => {
         `esac`,
       ].join("\n"),
     );
-    await gh.ready;
 
     // The morning's work is not lost — the review is open and eligible — but
-    // it is floating free of its parent, and only this error says so.
+    // it is floating free of its parent, and only this error says so. It names
+    // the pull request too: the morning pushed a branch and opened one, and
+    // this is the only place the developer is told where they are.
     await assert.rejects(
       ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
       /Opened #42 in nadav-alon\/pilot .* could not link it to #7/s,
+    );
+    await assert.rejects(
+      ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
+      new RegExp(PULL_REQUEST),
     );
   });
 });

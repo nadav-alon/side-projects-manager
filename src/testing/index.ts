@@ -11,6 +11,12 @@ export {
   type FakePush,
 } from "./fake-repo-host.ts";
 export { FakeSandbox } from "./fake-sandbox.ts";
+export {
+  callWith,
+  recordingGh,
+  valueOf,
+  type RecordedGh,
+} from "./recording-gh.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { NO_USAGE, FakeUsageLedger, spent } from "./fake-usage-ledger.ts";
 export {

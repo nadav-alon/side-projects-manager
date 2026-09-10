@@ -41,5 +41,21 @@ export interface IssueTracker {
    * `ticket` is read, never written: the review is queued beside the ticket
    * that earned it, and closing or relabelling that one stays the developer's.
    */
-  createReviewTicket(ticket: Ticket, pullRequest: PullRequestUrl): Promise<Ticket>;
+  createReviewTicket(
+    ticket: Ticket,
+    pullRequest: PullRequestUrl,
+  ): Promise<Ticket>;
+}
+
+/**
+ * The title a review ticket carries. Says what it is and which ticket earned
+ * it, because a backlog is read as a list of titles and selection has to be
+ * able to tell a review from an implementation.
+ *
+ * Beside the verb that opens one rather than in the adapter, so that every
+ * implementation of the port — and the fake the loop is tested against —
+ * names a review the same way.
+ */
+export function reviewTitle(ticket: Ticket): string {
+  return `Review the draft pull request for #${ticket.number}`;
 }

@@ -4,6 +4,7 @@ import type {
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
+import { reviewTitle } from "../ports/index.ts";
 
 /** One review ticket the loop opened, in the order the fake received it. */
 export interface FakeReviewTicket {
@@ -57,7 +58,7 @@ export class FakeIssueTracker implements IssueTracker {
     const numbers = backlog.map((eligible) => eligible.number);
     const review = this.addEligibleTicket(ticket.repo, {
       number: Math.max(ticket.number, ...numbers) + 1,
-      title: `Review the draft pull request for #${ticket.number}`,
+      title: reviewTitle(ticket),
     });
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });

@@ -621,10 +621,12 @@ describe("morningRun", () => {
 
       const report = await morningRun(ports);
 
-      assert.deepEqual(
-        report.reviewTicket,
-        ports.tracker.reviewTickets[0]?.ticket,
-      );
+      const review = ports.tracker.reviewTickets[0]?.ticket;
+      assert.deepEqual(report.reviewTicket, review);
+      // In the line as well as the field: the message is the whole of what a
+      // trigger prints, so a review only the field knows about is a review
+      // nobody is told is waiting.
+      assert.match(report.message, new RegExp(`#${review?.number}`));
     });
 
     it("is not opened for a run that committed nothing", async () => {

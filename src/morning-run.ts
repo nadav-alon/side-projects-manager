@@ -89,7 +89,7 @@ export interface MorningRunReport {
   standDown?: StandDown;
   /**
    * The review ticket queued for that pull request. Absent wherever the pull
-   * request is, since a review is only ever queued for one that exists.
+   * request is absent, since a review is only ever queued for one that exists.
    */
   reviewTicket?: Ticket;
   /** One line, suitable for printing to a terminal or into the summary issue. */
@@ -117,7 +117,10 @@ interface Handover {
    * or one the agent did not finish.
    */
   pullRequest?: PullRequestUrl;
-  /** Absent alongside the pull request, which is the thing it reviews. */
+  /**
+   * Absent wherever the pull request is absent, which is the thing it
+   * reviews.
+   */
   reviewTicket?: Ticket;
 }
 
@@ -255,7 +258,7 @@ async function considerProjects(
 
 /**
  * The second step: run the selected ticket, hand the work over as a draft
- * pull request, and record what that cost.
+ * pull request with a review queued against it, and record what that cost.
  *
  * The checkout comes from the repo host rather than from anything the loop
  * remembers, so a project whose clone has gone missing heals on the way into
@@ -302,8 +305,7 @@ async function work(
   // that ran out of steam cannot forget to, and the review it asks for is a
   // run of its own rather than the tail of the one being reviewed.
   //
-  // TODO[#10]: until then the review is selected and run as an implementation,
-  // which is what the ready-for-agent label makes it look like.
+  // TODO[#10]: tell a review from an implementation when selecting one.
   //
   // TODO[#13]: report a review that could not be opened as a failed run, so
   // that a morning which did push a branch and open a pull request still says
@@ -368,12 +370,24 @@ function summaryLine(
       handover?.run.failure === undefined
         ? ""
         : ` The agent failed: ${handover.run.failure}.`;
-    return `Worked ${selected.repo}: ${landed(handover)}.${stopped}${aside}`;
+    return `Worked ${selected.repo}: ${landed(handover)}.${queued(
+      handover,
+    )}${stopped}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
+}
+
+/**
+ * The review waiting on the developer, named by number because that is how a
+ * backlog is read. Nothing to say on a morning that opened no pull request,
+ * which is the only morning that queues no review.
+ */
+function queued(handover: Handover | undefined): string {
+  const review = handover?.reviewTicket;
+  return review === undefined ? "" : ` Queued #${review.number} to review it.`;
 }
 
 /**
