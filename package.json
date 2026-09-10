@@ -21,8 +21,8 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "morning-run": "node src/bin/morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
-    "sandbox:build": "docker build -t side-projects-sandbox:ci .",
-    "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:ci /scripts/verify-harness.ts"
+    "sandbox:build": "docker build -t side-projects-sandbox:latest .",
+    "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

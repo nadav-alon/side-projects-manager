@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { morningRun, type ProjectOutcome } from "./morning-run.ts";
-import { repoSlug, tokenCount } from "./ports/index.ts";
-import { fakePorts } from "./testing/index.ts";
+import { branch, repoSlug, tokenCount } from "./ports/index.ts";
+import { FROZEN_NOW, FakeRepoHost, fakePorts } from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -212,6 +212,188 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.deepEqual(report.projects[0]?.lastWorkedAt, YESTERDAY);
+    });
+  });
+
+  describe("the run", () => {
+    it("passes the selected ticket and the project checkout to the sandbox", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.sandbox.runs, [
+        { ticket, checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}` },
+      ]);
+    });
+
+    it("asks the repo host for a checkout of the project it selected", async () => {
+      const ports = fakePorts();
+      ports.store.register(MANAGER, { paused: true });
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.clones, [PILOT]);
+    });
+
+    it("clones nothing when the queue is dry", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.clones, []);
+      assert.deepEqual(ports.sandbox.runs, []);
+    });
+
+    it("reports the branch, commits, output and cost the run came back with", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1", "c0ffee2"],
+        output: "implemented the thing",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(report.run, {
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1", "c0ffee2"],
+        output: "implemented the thing",
+        tokensUsed: tokenCount(42_000),
+      });
+    });
+
+    it("has no run to report on a quiet morning", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.run, undefined);
+    });
+
+    it("says in the message what the run left behind", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /nadav-alon\/pilot/);
+      assert.match(report.message, /issue-7-add-the-thing/);
+    });
+  });
+
+  describe("what a run records", () => {
+    it("records the project as worked, at the clock's instant", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await morningRun(ports);
+      const report = await morningRun(ports);
+
+      assert.deepEqual(report.projects[0]?.lastWorkedAt, FROZEN_NOW);
+    });
+
+    it("records what the run cost", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: [],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+      ]);
+    });
+
+    it("keeps the runs earlier invocations recorded", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.markWorked(PILOT, YESTERDAY, {
+        at: YESTERDAY,
+        tokensUsed: tokenCount(120_000),
+      });
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(
+        state.get(PILOT)?.runs.map((run) => run.at),
+        [YESTERDAY, FROZEN_NOW],
+      );
+    });
+
+    it("records nothing against a project it never ran", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.get(PILOT), undefined);
+    });
+  });
+
+  describe("a run that falls over", () => {
+    it("still writes state back, since it still spent the morning", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("docker is not running");
+      });
+      const saveState = t.mock.method(ports.store, "saveState");
+
+      await assert.rejects(morningRun(ports), /docker is not running/);
+
+      assert.equal(saveState.mock.callCount(), 1);
     });
   });
 });

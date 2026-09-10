@@ -1,3 +1,4 @@
+import type { Checkout } from "./checkout.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
 /**
@@ -45,7 +46,7 @@ export interface RepoHost {
    * A clone already sitting there is reused rather than replaced, which is
    * what makes a missing clone self-healing and an existing one safe.
    */
-  clone(repo: RepoSlug): Promise<string>;
+  clone(repo: RepoSlug): Promise<Checkout>;
   /**
    * Commits `paths` in the checkout at `directory` and pushes, setting
    * upstream. A checkout where none of them changed is left alone.

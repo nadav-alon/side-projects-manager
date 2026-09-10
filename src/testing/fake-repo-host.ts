@@ -1,4 +1,10 @@
-import type { Proposal, RepoHost, RepoSlug } from "../ports/index.ts";
+import type {
+  Checkout,
+  Proposal,
+  RepoHost,
+  RepoSlug,
+} from "../ports/index.ts";
+import { checkout } from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
@@ -62,9 +68,9 @@ export class FakeRepoHost implements RepoHost {
     this.#existing.add(repo);
   }
 
-  async clone(repo: RepoSlug): Promise<string> {
+  async clone(repo: RepoSlug): Promise<Checkout> {
     this.clones.push(repo);
-    return `${FakeRepoHost.MANAGED_LOCATION}/${repo}`;
+    return checkout(`${FakeRepoHost.MANAGED_LOCATION}/${repo}`);
   }
 
   async commitAndPush(

@@ -39,7 +39,18 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin marketplace update claude-plugins-official \
     && claude plugin install "$HARNESS_PLUGIN" -y
 
-# TODO[#7]: nothing in this image sets a non-root user or a git identity.
+# A run's whole product is commits, and git refuses to make one without an
+# identity. Set in the image rather than per run, so every run's commits are
+# attributable to the manager rather than to whoever built the image.
+#
+# safe.directory: the clone arrives as a bind mount owned by the developer
+# on the host, which is not the user in here. Without it git treats /repo as
+# somebody else's repository and refuses to touch it.
+RUN git config --global user.name "side-projects-manager" \
+    && git config --global user.email "manager@side-projects.invalid" \
+    && git config --global --add safe.directory /repo
+
+# TODO[#27]: this image still runs as root.
 
 # ENTRYPOINT rather than CMD: `docker run <image> -p "…" …` reads as invoking
 # claude directly, matching how it's invoked outside a container. No ENV for

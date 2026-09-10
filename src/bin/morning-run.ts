@@ -1,8 +1,9 @@
 #!/usr/bin/env node
+import { containerSandbox } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
+import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import { systemClock } from "../adapters/system-clock.ts";
-import { stubSandbox } from "../adapters/stub-ports.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { morningRun } from "../morning-run.ts";
 
@@ -16,7 +17,8 @@ import { morningRun } from "../morning-run.ts";
 async function main(): Promise<void> {
   const report = await morningRun({
     tracker: ghIssueTracker(),
-    sandbox: stubSandbox,
+    repoHost: githubRepoHost(),
+    sandbox: containerSandbox(),
     ledger: sessionLogUsageLedger,
     clock: systemClock,
     store: documentStore(),
