@@ -12,6 +12,7 @@ import {
 } from "./ports/index.ts";
 import {
   FROZEN_NOW,
+  FakeClock,
   FakeRepoHost,
   fakePorts,
   spent,
@@ -21,6 +22,8 @@ const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const PILOT = repoSlug("nadav-alon/pilot");
 
 const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");
+/** Before the weekly window the fakes are anchored in opened. */
+const LAST_WEEK = new Date("2025-12-20T06:00:00.000Z");
 
 /** What the report says happened, without the timestamps a test didn't set. */
 function verdicts(projects: ProjectOutcome[]): [string, string][] {
@@ -480,7 +483,7 @@ describe("morningRun", () => {
       assert.deepEqual(ports.sandbox.runs, []);
     });
 
-    it("names the week when both windows refuse, since it is the one that resets later", async () => {
+    it("names the window that resets later when both refuse", async () => {
       const ports = readyToWork();
       ports.ledger.windows = spent({
         fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
@@ -490,6 +493,36 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.equal(report.standDown?.reason, "weekly-reserve");
+    });
+
+    /**
+     * Saturday night: the week resets at midnight, and a block opened at ten
+     * runs to three in the morning. Naming the week would send a trigger back
+     * at midnight to stand down all over again.
+     */
+    it("names the 5-hour window when it is the one that outlasts the week", async () => {
+      const ports = readyToWork();
+      ports.clock = new FakeClock(new Date("2026-01-03T23:00:00.000Z"));
+      ports.ledger.windows = {
+        fiveHour: {
+          openedAt: new Date("2026-01-03T22:00:00.000Z"),
+          resetsAt: new Date("2026-01-04T03:00:00.000Z"),
+          tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
+        },
+        weekly: {
+          openedAt: new Date("2025-12-28T00:00:00.000Z"),
+          resetsAt: new Date("2026-01-04T00:00:00.000Z"),
+          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
+        },
+      };
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.standDown?.reason, "five-hour-window");
+      assert.deepEqual(
+        report.standDown?.resetsAt,
+        new Date("2026-01-04T03:00:00.000Z"),
+      );
     });
 
     it("clones nothing when it stands down", async () => {
@@ -569,6 +602,91 @@ describe("morningRun", () => {
           report.standDown?.resetsAt,
           ports.ledger.windows.weekly.resetsAt,
         );
+      });
+    });
+
+    /**
+     * The ledger reads this machine's session logs, and a run writes its log
+     * inside a container that is thrown away when it ends — so a morning's
+     * own spend reaches the gate through the state document or not at all.
+     * A gate that missed it would ration the developer's typing and never the
+     * loop, which is the whole thing it was built to bound.
+     */
+    describe("what the mornings themselves spent", () => {
+      it("counts a recorded run the ledger cannot see", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ weekly: 0 });
+        ports.store.markWorked(PILOT, YESTERDAY, {
+          at: YESTERDAY,
+          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "stood-down");
+        assert.equal(report.standDown?.reason, "weekly-reserve");
+        assert.deepEqual(ports.sandbox.runs, []);
+      });
+
+      it("adds them to what the ledger did see", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK - 100 });
+        ports.store.markWorked(PILOT, YESTERDAY, {
+          at: YESTERDAY,
+          tokensUsed: tokenCount(101),
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "stood-down");
+        assert.equal(report.standDown?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
+      });
+
+      it("counts every project's runs, not just the one being worked", async () => {
+        const ports = readyToWork();
+        ports.store.register(MANAGER);
+        ports.ledger.windows = spent({ weekly: 0 });
+        ports.store.markWorked(MANAGER, YESTERDAY, {
+          at: YESTERDAY,
+          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "stood-down");
+      });
+
+      it("ignores runs from before the window opened", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ weekly: 0 });
+        ports.store.markWorked(PILOT, LAST_WEEK, {
+          at: LAST_WEEK,
+          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "work-selected");
+        assert.equal(ports.sandbox.runs.length, 1);
+      });
+
+      /**
+       * A run big enough to blow the 5-hour allowance on its own, made before
+       * the current block opened. Counting it there would stand the morning
+       * down; the week, which it does fall inside, has room for it.
+       */
+      it("leaves a run out of the 5-hour window it predates", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ fiveHour: 0, weekly: 0 });
+        ports.store.markWorked(PILOT, YESTERDAY, {
+          at: YESTERDAY,
+          tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "work-selected");
+        assert.equal(ports.sandbox.runs.length, 1);
       });
     });
 

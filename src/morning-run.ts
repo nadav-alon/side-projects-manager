@@ -6,6 +6,7 @@ import type {
   RegisteredProject,
   RepoHost,
   RepoSlug,
+  RunCost,
   Sandbox,
   SandboxRunResult,
   State,
@@ -103,11 +104,13 @@ interface RegistryScan {
  * iteration works one project and one ticket, so a project with a single
  * eligible ticket costs one iteration, not the morning.
  *
- * No run starts without the gate's say-so, and the gate is asked here rather
- * than once per invocation, so an invocation that goes on to work a second
- * project asks again with the first run's spend already in the windows.
+ * No run starts without the gate's say-so. The gate is asked from inside the
+ * run path rather than at the top of the invocation, which is where it will
+ * need to be once an invocation makes more than one run: what it reads is the
+ * state as it stands when a run would start, the previous run's cost included.
  *
- * TODO[#11]: iterate — an invocation currently stops after the first run.
+ * TODO[#11]: iterate — an invocation currently stops after the first run, so
+ * the gate is in fact asked once.
  */
 export async function morningRun(
   ports: MorningRunPorts,
@@ -121,7 +124,7 @@ export async function morningRun(
   try {
     if (selection !== undefined) {
       const budget = await ports.store.loadBudget();
-      standDown = await consultTheGate(ports, budget);
+      standDown = await consultTheGate(ports, budget, state);
       if (standDown === undefined) {
         run = await work(ports, selection, state, budget.spendCeiling);
       }
@@ -160,14 +163,31 @@ function outcomeOf(
  * windows it reads are the ones in force when the run would start, not the
  * ones the invocation opened with.
  *
+ * The state goes in with them. The ledger reads this machine's session logs
+ * and a run writes its log inside a container that is then thrown away, so
+ * what the mornings have spent is in the state document and nowhere else. A
+ * gate handed only the ledger would ration the developer and never the loop.
+ *
  * A dry morning never gets here, so the loop reports a quiet queue as a quiet
  * queue rather than reading the ledger to decline work that did not exist.
  */
 async function consultTheGate(
   ports: MorningRunPorts,
   budget: Budget,
+  state: State,
 ): Promise<StandDown | undefined> {
-  return budgetGate(await ports.ledger.read(ports.clock.now()), budget);
+  return budgetGate(
+    await ports.ledger.read(ports.clock.now()),
+    budget,
+    runsRecorded(state),
+  );
+}
+
+/** Every run the mornings have made, across every project, oldest first. */
+function runsRecorded(state: State): RunCost[] {
+  return [...state.values()]
+    .flatMap((project) => project.runs)
+    .sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
 /**

@@ -1,6 +1,7 @@
 import type {
   Budget,
   ReserveFraction,
+  RunCost,
   TokenCount,
   UsageWindow,
   UsageWindows,
@@ -26,8 +27,9 @@ export interface StandDown {
 }
 
 /**
- * Whether a run may start, given the windows in force and what the developer
- * declared they are willing to spend. `undefined` is the go-ahead.
+ * Whether a run may start, given the windows in force, what the mornings have
+ * already spent, and what the developer declared they are willing to spend.
+ * `undefined` is the go-ahead.
  *
  * Two windows, refusing for two different reasons. The weekly window is
  * measured against the part of the allowance the reserve does not hold back,
@@ -37,8 +39,9 @@ export interface StandDown {
  * whole allowance, because a spent block is a wall the loop should not walk
  * into rather than headroom to ration.
  *
- * The week is checked first: when both windows refuse, the one that resets
- * later is the one worth telling the developer about.
+ * When both windows refuse, the developer hears about whichever resets later:
+ * that is when work could actually resume, and a trigger that came back at the
+ * earlier instant would only stand down again.
  *
  * Every number here is an inference. The provider reports consumption and
  * never remaining quota, and the ledger cannot see the developer's usage from
@@ -49,43 +52,72 @@ export interface StandDown {
 export function budgetGate(
   windows: UsageWindows,
   budget: Budget,
+  ownSpend: readonly RunCost[] = [],
 ): StandDown | undefined {
   const weekly = refusal(
     "weekly-reserve",
     windows.weekly,
     spendableOf(budget.weeklyAllowance, budget.reserveFraction),
+    ownSpend,
   );
-  if (weekly !== undefined) {
-    return weekly;
-  }
-
-  return refusal(
+  const fiveHour = refusal(
     "five-hour-window",
     windows.fiveHour,
     budget.fiveHourAllowance,
+    ownSpend,
   );
+
+  if (weekly !== undefined && fiveHour !== undefined) {
+    return fiveHour.resetsAt > weekly.resetsAt ? fiveHour : weekly;
+  }
+  return weekly ?? fiveHour;
 }
 
 /**
  * The stand-down `window` calls for, or `undefined` when it still has room.
  *
  * A window that has consumed exactly what it may consume has not overrun it,
- * so the boundary is a go: the reserve is intact to the token.
+ * so the boundary is a go: the reserve is intact to the token. What the run
+ * about to start will itself spend is not subtracted here — the spend ceiling
+ * is what bounds that, and it is the deliberate overshoot the gate accepts
+ * between one check and the next.
  */
 function refusal(
   reason: StandDownReason,
   window: UsageWindow,
   spendable: TokenCount,
+  ownSpend: readonly RunCost[],
 ): StandDown | undefined {
-  if (window.tokensUsed <= spendable) {
+  const tokensUsed = consumedIn(window, ownSpend);
+  if (tokensUsed <= spendable) {
     return undefined;
   }
-  return {
-    reason,
-    tokensUsed: window.tokensUsed,
-    spendable,
-    resetsAt: window.resetsAt,
-  };
+  return { reason, tokensUsed, spendable, resetsAt: window.resetsAt };
+}
+
+/**
+ * Everything `window` has consumed: what the ledger can see, plus what the
+ * mornings spent inside it.
+ *
+ * The two are added rather than one being trusted, because the ledger cannot
+ * see a run at all. It reads this machine's session logs, and a run writes its
+ * log inside a container that is thrown away when it ends — so a morning that
+ * spent the week leaves the ledger reporting the same total it reported
+ * before. A gate that read only the ledger would ration the developer's own
+ * typing and never the thing it exists to bound.
+ *
+ * This holds only while runs are invisible to the ledger. If the sandbox ever
+ * keeps its logs where the ledger reads them, the sum below starts counting
+ * every run twice, and this is the place that has to know.
+ */
+function consumedIn(
+  window: UsageWindow,
+  ownSpend: readonly RunCost[],
+): TokenCount {
+  const mornings = ownSpend
+    .filter((run) => run.at.getTime() >= window.openedAt.getTime())
+    .reduce((total, run) => total + run.tokensUsed, 0);
+  return tokenCount(window.tokensUsed + mornings);
 }
 
 /**

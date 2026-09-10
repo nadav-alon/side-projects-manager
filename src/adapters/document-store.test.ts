@@ -241,6 +241,39 @@ describe("the budget document", () => {
     await assert.rejects(store.loadBudget(), /spendCeiling/);
   });
 
+  /**
+   * Every field is optional, so a misspelling is indistinguishable from a
+   * field left out — and reads as a budget the developer never set.
+   */
+  it("refuses a setting it does not recognise, rather than ignoring it", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserve: 0.9 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /no such setting: reserve/);
+  });
+
+  it("names what it did expect when it refuses one", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFractions: 0.9 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /reserveFraction/);
+  });
+
+  /**
+   * An allowance of nothing leaves nothing spendable, and a window is let
+   * through while it has consumed no more than it may — so zero would
+   * authorise a run every morning rather than stopping them.
+   */
+  it("refuses an allowance of nothing, which would authorise rather than halt", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ weeklyAllowance: 0 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /weeklyAllowance/);
+  });
+
   it("survives the new-project command rewriting the registry", async () => {
     const directory = await home({
       registry: JSON.stringify({ projects: [{ repo: PILOT }] }),

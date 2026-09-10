@@ -127,7 +127,7 @@ _Avoid_: review task, review job, QA ticket
 ### Budget
 
 **Budget gate**:
-The check made before every run that refuses work which would eat into the reserve. Referred to as "the gate".
+The check made before every run that refuses work which would eat into the reserve. Reads the ledger's windows and adds the runs the state document records inside them, since a run's own log dies with its container. Referred to as "the gate".
 _Avoid_: throttle, rate limit, quota check
 
 **Reserve**:

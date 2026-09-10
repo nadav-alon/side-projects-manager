@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
   Budget,
   ProjectState,
+  TokenCount,
   RegisteredProject,
   RepoSlug,
   RunCost,
@@ -174,27 +175,29 @@ function parseRegistry(
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET`, so a developer
  * who only wants to move the reserve writes one line. A field that is present
- * but not a usable value is an error rather than a fallback: a reserve the
- * developer believes they set and the loop silently ignored is the one
- * failure this whole gate exists to prevent.
+ * but not a usable value is an error rather than a fallback, and so is a field
+ * that is not one of these four: a reserve the developer believes they set and
+ * the loop silently ignored is the one failure this whole gate exists to
+ * prevent, and `"reserve"` for `"reserveFraction"` fails exactly that way.
  */
 function parseBudget(document: unknown, file: string): Budget {
   if (document === undefined) {
     return DEFAULT_BUDGET;
   }
+  rejectUnknownFields(document, BUDGET_FIELDS, file);
 
   return {
     fiveHourAllowance: numberOr(
       DEFAULT_BUDGET.fiveHourAllowance,
       fieldOf(document, "fiveHourAllowance", file),
-      isTokenCount,
-      `${file}: "fiveHourAllowance" must be a whole number of tokens, 0 or more`,
+      isAllowance,
+      `${file}: "fiveHourAllowance" must be a whole number of tokens above 0`,
     ),
     weeklyAllowance: numberOr(
       DEFAULT_BUDGET.weeklyAllowance,
       fieldOf(document, "weeklyAllowance", file),
-      isTokenCount,
-      `${file}: "weeklyAllowance" must be a whole number of tokens, 0 or more`,
+      isAllowance,
+      `${file}: "weeklyAllowance" must be a whole number of tokens above 0`,
     ),
     reserveFraction: numberOr(
       DEFAULT_BUDGET.reserveFraction,
@@ -209,6 +212,50 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "spendCeiling" must be a dollar amount above 0`,
     ),
   };
+}
+
+/**
+ * A window's declared size. A token count, and never 0: an allowance of
+ * nothing leaves nothing spendable, and the gate lets a window through while
+ * it has consumed no more than it may, so 0 would authorise a run every
+ * morning rather than stopping them. A developer who wants the mornings to
+ * stop pauses the projects or raises the reserve.
+ */
+function isAllowance(value: number): value is TokenCount {
+  return isTokenCount(value) && value > 0;
+}
+
+const BUDGET_FIELDS = [
+  "fiveHourAllowance",
+  "weeklyAllowance",
+  "reserveFraction",
+  "spendCeiling",
+] as const;
+
+/**
+ * Complains about anything in `document` that is not one of `known`.
+ *
+ * Every budget field is optional, so an unrecognised key is indistinguishable
+ * from a misspelled one, and a misspelling reads as a budget the developer
+ * never set. Refusing the document is the only way that mistake surfaces
+ * before a morning has spent the reserve on it.
+ */
+function rejectUnknownFields(
+  document: unknown,
+  known: readonly string[],
+  file: string,
+): void {
+  if (!isRecord(document)) {
+    throw new Error(`${file}: expected an object.`);
+  }
+  const unknown = Object.keys(document).filter(
+    (field) => !known.includes(field),
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `${file}: no such setting: ${unknown.join(", ")}. Expected any of: ${known.join(", ")}.`,
+    );
+  }
 }
 
 /** `value` narrowed by `is`, `fallback` when absent, an error when neither. */
