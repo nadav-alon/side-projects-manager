@@ -7,6 +7,12 @@ import type { RepoSlug } from "./repo-slug.ts";
  */
 export const READY_FOR_AGENT_LABEL = "ready-for-agent";
 
+/**
+ * The triage label a ticket carries once it is the developer's again, as
+ * `docs/agents/triage-labels.md` spells it.
+ */
+export const READY_FOR_HUMAN_LABEL = "ready-for-human";
+
 /** An issue in a project's own repo that the loop may work on. */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -18,8 +24,8 @@ export interface Ticket {
 /**
  * Reads and writes the tickets the loop works from.
  *
- * The write path is declared as the loop comes to need it: comments,
- * relabelling and the summary are not here yet.
+ * Only the read path, the hand-back and the review are declared. The rest of
+ * the write path — the summary — is declared by the code that needs it.
  */
 export interface IssueTracker {
   /**
@@ -45,6 +51,18 @@ export interface IssueTracker {
     ticket: Ticket,
     pullRequest: PullRequestUrl,
   ): Promise<Ticket>;
+
+  /**
+   * Gives `ticket` back to the developer after a failed run: leaves `reason`
+   * on it as a comment, and moves it from ready-for-agent to ready-for-human.
+   *
+   * The comment and the relabel are one operation, because a ticket the loop
+   * has stopped working on that nobody has been told about is the failure this
+   * exists to prevent. Relabelling is also the whole of the no-retry rule: a
+   * ticket without ready-for-agent is not eligible, so tomorrow's invocation
+   * cannot select it and spend another morning on it.
+   */
+  handBack(ticket: Ticket, reason: string): Promise<void>;
 }
 
 /**

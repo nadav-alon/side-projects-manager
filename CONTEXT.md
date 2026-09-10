@@ -112,6 +112,22 @@ _Avoid_: ready, agent-ready, afk-ready
 Carrying the ready-for-agent label. The only tickets the loop may select.
 _Avoid_: available, valid, approved
 
+**ready-for-human**:
+The triage label a ticket carries once the loop has stopped working on it. Always written in full, as the tracker spells it.
+_Avoid_: needs-human, manual, blocked
+
+**Hand back**:
+What a failed run does with its ticket: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning.
+_Avoid_: return, bounce, escalate, reassign
+
+**Gave up**:
+A run whose agent ran and stopped short — it said it could not, or left the tests red. The ticket is the problem.
+_Avoid_: crashed, errored, failed (say which of the two)
+
+**Infrastructure failure**:
+A run that never happened, because the sandbox or the repo host could not do its part. The setup is the problem. Reported apart from an agent that gave up, because the developer's next move differs.
+_Avoid_: outage, crash, system error
+
 **Backlog**:
 One project's eligible tickets.
 _Avoid_: queue (the queue spans all projects), todo list

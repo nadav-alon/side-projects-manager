@@ -25,6 +25,14 @@ async function main(): Promise<void> {
   });
 
   console.log(report.message);
+
+  // A morning that failed exits non-zero even though it reported cleanly.
+  // The loop's callers are a schedule and a logon guard (TODO[#15]), and a
+  // permanently broken sandbox that reports success every day is a broken
+  // sandbox nobody is told about.
+  if (report.failure !== undefined) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error: unknown) => {

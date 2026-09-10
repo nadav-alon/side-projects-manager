@@ -7,7 +7,11 @@ import type {
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { READY_FOR_AGENT_LABEL, reviewTitle } from "../ports/index.ts";
+import {
+  READY_FOR_AGENT_LABEL,
+  READY_FOR_HUMAN_LABEL,
+  reviewTitle,
+} from "../ports/index.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,6 +84,54 @@ export function ghIssueTracker(): IssueTracker {
         );
       }
       return review;
+    },
+
+    async handBack(ticket: Ticket, reason: string): Promise<void> {
+      const issue = [String(ticket.number), "--repo", ticket.repo];
+
+      // Three calls in the order they degrade best, because `gh` gives no way
+      // to do them as one and any of them can be the one that fails.
+      //
+      // The comment goes first: it needs nothing to exist beforehand, and a
+      // developer who reads why the morning stopped is served even if the
+      // labels then go wrong. Losing ready-for-agent comes next, since that
+      // alone is what stops the ticket being selected tomorrow and every
+      // morning after. Gaining ready-for-human comes last, because it is the
+      // one a project that never defined the label will refuse — and by then
+      // the ticket is commented on and out of the queue, which is the part
+      // that matters.
+      await execFileAsync("gh", [
+        "issue",
+        "comment",
+        ...issue,
+        "--body",
+        reason,
+      ]);
+      await execFileAsync("gh", [
+        "issue",
+        "edit",
+        ...issue,
+        "--remove-label",
+        READY_FOR_AGENT_LABEL,
+      ]);
+      try {
+        await execFileAsync("gh", [
+          "issue",
+          "edit",
+          ...issue,
+          "--add-label",
+          READY_FOR_HUMAN_LABEL,
+        ]);
+      } catch (error) {
+        // Warned about rather than raised. By this point the ticket is
+        // commented on and no longer eligible, which is the whole of the
+        // guarantee; a caller told this failed would report that the ticket
+        // was not handed back, and the developer would put ready-for-agent
+        // back on a ticket that is meant to stay off it.
+        console.warn(
+          `${ticket.repo}#${ticket.number} is out of the queue but not labelled ${READY_FOR_HUMAN_LABEL}: ${errorMessage(error)}`,
+        );
+      }
     },
   };
 }

@@ -29,8 +29,29 @@ inside the container.
 
 An agent that fails does not fail the morning. Its commits, its output and what it spent all come
 back as a result carrying a `failure`, because a run that fell over is exactly the one worth having
-recorded — the summary line says the agent failed and why, and the loop writes the spend to state
-either way.
+recorded — the summary line says why it stopped, and the loop writes the spend to state either way.
+
+### When a run fails
+
+A failed run hands its ticket back rather than trying again. The branch is discarded, a comment on
+the ticket says what happened and quotes what the agent said, and the ticket moves from
+`ready-for-agent` to `ready-for-human` — which is the whole of the no-retry rule, since a ticket
+without `ready-for-agent` is not eligible tomorrow. A genuinely too-hard ticket left in the queue
+would otherwise cost a morning every morning.
+
+The two ways a run fails are reported apart, because the developer's next move differs: an **agent**
+failure is a ticket to rewrite or drop, an **infrastructure** failure is a sandbox or a credential
+to fix. The sandbox port draws the line — it rejects only when it could not set itself up or tear
+itself down, and reports an agent that gave up as a result carrying `failure`.
+
+Neither aborts the invocation. The iteration ends, the summary says what happened, and the projects
+behind it are still reachable — though the command still exits non-zero, so a schedule watching a
+permanently broken sandbox is told about it.
+
+The relabel is the load-bearing half, and the order reflects that: a branch git will not delete (one
+checked out in a worktree, say) is reported in the comment rather than allowed to stop the ticket
+being handed back. If the tracker itself cannot be reached, the summary says the ticket is still
+`ready-for-agent` and needs relabelling by hand.
 
 Runs are serialized within one process — a second run waits for the first rather than starting a
 container beside it. Two separate invocations are not covered by that; the once-per-day lock is

@@ -524,3 +524,92 @@ describe("opening a draft pull request for a completed run", () => {
     ]);
   });
 });
+
+describe("discarding a failed run's branch", () => {
+  const FAILED = toBranch("issue-7-add-the-thing");
+
+  /** A checkout with a commit behind it, as a project the loop works has. */
+  async function seeded(): Promise<string> {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    return directory;
+  }
+
+  /**
+   * A branch carrying a commit that is on no other branch — what the sandbox
+   * fetches back after the agent has committed, built here with plumbing so
+   * that no checkout has to move to make it.
+   */
+  async function unmerged(directory: string, name: string): Promise<void> {
+    const head = await revision(directory, "HEAD");
+    const tree = await revision(directory, "HEAD^{tree}");
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "commit-tree",
+      tree,
+      "-p",
+      head,
+      "-m",
+      "what the agent committed",
+    ]);
+    await run("git", ["-C", directory, "branch", name, stdout.trim()]);
+  }
+
+  async function revision(directory: string, of: string): Promise<string> {
+    const { stdout } = await run("git", ["-C", directory, "rev-parse", of]);
+    return stdout.trim();
+  }
+
+  async function branchesIn(directory: string): Promise<string[]> {
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "branch",
+      "--format=%(refname:short)",
+    ]);
+    return stdout.split("\n").filter((line) => line !== "");
+  }
+
+  it("deletes the branch, unmerged commits and all", async () => {
+    const directory = await seeded();
+    await unmerged(directory, FAILED);
+    // Merged branches delete either way; only an unmerged one proves the work
+    // is actually being thrown away rather than tidied up after a merge.
+    const { stdout: unmergedBranches } = await run("git", [
+      "-C",
+      directory,
+      "branch",
+      "--format=%(refname:short)",
+      "--no-merged",
+      "HEAD",
+    ]);
+    assert.match(unmergedBranches, new RegExp(FAILED));
+
+    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+  });
+
+  it("says nothing about a branch the run never left, since it committed nothing", async () => {
+    const directory = await seeded();
+
+    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+  });
+
+  it("leaves every other branch where it was", async () => {
+    const directory = await seeded();
+    await unmerged(directory, FAILED);
+    await unmerged(directory, "issue-9-something-else");
+
+    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+
+    assert.deepEqual(await branchesIn(directory), [
+      "issue-9-something-else",
+      "main",
+    ]);
+  });
+});

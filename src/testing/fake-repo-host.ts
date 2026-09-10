@@ -35,13 +35,20 @@ export interface FakePullRequest {
   ticket: Ticket;
 }
 
+/** One branch thrown away, and the checkout it was thrown away from. */
+export interface FakeDiscard {
+  directory: Checkout;
+  branch: Branch;
+}
+
 /**
  * GitHub and git in memory: a set of repos that exist, and a managed location
  * that is a path shape rather than a real directory.
  *
  * Tests arrange with `alreadyExists`, which is what a repo predating the
- * manager looks like, and inspect `created`, `clones`, `pushes`, `proposals`
- * and `pullRequests` to see what the command did to the outside world.
+ * manager looks like, and inspect `created`, `clones`, `pushes`, `proposals`,
+ * `pullRequests` and `discarded` to see what the command did to the outside
+ * world.
  */
 export class FakeRepoHost implements RepoHost {
   /** The managed location every clone lands under. */
@@ -66,6 +73,8 @@ export class FakeRepoHost implements RepoHost {
   readonly proposals: FakeProposal[] = [];
   /** The draft pull requests opened for runs, in order. */
   readonly pullRequests: FakePullRequest[] = [];
+  /** Branches discarded, in order. */
+  readonly discarded: FakeDiscard[] = [];
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: string) => Proposal = (branch) => ({
@@ -129,5 +138,9 @@ export class FakeRepoHost implements RepoHost {
   ): Promise<PullRequestUrl> {
     this.pullRequests.push({ directory, branch, ticket });
     return this.draftPullRequest();
+  }
+
+  async discardBranch(directory: Checkout, branch: Branch): Promise<void> {
+    this.discarded.push({ directory, branch });
   }
 }
