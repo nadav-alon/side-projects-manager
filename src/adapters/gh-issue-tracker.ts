@@ -148,10 +148,15 @@ async function issueId(ticket: Ticket): Promise<number> {
     ".id",
   ]);
 
-  const id = Number(stdout.trim());
-  if (!Number.isInteger(id)) {
+  // Positive, and non-empty before that: `Number("")` is `0`, which is an
+  // integer, and an id of 0 would be POSTed and rejected — reported to the
+  // developer as a tracker without sub-issues rather than as the empty answer
+  // it was.
+  const answer = stdout.trim();
+  const id = Number(answer);
+  if (answer === "" || !Number.isInteger(id) || id <= 0) {
     throw new Error(
-      `gh api repos/${ticket.repo}/issues/${ticket.number}: "id" was not a number: ${stdout.trim()}`,
+      `gh api repos/${ticket.repo}/issues/${ticket.number}: "id" was not an issue id: ${JSON.stringify(answer)}`,
     );
   }
   return id;

@@ -133,12 +133,17 @@ describe("ghIssueTracker.createReviewTicket", () => {
   /** The review's database id, which is what the sub-issues endpoint takes. */
   const REVIEW_ID = "2159872455";
 
-  /** How one recorded `gh` invocation is written down: one argument per line. */
+  /** What marks the start of one recorded invocation in the record. */
   const CALL_SEPARATOR = "--- call ---";
 
   /**
    * A `gh` on PATH for the length of the test, recording how it was called.
    * `body` is the script's, and decides what each invocation answers with.
+   *
+   * Arguments are recorded NUL-separated rather than one per line, because the
+   * argument worth asserting about is `--body`, and a body is several lines.
+   * Split on newlines, every assertion about one would silently be an
+   * assertion about its first line.
    */
   function recordingGh(t: { after: (fn: () => void) => void }, body: string) {
     const path_ = process.env["PATH"];
@@ -149,7 +154,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
       calls = path.join(bin, "calls");
       await writeFile(
         path.join(bin, "gh"),
-        `#!/bin/sh\nprintf '%s\\n' '${CALL_SEPARATOR}' "$@" >> "${calls}"\n${body}\n`,
+        `#!/bin/sh\nprintf '%s\\0' '${CALL_SEPARATOR}' "$@" >> "${calls}"\n${body}\n`,
         { mode: 0o755 },
       );
       process.env["PATH"] = `${bin}:${path_ ?? ""}`;
@@ -164,10 +169,20 @@ describe("ghIssueTracker.createReviewTicket", () => {
       /** Every invocation, as its argument list, in the order they happened. */
       async calls(): Promise<string[][]> {
         const recorded = await readFile(calls, "utf8").catch(() => "");
-        return recorded
-          .split(CALL_SEPARATOR)
-          .map((call) => call.split("\n").filter((line) => line !== ""))
-          .filter((call) => call.length > 0);
+        const fields = recorded.split("\0");
+        // Every field is terminated rather than separated, so the last split
+        // is the empty tail after the final NUL and not an argument.
+        fields.pop();
+
+        const parsed: string[][] = [];
+        for (const field of fields) {
+          if (field === CALL_SEPARATOR) {
+            parsed.push([]);
+            continue;
+          }
+          parsed.at(-1)?.push(field);
+        }
+        return parsed;
       },
     };
   }
@@ -217,9 +232,15 @@ describe("ghIssueTracker.createReviewTicket", () => {
 
     const create = callWith(await gh.calls(), "issue", "create");
     assert.ok(create);
-    assert.match(valueOf(create, "--body") ?? "", /pull\/12/);
-    assert.match(valueOf(create, "--body") ?? "", /#7/);
     assert.match(valueOf(create, "--title") ?? "", /#7/);
+
+    // The whole body, not its first line: the URL is the one thing a reviewing
+    // run cannot work out for itself, and why the review is its own run is the
+    // rest of what the ticket has to say.
+    const body = valueOf(create, "--body") ?? "";
+    assert.match(body, /pull\/12/);
+    assert.match(body, /#7/);
+    assert.match(body, /run of its own/);
   });
 
   it("answers with the review it opened", async (t) => {
@@ -273,10 +294,40 @@ describe("ghIssueTracker.createReviewTicket", () => {
     assert.ok(edit, "the review's body should carry the reference instead");
     assert.equal(valueOf(edit, "--repo"), PILOT);
     assert.ok(edit.includes("42"));
-    assert.match(valueOf(edit, "--body") ?? "", /^Part of #7\./);
+    // The reference is added to the body, not substituted for it: the review
+    // still has to say what it is asking for.
+    const body = valueOf(edit, "--body") ?? "";
+    assert.match(body, /^Part of #7\./);
+    assert.match(body, /pull\/12/);
     // Still the review it opened: the relationship is written differently, not
     // the ticket.
     assert.equal(review.number, 42);
+  });
+
+  it("does not guess at an issue id the tracker did not give it", async (t) => {
+    const gh = recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue create") echo ${REVIEW_URL} ;;`,
+        // An id lookup that succeeds and answers with nothing, which is what a
+        // `--jq` selecting a field that isn't there comes to.
+        `  "api repos/nadav-alon/pilot/issues/42") echo "" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+    await gh.ready;
+
+    await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
+
+    // Nothing is POSTed on a blank answer, and the review keeps its parent by
+    // falling back rather than by linking to whatever `Number("")` comes to.
+    const calls = await gh.calls();
+    assert.equal(callWith(calls, "api", "--method", "POST"), undefined);
+    const edit = callWith(calls, "issue", "edit");
+    assert.ok(edit, "the review should fall back to a parent reference");
+    assert.match(valueOf(edit, "--body") ?? "", /^Part of #7\./);
   });
 
   it("never edits or closes the ticket it reviews", async (t) => {

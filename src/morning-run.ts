@@ -300,7 +300,14 @@ async function work(
 
   // Queued here rather than asked of the agent that wrote the code: an agent
   // that ran out of steam cannot forget to, and the review it asks for is a
-  // run of its own, budgeted and selected separately.
+  // run of its own rather than the tail of the one being reviewed.
+  //
+  // TODO[#10]: until then the review is selected and run as an implementation,
+  // which is what the ready-for-agent label makes it look like.
+  //
+  // TODO[#13]: report a review that could not be opened as a failed run, so
+  // that a morning which did push a branch and open a pull request still says
+  // where they are.
   const reviewTicket = await ports.tracker.createReviewTicket(
     selection.ticket,
     pullRequest,
