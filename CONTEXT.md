@@ -120,8 +120,16 @@ _Avoid_: queue (the queue spans all projects), todo list
 A ticket asking for something to be built.
 _Avoid_: feature ticket, build ticket
 
+**Draft pull request**:
+How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. It stays a draft — the manager opens one and never promotes or merges it.
+_Avoid_: PR (say pull request), submission, patch
+
+**Handover**:
+What a finished run comes to for the developer: the run itself, and the draft pull request its commits are waiting in. A run that committed nothing, and one the agent did not finish, are runs without a handover.
+_Avoid_: work, result, outcome
+
 **Review ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft PR to be reviewed. Created by the manager, born ready-for-agent, and selected before any implementation ticket.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected before any implementation ticket.
 _Avoid_: review task, review job, QA ticket
 
 ### Budget

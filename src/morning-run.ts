@@ -3,6 +3,7 @@ import type {
   Clock,
   IssueTracker,
   ProjectState,
+  PullRequestUrl,
   RegisteredProject,
   RepoHost,
   RepoSlug,
@@ -76,6 +77,11 @@ export interface MorningRunReport {
   /** What the run left behind. Absent on a morning that ran nothing. */
   run?: SandboxRunResult;
   /**
+   * The draft pull request the run's work is waiting in. Absent when the
+   * morning ran nothing, and when the run left no commits to open one for.
+   */
+  pullRequest?: PullRequestUrl;
+  /**
    * Why the gate refused, absent when it did not. A morning that stood down
    * had work to do and declined to do it, which is neither a dry queue nor a
    * failure, and says so rather than going quiet.
@@ -89,6 +95,22 @@ export interface MorningRunReport {
 interface Selection {
   project: RegisteredProject;
   ticket: Ticket;
+}
+
+/**
+ * What working one project came to, and everything the report says about it:
+ * the run, and the draft pull request its commits are waiting in.
+ *
+ * Named for the handover rather than for the work, because the work is the
+ * run — this is how it reaches the developer.
+ */
+interface Handover {
+  run: SandboxRunResult;
+  /**
+   * Absent when there was nothing to hand over: a run that committed nothing,
+   * or one the agent did not finish.
+   */
+  pullRequest?: PullRequestUrl;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -114,14 +136,14 @@ export async function morningRun(
   const state = new Map(await ports.store.loadState());
   const { outcomes, selection } = await considerProjects(ports, state);
 
-  let run: SandboxRunResult | undefined;
+  let handover: Handover | undefined;
   let standDown: StandDown | undefined;
   try {
     if (selection !== undefined) {
       const budget = await ports.store.loadBudget();
       standDown = await consultTheGate(ports, budget, state);
       if (standDown === undefined) {
-        run = await work(ports, selection, state, budget.spendCeiling);
+        handover = await work(ports, selection, state, budget.spendCeiling);
       }
     }
   } finally {
@@ -136,10 +158,13 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    ...(run !== undefined && { run }),
+    // Spread whole: a handover is exactly the run-and-pull-request the report
+    // owes, so re-splitting it field by field would be two places to keep the
+    // same shape.
+    ...handover,
     ...(standDown !== undefined && { standDown }),
     outcome: outcomeOf(selection, standDown),
-    message: summaryLine(outcomes, run, standDown),
+    message: summaryLine(outcomes, handover, standDown),
   };
 }
 
@@ -221,18 +246,23 @@ async function considerProjects(
 }
 
 /**
- * The second step: run the selected ticket, and record what that cost.
+ * The second step: run the selected ticket, hand the work over as a draft
+ * pull request, and record what that cost.
  *
  * The checkout comes from the repo host rather than from anything the loop
  * remembers, so a project whose clone has gone missing heals on the way into
  * the run instead of failing the morning.
+ *
+ * A run that committed nothing is handed over to nobody: the sandbox leaves no
+ * branch behind for it, and a pull request with no commits in it is not
+ * something to open and not something to review.
  */
 async function work(
   ports: MorningRunPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
-): Promise<SandboxRunResult> {
+): Promise<Handover> {
   const repo = selection.project.repo;
   const checkout = await ports.repoHost.clone(repo);
   const run = await ports.sandbox.run({
@@ -245,7 +275,21 @@ async function work(
   const cost = { at, tokensUsed: run.tokensUsed };
   state.set(repo, recordRun(state.get(repo), cost));
 
-  return run;
+  // Only a run that finished and committed. A failed agent's commits are not
+  // work to review, so they stay on the branch in the checkout rather than
+  // becoming a pull request the developer has to judge.
+  //
+  // TODO[#13]: decide what becomes of them.
+  if (run.commits.length === 0 || run.failure !== undefined) {
+    return { run };
+  }
+
+  const pullRequest = await ports.repoHost.openDraftPullRequest(
+    checkout,
+    run.branch,
+    selection.ticket,
+  );
+  return { run, pullRequest };
 }
 
 function outcome(
@@ -279,7 +323,7 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 
 function summaryLine(
   projects: ProjectOutcome[],
-  run: SandboxRunResult | undefined,
+  handover: Handover | undefined,
   standDown: StandDown | undefined,
 ): string {
   const selected = projects.find(isSelected);
@@ -294,20 +338,37 @@ function summaryLine(
     return `Stood down: ${standDownReason(standDown)}. ${selected.repo} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
   }
   if (selected !== undefined) {
-    const landed =
-      run === undefined
-        ? "the run left nothing behind"
-        : `${commitCount(run)} on ${run.branch}`;
     // A failed agent that committed still says what it landed, and then why it
     // stopped: the developer needs both to know whether to keep the branch.
     const stopped =
-      run?.failure === undefined ? "" : ` The agent failed: ${run.failure}.`;
-    return `Worked ${selected.repo}: ${landed}.${stopped}${aside}`;
+      handover?.run.failure === undefined
+        ? ""
+        : ` The agent failed: ${handover.run.failure}.`;
+    return `Worked ${selected.repo}: ${landed(handover)}.${stopped}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
+}
+
+/**
+ * Where the morning's work ended up.
+ *
+ * A run that committed nothing left no branch behind either — the sandbox
+ * keeps one only for commits — so there is nothing to name. Commits without a
+ * pull request are a failed agent's: the branch is in the checkout, and saying
+ * where is how the developer decides whether to keep it.
+ */
+function landed(handover: Handover | undefined): string {
+  if (handover === undefined || handover.run.commits.length === 0) {
+    return "the run left nothing behind";
+  }
+  const where =
+    handover.pullRequest === undefined
+      ? handover.run.branch
+      : `${handover.run.branch} (${handover.pullRequest})`;
+  return `${commitCount(handover.run)} on ${where}`;
 }
 
 /**

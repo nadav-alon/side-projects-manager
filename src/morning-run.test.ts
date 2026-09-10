@@ -9,11 +9,13 @@ import {
   reserveFraction,
   tokenCount,
   usd,
+  type Ticket,
 } from "./ports/index.ts";
 import {
   FROZEN_NOW,
   FakeClock,
   FakeRepoHost,
+  type FakePorts,
   fakePorts,
   spent,
 } from "./testing/index.ts";
@@ -397,6 +399,142 @@ describe("morningRun", () => {
     });
   });
 
+  describe("the draft pull request", () => {
+    const BRANCH = branch("issue-7-add-the-thing");
+
+    /**
+     * A registered project with ticket #7 ready, and a run against it.
+     *
+     * What separates the cases here is only how the run ended, so that is all
+     * a test says: `ran(ports)` did the work, and the overrides are the two
+     * ways it can leave nothing to hand over.
+     */
+    function ran(
+      ports: FakePorts,
+      run: { commits?: string[]; failure?: string } = {},
+    ): Ticket {
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: BRANCH,
+        commits: run.commits ?? ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+        ...(run.failure !== undefined && { failure: run.failure }),
+      });
+      return ticket;
+    }
+
+    it("is opened for the branch a run left commits on", async () => {
+      const ports = fakePorts();
+      const ticket = ran(ports);
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: BRANCH,
+          ticket,
+        },
+      ]);
+    });
+
+    it("is reported, so the developer is told where to review", async () => {
+      const ports = fakePorts();
+      ran(ports);
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.pullRequest, FakeRepoHost.RUN_PULL_REQUEST);
+      assert.match(report.message, new RegExp(FakeRepoHost.RUN_PULL_REQUEST));
+    });
+
+    it("is not opened for a run that committed nothing", async () => {
+      const ports = fakePorts();
+      ran(ports, { commits: [] });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+    });
+
+    it("leaves the message saying nothing was left behind", async () => {
+      const ports = fakePorts();
+      ran(ports, { commits: [] });
+
+      const report = await morningRun(ports);
+
+      // Never the branch: the sandbox keeps no branch for a run that
+      // committed nothing, so naming one would send the developer looking
+      // for something that was never created.
+      assert.match(report.message, /left nothing behind/);
+      assert.doesNotMatch(report.message, /issue-7-add-the-thing/);
+    });
+
+    it("is not opened for a run the agent did not finish", async () => {
+      const ports = fakePorts();
+      ran(ports, { failure: "the agent gave up" });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+    });
+
+    it("leaves a failed run's commits named, so they can be judged", async () => {
+      const ports = fakePorts();
+      ran(ports, { failure: "the agent gave up" });
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /1 commit on issue-7-add-the-thing/);
+      assert.match(report.message, /the agent gave up/);
+    });
+
+    it("is not opened on a morning that ran nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+    });
+
+    it("still leaves the project recorded as worked, at what the run cost", async () => {
+      const ports = fakePorts();
+      ran(ports);
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT), {
+        lastWorkedAt: FROZEN_NOW,
+        runs: [{ at: FROZEN_NOW, tokensUsed: tokenCount(42_000) }],
+      });
+    });
+
+    it("leaves the work recorded even when it could not be opened", async () => {
+      const ports = fakePorts();
+      ran(ports);
+      ports.repoHost.draftPullRequest = async () => {
+        throw new Error("pull requests are disabled on this repository");
+      };
+
+      await assert.rejects(morningRun(ports), /pull requests are disabled/);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+      ]);
+    });
+  });
+
   describe("a run that falls over", () => {
     it("still writes state back, since it still spent the morning", async (t) => {
       const ports = fakePorts();
@@ -467,6 +605,23 @@ describe("morningRun", () => {
       assert.equal(report.outcome, "stood-down");
       assert.equal(report.standDown?.reason, "weekly-reserve");
       assert.deepEqual(ports.sandbox.runs, []);
+    });
+
+    /**
+     * The two halves of the morning meet here: a gate that refused means no
+     * run, and no run means nothing to hand over. A stand-down that still
+     * opened a pull request would be one for a branch that was never worked.
+     */
+    it("hands nothing over, since a run it refused left nothing to hand over", async () => {
+      const ports = readyToWork();
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "stood-down");
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+      assert.equal(report.run, undefined);
     });
 
     it("stands down when the 5-hour window is spent, whatever the week looks like", async () => {
