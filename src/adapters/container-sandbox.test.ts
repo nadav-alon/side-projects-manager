@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 import {
   containerSandbox,
+  dockerCommand,
   readAgentRun,
   type Container,
 } from "./container-sandbox.ts";
@@ -15,6 +16,7 @@ import {
   checkout,
   repoSlug,
   tokenCount,
+  usd,
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
@@ -28,6 +30,9 @@ const TICKET: Ticket = {
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
+
+/** What the loop would have taken off the budget for one run. */
+const CEILING = usd(5);
 
 /**
  * A project checkout with one commit on `main`, which is what the repo host
@@ -101,7 +106,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory });
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(seen.length, 1);
     assert.notEqual(seen[0], directory);
@@ -123,7 +128,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory });
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.ok(checked);
   });
@@ -141,7 +146,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory });
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /gh issue view 7 --repo nadav-alon\/pilot/);
   });
@@ -150,7 +155,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
@@ -162,7 +167,7 @@ describe("containerSandbox", () => {
     const before = await headOf(directory);
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    await sandbox.run({ ticket: TICKET, checkout: directory });
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await headOf(directory), before);
     assert.equal(await headOf(directory, "main"), before);
@@ -172,7 +177,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt", "two.txt"]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     const { stdout } = await run("git", [
       "-C",
@@ -195,7 +200,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting([]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.deepEqual(result.commits, []);
     assert.deepEqual(await branchesIn(directory), ["main"]);
@@ -207,7 +212,7 @@ describe("containerSandbox", () => {
       agentCommitting([], 42_000, "implemented the thing"),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.output, "implemented the thing");
     assert.equal(result.tokensUsed, tokenCount(42_000));
@@ -220,10 +225,10 @@ describe("containerSandbox", () => {
     const commit = agentCommitting(["one.txt"]);
     const sandbox = containerSandbox(async (mounted, prompt) => {
       clone = mounted;
-      return commit(mounted, prompt);
+      return commit(mounted, prompt, CEILING);
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(clone), false);
     assert.ok((await branchesIn(directory)).includes(result.branch));
@@ -237,7 +242,7 @@ describe("containerSandbox", () => {
       throw new Error("the agent gave up");
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory });
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(clone), false);
   });
@@ -251,11 +256,11 @@ describe("containerSandbox", () => {
     const directory = await project();
     const commit = agentCommitting(["one.txt"]);
     const sandbox = containerSandbox(async (mounted, prompt) => {
-      await commit(mounted, prompt);
+      await commit(mounted, prompt, CEILING);
       throw new Error("the agent gave up");
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(result.failure ?? "", /gave up/);
     assert.match(result.output, /gave up/);
@@ -267,8 +272,8 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    const first = await sandbox.run({ ticket: TICKET, checkout: directory });
-    const second = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const first = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const second = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(first.branch, BRANCH);
     assert.equal(second.branch, `${BRANCH}-2`);
@@ -290,14 +295,16 @@ describe("containerSandbox", () => {
     });
 
     await Promise.all([
-      sandbox.run({ ticket: TICKET, checkout: directory }),
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.run({
         ticket: { ...TICKET, number: 8, title: "Another" },
         checkout: directory,
+        spendCeiling: CEILING,
       }),
       sandbox.run({
         ticket: { ...TICKET, number: 9, title: "A third" },
         checkout: directory,
+        spendCeiling: CEILING,
       }),
     ]);
 
@@ -323,10 +330,11 @@ describe("containerSandbox", () => {
     });
 
     const [failed, succeeded] = await Promise.all([
-      sandbox.run({ ticket: TICKET, checkout: directory }),
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.run({
         ticket: { ...TICKET, number: 8, title: "Another" },
         checkout: directory,
+        spendCeiling: CEILING,
       }),
     ]);
 
@@ -402,5 +410,35 @@ describe("readAgentRun", () => {
       readAgentRun("", "docker: command not found\n").output,
       "docker: command not found\n",
     );
+  });
+});
+
+/**
+ * The spend ceiling is the only thing standing between one pathological
+ * ticket and the whole week, and nothing the manager can observe enforces it:
+ * once the container is up, the agent CLI is on its own. So what is asserted
+ * here is the argument list itself.
+ */
+describe("dockerCommand", () => {
+  const CLONE = checkout("/tmp/clone");
+
+  it("hands the agent CLI the run's spend ceiling", () => {
+    const command = dockerCommand(CLONE, "do the thing", usd(2.5));
+
+    const ceiling = command.indexOf("--max-budget-usd");
+    assert.notEqual(ceiling, -1);
+    assert.equal(command[ceiling + 1], "2.5");
+  });
+
+  it("asks for print mode, which is the only mode the ceiling applies in", () => {
+    const command = dockerCommand(CLONE, "do the thing", usd(5));
+
+    assert.ok(command.includes("--print"));
+  });
+
+  it("mounts the clone and never the developer's own checkout", () => {
+    const command = dockerCommand(CLONE, "do the thing", usd(5));
+
+    assert.ok(command.includes(`${CLONE}:/repo`));
   });
 });

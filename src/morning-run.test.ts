@@ -2,8 +2,20 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { morningRun, type ProjectOutcome } from "./morning-run.ts";
-import { branch, repoSlug, tokenCount } from "./ports/index.ts";
-import { FROZEN_NOW, FakeRepoHost, fakePorts } from "./testing/index.ts";
+import {
+  DEFAULT_BUDGET,
+  branch,
+  repoSlug,
+  reserveFraction,
+  tokenCount,
+  usd,
+} from "./ports/index.ts";
+import {
+  FROZEN_NOW,
+  FakeRepoHost,
+  fakePorts,
+  spent,
+} from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -227,7 +239,11 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.deepEqual(ports.sandbox.runs, [
-        { ticket, checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}` },
+        {
+          ticket,
+          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          spendCeiling: DEFAULT_BUDGET.spendCeiling,
+        },
       ]);
     });
 
@@ -394,6 +410,265 @@ describe("morningRun", () => {
       await assert.rejects(morningRun(ports), /docker is not running/);
 
       assert.equal(saveState.mock.callCount(), 1);
+    });
+  });
+  /**
+   * The gate is exercised here, through the loop, rather than against the
+   * budget arithmetic directly: what matters is whether a morning started
+   * work, not how the sum came out.
+   *
+   * `DEFAULT_BUDGET` holds back half of a 500,000,000-token week, so
+   * 250,000,000 is the most the week may have spent before the gate refuses.
+   */
+  describe("the budget gate", () => {
+    const SPENDABLE_THIS_WEEK = 250_000_000;
+
+    /** A project with one thing to do, so the gate is the only question. */
+    function readyToWork() {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      return ports;
+    }
+
+    it("starts a run while the reserve is intact", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK - 1 });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(report.standDown, undefined);
+      assert.equal(ports.sandbox.runs.length, 1);
+    });
+
+    it("starts a run that leaves the reserve intact to the token", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(ports.sandbox.runs.length, 1);
+    });
+
+    it("stands down rather than spend a token of the reserve", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "stood-down");
+      assert.equal(report.standDown?.reason, "weekly-reserve");
+      assert.deepEqual(ports.sandbox.runs, []);
+    });
+
+    it("stands down when the 5-hour window is spent, whatever the week looks like", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({
+        fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
+        weekly: 0,
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "stood-down");
+      assert.equal(report.standDown?.reason, "five-hour-window");
+      assert.deepEqual(ports.sandbox.runs, []);
+    });
+
+    it("names the week when both windows refuse, since it is the one that resets later", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({
+        fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
+        weekly: SPENDABLE_THIS_WEEK + 1,
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.standDown?.reason, "weekly-reserve");
+    });
+
+    it("clones nothing when it stands down", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.clones, []);
+    });
+
+    it("records nothing against a project it stood down on", async () => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.get(PILOT), undefined);
+    });
+
+    it("still writes state back on a morning it stood down", async (t) => {
+      const ports = readyToWork();
+      ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+      const saveState = t.mock.method(ports.store, "saveState");
+
+      await morningRun(ports);
+
+      assert.equal(saveState.mock.callCount(), 1);
+    });
+
+    describe("what the developer is told", () => {
+      it("says it stood down for the budget, not that there was nothing to do", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+
+        const report = await morningRun(ports);
+
+        assert.match(report.message, /stood down/i);
+        assert.match(report.message, /reserve/i);
+        assert.doesNotMatch(report.message, /nothing to do/i);
+      });
+
+      it("says which project was ready and when headroom returns", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+
+        const report = await morningRun(ports);
+
+        assert.match(report.message, /nadav-alon\/pilot/);
+        assert.match(
+          report.message,
+          new RegExp(ports.ledger.windows.weekly.resetsAt.toISOString()),
+        );
+      });
+
+      it("says the 5-hour window when that is what refused", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({
+          fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
+        });
+
+        const report = await morningRun(ports);
+
+        assert.match(report.message, /5-hour/);
+      });
+
+      it("carries what was spent and what was spendable", async () => {
+        const ports = readyToWork();
+        ports.ledger.windows = spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.standDown?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
+        assert.equal(report.standDown?.spendable, SPENDABLE_THIS_WEEK);
+        assert.deepEqual(
+          report.standDown?.resetsAt,
+          ports.ledger.windows.weekly.resetsAt,
+        );
+      });
+    });
+
+    describe("the reserve fraction", () => {
+      it("holds back more of the week when the developer raises it", async () => {
+        const ports = readyToWork();
+        ports.store.budget = {
+          ...DEFAULT_BUDGET,
+          reserveFraction: reserveFraction(0.9),
+        };
+        ports.ledger.windows = spent({ weekly: 60_000_000 });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "stood-down");
+        assert.equal(report.standDown?.spendable, 50_000_000);
+      });
+
+      it("holds back none of it at zero, and the same usage runs", async () => {
+        const ports = readyToWork();
+        ports.store.budget = {
+          ...DEFAULT_BUDGET,
+          reserveFraction: reserveFraction(0),
+        };
+        ports.ledger.windows = spent({ weekly: 60_000_000 });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "work-selected");
+      });
+
+      it("is measured against the weekly allowance the developer declared", async () => {
+        const ports = readyToWork();
+        ports.store.budget = {
+          ...DEFAULT_BUDGET,
+          weeklyAllowance: tokenCount(1_000),
+          reserveFraction: reserveFraction(0.5),
+        };
+        ports.ledger.windows = spent({ weekly: 501 });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "stood-down");
+        assert.equal(report.standDown?.spendable, 500);
+      });
+    });
+
+    describe("when the gate is asked", () => {
+      it("reads the ledger before the run, at the clock's instant", async (t) => {
+        const ports = readyToWork();
+        const read = t.mock.method(ports.ledger, "read");
+
+        await morningRun(ports);
+
+        assert.equal(read.mock.callCount(), 1);
+        assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW]);
+      });
+
+      it("asks the gate first and the sandbox second, never the other way round", async (t) => {
+        const ports = readyToWork();
+        const order: string[] = [];
+        t.mock.method(ports.ledger, "read", async () => {
+          order.push("gate");
+          return spent({});
+        });
+        t.mock.method(ports.sandbox, "run", async () => {
+          order.push("run");
+          return ports.sandbox.result({
+            repo: PILOT,
+            number: 7,
+            title: "Add the thing",
+          });
+        });
+
+        await morningRun(ports);
+
+        assert.deepEqual(order, ["gate", "run"]);
+      });
+
+      it("does not read the ledger on a morning with nothing to run", async (t) => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const read = t.mock.method(ports.ledger, "read");
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "dry-queue");
+        assert.equal(read.mock.callCount(), 0);
+      });
+    });
+
+    describe("the spend ceiling", () => {
+      it("gives the run the ceiling the budget declares", async () => {
+        const ports = readyToWork();
+        ports.store.budget = { ...DEFAULT_BUDGET, spendCeiling: usd(2.5) };
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
+      });
     });
   });
 });

@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
+  Budget,
   ProjectState,
   RegisteredProject,
   RepoSlug,
@@ -9,23 +10,39 @@ import type {
   State,
   Store,
 } from "../ports/index.ts";
-import { isPriority, isRepoSlug, isTokenCount } from "../ports/index.ts";
+import {
+  DEFAULT_BUDGET,
+  isPriority,
+  isRepoSlug,
+  isReserveFraction,
+  isTokenCount,
+  isUsd,
+} from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 const REGISTRY_FILE = "registry.json";
+const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
 
 /**
- * The registry and state documents as JSON files under `home`.
+ * The registry, budget and state documents as JSON files under `home`.
  *
- * Both are optional on disk. A machine with no registry has nothing
- * registered, and a machine with no state has worked nothing yet; neither is
- * an error, so the loop runs on a clean checkout. A document that exists but
- * cannot be read as what it claims to be is an error, because silently
- * ignoring a typo in the registry would silently stop working a project.
+ * All three are optional on disk. A machine with no registry has nothing
+ * registered, a machine with no budget runs under the default one, and a
+ * machine with no state has worked nothing yet; none is an error, so the loop
+ * runs on a clean checkout. A document that exists but cannot be read as what
+ * it claims to be is an error, because silently ignoring a typo in the
+ * registry would silently stop working a project — and silently ignoring one
+ * in the budget would spend the reserve the developer thought they had set.
+ *
+ * The budget is its own document rather than a section of the registry
+ * because the new-project command rewrites the registry, and a budget living
+ * there would be rewritten out of existence by a command that has no business
+ * touching it.
  */
 export function documentStore(home: string = MANAGER_HOME): Store {
   const registryFile = path.join(home, REGISTRY_FILE);
+  const budgetFile = path.join(home, BUDGET_FILE);
   const stateFile = path.join(home, STATE_FILE);
 
   return {
@@ -35,6 +52,10 @@ export function documentStore(home: string = MANAGER_HOME): Store {
 
     async saveRegistry(projects: RegisteredProject[]): Promise<void> {
       await writeDocument(home, registryFile, formatRegistry(projects));
+    },
+
+    async loadBudget(): Promise<Budget> {
+      return parseBudget(await readDocument(budgetFile), budgetFile);
     },
 
     async loadState(): Promise<State> {
@@ -145,6 +166,65 @@ function parseRegistry(
     }
     return { repo, paused, priority };
   });
+}
+
+/**
+ * `{ "fiveHourAllowance": 50000000, "weeklyAllowance": 500000000,
+ *    "reserveFraction": 0.5, "spendCeiling": 5 }`
+ *
+ * Every field is optional and falls back to `DEFAULT_BUDGET`, so a developer
+ * who only wants to move the reserve writes one line. A field that is present
+ * but not a usable value is an error rather than a fallback: a reserve the
+ * developer believes they set and the loop silently ignored is the one
+ * failure this whole gate exists to prevent.
+ */
+function parseBudget(document: unknown, file: string): Budget {
+  if (document === undefined) {
+    return DEFAULT_BUDGET;
+  }
+
+  return {
+    fiveHourAllowance: numberOr(
+      DEFAULT_BUDGET.fiveHourAllowance,
+      fieldOf(document, "fiveHourAllowance", file),
+      isTokenCount,
+      `${file}: "fiveHourAllowance" must be a whole number of tokens, 0 or more`,
+    ),
+    weeklyAllowance: numberOr(
+      DEFAULT_BUDGET.weeklyAllowance,
+      fieldOf(document, "weeklyAllowance", file),
+      isTokenCount,
+      `${file}: "weeklyAllowance" must be a whole number of tokens, 0 or more`,
+    ),
+    reserveFraction: numberOr(
+      DEFAULT_BUDGET.reserveFraction,
+      fieldOf(document, "reserveFraction", file),
+      isReserveFraction,
+      `${file}: "reserveFraction" must be at least 0 and less than 1`,
+    ),
+    spendCeiling: numberOr(
+      DEFAULT_BUDGET.spendCeiling,
+      fieldOf(document, "spendCeiling", file),
+      isUsd,
+      `${file}: "spendCeiling" must be a dollar amount above 0`,
+    ),
+  };
+}
+
+/** `value` narrowed by `is`, `fallback` when absent, an error when neither. */
+function numberOr<T extends number>(
+  fallback: T,
+  value: unknown,
+  is: (candidate: number) => candidate is T,
+  complaint: string,
+): T {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (typeof value !== "number" || !is(value)) {
+    throw new Error(`${complaint}: ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 
 /**

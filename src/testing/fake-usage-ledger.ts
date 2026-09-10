@@ -21,18 +21,40 @@ export const NO_USAGE: UsageWindows = {
   },
 };
 
+/**
+ * `NO_USAGE` with `consumed` spent in the windows named, keeping the
+ * boundaries the fake already declares. Tests that care what the gate makes
+ * of a total say only the total.
+ */
+export function spent(consumed: {
+  fiveHour?: number;
+  weekly?: number;
+}): UsageWindows {
+  return {
+    fiveHour: {
+      ...NO_USAGE.fiveHour,
+      tokensUsed: tokenCount(consumed.fiveHour ?? 0),
+    },
+    weekly: {
+      ...NO_USAGE.weekly,
+      tokensUsed: tokenCount(consumed.weekly ?? 0),
+    },
+  };
+}
+
 /** Reports whatever windows the test was built with. No usage by default. */
 export class FakeUsageLedger implements UsageLedger {
-  readonly #windows: UsageWindows;
+  /** The windows the ledger reports. Tests reassign this to spend some. */
+  windows: UsageWindows;
 
   constructor(windows: UsageWindows = NO_USAGE) {
-    this.#windows = windows;
+    this.windows = windows;
   }
 
   async read(): Promise<UsageWindows> {
     return {
-      fiveHour: { ...this.#windows.fiveHour },
-      weekly: { ...this.#windows.weekly },
+      fiveHour: { ...this.windows.fiveHour },
+      weekly: { ...this.windows.weekly },
     };
   }
 }

@@ -134,6 +134,14 @@ _Avoid_: throttle, rate limit, quota check
 The fraction of the weekly window held back for the developer's own interactive work.
 _Avoid_: buffer, headroom, allowance
 
+**Budget document**:
+The hand-edited document of what the mornings may spend: the two allowances, the reserve fraction, and the spend ceiling. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+_Avoid_: budget file, limits, quota config
+
+**Allowance**:
+The tokens a window is declared to hold. Self-declared, because the provider reports consumption and never remaining quota.
+_Avoid_: quota, limit, capacity
+
 **Usage ledger**:
 What reports rolling token consumption. Knowingly under-counts, since it cannot see Claude chat or other machines. Referred to as "the ledger".
 _Avoid_: usage tracker, meter, monitor

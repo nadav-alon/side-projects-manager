@@ -5,20 +5,28 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import { documentStore } from "./document-store.ts";
-import { priority, repoSlug, tokenCount } from "../ports/index.ts";
+import {
+  DEFAULT_BUDGET,
+  priority,
+  repoSlug,
+  tokenCount,
+} from "../ports/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 
 const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");
 
-/** A manager home containing whichever of the two documents a test writes. */
+/** A manager home containing whichever documents a test writes. */
 async function home(
-  documents: { registry?: string; state?: string } = {},
+  documents: { registry?: string; budget?: string; state?: string } = {},
 ): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "morning-run-"));
   if (documents.registry !== undefined) {
     await writeFile(path.join(directory, "registry.json"), documents.registry);
+  }
+  if (documents.budget !== undefined) {
+    await writeFile(path.join(directory, "budget.json"), documents.budget);
   }
   if (documents.state !== undefined) {
     await writeFile(path.join(directory, "state.json"), documents.state);
@@ -155,6 +163,94 @@ describe("writing the registry document", () => {
     await store.saveRegistry([{ repo: PILOT, paused: false }]);
 
     assert.deepEqual(await store.loadRegistry(), [{ repo: PILOT, paused: false }]);
+  });
+});
+
+describe("the budget document", () => {
+  it("runs under the default budget when there is no document", async () => {
+    const store = documentStore(await home());
+
+    assert.deepEqual(await store.loadBudget(), DEFAULT_BUDGET);
+  });
+
+  it("reads what the developer declared", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({
+          fiveHourAllowance: 10_000_000,
+          weeklyAllowance: 100_000_000,
+          reserveFraction: 0.75,
+          spendCeiling: 2.5,
+        }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      fiveHourAllowance: 10_000_000,
+      weeklyAllowance: 100_000_000,
+      reserveFraction: 0.75,
+      spendCeiling: 2.5,
+    });
+  });
+
+  it("takes the default for anything the developer left out", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFraction: 0.75 }) }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      ...DEFAULT_BUDGET,
+      reserveFraction: 0.75,
+    });
+  });
+
+  /**
+   * Falling back here would run the mornings against a reserve the developer
+   * believes they set and the loop never read, which is the one way this
+   * document can fail silently and expensively.
+   */
+  it("refuses a reserve fraction that is not one, rather than falling back", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFraction: 1 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /reserveFraction/);
+  });
+
+  it("refuses a reserve fraction written as a percentage", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFraction: 50 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /reserveFraction/);
+  });
+
+  it("refuses an allowance that is not a whole number of tokens", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ weeklyAllowance: "lots" }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /weeklyAllowance/);
+  });
+
+  it("refuses a spend ceiling of nothing, which no run could start under", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ spendCeiling: 0 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /spendCeiling/);
+  });
+
+  it("survives the new-project command rewriting the registry", async () => {
+    const directory = await home({
+      registry: JSON.stringify({ projects: [{ repo: PILOT }] }),
+      budget: JSON.stringify({ reserveFraction: 0.75 }),
+    });
+    const store = documentStore(directory);
+
+    await store.saveRegistry([{ repo: MANAGER, paused: false }]);
+
+    assert.equal((await store.loadBudget()).reserveFraction, 0.75);
   });
 });
 

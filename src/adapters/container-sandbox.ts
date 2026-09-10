@@ -11,6 +11,7 @@ import type {
   Sandbox,
   SandboxRunResult,
   Ticket,
+  Usd,
 } from "../ports/index.ts";
 import {
   branch,
@@ -55,7 +56,7 @@ export interface AgentRun {
 
 /**
  * Runs the agent against the clone mounted at `directory`, told to do
- * `prompt`.
+ * `prompt`, and allowed to spend at most `spendCeiling`.
  *
  * A parameter rather than a hard-wired `docker run` so that the git half of
  * the sandbox — the clone, the branch, the commits — can be exercised without
@@ -64,6 +65,7 @@ export interface AgentRun {
 export type Container = (
   directory: Checkout,
   prompt: string,
+  spendCeiling: Usd,
 ) => Promise<AgentRun>;
 
 /**
@@ -106,7 +108,7 @@ async function runOnClone(
   container: Container,
   request: RunRequest,
 ): Promise<SandboxRunResult> {
-  const { ticket, checkout: project } = request;
+  const { ticket, checkout: project, spendCeiling } = request;
   const onto = await freeBranch(project, branchFor(ticket));
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
@@ -120,7 +122,12 @@ async function runOnClone(
     const base = await revision(clone, "HEAD");
     await run("git", ["-C", clone, "switch", "--create", onto]);
 
-    const agent = await attempt(container, clone, promptFor(ticket));
+    const agent = await attempt(
+      container,
+      clone,
+      promptFor(ticket),
+      spendCeiling,
+    );
     const commits = await commitsSince(clone, base);
 
     // Only when the agent actually committed: a branch pointing at the commit
@@ -170,9 +177,10 @@ async function attempt(
   container: Container,
   clone: Checkout,
   prompt: string,
+  spendCeiling: Usd,
 ): Promise<AgentRun> {
   try {
-    return await container(clone, prompt);
+    return await container(clone, prompt, spendCeiling);
   } catch (error: unknown) {
     return {
       output: describe(error),
@@ -280,24 +288,8 @@ function describe(error: unknown): string {
  * forwarded because `gh` accepts either, and which one a developer has
  * exported is not this adapter's business.
  */
-const dockerContainer: Container = async (directory, prompt) => {
-  const command = [
-    "run",
-    "--rm",
-    "--volume",
-    `${directory}:/repo`,
-    "--env",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "--env",
-    "GH_TOKEN",
-    "--env",
-    "GITHUB_TOKEN",
-    IMAGE,
-    "--print",
-    prompt,
-    "--output-format",
-    "json",
-  ];
+const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
+  const command = dockerCommand(directory, prompt, spendCeiling);
 
   try {
     const { stdout, stderr } = await run("docker", command, {
@@ -313,6 +305,46 @@ const dockerContainer: Container = async (directory, prompt) => {
     return { ...readAgentRun(stdout, stderr), failure: describe(error) };
   }
 };
+
+/**
+ * What the manager asks docker to run: the image, the clone bound at the
+ * workdir it declares, and the agent invocation itself.
+ *
+ * Exported so the argument list can be asserted without docker installed. The
+ * spend ceiling in particular has to be visible to a test: it is the only
+ * limit on a run once the run has started, and a flag that quietly stopped
+ * being passed would not fail anything until a morning had spent the week.
+ */
+export function dockerCommand(
+  directory: Checkout,
+  prompt: string,
+  spendCeiling: Usd,
+): string[] {
+  return [
+    "run",
+    "--rm",
+    "--volume",
+    `${directory}:/repo`,
+    "--env",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "--env",
+    "GH_TOKEN",
+    "--env",
+    "GITHUB_TOKEN",
+    IMAGE,
+    "--print",
+    prompt,
+    "--output-format",
+    "json",
+    // The spend ceiling, enforced by the agent CLI rather than by the manager:
+    // nothing out here can stop a run that is already going, and a run that
+    // overspends is exactly the one the gate cannot catch until the morning
+    // after. The CLI accepts this only alongside `--print`, which is why it
+    // sits with the flags above rather than anywhere else.
+    "--max-budget-usd",
+    String(spendCeiling),
+  ];
+}
 
 /** What `execFile` captured before it rejected. Empty when it captured none. */
 function captured(error: unknown): { stdout: string; stderr: string } {

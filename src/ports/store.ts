@@ -1,3 +1,4 @@
+import type { Budget } from "./budget.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -60,14 +61,15 @@ export function recordRun(
 export type State = ReadonlyMap<RepoSlug, ProjectState>;
 
 /**
- * Reads the developer's registry and reads and writes the state document
- * alongside it.
+ * Reads the developer's registry and budget, and reads and writes the state
+ * document alongside them.
  *
- * The two are separate documents with separate methods because they have
- * different authors: the registry is the developer's, and the loop never
- * touches it, while the loop writes the state and the developer never has to.
- * The new-project command is the one machine writer of the registry, and it
- * writes it only to record a project the developer just asked for.
+ * They are separate documents with separate methods because they have
+ * different authors and different change rates: the registry and the budget
+ * are the developer's, and the loop never touches either, while the loop
+ * writes the state and the developer never has to. The new-project command is
+ * the one machine writer of the registry, and it writes it only to record a
+ * project the developer just asked for.
  */
 export interface Store {
   /** Every registered project, in the order the registry lists them. */
@@ -80,6 +82,12 @@ export interface Store {
    * models — does not survive the write.
    */
   saveRegistry(projects: RegisteredProject[]): Promise<void>;
+  /**
+   * What the mornings are allowed to spend. A machine that has never been
+   * told falls back to `DEFAULT_BUDGET` rather than to no limit, because an
+   * absent budget document must never read as an absent budget.
+   */
+  loadBudget(): Promise<Budget>;
   /** The state in force. Empty when nothing has been worked yet. */
   loadState(): Promise<State>;
   /** Replaces the state document with `state`. */

@@ -119,7 +119,44 @@ cost. The loop writes it after every invocation and you never have to edit it; i
 the audit trail. It does not exist until the loop has run, and no state for a project means the
 project has never been worked.
 
-Both documents live in the manager home — this checkout, unless
+## The budget
+
+`budget.json` is the other document that is yours, and it is what the loop asks before it starts
+anything:
+
+```json
+{
+  "fiveHourAllowance": 50000000,
+  "weeklyAllowance": 500000000,
+  "reserveFraction": 0.5,
+  "spendCeiling": 5
+}
+```
+
+Every field is optional and falls back to the default above, so moving the reserve alone is one
+line. The two allowances are tokens, and they are declarations rather than measurements: the
+provider reports what you have consumed and never what you have left, so these are your own numbers
+to calibrate against the run costs accumulating in `state.json`.
+
+`reserveFraction` is the share of the weekly allowance held back for you. At the default of `0.5`
+the mornings may spend half the week and no more, and the gate refuses the moment the rest would be
+touched. The 5-hour window has no reserve of its own — the reserve is a share of the week — and is
+measured against `fiveHourAllowance` whole, because a spent block is a wall rather than headroom to
+ration.
+
+`spendCeiling` is dollars, and it is the one limit the manager does not enforce itself: it is passed
+to the agent CLI as `--max-budget-usd`, which stops the run from inside. The gate decides whether a
+run starts; the ceiling bounds how far a run that has started can go before the gate is asked again.
+
+A field that is present but not a usable value fails the invocation rather than falling back. A
+reserve you believe you set and the loop silently ignored is the one way this document can go wrong
+expensively.
+
+The ledger under-counts on purpose: it reads this machine's Claude Code session logs and cannot see
+Claude chat or another machine. The reserve is what absorbs that, which is why it is worth setting
+generously.
+
+All three documents live in the manager home — this checkout, unless
 `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
 House rules for source — branded primitives, and what a comment is allowed to say — are in
