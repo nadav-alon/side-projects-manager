@@ -7,7 +7,7 @@ export type { Checkout } from "./checkout.ts";
 export type { Clock } from "./clock.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
-export { READY_FOR_AGENT_LABEL } from "./issue-tracker.ts";
+export { READY_FOR_AGENT_LABEL, reviewTitle } from "./issue-tracker.ts";
 export type { IssueTracker, Ticket } from "./issue-tracker.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";

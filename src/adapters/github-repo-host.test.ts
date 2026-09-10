@@ -14,6 +14,7 @@ import {
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
+import { recordingGh, valueOf } from "../testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -322,41 +323,6 @@ describe("opening a draft pull request for a completed run", () => {
     title: "Add the thing",
   };
 
-  /** How one stubbed `gh` invocation is recorded: one argument per line. */
-  const CALL_SEPARATOR = "--- call ---";
-
-  /**
-   * Puts a `gh` on PATH for the length of the test, and answers with what it
-   * was called with. `body` is the script's, minus the shebang.
-   */
-  async function stubGh(t: { after: (fn: () => void) => void }, body: string) {
-    const path_ = process.env["PATH"];
-
-    const bin = await mkdtemp(path.join(tmpdir(), "gh-stub-"));
-    const calls = path.join(bin, "calls");
-    await writeFile(
-      path.join(bin, "gh"),
-      `#!/bin/sh\nprintf '%s\\n' '${CALL_SEPARATOR}' "$@" >> "${calls}"\n${body}\n`,
-      { mode: 0o755 },
-    );
-    process.env["PATH"] = `${bin}:${path_ ?? ""}`;
-
-    t.after(() => {
-      process.env["PATH"] = path_;
-    });
-
-    return {
-      /** Every invocation, as its argument list, in the order they happened. */
-      async calls(): Promise<string[][]> {
-        const recorded = await readFile(calls, "utf8").catch(() => "");
-        return recorded
-          .split(CALL_SEPARATOR)
-          .map((call) => call.split("\n").filter((line) => line !== ""))
-          .filter((call) => call.length > 0);
-      },
-    };
-  }
-
   /**
    * The branch the managed clone is parked on, and so the base every pull
    * request here should be opened against.
@@ -401,7 +367,7 @@ describe("opening a draft pull request for a completed run", () => {
    * broken in the arguments `gh` was handed.
    */
   async function openedFor(t: TestContext) {
-    const gh = await stubGh(t, `echo ${OPENED}`);
+    const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await ran(RAN);
 
     const url = await githubRepoHost().openDraftPullRequest(
@@ -415,15 +381,6 @@ describe("opening a draft pull request for a completed run", () => {
 
   /** What the stubbed `gh` answers with, and so what the adapter should return. */
   const OPENED = "https://github.com/nadav-alon/pilot/pull/1";
-
-  /** The value `flag` was given, so a test can name one argument at a time. */
-  function argument(
-    call: string[] | undefined,
-    flag: string,
-  ): string | undefined {
-    const at = call?.indexOf(flag) ?? -1;
-    return at === -1 ? undefined : call?.[at + 1];
-  }
 
   it("pushes the branch the run left its commits on", async (t) => {
     const { directory } = await openedFor(t);
@@ -457,17 +414,17 @@ describe("opening a draft pull request for a completed run", () => {
 
     assert.deepEqual(call?.slice(0, 2), ["pr", "create"]);
     assert.ok(call?.includes("--draft"));
-    assert.equal(argument(call, "--head"), RAN);
+    assert.equal(valueOf(call, "--head"), RAN);
   });
 
   it("opens it against the branch the run was based on", async (t) => {
     const { call } = await openedFor(t);
 
-    assert.equal(argument(call, "--base"), BASE);
+    assert.equal(valueOf(call, "--base"), BASE);
   });
 
   it("refuses rather than let gh choose the base, when there is no branch to name", async (t) => {
-    const gh = await stubGh(t, `echo ${OPENED}`);
+    const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await ran(RAN);
     // A detached HEAD: `git branch --show-current` answers with nothing, and
     // a pull request opened without `--base` would take the remote's default
@@ -487,7 +444,7 @@ describe("opening a draft pull request for a completed run", () => {
   it("names the project the ticket lives in, rather than letting gh choose", async (t) => {
     const { call } = await openedFor(t);
 
-    assert.equal(argument(call, "--repo"), PILOT);
+    assert.equal(valueOf(call, "--repo"), PILOT);
   });
 
   it("leaves the developer's checkout untracked against the run's branch", async (t) => {
@@ -501,7 +458,7 @@ describe("opening a draft pull request for a completed run", () => {
   });
 
   it("says so when the branch cannot be pushed", async (t) => {
-    const gh = await stubGh(t, `echo ${OPENED}`);
+    const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await ran(RAN);
 
     // The host already has a branch of this name, carrying something else —
@@ -533,7 +490,7 @@ describe("opening a draft pull request for a completed run", () => {
   it("references the ticket it was run for", async (t) => {
     const { call } = await openedFor(t);
 
-    assert.match(argument(call, "--body") ?? "", /#7\b/);
+    assert.match(valueOf(call, "--body") ?? "", /#7\b/);
   });
 
   it("never promotes it out of draft, and never merges it", async (t) => {
@@ -548,7 +505,7 @@ describe("opening a draft pull request for a completed run", () => {
   });
 
   it("says where the commits are when the pull request cannot be opened", async (t) => {
-    await stubGh(t, "echo 'pull requests are disabled' >&2\nexit 1");
+    await recordingGh(t, "echo 'pull requests are disabled' >&2\nexit 1");
     const directory = await ran(RAN);
 
     await assert.rejects(

@@ -1,4 +1,20 @@
-import type { IssueTracker, RepoSlug, Ticket } from "../ports/index.ts";
+import type {
+  IssueTracker,
+  PullRequestUrl,
+  RepoSlug,
+  Ticket,
+} from "../ports/index.ts";
+import { reviewTitle } from "../ports/index.ts";
+
+/** One review ticket the loop opened, in the order the fake received it. */
+export interface FakeReviewTicket {
+  /** The implementation ticket the review is a sub-issue of. */
+  parent: Ticket;
+  /** The draft pull request the review is for. */
+  pullRequest: PullRequestUrl;
+  /** The review ticket itself, as the fake numbered it. */
+  ticket: Ticket;
+}
 
 /**
  * An in-memory backlog per project. Everything put here is eligible — the
@@ -11,6 +27,9 @@ import type { IssueTracker, RepoSlug, Ticket } from "../ports/index.ts";
 export class FakeIssueTracker implements IssueTracker {
   readonly #backlogs = new Map<RepoSlug, Ticket[]>();
 
+  /** The review tickets opened, in the order they were opened. */
+  readonly reviewTickets: FakeReviewTicket[] = [];
+
   /** Puts an eligible ticket in `repo`'s backlog and returns it. */
   addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
     const stored: Ticket = { repo, ...ticket };
@@ -22,5 +41,27 @@ export class FakeIssueTracker implements IssueTracker {
 
   async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
     return [...(this.#backlogs.get(repo) ?? [])];
+  }
+
+  /**
+   * The review lands in the same backlog its parent came from, because a real
+   * review ticket is born ready-for-agent and is eligible from that moment.
+   *
+   * Numbered above every ticket the repo has, the way a tracker numbers a new
+   * issue, so a test can tell the review from the ticket that earned it.
+   */
+  async createReviewTicket(
+    ticket: Ticket,
+    pullRequest: PullRequestUrl,
+  ): Promise<Ticket> {
+    const backlog = this.#backlogs.get(ticket.repo) ?? [];
+    const numbers = backlog.map((eligible) => eligible.number);
+    const review = this.addEligibleTicket(ticket.repo, {
+      number: Math.max(ticket.number, ...numbers) + 1,
+      title: reviewTitle(ticket),
+    });
+
+    this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });
+    return review;
   }
 }

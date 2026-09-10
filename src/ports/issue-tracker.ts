@@ -1,3 +1,4 @@
+import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
 /**
@@ -17,8 +18,8 @@ export interface Ticket {
 /**
  * Reads and writes the tickets the loop works from.
  *
- * Only the read path is declared. Writing back — comments, relabelling,
- * review tickets, the summary — is declared by the code that needs it.
+ * The write path is declared as the loop comes to need it: comments,
+ * relabelling and the summary are not here yet.
  */
 export interface IssueTracker {
   /**
@@ -28,4 +29,33 @@ export interface IssueTracker {
    * error.
    */
   listEligibleTickets(repo: RepoSlug): Promise<Ticket[]>;
+  /**
+   * Opens a review ticket against `ticket` — a sub-issue asking for the draft
+   * pull request at `pullRequest` to be reviewed — and answers with it.
+   *
+   * Born carrying ready-for-agent, the one place anything but the developer
+   * applies that label. Safe here because the ticket it creates is bounded by
+   * a pull request that already exists, and necessary because a review nobody
+   * labelled is a review that never happens on a morning nobody is around.
+   *
+   * `ticket` is read, never written: the review is queued beside the ticket
+   * that earned it, and closing or relabelling that one stays the developer's.
+   */
+  createReviewTicket(
+    ticket: Ticket,
+    pullRequest: PullRequestUrl,
+  ): Promise<Ticket>;
+}
+
+/**
+ * The title a review ticket carries. Says what it is and which ticket earned
+ * it, because a backlog is read as a list of titles and selection has to be
+ * able to tell a review from an implementation.
+ *
+ * Beside the verb that opens one rather than in the adapter, so that every
+ * implementation of the port — and the fake the loop is tested against —
+ * names a review the same way.
+ */
+export function reviewTitle(ticket: Ticket): string {
+  return `Review the draft pull request for #${ticket.number}`;
 }

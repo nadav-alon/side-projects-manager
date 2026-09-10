@@ -87,6 +87,11 @@ export interface MorningRunReport {
    * failure, and says so rather than going quiet.
    */
   standDown?: StandDown;
+  /**
+   * The review ticket queued for that pull request. Absent wherever the pull
+   * request is absent, since a review is only ever queued for one that exists.
+   */
+  reviewTicket?: Ticket;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -99,7 +104,8 @@ interface Selection {
 
 /**
  * What working one project came to, and everything the report says about it:
- * the run, and the draft pull request its commits are waiting in.
+ * the run, the draft pull request its commits are waiting in, and the review
+ * queued for that pull request.
  *
  * Named for the handover rather than for the work, because the work is the
  * run — this is how it reaches the developer.
@@ -111,6 +117,11 @@ interface Handover {
    * or one the agent did not finish.
    */
   pullRequest?: PullRequestUrl;
+  /**
+   * Absent wherever the pull request is absent, which is the thing it
+   * reviews.
+   */
+  reviewTicket?: Ticket;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -158,9 +169,9 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    // Spread whole: a handover is exactly the run-and-pull-request the report
-    // owes, so re-splitting it field by field would be two places to keep the
-    // same shape.
+    // Spread whole: a handover is exactly the run, pull request and review the
+    // report owes, so re-splitting it field by field would be two places to
+    // keep the same shape.
     ...handover,
     ...(standDown !== undefined && { standDown }),
     outcome: outcomeOf(selection, standDown),
@@ -247,7 +258,7 @@ async function considerProjects(
 
 /**
  * The second step: run the selected ticket, hand the work over as a draft
- * pull request, and record what that cost.
+ * pull request with a review queued against it, and record what that cost.
  *
  * The checkout comes from the repo host rather than from anything the loop
  * remembers, so a project whose clone has gone missing heals on the way into
@@ -289,7 +300,22 @@ async function work(
     run.branch,
     selection.ticket,
   );
-  return { run, pullRequest };
+
+  // Queued here rather than asked of the agent that wrote the code: an agent
+  // that ran out of steam cannot forget to, and the review it asks for is a
+  // run of its own rather than the tail of the one being reviewed.
+  //
+  // TODO[#10]: tell a review from an implementation when selecting one.
+  //
+  // TODO[#13]: report a review that could not be opened as a failed run, so
+  // that a morning which did push a branch and open a pull request still says
+  // where they are.
+  const reviewTicket = await ports.tracker.createReviewTicket(
+    selection.ticket,
+    pullRequest,
+  );
+
+  return { run, pullRequest, reviewTicket };
 }
 
 function outcome(
@@ -344,12 +370,24 @@ function summaryLine(
       handover?.run.failure === undefined
         ? ""
         : ` The agent failed: ${handover.run.failure}.`;
-    return `Worked ${selected.repo}: ${landed(handover)}.${stopped}${aside}`;
+    return `Worked ${selected.repo}: ${landed(handover)}.${queued(
+      handover,
+    )}${stopped}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
+}
+
+/**
+ * The review waiting on the developer, named by number because that is how a
+ * backlog is read. Nothing to say on a morning that opened no pull request,
+ * which is the only morning that queues no review.
+ */
+function queued(handover: Handover | undefined): string {
+  const review = handover?.reviewTicket;
+  return review === undefined ? "" : ` Queued #${review.number} to review it.`;
 }
 
 /**

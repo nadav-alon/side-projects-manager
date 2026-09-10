@@ -535,6 +535,147 @@ describe("morningRun", () => {
     });
   });
 
+  describe("the review ticket", () => {
+    /** A run that did the work: commits on a branch, against ticket #7. */
+    function ranSuccessfully(ports: FakePorts): Ticket {
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+      return ticket;
+    }
+
+    it("is opened against the ticket the run worked, naming its pull request", async () => {
+      const ports = fakePorts();
+      const ticket = ranSuccessfully(ports);
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.tracker.reviewTickets.map((review) => ({
+          parent: review.parent,
+          pullRequest: review.pullRequest,
+        })),
+        [{ parent: ticket, pullRequest: FakeRepoHost.RUN_PULL_REQUEST }],
+      );
+    });
+
+    it("is opened by the loop rather than asked of the agent", async (t) => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+      // The agent is handed the ticket and nothing else: whatever it did or
+      // failed to do in the sandbox, the review is the loop's to open, and
+      // opening it exactly once is what makes that true.
+      const run = t.mock.method(ports.sandbox, "run");
+
+      await morningRun(ports);
+
+      assert.equal(run.mock.callCount(), 1);
+      assert.equal(ports.tracker.reviewTickets.length, 1);
+    });
+
+    it("is opened only once the pull request it names exists", async (t) => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+      const order: string[] = [];
+      t.mock.method(ports.repoHost, "openDraftPullRequest", async () => {
+        order.push("pull request");
+        return FakeRepoHost.RUN_PULL_REQUEST;
+      });
+      t.mock.method(ports.tracker, "createReviewTicket", async () => {
+        order.push("review ticket");
+        return { repo: PILOT, number: 8, title: "Review" };
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(order, ["pull request", "review ticket"]);
+    });
+
+    it("leaves the ticket it reviews exactly as it found it", async () => {
+      const ports = fakePorts();
+      const ticket = ranSuccessfully(ports);
+
+      await morningRun(ports);
+
+      // Still open, still eligible, still itself: a review is queued beside
+      // the ticket that earned it, and closing that one is the developer's.
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.ok(backlog.some((eligible) => eligible.number === ticket.number));
+      assert.deepEqual(
+        backlog.find((eligible) => eligible.number === ticket.number),
+        ticket,
+      );
+    });
+
+    it("is reported, so the developer is told the review is queued", async () => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+
+      const report = await morningRun(ports);
+
+      const review = ports.tracker.reviewTickets[0]?.ticket;
+      assert.deepEqual(report.reviewTicket, review);
+      // In the line as well as the field: the message is the whole of what a
+      // trigger prints, so a review only the field knows about is a review
+      // nobody is told is waiting.
+      assert.match(report.message, new RegExp(`#${review?.number}`));
+    });
+
+    it("is not opened for a run that committed nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: [],
+        output: "the agent gave up",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      // Nothing was opened, so there is nothing to review.
+      assert.deepEqual(ports.tracker.reviewTickets, []);
+      assert.equal(report.reviewTicket, undefined);
+    });
+
+    it("is not opened on a morning that ran nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.tracker.reviewTickets, []);
+      assert.equal(report.reviewTicket, undefined);
+    });
+
+    it("leaves the work recorded even when it could not be opened", async (t) => {
+      const ports = fakePorts();
+      ranSuccessfully(ports);
+      t.mock.method(ports.tracker, "createReviewTicket", async () => {
+        throw new Error("issues are disabled on this repository");
+      });
+
+      await assert.rejects(morningRun(ports), /issues are disabled/);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+      ]);
+    });
+  });
+
   describe("a run that falls over", () => {
     it("still writes state back, since it still spent the morning", async (t) => {
       const ports = fakePorts();
