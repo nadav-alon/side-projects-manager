@@ -1,14 +1,36 @@
+import type { Branch } from "./branch.ts";
+import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import type { TokenCount } from "./token-count.ts";
 
+/** One ticket, and the project checkout it is to be worked against. */
+export interface RunRequest {
+  ticket: Ticket;
+  /**
+   * The project's managed clone. The agent never works here — the sandbox
+   * gives it a clone of its own — but this is what that clone comes from and
+   * what the branch is fetched back into.
+   */
+  checkout: Checkout;
+}
+
 export interface SandboxRunResult {
   /** Branch the agent left its commits on. */
-  branch: string;
+  branch: Branch;
   commits: string[];
   /** The agent's own output, for the ticket comment on failure. */
   output: string;
   /** Tokens the run consumed, fed back to the ledger and the summary. */
   tokensUsed: TokenCount;
+  /**
+   * Why the run did not finish cleanly, absent when it did.
+   *
+   * A failed agent is still a run: it spent tokens, it may have committed
+   * before it fell over, and what it said is what a person needs to read. So
+   * the failure is reported alongside that rather than thrown in place of it,
+   * and a caller that ignores this field must not read the result as success.
+   */
+  failure?: string;
 }
 
 /**
@@ -23,10 +45,14 @@ export interface SandboxRunResult {
  */
 export interface Sandbox {
   /**
-   * Runs `ticket` against the project's managed clone at `checkout`. The agent
-   * works somewhere of its own, on a branch of its own, so the branch the
-   * checkout is on is never committed to; the branch it leaves behind is the
-   * one named in the result.
+   * Runs `request.ticket` against the project's managed clone at
+   * `request.checkout`. The agent works somewhere of its own, on a branch of
+   * its own, so the branch the checkout is on is never committed to; the
+   * branch it leaves behind is the one named in the result.
+   *
+   * Rejects only when the sandbox itself could not be set up or taken down.
+   * An agent that failed comes back as a result carrying `failure`, because
+   * its commits, its output and its spend are all still the morning's.
    */
-  run(ticket: Ticket, checkout: string): Promise<SandboxRunResult>;
+  run(request: RunRequest): Promise<SandboxRunResult>;
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { morningRun, type ProjectOutcome } from "./morning-run.ts";
-import { repoSlug, tokenCount } from "./ports/index.ts";
+import { branch, repoSlug, tokenCount } from "./ports/index.ts";
 import {
   FROZEN_NOW,
   FakeRepoHost,
@@ -268,7 +268,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1", "c0ffee2"],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
@@ -277,7 +277,7 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.deepEqual(report.run, {
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1", "c0ffee2"],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
@@ -301,7 +301,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1"],
         output: "",
         tokensUsed: tokenCount(42_000),
@@ -337,7 +337,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "",
         tokensUsed: tokenCount(42_000),
@@ -392,7 +392,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1"],
         output: "",
         tokensUsed: tokenCount(42_000),
@@ -407,7 +407,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1"],
         output: "",
         tokensUsed: tokenCount(0),
@@ -418,7 +418,7 @@ describe("morningRun", () => {
       assert.deepEqual(ports.repoHost.pullRequests, [
         {
           directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          branch: "issue-7-add-the-thing",
+          branch: branch("issue-7-add-the-thing"),
           ticket,
         },
       ]);
@@ -442,7 +442,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "the agent gave up",
         tokensUsed: tokenCount(42_000),
@@ -462,7 +462,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
-        branch: "issue-7-add-the-thing",
+        branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "the agent gave up",
         tokensUsed: tokenCount(42_000),
@@ -475,6 +475,48 @@ describe("morningRun", () => {
       // for something that was never created.
       assert.match(report.message, /left nothing behind/);
       assert.doesNotMatch(report.message, /issue-7-add-the-thing/);
+    });
+
+    it("is not opened for a run the agent did not finish", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "the tests are still red",
+        failure: "the agent gave up",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(report.pullRequest, undefined);
+    });
+
+    it("leaves a failed run's commits named, so they can be judged", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "the tests are still red",
+        failure: "the agent gave up",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /1 commit on issue-7-add-the-thing/);
+      assert.match(report.message, /the agent gave up/);
     });
 
     it("is not opened on a morning that ran nothing", async () => {

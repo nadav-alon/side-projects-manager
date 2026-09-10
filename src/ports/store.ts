@@ -34,6 +34,25 @@ export interface ProjectState {
 }
 
 /**
+ * `previous` with `cost` recorded against it: the run appended, and the
+ * project marked worked at the moment the run finished.
+ *
+ * Lives beside `ProjectState` rather than in the loop, so that what one run
+ * does to a project's state is written down once, whoever is recording it.
+ * A project being worked for the first time has no previous entry, which
+ * reads the same here as one that has been worked and has no runs.
+ */
+export function recordRun(
+  previous: ProjectState | undefined,
+  cost: RunCost,
+): ProjectState {
+  return {
+    lastWorkedAt: cost.at,
+    runs: [...(previous?.runs ?? []), cost],
+  };
+}
+
+/**
  * The machine-written state, by project. A project with no entry has never
  * been worked; that is not an error, and neither is a state document that
  * does not exist yet.

@@ -166,13 +166,13 @@ _Avoid_: driver, provider, backend
 A working in-memory implementation of a port, used to exercise the loop in tests.
 _Avoid_: mock, double, spy
 
-**Stub**:
-A placeholder implementation wired into the real command until its adapter lands. Does the least a caller can be asked to handle.
-_Avoid_: fake (a fake works; a stub does nothing), no-op, dummy
-
 **Sandbox**:
 The container an unattended agent runs in, on a throwaway clone of one project. The branch it leaves behind is fetched back into the project's checkout; the clone is not kept.
 _Avoid_: box, VM, runner, environment
+
+**Throwaway clone**:
+The repository one run happens in: cloned from the project's checkout, deleted when the run ends, and never the checkout itself. Shortened to *clone* where the context is a run.
+_Avoid_: workspace, worktree (it is neither), scratch directory
 
 **Harness**:
 The skills setup: baked into the sandbox image, and scaffolded into each project repo.

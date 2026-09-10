@@ -12,6 +12,7 @@ import type {
   Ticket,
   UsageLedger,
 } from "./ports/index.ts";
+import { recordRun } from "./ports/index.ts";
 
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
@@ -88,12 +89,15 @@ interface Selection {
  */
 interface Work {
   run: SandboxRunResult;
-  /** Absent when the run left no commits, so there was nothing to open. */
+  /**
+   * Absent when there was nothing to hand over: a run that committed nothing,
+   * or one the agent did not finish.
+   */
   pullRequest?: string;
 }
 
-/** What considering the registry came to: the verdicts, and any work found. */
-interface Consideration {
+/** What walking the registry came to: the verdicts, and any work found. */
+interface RegistryScan {
   outcomes: ProjectOutcome[];
   /** Absent when no project had an eligible ticket. */
   selection?: Selection;
@@ -153,7 +157,7 @@ export async function morningRun(
 async function considerProjects(
   ports: MorningRunPorts,
   state: State,
-): Promise<Consideration> {
+): Promise<RegistryScan> {
   const outcomes: ProjectOutcome[] = [];
 
   for (const project of await ports.store.loadRegistry()) {
@@ -196,16 +200,17 @@ async function work(
 ): Promise<Work> {
   const repo = selection.project.repo;
   const checkout = await ports.repoHost.clone(repo);
-  const run = await ports.sandbox.run(selection.ticket, checkout);
+  const run = await ports.sandbox.run({ ticket: selection.ticket, checkout });
 
   const at = ports.clock.now();
-  const recorded = state.get(repo);
-  state.set(repo, {
-    lastWorkedAt: at,
-    runs: [...(recorded?.runs ?? []), { at, tokensUsed: run.tokensUsed }],
-  });
+  const cost = { at, tokensUsed: run.tokensUsed };
+  state.set(repo, recordRun(state.get(repo), cost));
 
-  if (run.commits.length === 0) {
+  // Only a run that finished and committed. A failed agent's commits are not
+  // work to review: #13 is what decides what becomes of them, and until it
+  // does, they stay on the branch in the checkout rather than becoming a
+  // pull request the developer has to judge.
+  if (run.commits.length === 0 || run.failure !== undefined) {
     return { run };
   }
 
@@ -258,7 +263,13 @@ function summaryLine(
 
   if (selected !== undefined) {
     const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
-    return `Worked ${selected.repo}: ${landed(worked)}.${aside}`;
+    // A failed agent that committed still says what it landed, and then why it
+    // stopped: the developer needs both to know whether to keep the branch.
+    const stopped =
+      worked?.run.failure === undefined
+        ? ""
+        : ` The agent failed: ${worked.run.failure}.`;
+    return `Worked ${selected.repo}: ${landed(worked)}.${stopped}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
@@ -269,15 +280,20 @@ function summaryLine(
 /**
  * Where the morning's work ended up.
  *
- * No pull request means no work to look at: either the morning ran nothing, or
- * the run committed nothing, in which case the sandbox kept no branch for it
- * and there is no branch worth naming.
+ * A run that committed nothing left no branch behind either — the sandbox
+ * keeps one only for commits — so there is nothing to name. Commits without a
+ * pull request are a failed agent's: the branch is in the checkout, and saying
+ * where is how the developer decides whether to keep it.
  */
 function landed(worked: Work | undefined): string {
-  if (worked?.pullRequest === undefined) {
+  if (worked === undefined || worked.run.commits.length === 0) {
     return "the run left nothing behind";
   }
-  return `${commitCount(worked.run)} on ${worked.run.branch} (${worked.pullRequest})`;
+  const where =
+    worked.pullRequest === undefined
+      ? worked.run.branch
+      : `${worked.run.branch} (${worked.pullRequest})`;
+  return `${commitCount(worked.run)} on ${where}`;
 }
 
 /** How many commits the run left, said the way a person would say it. */

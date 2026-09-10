@@ -11,7 +11,13 @@ import {
   readAgentRun,
   type Container,
 } from "./container-sandbox.ts";
-import { repoSlug, tokenCount, type Ticket } from "../ports/index.ts";
+import {
+  checkout,
+  repoSlug,
+  tokenCount,
+  type Checkout,
+  type Ticket,
+} from "../ports/index.ts";
 
 const run = promisify(execFile);
 
@@ -28,8 +34,8 @@ const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
  * hands the sandbox. Only the git half of the adapter is exercised here; the
  * container half needs docker and a credential, and is injected instead.
  */
-async function checkout(): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "sandbox-"));
+async function project(): Promise<Checkout> {
+  const directory = checkout(await mkdtemp(path.join(tmpdir(), "sandbox-")));
   await run("git", ["init", "--initial-branch=main", directory]);
   await identify(directory);
   await writeFile(path.join(directory, "README.md"), "pilot\n");
@@ -87,28 +93,28 @@ function agentCommitting(
 }
 
 describe("containerSandbox", () => {
-  it("runs the agent on a workspace of its own, never on the checkout", async () => {
-    const directory = await checkout();
+  it("runs the agent on a clone of its own, never on the checkout", async () => {
+    const directory = await project();
     const seen: string[] = [];
     const sandbox = containerSandbox(async (mounted) => {
       seen.push(mounted);
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run(TICKET, directory);
+    await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.equal(seen.length, 1);
     assert.notEqual(seen[0], directory);
   });
 
   /**
-   * The workspace is bind-mounted into the container on its own. A `git
-   * worktree` would put a `.git` *file* there pointing at an absolute path in
-   * the parent repository, which does not exist inside the container — so the
-   * agent could not run git at all, and a run's whole product is commits.
+   * The clone is bind-mounted into the container on its own. A `git worktree`
+   * would put a `.git` *file* there pointing at an absolute path in the parent
+   * repository, which does not exist inside the container — so the agent could
+   * not run git at all, and a run's whole product is commits.
    */
   it("gives the agent a repository that stands on its own", async () => {
-    const directory = await checkout();
+    const directory = await project();
     let checked = false;
     const sandbox = containerSandbox(async (mounted) => {
       const git = await stat(path.join(mounted, ".git"));
@@ -117,16 +123,34 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run(TICKET, directory);
+    await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.ok(checked);
   });
 
+  /**
+   * The clone's `origin` is a path on this filesystem, so `gh` has no repo to
+   * resolve from it. Without the flag the agent cannot read its ticket and
+   * implements the title.
+   */
+  it("tells the agent which GitHub repo its ticket is in", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async (_mounted, prompt) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory });
+
+    assert.match(asked, /gh issue view 7 --repo nadav-alon\/pilot/);
+  });
+
   it("leaves the agent's commits on a branch named for the ticket", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run(TICKET, directory);
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.equal(result.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
@@ -134,21 +158,21 @@ describe("containerSandbox", () => {
   });
 
   it("leaves the branch the checkout is on untouched", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const before = await headOf(directory);
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    await sandbox.run(TICKET, directory);
+    await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.equal(await headOf(directory), before);
     assert.equal(await headOf(directory, "main"), before);
   });
 
   it("returns every commit the agent made, oldest first", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt", "two.txt"]));
 
-    const result = await sandbox.run(TICKET, directory);
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
 
     const { stdout } = await run("git", [
       "-C",
@@ -168,61 +192,83 @@ describe("containerSandbox", () => {
   });
 
   it("reports no commits, and leaves no branch, when the agent committed nothing", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const sandbox = containerSandbox(agentCommitting([]));
 
-    const result = await sandbox.run(TICKET, directory);
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.deepEqual(result.commits, []);
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
 
   it("returns the agent's own output and what the run cost", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const sandbox = containerSandbox(
       agentCommitting([], 42_000, "implemented the thing"),
     );
 
-    const result = await sandbox.run(TICKET, directory);
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.equal(result.output, "implemented the thing");
     assert.equal(result.tokensUsed, tokenCount(42_000));
+    assert.equal(result.failure, undefined);
   });
 
-  it("takes the workspace away and leaves the branch behind", async () => {
-    const directory = await checkout();
-    let workspace = "";
+  it("takes the clone away and leaves the branch behind", async () => {
+    const directory = await project();
+    let clone = "";
     const commit = agentCommitting(["one.txt"]);
     const sandbox = containerSandbox(async (mounted, prompt) => {
-      workspace = mounted;
+      clone = mounted;
       return commit(mounted, prompt);
     });
 
-    const result = await sandbox.run(TICKET, directory);
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
 
-    assert.equal(await exists(workspace), false);
+    assert.equal(await exists(clone), false);
     assert.ok((await branchesIn(directory)).includes(result.branch));
   });
 
-  it("takes the workspace away even when the agent fails", async () => {
-    const directory = await checkout();
-    let workspace = "";
+  it("takes the clone away even when the agent fails", async () => {
+    const directory = await project();
+    let clone = "";
     const sandbox = containerSandbox(async (mounted) => {
-      workspace = mounted;
+      clone = mounted;
       throw new Error("the agent gave up");
     });
 
-    await assert.rejects(sandbox.run(TICKET, directory), /gave up/);
+    await sandbox.run({ ticket: TICKET, checkout: directory });
 
-    assert.equal(await exists(workspace), false);
+    assert.equal(await exists(clone), false);
+  });
+
+  /**
+   * A failed agent is still a run. Throwing here would lose the commits it
+   * made before it stopped, what it said about why, and the tokens it spent —
+   * and the loop records all three against the project.
+   */
+  it("reports a failed agent rather than throwing, keeping what it did", async () => {
+    const directory = await project();
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = containerSandbox(async (mounted, prompt) => {
+      await commit(mounted, prompt);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory });
+
+    assert.match(result.failure ?? "", /gave up/);
+    assert.match(result.output, /gave up/);
+    assert.equal(result.commits.length, 1);
+    assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
   });
 
   it("gives a ticket that comes round again a branch of its own", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    const first = await sandbox.run(TICKET, directory);
-    const second = await sandbox.run(TICKET, directory);
+    const first = await sandbox.run({ ticket: TICKET, checkout: directory });
+    const second = await sandbox.run({ ticket: TICKET, checkout: directory });
 
     assert.equal(first.branch, BRANCH);
     assert.equal(second.branch, `${BRANCH}-2`);
@@ -234,7 +280,7 @@ describe("containerSandbox", () => {
   });
 
   it("runs one agent at a time, however many runs are asked for at once", async () => {
-    const directory = await checkout();
+    const directory = await project();
     const events: string[] = [];
     const sandbox = containerSandbox(async () => {
       events.push("enter");
@@ -244,9 +290,15 @@ describe("containerSandbox", () => {
     });
 
     await Promise.all([
-      sandbox.run(TICKET, directory),
-      sandbox.run({ ...TICKET, number: 8, title: "Another" }, directory),
-      sandbox.run({ ...TICKET, number: 9, title: "A third" }, directory),
+      sandbox.run({ ticket: TICKET, checkout: directory }),
+      sandbox.run({
+        ticket: { ...TICKET, number: 8, title: "Another" },
+        checkout: directory,
+      }),
+      sandbox.run({
+        ticket: { ...TICKET, number: 9, title: "A third" },
+        checkout: directory,
+      }),
     ]);
 
     assert.deepEqual(events, [
@@ -260,7 +312,7 @@ describe("containerSandbox", () => {
   });
 
   it("keeps queued runs going when one of them fails", async () => {
-    const directory = await checkout();
+    const directory = await project();
     let first = true;
     const sandbox = containerSandbox(async () => {
       if (first) {
@@ -270,13 +322,17 @@ describe("containerSandbox", () => {
       return { output: "second", tokensUsed: tokenCount(0) };
     });
 
-    const [failed, succeeded] = await Promise.allSettled([
-      sandbox.run(TICKET, directory),
-      sandbox.run({ ...TICKET, number: 8, title: "Another" }, directory),
+    const [failed, succeeded] = await Promise.all([
+      sandbox.run({ ticket: TICKET, checkout: directory }),
+      sandbox.run({
+        ticket: { ...TICKET, number: 8, title: "Another" },
+        checkout: directory,
+      }),
     ]);
 
-    assert.equal(failed?.status, "rejected");
-    assert.equal(succeeded?.status, "fulfilled");
+    assert.match(failed?.failure ?? "", /gave up/);
+    assert.equal(succeeded?.failure, undefined);
+    assert.equal(succeeded?.output, "second");
   });
 });
 
@@ -329,5 +385,22 @@ describe("readAgentRun", () => {
     const stdout = JSON.stringify({ result: "done" });
 
     assert.equal(readAgentRun(stdout).tokensUsed, tokenCount(0));
+  });
+
+  /** A run that went wrong says so on stderr, and nowhere else. */
+  it("keeps the diagnostics a failing run wrote to stderr", () => {
+    const stdout = JSON.stringify({ result: "gave up" });
+
+    const agent = readAgentRun(stdout, "Error: no such image\n");
+
+    assert.match(agent.output, /gave up/);
+    assert.match(agent.output, /no such image/);
+  });
+
+  it("reports stderr alone when the run said nothing else", () => {
+    assert.equal(
+      readAgentRun("", "docker: command not found\n").output,
+      "docker: command not found\n",
+    );
   });
 });

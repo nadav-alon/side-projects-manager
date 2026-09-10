@@ -4,11 +4,14 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  Branch,
+  Checkout,
   Proposal,
   RepoHost,
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
+import { checkout } from "../ports/index.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -41,8 +44,8 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       await run("gh", ["repo", "create", repo, "--private", ...options]);
     },
 
-    async clone(repo: RepoSlug): Promise<string> {
-      const directory = path.join(location, repo);
+    async clone(repo: RepoSlug): Promise<Checkout> {
+      const directory = checkout(path.join(location, repo));
       await mkdir(path.dirname(directory), { recursive: true });
 
       const origin = await originOf(directory);
@@ -192,8 +195,8 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async openDraftPullRequest(
-      directory: string,
-      branch: string,
+      directory: Checkout,
+      branch: Branch,
       ticket: Ticket,
     ): Promise<string> {
       // What the run branched from: the sandbox clones this checkout at its

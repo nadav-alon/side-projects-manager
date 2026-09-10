@@ -43,7 +43,7 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
 # identity. Set in the image rather than per run, so every run's commits are
 # attributable to the manager rather than to whoever built the image.
 #
-# safe.directory: the worktree arrives as a bind mount owned by the developer
+# safe.directory: the clone arrives as a bind mount owned by the developer
 # on the host, which is not the user in here. Without it git treats /repo as
 # somebody else's repository and refuses to touch it.
 RUN git config --global user.name "side-projects-manager" \

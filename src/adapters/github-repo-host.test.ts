@@ -7,7 +7,13 @@ import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { githubRepoHost } from "./github-repo-host.ts";
-import { repoSlug, type Ticket } from "../ports/index.ts";
+import {
+  branch as toBranch,
+  checkout as toCheckout,
+  repoSlug,
+  type Checkout,
+  type Ticket,
+} from "../ports/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -359,7 +365,7 @@ describe("opening a draft pull request for a completed run", () => {
    * A checkout carrying a branch of committed work, which is what the sandbox
    * fetches back when a run leaves commits behind.
    */
-  async function ran(branch: string): Promise<string> {
+  async function ran(branch: string): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -369,7 +375,7 @@ describe("opening a draft pull request for a completed run", () => {
     await run("git", ["-C", directory, "add", "thing.md"]);
     await run("git", ["-C", directory, "commit", "--message", "Add the thing"]);
     await run("git", ["-C", directory, "switch", "main"]);
-    return directory;
+    return toCheckout(directory);
   }
 
   it("pushes the branch the run left its commits on", async (t) => {
@@ -379,7 +385,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -396,7 +402,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -416,7 +422,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     const url = await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -430,7 +436,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -456,7 +462,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -471,7 +477,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -504,7 +510,7 @@ describe("opening a draft pull request for a completed run", () => {
     await assert.rejects(
       githubRepoHost().openDraftPullRequest(
         directory,
-        "issue-7-add-the-thing",
+        toBranch("issue-7-add-the-thing"),
         TICKET,
       ),
       /Could not push issue-7-add-the-thing/,
@@ -521,7 +527,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -537,7 +543,7 @@ describe("opening a draft pull request for a completed run", () => {
 
     await githubRepoHost().openDraftPullRequest(
       directory,
-      "issue-7-add-the-thing",
+      toBranch("issue-7-add-the-thing"),
       TICKET,
     );
 
@@ -555,7 +561,7 @@ describe("opening a draft pull request for a completed run", () => {
     await assert.rejects(
       githubRepoHost().openDraftPullRequest(
         directory,
-        "issue-7-add-the-thing",
+        toBranch("issue-7-add-the-thing"),
         TICKET,
       ),
       /issue-7-add-the-thing/,

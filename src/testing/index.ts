@@ -7,7 +7,7 @@ export {
   type FakePullRequest,
   type FakePush,
 } from "./fake-repo-host.ts";
-export { FakeSandbox, type FakeRun } from "./fake-sandbox.ts";
+export { FakeSandbox } from "./fake-sandbox.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { NO_USAGE, FakeUsageLedger } from "./fake-usage-ledger.ts";
 export {

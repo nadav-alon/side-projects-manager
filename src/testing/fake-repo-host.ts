@@ -1,9 +1,12 @@
 import type {
+  Branch,
+  Checkout,
   Proposal,
   RepoHost,
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
+import { checkout } from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
@@ -24,9 +27,9 @@ export interface FakeProposal extends FakePush {
 /** One draft pull request the loop opened, in the order the fake received it. */
 export interface FakePullRequest {
   /** The project checkout the branch was pushed from. */
-  directory: string;
+  directory: Checkout;
   /** The branch the run left its commits on. */
-  branch: string;
+  branch: Branch;
   /** The ticket the pull request is opened against. */
   ticket: Ticket;
 }
@@ -68,7 +71,7 @@ export class FakeRepoHost implements RepoHost {
   });
 
   /** What the next draft pull request comes to. One that opens, unless set. */
-  draftPullRequest: (branch: string) => Promise<string> = async () =>
+  draftPullRequest: (branch: Branch) => Promise<string> = async () =>
     FakeRepoHost.DRAFT_PULL_REQUEST;
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
@@ -85,9 +88,9 @@ export class FakeRepoHost implements RepoHost {
     this.#existing.add(repo);
   }
 
-  async clone(repo: RepoSlug): Promise<string> {
+  async clone(repo: RepoSlug): Promise<Checkout> {
     this.clones.push(repo);
-    return `${FakeRepoHost.MANAGED_LOCATION}/${repo}`;
+    return checkout(`${FakeRepoHost.MANAGED_LOCATION}/${repo}`);
   }
 
   async commitAndPush(
@@ -116,8 +119,8 @@ export class FakeRepoHost implements RepoHost {
   }
 
   async openDraftPullRequest(
-    directory: string,
-    branch: string,
+    directory: Checkout,
+    branch: Branch,
     ticket: Ticket,
   ): Promise<string> {
     this.pullRequests.push({ directory, branch, ticket });
