@@ -525,7 +525,7 @@ async function work(
  * branch behind for it, and a pull request with no commits in it is not
  * something to open and not something to review. Neither is a review ticket's
  * own run: its handover is comments on the pull request it already names, not
- * a pull request of its own, which is TODO[#10] to post.
+ * a pull request of its own.
  *
  * Only a run that finished. A failed agent's commits never reach here — they
  * go to `discardBranch` instead, because they are not work to review.
@@ -536,7 +536,13 @@ async function handOver(
   checkout: Checkout,
   ticket: Ticket,
 ): Promise<Finished> {
-  if (run.commits.length === 0 || isReview(ticket)) {
+  if (run.commits.length === 0) {
+    return { run };
+  }
+
+  // TODO[#10]: post the review's findings as comments on the pull request it
+  // names, instead of dropping them here.
+  if (isReview(ticket)) {
     return { run };
   }
 
