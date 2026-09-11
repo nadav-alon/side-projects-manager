@@ -64,7 +64,15 @@ export type MorningRunOutcome =
   /** There was work, and the budget gate refused to start it. */
   | "stood-down"
   /** An iteration selected a project with work. */
-  | "work-selected";
+  | "work-selected"
+  /**
+   * The loop's own plumbing broke before it could finish — a registry that
+   * would not parse, or a port that could not be reached before a single
+   * iteration ran. Distinct from a run that gave up or an infrastructure
+   * failure inside one iteration, both of which are reported as normal
+   * runs; this is the invocation itself never getting that far.
+   */
+  | "invocation-failed";
 
 /** What became of one registered project. */
 export type ProjectVerdict =
@@ -251,7 +259,6 @@ export async function morningRun(
   ports: MorningRunPorts,
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
-  const state = new Map(await ports.store.loadState());
   const worked = new Set<string>();
   const runs: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
@@ -264,53 +271,68 @@ export async function morningRun(
   let refused: RepoSlug | undefined;
 
   let standDown: StandDown | undefined;
+  let invocationFailure: string | undefined;
   try {
-    for (;;) {
-      const scan = await considerProjects(ports, state, worked);
-      // A project keeps its "selected" verdict once it has one: a later scan
-      // in the same invocation, run after its ticket is excluded, would
-      // otherwise read it right back to "no eligible tickets" and hide that
-      // its turn already came.
-      for (const project of scan.outcomes) {
-        if (!registryOrder.includes(project.repo)) {
-          registryOrder.push(project.repo);
+    const state = new Map(await ports.store.loadState());
+    try {
+      for (;;) {
+        const scan = await considerProjects(ports, state, worked);
+        // A project keeps its "selected" verdict once it has one: a later scan
+        // in the same invocation, run after its ticket is excluded, would
+        // otherwise read it right back to "no eligible tickets" and hide that
+        // its turn already came.
+        for (const project of scan.outcomes) {
+          if (!registryOrder.includes(project.repo)) {
+            registryOrder.push(project.repo);
+          }
+          if (outcomesByRepo.get(project.repo)?.verdict !== "selected") {
+            outcomesByRepo.set(project.repo, project);
+          }
         }
-        if (outcomesByRepo.get(project.repo)?.verdict !== "selected") {
-          outcomesByRepo.set(project.repo, project);
+
+        if (scan.selection === undefined) {
+          break;
         }
-      }
 
-      if (scan.selection === undefined) {
-        break;
-      }
+        const budget = await ports.store.loadBudget();
+        standDown = await consultTheGate(ports, budget, state);
+        if (standDown !== undefined) {
+          refused = scan.selection.project.repo;
+          break;
+        }
 
-      const budget = await ports.store.loadBudget();
-      standDown = await consultTheGate(ports, budget, state);
-      if (standDown !== undefined) {
-        refused = scan.selection.project.repo;
-        break;
+        const iteration = await work(
+          ports,
+          scan.selection,
+          state,
+          budget.spendCeiling,
+        );
+        worked.add(ticketKey(scan.selection.ticket));
+        runs.push({
+          repo: scan.selection.project.repo,
+          ticket: scan.selection.ticket,
+          ...iteration,
+        } as IterationOutcome);
       }
-
-      const iteration = await work(
-        ports,
-        scan.selection,
-        state,
-        budget.spendCeiling,
-      );
-      worked.add(ticketKey(scan.selection.ticket));
-      runs.push({
-        repo: scan.selection.project.repo,
-        ticket: scan.selection.ticket,
-        ...iteration,
-      } as IterationOutcome);
+    } finally {
+      // State is written back at the end of every invocation, including one that
+      // worked nothing and one whose run failed part way, so that a machine
+      // which has run the loop always has a state document to read next morning.
+      // A run that fell over still spent tokens, and the morning it spent them
+      // on is exactly the one worth having recorded.
+      await ports.store.saveState(state);
     }
-  } finally {
-    // State is written back at the end of every invocation, including one that
-    // worked nothing and one whose run failed part way, so that a machine
-    // which has run the loop always has a state document to read next morning.
-    // A run that fell over still spent tokens, and the morning it spent them
-    // on is exactly the one worth having recorded.
-    await ports.store.saveState(state);
+  } catch (error: unknown) {
+    // Nothing above this point throws by design — a run that fails is
+    // described, not raised. Reaching here means the loop's own plumbing
+    // broke instead: a registry that would not parse, or a port that could
+    // not be reached before a single iteration ran. `loadState` failing this
+    // way means there is nothing to write back, unlike a failure from inside
+    // the loop, which the `finally` above already saved. Caught rather than
+    // left to propagate, so the developer still gets a summary that says
+    // what happened instead of losing the account of it to an invocation
+    // that never reached the write below.
+    invocationFailure = errorMessage(error);
   }
 
   const outcomes = registryOrder.map(
@@ -318,7 +340,14 @@ export async function morningRun(
     // very outcomes this populates.
     (repo) => outcomesByRepo.get(repo) as ProjectOutcome,
   );
-  const line = summaryLine(outcomes, runs, standDown, refused);
+  const facts: SummaryFacts = {
+    projects: outcomes,
+    runs,
+    standDown,
+    refused,
+    invocationFailure,
+  };
+  const line = summaryLine(facts);
 
   // Last, so a morning that worked something still gets its state recorded
   // above even if the tracker refuses this. Never thrown: a summary issue
@@ -330,7 +359,7 @@ export async function morningRun(
   try {
     await ports.tracker.publishSummary(
       summaryTitle(startedAt),
-      summaryBody(outcomes, runs, standDown, refused),
+      summaryBody(facts, line),
     );
   } catch (error: unknown) {
     publishFailure = errorMessage(error);
@@ -341,7 +370,7 @@ export async function morningRun(
     projects: outcomes,
     runs,
     ...(standDown !== undefined && { standDown }),
-    outcome: outcomeOf(runs, standDown),
+    outcome: outcomeOf(runs, standDown, invocationFailure),
     message:
       publishFailure === undefined
         ? line
@@ -352,7 +381,11 @@ export async function morningRun(
 function outcomeOf(
   runs: IterationOutcome[],
   standDown: StandDown | undefined,
+  invocationFailure: string | undefined,
 ): MorningRunOutcome {
+  if (invocationFailure !== undefined) {
+    return "invocation-failed";
+  }
   if (runs.length > 0) {
     return "work-selected";
   }
@@ -822,12 +855,27 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
   }
 }
 
-function summaryLine(
-  projects: ProjectOutcome[],
-  runs: IterationOutcome[],
-  standDown: StandDown | undefined,
-  refused: RepoSlug | undefined,
-): string {
+/**
+ * Everything the summary is built from: the outcome of every registered
+ * project, every attempt this invocation made, why the gate stopped it, if
+ * it did, and whether the invocation itself broke before finishing. One
+ * type rather than four parameters, since `summaryLine` and `summaryBody`
+ * both need exactly these facts and nothing else.
+ */
+interface SummaryFacts {
+  projects: ProjectOutcome[];
+  runs: IterationOutcome[];
+  standDown: StandDown | undefined;
+  refused: RepoSlug | undefined;
+  invocationFailure: string | undefined;
+}
+
+function summaryLine(facts: SummaryFacts): string {
+  if (facts.invocationFailure !== undefined) {
+    return `The invocation did not finish: ${facts.invocationFailure}.`;
+  }
+
+  const { projects, runs, standDown, refused } = facts;
   const skipped = projects.flatMap((project) => {
     const reason = skipReason(project.verdict);
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
@@ -857,7 +905,7 @@ function summaryLine(
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
 }
 
-/** The summary issue's title: dated, so a run of mornings reads in order. */
+/** The summary issue's title: dated, so a string of mornings reads in order. */
 function summaryTitle(startedAt: Date): string {
   return `Morning run — ${startedAt.toISOString().slice(0, 10)}`;
 }
@@ -866,31 +914,29 @@ function summaryTitle(startedAt: Date): string {
  * The summary issue's body: CONTEXT.md's "Summary" entry, written out in
  * full. `message` stays the one line a terminal or a trigger's own log wants;
  * this is the fuller account — every attempt with its cost, and what is now
- * waiting on the developer — the issue itself carries.
+ * waiting on the developer — the issue itself carries. `line` is passed in
+ * rather than recomputed from `facts`: the caller already built it for
+ * `message`, and it reads the same either way.
  */
-function summaryBody(
-  projects: ProjectOutcome[],
-  runs: IterationOutcome[],
-  standDown: StandDown | undefined,
-  refused: RepoSlug | undefined,
-): string {
+function summaryBody(facts: SummaryFacts, line: string): string {
   return [
-    summaryLine(projects, runs, standDown, refused),
-    runs.length === 0 ? undefined : runsSection(runs),
-    waitingSection(runs),
+    line,
+    facts.runs.length === 0 ? undefined : attemptsSection(facts.runs),
+    waitingSection(facts.runs),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
 }
 
-/** One bullet per run attempted this invocation, its outcome, and its cost. */
-function runsSection(runs: IterationOutcome[]): string {
+/** One bullet per attempt this invocation made, its outcome, and its cost. */
+function attemptsSection(runs: IterationOutcome[]): string {
   const lines = runs.map((run) => {
     const spent = costOf(run);
-    const cost = spent === undefined ? "" : ` — ${tokens(spent)} tokens`;
+    const cost =
+      spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
     return `- ${describeRun(run)}${cost}`;
   });
-  return ["## Runs", ...lines].join("\n");
+  return ["## Attempts", ...lines].join("\n");
 }
 
 /**
@@ -898,9 +944,15 @@ function runsSection(runs: IterationOutcome[]): string {
  * relabelled for human attention, or — the one case a failed run can leave
  * behind that is the developer's alone, per `RunFailure.handedBack`'s own
  * note — a ticket the hand-back itself could not reach, still eligible and
- * due to come round again until somebody relabels it by hand. An unposted
- * review is the one failure left out: it will come round again on its own,
- * exactly like a normal ticket, and needs nobody to read about it here.
+ * due to come round again until somebody relabels it by hand.
+ *
+ * An unposted review is left out, and deliberately so rather than by the
+ * same oversight: a failed hand-back is here because the loop's own
+ * recovery — relabelling the ticket — already failed, so nothing but a human
+ * fixes it. An unposted review's recovery has not failed; it has not
+ * happened yet. The ticket stays ready-for-agent and the loop retries it
+ * unassisted next iteration, exactly like a normal ticket — there is nothing
+ * here that needs a human to notice.
  */
 function waitingSection(runs: IterationOutcome[]): string | undefined {
   const reviews = runs.flatMap((run) => {
@@ -911,7 +963,7 @@ function waitingSection(runs: IterationOutcome[]): string | undefined {
     return handover === undefined
       ? []
       : [
-          `- Review #${handover.reviewTicket.number} (${run.repo}) for ${handover.pullRequest}`,
+          `- ${run.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
         ];
   });
 

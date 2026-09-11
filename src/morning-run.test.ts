@@ -811,8 +811,13 @@ describe("morningRun", () => {
         throw new Error("pull requests are disabled on this repository");
       };
 
-      await assert.rejects(morningRun(ports), /pull requests are disabled/);
+      const report = await morningRun(ports);
 
+      // The run still spent its tokens even though the loop's own next step
+      // failed — recorded by the `finally` inside the loop before the
+      // failure ends the invocation rather than the ticket's own run.
+      assert.equal(report.outcome, "invocation-failed");
+      assert.match(report.message, /pull requests are disabled/);
       const state = await ports.store.loadState();
       assert.deepEqual(state.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -958,8 +963,10 @@ describe("morningRun", () => {
         throw new Error("issues are disabled on this repository");
       });
 
-      await assert.rejects(morningRun(ports), /issues are disabled/);
+      const report = await morningRun(ports);
 
+      assert.equal(report.outcome, "invocation-failed");
+      assert.match(report.message, /issues are disabled/);
       const state = await ports.store.loadState();
       assert.deepEqual(state.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1946,6 +1953,27 @@ describe("morningRun", () => {
       assert.match(
         report.message,
         /summary issue could not be published: rate limited/,
+      );
+    });
+
+    it("is still published when the loop itself breaks before a run", async (t) => {
+      const ports = fakePorts();
+      t.mock.method(ports.store, "loadRegistry", async () => {
+        throw new Error('registry.json: project 1: "repo" must be a repo slug');
+      });
+
+      const report = await morningRun(ports);
+
+      // Nothing ran, so there is no run to blame — the loop's own plumbing
+      // broke, and the developer still needs to be told that, not just left
+      // with a rejected promise nobody wrote down.
+      assert.equal(report.outcome, "invocation-failed");
+      assert.deepEqual(report.runs, []);
+      assert.match(report.message, /registry\.json.*repo slug/);
+      assert.equal(ports.tracker.summaries.length, 1);
+      assert.match(
+        ports.tracker.summaries[0]?.body ?? "",
+        /registry\.json.*repo slug/,
       );
     });
   });

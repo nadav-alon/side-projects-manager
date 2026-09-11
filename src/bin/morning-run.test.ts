@@ -97,11 +97,8 @@ describe("the morning-run command", () => {
     assert.deepEqual(JSON.parse(state), { projects: {} });
   });
 
-  it("reports a broken registry in one line, without a stack trace", async (t) => {
-    // Never reaches `gh` at all — the registry fails to parse before the
-    // first call — but stubbed anyway so this suite depends on the real
-    // tracker nowhere, not even by the accident of an untaken code path.
-    await stubGh(t);
+  it("reports a broken registry in one line, and still publishes a summary", async (t) => {
+    const gh = await stubGh(t);
 
     const directory = await home({ projects: [{ repo: "pilot" }] });
 
@@ -110,10 +107,18 @@ describe("the morning-run command", () => {
       (error: { stdout: string; stderr: string; code: number }) => error,
     );
 
-    assert.equal(stdout, "");
+    assert.equal(stderr, "");
     assert.equal(code, 1);
-    assert.match(stderr, /morning-run failed: .*registry\.json.*"pilot"/);
-    assert.doesNotMatch(stderr, /\n\s+at /);
+    assert.match(stdout, /registry\.json.*"pilot"/);
+    assert.doesNotMatch(stdout, /\n\s+at /);
+
+    const calls = await gh.calls();
+    assert.equal(
+      calls.filter((call) => call[0] === "issue" && call[1] === "create")
+        .length,
+      1,
+      "a summary issue is still published",
+    );
   });
 
   it("publishes exactly one summary issue in the manager repo", async (t) => {
