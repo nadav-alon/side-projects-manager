@@ -9,10 +9,9 @@ import { morningRun } from "../morning-run.ts";
 
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
- * trigger is a caller of `morningRun`, exactly like this one.
- *
- * TODO[#15]: the daily schedule, the first-logon guard, and the once-per-day
- * lock that stops the two double-firing.
+ * trigger is a caller of `morningRun`, exactly like this one — including
+ * `guarded-morning-run.ts`, which is what the daily schedule and the logon
+ * guard actually call; this file stays the direct, unguarded entry point.
  */
 async function main(): Promise<void> {
   const report = await morningRun({
