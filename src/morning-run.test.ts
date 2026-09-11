@@ -252,6 +252,41 @@ describe("morningRun", () => {
     });
   });
 
+  describe("ready-for-agent eligibility", () => {
+    it("never selects a ticket without ready-for-agent, even as its project's only ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addIneligibleTicket(PILOT, {
+        number: 7,
+        title: "Not triaged yet",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
+    });
+
+    it("does not select a handed-back ticket on the next invocation", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await ports.tracker.handBack(ticket, "gave up");
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
+    });
+  });
+
   describe("selection ordering", () => {
     /** The pull request every `reviewOf` in this suite names, since none of them care which. */
     const SOME_PULL_REQUEST = pullRequestUrl(
