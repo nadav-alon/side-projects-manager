@@ -23,6 +23,7 @@ import type {
 } from "./ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
+  READY_FOR_HUMAN_LABEL,
   isReviewTicket,
   recordRun,
 } from "./ports/index.ts";
@@ -31,12 +32,25 @@ import { handbackComment, type Discard } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
 
 /**
+ * The one write on the tracker that `ports/issue-tracker.ts` deliberately
+ * leaves undeclared: publishing the invocation's summary issue. Declared
+ * here, by the code that needs it, per that port's own note.
+ *
+ * Every other tracker method writes into a project's repo, named by a ticket
+ * it is handed. This one names nothing, because it always lands in the
+ * tracker's own repo rather than a project's — the manager reports on itself.
+ */
+export interface SummaryTracker {
+  publishSummary(title: string, body: string): Promise<void>;
+}
+
+/**
  * The six outside-world dependencies of the loop. Everything it knows about
  * GitHub, containers, session logs, the filesystem and the wall clock arrives
  * through these.
  */
 export interface MorningRunPorts {
-  tracker: IssueTracker;
+  tracker: IssueTracker & SummaryTracker;
   repoHost: RepoHost;
   sandbox: Sandbox;
   ledger: UsageLedger;
@@ -304,6 +318,23 @@ export async function morningRun(
     // very outcomes this populates.
     (repo) => outcomesByRepo.get(repo) as ProjectOutcome,
   );
+  const line = summaryLine(outcomes, runs, standDown, refused);
+
+  // Last, so a morning that worked something still gets its state recorded
+  // above even if the tracker refuses this. Never thrown: a summary issue
+  // that could not be written must not cost the developer the account of
+  // everything else the invocation did, which is exactly the account this
+  // write exists to carry — said in the message instead, the same way a
+  // tracker that refuses `handBack` is said rather than thrown.
+  let publishFailure: string | undefined;
+  try {
+    await ports.tracker.publishSummary(
+      summaryTitle(startedAt),
+      summaryBody(outcomes, runs, standDown, refused),
+    );
+  } catch (error: unknown) {
+    publishFailure = errorMessage(error);
+  }
 
   return {
     startedAt,
@@ -311,7 +342,10 @@ export async function morningRun(
     runs,
     ...(standDown !== undefined && { standDown }),
     outcome: outcomeOf(runs, standDown),
-    message: summaryLine(outcomes, runs, standDown, refused),
+    message:
+      publishFailure === undefined
+        ? line
+        : `${line} The summary issue could not be published: ${publishFailure}.`,
   };
 }
 
@@ -821,6 +855,93 @@ function summaryLine(
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
+}
+
+/** The summary issue's title: dated, so a run of mornings reads in order. */
+function summaryTitle(startedAt: Date): string {
+  return `Morning run — ${startedAt.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * The summary issue's body: CONTEXT.md's "Summary" entry, written out in
+ * full. `message` stays the one line a terminal or a trigger's own log wants;
+ * this is the fuller account — every attempt with its cost, and what is now
+ * waiting on the developer — the issue itself carries.
+ */
+function summaryBody(
+  projects: ProjectOutcome[],
+  runs: IterationOutcome[],
+  standDown: StandDown | undefined,
+  refused: RepoSlug | undefined,
+): string {
+  return [
+    summaryLine(projects, runs, standDown, refused),
+    runs.length === 0 ? undefined : runsSection(runs),
+    waitingSection(runs),
+  ]
+    .filter((section): section is string => section !== undefined)
+    .join("\n\n");
+}
+
+/** One bullet per run attempted this invocation, its outcome, and its cost. */
+function runsSection(runs: IterationOutcome[]): string {
+  const lines = runs.map((run) => {
+    const spent = costOf(run);
+    const cost = spent === undefined ? "" : ` — ${tokens(spent)} tokens`;
+    return `- ${describeRun(run)}${cost}`;
+  });
+  return ["## Runs", ...lines].join("\n");
+}
+
+/**
+ * What now needs the developer: a draft pull request to review, a ticket
+ * relabelled for human attention, or — the one case a failed run can leave
+ * behind that is the developer's alone, per `RunFailure.handedBack`'s own
+ * note — a ticket the hand-back itself could not reach, still eligible and
+ * due to come round again until somebody relabels it by hand. An unposted
+ * review is the one failure left out: it will come round again on its own,
+ * exactly like a normal ticket, and needs nobody to read about it here.
+ */
+function waitingSection(runs: IterationOutcome[]): string | undefined {
+  const reviews = runs.flatMap((run) => {
+    if ("failure" in run || "review" in run) {
+      return [];
+    }
+    const handover = run.handover;
+    return handover === undefined
+      ? []
+      : [
+          `- Review #${handover.reviewTicket.number} (${run.repo}) for ${handover.pullRequest}`,
+        ];
+  });
+
+  const handedBack = runs.flatMap((run) => {
+    if (!("failure" in run)) {
+      return [];
+    }
+    return run.failure.handedBack
+      ? [
+          `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`,
+        ]
+      : [
+          `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`,
+        ];
+  });
+
+  const lines = [...reviews, ...handedBack];
+  return lines.length === 0
+    ? undefined
+    : ["## Waiting on you", ...lines].join("\n");
+}
+
+/**
+ * What one iteration's run or review cost. Absent only for a run that never
+ * started — an infrastructure failure before the sandbox spent anything.
+ */
+function costOf(iteration: IterationOutcome): TokenCount | undefined {
+  return "review" in iteration
+    ? iteration.review.tokensUsed
+    : iteration.run?.tokensUsed;
 }
 
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */

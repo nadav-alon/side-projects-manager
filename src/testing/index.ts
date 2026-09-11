@@ -5,6 +5,7 @@ export {
   FakeIssueTracker,
   type FakeHandback,
   type FakeReviewTicket,
+  type FakeSummary,
 } from "./fake-issue-tracker.ts";
 export {
   FakeRepoHost,
