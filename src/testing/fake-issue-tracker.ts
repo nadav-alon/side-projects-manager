@@ -5,7 +5,11 @@ import type {
   ReviewTicket,
   Ticket,
 } from "../ports/index.ts";
-import { reviewTitle } from "../ports/index.ts";
+import {
+  READY_FOR_AGENT_LABEL,
+  READY_FOR_HUMAN_LABEL,
+  reviewTitle,
+} from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 
 /** One summary issue the fake was asked to publish, in the order asked. */
@@ -30,16 +34,23 @@ export interface FakeHandback {
   comment: string;
 }
 
+/** A ticket as the fake holds it: the ticket itself, and the labels it carries. */
+interface Stored {
+  ticket: Ticket;
+  labels: Set<string>;
+}
+
 /**
- * An in-memory backlog per project. Everything put here is eligible — the
- * fake has no notion of an ineligible ticket, because the real port never
- * returns one.
+ * An in-memory backlog per project, modelling the real tracker's own notion
+ * of eligibility: a ticket is listed only while it carries
+ * `READY_FOR_AGENT_LABEL`, the way `gh issue list --label` filters for the
+ * real one.
  *
  * Tests that care which repos were asked about spy on `listEligibleTickets`
  * with `t.mock.method`; the fake does not record calls itself.
  */
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
-  readonly #backlogs = new Map<RepoSlug, Ticket[]>();
+  readonly #backlogs = new Map<RepoSlug, Stored[]>();
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
@@ -57,32 +68,49 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     this.summaries.push({ title, body });
   }
 
-  /** Puts an eligible ticket in `repo`'s backlog and returns it. */
+  /** Puts a ticket carrying `READY_FOR_AGENT_LABEL` in `repo`'s backlog and returns it. */
   addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
+    return this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
+  }
+
+  /**
+   * Puts a ticket carrying `READY_FOR_HUMAN_LABEL` — never `READY_FOR_AGENT_LABEL`
+   * — in `repo`'s backlog and returns it: a ticket the developer has not
+   * triaged onto the loop, or has already handed back. Exists so a test can
+   * prove such a ticket is never selected, even as its project's only ticket.
+   */
+  addIneligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
+    return this.#add(repo, ticket, READY_FOR_HUMAN_LABEL);
+  }
+
+  #add(repo: RepoSlug, ticket: Omit<Ticket, "repo">, label: string): Ticket {
     const stored: Ticket = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];
-    backlog.push(stored);
+    backlog.push({ ticket: stored, labels: new Set([label]) });
     this.#backlogs.set(repo, backlog);
     return stored;
   }
 
   async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
-    return [...(this.#backlogs.get(repo) ?? [])];
+    return (this.#backlogs.get(repo) ?? [])
+      .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
+      .map((entry) => entry.ticket);
   }
 
   /**
    * The review lands in the same backlog its parent came from, because a real
    * review ticket is born ready-for-agent and is eligible from that moment.
    *
-   * Numbered above every ticket the repo has, the way a tracker numbers a new
-   * issue, so a test can tell the review from the ticket that earned it.
+   * Numbered above every ticket the repo has — eligible or not, the way the
+   * real tracker never reuses a number — so a test can tell the review from
+   * the ticket that earned it.
    */
   async createReviewTicket(
     ticket: Ticket,
     pullRequest: PullRequestUrl,
   ): Promise<Ticket> {
     const backlog = this.#backlogs.get(ticket.repo) ?? [];
-    const numbers = backlog.map((eligible) => eligible.number);
+    const numbers = backlog.map((entry) => entry.ticket.number);
     const review = this.addEligibleTicket(ticket.repo, {
       number: Math.max(ticket.number, ...numbers) + 1,
       title: reviewTitle(ticket),
@@ -95,14 +123,15 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   async handBack(ticket: Ticket, comment: string): Promise<void> {
     this.handbacks.push({ ticket, comment });
-    // Losing ready-for-agent is losing eligibility, so a handed-back ticket
-    // leaves the backlog here exactly as it leaves the real one. Tests assert
-    // no retry by invoking the loop again and finding nothing to select.
-    const backlog = this.#backlogs.get(ticket.repo) ?? [];
-    this.#backlogs.set(
-      ticket.repo,
-      backlog.filter((eligible) => eligible.number !== ticket.number),
+    // Loses ready-for-agent and gains ready-for-human, exactly the relabel the
+    // real tracker makes — not removed from the backlog, since the ticket is
+    // still there for the developer to find. Tests assert no retry by
+    // invoking the loop again and finding nothing to select.
+    const entry = (this.#backlogs.get(ticket.repo) ?? []).find(
+      (candidate) => candidate.ticket.number === ticket.number,
     );
+    entry?.labels.delete(READY_FOR_AGENT_LABEL);
+    entry?.labels.add(READY_FOR_HUMAN_LABEL);
   }
 
   /**
@@ -114,7 +143,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const backlog = this.#backlogs.get(ticket.repo) ?? [];
     this.#backlogs.set(
       ticket.repo,
-      backlog.filter((eligible) => eligible.number !== ticket.number),
+      backlog.filter((entry) => entry.ticket.number !== ticket.number),
     );
   }
 }
