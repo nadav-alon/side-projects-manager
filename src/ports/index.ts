@@ -10,6 +10,7 @@ export type { Harness, Scaffold } from "./harness.ts";
 export {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isReviewTitle,
   reviewTitle,
 } from "./issue-tracker.ts";
 export type { IssueTracker, Ticket } from "./issue-tracker.ts";

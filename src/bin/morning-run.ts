@@ -33,7 +33,10 @@ async function main(): Promise<void> {
   // handed back and that is the failure policy working — a trigger that
   // retried a non-zero morning would otherwise run straight into the no-retry
   // rule.
-  if (report.failure?.kind === "infrastructure") {
+  const infrastructureFailed = report.runs.some(
+    (run) => "failure" in run && run.failure.kind === "infrastructure",
+  );
+  if (infrastructureFailed) {
     process.exitCode = 1;
   }
 }
