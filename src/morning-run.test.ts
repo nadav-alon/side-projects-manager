@@ -811,8 +811,13 @@ describe("morningRun", () => {
         throw new Error("pull requests are disabled on this repository");
       };
 
-      await assert.rejects(morningRun(ports), /pull requests are disabled/);
+      const report = await morningRun(ports);
 
+      // The run still spent its tokens even though the loop's own next step
+      // failed — recorded by the `finally` inside the loop before the
+      // failure ends the invocation rather than the ticket's own run.
+      assert.equal(report.outcome, "invocation-failed");
+      assert.match(report.message, /pull requests are disabled/);
       const state = await ports.store.loadState();
       assert.deepEqual(state.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -958,8 +963,10 @@ describe("morningRun", () => {
         throw new Error("issues are disabled on this repository");
       });
 
-      await assert.rejects(morningRun(ports), /issues are disabled/);
+      const report = await morningRun(ports);
 
+      assert.equal(report.outcome, "invocation-failed");
+      assert.match(report.message, /issues are disabled/);
       const state = await ports.store.loadState();
       assert.deepEqual(state.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1783,6 +1790,191 @@ describe("morningRun", () => {
 
         assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
       });
+    });
+  });
+
+  describe("the summary issue", () => {
+    it("is published exactly once on a dry queue", async () => {
+      const ports = fakePorts();
+
+      await morningRun(ports);
+
+      assert.equal(ports.tracker.summaries.length, 1);
+      assert.match(ports.tracker.summaries[0]?.body ?? "", /nothing to do/i);
+    });
+
+    it("is published exactly once when the gate stands down", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "stood-down");
+      assert.equal(ports.tracker.summaries.length, 1);
+      assert.match(
+        ports.tracker.summaries[0]?.body ?? "",
+        /stood down/i,
+      );
+    });
+
+    it("is published exactly once after a morning that worked something", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+      ports.sandbox.reviewResult = () => ({
+        output: "",
+        tokensUsed: tokenCount(3_000),
+      });
+
+      await morningRun(ports);
+
+      assert.equal(ports.tracker.summaries.length, 1);
+    });
+
+    it("lists each run attempted, its outcome, and what it cost", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+      ports.sandbox.reviewResult = () => ({
+        output: "",
+        tokensUsed: tokenCount(3_000),
+      });
+
+      await morningRun(ports);
+
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /42,000 tokens/);
+      assert.match(body, /3,000 tokens/);
+    });
+
+    it("lists a queued review as waiting on the developer", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+      // Just under the run's own cost: the gate lets the implementation
+      // start against an empty state, but refuses the review it queues
+      // before a second iteration can work it — so the review stays queued,
+      // which is the thing being tested.
+      ports.store.budget = {
+        ...DEFAULT_BUDGET,
+        weeklyAllowance: tokenCount(40_000),
+        reserveFraction: reserveFraction(0),
+      };
+
+      const report = await morningRun(ports);
+
+      const review = reviewTicketOf(report.runs[0]);
+      assert.ok(review, "the first run should have queued a review");
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /Waiting on you/);
+      assert.match(body, new RegExp(`#${review.number}`));
+    });
+
+    it("lists a handed-back ticket as waiting on the developer", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: [],
+        output: "the tests are red",
+        tokensUsed: tokenCount(1_000),
+        failure: "the tests are red",
+      });
+
+      await morningRun(ports);
+
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /Waiting on you/);
+      assert.match(body, /pilot #7/);
+      assert.match(body, /ready-for-human/);
+    });
+
+    it("lists a ticket the hand-back itself failed on, still eligible", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: [],
+        output: "the tests are red",
+        tokensUsed: tokenCount(1_000),
+        failure: "the tests are red",
+      });
+      t.mock.method(ports.tracker, "handBack", async () => {
+        throw new Error("gh is not logged in");
+      });
+
+      await morningRun(ports);
+
+      // Still ready-for-agent, not relabelled: this is the one failure that
+      // is the developer's alone to notice, so it belongs in the curated
+      // list even though it never reached ready-for-human.
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /Waiting on you/);
+      assert.match(body, /pilot #7/);
+      assert.match(body, /still ready-for-agent/);
+      assert.match(body, /relabel it yourself/);
+    });
+
+    it("never rejects when the summary issue itself cannot be published", async (t) => {
+      const ports = fakePorts();
+      t.mock.method(ports.tracker, "publishSummary", async () => {
+        throw new Error("rate limited");
+      });
+
+      const report = await morningRun(ports);
+
+      // The developer still reads what the morning did — losing that to the
+      // one write meant to carry it would be exactly the failure this write
+      // exists to prevent.
+      assert.equal(report.outcome, "dry-queue");
+      assert.match(report.message, /nothing to do/i);
+      assert.match(
+        report.message,
+        /summary issue could not be published: rate limited/,
+      );
+    });
+
+    it("is still published when the loop itself breaks before a run", async (t) => {
+      const ports = fakePorts();
+      t.mock.method(ports.store, "loadRegistry", async () => {
+        throw new Error('registry.json: project 1: "repo" must be a repo slug');
+      });
+
+      const report = await morningRun(ports);
+
+      // Nothing ran, so there is no run to blame — the loop's own plumbing
+      // broke, and the developer still needs to be told that, not just left
+      // with a rejected promise nobody wrote down.
+      assert.equal(report.outcome, "invocation-failed");
+      assert.deepEqual(report.runs, []);
+      assert.match(report.message, /registry\.json.*repo slug/);
+      assert.equal(ports.tracker.summaries.length, 1);
+      assert.match(
+        ports.tracker.summaries[0]?.body ?? "",
+        /registry\.json.*repo slug/,
+      );
     });
   });
 });

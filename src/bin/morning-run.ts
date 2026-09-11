@@ -32,11 +32,15 @@ async function main(): Promise<void> {
   // about. An agent that gave up exits zero, because the ticket has been
   // handed back and that is the failure policy working — a trigger that
   // retried a non-zero morning would otherwise run straight into the no-retry
-  // rule.
-  const infrastructureFailed = report.runs.some(
-    (run) => "failure" in run && run.failure.kind === "infrastructure",
-  );
-  if (infrastructureFailed) {
+  // rule. An invocation that never finished — a registry that would not
+  // parse, say — is reported the same way as a broken sandbox: cleanly, and
+  // non-zero.
+  const failed =
+    report.outcome === "invocation-failed" ||
+    report.runs.some(
+      (run) => "failure" in run && run.failure.kind === "infrastructure",
+    );
+  if (failed) {
     process.exitCode = 1;
   }
 }

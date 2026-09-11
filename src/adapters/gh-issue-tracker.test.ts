@@ -112,6 +112,32 @@ describe("ghIssueTracker", () => {
 });
 
 /**
+ * Publishing the invocation's summary. Unlike the read path above, this one
+ * writes: a real call would leave a real issue behind on every test run,
+ * and in the manager's own repo rather than a fixture's. So `gh` is a
+ * recording script on PATH, and what this adapter owes the developer — one
+ * issue, with the title and body it was given, named to no `--repo` at all —
+ * is asserted from the arguments it was called with.
+ */
+describe("ghIssueTracker.publishSummary", () => {
+  it("creates one issue, naming no repo of its own", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().publishSummary("Morning run — 2026-01-01", "Nothing to do.");
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create, "the summary should be created with `gh issue create`");
+    assert.equal(valueOf(create, "--title"), "Morning run — 2026-01-01");
+    assert.equal(valueOf(create, "--body"), "Nothing to do.");
+    // No `--repo`: the tracker's other writes all name one, explicitly,
+    // because they land in a project. This is the one write that always
+    // lands in the tracker's own, and `gh` resolves that from the checkout
+    // it is run in when nothing overrides it.
+    assert.equal(valueOf(create, "--repo"), undefined);
+  });
+});
+
+/**
  * Opening the review a draft pull request is handed over as.
  *
  * Unlike the read path above, this one writes: run against the real tracker it

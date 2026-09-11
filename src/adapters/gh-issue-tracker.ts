@@ -14,6 +14,7 @@ import {
   isPullRequestUrl,
   reviewTitle,
 } from "../ports/index.ts";
+import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
 
 const execFileAsync = promisify(execFile);
@@ -23,11 +24,27 @@ const execFileAsync = promisify(execFile);
  * Talks to whichever repo it is asked about; the developer's own `gh` login
  * is what authorizes it.
  *
+ * `publishSummary` is the one exception: it names no repo, because `gh`
+ * resolves it the same way it resolves any call this adapter does not name
+ * one for — from the checkout it is run in, which for every real trigger is
+ * the manager's own.
+ *
  * TODO[#25]: `gh issue list` caps results at 30 by default with no override
  * here, so a backlog past that size is silently truncated.
  */
-export function ghIssueTracker(): IssueTracker {
+export function ghIssueTracker(): IssueTracker & SummaryTracker {
   return {
+    async publishSummary(title: string, body: string): Promise<void> {
+      await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--title",
+        title,
+        "--body",
+        body,
+      ]);
+    },
+
     async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
       const { stdout } = await execFileAsync("gh", [
         "issue",

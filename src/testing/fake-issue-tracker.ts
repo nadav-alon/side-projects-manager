@@ -6,6 +6,13 @@ import type {
   Ticket,
 } from "../ports/index.ts";
 import { reviewTitle } from "../ports/index.ts";
+import type { SummaryTracker } from "../morning-run.ts";
+
+/** One summary issue the fake was asked to publish, in the order asked. */
+export interface FakeSummary {
+  title: string;
+  body: string;
+}
 
 /** One review ticket the loop opened, in the order the fake received it. */
 export interface FakeReviewTicket {
@@ -31,7 +38,7 @@ export interface FakeHandback {
  * Tests that care which repos were asked about spy on `listEligibleTickets`
  * with `t.mock.method`; the fake does not record calls itself.
  */
-export class FakeIssueTracker implements IssueTracker {
+export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly #backlogs = new Map<RepoSlug, Ticket[]>();
 
   /** The review tickets opened, in the order they were opened. */
@@ -41,6 +48,14 @@ export class FakeIssueTracker implements IssueTracker {
 
   /** The review tickets closed, in the order they were closed. */
   readonly closedReviewTickets: ReviewTicket[] = [];
+
+  /** The summary issues published, in the order they were published. */
+  readonly summaries: FakeSummary[] = [];
+
+  /** Records the summary. Never fails — the fake has no repo to refuse it. */
+  async publishSummary(title: string, body: string): Promise<void> {
+    this.summaries.push({ title, body });
+  }
 
   /** Puts an eligible ticket in `repo`'s backlog and returns it. */
   addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
