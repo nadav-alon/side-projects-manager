@@ -223,14 +223,26 @@ banner "Side Projects Manager: setup"
 # ── Stage 1: the Claude subscription token the sandbox authenticates with ──
 stage "Claude subscription token"
 say "The sandbox authenticates on your Claude subscription, never an API key."
-say "This runs 'claude setup-token': it opens your browser for an OAuth"
-say "approval, then prints a long-lived token in this terminal."
-if confirm "Run 'claude setup-token' now?"; then
-  claude setup-token || warn "it exited non-zero — paste a token below if you already have one, or skip."
+existing_claude_token="$(_existing CLAUDE_CODE_OAUTH_TOKEN || true)"
+if [[ -n "$existing_claude_token" ]]; then
+  note "already saved in $ENV_FILE (ends …${existing_claude_token: -6})."
+  if confirm "Regenerate it with 'claude setup-token'?"; then
+    claude setup-token || warn "it exited non-zero — paste a token below, or leave blank to keep the saved one."
+    ask_secret CLAUDE_CODE_OAUTH_TOKEN "Paste the new token it printed (blank keeps the saved one):"
+  else
+    CLAUDE_CODE_OAUTH_TOKEN="$existing_claude_token"
+    note "keeping the saved token."
+  fi
 else
-  note "skipped running it — run 'claude setup-token' yourself, then come back and paste the token."
+  say "This runs 'claude setup-token': it opens your browser for an OAuth"
+  say "approval, then prints a long-lived token in this terminal."
+  if confirm "Run 'claude setup-token' now?"; then
+    claude setup-token || warn "it exited non-zero — paste a token below if you already have one, or skip."
+  else
+    note "skipped running it — run 'claude setup-token' yourself, then come back and paste the token."
+  fi
+  ask_secret CLAUDE_CODE_OAUTH_TOKEN "Paste the token it printed (blank to skip):"
 fi
-ask_secret CLAUDE_CODE_OAUTH_TOKEN "Paste the token it printed (blank to skip):"
 if [[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]]; then
   write_env CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN"
 else
