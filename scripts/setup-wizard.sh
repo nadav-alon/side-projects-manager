@@ -261,9 +261,12 @@ else
   SKIPPED+=("GH_TOKEN / GITHUB_TOKEN — the agent can't read tickets or push without one")
 fi
 
-step "Now the review-only token: a fine-grained PAT with Issues + Pull"
-step "requests read/write, and Contents explicitly set to 'No access'."
+say "Now the review-only token."
+warn "must be FINE-GRAINED, not classic — classic has no separate Issues/PR"
+warn "scope, so it always bundles Contents access and can't do this."
 open_url "https://github.com/settings/personal-access-tokens/new"
+step "That URL lands directly on the fine-grained form. If your browser or"
+step "muscle memory redirects you to 'Tokens (classic)', go back — it won't work here."
 step "Resource owner: your account. Repository access: the repos the loop"
 step "runs against (this one, plus any registered project)."
 step "Repository permissions: Issues → Read and write, Pull requests →"
