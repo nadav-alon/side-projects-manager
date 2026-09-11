@@ -1,0 +1,59 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { promisify } from "node:util";
+
+import { emptyBacklogGh, tempHome } from "../testing/index.ts";
+
+const execFileAsync = promisify(execFile);
+const entryPoint = path.join(import.meta.dirname, "guarded-morning-run.ts");
+
+async function home(): Promise<string> {
+  return tempHome("guarded-morning-run-bin");
+}
+
+async function run(
+  directory: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(process.execPath, [entryPoint], {
+    env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: directory },
+  });
+}
+
+describe("the guarded-morning-run command", () => {
+  it("runs the loop the first time it's called for the day", async (t) => {
+    await emptyBacklogGh(t);
+
+    const { stdout } = await run(await home());
+
+    assert.match(stdout, /nothing to do/i);
+  });
+
+  it("is a no-op the second time it's called the same day", async (t) => {
+    const gh = await emptyBacklogGh(t);
+    const directory = await home();
+
+    await run(directory);
+    const { stdout } = await run(directory);
+
+    assert.match(stdout, /already ran today/i);
+
+    const creates = (await gh.calls()).filter(
+      (call) => call[0] === "issue" && call[1] === "create",
+    );
+    assert.equal(creates.length, 1, "the summary is published only once");
+  });
+
+  it("still runs for a manager home it hasn't seen before", async (t) => {
+    const gh = await emptyBacklogGh(t);
+
+    await run(await home());
+    await run(await home());
+
+    const creates = (await gh.calls()).filter(
+      (call) => call[0] === "issue" && call[1] === "create",
+    );
+    assert.equal(creates.length, 2, "each home has its own lock");
+  });
+});

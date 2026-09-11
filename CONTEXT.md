@@ -40,6 +40,20 @@ _Avoid_: abort, bail, skip, fail
 The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer.
 _Avoid_: report, digest, changelog
 
+### Triggers
+
+**Trigger**:
+Whatever calls `morningRun`: the daily schedule, the logon guard, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
+_Avoid_: caller (when trigger is meant), cron job, entry point
+
+**Logon guard**:
+The trigger that fires on every new interactive shell, relying on the once-per-day lock to act only the first time that happens each day — so a machine left off overnight doesn't silently skip a day.
+_Avoid_: startup hook, login script
+
+**Once-per-day lock**:
+What stops two triggers firing the same day: the first to claim a calendar day runs the loop, every later claim that day is refused. Claimed before the loop runs, so a run that fails still leaves the day claimed.
+_Avoid_: mutex, semaphore, debounce
+
 ### Projects
 
 **Project**:
