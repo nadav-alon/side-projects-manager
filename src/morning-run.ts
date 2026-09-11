@@ -28,7 +28,12 @@ import {
   recordRun,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
-import { handbackComment, type Discard } from "./handback-comment.ts";
+import {
+  committedNothingComment,
+  handbackComment,
+  handoverComment,
+  type Discard,
+} from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
 
 /**
@@ -179,6 +184,14 @@ interface Finished {
   run: SandboxRunResult;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
+  /**
+   * Set when the ticket itself could not be taken out of the queue: the
+   * tracker refused the comment or the relabel that `handFinishedTicketBack`
+   * tried on its behalf. Absent when that succeeded, whether or not the run
+   * produced a handover — a run that committed nothing is given back too,
+   * just with nothing to name in the comment but that.
+   */
+  handbackFailure?: string;
 }
 
 /**
@@ -625,11 +638,12 @@ async function work(
  * The draft pull request a finished run's commits wait in, and the review
  * queued against it.
  *
- * A run that committed nothing is handed over to nobody: the sandbox leaves no
- * branch behind for it, and a pull request with no commits in it is not
- * something to open and not something to review. Neither is a review ticket's
- * own run: its handover is comments on the pull request it already names, not
- * a pull request of its own.
+ * Either way the run finished, its ticket leaves the queue: relabelled
+ * ready-for-human and commented on, so tomorrow's invocation cannot select it
+ * again. A run that committed nothing has no pull request and no review to
+ * name, so the comment says only that; a review ticket's own run never
+ * reaches here — its handover is comments on the pull request it already
+ * names, not a pull request of its own.
  *
  * Only a run that finished. A failed agent's commits never reach here — they
  * go to `discardBranch` instead, because they are not work to review.
@@ -641,7 +655,12 @@ async function handOver(
   ticket: Ticket,
 ): Promise<Finished> {
   if (run.commits.length === 0) {
-    return { run };
+    const handbackFailure = await handFinishedTicketBack(
+      ports,
+      ticket,
+      committedNothingComment(),
+    );
+    return { run, ...(handbackFailure !== undefined && { handbackFailure }) };
   }
 
   // TODO[#10]: post the review's findings as comments on the pull request it
@@ -668,7 +687,40 @@ async function handOver(
     pullRequest,
   );
 
-  return { run, handover: { pullRequest, reviewTicket } };
+  const handbackFailure = await handFinishedTicketBack(
+    ports,
+    ticket,
+    handoverComment(pullRequest, reviewTicket),
+  );
+
+  return {
+    run,
+    handover: { pullRequest, reviewTicket },
+    ...(handbackFailure !== undefined && { handbackFailure }),
+  };
+}
+
+/**
+ * Takes a finished run's ticket out of the queue: the same comment-and-relabel
+ * primitive a failed run's hand-back uses, so a project the developer never
+ * triaged by hand still gets ready-for-human created for it.
+ *
+ * Never throws. A tracker that refuses the relabel is reported in the
+ * summary instead, the same way a refused hand-back is today — the one thing
+ * still worth doing is saying so, since the ticket is left eligible and due
+ * to come round again.
+ */
+async function handFinishedTicketBack(
+  ports: MorningRunPorts,
+  ticket: Ticket,
+  comment: string,
+): Promise<string | undefined> {
+  try {
+    await ports.tracker.handBack(ticket, comment);
+    return undefined;
+  } catch (error: unknown) {
+    return errorMessage(error);
+  }
 }
 
 /**
@@ -939,6 +991,11 @@ function attemptsSection(runs: IterationOutcome[]): string {
   return ["## Attempts", ...lines].join("\n");
 }
 
+/** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
+function stillEligibleLine(run: { repo: RepoSlug; ticket: Ticket }): string {
+  return `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
+}
+
 /**
  * What now needs the developer: a draft pull request to review, a ticket
  * relabelled for human attention, or — the one case a failed run can leave
@@ -955,32 +1012,38 @@ function attemptsSection(runs: IterationOutcome[]): string {
  * here that needs a human to notice.
  */
 function waitingSection(runs: IterationOutcome[]): string | undefined {
-  const reviews = runs.flatMap((run) => {
-    if ("failure" in run || "review" in run) {
+  const lines = runs.flatMap((run) => {
+    if ("review" in run) {
       return [];
     }
-    const handover = run.handover;
-    return handover === undefined
-      ? []
-      : [
-          `- ${run.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
-        ];
-  });
-
-  const handedBack = runs.flatMap((run) => {
-    if (!("failure" in run)) {
-      return [];
+    if ("failure" in run) {
+      return run.failure.handedBack
+        ? [
+            `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`,
+          ]
+        : [stillEligibleLine(run)];
     }
-    return run.failure.handedBack
-      ? [
-          `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`,
-        ]
-      : [
-          `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`,
-        ];
+    // A finished run's own hand-back, covering the two cases a queued review
+    // does not: a run that committed nothing, which has nothing to name but
+    // the relabel itself, and a run whose hand-back — of either kind — was
+    // refused by the tracker.
+    const { handover, handbackFailure } = run;
+    return [
+      ...(handover === undefined
+        ? []
+        : [
+            `- ${run.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
+          ]),
+      ...(handbackFailure !== undefined
+        ? [stillEligibleLine(run)]
+        : handover === undefined
+          ? [
+              `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
+            ]
+          : []),
+    ];
   });
 
-  const lines = [...reviews, ...handedBack];
   return lines.length === 0
     ? undefined
     : ["## Waiting on you", ...lines].join("\n");
@@ -1004,7 +1067,20 @@ function describeRun(iteration: IterationOutcome): string {
   if ("review" in iteration) {
     return reviewSummary(iteration);
   }
-  return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}`;
+  return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
+}
+
+/**
+ * Says when a finished run's own hand-back — the relabel that takes its
+ * ticket out of the queue — was refused. Empty when it succeeded, since
+ * `landed` and `queued` already say what became of the run itself, and a
+ * ticket successfully handed back needs nothing more said about it here.
+ */
+function handbackNote(finished: Finished): string {
+  if (finished.handbackFailure === undefined) {
+    return "";
+  }
+  return ` The ticket could not be handed back: ${finished.handbackFailure} — still ${READY_FOR_AGENT_LABEL} and will come round again; relabel it yourself.`;
 }
 
 /**
@@ -1042,7 +1118,9 @@ function queued(finished: Finished): string {
  */
 function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   const what =
-    failure.kind === "gave-up" ? "the agent gave up" : "the run would not start";
+    failure.kind === "gave-up"
+      ? "the agent gave up"
+      : "the run would not start";
   const which = `#${ticket.number}`;
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and

@@ -71,14 +71,17 @@ export interface IssueTracker {
   ): Promise<Ticket>;
 
   /**
-   * Gives `ticket` back to the developer after a failed run: comments `comment`
-   * on it, and moves it from ready-for-agent to ready-for-human.
+   * Gives `ticket` back to the developer once the loop has stopped working on
+   * it — whether the run failed or finished: comments `comment` on it, and
+   * moves it from ready-for-agent to ready-for-human.
    *
    * The comment and the relabel are one operation, because a ticket the loop
    * has stopped working on that nobody has been told about is the failure this
    * exists to prevent. Relabelling is also the whole of the no-retry rule: a
    * ticket without ready-for-agent is not eligible, so tomorrow's invocation
-   * cannot select it and spend another morning on it.
+   * cannot select it and spend another morning on it — the same rule that
+   * keeps a finished run's ticket from being reselected once its work is
+   * waiting in a draft pull request, or once it committed nothing at all.
    */
   handBack(ticket: Ticket, comment: string): Promise<void>;
 

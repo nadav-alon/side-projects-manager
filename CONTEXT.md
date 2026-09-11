@@ -131,7 +131,7 @@ The triage label a ticket carries once the loop has stopped working on it. Alway
 _Avoid_: needs-human, manual, blocked
 
 **Hand back**:
-What a failed run does with its ticket: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning.
+What the loop does with a ticket it has stopped working on, whether the run failed or finished: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
@@ -217,7 +217,7 @@ The container an unattended agent runs in, on a throwaway clone of one project. 
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:
-The repository one run happens in: cloned from the project's checkout, deleted when the run ends, and never the checkout itself. Shortened to *clone* where the context is a run.
+The repository one run happens in: cloned from the project's checkout, deleted when the run ends, and never the checkout itself. Shortened to _clone_ where the context is a run.
 _Avoid_: workspace, worktree (it is neither), scratch directory
 
 **Harness**:
