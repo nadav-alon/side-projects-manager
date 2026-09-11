@@ -315,6 +315,13 @@ function promptFor(ticket: Ticket): string {
  * and what it asked for — the agent works out for itself, from the pull
  * request's own body, because that is the one place the association still
  * exists once this process is the loop's next morning.
+ *
+ * Posting is spelled out as a single review with one inline comment per
+ * finding — not the skill's own aggregated report dropped as one comment —
+ * because a finding a reviewer would read in context of the line it is about
+ * is exactly what a summary comment strips away. `RepoHost.hasNewComment`
+ * checks for this same shape: an inline comment on the pull request, not an
+ * issue-level one.
  */
 function reviewPromptFor(ticket: ReviewTicket): string {
   return [
@@ -325,8 +332,14 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "mattpocock-skills plugin explicitly as `/mattpocock-skills:code-review` — never the built-in",
     "`/code-review`, which is a different, single-axis review that does not check fidelity to the",
     "ticket — covering both conformance to this repo's own documented coding standards and whether",
-    "the pull request does what the ticket asked for. When it aggregates the two reports, post them",
-    `as one comment on the pull request with \`gh pr comment ${ticket.pullRequest} --body-file -\`.`,
+    "the pull request does what the ticket asked for. The skill's own last step only aggregates the",
+    "two reports; posting is yours to do, and not as that aggregate dropped in one comment. Post each",
+    "finding inline, on the file and line it is actually about, by submitting a single review —",
+    "`gh api repos/<owner>/<repo>/pulls/<number>/reviews --input -`, with `<owner>/<repo>` and",
+    `\`<number>\` read off ${ticket.pullRequest} — piped a JSON object shaped`,
+    '`{"event": "COMMENT", "comments": [{"path": <file>, "line": <line>, "body": <finding>}, ...]}`,',
+    "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
+    "sit on — a one-line summary, or a finding that spans the whole change.",
     "You are reviewing, not implementing: do not commit or push anything — this checkout is",
     "read-only, so neither would work anyway.",
   ].join(" ");

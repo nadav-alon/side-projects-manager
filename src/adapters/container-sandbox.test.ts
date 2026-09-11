@@ -442,6 +442,30 @@ describe("containerSandbox.review", () => {
   });
 
   /**
+   * The skill's own last step only aggregates the two reports — posting is
+   * the prompt's to spell out, and a finding dropped as one summary comment
+   * loses the very context (the line it is about) that makes it useful.
+   */
+  it("asks for each finding posted inline, not as one aggregated comment", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /pulls\/<number>\/reviews/);
+    assert.match(asked, /"comments":\s*\[\{"path"/);
+    assert.doesNotMatch(asked, /gh pr comment/);
+  });
+
+  /**
    * A reviewer has nothing to commit, and nothing here ever fetches a branch
    * back — unlike a run, whose whole product is the branch it leaves.
    */
