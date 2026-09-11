@@ -1,6 +1,18 @@
 # Side Projects Manager
 This repo tracks coding related side project shared files. This includes the workflow, harnesses, and any agentic principles.
 
+## Setup
+
+`scripts/setup-wizard.sh` walks a fresh machine through everything below: generating the
+`CLAUDE_CODE_OAUTH_TOKEN` and GitHub tokens, persisting them for both an interactive shell and cron
+(which sources neither `.bashrc` nor `.zshrc`), building and verifying the sandbox image, installing
+the triggers, and optionally registering a first project. Re-running it is safe — it remembers what
+it already captured.
+
+```sh
+scripts/setup-wizard.sh
+```
+
 ## The morning loop
 
 One job, run once a day, that picks a side project with available work and moves it forward.
