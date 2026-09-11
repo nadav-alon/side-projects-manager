@@ -10,10 +10,10 @@ export type { Harness, Scaffold } from "./harness.ts";
 export {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
-  isReviewTitle,
+  isReviewTicket,
   reviewTitle,
 } from "./issue-tracker.ts";
-export type { IssueTracker, Ticket } from "./issue-tracker.ts";
+export type { IssueTracker, ReviewTicket, Ticket } from "./issue-tracker.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
@@ -23,7 +23,13 @@ export { isRepoSlug, repoName, repoSlug } from "./repo-slug.ts";
 export type { RepoSlug } from "./repo-slug.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
-export type { RunRequest, Sandbox, SandboxRunResult } from "./sandbox.ts";
+export type {
+  ReviewRequest,
+  ReviewRunResult,
+  RunRequest,
+  Sandbox,
+  SandboxRunResult,
+} from "./sandbox.ts";
 export { isTokenCount, tokenCount } from "./token-count.ts";
 export type { TokenCount } from "./token-count.ts";
 export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";

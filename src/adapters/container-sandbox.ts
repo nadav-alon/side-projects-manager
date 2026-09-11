@@ -7,6 +7,9 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  ReviewRequest,
+  ReviewRunResult,
+  ReviewTicket,
   RunRequest,
   Sandbox,
   SandboxRunResult,
@@ -70,8 +73,37 @@ export class AgentNeverRan extends Error {
 }
 
 /**
- * Runs the agent against the clone mounted at `directory`, told to do
- * `prompt`, and allowed to spend at most `spendCeiling`.
+ * Whether the clone mounted into the container may be written to.
+ *
+ * `"ro"` is half of what makes a reviewer's inability to push enforced rather
+ * than merely asked for: a commit, or a push staged from *this* clone, fails
+ * at the filesystem before it ever reaches a credential. The other half is
+ * the credential itself — `envFor` forwards a separately scoped one for a
+ * `"ro"` run, so a push staged from anywhere else in the container (a fresh
+ * clone into `/tmp`, say) still cannot reach GitHub. Between the two, nothing
+ * in this adapter's own doc comments needs to repeat that story; they refer
+ * back to this one instead.
+ */
+export type Mount = "rw" | "ro";
+
+/**
+ * What one container invocation needs: the clone to mount, the prompt to run,
+ * the spend ceiling to enforce, and whether the clone is writable. Grouped
+ * into one options object because the four travel together across every
+ * boundary in this file — `Container`, `attempt`, `dockerContainer` and
+ * `dockerCommand` all take exactly this and nothing else.
+ */
+export interface RunOptions {
+  /** The clone mounted into the container. */
+  directory: Checkout;
+  prompt: string;
+  spendCeiling: Usd;
+  mount: Mount;
+}
+
+/**
+ * Runs the agent against `options.directory`, told to do `options.prompt`,
+ * and allowed to spend at most `options.spendCeiling`.
  *
  * Throws `AgentNeverRan` when the agent could not be started. Anything else it
  * throws is an agent that ran and failed.
@@ -80,11 +112,7 @@ export class AgentNeverRan extends Error {
  * the sandbox — the clone, the branch, the commits — can be exercised without
  * docker, a credential, or a network.
  */
-export type Container = (
-  directory: Checkout,
-  prompt: string,
-  spendCeiling: Usd,
-) => Promise<AgentRun>;
+export type Container = (options: RunOptions) => Promise<AgentRun>;
 
 /**
  * The sandbox: one agent, in a container, on a throwaway clone of the project.
@@ -102,23 +130,29 @@ export type Container = (
  * A clone carries its objects with it and needs nothing else mounted.
  *
  * Runs are serialized within this process: a second call waits for the first
- * rather than starting a container beside it. Two separate invocations of the
- * manager are not covered by this — the once-per-day lock in #15 is what stops
- * those overlapping.
+ * rather than starting a container beside it, whether the two are runs,
+ * reviews, or one of each — a review budgeted while an implementation is
+ * still spending would make the gate's accounting a race. Two separate
+ * invocations of the manager are not covered by this — the once-per-day lock
+ * in #15 is what stops those overlapping.
  */
 export function containerSandbox(
   container: Container = dockerContainer,
 ): Sandbox {
-  // The tail of the queue. Never rejecting, so a failed run delays the runs
-  // behind it rather than cancelling them.
+  // The tail of the queue. Never rejecting, so a failed run delays the work
+  // behind it rather than cancelling it.
   let queue: Promise<unknown> = Promise.resolve();
 
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const result = queue.then(task);
+    queue = result.catch(() => undefined);
+    return result;
+  }
+
   return {
-    async run(request: RunRequest): Promise<SandboxRunResult> {
-      const result = queue.then(() => runOnClone(container, request));
-      queue = result.catch(() => undefined);
-      return result;
-    },
+    run: (request: RunRequest) => enqueue(() => runOnClone(container, request)),
+    review: (request: ReviewRequest) =>
+      enqueue(() => reviewOnClone(container, request)),
   };
 }
 
@@ -140,12 +174,12 @@ async function runOnClone(
     const base = await revision(clone, "HEAD");
     await run("git", ["-C", clone, "switch", "--create", onto]);
 
-    const agent = await attempt(
-      container,
-      clone,
-      promptFor(ticket),
+    const agent = await attempt(container, {
+      directory: clone,
+      prompt: promptFor(ticket),
       spendCeiling,
-    );
+      mount: "rw",
+    });
     const commits = await commitsSince(clone, base);
 
     // Only when the agent actually committed: a branch pointing at the commit
@@ -197,12 +231,10 @@ async function runOnClone(
  */
 async function attempt(
   container: Container,
-  clone: Checkout,
-  prompt: string,
-  spendCeiling: Usd,
+  options: RunOptions,
 ): Promise<AgentRun> {
   try {
-    return await container(clone, prompt, spendCeiling);
+    return await container(options);
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
       throw error;
@@ -212,6 +244,47 @@ async function attempt(
       tokensUsed: tokenCount(0),
       failure: errorMessage(error),
     };
+  }
+}
+
+/**
+ * The reviewer's run: a throwaway clone of its own, exactly like an
+ * implementation run, but mounted read-only and never fetched back — a
+ * review leaves nothing on the checkout, because what it produces is a
+ * comment on GitHub, not a branch.
+ *
+ * No branch is created either: a reviewer has nothing to commit, and asking
+ * for one would suggest it might.
+ */
+async function reviewOnClone(
+  container: Container,
+  request: ReviewRequest,
+): Promise<ReviewRunResult> {
+  const { ticket, checkout: project, spendCeiling } = request;
+  const clone = checkout(
+    await mkdtemp(path.join(tmpdir(), "side-projects-review-")),
+  );
+
+  try {
+    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    const agent = await attempt(container, {
+      directory: clone,
+      prompt: reviewPromptFor(ticket),
+      spendCeiling,
+      mount: "ro",
+    });
+
+    return {
+      output: agent.output,
+      tokensUsed: agent.tokensUsed,
+      ...(agent.failure !== undefined && { failure: agent.failure }),
+    };
+  } finally {
+    await rm(clone, { recursive: true, force: true }).catch(
+      (error: unknown) => {
+        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
+      },
+    );
   }
 }
 
@@ -230,6 +303,32 @@ function promptFor(ticket: Ticket): string {
     "— and follow this repo's own agent instructions and coding standards.",
     "Commit your work to the branch you are on; do not push, and do not open a",
     "pull request.",
+  ].join(" ");
+}
+
+/**
+ * What the reviewing agent is asked to do.
+ *
+ * The pull request is named explicitly for the same reason `promptFor` names
+ * the issue: the clone's origin is a local path, so nothing GitHub-shaped can
+ * be inferred from it. Everything else — the ticket the pull request closes,
+ * and what it asked for — the agent works out for itself, from the pull
+ * request's own body, because that is the one place the association still
+ * exists once this process is the loop's next morning.
+ */
+function reviewPromptFor(ticket: ReviewTicket): string {
+  return [
+    `Review ${ticket.pullRequest}, a draft pull request in this repository. Find the ticket it`,
+    `closes from its own body (\`gh pr view ${ticket.pullRequest} --json body,files\`) and read that`,
+    `ticket with \`gh issue view\`; name the repo explicitly wherever gh needs one, since this`,
+    "clone's origin is a local path and gh cannot infer it. Run the two-axis review from the",
+    "mattpocock-skills plugin explicitly as `/mattpocock-skills:code-review` — never the built-in",
+    "`/code-review`, which is a different, single-axis review that does not check fidelity to the",
+    "ticket — covering both conformance to this repo's own documented coding standards and whether",
+    "the pull request does what the ticket asked for. When it aggregates the two reports, post them",
+    `as one comment on the pull request with \`gh pr comment ${ticket.pullRequest} --body-file -\`.`,
+    "You are reviewing, not implementing: do not commit or push anything — this checkout is",
+    "read-only, so neither would work anyway.",
   ].join(" ");
 }
 
@@ -304,12 +403,11 @@ async function commitsSince(clone: Checkout, base: string): Promise<string[]> {
  * the workdir the image already declares.
  *
  * Credentials are passed through by name rather than by value, so no token
- * ever appears in an argument list. `gh` needs one of its own: the prompt asks
- * the agent to read the ticket, and projects are private. Both spellings are
- * forwarded because `gh` accepts either, and which one a developer has
- * exported is not this adapter's business.
+ * ever appears in an argument list: `--env GH_TOKEN` with no `=value` tells
+ * docker to read it from *this process's own* environment, which `envFor` is
+ * what varies per `Mount`.
  */
-const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
+const dockerContainer: Container = async (options) => {
   // Asked here rather than left to the agent, which would start, fail to sign
   // in, and exit non-zero exactly as one that gave up on the ticket does.
   if (!process.env["CLAUDE_CODE_OAUTH_TOKEN"]) {
@@ -318,11 +416,13 @@ const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
     );
   }
 
-  const command = dockerCommand(directory, prompt, spendCeiling);
+  const env = envFor(options.mount);
+  const command = dockerCommand(options);
 
   try {
     const { stdout, stderr } = await run("docker", command, {
       maxBuffer: OUTPUT_LIMIT,
+      env,
     });
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
@@ -338,6 +438,34 @@ const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
     return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
   }
 };
+
+/**
+ * The environment `docker` itself runs in, which is what `--env GH_TOKEN`
+ * (named, not valued) forwards into the container.
+ *
+ * An `"rw"` run gets the developer's own `gh` credential, same as ever. A
+ * `"ro"` run gets a distinct one, required rather than falling back: `Mount`
+ * explains why a read-only mount alone does not stop a push staged from
+ * somewhere else in the container, and forwarding the same push-capable
+ * credential there regardless would leave that gap wide open. `GH_REVIEW_TOKEN`
+ * closes it at GitHub's own authorization layer instead of the filesystem's —
+ * scope it (see README) to Issues and Pull requests, without Contents access,
+ * and a push or a merge attempted with it is refused by GitHub itself,
+ * wherever in the container it was staged from.
+ */
+function envFor(mount: Mount): NodeJS.ProcessEnv {
+  if (mount !== "ro") {
+    return process.env;
+  }
+
+  const reviewToken = process.env["GH_REVIEW_TOKEN"];
+  if (!reviewToken) {
+    throw new AgentNeverRan(
+      "GH_REVIEW_TOKEN is not set, so a reviewer would run with the same push-capable credential as an implementation. Create a token scoped to Issues and Pull requests only, no Contents access (see README), export it as GH_REVIEW_TOKEN, and run again.",
+    );
+  }
+  return { ...process.env, GH_TOKEN: reviewToken, GITHUB_TOKEN: reviewToken };
+}
 
 /**
  * Whether `docker run` failed before the agent inside it ran.
@@ -367,17 +495,22 @@ export function dockerNeverRan(error: unknown): boolean {
  * spend ceiling in particular has to be visible to a test: it is the only
  * thing bounding a run once the run has started, and a flag that quietly stopped
  * being passed would not fail anything until a morning had spent the week.
+ *
+ * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `mount` —
+ * see `Mount` and `envFor` for which credential answers to that name.
  */
-export function dockerCommand(
-  directory: Checkout,
-  prompt: string,
-  spendCeiling: Usd,
-): string[] {
+export function dockerCommand({
+  directory,
+  prompt,
+  spendCeiling,
+  mount,
+}: RunOptions): string[] {
   return [
     "run",
     "--rm",
     "--volume",
-    `${directory}:/repo`,
+    // Half the enforcement for a review — see `Mount`.
+    `${directory}:/repo${mount === "ro" ? ":ro" : ""}`,
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "--env",

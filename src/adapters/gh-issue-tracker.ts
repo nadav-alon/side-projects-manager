@@ -5,11 +5,13 @@ import type {
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
+  ReviewTicket,
   Ticket,
 } from "../ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isPullRequestUrl,
   reviewTitle,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
@@ -37,10 +39,27 @@ export function ghIssueTracker(): IssueTracker {
         "--label",
         READY_FOR_AGENT_LABEL,
         "--json",
-        "number,title",
+        "number,title,body",
       ]);
 
-      return parseIssues(stdout, repo).map((issue) => ({ repo, ...issue }));
+      return parseIssues(stdout, repo).map(({ body, ...issue }) => {
+        const pullRequest = pullRequestReviewed(body);
+        return {
+          repo,
+          ...issue,
+          ...(pullRequest !== undefined && { pullRequest }),
+        };
+      });
+    },
+
+    async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
+      await execFileAsync("gh", [
+        "issue",
+        "close",
+        "--repo",
+        ticket.repo,
+        String(ticket.number),
+      ]);
     },
 
     async createReviewTicket(
@@ -70,6 +89,7 @@ export function ghIssueTracker(): IssueTracker {
         repo: ticket.repo,
         number: issueNumberIn(stdout, ticket.repo),
         title,
+        pullRequest,
       };
 
       try {
@@ -185,6 +205,26 @@ async function ensureLabel(
  */
 function reviewBody(ticket: Ticket, pullRequest: PullRequestUrl): string {
   return `Review ${pullRequest}, the draft pull request opened for #${ticket.number}.`;
+}
+
+/**
+ * The line `reviewBody` writes, read back on a later morning's fresh process.
+ * Matched per line rather than against the whole body: `linkToParent`'s
+ * fallback prepends `Part of #N.` ahead of it where sub-issues are
+ * unavailable, so the review sentence is not always the entire body.
+ */
+const REVIEW_BODY = /^Review (\S+), the draft pull request opened for #\d+\.$/m;
+
+/**
+ * The pull request a review ticket's body names, or undefined where `body`
+ * isn't one this adapter wrote — which is what makes a fresh `listEligibleTickets`
+ * able to tell a review ticket from an implementation ticket at all: the
+ * association `createReviewTicket` returned in the same process is gone by the
+ * next morning, and the body is the only place it survives.
+ */
+function pullRequestReviewed(body: string): PullRequestUrl | undefined {
+  const url = REVIEW_BODY.exec(body)?.[1];
+  return url !== undefined && isPullRequestUrl(url) ? url : undefined;
 }
 
 /**
@@ -304,11 +344,15 @@ function issueNumberIn(stdout: string, repo: RepoSlug): number {
   return number;
 }
 
-/** `gh --json number,title`: a JSON array of `{ number, title }`. */
-function parseIssues(
-  stdout: string,
-  repo: RepoSlug,
-): Omit<Ticket, "repo">[] {
+/** One issue as `gh issue list --json number,title,body` reports it. */
+interface RawIssue {
+  number: number;
+  title: string;
+  body: string;
+}
+
+/** `gh --json number,title,body`: a JSON array of `{ number, title, body }`. */
+function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
 
   let issues: unknown;
@@ -326,13 +370,16 @@ function parseIssues(
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title } = issue as Record<string, unknown>;
+    const { number, title, body } = issue as Record<string, unknown>;
     if (typeof number !== "number") {
       throw new Error(`${at}: "number" must be a number.`);
     }
     if (typeof title !== "string") {
       throw new Error(`${at}: "title" must be a string.`);
     }
-    return { number, title };
+    if (typeof body !== "string") {
+      throw new Error(`${at}: "body" must be a string.`);
+    }
+    return { number, title, body };
   });
 }

@@ -145,6 +145,14 @@ iterating — reconsidering the registry and re-checking the budget gate before 
 nothing eligible is left or the gate refuses, so a long morning can move more than one project
 forward before it stops.
 
+A review ticket's own run is a fresh, read-only sandbox: the container's clone is mounted `:ro`, so
+a commit or a push attempt fails at the filesystem — but that alone only stops a push staged from
+*that* clone. What stops one staged from anywhere else in the container (a fresh `git clone` into
+`/tmp`, say) is the credential: export `GH_REVIEW_TOKEN` alongside `GH_TOKEN`, a token scoped to
+Issues and Pull requests only, with no Contents access, so a push or a merge attempted with it is
+refused by GitHub itself. Without it a review will not start — it does not fall back to the
+implementation's own, push-capable token.
+
 `state.json` beside it is the machine's half: when each project was last worked, and what its runs
 cost. The loop writes it after every invocation and you never have to edit it; it is committed for
 the audit trail. It does not exist until the loop has run, and no state for a project means the

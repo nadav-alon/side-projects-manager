@@ -9,6 +9,7 @@ import {
   READY_FOR_HUMAN_LABEL,
   pullRequestUrl,
   repoSlug,
+  type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
 import { callWith, recordingGh, valueOf } from "../testing/index.ts";
@@ -513,5 +514,127 @@ describe("ghIssueTracker.handBack", () => {
     // Still eligible, so still due to come round: the one outcome the caller
     // has to hear about, because the developer has to relabel it by hand.
     await assert.rejects(ghIssueTracker().handBack(TICKET, COMMENT));
+  });
+});
+
+/**
+ * Telling a review ticket from an implementation ticket on a fresh process,
+ * where `createReviewTicket`'s own answer is long gone: the only thing that
+ * survives is what got written to GitHub, so this is read back from the body
+ * rather than asserted against anything the adapter remembers.
+ */
+describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/12",
+  );
+
+  // `printf '%s'` rather than `echo`: `/bin/sh`'s builtin `echo` interprets
+  // `\n` in its argument on some shells (dash's is XSI-conformant), turning
+  // the `\n` a body with a blank line in it serializes to back into a raw
+  // newline and breaking the JSON `gh` is meant to answer with.
+  function issues(body: unknown): string {
+    return `printf '%s' '${JSON.stringify(body)}'`;
+  }
+
+  it("carries the pull request a review ticket's body names", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 42,
+          title: "Review the draft pull request for #7",
+          body: `Review ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets.length, 1);
+    assert.equal(tickets[0]?.pullRequest, PULL_REQUEST);
+  });
+
+  it("leaves an implementation ticket's pull request unset", async (t) => {
+    await recordingGh(
+      t,
+      issues([{ number: 7, title: "Add the thing", body: "Do the thing." }]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets.length, 1);
+    assert.equal(tickets[0]?.pullRequest, undefined);
+  });
+
+  it("does not mistake an unrelated body for a review's", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 9,
+          title: "Review the draft pull request for #7",
+          body: `See also ${PULL_REQUEST}.`,
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.pullRequest, undefined);
+  });
+
+  /**
+   * `linkToParent`'s fallback, for a tracker without sub-issues, prepends
+   * `Part of #N.` ahead of the review sentence — so the sentence is no
+   * longer the whole body, and a match anchored to the body's start would
+   * miss it every morning after the one that created it.
+   */
+  it("still carries the pull request when the body also names its parent", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 42,
+          title: "Review the draft pull request for #7",
+          body: `Part of #7.\n\nReview ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.pullRequest, PULL_REQUEST);
+  });
+
+  it("asks for the body, since it is the only place the association survives", async (t) => {
+    const gh = await recordingGh(t, issues([]));
+
+    await ghIssueTracker().listEligibleTickets(PILOT);
+
+    const list = callWith(await gh.calls(), "issue", "list");
+    assert.ok(list);
+    assert.equal(valueOf(list, "--json"), "number,title,body");
+  });
+});
+
+describe("ghIssueTracker.closeReviewTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const REVIEW: ReviewTicket = {
+    repo: PILOT,
+    number: 42,
+    title: "Review the draft pull request for #7",
+    pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+  };
+
+  it("closes the review ticket in its own repo", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close, "the review should be closed with `gh issue close`");
+    assert.equal(valueOf(close, "--repo"), PILOT);
+    assert.ok(close.includes("42"));
   });
 });

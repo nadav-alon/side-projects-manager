@@ -1,6 +1,6 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
-import type { Ticket } from "./issue-tracker.ts";
+import type { ReviewTicket, Ticket } from "./issue-tracker.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
 
@@ -22,6 +22,14 @@ export interface RunRequest {
   spendCeiling: Usd;
 }
 
+/** One review ticket, and the project checkout it is to be worked against. */
+export interface ReviewRequest {
+  ticket: ReviewTicket;
+  /** The project's managed clone, read from but never written to. */
+  checkout: Checkout;
+  spendCeiling: Usd;
+}
+
 export interface SandboxRunResult {
   /** Branch the agent left its commits on. */
   branch: Branch;
@@ -38,6 +46,15 @@ export interface SandboxRunResult {
    * the failure is reported alongside that rather than thrown in place of it,
    * and a caller that ignores this field must not read the result as success.
    */
+  failure?: string;
+}
+
+/** What a reviewing agent's run in the container came back with. */
+export interface ReviewRunResult {
+  /** The reviewer's own output: what it posted, or why it could not. */
+  output: string;
+  tokensUsed: TokenCount;
+  /** Why the run did not finish cleanly, absent when it did. */
   failure?: string;
 }
 
@@ -64,4 +81,20 @@ export interface Sandbox {
    * because its commits, its output and its spend are all still the morning's.
    */
   run(request: RunRequest): Promise<SandboxRunResult>;
+  /**
+   * Runs a reviewing agent against `request.ticket.pullRequest`, in a
+   * container with no context from the run that produced it — a fresh
+   * `docker run`, exactly like any other, is what makes the separation real
+   * rather than a fresh-looking prompt inside the same one.
+   *
+   * The reviewer staying a reviewer is enforced rather than merely asked for:
+   * the container has no write access to its clone, and is handed a
+   * separately scoped credential rather than the implementation's own, so an
+   * attempt to commit or push fails whatever is tried and wherever it is
+   * tried from (see the container adapter's `Mount` for the full story).
+   *
+   * Queues behind, and ahead of, calls to `run` on the same instance: reviews
+   * and implementations still share the one budgeted lane.
+   */
+  review(request: ReviewRequest): Promise<ReviewRunResult>;
 }

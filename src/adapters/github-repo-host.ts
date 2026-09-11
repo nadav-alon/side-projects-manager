@@ -284,6 +284,24 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       // the whole reason it is being thrown away.
       await run("git", ["-C", directory, "branch", "-D", branch]);
     },
+
+    async hasNewComment(
+      pullRequest: PullRequestUrl,
+      since: Date,
+    ): Promise<boolean> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "comments",
+        "--jq",
+        "[.comments[].createdAt] | max",
+      ]);
+
+      const latest = stdout.trim();
+      return latest !== "" && latest !== "null" && new Date(latest) > since;
+    },
   };
 }
 

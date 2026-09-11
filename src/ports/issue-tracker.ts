@@ -13,12 +13,30 @@ export const READY_FOR_AGENT_LABEL = "ready-for-agent";
  */
 export const READY_FOR_HUMAN_LABEL = "ready-for-human";
 
-/** An issue in a project's own repo that the loop may work on. */
+/**
+ * An issue in a project's own repo that the loop may work on.
+ *
+ * `pullRequest` is what tells a review ticket from an implementation ticket:
+ * present only on a review, it names the draft pull request the review asks
+ * about — the one thing a reviewing run cannot work out for itself, since the
+ * sandbox's clone has no GitHub remote to infer it from. Absent on every
+ * implementation ticket, which is what selection reads to choose which kind
+ * of run to start.
+ */
 export interface Ticket {
   /** The project the ticket lives in. */
   repo: RepoSlug;
   number: number;
   title: string;
+  pullRequest?: PullRequestUrl;
+}
+
+/** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
+export type ReviewTicket = Ticket & { pullRequest: PullRequestUrl };
+
+/** Whether `ticket` is a review ticket rather than an implementation ticket. */
+export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
+  return ticket.pullRequest !== undefined;
 }
 
 /**
@@ -63,6 +81,13 @@ export interface IssueTracker {
    * cannot select it and spend another morning on it.
    */
   handBack(ticket: Ticket, comment: string): Promise<void>;
+
+  /**
+   * Closes `ticket`, once its review has been posted. The one ticket the loop
+   * ever closes itself: a review that finished needs nobody to close it by
+   * hand, and the ticket it reviews stays the developer's either way.
+   */
+  closeReviewTicket(ticket: ReviewTicket): Promise<void>;
 }
 
 /**
@@ -76,17 +101,4 @@ export interface IssueTracker {
  */
 export function reviewTitle(ticket: Ticket): string {
   return `Review the draft pull request for #${ticket.number}`;
-}
-
-/**
- * Matches whatever `reviewTitle` names, so selection can tell a review from
- * an implementation with nothing more than the title a backlog already
- * carries — no extra round trip to the tracker, and no field the fake and
- * every adapter would otherwise have to agree to populate identically.
- *
- * Kept beside `reviewTitle` so the two stay in sync: whoever changes the
- * shape of one is looking straight at the other.
- */
-export function isReviewTitle(title: string): boolean {
-  return /^Review the draft pull request for #\d+$/.test(title);
 }

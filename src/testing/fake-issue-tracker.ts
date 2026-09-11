@@ -2,6 +2,7 @@ import type {
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
+  ReviewTicket,
   Ticket,
 } from "../ports/index.ts";
 import { reviewTitle } from "../ports/index.ts";
@@ -38,6 +39,9 @@ export class FakeIssueTracker implements IssueTracker {
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
 
+  /** The review tickets closed, in the order they were closed. */
+  readonly closedReviewTickets: ReviewTicket[] = [];
+
   /** Puts an eligible ticket in `repo`'s backlog and returns it. */
   addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
     const stored: Ticket = { repo, ...ticket };
@@ -67,6 +71,7 @@ export class FakeIssueTracker implements IssueTracker {
     const review = this.addEligibleTicket(ticket.repo, {
       number: Math.max(ticket.number, ...numbers) + 1,
       title: reviewTitle(ticket),
+      pullRequest,
     });
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });
@@ -78,6 +83,19 @@ export class FakeIssueTracker implements IssueTracker {
     // Losing ready-for-agent is losing eligibility, so a handed-back ticket
     // leaves the backlog here exactly as it leaves the real one. Tests assert
     // no retry by invoking the loop again and finding nothing to select.
+    const backlog = this.#backlogs.get(ticket.repo) ?? [];
+    this.#backlogs.set(
+      ticket.repo,
+      backlog.filter((eligible) => eligible.number !== ticket.number),
+    );
+  }
+
+  /**
+   * Closes `ticket`, the way a real close removes it from the backlog: a
+   * ticket a later iteration must not see again.
+   */
+  async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
+    this.closedReviewTickets.push(ticket);
     const backlog = this.#backlogs.get(ticket.repo) ?? [];
     this.#backlogs.set(
       ticket.repo,
