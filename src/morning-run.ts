@@ -3,6 +3,7 @@ import type {
   Checkout,
   Clock,
   IssueTracker,
+  Priority,
   ProjectState,
   PullRequestUrl,
   RegisteredProject,
@@ -18,7 +19,7 @@ import type {
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
-import { READY_FOR_AGENT_LABEL, recordRun } from "./ports/index.ts";
+import { READY_FOR_AGENT_LABEL, isReviewTitle, recordRun } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
 import { handbackComment, type Discard } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
@@ -51,6 +52,13 @@ export type ProjectVerdict =
   | "paused"
   /** Considered, and its backlog held nothing eligible. */
   | "no-eligible-tickets"
+  /**
+   * Had an eligible ticket, but another project outranked it this iteration —
+   * a review elsewhere, an explicit priority, or simply having waited longer.
+   * Not skipped for good: a later iteration in the same invocation, or
+   * tomorrow's, may still pick it.
+   */
+  | "deferred"
   /** Considered and selected: the project this iteration works. */
   | "selected";
 
@@ -98,37 +106,26 @@ export interface MorningRunReport {
   startedAt: Date;
   outcome: MorningRunOutcome;
   /**
-   * Every registered project the invocation reached, in registry order, with
-   * why each was skipped. Projects behind the selected one are absent, since
-   * an iteration stops once it has a project to work.
+   * Every registered project, in registry order, with why it was skipped —
+   * or, once it has been, that it was selected, which then sticks for the
+   * rest of the invocation even on a later iteration that finds nothing left
+   * of its backlog to select. What each one was actually worked on is in
+   * `runs`; this says only whether its turn came at all.
    */
   projects: ProjectOutcome[];
-  /** What the run left behind. Absent on a morning that ran nothing. */
-  run?: SandboxRunResult;
   /**
-   * The draft pull request the run's work is waiting in. Absent when the
-   * morning ran nothing, and when the run left no commits to open one for.
+   * Every iteration the invocation made, oldest first. Empty on a morning
+   * that ran nothing — a dry queue, or a gate that refused before the first
+   * run.
    */
-  pullRequest?: PullRequestUrl;
+  runs: IterationOutcome[];
   /**
-   * Why the run did not finish, absent when it did or when nothing ran.
-   *
-   * A failure is reported rather than thrown: the iteration is over, but the
-   * invocation is not, and a morning that ends in a stack trace tells the
-   * developer nothing about the projects it never reached.
-   */
-  failure?: RunFailure;
-  /**
-   * Why the gate refused, absent when it did not. A morning that stood down
-   * had work to do and declined to do it, which is neither a dry queue nor a
-   * failure, and says so rather than going quiet.
+   * Why the gate finally refused, absent when it never did. Set whether that
+   * refusal came before the first run of the morning or between two later
+   * ones, since either way it is why the invocation stopped rather than
+   * having simply run out of work.
    */
   standDown?: StandDown;
-  /**
-   * The review ticket queued for that pull request. Absent wherever the pull
-   * request is absent, since a review is only ever queued for one that exists.
-   */
-  reviewTicket?: Ticket;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -172,38 +169,103 @@ interface Failed {
   run?: SandboxRunResult;
 }
 
+/** One iteration's outcome, and the project and ticket that earned it. */
+export type IterationOutcome =
+  | ({ repo: RepoSlug; ticket: Ticket } & Finished)
+  | ({ repo: RepoSlug; ticket: Ticket } & Failed);
+
+/**
+ * One project with an eligible ticket, as far as selection is concerned: the
+ * project itself, the ticket selection would work on its behalf, and whether
+ * that ticket is a review — everything the ordering rule needs and nothing
+ * it has to ask the tracker twice for.
+ */
+interface Candidate {
+  project: RegisteredProject;
+  ticket: Ticket;
+  isReview: boolean;
+  priority?: Priority;
+  lastWorkedAt?: Date;
+}
+
 /** What walking the registry came to: the verdicts, and any work found. */
 interface RegistryScan {
   outcomes: ProjectOutcome[];
-  /** Absent when no project had an eligible ticket. */
+  /** Absent when no project had an eligible, not-yet-worked ticket. */
   selection?: Selection;
 }
 
 /**
- * One invocation of the morning loop: one project, one ticket, one run.
+ * One invocation of the morning loop: as many iterations as the registry has
+ * eligible work for and the budget allows, each one project and one ticket.
  *
- * No run starts without the gate's say-so. The gate is asked from inside the
- * run path rather than at the top of the invocation, so what it reads is the
- * state as it stands when a run would start, the previous run's cost included.
+ * No run starts without the gate's say-so, and the gate is asked again before
+ * every iteration rather than once at the top — what it reads is the state as
+ * it stands when that run would start, every earlier run of the same morning
+ * included, so a long morning stops mid-loop the moment headroom runs out.
  *
- * TODO[#11]: iterate, and re-check the gate between iterations.
+ * A ticket this invocation has already worked is never selected again within
+ * it, even though nothing here closes it: a failed run's ticket is handed
+ * back by relabelling it, but a finished run's is left exactly as it was, so
+ * without this an unattended morning with only one project registered would
+ * work its one ticket over and over until the budget gate finally stopped it.
  */
 export async function morningRun(
   ports: MorningRunPorts,
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
   const state = new Map(await ports.store.loadState());
-  const { outcomes, selection } = await considerProjects(ports, state);
+  const worked = new Set<string>();
+  const runs: IterationOutcome[] = [];
+  const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
+  // Registry order as each repo is first seen. Read fresh every iteration
+  // rather than snapshotted from the first scan, so a project the developer
+  // adds mid-invocation still lands in the report instead of being silently
+  // dropped from it.
+  const registryOrder: RepoSlug[] = [];
+  /** The project a stand-down refused, if any — named for the message. */
+  let refused: RepoSlug | undefined;
 
-  let iteration: Iteration | undefined;
   let standDown: StandDown | undefined;
   try {
-    if (selection !== undefined) {
+    for (;;) {
+      const scan = await considerProjects(ports, state, worked);
+      // A project keeps its "selected" verdict once it has one: a later scan
+      // in the same invocation, run after its ticket is excluded, would
+      // otherwise read it right back to "no eligible tickets" and hide that
+      // its turn already came.
+      for (const project of scan.outcomes) {
+        if (!registryOrder.includes(project.repo)) {
+          registryOrder.push(project.repo);
+        }
+        if (outcomesByRepo.get(project.repo)?.verdict !== "selected") {
+          outcomesByRepo.set(project.repo, project);
+        }
+      }
+
+      if (scan.selection === undefined) {
+        break;
+      }
+
       const budget = await ports.store.loadBudget();
       standDown = await consultTheGate(ports, budget, state);
-      if (standDown === undefined) {
-        iteration = await work(ports, selection, state, budget.spendCeiling);
+      if (standDown !== undefined) {
+        refused = scan.selection.project.repo;
+        break;
       }
+
+      const iteration = await work(
+        ports,
+        scan.selection,
+        state,
+        budget.spendCeiling,
+      );
+      worked.add(ticketKey(scan.selection.ticket));
+      runs.push({
+        repo: scan.selection.project.repo,
+        ticket: scan.selection.ticket,
+        ...iteration,
+      } as IterationOutcome);
     }
   } finally {
     // State is written back at the end of every invocation, including one that
@@ -214,35 +276,30 @@ export async function morningRun(
     await ports.store.saveState(state);
   }
 
+  const outcomes = registryOrder.map(
+    // Set for every repo named in `registryOrder`, which is read from the
+    // very outcomes this populates.
+    (repo) => outcomesByRepo.get(repo) as ProjectOutcome,
+  );
+
   return {
     startedAt,
     projects: outcomes,
-    ...(iteration !== undefined && reported(iteration)),
+    runs,
     ...(standDown !== undefined && { standDown }),
-    outcome: outcomeOf(selection, standDown),
-    message: summaryLine(outcomes, iteration, standDown, selection?.ticket),
+    outcome: outcomeOf(runs, standDown),
+    message: summaryLine(outcomes, runs, standDown, refused),
   };
 }
 
-/** What the report says about an iteration. */
-function reported(
-  iteration: Iteration,
-): Pick<MorningRunReport, "run" | "pullRequest" | "reviewTicket" | "failure"> {
-  if ("failure" in iteration) {
-    const { failure, run } = iteration;
-    return { failure, ...(run !== undefined && { run }) };
-  }
-  return { run: iteration.run, ...iteration.handover };
-}
-
 function outcomeOf(
-  selection: Selection | undefined,
+  runs: IterationOutcome[],
   standDown: StandDown | undefined,
 ): MorningRunOutcome {
-  if (selection === undefined) {
-    return "dry-queue";
+  if (runs.length > 0) {
+    return "work-selected";
   }
-  return standDown === undefined ? "work-selected" : "stood-down";
+  return standDown === undefined ? "dry-queue" : "stood-down";
 }
 
 /**
@@ -278,18 +335,26 @@ function runsRecorded(state: State): RunCost[] {
 }
 
 /**
- * The first step of an iteration: walk the registry until a project has an
- * eligible ticket. A paused project is passed over without asking the tracker
- * anything, because paused means never considered.
+ * The first step of an iteration: ask every non-paused project's backlog for
+ * a candidate ticket, then hand the best one to `bestCandidate`. A paused
+ * project is passed over without asking the tracker anything, because paused
+ * means never considered; a project this invocation has exhausted — every
+ * eligible ticket already in `worked` — reads the same as an empty backlog.
  *
- * TODO[#11]: order by reviews before implementations, then explicit
- * priority, then least recently worked.
+ * Every non-paused project is asked, never just enough to find one: priority
+ * can make a project registered last outrank one registered first, so the
+ * only way to know which project wins is to have looked at all of them.
  */
 async function considerProjects(
   ports: MorningRunPorts,
   state: State,
+  worked: ReadonlySet<string>,
 ): Promise<RegistryScan> {
   const outcomes: ProjectOutcome[] = [];
+  const candidates: Candidate[] = [];
+  // Where each candidate's placeholder verdict lives in `outcomes`, so the
+  // winner's can be swapped for "selected" once every project has been seen.
+  const outcomeIndexByRepo = new Map<RepoSlug, number>();
 
   for (const project of await ports.store.loadRegistry()) {
     const projectState = state.get(project.repo);
@@ -299,17 +364,116 @@ async function considerProjects(
       continue;
     }
 
-    const backlog = await ports.tracker.listEligibleTickets(project.repo);
-    const ticket = backlog[0];
-    if (ticket !== undefined) {
-      outcomes.push(outcome(project.repo, "selected", projectState));
-      return { outcomes, selection: { project, ticket } };
+    const backlog = (
+      await ports.tracker.listEligibleTickets(project.repo)
+    ).filter((ticket) => !worked.has(ticketKey(ticket)));
+    // A review in the same backlog as its parent ticket is worked before it,
+    // so it is picked here even when it is not first in the list.
+    const ticket = backlog.find(isReview) ?? backlog[0];
+
+    if (ticket === undefined) {
+      outcomes.push(outcome(project.repo, "no-eligible-tickets", projectState));
+      continue;
     }
 
-    outcomes.push(outcome(project.repo, "no-eligible-tickets", projectState));
+    candidates.push({
+      project,
+      ticket,
+      isReview: isReview(ticket),
+      ...(project.priority !== undefined && { priority: project.priority }),
+      ...(projectState?.lastWorkedAt !== undefined && {
+        lastWorkedAt: projectState.lastWorkedAt,
+      }),
+    });
+    outcomeIndexByRepo.set(project.repo, outcomes.length);
+    outcomes.push(outcome(project.repo, "deferred", projectState));
   }
 
-  return { outcomes };
+  const winner = bestCandidate(candidates);
+  if (winner === undefined) {
+    return { outcomes };
+  }
+
+  const winnerIndex = outcomeIndexByRepo.get(winner.project.repo);
+  // Set by the loop above for every candidate, this one included.
+  outcomes[winnerIndex as number] = outcome(
+    winner.project.repo,
+    "selected",
+    state.get(winner.project.repo),
+  );
+
+  return {
+    outcomes,
+    selection: { project: winner.project, ticket: winner.ticket },
+  };
+}
+
+/** Whether `ticket` is a review rather than an implementation. */
+function isReview(ticket: Ticket): boolean {
+  return isReviewTitle(ticket.title);
+}
+
+/** The key `worked` tracks a ticket by, unique within one invocation. */
+function ticketKey(ticket: Ticket): string {
+  return `${ticket.repo}#${ticket.number}`;
+}
+
+/**
+ * Selection's ordering rule, applied as one comparison rather than as
+ * separate passes: reviews before implementations, then explicit priority,
+ * then least recently worked. Each level only breaks ties the level before it
+ * left standing, so a review is never outranked by priority and priority is
+ * never outranked by how long a project has waited.
+ *
+ * A project without a priority sorts after every project that has one, and a
+ * project never worked sorts before every project that has been — it is, by
+ * definition, the one that has waited longest.
+ */
+function bestCandidate(candidates: Candidate[]): Candidate | undefined {
+  return [...candidates].sort(compareCandidates)[0];
+}
+
+function compareCandidates(a: Candidate, b: Candidate): number {
+  if (a.isReview !== b.isReview) {
+    return a.isReview ? -1 : 1;
+  }
+  const byPriority = comparePriority(a.priority, b.priority);
+  if (byPriority !== 0) {
+    return byPriority;
+  }
+  return leastRecentlyWorkedFirst(a.lastWorkedAt, b.lastWorkedAt);
+}
+
+/**
+ * A project without a priority sorts after every project that has one — not
+ * via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`, and a
+ * comparator that can return `NaN` leaves `Array.prototype.sort` free to
+ * return either order.
+ */
+function comparePriority(
+  a: Priority | undefined,
+  b: Priority | undefined,
+): number {
+  if (a === undefined) {
+    return b === undefined ? 0 : 1;
+  }
+  if (b === undefined) {
+    return -1;
+  }
+  return a - b;
+}
+
+function leastRecentlyWorkedFirst(
+  a: Date | undefined,
+  b: Date | undefined,
+): number {
+  if (a === undefined) {
+    return b === undefined ? 0 : -1;
+  }
+  if (b === undefined) {
+    return 1;
+  }
+  return a.getTime() - b.getTime();
 }
 
 /**
@@ -318,9 +482,8 @@ async function considerProjects(
  * against it or — when the run failed — put the ticket back in the
  * developer's hands.
  *
- * A failed run is the iteration's business, not the invocation's: it ends this
- * iteration and is reported, so the projects behind it are still reachable and
- * the morning still writes a summary.
+ * A failed run ends this iteration rather than the invocation: it is
+ * reported, and the loop goes on to consider the next iteration.
  */
 async function work(
   ports: MorningRunPorts,
@@ -346,7 +509,10 @@ async function work(
   return handTicketBack(
     ports,
     selection.ticket,
-    { run, failure: { kind: "gave-up", reason: run.failure, handedBack: false } },
+    {
+      run,
+      failure: { kind: "gave-up", reason: run.failure, handedBack: false },
+    },
     discard,
   );
 }
@@ -357,7 +523,9 @@ async function work(
  *
  * A run that committed nothing is handed over to nobody: the sandbox leaves no
  * branch behind for it, and a pull request with no commits in it is not
- * something to open and not something to review.
+ * something to open and not something to review. Neither is a review ticket's
+ * own run: its handover is comments on the pull request it already names, not
+ * a pull request of its own, which is TODO[#10] to post.
  *
  * Only a run that finished. A failed agent's commits never reach here — they
  * go to `discardBranch` instead, because they are not work to review.
@@ -368,7 +536,7 @@ async function handOver(
   checkout: Checkout,
   ticket: Ticket,
 ): Promise<Finished> {
-  if (run.commits.length === 0) {
+  if (run.commits.length === 0 || isReview(ticket)) {
     return { run };
   }
 
@@ -381,8 +549,6 @@ async function handOver(
   // Queued here rather than asked of the agent that wrote the code: an agent
   // that ran out of steam cannot forget to, and the review it asks for is a
   // run of its own rather than the tail of the one being reviewed.
-  //
-  // TODO[#10]: tell a review from an implementation when selecting one.
   //
   // TODO[#13]: report a review that could not be opened as a failed run, so
   // that a morning which did push a branch and open a pull request still says
@@ -410,7 +576,10 @@ async function handTicketBack(
 ): Promise<Failed> {
   const { failure, run } = failed;
   try {
-    await ports.tracker.handBack(ticket, handbackComment(failure, run, discard));
+    await ports.tracker.handBack(
+      ticket,
+      handbackComment(failure, run, discard),
+    );
     return { ...failed, failure: { ...failure, handedBack: true } };
   } catch (error: unknown) {
     // The policy itself could not be carried out, which leaves the ticket
@@ -517,10 +686,6 @@ function outcome(
   };
 }
 
-function isSelected(project: ProjectOutcome): boolean {
-  return project.verdict === "selected";
-}
-
 /** How a verdict reads to the developer. A selected project was not skipped. */
 function skipReason(verdict: ProjectVerdict): string | undefined {
   switch (verdict) {
@@ -528,6 +693,8 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
       return "paused";
     case "no-eligible-tickets":
       return "no ready-for-agent tickets";
+    case "deferred":
+      return "outranked this morning";
     case "selected":
       return undefined;
   }
@@ -535,11 +702,10 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 
 function summaryLine(
   projects: ProjectOutcome[],
-  iteration: Iteration | undefined,
+  runs: IterationOutcome[],
   standDown: StandDown | undefined,
-  ticket: Ticket | undefined,
+  refused: RepoSlug | undefined,
 ): string {
-  const selected = projects.find(isSelected);
   const skipped = projects.flatMap((project) => {
     const reason = skipReason(project.verdict);
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
@@ -547,14 +713,21 @@ function summaryLine(
 
   const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
 
-  if (selected !== undefined && standDown !== undefined) {
-    return `Stood down: ${standDownReason(standDown)}. ${selected.repo} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
+  // The gate refused before a single run this morning: there is work waiting,
+  // named by the project the gate turned away, but none of it ran.
+  if (runs.length === 0 && refused !== undefined && standDown !== undefined) {
+    return `Stood down: ${standDownReason(standDown)}. ${refused} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
   }
-  if (selected !== undefined) {
-    if (iteration !== undefined && "failure" in iteration) {
-      return `Attempted ${selected.repo}: ${stoppedBecause(iteration.failure, ticket)}${aside}`;
-    }
-    return `Worked ${selected.repo}: ${landed(iteration)}.${queued(iteration)}${aside}`;
+  if (runs.length > 0) {
+    const worked = runs.map(describeRun).join(" ");
+    // The gate stopped a morning that had already done some good: said after
+    // what was worked, and naming what it turned away next, since the
+    // developer still needs all three.
+    const stoppedAfter =
+      standDown === undefined || refused === undefined
+        ? ""
+        : ` Stood down after that: ${standDownReason(standDown)}. ${refused} was ready to work next; the window resets ${standDown.resetsAt.toISOString()}.`;
+    return `${worked}${stoppedAfter}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
@@ -562,13 +735,21 @@ function summaryLine(
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
 }
 
+/** One line for one iteration: what it landed, or why it did not finish. */
+function describeRun(iteration: IterationOutcome): string {
+  if ("failure" in iteration) {
+    return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
+  }
+  return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}`;
+}
+
 /**
  * The review waiting on the developer, named by number because that is how a
  * backlog is read. Nothing to say on a morning that opened no pull request,
  * which is the only morning that queues no review.
  */
-function queued(finished: Finished | undefined): string {
-  const review = finished?.handover?.reviewTicket;
+function queued(finished: Finished): string {
+  const review = finished.handover?.reviewTicket;
   return review === undefined ? "" : ` Queued #${review.number} to review it.`;
 }
 
@@ -578,13 +759,10 @@ function queued(finished: Finished | undefined): string {
  * Names the ticket, because the developer's next move is to open it: the whole
  * of what happened is in the comment waiting there.
  */
-function stoppedBecause(
-  failure: RunFailure,
-  ticket: Ticket | undefined,
-): string {
+function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   const what =
     failure.kind === "gave-up" ? "the agent gave up" : "the run would not start";
-  const which = ticket === undefined ? "the ticket" : `#${ticket.number}`;
+  const which = `#${ticket.number}`;
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and
   // cost another morning until somebody relabels it.
@@ -595,14 +773,14 @@ function stoppedBecause(
 }
 
 /**
- * Where the morning's work ended up.
+ * Where one run's work ended up.
  *
  * A run that committed nothing left no branch behind either — the sandbox
  * keeps one only for commits — so there is nothing to name. A run that failed
  * never gets here: the summary says why it stopped instead.
  */
-function landed(finished: Finished | undefined): string {
-  if (finished === undefined || finished.run.commits.length === 0) {
+function landed(finished: Finished): string {
+  if (finished.run.commits.length === 0) {
     return "the run left nothing behind";
   }
   const { run, handover } = finished;

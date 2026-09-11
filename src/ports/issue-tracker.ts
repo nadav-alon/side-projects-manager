@@ -77,3 +77,16 @@ export interface IssueTracker {
 export function reviewTitle(ticket: Ticket): string {
   return `Review the draft pull request for #${ticket.number}`;
 }
+
+/**
+ * Matches whatever `reviewTitle` names, so selection can tell a review from
+ * an implementation with nothing more than the title a backlog already
+ * carries — no extra round trip to the tracker, and no field the fake and
+ * every adapter would otherwise have to agree to populate identically.
+ *
+ * Kept beside `reviewTitle` so the two stay in sync: whoever changes the
+ * shape of one is looking straight at the other.
+ */
+export function isReviewTitle(title: string): boolean {
+  return /^Review the draft pull request for #\d+$/.test(title);
+}

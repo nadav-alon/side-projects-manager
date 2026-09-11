@@ -136,9 +136,14 @@ writes it. It says which projects exist, which are paused, and which has the mor
 
 A project is named by its repo slug, `owner/repo`. `paused` keeps it registered but never
 considered; `priority` is a whole number from 1 upwards, the smaller worked first, and a project
-without one is worked least-recently-first. Both are optional. A paused project is already passed
-over; ordering by priority and last-worked is not wired up yet, so the loop walks the registry top
-to bottom.
+without one is worked least-recently-first. Both are optional, and a paused project is never
+selected however high its priority.
+
+Selection picks one project and one ticket per iteration: a review ticket before any
+implementation ticket, then explicit priority, then least recently worked. An invocation keeps
+iterating — reconsidering the registry and re-checking the budget gate before each one — until
+nothing eligible is left or the gate refuses, so a long morning can move more than one project
+forward before it stops.
 
 `state.json` beside it is the machine's half: when each project was last worked, and what its runs
 cost. The loop writes it after every invocation and you never have to edit it; it is committed for
