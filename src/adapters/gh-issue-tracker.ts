@@ -7,7 +7,12 @@ import type {
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { READY_FOR_AGENT_LABEL, reviewTitle } from "../ports/index.ts";
+import {
+  READY_FOR_AGENT_LABEL,
+  READY_FOR_HUMAN_LABEL,
+  reviewTitle,
+} from "../ports/index.ts";
+import { errorMessage } from "../error-message.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,7 +48,7 @@ export function ghIssueTracker(): IssueTracker {
       pullRequest: PullRequestUrl,
     ): Promise<Ticket> {
       const title = reviewTitle(ticket);
-      await ensureLabel(ticket.repo);
+      await ensureLabel(ticket.repo, READY_FOR_AGENT_LABEL);
 
       const { stdout } = await execFileAsync("gh", [
         "issue",
@@ -81,30 +86,95 @@ export function ghIssueTracker(): IssueTracker {
       }
       return review;
     },
+
+    async handBack(ticket: Ticket, comment: string): Promise<void> {
+      const issue = [String(ticket.number), "--repo", ticket.repo];
+
+      // Three calls in the order they degrade best, because `gh` gives no way
+      // to do them as one and any of them can be the one that fails.
+      //
+      // The comment goes first: it needs nothing to exist beforehand, and a
+      // developer who reads why the morning stopped is served even if the
+      // labels then go wrong. Losing ready-for-agent comes next, since that
+      // alone is what stops the ticket being selected tomorrow and every
+      // morning after. Gaining ready-for-human comes last, because it is the
+      // only one that needs a label to exist — and by then the ticket is
+      // commented on and out of the queue, which is the part that matters.
+      await execFileAsync("gh", [
+        "issue",
+        "comment",
+        ...issue,
+        "--body",
+        comment,
+      ]);
+      await execFileAsync("gh", [
+        "issue",
+        "edit",
+        ...issue,
+        "--remove-label",
+        READY_FOR_AGENT_LABEL,
+      ]);
+      // Nothing else in the manager creates ready-for-human, and a project
+      // that has never used it by hand would refuse the edit below — leaving
+      // the ticket out of the queue and in no other, which is exactly the
+      // ticket nobody is told about.
+      await ensureLabel(ticket.repo, READY_FOR_HUMAN_LABEL);
+      try {
+        await execFileAsync("gh", [
+          "issue",
+          "edit",
+          ...issue,
+          "--add-label",
+          READY_FOR_HUMAN_LABEL,
+        ]);
+      } catch (error) {
+        // Warned about rather than raised, now that the label exists and only
+        // something unforeseen can refuse it. By this point the ticket is
+        // commented on and no longer eligible, which is the whole of the
+        // guarantee; a caller told this failed would report that the ticket
+        // was not handed back, and the developer would put ready-for-agent
+        // back on a ticket that is meant to stay off it.
+        console.warn(
+          `${ticket.repo}#${ticket.number} is out of the queue but not labelled ${READY_FOR_HUMAN_LABEL}: ${errorMessage(error)}`,
+        );
+      }
+    },
   };
 }
 
 /**
- * Creates the ready-for-agent label where the project has none, because
- * `gh issue create --label` refuses outright against a label that does not
- * exist — and a project can pass selection without one, since `gh issue list
- * --label` tolerates it.
+ * What each label the manager applies itself says about itself, as
+ * `docs/agents/triage-labels.md` describes it.
+ */
+const LABEL_DESCRIPTIONS = {
+  [READY_FOR_AGENT_LABEL]: "Fully specified, ready for an AFK agent",
+  [READY_FOR_HUMAN_LABEL]: "Requires human implementation",
+} as const;
+
+/**
+ * Creates `label` where the project has none, because `gh issue create
+ * --label` and `gh issue edit --add-label` both refuse outright against a
+ * label that does not exist — and a project can pass selection without either,
+ * since `gh issue list --label` tolerates a missing one.
  *
  * Best effort: the answer that matters is whether the label exists afterwards,
  * and a project that already has one — every project the developer triages by
  * hand — answers here with a failure that means it is already there. A refusal
- * for any other reason surfaces a moment later, from the create itself, which
- * is the call that actually needs it.
+ * for any other reason surfaces a moment later, from the call that actually
+ * needs the label.
  */
-async function ensureLabel(repo: RepoSlug): Promise<void> {
+async function ensureLabel(
+  repo: RepoSlug,
+  label: keyof typeof LABEL_DESCRIPTIONS,
+): Promise<void> {
   await execFileAsync("gh", [
     "label",
     "create",
-    READY_FOR_AGENT_LABEL,
+    label,
     "--repo",
     repo,
     "--description",
-    "Fully specified, ready for an AFK agent",
+    LABEL_DESCRIPTIONS[label],
   ]).catch(() => undefined);
 }
 
@@ -265,8 +335,4 @@ function parseIssues(
     }
     return { number, title };
   });
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

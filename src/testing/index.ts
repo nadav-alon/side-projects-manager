@@ -3,10 +3,12 @@ export { FakeGrilling } from "./fake-grilling.ts";
 export { FakeHarness, type FakeInstall } from "./fake-harness.ts";
 export {
   FakeIssueTracker,
+  type FakeHandback,
   type FakeReviewTicket,
 } from "./fake-issue-tracker.ts";
 export {
   FakeRepoHost,
+  type FakeDiscard,
   type FakePullRequest,
   type FakePush,
 } from "./fake-repo-host.ts";

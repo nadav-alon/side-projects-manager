@@ -7,8 +7,10 @@ import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import {
+  AgentNeverRan,
   containerSandbox,
   dockerCommand,
+  dockerNeverRan,
   readAgentRun,
   type Container,
 } from "./container-sandbox.ts";
@@ -268,6 +270,51 @@ describe("containerSandbox", () => {
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
   });
 
+  /**
+   * The line the loop reads a failure's kind off. A container that never
+   * started the agent has no commits, output or spend to keep, and reporting it
+   * as a run would tell the ticket its agent gave up.
+   */
+  it("rejects, rather than reporting a failed agent, when the agent never ran", async () => {
+    const directory = await project();
+    let clone = "";
+    const sandbox = containerSandbox(async (mounted) => {
+      clone = mounted;
+      throw new AgentNeverRan("docker is not running");
+    });
+
+    await assert.rejects(
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      /docker is not running/,
+    );
+    assert.equal(await exists(clone), false);
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+  });
+
+  it("refuses to start an agent that has no credential to sign in with", async (t) => {
+    const directory = await project();
+    const token = process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+    delete process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+    t.after(() => {
+      if (token !== undefined) {
+        process.env["CLAUDE_CODE_OAUTH_TOKEN"] = token;
+      }
+    });
+
+    // The real container, which asks before it ever reaches docker — so this
+    // needs no docker to run, and would pass the same with it.
+    await assert.rejects(
+      containerSandbox().run({
+        ticket: TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+      (error: Error) =>
+        error instanceof AgentNeverRan &&
+        /CLAUDE_CODE_OAUTH_TOKEN/.test(error.message),
+    );
+  });
+
   it("gives a ticket that comes round again a branch of its own", async () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
@@ -440,5 +487,36 @@ describe("dockerCommand", () => {
     const command = dockerCommand(CLONE, "do the thing", usd(5));
 
     assert.ok(command.includes(`${CLONE}:/repo`));
+  });
+});
+
+describe("dockerNeverRan", () => {
+  /** What `execFile` rejects with when the command exits `code`. */
+  function exited(code: number | string): Error {
+    return Object.assign(new Error(`Command failed with ${code}`), { code });
+  }
+
+  it("counts docker's own exit codes as the agent never having run", () => {
+    // 125: the daemon, or the image. 126 and 127: the entrypoint.
+    for (const code of [125, 126, 127]) {
+      assert.equal(dockerNeverRan(exited(code)), true, `exit ${code}`);
+    }
+  });
+
+  it("counts docker not being installed as the agent never having run", () => {
+    assert.equal(dockerNeverRan(exited("ENOENT")), true);
+  });
+
+  it("leaves every other exit to the agent, killed containers included", () => {
+    // 1: the agent gave up. 137: killed, say for memory, mid-run.
+    for (const code of [1, 2, 137]) {
+      assert.equal(dockerNeverRan(exited(code)), false, `exit ${code}`);
+    }
+  });
+
+  it("does not mistake something thrown without a code for docker", () => {
+    assert.equal(dockerNeverRan(new Error("no code")), false);
+    assert.equal(dockerNeverRan("a string"), false);
+    assert.equal(dockerNeverRan(null), false);
   });
 });

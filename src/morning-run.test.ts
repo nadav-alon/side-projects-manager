@@ -5,6 +5,7 @@ import { morningRun, type ProjectOutcome } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
   branch,
+  checkout,
   repoSlug,
   reserveFraction,
   tokenCount,
@@ -486,13 +487,17 @@ describe("morningRun", () => {
       assert.equal(report.pullRequest, undefined);
     });
 
-    it("leaves a failed run's commits named, so they can be judged", async () => {
+    it("names no branch for a failed run, whose commits are discarded", async () => {
       const ports = fakePorts();
       ran(ports, { failure: "the agent gave up" });
 
       const report = await morningRun(ports);
 
-      assert.match(report.message, /1 commit on issue-7-add-the-thing/);
+      // What became of a failed agent's commits is settled: they are thrown
+      // away. Naming the branch would send the developer into the checkout
+      // after something that is no longer there — the ticket carries what
+      // happened instead.
+      assert.doesNotMatch(report.message, /issue-7-add-the-thing/);
       assert.match(report.message, /the agent gave up/);
     });
 
@@ -677,21 +682,271 @@ describe("morningRun", () => {
   });
 
   describe("a run that falls over", () => {
-    it("still writes state back, since it still spent the morning", async (t) => {
+    const GAVE_UP = "the tests would not go green";
+    const SAID = "I could not make the tests pass";
+    const BROKE = "docker is not running";
+    const FAILED_BRANCH = branch("issue-7-add-the-thing");
+
+    /** A registered project with one eligible ticket waiting in it. */
+    function readyToWork(): FakePorts {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
         number: 7,
         title: "Add the thing",
       });
+      return ports;
+    }
+
+    /** The agent ran, committed something, and then gave up. */
+    function agentGivesUp(ports: FakePorts): void {
+      ports.sandbox.result = () => ({
+        branch: FAILED_BRANCH,
+        commits: ["c0ffee1"],
+        output: SAID,
+        tokensUsed: tokenCount(42_000),
+        failure: GAVE_UP,
+      });
+    }
+
+    it("does not abort the invocation when the sandbox itself breaks", async (t) => {
+      const ports = readyToWork();
       t.mock.method(ports.sandbox, "run", async () => {
-        throw new Error("docker is not running");
+        throw new Error(BROKE);
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.failure?.kind, "infrastructure");
+      assert.match(report.message, new RegExp(BROKE));
+    });
+
+    it("still writes state back, since it still spent the morning", async (t) => {
+      const ports = readyToWork();
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error(BROKE);
       });
       const saveState = t.mock.method(ports.store, "saveState");
 
-      await assert.rejects(morningRun(ports), /docker is not running/);
+      await morningRun(ports);
 
       assert.equal(saveState.mock.callCount(), 1);
+    });
+
+    it("tells an agent that gave up apart from a sandbox that broke", async (t) => {
+      const gaveUp = readyToWork();
+      agentGivesUp(gaveUp);
+      const broke = readyToWork();
+      t.mock.method(broke.sandbox, "run", async () => {
+        throw new Error(BROKE);
+      });
+
+      assert.equal((await morningRun(gaveUp)).failure?.kind, "gave-up");
+      assert.equal((await morningRun(broke)).failure?.kind, "infrastructure");
+    });
+
+    it("counts a checkout that cannot be made as infrastructure, not the agent", async (t) => {
+      const ports = readyToWork();
+      t.mock.method(ports.repoHost, "clone", async () => {
+        throw new Error("no such remote");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.failure?.kind, "infrastructure");
+      assert.equal(ports.sandbox.runs.length, 0);
+    });
+
+    describe("the comment it leaves", () => {
+      it("says why the agent stopped, and what it said before it did", async () => {
+        const ports = readyToWork();
+        agentGivesUp(ports);
+
+        await morningRun(ports);
+
+        const [handback] = ports.tracker.handbacks;
+        assert.equal(handback?.ticket.number, 7);
+        assert.match(handback.comment, new RegExp(GAVE_UP));
+        assert.match(handback.comment, new RegExp(SAID));
+      });
+
+      it("names the broken sandbox rather than blaming the agent", async (t) => {
+        const ports = readyToWork();
+        t.mock.method(ports.sandbox, "run", async () => {
+          throw new Error(BROKE);
+        });
+
+        await morningRun(ports);
+
+        const [handback] = ports.tracker.handbacks;
+        assert.match(handback?.comment ?? "", new RegExp(BROKE));
+        assert.match(handback?.comment ?? "", /sandbox|infrastructure/i);
+      });
+    });
+
+    it("relabels the ticket, so the next invocation cannot select it again", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+
+      await morningRun(ports);
+      const tomorrow = await morningRun(ports);
+
+      assert.equal(ports.tracker.handbacks.length, 1);
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("discards the branch the failed run left behind", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, [
+        {
+          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+          branch: FAILED_BRANCH,
+        },
+      ]);
+    });
+
+    it("has no branch to discard when the sandbox never got as far as one", async (t) => {
+      const ports = readyToWork();
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error(BROKE);
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, []);
+      assert.equal(ports.tracker.handbacks.length, 1);
+    });
+
+    it("records what the failed run spent, since the tokens are gone either way", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+      ]);
+    });
+
+    it("reports a tracker it could not hand the ticket back to, rather than throwing", async (t) => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+      t.mock.method(ports.tracker, "handBack", async () => {
+        throw new Error("gh is not logged in");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.failure?.kind, "gave-up");
+      assert.equal(report.failure?.handedBack, false);
+      assert.match(report.message, /could not be handed back/);
+      assert.match(report.message, /gh is not logged in/);
+      // The one morning the developer has to act on themselves: saying it was
+      // handed back would be the opposite of what happened.
+      assert.match(report.message, /still ready-for-agent/);
+      assert.doesNotMatch(report.message, /Handed back for a human/);
+    });
+
+    it("hands the ticket back even when the branch will not delete", async (t) => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+      t.mock.method(ports.repoHost, "discardBranch", async () => {
+        throw new Error("used by worktree at /elsewhere");
+      });
+
+      const report = await morningRun(ports);
+
+      // Relabelling is the half that stops the ticket costing another
+      // morning; a branch git will not delete must not take it down.
+      assert.equal(report.failure?.handedBack, true);
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        /could not be discarded/,
+      );
+    });
+
+    it("does not claim a branch was discarded when the agent committed nothing", async () => {
+      const ports = readyToWork();
+      ports.sandbox.result = () => ({
+        branch: FAILED_BRANCH,
+        commits: [],
+        output: SAID,
+        tokensUsed: tokenCount(42_000),
+        failure: GAVE_UP,
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, []);
+      assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /discard/);
+    });
+
+    it("keeps the comment small enough for a tracker to accept it", async () => {
+      const ports = readyToWork();
+      ports.sandbox.result = () => ({
+        branch: FAILED_BRANCH,
+        commits: ["c0ffee1"],
+        output: "x".repeat(200_000),
+        tokensUsed: tokenCount(42_000),
+        // A failed `execFile` carries every byte the command wrote to stderr.
+        failure: "y".repeat(200_000),
+      });
+
+      await morningRun(ports);
+
+      // GitHub's own limit on a comment body. A comment it rejects is a
+      // ticket that never gets handed back.
+      assert.ok((ports.tracker.handbacks[0]?.comment.length ?? 0) < 65_536);
+    });
+
+    it("quotes output that contains code fences without breaking out of the quote", async () => {
+      const ports = readyToWork();
+      ports.sandbox.result = () => ({
+        branch: FAILED_BRANCH,
+        commits: ["c0ffee1"],
+        output: "I tried:\n```ts\nconst x = 1;\n```\nand it broke",
+        tokensUsed: tokenCount(42_000),
+        failure: GAVE_UP,
+      });
+
+      await morningRun(ports);
+
+      // A fence longer than any run of backticks inside, or the rest of the
+      // output renders as Markdown and its `#123`s become cross-references.
+      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /````\n/);
+    });
+
+    it("reports the run alongside the failure, so its commits are still visible", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(report.run?.commits, ["c0ffee1"]);
+      assert.equal(report.failure?.reason, GAVE_UP);
+    });
+  });
+
+  describe("a run that finishes", () => {
+    it("hands nothing back and discards nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.failure, undefined);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.repoHost.discarded, []);
     });
   });
   /**

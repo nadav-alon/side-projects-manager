@@ -272,6 +272,18 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       // the second would send the developer looking for a push that worked.
       return pullRequestUrl(opened.trim());
     },
+
+    async discardBranch(directory: Checkout, branch: Branch): Promise<void> {
+      // Asked first, because `git branch -D` treats a branch that is not
+      // there as an error, and a run whose agent committed nothing never
+      // fetched one back — which is the commonest way to arrive here.
+      if (!(await hasBranch(directory, branch))) {
+        return;
+      }
+      // `-D` rather than `-d`: the branch was never merged anywhere, which is
+      // the whole reason it is being thrown away.
+      await run("git", ["-C", directory, "branch", "-D", branch]);
+    },
   };
 }
 
@@ -290,6 +302,23 @@ function pullRequestBody(ticket: Ticket): string {
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It stays a draft: promoting and merging it are yours.",
   ].join("\n");
+}
+
+/** Whether `directory` has a local branch named `of`. */
+async function hasBranch(directory: Checkout, of: Branch): Promise<boolean> {
+  try {
+    await run("git", [
+      "-C",
+      directory,
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${of}`,
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Whether any of `paths` differs from what the checkout has committed. */

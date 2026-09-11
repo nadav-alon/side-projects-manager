@@ -16,6 +16,12 @@ export interface FakeReviewTicket {
   ticket: Ticket;
 }
 
+/** One ticket given back to the developer, and what it was told. */
+export interface FakeHandback {
+  ticket: Ticket;
+  comment: string;
+}
+
 /**
  * An in-memory backlog per project. Everything put here is eligible — the
  * fake has no notion of an ineligible ticket, because the real port never
@@ -29,6 +35,8 @@ export class FakeIssueTracker implements IssueTracker {
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
+  /** Tickets handed back, in the order they were handed back. */
+  readonly handbacks: FakeHandback[] = [];
 
   /** Puts an eligible ticket in `repo`'s backlog and returns it. */
   addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
@@ -63,5 +71,17 @@ export class FakeIssueTracker implements IssueTracker {
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });
     return review;
+  }
+
+  async handBack(ticket: Ticket, comment: string): Promise<void> {
+    this.handbacks.push({ ticket, comment });
+    // Losing ready-for-agent is losing eligibility, so a handed-back ticket
+    // leaves the backlog here exactly as it leaves the real one. Tests assert
+    // no retry by invoking the loop again and finding nothing to select.
+    const backlog = this.#backlogs.get(ticket.repo) ?? [];
+    this.#backlogs.set(
+      ticket.repo,
+      backlog.filter((eligible) => eligible.number !== ticket.number),
+    );
   }
 }

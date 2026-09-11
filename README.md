@@ -29,8 +29,34 @@ inside the container.
 
 An agent that fails does not fail the morning. Its commits, its output and what it spent all come
 back as a result carrying a `failure`, because a run that fell over is exactly the one worth having
-recorded — the summary line says the agent failed and why, and the loop writes the spend to state
-either way.
+recorded — the summary line says why it stopped, and the loop writes the spend to state either way.
+
+### When a run fails
+
+A failed run hands its ticket back rather than trying again. The branch is discarded, a comment on
+the ticket says what happened and quotes what the agent said, and the ticket moves from
+`ready-for-agent` to `ready-for-human` — which is the whole of the no-retry rule, since a ticket
+without `ready-for-agent` is not eligible tomorrow. A genuinely too-hard ticket left in the queue
+would otherwise cost a morning every morning.
+
+The two ways a run fails are reported apart, because the developer's next move differs: an agent
+that **gave up** is a ticket to rewrite or drop, an **infrastructure** failure is a sandbox or a
+credential to fix. The sandbox port draws the line — it rejects when it could not set itself up,
+start the agent, or tear itself down, and reports an agent that gave up as a result carrying
+`failure`. The container adapter counts docker's own exit codes (125, 126 and 127), a missing
+`docker`, and an unset `CLAUDE_CODE_OAUTH_TOKEN` as the agent never having run; every other non-zero
+exit is the agent's.
+
+Neither aborts the invocation. The iteration ends, the summary says what happened, and the projects
+behind it are still reachable. An infrastructure failure still exits non-zero, so a schedule
+watching a permanently broken sandbox is told about it; an agent that gave up exits zero, since its
+ticket has been handed back and retrying the morning would run straight into the no-retry rule.
+
+The relabel is the load-bearing half, and the order reflects that: a branch git will not delete (one
+checked out in a worktree, say) is reported in the comment rather than allowed to stop the ticket
+being handed back, and `ready-for-human` is created in a project that has never used it before it
+is applied. If the tracker itself cannot be reached, the summary says the ticket is still
+`ready-for-agent` and needs relabelling by hand.
 
 Runs are serialized within one process — a second run waits for the first rather than starting a
 container beside it. Two separate invocations are not covered by that; the once-per-day lock is

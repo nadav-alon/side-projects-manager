@@ -20,6 +20,7 @@ import {
   isUsd,
 } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
+import { errorMessage } from "../error-message.ts";
 
 const REGISTRY_FILE = "registry.json";
 const BUDGET_FILE = "budget.json";
@@ -108,10 +109,6 @@ function isNotFound(error: unknown): boolean {
   return (
     error instanceof Error && "code" in error && error.code === "ENOENT"
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

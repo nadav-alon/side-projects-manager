@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   READY_FOR_AGENT_LABEL,
+  READY_FOR_HUMAN_LABEL,
   pullRequestUrl,
   repoSlug,
   type Ticket,
@@ -382,5 +383,135 @@ describe("ghIssueTracker.createReviewTicket", () => {
       ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
       new RegExp(PULL_REQUEST),
     );
+  });
+});
+
+/**
+ * The one write path the failure policy rests on. Checked against the
+ * arguments `gh` is handed, since a real hand-back would comment on and
+ * relabel a real ticket every time the suite ran.
+ */
+describe("ghIssueTracker.handBack", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const TICKET: Ticket = {
+    repo: PILOT,
+    number: 7,
+    title: "Add the thing",
+  };
+
+  const COMMENT = "The morning loop ran this ticket and the agent gave up.\n\nWhy it stopped: red tests";
+
+  /** A tracker where every call succeeds. */
+  const WORKING = ":";
+
+  it("comments on the ticket, in its own repo, saying what it was given", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const comment = callWith(await gh.calls(), "issue", "comment");
+    assert.ok(comment, "the ticket should be commented on");
+    assert.ok(comment.includes("7"));
+    assert.equal(valueOf(comment, "--repo"), PILOT);
+    // Whole, not its first line: the comment is several paragraphs.
+    assert.equal(valueOf(comment, "--body"), COMMENT);
+  });
+
+  it("takes ready-for-agent off, so tomorrow cannot select it", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const removed = callWith(await gh.calls(), "--remove-label");
+    assert.ok(removed, "ready-for-agent should be removed");
+    assert.equal(valueOf(removed, "--remove-label"), READY_FOR_AGENT_LABEL);
+    assert.equal(valueOf(removed, "--repo"), PILOT);
+  });
+
+  it("puts ready-for-human on, creating the label first since nothing else does", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const calls = await gh.calls();
+    const label = callWith(calls, "label", "create", READY_FOR_HUMAN_LABEL);
+    const added = callWith(calls, "--add-label");
+    assert.ok(label, "ready-for-human should be created");
+    assert.equal(valueOf(label, "--repo"), PILOT);
+    assert.ok(added, "ready-for-human should be added");
+    assert.equal(valueOf(added, "--add-label"), READY_FOR_HUMAN_LABEL);
+    assert.ok(
+      calls.indexOf(label) < calls.indexOf(added),
+      "the label should exist before it is added",
+    );
+  });
+
+  it("comments, then unqueues, then relabels — the order they degrade best in", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const calls = await gh.calls();
+    const order = [
+      callWith(calls, "issue", "comment"),
+      callWith(calls, "--remove-label"),
+      callWith(calls, "--add-label"),
+    ].map((call) => (call === undefined ? -1 : calls.indexOf(call)));
+    assert.ok(order.every((at) => at !== -1), "all three calls should happen");
+    assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  });
+
+  it("relabels a ticket in a project that already has the label", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "label create") echo "label already exists" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    assert.ok(callWith(await gh.calls(), "--add-label"));
+  });
+
+  it("still counts as handed back when only ready-for-human is refused", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$*" in`,
+        `  *--add-label*) echo "could not add label" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+    t.mock.method(console, "warn", () => undefined);
+
+    // Commented on and out of the queue is the guarantee. Throwing here would
+    // have the loop tell the developer to put ready-for-agent back on.
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const calls = await gh.calls();
+    assert.ok(callWith(calls, "issue", "comment"));
+    assert.ok(callWith(calls, "--remove-label"));
+  });
+
+  it("fails the hand-back when the ticket cannot be taken out of the queue", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$*" in`,
+        `  *--remove-label*) echo "HTTP 403" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    // Still eligible, so still due to come round: the one outcome the caller
+    // has to hear about, because the developer has to relabel it by hand.
+    await assert.rejects(ghIssueTracker().handBack(TICKET, COMMENT));
   });
 });

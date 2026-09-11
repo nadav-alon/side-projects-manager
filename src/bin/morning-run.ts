@@ -25,6 +25,17 @@ async function main(): Promise<void> {
   });
 
   console.log(report.message);
+
+  // A broken setup exits non-zero even though it reported cleanly: whatever
+  // triggers the loop reads a morning by its exit code, and a sandbox that is
+  // permanently broken but reports success every day is one nobody is told
+  // about. An agent that gave up exits zero, because the ticket has been
+  // handed back and that is the failure policy working — a trigger that
+  // retried a non-zero morning would otherwise run straight into the no-retry
+  // rule.
+  if (report.failure?.kind === "infrastructure") {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error: unknown) => {

@@ -93,4 +93,16 @@ export interface RepoHost {
     branch: Branch,
     ticket: Ticket,
   ): Promise<PullRequestUrl>;
+  /**
+   * Deletes `branch` from the checkout at `directory`, whatever it points at.
+   *
+   * What a failed run's work is thrown away with. Unconditional, because the
+   * branch being discarded is one the sandbox made moments ago and the caller
+   * has already decided is not worth keeping; and forgiving of a branch that
+   * is not there, because a run whose agent committed nothing never left one.
+   *
+   * Local only: the sandbox never pushes, so a discarded branch has never
+   * been anywhere the developer could have seen it.
+   */
+  discardBranch(directory: Checkout, branch: Branch): Promise<void>;
 }

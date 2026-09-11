@@ -1,5 +1,6 @@
 import type {
   Budget,
+  Checkout,
   Clock,
   IssueTracker,
   ProjectState,
@@ -17,8 +18,10 @@ import type {
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
-import { recordRun } from "./ports/index.ts";
+import { READY_FOR_AGENT_LABEL, recordRun } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
+import { handbackComment, type Discard } from "./handback-comment.ts";
+import { errorMessage } from "./error-message.ts";
 
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
@@ -51,6 +54,32 @@ export type ProjectVerdict =
   /** Considered and selected: the project this iteration works. */
   | "selected";
 
+/**
+ * Whose problem a failed run is.
+ *
+ * The distinction is the one the developer acts on: a hard ticket is theirs to
+ * rewrite or drop, a broken sandbox is theirs to fix, and a morning that says
+ * only "it failed" makes them go and find out which.
+ */
+export type FailureKind =
+  /** The agent ran and stopped short: it said it could not, or left the tests red. */
+  | "gave-up"
+  /** The sandbox or the repo host could not do its part, so nothing ran. */
+  | "infrastructure";
+
+/** Why an iteration's run did not finish. */
+export interface RunFailure {
+  kind: FailureKind;
+  reason: string;
+  /**
+   * Whether the ticket made it back to the developer. False says the loop
+   * could not comment or relabel, so the ticket is still eligible and will be
+   * selected again — the one case where a morning needs the developer to go
+   * and look at the ticket themselves.
+   */
+  handedBack: boolean;
+}
+
 /** One registered project, and what the invocation made of it. */
 export interface ProjectOutcome {
   repo: RepoSlug;
@@ -82,6 +111,14 @@ export interface MorningRunReport {
    */
   pullRequest?: PullRequestUrl;
   /**
+   * Why the run did not finish, absent when it did or when nothing ran.
+   *
+   * A failure is reported rather than thrown: the iteration is over, but the
+   * invocation is not, and a morning that ends in a stack trace tells the
+   * developer nothing about the projects it never reached.
+   */
+  failure?: RunFailure;
+  /**
    * Why the gate refused, absent when it did not. A morning that stood down
    * had work to do and declined to do it, which is neither a dry queue nor a
    * failure, and says so rather than going quiet.
@@ -103,25 +140,36 @@ interface Selection {
 }
 
 /**
- * What working one project came to, and everything the report says about it:
- * the run, the draft pull request its commits are waiting in, and the review
- * queued for that pull request.
+ * What one iteration did with the ticket it selected: finished a run, or
+ * failed one and handed the ticket back.
  *
- * Named for the handover rather than for the work, because the work is the
- * run — this is how it reaches the developer.
+ * Nothing here is thrown. A run that gave up, and one that never happened, are
+ * described rather than raised, so the invocation still reports on the
+ * projects behind them.
+ */
+type Iteration = Finished | Failed;
+
+/** An iteration whose run finished, and how its work reached the developer. */
+interface Finished {
+  run: SandboxRunResult;
+  /** Absent when the run committed nothing, so there was nothing to hand over. */
+  handover?: Handover;
+}
+
+/**
+ * What a finished run comes to for the developer: the draft pull request its
+ * commits wait in, and the review queued against that pull request.
  */
 interface Handover {
-  run: SandboxRunResult;
-  /**
-   * Absent when there was nothing to hand over: a run that committed nothing,
-   * or one the agent did not finish.
-   */
-  pullRequest?: PullRequestUrl;
-  /**
-   * Absent wherever the pull request is absent, which is the thing it
-   * reviews.
-   */
-  reviewTicket?: Ticket;
+  pullRequest: PullRequestUrl;
+  reviewTicket: Ticket;
+}
+
+/** An iteration whose run did not finish, and so handed its ticket back. */
+interface Failed {
+  failure: RunFailure;
+  /** What the agent left behind. Absent when it never ran. */
+  run?: SandboxRunResult;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -147,14 +195,14 @@ export async function morningRun(
   const state = new Map(await ports.store.loadState());
   const { outcomes, selection } = await considerProjects(ports, state);
 
-  let handover: Handover | undefined;
+  let iteration: Iteration | undefined;
   let standDown: StandDown | undefined;
   try {
     if (selection !== undefined) {
       const budget = await ports.store.loadBudget();
       standDown = await consultTheGate(ports, budget, state);
       if (standDown === undefined) {
-        handover = await work(ports, selection, state, budget.spendCeiling);
+        iteration = await work(ports, selection, state, budget.spendCeiling);
       }
     }
   } finally {
@@ -169,14 +217,22 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    // Spread whole: a handover is exactly the run, pull request and review the
-    // report owes, so re-splitting it field by field would be two places to
-    // keep the same shape.
-    ...handover,
+    ...(iteration !== undefined && reported(iteration)),
     ...(standDown !== undefined && { standDown }),
     outcome: outcomeOf(selection, standDown),
-    message: summaryLine(outcomes, handover, standDown),
+    message: summaryLine(outcomes, iteration, standDown, selection?.ticket),
   };
+}
+
+/** What the report says about an iteration. */
+function reported(
+  iteration: Iteration,
+): Pick<MorningRunReport, "run" | "pullRequest" | "reviewTicket" | "failure"> {
+  if ("failure" in iteration) {
+    const { failure, run } = iteration;
+    return { failure, ...(run !== undefined && { run }) };
+  }
+  return { run: iteration.run, ...iteration.handover };
 }
 
 function outcomeOf(
@@ -257,48 +313,69 @@ async function considerProjects(
 }
 
 /**
- * The second step: run the selected ticket, hand the work over as a draft
- * pull request with a review queued against it, and record what that cost.
+ * The second step: run the selected ticket, record what that cost, and then
+ * either hand the work over as a draft pull request with a review queued
+ * against it or — when the run failed — put the ticket back in the
+ * developer's hands.
  *
- * The checkout comes from the repo host rather than from anything the loop
- * remembers, so a project whose clone has gone missing heals on the way into
- * the run instead of failing the morning.
- *
- * A run that committed nothing is handed over to nobody: the sandbox leaves no
- * branch behind for it, and a pull request with no commits in it is not
- * something to open and not something to review.
+ * A failed run is the iteration's business, not the invocation's: it ends this
+ * iteration and is reported, so the projects behind it are still reachable and
+ * the morning still writes a summary.
  */
 async function work(
   ports: MorningRunPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
-): Promise<Handover> {
-  const repo = selection.project.repo;
-  const checkout = await ports.repoHost.clone(repo);
-  const run = await ports.sandbox.run({
-    ticket: selection.ticket,
-    checkout,
-    spendCeiling,
-  });
+): Promise<Iteration> {
+  const returned = await attemptRun(ports, selection, state, spendCeiling);
+  if ("failure" in returned) {
+    return handTicketBack(ports, selection.ticket, returned, { kind: "none" });
+  }
 
-  const at = ports.clock.now();
-  const cost = { at, tokensUsed: run.tokensUsed };
-  state.set(repo, recordRun(state.get(repo), cost));
+  const { run, checkout } = returned;
+  if (run.failure === undefined) {
+    return handOver(ports, run, checkout, selection.ticket);
+  }
 
-  // Only a run that finished and committed. A failed agent's commits are not
-  // work to review, so they stay on the branch in the checkout rather than
-  // becoming a pull request the developer has to judge.
-  //
-  // TODO[#13]: decide what becomes of them.
-  if (run.commits.length === 0 || run.failure !== undefined) {
+  // The branch goes first, so the comment can say what became of it — but it
+  // cannot cost the ticket its hand-back. Git refuses to delete a branch that
+  // some worktree has checked out, and a ticket left eligible because of that
+  // is the failure this whole policy exists to prevent.
+  const discard = await discardBranch(ports, checkout, run);
+  return handTicketBack(
+    ports,
+    selection.ticket,
+    { run, failure: { kind: "gave-up", reason: run.failure, handedBack: false } },
+    discard,
+  );
+}
+
+/**
+ * The draft pull request a finished run's commits wait in, and the review
+ * queued against it.
+ *
+ * A run that committed nothing is handed over to nobody: the sandbox leaves no
+ * branch behind for it, and a pull request with no commits in it is not
+ * something to open and not something to review.
+ *
+ * Only a run that finished. A failed agent's commits never reach here — they
+ * go to `discardBranch` instead, because they are not work to review.
+ */
+async function handOver(
+  ports: MorningRunPorts,
+  run: SandboxRunResult,
+  checkout: Checkout,
+  ticket: Ticket,
+): Promise<Finished> {
+  if (run.commits.length === 0) {
     return { run };
   }
 
   const pullRequest = await ports.repoHost.openDraftPullRequest(
     checkout,
     run.branch,
-    selection.ticket,
+    ticket,
   );
 
   // Queued here rather than asked of the agent that wrote the code: an agent
@@ -311,11 +388,120 @@ async function work(
   // that a morning which did push a branch and open a pull request still says
   // where they are.
   const reviewTicket = await ports.tracker.createReviewTicket(
-    selection.ticket,
+    ticket,
     pullRequest,
   );
 
-  return { run, pullRequest, reviewTicket };
+  return { run, handover: { pullRequest, reviewTicket } };
+}
+
+/**
+ * Puts a failed run's ticket back in the developer's hands, and says whether
+ * it got there.
+ *
+ * Never throws. A tracker that could not be reached leaves the ticket eligible,
+ * and saying so is the one thing still worth doing.
+ */
+async function handTicketBack(
+  ports: MorningRunPorts,
+  ticket: Ticket,
+  failed: Failed,
+  discard: Discard,
+): Promise<Failed> {
+  const { failure, run } = failed;
+  try {
+    await ports.tracker.handBack(ticket, handbackComment(failure, run, discard));
+    return { ...failed, failure: { ...failure, handedBack: true } };
+  } catch (error: unknown) {
+    // The policy itself could not be carried out, which leaves the ticket
+    // eligible and due to come round again. Saying so is what is left: a
+    // silent failure here is the one that costs a morning every morning.
+    return {
+      ...failed,
+      failure: {
+        ...failure,
+        reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
+      },
+    };
+  }
+}
+
+/**
+ * Throws the failed run's branch away, and says what became of it.
+ *
+ * Never throws. A branch that will not delete is worth telling the developer
+ * about; it is not worth the ticket, which is what refusing to go on would
+ * cost.
+ */
+async function discardBranch(
+  ports: MorningRunPorts,
+  checkout: Checkout,
+  run: SandboxRunResult,
+): Promise<Discard> {
+  // The sandbox fetches a branch back only when the agent committed to it, and
+  // an agent that gave up commonly committed nothing at all.
+  if (run.commits.length === 0) {
+    return { kind: "none" };
+  }
+
+  try {
+    await ports.repoHost.discardBranch(checkout, run.branch);
+    return { kind: "discarded" };
+  } catch (error: unknown) {
+    return { kind: "kept", reason: errorMessage(error) };
+  }
+}
+
+/**
+ * The run itself, and what it cost.
+ *
+ * The checkout comes from the repo host rather than from anything the loop
+ * remembers, so a project whose clone has gone missing heals on the way into
+ * the run instead of failing the morning.
+ *
+ * The two ways a run ends badly are told apart by where they surface: the
+ * sandbox port rejects only when it could not set itself up, start the agent,
+ * or tear itself down, and reports an agent that gave up as a result carrying
+ * `failure`.
+ */
+async function attemptRun(
+  ports: MorningRunPorts,
+  selection: Selection,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+): Promise<{ run: SandboxRunResult; checkout: Checkout } | Failed> {
+  const repo = selection.project.repo;
+
+  let checkout: Checkout;
+  let run: SandboxRunResult;
+  try {
+    checkout = await ports.repoHost.clone(repo);
+    run = await ports.sandbox.run({
+      ticket: selection.ticket,
+      checkout,
+      spendCeiling,
+    });
+  } catch (error: unknown) {
+    // Nothing comes back from a rejected run — no branch, no output, and no
+    // token count — so there is nothing to record against the project, and no
+    // branch to discard: fetching one back is the last thing a run does that
+    // can fail. The sandbox can reject after the agent has already worked,
+    // though, and that run's spend is lost to the ledger.
+    // TODO[#35]: record what a run spent even when the sandbox rejects.
+    return {
+      failure: {
+        kind: "infrastructure",
+        reason: errorMessage(error),
+        handedBack: false,
+      },
+    };
+  }
+
+  const at = ports.clock.now();
+  const cost = { at, tokensUsed: run.tokensUsed };
+  state.set(repo, recordRun(state.get(repo), cost));
+
+  return { run, checkout };
 }
 
 function outcome(
@@ -349,8 +535,9 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 
 function summaryLine(
   projects: ProjectOutcome[],
-  handover: Handover | undefined,
+  iteration: Iteration | undefined,
   standDown: StandDown | undefined,
+  ticket: Ticket | undefined,
 ): string {
   const selected = projects.find(isSelected);
   const skipped = projects.flatMap((project) => {
@@ -364,15 +551,10 @@ function summaryLine(
     return `Stood down: ${standDownReason(standDown)}. ${selected.repo} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
   }
   if (selected !== undefined) {
-    // A failed agent that committed still says what it landed, and then why it
-    // stopped: the developer needs both to know whether to keep the branch.
-    const stopped =
-      handover?.run.failure === undefined
-        ? ""
-        : ` The agent failed: ${handover.run.failure}.`;
-    return `Worked ${selected.repo}: ${landed(handover)}.${queued(
-      handover,
-    )}${stopped}${aside}`;
+    if (iteration !== undefined && "failure" in iteration) {
+      return `Attempted ${selected.repo}: ${stoppedBecause(iteration.failure, ticket)}${aside}`;
+    }
+    return `Worked ${selected.repo}: ${landed(iteration)}.${queued(iteration)}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
@@ -385,28 +567,50 @@ function summaryLine(
  * backlog is read. Nothing to say on a morning that opened no pull request,
  * which is the only morning that queues no review.
  */
-function queued(handover: Handover | undefined): string {
-  const review = handover?.reviewTicket;
+function queued(finished: Finished | undefined): string {
+  const review = finished?.handover?.reviewTicket;
   return review === undefined ? "" : ` Queued #${review.number} to review it.`;
+}
+
+/**
+ * Why the morning stopped, in the half-sentence the summary carries.
+ *
+ * Names the ticket, because the developer's next move is to open it: the whole
+ * of what happened is in the comment waiting there.
+ */
+function stoppedBecause(
+  failure: RunFailure,
+  ticket: Ticket | undefined,
+): string {
+  const what =
+    failure.kind === "gave-up" ? "the agent gave up" : "the run would not start";
+  const which = ticket === undefined ? "the ticket" : `#${ticket.number}`;
+  // A ticket that could not be handed back is the one thing here the developer
+  // has to act on themselves: it is still eligible, so it will come round and
+  // cost another morning until somebody relabels it.
+  const now = failure.handedBack
+    ? "Handed back for a human."
+    : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
+  return `${what} on ${which}: ${failure.reason}. ${now}`;
 }
 
 /**
  * Where the morning's work ended up.
  *
  * A run that committed nothing left no branch behind either — the sandbox
- * keeps one only for commits — so there is nothing to name. Commits without a
- * pull request are a failed agent's: the branch is in the checkout, and saying
- * where is how the developer decides whether to keep it.
+ * keeps one only for commits — so there is nothing to name. A run that failed
+ * never gets here: the summary says why it stopped instead.
  */
-function landed(handover: Handover | undefined): string {
-  if (handover === undefined || handover.run.commits.length === 0) {
+function landed(finished: Finished | undefined): string {
+  if (finished === undefined || finished.run.commits.length === 0) {
     return "the run left nothing behind";
   }
+  const { run, handover } = finished;
   const where =
-    handover.pullRequest === undefined
-      ? handover.run.branch
-      : `${handover.run.branch} (${handover.pullRequest})`;
-  return `${commitCount(handover.run)} on ${where}`;
+    handover === undefined
+      ? run.branch
+      : `${run.branch} (${handover.pullRequest})`;
+  return `${commitCount(run)} on ${where}`;
 }
 
 /**
