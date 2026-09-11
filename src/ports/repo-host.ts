@@ -105,4 +105,14 @@ export interface RepoHost {
    * been anywhere the developer could have seen it.
    */
   discardBranch(directory: Checkout, branch: Branch): Promise<void>;
+  /**
+   * Whether `pullRequest` has a comment posted after `since`.
+   *
+   * What backs closing a review ticket: a reviewing agent that ran without
+   * error still may have failed its own last step — posting the aggregated
+   * report — and a ticket closed on process success alone would tell the
+   * developer a review happened when nothing was ever written down. This is
+   * the one check that confirms the finding actually reached the pull request.
+   */
+  hasNewComment(pullRequest: PullRequestUrl, since: Date): Promise<boolean>;
 }

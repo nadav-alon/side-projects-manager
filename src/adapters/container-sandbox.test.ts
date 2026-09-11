@@ -13,13 +13,16 @@ import {
   dockerNeverRan,
   readAgentRun,
   type Container,
+  type Mount,
 } from "./container-sandbox.ts";
 import {
   checkout,
+  pullRequestUrl,
   repoSlug,
   tokenCount,
   usd,
   type Checkout,
+  type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
 
@@ -29,6 +32,13 @@ const TICKET: Ticket = {
   repo: repoSlug("nadav-alon/pilot"),
   number: 7,
   title: "Run a ticket in the sandbox",
+};
+
+const REVIEW_TICKET: ReviewTicket = {
+  repo: repoSlug("nadav-alon/pilot"),
+  number: 42,
+  title: "Review the draft pull request for #7",
+  pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
@@ -88,7 +98,7 @@ function agentCommitting(
   tokensUsed = 0,
   output = "",
 ): Container {
-  return async (directory) => {
+  return async ({ directory }) => {
     await identify(directory);
     for (const file of files) {
       await writeFile(path.join(directory, file), `${file}\n`);
@@ -103,7 +113,7 @@ describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
     const directory = await project();
     const seen: string[] = [];
-    const sandbox = containerSandbox(async (mounted) => {
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
       seen.push(mounted);
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -123,7 +133,7 @@ describe("containerSandbox", () => {
   it("gives the agent a repository that stands on its own", async () => {
     const directory = await project();
     let checked = false;
-    const sandbox = containerSandbox(async (mounted) => {
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
       const git = await stat(path.join(mounted, ".git"));
       assert.ok(git.isDirectory(), ".git must be a directory, not a pointer");
       checked = true;
@@ -143,7 +153,7 @@ describe("containerSandbox", () => {
   it("tells the agent which GitHub repo its ticket is in", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async (_mounted, prompt) => {
+    const sandbox = containerSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -225,9 +235,9 @@ describe("containerSandbox", () => {
     const directory = await project();
     let clone = "";
     const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (mounted, prompt) => {
-      clone = mounted;
-      return commit(mounted, prompt, CEILING);
+    const sandbox = containerSandbox(async (options) => {
+      clone = options.directory;
+      return commit(options);
     });
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
@@ -239,7 +249,7 @@ describe("containerSandbox", () => {
   it("takes the clone away even when the agent fails", async () => {
     const directory = await project();
     let clone = "";
-    const sandbox = containerSandbox(async (mounted) => {
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
       clone = mounted;
       throw new Error("the agent gave up");
     });
@@ -257,8 +267,8 @@ describe("containerSandbox", () => {
   it("reports a failed agent rather than throwing, keeping what it did", async () => {
     const directory = await project();
     const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (mounted, prompt) => {
-      await commit(mounted, prompt, CEILING);
+    const sandbox = containerSandbox(async (options) => {
+      await commit(options);
       throw new Error("the agent gave up");
     });
 
@@ -278,7 +288,7 @@ describe("containerSandbox", () => {
   it("rejects, rather than reporting a failed agent, when the agent never ran", async () => {
     const directory = await project();
     let clone = "";
-    const sandbox = containerSandbox(async (mounted) => {
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
       clone = mounted;
       throw new AgentNeverRan("docker is not running");
     });
@@ -391,6 +401,204 @@ describe("containerSandbox", () => {
   });
 });
 
+describe("containerSandbox.review", () => {
+  it("mounts a clone of its own, read-only", async () => {
+    const directory = await project();
+    const mounts: (Mount | undefined)[] = [];
+    const seen: string[] = [];
+    const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
+      seen.push(mounted);
+      mounts.push(mount);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(seen.length, 1);
+    assert.notEqual(seen[0], directory);
+    assert.deepEqual(mounts, ["ro"]);
+  });
+
+  it("names the pull request to review, since the clone's origin can't say", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, new RegExp(REVIEW_TICKET.pullRequest.replace(/\//g, "\\/")));
+    assert.match(asked, /mattpocock-skills:code-review/);
+  });
+
+  /**
+   * The skill's own last step only aggregates the two reports — posting is
+   * the prompt's to spell out, and a finding dropped as one summary comment
+   * loses the very context (the line it is about) that makes it useful.
+   */
+  it("asks for each finding posted inline, not as one aggregated comment", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /pulls\/<number>\/reviews/);
+    assert.match(asked, /"comments":\s*\[\{"path"/);
+    assert.doesNotMatch(asked, /gh pr comment/);
+  });
+
+  /**
+   * A reviewer has nothing to commit, and nothing here ever fetches a branch
+   * back — unlike a run, whose whole product is the branch it leaves.
+   */
+  it("creates no branch and leaves the checkout untouched, whatever the agent does", async () => {
+    const directory = await project();
+    const before = await headOf(directory);
+    const sandbox = containerSandbox(async () => ({
+      output: "",
+      tokensUsed: tokenCount(0),
+    }));
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+    assert.equal(await headOf(directory), before);
+  });
+
+  it("returns the agent's own output and what the review cost", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: "posted findings",
+      tokensUsed: tokenCount(9_000),
+    }));
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.output, "posted findings");
+    assert.equal(result.tokensUsed, tokenCount(9_000));
+    assert.equal(result.failure, undefined);
+  });
+
+  it("reports a failed agent rather than throwing", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => {
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(result.failure ?? "", /gave up/);
+    assert.match(result.output, /gave up/);
+  });
+
+  it("takes the clone away once the review finishes", async () => {
+    const directory = await project();
+    let clone = "";
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      clone = mounted;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(await exists(clone), false);
+  });
+
+  /**
+   * `GH_REVIEW_TOKEN` is what stands between a reviewer and the developer's
+   * own push-capable credential — see `Mount` and `envFor` in
+   * container-sandbox.ts. Absent, a reviewer must not silently fall back to
+   * the implementation's token: that would leave the AC this closes ("cannot
+   * push, prevented rather than merely discouraged") unenforced again.
+   */
+  it("refuses to start a reviewer with no separately scoped credential", async (t) => {
+    const directory = await project();
+    const oauth = process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+    const reviewToken = process.env["GH_REVIEW_TOKEN"];
+    process.env["CLAUDE_CODE_OAUTH_TOKEN"] = "test-oauth-token";
+    delete process.env["GH_REVIEW_TOKEN"];
+    t.after(() => {
+      if (oauth === undefined) {
+        delete process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+      } else {
+        process.env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth;
+      }
+      if (reviewToken !== undefined) {
+        process.env["GH_REVIEW_TOKEN"] = reviewToken;
+      }
+    });
+
+    // The real container, which asks before it ever reaches docker — so this
+    // needs no docker to run, and would pass the same with it.
+    await assert.rejects(
+      containerSandbox().review({
+        ticket: REVIEW_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+      (error: Error) =>
+        error instanceof AgentNeverRan &&
+        /GH_REVIEW_TOKEN/.test(error.message),
+    );
+  });
+
+  it("shares the one lane with implementation runs on the same sandbox", async () => {
+    const directory = await project();
+    const events: string[] = [];
+    const sandbox = containerSandbox(async () => {
+      events.push("enter");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      events.push("leave");
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await Promise.all([
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.review({
+        ticket: REVIEW_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+    ]);
+
+    assert.deepEqual(events, ["enter", "leave", "enter", "leave"]);
+  });
+});
+
 describe("readAgentRun", () => {
   it("reads the agent's result and totals every token field", () => {
     const stdout = JSON.stringify({
@@ -470,7 +678,12 @@ describe("dockerCommand", () => {
   const CLONE = checkout("/tmp/clone");
 
   it("hands the agent CLI the run's spend ceiling", () => {
-    const command = dockerCommand(CLONE, "do the thing", usd(2.5));
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(2.5),
+      mount: "rw",
+    });
 
     const ceiling = command.indexOf("--max-budget-usd");
     assert.notEqual(ceiling, -1);
@@ -478,15 +691,63 @@ describe("dockerCommand", () => {
   });
 
   it("asks for print mode, which is the only mode the ceiling applies in", () => {
-    const command = dockerCommand(CLONE, "do the thing", usd(5));
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
 
     assert.ok(command.includes("--print"));
   });
 
   it("mounts the clone and never the developer's own checkout", () => {
-    const command = dockerCommand(CLONE, "do the thing", usd(5));
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
 
     assert.ok(command.includes(`${CLONE}:/repo`));
+  });
+
+  it("mounts the clone read-write by default", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
+
+    assert.ok(!command.includes(`${CLONE}:/repo:ro`));
+  });
+
+  /**
+   * Half the enforcement a reviewer's inability to push relies on — see
+   * `Mount` for the other half, the credential `envFor` forwards alongside it.
+   */
+  it("mounts the clone read-only when asked to review", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "review it",
+      spendCeiling: usd(5),
+      mount: "ro",
+    });
+
+    assert.ok(command.includes(`${CLONE}:/repo:ro`));
+  });
+
+  it("forwards the same credential names to the container regardless of mount", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "review it",
+      spendCeiling: usd(5),
+      mount: "ro",
+    });
+
+    assert.ok(command.includes("GH_TOKEN"));
+    assert.ok(command.includes("GITHUB_TOKEN"));
   });
 });
 

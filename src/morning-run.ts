@@ -9,6 +9,8 @@ import type {
   RegisteredProject,
   RepoHost,
   RepoSlug,
+  ReviewRunResult,
+  ReviewTicket,
   RunCost,
   Sandbox,
   SandboxRunResult,
@@ -19,7 +21,11 @@ import type {
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
-import { READY_FOR_AGENT_LABEL, isReviewTitle, recordRun } from "./ports/index.ts";
+import {
+  READY_FOR_AGENT_LABEL,
+  isReviewTicket,
+  recordRun,
+} from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
 import { handbackComment, type Discard } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
@@ -137,14 +143,14 @@ interface Selection {
 }
 
 /**
- * What one iteration did with the ticket it selected: finished a run, or
- * failed one and handed the ticket back.
+ * What one iteration did with the ticket it selected: finished a run, failed
+ * one and handed the ticket back, or worked a review ticket's own run.
  *
  * Nothing here is thrown. A run that gave up, and one that never happened, are
  * described rather than raised, so the invocation still reports on the
  * projects behind them.
  */
-type Iteration = Finished | Failed;
+type Iteration = Finished | Failed | Reviewed;
 
 /** An iteration whose run finished, and how its work reached the developer. */
 interface Finished {
@@ -172,7 +178,8 @@ interface Failed {
 /** One iteration's outcome, and the project and ticket that earned it. */
 export type IterationOutcome =
   | ({ repo: RepoSlug; ticket: Ticket } & Finished)
-  | ({ repo: RepoSlug; ticket: Ticket } & Failed);
+  | ({ repo: RepoSlug; ticket: Ticket } & Failed)
+  | ({ repo: RepoSlug; ticket: ReviewTicket } & Reviewed);
 
 /**
  * One project with an eligible ticket, as far as selection is concerned: the
@@ -186,6 +193,22 @@ interface Candidate {
   isReview: boolean;
   priority?: Priority;
   lastWorkedAt?: Date;
+}
+
+/**
+ * What a review ticket's own run comes to: the reviewer's output, and whether
+ * it actually landed on the pull request the ticket names. There is no pull
+ * request to name here — the review ticket already names the one it is about
+ * — and no further review to queue, since nothing reviews a review.
+ */
+interface Reviewed {
+  review: ReviewRunResult;
+  /**
+   * Whether the pull request now carries a new comment. False either when the
+   * agent's own run failed or when it exited clean but never posted, which is
+   * why this is checked rather than inferred from `review.failure` alone.
+   */
+  posted: boolean;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -410,7 +433,7 @@ async function considerProjects(
 
 /** Whether `ticket` is a review rather than an implementation. */
 function isReview(ticket: Ticket): boolean {
-  return isReviewTitle(ticket.title);
+  return isReviewTicket(ticket);
 }
 
 /** The key `worked` tracks a ticket by, unique within one invocation. */
@@ -477,10 +500,11 @@ function leastRecentlyWorkedFirst(
 }
 
 /**
- * The second step: run the selected ticket, record what that cost, and then
- * either hand the work over as a draft pull request with a review queued
- * against it or — when the run failed — put the ticket back in the
- * developer's hands.
+ * The second step: run the selected ticket and record what that cost. An
+ * implementation ticket hands its work over as a draft pull request with a
+ * review queued against it, or — when the run failed — puts the ticket back
+ * in the developer's hands; a review ticket's own run posts its findings
+ * itself and is closed once it has.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -491,6 +515,19 @@ async function work(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
 ): Promise<Iteration> {
+  if (isReviewTicket(selection.ticket)) {
+    const repo = selection.project.repo;
+    const checkout = await ports.repoHost.clone(repo);
+    return await runReview(
+      ports,
+      repo,
+      selection.ticket,
+      checkout,
+      state,
+      spendCeiling,
+    );
+  }
+
   const returned = await attemptRun(ports, selection, state, spendCeiling);
   if ("failure" in returned) {
     return handTicketBack(ports, selection.ticket, returned, { kind: "none" });
@@ -679,6 +716,51 @@ async function attemptRun(
   return { run, checkout };
 }
 
+/**
+ * A review ticket's own run: the reviewer examines the pull request the
+ * ticket names and posts its findings there itself, in a container with no
+ * write access to its clone. The loop's only remaining part is closing the
+ * ticket once that finished — a review that posted needs nobody to close it
+ * by hand.
+ *
+ * Closing rests on the pull request actually carrying a new comment, not on
+ * the sandbox process merely exiting clean: an agent can run the review skill
+ * fine and still fail its own last step, `gh pr comment`, and a ticket closed
+ * on process success alone would tell the developer a review happened when
+ * nothing was ever posted. Either way nothing did — a failed process or a
+ * clean one that posted nothing — the ticket is left ready-for-agent and
+ * comes round again for a later morning to try.
+ */
+async function runReview(
+  ports: MorningRunPorts,
+  repo: RepoSlug,
+  ticket: ReviewTicket,
+  checkout: Checkout,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+): Promise<Reviewed> {
+  const startedAt = ports.clock.now();
+  const review = await ports.sandbox.review({ ticket, checkout, spendCeiling });
+
+  state.set(
+    repo,
+    recordRun(state.get(repo), {
+      at: ports.clock.now(),
+      tokensUsed: review.tokensUsed,
+    }),
+  );
+
+  const posted =
+    review.failure === undefined &&
+    (await ports.repoHost.hasNewComment(ticket.pullRequest, startedAt));
+
+  if (posted) {
+    await ports.tracker.closeReviewTicket(ticket);
+  }
+
+  return { review, posted };
+}
+
 function outcome(
   repo: RepoSlug,
   verdict: ProjectVerdict,
@@ -741,12 +823,32 @@ function summaryLine(
   return `Nothing to do: skipped ${skipped.join(", ")}.`;
 }
 
-/** One line for one iteration: what it landed, or why it did not finish. */
+/** One line for one iteration: what it landed, why it did not finish, or what it found. */
 function describeRun(iteration: IterationOutcome): string {
   if ("failure" in iteration) {
     return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
   }
+  if ("review" in iteration) {
+    return reviewSummary(iteration);
+  }
   return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}`;
+}
+
+/**
+ * How a review ticket's own run reads to the developer: where its findings
+ * landed, or why there are none to read.
+ */
+function reviewSummary(
+  iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
+): string {
+  const { repo, ticket, review, posted } = iteration;
+  if (review.failure !== undefined) {
+    return `Reviewed ${repo} #${ticket.number}: the agent failed: ${review.failure}.`;
+  }
+  if (!posted) {
+    return `Reviewed ${repo} #${ticket.number}: the agent finished but posted nothing to ${ticket.pullRequest}. Still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+  }
+  return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}.`;
 }
 
 /**

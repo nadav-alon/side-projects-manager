@@ -284,6 +284,26 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       // the whole reason it is being thrown away.
       await run("git", ["-C", directory, "branch", "-D", branch]);
     },
+
+    async hasNewComment(
+      pullRequest: PullRequestUrl,
+      since: Date,
+    ): Promise<boolean> {
+      // Inline comments — one per finding, on the line it is actually about —
+      // not the pull request's own issue-level comments: that is the shape
+      // `reviewPromptFor` asks the reviewing agent to post in, and checking
+      // the wrong kind here would never see it land.
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        `repos/${owner}/${repo}/pulls/${number}/comments`,
+        "--jq",
+        "[.[].created_at] | max",
+      ]);
+
+      const latest = stdout.trim();
+      return latest !== "" && latest !== "null" && new Date(latest) > since;
+    },
   };
 }
 
@@ -454,6 +474,18 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
     .filter((segment) => segment !== "");
 
   return segments.slice(-2).join("/").toLowerCase() === repo.toLowerCase();
+}
+
+/** The owner, repo and number a pull request's own URL names. */
+function pullRequestParts(
+  url: PullRequestUrl,
+): { owner: string; repo: string; number: string } {
+  const match = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(url);
+  const [, owner, repo, number] = match ?? [];
+  if (owner === undefined || repo === undefined || number === undefined) {
+    throw new Error(`${url} does not look like a GitHub pull request URL.`);
+  }
+  return { owner, repo, number };
 }
 
 /** The branch the checkout is on, or undefined on a detached HEAD. */

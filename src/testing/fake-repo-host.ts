@@ -75,6 +75,11 @@ export class FakeRepoHost implements RepoHost {
   readonly pullRequests: FakePullRequest[] = [];
   /** Branches discarded, in order. */
   readonly discarded: FakeDiscard[] = [];
+  /** Every `hasNewComment` check made, in order. */
+  readonly commentChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
+
+  /** What the next `hasNewComment` check finds. A comment posted, unless set. */
+  newCommentPosted = true;
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: string) => Proposal = (branch) => ({
@@ -142,5 +147,13 @@ export class FakeRepoHost implements RepoHost {
 
   async discardBranch(directory: Checkout, branch: Branch): Promise<void> {
     this.discarded.push({ directory, branch });
+  }
+
+  async hasNewComment(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<boolean> {
+    this.commentChecks.push({ pullRequest, since });
+    return this.newCommentPosted;
   }
 }

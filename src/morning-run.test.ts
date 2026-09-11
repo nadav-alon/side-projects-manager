@@ -11,11 +11,13 @@ import {
   branch,
   checkout,
   priority,
+  pullRequestUrl,
   repoSlug,
   reserveFraction,
   reviewTitle,
   tokenCount,
   usd,
+  type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
 import {
@@ -39,9 +41,11 @@ function verdicts(projects: ProjectOutcome[]): [string, string][] {
   return projects.map((project) => [project.repo, project.verdict]);
 }
 
-/** The finished half of an iteration outcome — undefined if it failed instead. */
+/** The finished half of an iteration outcome — undefined if it failed or reviewed instead. */
 function finished(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && !("failure" in iteration)
+  return iteration !== undefined &&
+    !("failure" in iteration) &&
+    !("review" in iteration)
     ? iteration
     : undefined;
 }
@@ -59,6 +63,13 @@ function pullRequestOf(iteration: IterationOutcome | undefined) {
 
 function reviewTicketOf(iteration: IterationOutcome | undefined) {
   return finished(iteration)?.handover?.reviewTicket;
+}
+
+/** The sandbox run an iteration made — absent for a review, or a run that never started. */
+function ranWith(iteration: IterationOutcome | undefined) {
+  return iteration !== undefined && !("review" in iteration)
+    ? iteration.run
+    : undefined;
 }
 
 describe("morningRun", () => {
@@ -242,13 +253,23 @@ describe("morningRun", () => {
   });
 
   describe("selection ordering", () => {
+    /** The pull request every `reviewOf` in this suite names, since none of them care which. */
+    const SOME_PULL_REQUEST = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/1",
+    );
+
     /**
-     * A ticket whose title marks it as a review of `parent`'s pull request,
-     * ready to add to `parent`'s own repo — a review always lives beside the
-     * ticket it reviews, never in another project.
+     * A ticket that names `parent`'s pull request, ready to add to `parent`'s
+     * own repo — a review always lives beside the ticket it reviews, never in
+     * another project. Naming the pull request, not just the title, is what
+     * `isReviewTicket` reads to tell it from an implementation.
      */
     function reviewOf(parent: Ticket, number: number): Omit<Ticket, "repo"> {
-      return { number, title: reviewTitle(parent) };
+      return {
+        number,
+        title: reviewTitle(parent),
+        pullRequest: SOME_PULL_REQUEST,
+      };
     }
 
     it("selects a review ticket before an implementation ticket in the same backlog", async () => {
@@ -264,7 +285,10 @@ describe("morningRun", () => {
 
       await morningRun(ports);
 
-      assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
+      // The review goes first — the invocation goes on afterwards to work the
+      // implementation too, since nothing else was eligible, but that is a
+      // second iteration and not what this test is about.
+      assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
     });
 
     it("selects a project with a pending review before one with only an implementation ticket, regardless of registry order", async () => {
@@ -285,8 +309,8 @@ describe("morningRun", () => {
 
       // PILOT's review goes first, however MANAGER — registered first, no
       // priority set for either — would otherwise have sorted.
-      assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
-      assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
+      assert.equal(ports.sandbox.reviews[0]?.ticket.repo, PILOT);
+      assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
     });
 
     it("among implementation tickets, an explicit priority wins over registry order", async () => {
@@ -539,7 +563,7 @@ describe("morningRun", () => {
 
       const report = await morningRun(ports);
 
-      assert.deepEqual(report.runs[0]?.run, {
+      assert.deepEqual(finished(report.runs[0])?.run, {
         branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1", "c0ffee2"],
         output: "implemented the thing",
@@ -760,18 +784,22 @@ describe("morningRun", () => {
     it("still leaves the project recorded as worked, at what the run cost", async () => {
       const ports = fakePorts();
       ran(ports);
+      ports.sandbox.reviewResult = () => ({
+        output: "",
+        tokensUsed: tokenCount(3_000),
+      });
 
       await morningRun(ports);
 
       // Two runs: the implementation, and — since it committed and left a
       // review ticket in the same, otherwise-dry backlog — the review that
-      // this same invocation went straight on to work.
+      // this same invocation went straight on to work, at its own cost.
       const state = await ports.store.loadState();
       assert.deepEqual(state.get(PILOT), {
         lastWorkedAt: FROZEN_NOW,
         runs: [
           { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
-          { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+          { at: FROZEN_NOW, tokensUsed: tokenCount(3_000) },
         ],
       });
     });
@@ -830,15 +858,17 @@ describe("morningRun", () => {
       // The agent is handed the ticket and nothing else: whatever it did or
       // failed to do in the sandbox, the review is the loop's to open.
       //
-      // Two sandbox runs happen here — the implementation, and the review
-      // this same invocation goes straight on to work, since nothing else was
+      // One implementation run, and one review — a review ticket's own run,
+      // this same invocation goes straight on to work since nothing else was
       // eligible — but only one review ticket, since a review does not earn a
       // review of its own.
       const run = t.mock.method(ports.sandbox, "run");
+      const review = t.mock.method(ports.sandbox, "review");
 
       await morningRun(ports);
 
-      assert.equal(run.mock.callCount(), 2);
+      assert.equal(run.mock.callCount(), 1);
+      assert.equal(review.mock.callCount(), 1);
       assert.equal(ports.tracker.reviewTickets.length, 1);
     });
 
@@ -934,6 +964,164 @@ describe("morningRun", () => {
       assert.deepEqual(state.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
+    });
+  });
+
+  describe("a review ticket, selected", () => {
+    const PULL_REQUEST = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/12",
+    );
+
+    /** A review ticket, eligible like any other, naming the pull request it asks about. */
+    function queued(ports: FakePorts): ReviewTicket {
+      ports.store.register(PILOT);
+      return ports.tracker.addEligibleTicket(PILOT, {
+        number: 42,
+        title: "Review the draft pull request for #7",
+        pullRequest: PULL_REQUEST,
+      }) as ReviewTicket;
+    }
+
+    it("runs a reviewing agent rather than an implementing one", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      const run = t.mock.method(ports.sandbox, "run");
+      const review = t.mock.method(ports.sandbox, "review");
+
+      await morningRun(ports);
+
+      assert.equal(run.mock.callCount(), 0);
+      assert.equal(review.mock.callCount(), 1);
+    });
+
+    it("passes the review ticket and the project checkout to the sandbox", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.sandbox.reviews, [
+        {
+          ticket,
+          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          spendCeiling: DEFAULT_BUDGET.spendCeiling,
+        },
+      ]);
+    });
+
+    it("closes the review ticket once it finished", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(backlog, []);
+    });
+
+    it("leaves a failed review open, for a later morning to try again", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        output: "the agent gave up",
+        tokensUsed: tokenCount(1_000),
+        failure: "the agent gave up",
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(backlog, [ticket]);
+    });
+
+    it("leaves the ticket open when the agent finished but posted nothing, for a later morning to try again", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      // The sandbox process exited clean, but its own last step — posting the
+      // aggregated report — never landed on the pull request.
+      ports.repoHost.newCommentPosted = false;
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(backlog, [ticket]);
+    });
+
+    it("checks the pull request for a comment made no earlier than when the review started", async () => {
+      const ports = fakePorts();
+      queued(ports);
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.commentChecks, [
+        { pullRequest: PULL_REQUEST, since: FROZEN_NOW },
+      ]);
+    });
+
+    it("is reported with nothing posted, when the agent finished but the comment never landed", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.newCommentPosted = false;
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /posted nothing/i);
+    });
+
+    it("opens no pull request and queues no further review", async () => {
+      const ports = fakePorts();
+      queued(ports);
+
+      const report = await morningRun(ports);
+
+      assert.equal(ports.repoHost.pullRequests.length, 0);
+      assert.equal(ports.tracker.reviewTickets.length, 0);
+      assert.equal(pullRequestOf(report.runs[0]), undefined);
+      assert.equal(reviewTicketOf(report.runs[0]), undefined);
+    });
+
+    it("records what the review cost", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        output: "posted findings",
+        tokensUsed: tokenCount(9_000),
+      });
+
+      await morningRun(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(9_000) },
+      ]);
+    });
+
+    it("is reported as reviewed, naming the pull request findings were posted to", async () => {
+      const ports = fakePorts();
+      queued(ports);
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.match(report.message, /Reviewed nadav-alon\/pilot #42/);
+      assert.match(report.message, new RegExp(PULL_REQUEST.replace(/\//g, "\\/")));
+    });
+
+    it("is reported with the agent's failure, when the review did not finish", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        output: "the agent gave up",
+        tokensUsed: tokenCount(1_000),
+        failure: "the agent gave up",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /the agent failed: the agent gave up/i);
     });
   });
 
@@ -1186,7 +1374,7 @@ describe("morningRun", () => {
 
       const report = await morningRun(ports);
 
-      assert.deepEqual(report.runs[0]?.run?.commits, ["c0ffee1"]);
+      assert.deepEqual(ranWith(report.runs[0])?.commits, ["c0ffee1"]);
       assert.equal(failureOf(report.runs[0])?.reason, GAVE_UP);
     });
   });
