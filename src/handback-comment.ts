@@ -1,5 +1,5 @@
 import type { RunFailure } from "./morning-run.ts";
-import type { SandboxRunResult } from "./ports/index.ts";
+import type { PullRequestUrl, SandboxRunResult, Ticket } from "./ports/index.ts";
 import { READY_FOR_AGENT_LABEL } from "./ports/index.ts";
 
 /**
@@ -63,6 +63,38 @@ export function handbackComment(
     `What it said:\n\n${quote(run?.output ?? "")}`,
     ...branchNote(run, discard),
     closing,
+  ].join("\n\n");
+}
+
+/**
+ * What a finished run's ticket is told once its work is waiting in a draft
+ * pull request: where to find it, and that the ticket itself is out of the
+ * queue.
+ *
+ * Names the review ticket as well as the pull request, since both are new
+ * and the ticket comment is where the developer is most likely to read them
+ * together.
+ */
+export function handoverComment(
+  pullRequest: PullRequestUrl,
+  reviewTicket: Ticket,
+): string {
+  return [
+    `The morning loop finished this ticket. Its work is waiting in a draft pull request: ${pullRequest}`,
+    `A review has been queued as #${reviewTicket.number}.`,
+    `This ticket is yours again: it will not be retried.`,
+  ].join("\n\n");
+}
+
+/**
+ * What a finished run's ticket is told when the run left nothing to review:
+ * the agent finished without committing anything, so there is no pull
+ * request and no review to name.
+ */
+export function committedNothingComment(): string {
+  return [
+    `The morning loop ran this ticket and committed nothing.`,
+    `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
   ].join("\n\n");
 }
 

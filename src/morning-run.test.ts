@@ -759,6 +759,37 @@ describe("morningRun", () => {
       assert.match(report.message, new RegExp(FakeRepoHost.RUN_PULL_REQUEST));
     });
 
+    it("hands the implementation ticket back, with a comment naming its draft pull request", async () => {
+      const ports = fakePorts();
+      const ticket = ran(ports);
+
+      await morningRun(ports);
+
+      const handback = ports.tracker.handbacks.find(
+        (entry) => entry.ticket.number === ticket.number,
+      );
+      assert.ok(handback, "the implementation ticket should have been handed back");
+      assert.match(
+        handback.comment,
+        new RegExp(FakeRepoHost.RUN_PULL_REQUEST),
+      );
+    });
+
+    it("takes the implementation ticket out of the queue, so a later invocation does not select it again", async () => {
+      const ports = fakePorts();
+      ran(ports);
+
+      // One invocation works both the implementation ticket and, straight
+      // after, the review it queued — this same fake's review always posts.
+      // A later invocation finding nothing at all is what proves neither
+      // ticket is still eligible.
+      await morningRun(ports);
+      const tomorrow = await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
     it("is not opened for a run that committed nothing", async () => {
       const ports = fakePorts();
       ran(ports, { commits: [] });
@@ -930,20 +961,19 @@ describe("morningRun", () => {
       assert.deepEqual(order, ["pull request", "review ticket"]);
     });
 
-    it("leaves the ticket it reviews exactly as it found it", async () => {
+    it("takes the ticket it reviews out of the queue, once its review is queued beside it", async () => {
       const ports = fakePorts();
       const ticket = ranSuccessfully(ports);
 
       await morningRun(ports);
 
-      // Still open, still eligible, still itself: a review is queued beside
-      // the ticket that earned it, and closing that one is the developer's.
+      // Handed back rather than left eligible: a review is queued beside the
+      // ticket that earned it, and the ticket itself goes to the developer,
+      // so a later morning does not select it again — closing the review
+      // ticket stays the developer's, separately.
       const backlog = await ports.tracker.listEligibleTickets(PILOT);
-      assert.ok(backlog.some((eligible) => eligible.number === ticket.number));
-      assert.deepEqual(
-        backlog.find((eligible) => eligible.number === ticket.number),
-        ticket,
-      );
+      assert.ok(!backlog.some((eligible) => eligible.number === ticket.number));
+      assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
     });
 
     it("is reported, so the developer is told the review is queued", async () => {
@@ -1422,7 +1452,7 @@ describe("morningRun", () => {
   });
 
   describe("a run that finishes", () => {
-    it("hands nothing back and discards nothing", async () => {
+    it("discards nothing, since a run that committed nothing left no branch behind", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
@@ -1433,8 +1463,60 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.equal(failureOf(report.runs[0]), undefined);
-      assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.discarded, []);
+    });
+
+    it("hands the ticket back, with a comment saying it committed nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await morningRun(ports);
+
+      assert.equal(ports.tracker.handbacks.length, 1);
+      assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        /committed nothing/,
+      );
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(backlog, []);
+    });
+
+    it("takes the ticket out of the queue, so a later invocation does not select it again", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+
+      await morningRun(ports);
+      const tomorrow = await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("reports a tracker that refuses the relabel, rather than throwing", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      t.mock.method(ports.tracker, "handBack", async () => {
+        throw new Error("gh is not logged in");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.match(report.message, /could not be handed back/);
+      assert.match(report.message, /gh is not logged in/);
     });
   });
   /**
