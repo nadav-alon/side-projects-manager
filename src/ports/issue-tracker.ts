@@ -53,8 +53,8 @@ export interface IssueTracker {
   ): Promise<Ticket>;
 
   /**
-   * Gives `ticket` back to the developer after a failed run: leaves `reason`
-   * on it as a comment, and moves it from ready-for-agent to ready-for-human.
+   * Gives `ticket` back to the developer after a failed run: comments `comment`
+   * on it, and moves it from ready-for-agent to ready-for-human.
    *
    * The comment and the relabel are one operation, because a ticket the loop
    * has stopped working on that nobody has been told about is the failure this
@@ -62,7 +62,7 @@ export interface IssueTracker {
    * ticket without ready-for-agent is not eligible, so tomorrow's invocation
    * cannot select it and spend another morning on it.
    */
-  handBack(ticket: Ticket, reason: string): Promise<void>;
+  handBack(ticket: Ticket, comment: string): Promise<void>;
 }
 
 /**

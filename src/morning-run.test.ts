@@ -741,7 +741,7 @@ describe("morningRun", () => {
         throw new Error(BROKE);
       });
 
-      assert.equal((await morningRun(gaveUp)).failure?.kind, "agent");
+      assert.equal((await morningRun(gaveUp)).failure?.kind, "gave-up");
       assert.equal((await morningRun(broke)).failure?.kind, "infrastructure");
     });
 
@@ -766,8 +766,8 @@ describe("morningRun", () => {
 
         const [handback] = ports.tracker.handbacks;
         assert.equal(handback?.ticket.number, 7);
-        assert.match(handback.reason, new RegExp(GAVE_UP));
-        assert.match(handback.reason, new RegExp(SAID));
+        assert.match(handback.comment, new RegExp(GAVE_UP));
+        assert.match(handback.comment, new RegExp(SAID));
       });
 
       it("names the broken sandbox rather than blaming the agent", async (t) => {
@@ -779,8 +779,8 @@ describe("morningRun", () => {
         await morningRun(ports);
 
         const [handback] = ports.tracker.handbacks;
-        assert.match(handback?.reason ?? "", new RegExp(BROKE));
-        assert.match(handback?.reason ?? "", /sandbox|infrastructure/i);
+        assert.match(handback?.comment ?? "", new RegExp(BROKE));
+        assert.match(handback?.comment ?? "", /sandbox|infrastructure/i);
       });
     });
 
@@ -843,7 +843,7 @@ describe("morningRun", () => {
 
       const report = await morningRun(ports);
 
-      assert.equal(report.failure?.kind, "agent");
+      assert.equal(report.failure?.kind, "gave-up");
       assert.equal(report.failure?.handedBack, false);
       assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
@@ -866,7 +866,7 @@ describe("morningRun", () => {
       // morning; a branch git will not delete must not take it down.
       assert.equal(report.failure?.handedBack, true);
       assert.match(
-        ports.tracker.handbacks[0]?.reason ?? "",
+        ports.tracker.handbacks[0]?.comment ?? "",
         /could not be discarded/,
       );
     });
@@ -884,7 +884,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.deepEqual(ports.repoHost.discarded, []);
-      assert.doesNotMatch(ports.tracker.handbacks[0]?.reason ?? "", /discard/);
+      assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /discard/);
     });
 
     it("keeps the comment small enough for a tracker to accept it", async () => {
@@ -902,7 +902,7 @@ describe("morningRun", () => {
 
       // GitHub's own limit on a comment body. A comment it rejects is a
       // ticket that never gets handed back.
-      assert.ok((ports.tracker.handbacks[0]?.reason.length ?? 0) < 65_536);
+      assert.ok((ports.tracker.handbacks[0]?.comment.length ?? 0) < 65_536);
     });
 
     it("quotes output that contains code fences without breaking out of the quote", async () => {
@@ -919,7 +919,7 @@ describe("morningRun", () => {
 
       // A fence longer than any run of backticks inside, or the rest of the
       // output renders as Markdown and its `#123`s become cross-references.
-      assert.match(ports.tracker.handbacks[0]?.reason ?? "", /````\n/);
+      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /````\n/);
     });
 
     it("reports the run alongside the failure, so its commits are still visible", async () => {

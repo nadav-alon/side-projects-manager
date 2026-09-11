@@ -19,7 +19,7 @@ export interface FakeReviewTicket {
 /** One ticket given back to the developer, and what it was told. */
 export interface FakeHandback {
   ticket: Ticket;
-  reason: string;
+  comment: string;
 }
 
 /**
@@ -73,8 +73,8 @@ export class FakeIssueTracker implements IssueTracker {
     return review;
   }
 
-  async handBack(ticket: Ticket, reason: string): Promise<void> {
-    this.handbacks.push({ ticket, reason });
+  async handBack(ticket: Ticket, comment: string): Promise<void> {
+    this.handbacks.push({ ticket, comment });
     // Losing ready-for-agent is losing eligibility, so a handed-back ticket
     // leaves the backlog here exactly as it leaves the real one. Tests assert
     // no retry by invoking the loop again and finding nothing to select.

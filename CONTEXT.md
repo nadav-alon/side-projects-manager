@@ -128,6 +128,10 @@ _Avoid_: crashed, errored, failed (say which of the two)
 A run that never happened, because the sandbox or the repo host could not do its part. The setup is the problem. Reported apart from an agent that gave up, because the developer's next move differs.
 _Avoid_: outage, crash, system error
 
+**Discard**:
+What becomes of a failed run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
+_Avoid_: clean up, prune, delete
+
 **Backlog**:
 One project's eligible tickets.
 _Avoid_: queue (the queue spans all projects), todo list

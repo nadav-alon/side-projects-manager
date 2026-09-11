@@ -19,6 +19,7 @@ import {
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
+import { errorMessage } from "../error-message.ts";
 
 const run = promisify(execFile);
 
@@ -55,8 +56,25 @@ export interface AgentRun {
 }
 
 /**
+ * The container could not run the agent at all: docker is missing or not
+ * running, the image is not built, or there is no credential for the agent to
+ * sign in with.
+ *
+ * Thrown rather than reported, because nothing ran — there are no commits, no
+ * output and no spend to keep — and because it is the setup that needs fixing,
+ * not the ticket. Every other way a container ends badly is an agent that ran
+ * and stopped short, and comes back as a result carrying `failure`.
+ */
+export class AgentNeverRan extends Error {
+  override name = "AgentNeverRan";
+}
+
+/**
  * Runs the agent against the clone mounted at `directory`, told to do
  * `prompt`, and allowed to spend at most `spendCeiling`.
+ *
+ * Throws `AgentNeverRan` when the agent could not be started. Anything else it
+ * throws is an agent that ran and failed.
  *
  * A parameter rather than a hard-wired `docker run` so that the git half of
  * the sandbox — the clone, the branch, the commits — can be exercised without
@@ -158,7 +176,7 @@ async function runOnClone(
     // a warning, not the loss of a branch that was pushed successfully.
     await rm(clone, { recursive: true, force: true }).catch(
       (error: unknown) => {
-        console.warn(`Left ${clone} behind: ${describe(error)}`);
+        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
       },
     );
   }
@@ -172,6 +190,10 @@ async function runOnClone(
  * went wrong, and the tokens it spent were spent. Losing all three because the
  * process exited non-zero is the silent failure this adapter exists to avoid,
  * so the throw becomes a result the loop can record and report.
+ *
+ * Except a container that never started the agent. That has none of the three
+ * to lose, and reporting it as a run would post "the agent gave up" on a ticket
+ * nobody ever worked — so it goes to the caller as the sandbox failing.
  */
 async function attempt(
   container: Container,
@@ -182,10 +204,13 @@ async function attempt(
   try {
     return await container(clone, prompt, spendCeiling);
   } catch (error: unknown) {
+    if (error instanceof AgentNeverRan) {
+      throw error;
+    }
     return {
-      output: describe(error),
+      output: errorMessage(error),
       tokensUsed: tokenCount(0),
-      failure: describe(error),
+      failure: errorMessage(error),
     };
   }
 }
@@ -274,10 +299,6 @@ async function commitsSince(clone: Checkout, base: string): Promise<string[]> {
   return stdout.split("\n").filter((line) => line !== "");
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /**
  * The real container: the image from the Dockerfile, with the clone bound at
  * the workdir the image already declares.
@@ -289,6 +310,14 @@ function describe(error: unknown): string {
  * exported is not this adapter's business.
  */
 const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
+  // Asked here rather than left to the agent, which would start, fail to sign
+  // in, and exit non-zero exactly as one that gave up on the ticket does.
+  if (!process.env["CLAUDE_CODE_OAUTH_TOKEN"]) {
+    throw new AgentNeverRan(
+      "CLAUDE_CODE_OAUTH_TOKEN is not set, so the agent would have no way to sign in. Export it (see README) and run again.",
+    );
+  }
+
   const command = dockerCommand(directory, prompt, spendCeiling);
 
   try {
@@ -297,14 +326,38 @@ const dockerContainer: Container = async (directory, prompt, spendCeiling) => {
     });
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
-    // A non-zero exit is an agent that gave up, an image that is not built, or
-    // a credential that is not set — and in the first case it may have
-    // committed first. `execFile` hangs the output it did capture off the
-    // error, so the run still comes back with what it said and what it spent.
+    if (dockerNeverRan(error)) {
+      throw new AgentNeverRan(
+        `docker could not start the agent: ${errorMessage(error)}`,
+      );
+    }
+    // Any other non-zero exit is the agent's own, and it may have committed
+    // first. `execFile` hangs the output it did capture off the error, so the
+    // run still comes back with what it said and what it spent.
     const { stdout, stderr } = captured(error);
-    return { ...readAgentRun(stdout, stderr), failure: describe(error) };
+    return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
   }
 };
+
+/**
+ * Whether `docker run` failed before the agent inside it ran.
+ *
+ * Docker keeps three exit codes for itself so that they can be told apart from
+ * the container's: 125 when docker could not run the container (the daemon is
+ * not running, the image is not there), 126 when the entrypoint could not be
+ * invoked, and 127 when it could not be found. And `ENOENT` is docker not being
+ * installed at all. Every other exit code is the agent's.
+ *
+ * Exported so the line can be asserted without docker installed: it is what
+ * decides whether a ticket is told its agent gave up.
+ */
+export function dockerNeverRan(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  const { code } = error;
+  return code === "ENOENT" || code === 125 || code === 126 || code === 127;
+}
 
 /**
  * What the manager asks docker to run: the image, the clone bound at the

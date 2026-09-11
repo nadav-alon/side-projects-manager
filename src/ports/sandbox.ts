@@ -58,9 +58,10 @@ export interface Sandbox {
    * its own, so the branch the checkout is on is never committed to; the
    * branch it leaves behind is the one named in the result.
    *
-   * Rejects only when the sandbox itself could not be set up or taken down.
-   * An agent that failed comes back as a result carrying `failure`, because
-   * its commits, its output and its spend are all still the morning's.
+   * Rejects only when the sandbox itself could not be set up or taken down,
+   * which includes a container that could not start the agent at all. An
+   * agent that ran and failed comes back as a result carrying `failure`,
+   * because its commits, its output and its spend are all still the morning's.
    */
   run(request: RunRequest): Promise<SandboxRunResult>;
 }

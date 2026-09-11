@@ -39,18 +39,23 @@ the ticket says what happened and quotes what the agent said, and the ticket mov
 without `ready-for-agent` is not eligible tomorrow. A genuinely too-hard ticket left in the queue
 would otherwise cost a morning every morning.
 
-The two ways a run fails are reported apart, because the developer's next move differs: an **agent**
-failure is a ticket to rewrite or drop, an **infrastructure** failure is a sandbox or a credential
-to fix. The sandbox port draws the line — it rejects only when it could not set itself up or tear
-itself down, and reports an agent that gave up as a result carrying `failure`.
+The two ways a run fails are reported apart, because the developer's next move differs: an agent
+that **gave up** is a ticket to rewrite or drop, an **infrastructure** failure is a sandbox or a
+credential to fix. The sandbox port draws the line — it rejects when it could not set itself up,
+start the agent, or tear itself down, and reports an agent that gave up as a result carrying
+`failure`. The container adapter counts docker's own exit codes (125, 126 and 127), a missing
+`docker`, and an unset `CLAUDE_CODE_OAUTH_TOKEN` as the agent never having run; every other non-zero
+exit is the agent's.
 
 Neither aborts the invocation. The iteration ends, the summary says what happened, and the projects
-behind it are still reachable — though the command still exits non-zero, so a schedule watching a
-permanently broken sandbox is told about it.
+behind it are still reachable. An infrastructure failure still exits non-zero, so a schedule
+watching a permanently broken sandbox is told about it; an agent that gave up exits zero, since its
+ticket has been handed back and retrying the morning would run straight into the no-retry rule.
 
 The relabel is the load-bearing half, and the order reflects that: a branch git will not delete (one
 checked out in a worktree, say) is reported in the comment rather than allowed to stop the ticket
-being handed back. If the tracker itself cannot be reached, the summary says the ticket is still
+being handed back, and `ready-for-human` is created in a project that has never used it before it
+is applied. If the tracker itself cannot be reached, the summary says the ticket is still
 `ready-for-agent` and needs relabelling by hand.
 
 Runs are serialized within one process — a second run waits for the first rather than starting a
