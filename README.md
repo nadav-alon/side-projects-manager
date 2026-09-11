@@ -31,7 +31,7 @@ directly callable, unguarded, exactly as before.
 both on the current machine: a cron line for the schedule, and a snippet appended to `~/.bashrc` and
 `~/.zshrc` for the logon guard. It edits the developer's own crontab and shell rc files, so nothing in
 this repo runs it automatically — it's a command the developer runs once, and it's safe to run again
-after a checkout moves. `TRIGGER_HOUR` overrides the default schedule hour (8).
+after a checkout moves.
 
 ## Running a ticket
 

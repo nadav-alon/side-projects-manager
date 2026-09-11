@@ -17,7 +17,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TRIGGER_SCRIPT="$REPO_DIR/src/bin/guarded-morning-run.ts"
 LOG_FILE="${SIDE_PROJECTS_MANAGER_HOME:-$REPO_DIR}/trigger.log"
 NODE_BIN="$(command -v node)"
-SCHEDULE_HOUR="${TRIGGER_HOUR:-8}"
+SCHEDULE_HOUR=8
 
 CRON_MARKER="# side-projects-manager: daily schedule (see scripts/install-triggers.sh)"
 CRON_LINE="0 $SCHEDULE_HOUR * * * $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"

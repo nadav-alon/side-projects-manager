@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { Day } from "../ports/index.ts";
 import type { TriggerLock } from "../trigger-guard.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
@@ -21,7 +22,7 @@ export function fileTriggerLock(home: string = MANAGER_HOME): TriggerLock {
   const directory = path.join(home, LOCK_DIRECTORY);
 
   return {
-    async claim(day: string): Promise<boolean> {
+    async claim(day: Day): Promise<boolean> {
       await mkdir(directory, { recursive: true });
       try {
         await writeFile(path.join(directory, day), "", { flag: "wx" });

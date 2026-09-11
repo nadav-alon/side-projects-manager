@@ -16,12 +16,14 @@ export {
 export { FakeSandbox } from "./fake-sandbox.ts";
 export {
   callWith,
+  emptyBacklogGh,
   recordingGh,
   valueOf,
   type RecordedGh,
 } from "./recording-gh.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { FakeTriggerLock } from "./fake-trigger-lock.ts";
+export { tempHome } from "./temp-home.ts";
 export { NO_USAGE, FakeUsageLedger, spent } from "./fake-usage-ledger.ts";
 export {
   fakeNewProjectPorts,

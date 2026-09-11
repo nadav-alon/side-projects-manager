@@ -3,38 +3,13 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, it, type TestContext } from "node:test";
+import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
-import {
-  callWith,
-  recordingGh,
-  type RecordedGh,
-} from "../testing/index.ts";
+import { callWith, emptyBacklogGh } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "morning-run.ts");
-
-/**
- * Stands in for `gh` for the length of one test: an empty backlog for
- * whatever repo is asked, and a summary issue "created" without leaving one
- * behind. `main()` now publishes a summary on every invocation, so every
- * scenario here writes — and this suite is checked against a real tracker
- * nowhere else, since a write that landed on the real manager repo on every
- * test run is not a cost this suite may pay.
- */
-async function stubGh(t: TestContext): Promise<RecordedGh> {
-  return recordingGh(
-    t,
-    [
-      `case "$1 $2" in`,
-      `  "issue list") echo "[]" ;;`,
-      `  "issue create") echo "https://github.com/nadav-alon/side-projects-manager/issues/0" ;;`,
-      `  *) : ;;`,
-      `esac`,
-    ].join("\n"),
-  );
-}
 
 /**
  * The command against its own manager home, so the suite reads and writes
@@ -59,7 +34,7 @@ async function home(registry?: unknown): Promise<string> {
 
 describe("the morning-run command", () => {
   it("exits successfully and says there was nothing to do", async (t) => {
-    await stubGh(t);
+    await emptyBacklogGh(t);
 
     const { stdout, stderr } = await run(await home());
 
@@ -68,7 +43,7 @@ describe("the morning-run command", () => {
   });
 
   it("reports the registered projects it skipped, and why", async (t) => {
-    await stubGh(t);
+    await emptyBacklogGh(t);
 
     const directory = await home({
       projects: [
@@ -87,7 +62,7 @@ describe("the morning-run command", () => {
   });
 
   it("leaves a state document behind for the next morning", async (t) => {
-    await stubGh(t);
+    await emptyBacklogGh(t);
 
     const directory = await home();
 
@@ -98,7 +73,7 @@ describe("the morning-run command", () => {
   });
 
   it("reports a broken registry in one line, and still publishes a summary", async (t) => {
-    const gh = await stubGh(t);
+    const gh = await emptyBacklogGh(t);
 
     const directory = await home({ projects: [{ repo: "pilot" }] });
 
@@ -122,7 +97,7 @@ describe("the morning-run command", () => {
   });
 
   it("publishes exactly one summary issue in the manager repo", async (t) => {
-    const gh = await stubGh(t);
+    const gh = await emptyBacklogGh(t);
 
     await run(await home());
 

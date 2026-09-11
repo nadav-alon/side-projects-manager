@@ -47,7 +47,7 @@ Whatever calls `morningRun`: the daily schedule, the logon guard, or any future 
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
-The trigger that fires on first login of the day, so a machine left off overnight doesn't silently skip a day.
+The trigger that fires on every new interactive shell, relying on the once-per-day lock to act only the first time that happens each day — so a machine left off overnight doesn't silently skip a day.
 _Avoid_: startup hook, login script
 
 **Once-per-day lock**:

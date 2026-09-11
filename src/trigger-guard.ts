@@ -1,4 +1,4 @@
-import type { Clock } from "./ports/index.ts";
+import { day, type Clock, type Day } from "./ports/index.ts";
 
 /**
  * What a trigger needs to coordinate with every other trigger: a way to claim
@@ -11,18 +11,18 @@ import type { Clock } from "./ports/index.ts";
  */
 export interface TriggerLock {
   /**
-   * Claims `day` for the caller. Returns `true` the first time anything
-   * claims a given day, `false` to every later caller the same day — whether
-   * that caller is a second trigger racing the first, or the same trigger
+   * Claims `day` for the trigger. Returns `true` the first time anything
+   * claims a given day, `false` to every later trigger the same day —
+   * whether that's a second trigger racing the first, or the same trigger
    * asking again. Persisted, so the claim survives a reboot between the
    * asking and the next, and a run that fails after claiming it.
    */
-  claim(day: string): Promise<boolean>;
+  claim(day: Day): Promise<boolean>;
 }
 
 /**
  * Runs `invoke` for the calendar day `clock` reports, but only for whichever
- * caller gets here first that day (CONTEXT.md: Invocation). Returns whether
+ * trigger gets here first that day (CONTEXT.md: Invocation). Returns whether
  * this call was the one that ran it.
  *
  * The day is claimed before `invoke` runs, not after. A run that fails still
@@ -49,9 +49,9 @@ export async function runOncePerDay(
  * timezone a developer's schedule and logon happen in, so a day boundary
  * lands where they'd expect it rather than at UTC midnight.
  */
-function dayOf(at: Date): string {
+function dayOf(at: Date): Day {
   const year = at.getFullYear();
   const month = `${at.getMonth() + 1}`.padStart(2, "0");
   const date = `${at.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${date}`;
+  return day(`${year}-${month}-${date}`);
 }

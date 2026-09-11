@@ -66,6 +66,27 @@ export async function recordingGh(
   };
 }
 
+/**
+ * Stands in for `gh` for the length of one test: an empty backlog for
+ * whatever repo is asked, and a summary issue "created" without leaving one
+ * behind — so a suite that writes on every invocation isn't checked against
+ * the real tracker.
+ */
+export async function emptyBacklogGh(t: {
+  after: (fn: () => void) => void;
+}): Promise<RecordedGh> {
+  return recordingGh(
+    t,
+    [
+      `case "$1 $2" in`,
+      `  "issue list") echo "[]" ;;`,
+      `  "issue create") echo "https://github.com/nadav-alon/side-projects-manager/issues/0" ;;`,
+      `  *) : ;;`,
+      `esac`,
+    ].join("\n"),
+  );
+}
+
 /** The first invocation carrying all of `arguments_`, if there was one. */
 export function callWith(
   calls: string[][],
