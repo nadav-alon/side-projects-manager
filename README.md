@@ -43,7 +43,13 @@ directly callable, unguarded, exactly as before.
 both on the current machine: a cron line for the schedule, and a snippet appended to `~/.bashrc` and
 `~/.zshrc` for the logon guard. It edits the developer's own crontab and shell rc files, so nothing in
 this repo runs it automatically — it's a command the developer runs once, and it's safe to run again
-after a checkout moves.
+after a checkout moves. Re-running also rewrites an rc snippet left behind by an older version of the
+script, so a fix to the snippet reaches machines that already have it installed.
+
+The snippet backgrounds the guard inside a subshell — `( … & )` rather than a bare `&`. An rc file
+that backgrounds a job directly makes interactive zsh print `[1] <pid>` over the prompt at every
+login; `disown` can't suppress that, because the line is printed when the job is created, before
+`disown` runs.
 
 ## Running a ticket
 
