@@ -24,6 +24,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isBrokenOut,
   isReviewTicket,
   recordRun,
 } from "./ports/index.ts";
@@ -140,6 +141,13 @@ export interface ProjectOutcome {
    * report says what was true when the decision was made.
    */
   lastWorkedAt?: Date;
+  /**
+   * Tickets this scan found carrying ready-for-agent but passed over for
+   * being broken out, in backlog order. What makes a backlog that looked
+   * full but yielded nothing explicable, rather than indistinguishable from
+   * one that was simply empty.
+   */
+  passedOverAsBrokenOut?: Ticket[];
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -536,15 +544,23 @@ async function considerProjects(
       continue;
     }
 
-    const backlog = (
+    const eligible = (
       await ports.tracker.listEligibleTickets(project.repo)
     ).filter((ticket) => !worked.has(ticketKey(ticket)));
+    // A ticket whose work has moved into open sub-issues is a container, not
+    // work of its own — set aside here rather than in the tracker's query, so
+    // the rule can be exercised against the fake and the summary can still
+    // name what it passed over.
+    const brokenOut = eligible.filter(isBrokenOut);
+    const backlog = eligible.filter((ticket) => !isBrokenOut(ticket));
     // A review in the same backlog as its parent ticket is worked before it,
     // so it is picked here even when it is not first in the list.
     const ticket = backlog.find(isReview) ?? backlog[0];
 
     if (ticket === undefined) {
-      outcomes.push(outcome(project.repo, "no-eligible-tickets", projectState));
+      outcomes.push(
+        outcome(project.repo, "no-eligible-tickets", projectState, brokenOut),
+      );
       continue;
     }
 
@@ -558,7 +574,7 @@ async function considerProjects(
       }),
     });
     outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(outcome(project.repo, "deferred", projectState));
+    outcomes.push(outcome(project.repo, "deferred", projectState, brokenOut));
   }
 
   const winner = bestCandidate(candidates);
@@ -986,17 +1002,33 @@ function outcome(
   repo: RepoSlug,
   verdict: ProjectVerdict,
   state: ProjectState | undefined,
+  brokenOut: Ticket[] = [],
 ): ProjectOutcome {
   const lastWorkedAt = state?.lastWorkedAt;
   return {
     repo,
     verdict,
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
+    ...(brokenOut.length > 0 && { passedOverAsBrokenOut: brokenOut }),
   };
 }
 
-/** How a verdict reads to the developer. A selected project was not skipped. */
-function skipReason(verdict: ProjectVerdict): string | undefined {
+/**
+ * How a project's outcome reads to the developer. A selected project was not
+ * skipped. Names any ticket passed over for being broken out alongside the
+ * verdict itself, since a project's backlog can look full and still skip for
+ * exactly that reason.
+ */
+function skipReason(project: ProjectOutcome): string | undefined {
+  const verdict = verdictReason(project.verdict);
+  if (verdict === undefined) {
+    return undefined;
+  }
+  const brokenOut = brokenOutNote(project.passedOverAsBrokenOut);
+  return brokenOut === undefined ? verdict : `${verdict}; ${brokenOut}`;
+}
+
+function verdictReason(verdict: ProjectVerdict): string | undefined {
   switch (verdict) {
     case "paused":
       return "paused";
@@ -1007,6 +1039,15 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
     case "selected":
       return undefined;
   }
+}
+
+/** Names the tickets a scan passed over for being broken out, if any. */
+function brokenOutNote(brokenOut: Ticket[] | undefined): string | undefined {
+  if (brokenOut === undefined || brokenOut.length === 0) {
+    return undefined;
+  }
+  const which = brokenOut.map((ticket) => `#${ticket.number}`).join(", ");
+  return `${which} broken out into sub-issues`;
 }
 
 /**
@@ -1030,7 +1071,7 @@ function summaryLine(facts: SummaryFacts): string {
 
   const { projects, runs, standDown } = facts;
   const skipped = projects.flatMap((project) => {
-    const reason = skipReason(project.verdict);
+    const reason = skipReason(project);
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
   });
 

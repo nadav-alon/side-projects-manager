@@ -22,6 +22,13 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
  * sandbox's clone has no GitHub remote to infer it from. Absent on every
  * implementation ticket, which is what selection reads to choose which kind
  * of run to start.
+ *
+ * `openSubIssues` is the fact `isBrokenOut` reads: how many of the ticket's
+ * sub-issues are still open, straight from the same listing that already
+ * carries the labels selection filters on, so it costs no extra tracker call.
+ * Absent or zero means the ticket has none open — indistinguishable from a
+ * ticket with no sub-issues at all, since neither is workable any
+ * differently from the other.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -29,6 +36,18 @@ export interface Ticket {
   number: number;
   title: string;
   pullRequest?: PullRequestUrl;
+  openSubIssues?: number;
+}
+
+/**
+ * Whether `ticket`'s work has been broken out into sub-issues that are still
+ * open — a container for that work rather than work of its own, per
+ * `CONTEXT.md`'s "Broken-out ticket". The tracker only reports the count;
+ * this is the judgment selection makes from it, so it can be exercised
+ * against the fake rather than buried in an adapter's query string.
+ */
+export function isBrokenOut(ticket: Ticket): boolean {
+  return (ticket.openSubIssues ?? 0) > 0;
 }
 
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */

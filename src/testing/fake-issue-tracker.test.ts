@@ -34,4 +34,17 @@ describe("FakeIssueTracker", () => {
 
     assert.deepEqual(await tracker.listEligibleTickets(PILOT), []);
   });
+
+  it("lists a broken-out ticket alongside its open sub-issue count", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addBrokenOutTicket(
+      PILOT,
+      { number: 66, title: "Too big for one run" },
+      7,
+    );
+
+    const backlog = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(backlog[0]?.openSubIssues, 7);
+  });
 });

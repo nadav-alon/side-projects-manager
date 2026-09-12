@@ -83,6 +83,21 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return this.#add(repo, ticket, READY_FOR_HUMAN_LABEL);
   }
 
+  /**
+   * Puts a broken-out ticket — carrying `READY_FOR_AGENT_LABEL` with
+   * `openSubIssues` open sub-issues of its own — in `repo`'s backlog and
+   * returns it. Exists so a test can prove such a ticket is passed over even
+   * though it still carries the label, at the loop's own seam rather than
+   * against a query string.
+   */
+  addBrokenOutTicket(
+    repo: RepoSlug,
+    ticket: Omit<Ticket, "repo" | "openSubIssues">,
+    openSubIssues: number,
+  ): Ticket {
+    return this.#add(repo, { ...ticket, openSubIssues }, READY_FOR_AGENT_LABEL);
+  }
+
   #add(repo: RepoSlug, ticket: Omit<Ticket, "repo">, label: string): Ticket {
     const stored: Ticket = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];

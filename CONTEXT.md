@@ -166,6 +166,10 @@ _Avoid_: priority (unqualified, which is the project's), urgency, severity, rank
 A backlog longer than the loop reads in one morning. The newest tickets are the ones considered, since a new ticket given ticket priority costs more to miss than an old one; the summary names the project so the developer can thin it.
 _Avoid_: overflow, capped backlog, full queue
 
+**Broken-out ticket**:
+A ticket whose work has moved into one or more open sub-issues: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any sub-issue is open — the tracker reports the open count, and selection is what reads it. Selectable again, like any other ticket, once every sub-issue has closed.
+_Avoid_: parent ticket, container ticket, epic, spec ticket
+
 **Implementation ticket**:
 A ticket asking for something to be built.
 _Avoid_: feature ticket, build ticket
