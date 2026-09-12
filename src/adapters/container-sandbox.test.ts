@@ -46,6 +46,9 @@ const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
 /** What the loop would have taken off the budget for one run. */
 const CEILING = usd(5);
 
+/** What the agent CLI says, and all it says, once the provider's limit is spent. */
+const SESSION_LIMIT = "You've hit your session limit · resets 1pm (UTC)";
+
 /**
  * A project checkout with one commit on `main`, which is what the repo host
  * hands the sandbox. Only the git half of the adapter is exercised here; the
@@ -278,6 +281,52 @@ describe("containerSandbox", () => {
     assert.match(result.output, /gave up/);
     assert.equal(result.commits.length, 1);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+  });
+
+  /**
+   * What the CLI said, in the envelope's `result`, on every run of the
+   * morning that emptied a backlog in two minutes: it exits non-zero, spends
+   * nothing, and would otherwise read exactly like an agent that gave up.
+   */
+  it("reports the provider's usage limit apart from a failed agent", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: SESSION_LIMIT,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.limitReached, SESSION_LIMIT);
+    assert.equal(result.failure, undefined);
+  });
+
+  it("does not mistake a failed agent that quoted the limit for one stopped by it", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: `The tests would not go green. The CLI says, on a spent limit:\n${SESSION_LIMIT}`,
+      tokensUsed: tokenCount(1_000),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.limitReached, undefined);
+    assert.equal(result.failure, "Command failed: docker run");
+  });
+
+  it("does not mistake a finished agent that mentions the limit for one stopped by it", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: `Implemented the stand-down. The CLI says:\n${SESSION_LIMIT}`,
+      tokensUsed: tokenCount(1_000),
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.limitReached, undefined);
+    assert.equal(result.failure, undefined);
   });
 
   /**
@@ -519,6 +568,24 @@ describe("containerSandbox.review", () => {
 
     assert.match(result.failure ?? "", /gave up/);
     assert.match(result.output, /gave up/);
+  });
+
+  it("reports the provider's usage limit apart from a failed reviewer", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: SESSION_LIMIT,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.limitReached, SESSION_LIMIT);
+    assert.equal(result.failure, undefined);
   });
 
   it("takes the clone away once the review finishes", async () => {

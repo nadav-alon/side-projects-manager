@@ -33,7 +33,7 @@ No registered project had an eligible ticket. A normal quiet morning, reported e
 _Avoid_: empty queue, no work, nothing found
 
 **Stand down**:
-What the loop does when the budget gate refuses: it declines to start or to continue, and says so.
+What the loop does when the budget gate refuses, or when the provider limit refuses a run already started: it declines to start or to continue, and says so.
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
@@ -131,7 +131,7 @@ The triage label a ticket carries once the loop has stopped working on it. Alway
 _Avoid_: needs-human, manual, blocked
 
 **Hand back**:
-What the loop does with a ticket it has stopped working on, whether the run failed or finished: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning.
+What the loop does with a ticket whose run gave up or finished: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those two: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
@@ -139,7 +139,7 @@ A run whose agent ran and stopped short — it said it could not, or left the te
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, because the sandbox or the repo host could not do its part. The setup is the problem. Reported apart from an agent that gave up, because the developer's next move differs.
+A run that never happened, because the sandbox or the repo host could not do its part. The setup is the problem. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
 _Avoid_: outage, crash, system error
 
 **Discard**:
@@ -202,6 +202,10 @@ the ledger never saw reads as later than it was — so the observed reset is how
 cannot see gets corrected. One still to come states the block now open; one already past says the
 blocks before it have ended; one more than five hours out names no block at all and is refused.
 _Avoid_: reset override, manual window, pinned reset
+
+**Provider limit**:
+The usage limit the provider itself enforces, which the manager learns of only when a run is refused for it. The allowance is the developer's declaration of it and can be wrong, so the gate can say go while the provider says no. A refused run is not a failure: its ticket is left exactly as it was, and the invocation stands down, since every run after it would be refused the same way.
+_Avoid_: rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.

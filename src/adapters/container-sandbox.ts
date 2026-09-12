@@ -203,7 +203,7 @@ async function runOnClone(
       commits,
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...(agent.failure !== undefined && { failure: agent.failure }),
+      ...howItStopped(agent),
     };
   } finally {
     // Whatever became of the run, the clone does not outlive it — and a clone
@@ -251,6 +251,36 @@ async function attempt(
 }
 
 /**
+ * How the provider words a refusal for a spent usage limit, as the agent CLI
+ * passes it on in place of any answer: "You've hit your session limit · resets
+ * 1pm (UTC)". Anchored to the start of the output, which the refusal is the
+ * whole of, so an agent that failed after quoting it is still an agent that
+ * failed. The only place that wording is known, so a CLI that rewords it has
+ * one line here to change.
+ */
+const LIMIT_REACHED = /^You've hit your [\w-]+ limit\b[^\n]*/;
+
+/**
+ * Whether `agent` stopped for a ticket reason, for the provider's usage limit,
+ * or not at all.
+ *
+ * Read only off a run that failed. The CLI exits non-zero when the limit
+ * refuses it, and an agent that finished is free to quote the wording — this
+ * one would, working on the code that reads it.
+ */
+function howItStopped(
+  agent: AgentRun,
+): { failure?: string; limitReached?: string } {
+  if (agent.failure === undefined) {
+    return {};
+  }
+  const limit = LIMIT_REACHED.exec(agent.output)?.[0];
+  return limit === undefined
+    ? { failure: agent.failure }
+    : { limitReached: limit.trim() };
+}
+
+/**
  * The reviewer's run: a throwaway clone of its own, exactly like an
  * implementation run, but mounted read-only and never fetched back — a
  * review leaves nothing on the checkout, because what it produces is a
@@ -280,7 +310,7 @@ async function reviewOnClone(
     return {
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...(agent.failure !== undefined && { failure: agent.failure }),
+      ...howItStopped(agent),
     };
   } finally {
     await rm(clone, { recursive: true, force: true }).catch(

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   morningRun,
   type IterationOutcome,
+  type MorningRunReport,
   type ProjectOutcome,
 } from "./morning-run.ts";
 import {
@@ -45,9 +46,17 @@ function verdicts(projects: ProjectOutcome[]): [string, string][] {
 function finished(iteration: IterationOutcome | undefined) {
   return iteration !== undefined &&
     !("failure" in iteration) &&
-    !("review" in iteration)
+    !("review" in iteration) &&
+    !("limitReached" in iteration)
     ? iteration
     : undefined;
+}
+
+/** Why the gate refused — undefined if it never did, or the provider's limit stood the morning down instead. */
+function gateRefusal(report: MorningRunReport) {
+  return report.standDown?.reason === "provider-limit"
+    ? undefined
+    : report.standDown;
 }
 
 /** The failed half of an iteration outcome — undefined if it finished instead. */
@@ -1288,7 +1297,10 @@ describe("morningRun", () => {
         assert.match(handback.comment, new RegExp(SAID));
       });
 
-      it("names the broken sandbox rather than blaming the agent", async (t) => {
+    });
+
+    describe("when the sandbox itself breaks", () => {
+      it("leaves the ticket exactly as it was, since the setup is the problem", async (t) => {
         const ports = readyToWork();
         t.mock.method(ports.sandbox, "run", async () => {
           throw new Error(BROKE);
@@ -1296,9 +1308,51 @@ describe("morningRun", () => {
 
         await morningRun(ports);
 
-        const [handback] = ports.tracker.handbacks;
-        assert.match(handback?.comment ?? "", new RegExp(BROKE));
-        assert.match(handback?.comment ?? "", /sandbox|infrastructure/i);
+        assert.deepEqual(ports.tracker.handbacks, []);
+        const backlog = await ports.tracker.listEligibleTickets(PILOT);
+        assert.deepEqual(
+          backlog.map((ticket) => ticket.number),
+          [7],
+        );
+      });
+
+      it("puts the error in the summary, naming the ticket it blocked", async (t) => {
+        const ports = readyToWork();
+        t.mock.method(ports.sandbox, "run", async () => {
+          throw new Error(BROKE);
+        });
+
+        await morningRun(ports);
+
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        const waiting = body.slice(body.indexOf("## Waiting on you"));
+        assert.match(waiting, /pilot #7/);
+        assert.match(waiting, new RegExp(BROKE));
+        assert.doesNotMatch(body, /relabel it yourself/);
+      });
+
+      it("carries on to the next ticket", async (t) => {
+        const ports = readyToWork();
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: "Add another thing",
+        });
+        t.mock.method(ports.sandbox, "run", async (request: { ticket: Ticket }) => {
+          if (request.ticket.number === 7) {
+            throw new Error(BROKE);
+          }
+          return {
+            branch: branch("issue-8-add-another-thing"),
+            commits: [],
+            output: "",
+            tokensUsed: tokenCount(0),
+          };
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.runs.length, 2);
+        assert.equal(report.standDown, undefined);
       });
     });
 
@@ -1337,7 +1391,6 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.deepEqual(ports.repoHost.discarded, []);
-      assert.equal(ports.tracker.handbacks.length, 1);
     });
 
     it("records what the failed run spent, since the tokens are gone either way", async () => {
@@ -1640,7 +1693,7 @@ describe("morningRun", () => {
 
       assert.equal(report.standDown?.reason, "five-hour-window");
       assert.deepEqual(
-        report.standDown?.resetsAt,
+        gateRefusal(report)?.resetsAt,
         new Date("2026-01-04T03:00:00.000Z"),
       );
     });
@@ -1716,10 +1769,10 @@ describe("morningRun", () => {
 
         const report = await morningRun(ports);
 
-        assert.equal(report.standDown?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
-        assert.equal(report.standDown?.spendable, SPENDABLE_THIS_WEEK);
+        assert.equal(gateRefusal(report)?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
+        assert.equal(gateRefusal(report)?.spendable, SPENDABLE_THIS_WEEK);
         assert.deepEqual(
-          report.standDown?.resetsAt,
+          gateRefusal(report)?.resetsAt,
           ports.ledger.reported.weekly.resetsAt,
         );
       });
@@ -1759,7 +1812,7 @@ describe("morningRun", () => {
         const report = await morningRun(ports);
 
         assert.equal(report.outcome, "stood-down");
-        assert.equal(report.standDown?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
+        assert.equal(gateRefusal(report)?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
       });
 
       it("counts every project's runs, not just the one being worked", async () => {
@@ -1822,7 +1875,7 @@ describe("morningRun", () => {
         const report = await morningRun(ports);
 
         assert.equal(report.outcome, "stood-down");
-        assert.equal(report.standDown?.spendable, 50_000_000);
+        assert.equal(gateRefusal(report)?.spendable, 50_000_000);
       });
 
       it("holds back none of it at zero, and the same usage runs", async () => {
@@ -1850,7 +1903,7 @@ describe("morningRun", () => {
         const report = await morningRun(ports);
 
         assert.equal(report.outcome, "stood-down");
-        assert.equal(report.standDown?.spendable, 500);
+        assert.equal(gateRefusal(report)?.spendable, 500);
       });
     });
 
@@ -1938,6 +1991,101 @@ describe("morningRun", () => {
 
         assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
       });
+    });
+  });
+
+  describe("the provider's usage limit", () => {
+    const SESSION_LIMIT = "You've hit your session limit · resets 1pm (UTC)";
+
+    /** One project, three tickets: enough to see what the loop does after the limit. */
+    function threeTickets(): FakePorts {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      for (const number of [1, 2, 3]) {
+        ports.tracker.addEligibleTicket(PILOT, {
+          number,
+          title: `Ticket ${number}`,
+        });
+      }
+      return ports;
+    }
+
+    /** Ticket 1 finishes; every run after it is refused by the limit. */
+    function limitAfterTheFirstRun(ports: FakePorts): void {
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        output: ticket.number === 1 ? "done" : SESSION_LIMIT,
+        tokensUsed: tokenCount(ticket.number === 1 ? 5_000 : 0),
+        ...(ticket.number !== 1 && { limitReached: SESSION_LIMIT }),
+      });
+    }
+
+    it("leaves the interrupted ticket exactly as it was, and runs nothing after it", async () => {
+      const ports = threeTickets();
+      limitAfterTheFirstRun(ports);
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [1, 2],
+      );
+      assert.deepEqual(
+        ports.tracker.handbacks.map((handback) => handback.ticket.number),
+        [1],
+      );
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(
+        backlog.map((ticket) => ticket.number),
+        [2, 3],
+      );
+      assert.equal(report.standDown?.reason, "provider-limit");
+    });
+
+    it("says it stood down on the provider's limit, naming the interrupted ticket and the reset", async () => {
+      const ports = threeTickets();
+      limitAfterTheFirstRun(ports);
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /stood down/i);
+      assert.match(report.message, /nadav-alon\/pilot #2 is still ready-for-agent/);
+      assert.match(report.message, /resets 1pm \(UTC\)/);
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.doesNotMatch(body, /pilot #2: relabelled/);
+    });
+
+    it("still records what the interrupted run spent", async () => {
+      const ports = threeTickets();
+      limitAfterTheFirstRun(ports);
+
+      await morningRun(ports);
+
+      const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
+      assert.equal(runs.length, 2);
+    });
+
+    it("stands down just the same when it refuses a review, leaving the review open", async () => {
+      const ports = threeTickets();
+      const review = ports.tracker.addEligibleTicket(PILOT, {
+        number: 42,
+        title: "Review the draft pull request for #7",
+        pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+      });
+      ports.sandbox.reviewResult = () => ({
+        output: SESSION_LIMIT,
+        tokensUsed: tokenCount(0),
+        limitReached: SESSION_LIMIT,
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs.length, 0);
+      assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      assert.ok(backlog.some((ticket) => ticket.number === review.number));
+      assert.equal(report.standDown?.reason, "provider-limit");
     });
   });
 

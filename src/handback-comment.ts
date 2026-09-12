@@ -32,9 +32,10 @@ const OUTPUT_QUOTED = 20_000;
 const REASON_QUOTED = 4_000;
 
 /**
- * What a handed-back ticket is told about the morning that failed on it: what
- * went wrong, what the agent said, what became of its branch, and how to send
- * the ticket round again.
+ * What a ticket whose agent gave up is told about the morning that failed on
+ * it: why it stopped, what the agent said, what became of its branch, and how
+ * to send the ticket round again. An infrastructure failure is never told
+ * anything, since it says nothing about the ticket.
  *
  * Markdown, because that is what a ticket comment is read as — and so the
  * agent's own output is fenced, since anything it said unfenced would be read
@@ -45,24 +46,12 @@ export function handbackComment(
   run: SandboxRunResult | undefined,
   discard: Discard,
 ): string {
-  const closing = `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`;
-  const reason = tail(failure.reason, REASON_QUOTED);
-
-  if (failure.kind === "infrastructure") {
-    return [
-      `The morning loop could not carry this ticket through: the sandbox or the project checkout failed. It may never have started, or it may have stopped after the agent had already worked — the loop cannot tell which from here. Either way this is a setup to fix rather than a ticket to rewrite.`,
-      `What went wrong: ${reason}`,
-      ...branchNote(run, discard),
-      closing,
-    ].join("\n\n");
-  }
-
   return [
     `The morning loop ran this ticket and the agent gave up.`,
-    `Why it stopped: ${reason}`,
+    `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
     `What it said:\n\n${quote(run?.output ?? "")}`,
     ...branchNote(run, discard),
-    closing,
+    `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
   ].join("\n\n");
 }
 
