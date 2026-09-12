@@ -10,6 +10,9 @@
 // same thing and would need a real token, which CI has none of.
 
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 
 /** What `claude plugin list --json` prints per installed plugin. */
 type InstalledPlugin = {
@@ -81,6 +84,64 @@ function claude(...args: string[]): string {
     return execFileSync("claude", args, { encoding: "utf8" });
   } catch (error) {
     fail(`\`claude ${args.join(" ")}\` did not run in this image`, describe(error));
+  }
+}
+
+// The uid this check runs as. Two invocations matter and the script is the same
+// either way: `npm run sandbox:verify` passes no `--user`, so the uid is the
+// image's own declared default, which is what a bare `docker run` gets;
+// `npm run sandbox:verify:pinned` passes one the image has never heard of,
+// which is what the manager pins on a host whose developer is not uid 1000
+// (`dockerCommand`).
+const UID = process.getuid?.();
+
+// Root is the one uid an unattended run cannot happen under: the CLI refuses
+// the permission mode below under root or sudo, and the container exits with a
+// plain-text refusal rather than the JSON envelope the manager reads — which
+// arrives downstream as an agent that spent nothing and gave up. Checked here
+// rather than trusted to the Dockerfile, because the harness lives in the
+// non-root user's home and moving one without the other is how the image ends
+// up with either no user or no skills.
+if (UID === 0) {
+  fail(
+    "this image runs as root by default, so the CLI will refuse the permission mode every unattended run needs",
+    "the Dockerfile's USER line is what declares the default user",
+  );
+}
+
+/**
+ * Whatever kept this uid from creating something in `directory`, or undefined
+ * when nothing did. Probed rather than read off the mode bits: what a uid can
+ * do there depends on owner, group and mode together, and the pinned uid owns
+ * none of it.
+ */
+function unwritable(directory: string): string | undefined {
+  try {
+    rmSync(mkdtempSync(path.join(directory, ".verify-harness-")), {
+      recursive: true,
+    });
+    return undefined;
+  } catch (error) {
+    return describe(error);
+  }
+}
+
+// The CLI keeps its own state beside the harness — which plugins are enabled,
+// what a session said — so a home this uid cannot write to is not a working
+// image even when every read below passes. And every read below does pass: the
+// harness is world-readable at its default 0755 whether the Dockerfile's
+// `chmod -R a+rwX "$HOME"` ran or not, so reading it proves nothing about a
+// foreign uid. Writing is the half that does, which is why the pinned
+// invocation exists.
+const HOME = homedir();
+
+for (const directory of [HOME, path.join(HOME, ".claude")]) {
+  const refusal = unwritable(directory);
+  if (refusal) {
+    fail(
+      `uid ${UID} cannot write to ${directory}, so the CLI has nowhere to keep the state a run needs`,
+      refusal,
+    );
   }
 }
 
@@ -186,5 +247,5 @@ if (!usage.includes(PERMISSION_MODE)) {
 }
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
 );

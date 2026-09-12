@@ -21,12 +21,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
+# Everything from here down belongs to a non-root user, and the harness with
+# it. Two reasons, and either alone would be enough:
+#
+#   - The CLI refuses `--permission-mode bypassPermissions` under root or sudo,
+#     so an unattended run as uid 0 exits before it makes a single call — and
+#     says so as plain text rather than the JSON envelope the manager parses,
+#     which reads downstream as an agent that spent nothing and gave up.
+#   - Everything the agent writes goes through a bind mount into the
+#     developer's own filesystem, and files it leaves owned by root need sudo
+#     to delete.
+#
+# `node`, uid 1000, is the user node:22-slim already ships. The harness has to
+# be installed *as* that user rather than moved to it afterwards: root's home
+# is mode 0700, so a harness installed into /root is unreadable by anyone else
+# — an image that looks built and runs with no plugin, no skills and no model
+# pin, which fails as a run that reads its ticket and does nothing.
+#
+# HOME declared explicitly because the manager pins the container's user to the
+# developer's own uid (`dockerCommand`), and docker hands a uid it cannot find
+# in /etc/passwd a home of `/`. Fixed here, the harness is where the CLI looks
+# whatever uid runs it.
+ENV HOME=/home/node
+USER node
+
 # Sonnet, pinned explicitly rather than left to the default: the mechanical
 # half of the work stays on the cheap model (docs/specs/morning-loop.md).
 # Written before the plugin install below, which merges its own keys
 # (extraKnownMarketplaces, enabledPlugins) into this same file — writing it
 # after would truncate those keys back out.
-RUN mkdir -p /root/.claude && printf '{"model":"sonnet"}\n' > /root/.claude/settings.json
+RUN mkdir -p "$HOME/.claude" && printf '{"model":"sonnet"}\n' > "$HOME/.claude/settings.json"
 
 # Declared in the image rather than only passed to the install below, so the
 # CI check reads which plugin to assert about off the image itself
@@ -43,14 +67,26 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
 # identity. Set in the image rather than per run, so every run's commits are
 # attributable to the manager rather than to whoever built the image.
 #
-# safe.directory: the clone arrives as a bind mount owned by the developer
-# on the host, which is not the user in here. Without it git treats /repo as
-# somebody else's repository and refuses to touch it.
+# safe.directory: the clone arrives as a bind mount owned by whoever owns it on
+# the host, which need not be the user in here — the manager's pin makes the
+# two match, but a run without one (a host that reports no uid, or a bare
+# `docker run`) lands on somebody else's repository as far as git is concerned,
+# and git refuses to touch it.
 RUN git config --global user.name "side-projects-manager" \
     && git config --global user.email "manager@side-projects.invalid" \
     && git config --global --add safe.directory /repo
 
-# TODO[#27]: this image still runs as root.
+# The harness is installed by uid 1000 but read — and written: the CLI keeps
+# its own state alongside it — by whichever uid the manager pins, which is the
+# developer's and need not be 1000. So the home holding it is opened to any
+# uid, which is what makes the pin above safe to vary. Done as `node`, who owns
+# all of it; the alternative, leaving it at 0700 like /root, is the failure the
+# comment above the USER line describes.
+#
+# Reading it would survive this line being dropped — the harness is 0755 either
+# way — so what asserts it is `npm run sandbox:verify:pinned`, which runs the
+# check as a uid the image has never heard of and writes as it.
+RUN chmod -R a+rwX "$HOME"
 
 # ENTRYPOINT rather than CMD: `docker run <image> -p "…" …` reads as invoking
 # claude directly, matching how it's invoked outside a container. No ENV for

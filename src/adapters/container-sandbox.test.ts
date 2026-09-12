@@ -846,6 +846,108 @@ describe("dockerCommand", () => {
 
     assert.ok(command.includes("--permission-mode"));
   });
+
+  /**
+   * The third flag that fails quietly, and the one whose failure depends on
+   * whose machine it is. Unpinned, the container runs as the image's own user,
+   * and everything the agent writes through the bind mount is owned by that
+   * uid rather than by whoever started the run — invisible on a host whose
+   * developer happens to be uid 1000, and on any other host a clone the
+   * developer cannot delete afterwards. The CLI also refuses
+   * `bypassPermissions` outright under uid 0, so an image that regressed to
+   * root would fail every run before the agent made a single call.
+   */
+  it("pins the container to the uid and gid that started the run", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
+
+    const pin = command.indexOf("--user");
+    assert.notEqual(
+      pin,
+      -1,
+      "no --user: the agent writes as the image's user rather than the developer's",
+    );
+    assert.equal(
+      command[pin + 1],
+      `${process.getuid?.()}:${process.getgid?.()}`,
+    );
+  });
+
+  /**
+   * A manager started with `sudo` would pin the container to root and hand the
+   * CLI a permission mode it refuses under root — the very failure this pin
+   * exists downstream of, arriving as exit 1 rather than as one of docker's own
+   * codes, so `dockerNeverRan` would call it an agent that gave up and every
+   * ticket that morning would be handed back quoting a flag nobody passed.
+   *
+   * Refused rather than fixed by falling back to the image's own user: the
+   * clone a root manager makes is `mkdtemp`'s 0700 and root's, so uid 1000
+   * could not read it either. Nothing can run here, which is what
+   * `AgentNeverRan` means.
+   */
+  it("refuses to build a command at all when the manager itself is root", () => {
+    const { getuid, getgid } = process;
+    process.getuid = () => 0;
+    process.getgid = () => 0;
+
+    try {
+      assert.throws(
+        () =>
+          dockerCommand({
+            directory: CLONE,
+            prompt: "do the thing",
+            spendCeiling: usd(5),
+            mount: "rw",
+          }),
+        AgentNeverRan,
+      );
+    } finally {
+      if (getuid) {
+        process.getuid = getuid;
+      }
+      if (getgid) {
+        process.getgid = getgid;
+      }
+    }
+  });
+
+  /**
+   * Not every host reports a uid — `process.getuid` is absent on Windows. The
+   * image's own non-root user is a workable answer there; refusing to build a
+   * command at all would turn a portability gap into a morning of failed runs.
+   */
+  it("leaves the image's own user in place where the host exposes no uid", () => {
+    const { getuid, getgid } = process;
+    delete process.getuid;
+    delete process.getgid;
+
+    try {
+      const command = dockerCommand({
+        directory: CLONE,
+        prompt: "do the thing",
+        spendCeiling: usd(5),
+        mount: "rw",
+      });
+
+      assert.ok(
+        !command.includes("--user"),
+        "pinned a user the host never reported",
+      );
+    } finally {
+      // Guarded rather than assigned back unconditionally: on a host that
+      // never had them, there is nothing to put back and the types say so.
+      if (getuid) {
+        process.getuid = getuid;
+      }
+      if (getgid) {
+        process.getgid = getgid;
+      }
+    }
+  });
 });
 
 describe("dockerNeverRan", () => {
