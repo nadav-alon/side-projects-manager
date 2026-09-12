@@ -25,7 +25,8 @@
     "new-project": "node src/bin/new-project.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
     "sandbox:build": "docker build -t side-projects-sandbox:latest .",
-    "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts"
+    "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts",
+    "sandbox:verify:pinned": "docker run --rm --user 4242:4242 -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

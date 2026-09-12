@@ -82,6 +82,10 @@ RUN git config --global user.name "side-projects-manager" \
 # uid, which is what makes the pin above safe to vary. Done as `node`, who owns
 # all of it; the alternative, leaving it at 0700 like /root, is the failure the
 # comment above the USER line describes.
+#
+# Reading it would survive this line being dropped — the harness is 0755 either
+# way — so what asserts it is `npm run sandbox:verify:pinned`, which runs the
+# check as a uid the image has never heard of and writes as it.
 RUN chmod -R a+rwX "$HOME"
 
 # ENTRYPOINT rather than CMD: `docker run <image> -p "…" …` reads as invoking

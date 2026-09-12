@@ -878,6 +878,44 @@ describe("dockerCommand", () => {
   });
 
   /**
+   * A manager started with `sudo` would pin the container to root and hand the
+   * CLI a permission mode it refuses under root — the very failure this pin
+   * exists downstream of, arriving as exit 1 rather than as one of docker's own
+   * codes, so `dockerNeverRan` would call it an agent that gave up and every
+   * ticket that morning would be handed back quoting a flag nobody passed.
+   *
+   * Refused rather than fixed by falling back to the image's own user: the
+   * clone a root manager makes is `mkdtemp`'s 0700 and root's, so uid 1000
+   * could not read it either. Nothing can run here, which is what
+   * `AgentNeverRan` means.
+   */
+  it("refuses to build a command at all when the manager itself is root", () => {
+    const { getuid, getgid } = process;
+    process.getuid = () => 0;
+    process.getgid = () => 0;
+
+    try {
+      assert.throws(
+        () =>
+          dockerCommand({
+            directory: CLONE,
+            prompt: "do the thing",
+            spendCeiling: usd(5),
+            mount: "rw",
+          }),
+        AgentNeverRan,
+      );
+    } finally {
+      if (getuid) {
+        process.getuid = getuid;
+      }
+      if (getgid) {
+        process.getgid = getgid;
+      }
+    }
+  });
+
+  /**
    * Not every host reports a uid — `process.getuid` is absent on Windows. The
    * image's own non-root user is a workable answer there; refusing to build a
    * command at all would turn a portability gap into a morning of failed runs.

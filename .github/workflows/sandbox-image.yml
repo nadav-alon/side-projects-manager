@@ -9,12 +9,16 @@ on:
       - Dockerfile
       - .dockerignore
       - scripts/verify-harness.ts
+      # The docker invocations themselves live here, both of them.
+      - package.json
       - .github/workflows/sandbox-image.yml
   pull_request:
     paths:
       - Dockerfile
       - .dockerignore
       - scripts/verify-harness.ts
+      # The docker invocations themselves live here, both of them.
+      - package.json
       - .github/workflows/sandbox-image.yml
   # The likeliest way the harness disappears changes no file here: the image
   # installs the CLI and the plugin unpinned, so a marketplace that drops the
@@ -50,3 +54,11 @@ jobs:
       # mounted rather than copied so the image stays what a run actually gets.
       - name: Verify the harness
         run: npm run sandbox:verify
+
+      # The same check as a uid the image has never heard of, which is what the
+      # manager pins on a host whose developer is not uid 1000 (`dockerCommand`).
+      # Worth its own step because the harness is world-readable either way: the
+      # step above passes whether or not that uid can write the state a run
+      # needs, and this is the one that notices.
+      - name: Verify the harness as a pinned uid
+        run: npm run sandbox:verify:pinned
