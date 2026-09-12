@@ -1862,7 +1862,38 @@ describe("morningRun", () => {
         await morningRun(ports);
 
         assert.equal(read.mock.callCount(), 1);
-        assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW]);
+        assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW, undefined]);
+      });
+
+      it("hands the ledger the observed reset the budget declares", async (t) => {
+        const ports = readyToWork();
+        const observedResetAt = new Date("2026-01-01T06:00:00.000Z");
+        ports.store.budget = { ...ports.store.budget, observedResetAt };
+        const read = t.mock.method(ports.ledger, "read");
+
+        await morningRun(ports);
+
+        assert.deepEqual(read.mock.calls[0]?.arguments, [
+          FROZEN_NOW,
+          observedResetAt,
+        ]);
+      });
+
+      it("tells the developer when the ledger refuses the reset they declared", async (t) => {
+        const ports = readyToWork();
+        t.mock.method(ports.ledger, "read", async () => {
+          throw new Error(
+            '"observedResetAt" is 2027-09-05T13:00:00.000Z, more than 5 hours after 2026-01-01T09:00:00.000Z',
+          );
+        });
+
+        const report = await morningRun(ports);
+
+        // A refused instant must read like a bad budget document — described
+        // in the summary, not lost to a rejected promise — because the
+        // developer fixes it by editing the field the message names.
+        assert.equal(report.outcome, "invocation-failed");
+        assert.match(report.message, /observedResetAt/);
       });
 
       it("asks the gate first and the sandbox second, never the other way round", async (t) => {

@@ -177,7 +177,7 @@ The fraction of the weekly window held back for the developer's own interactive 
 _Avoid_: buffer, headroom
 
 **Budget document**:
-The hand-edited document of what the mornings may spend: the two allowances, the reserve fraction, and the spend ceiling. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+The hand-edited document of what the mornings may spend: the two allowances, the reserve fraction, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
@@ -185,7 +185,7 @@ The tokens a window is declared to hold. Self-declared, because the provider rep
 _Avoid_: quota, limit, capacity
 
 **Usage ledger**:
-What reports rolling token consumption. Knowingly under-counts, since it cannot see Claude chat or other machines. Referred to as "the ledger".
+What reports rolling token consumption. Knowingly under-counts, since it cannot see Claude chat or other machines; the same blindness skews the 5-hour boundary it infers, which is what an observed reset corrects. Referred to as "the ledger".
 _Avoid_: usage tracker, meter, monitor
 
 **Window**:
@@ -193,6 +193,15 @@ One of the two periods consumption is measured against. The 5-hour window opens 
 message of the current block; the weekly window opens on Sunday. Neither is a lookback from now, so
 a window has an opening instant and a reset instant, and both matter to the gate.
 _Avoid_: period, interval, bucket, rolling window, last 5 hours, last 7 days
+
+**Observed reset**:
+A 5-hour reset instant the developer read off the provider's own display and wrote into the budget
+document, believed ahead of the boundary the ledger infers from this machine's logs. The inference
+is blind to the developer's other surfaces, and its error runs one way — a block opened by a message
+the ledger never saw reads as later than it was — so the observed reset is how a boundary the ledger
+cannot see gets corrected. One still to come states the block now open; one already past says the
+blocks before it have ended; one more than five hours out names no block at all and is refused.
+_Avoid_: reset override, manual window, pinned reset
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.

@@ -19,6 +19,23 @@ export interface Budget {
   reserveFraction: ReserveFraction;
   /** The most a single run may spend, enforced by the agent CLI itself. */
   spendCeiling: Usd;
+  /**
+   * A 5-hour reset instant the developer saw on the provider's own display,
+   * which settles a boundary the ledger can only infer. See `UsageLedger`
+   * for why the inference needs settling, and `parseUsageWindows` for what a
+   * reset already past means as against one still to come.
+   *
+   * Absent for most machines, and going stale is not a failure: an instant
+   * from last week still correctly says the blocks before it have ended, and
+   * the inference takes over from there. Ahead is the unforgiving direction —
+   * one more than 5 hours out names a block that has not opened, and the
+   * ledger refuses it rather than state an empty window.
+   *
+   * It sits in the budget document because it is the developer's to write and
+   * the loop's only to read, which is what separates that document from the
+   * state one.
+   */
+  observedResetAt?: Date;
 }
 
 /**

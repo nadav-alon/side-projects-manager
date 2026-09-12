@@ -84,6 +84,118 @@ describe("parseUsageWindows", () => {
     assert.equal(windows.fiveHour.openedAt.toISOString(), NOW.toISOString());
     assert.equal(windows.fiveHour.tokensUsed, 0);
   });
+
+  describe("given a reset the developer observed", () => {
+    function at(time: string, tokens: number): string {
+      return logLine({
+        timestamp: `2026-09-05T${time}:00.000Z`,
+        inputTokens: tokens,
+        outputTokens: 0,
+      });
+    }
+
+    it("takes a reset still to come as the block now open, whatever the logs suggest", () => {
+      // the logs would open the block at 09:00 and reset it at 14:00; the
+      // provider says it resets at 13:00, so it opened at 08:00 and the 07:30
+      // entry belongs to the block before it
+      const windows = parseUsageWindows(
+        [[at("07:30", 7), at("09:00", 100), at("11:00", 50)].join("\n")],
+        NOW,
+        new Date("2026-09-05T13:00:00.000Z"),
+      );
+
+      assert.equal(
+        windows.fiveHour.openedAt.toISOString(),
+        "2026-09-05T08:00:00.000Z",
+      );
+      assert.equal(
+        windows.fiveHour.resetsAt.toISOString(),
+        "2026-09-05T13:00:00.000Z",
+      );
+      assert.equal(windows.fiveHour.tokensUsed, 150);
+    });
+
+    it("drops the spend of blocks a past reset ended, and infers the open one from what follows", () => {
+      // the straddle this exists to repair: the logs see no message between
+      // 08:40 and the reset, so they read one block still open and holding
+      // all 62 tokens, when 55 were spent in a block that has since ended
+      const logs = [at("08:40", 55), at("10:10", 7)].join("\n");
+
+      const inferred = parseUsageWindows([logs], NOW);
+      assert.equal(
+        inferred.fiveHour.openedAt.toISOString(),
+        "2026-09-05T08:40:00.000Z",
+      );
+      assert.equal(inferred.fiveHour.tokensUsed, 62);
+
+      const corrected = parseUsageWindows(
+        [logs],
+        NOW,
+        new Date("2026-09-05T10:00:00.000Z"),
+      );
+      assert.equal(
+        corrected.fiveHour.openedAt.toISOString(),
+        "2026-09-05T10:10:00.000Z",
+      );
+      assert.equal(corrected.fiveHour.tokensUsed, 7);
+    });
+
+    it("reports an empty window when a past reset leaves no messages after it", () => {
+      const windows = parseUsageWindows(
+        [at("06:40", 55)],
+        NOW,
+        new Date("2026-09-05T08:00:00.000Z"),
+      );
+
+      assert.equal(windows.fiveHour.openedAt.toISOString(), NOW.toISOString());
+      assert.equal(windows.fiveHour.tokensUsed, 0);
+    });
+
+    it("leaves the inference alone when the observed reset is old enough to discard nothing", () => {
+      const logs = [fixture("session-history.jsonl")];
+
+      assert.deepEqual(
+        parseUsageWindows(logs, NOW, new Date("2026-08-01T00:00:00.000Z"))
+          .fiveHour,
+        parseUsageWindows(logs, NOW).fiveHour,
+      );
+    });
+
+    /**
+     * The one direction a wrong instant is expensive in. Believed, it would
+     * state a window that has not opened, which holds no entries and no run
+     * costs — an empty 5-hour window waving every morning through.
+     */
+    it("refuses a reset further ahead than a block is long, rather than believing it", () => {
+      const logs = [at("09:00", 90), at("11:00", 5)].join("\n");
+
+      assert.throws(
+        () => parseUsageWindows([logs], NOW, new Date("2027-09-05T13:00:00.000Z")),
+        /observedResetAt/,
+      );
+    });
+
+    it("accepts a reset a whole block ahead, which is as far as one can honestly be", () => {
+      const windows = parseUsageWindows(
+        [at("09:00", 90)],
+        NOW,
+        new Date(NOW.getTime() + 5 * 60 * 60 * 1000),
+      );
+
+      assert.equal(windows.fiveHour.openedAt.toISOString(), NOW.toISOString());
+      assert.equal(windows.fiveHour.tokensUsed, 0);
+    });
+
+    it("corrects the five-hour window without touching the weekly one", () => {
+      const logs = [fixture("session-history.jsonl")];
+
+      assert.deepEqual(
+        parseUsageWindows(logs, NOW, new Date("2026-09-05T11:00:00.000Z"))
+          .weekly,
+        parseUsageWindows(logs, NOW).weekly,
+      );
+    });
+  });
 });
 
 function logLine(options: {

@@ -415,6 +415,9 @@ function outcomeOf(
  * what the mornings have spent is in the state document and nowhere else. A
  * gate handed only the ledger would ration the developer and never the loop.
  *
+ * The budget's observed reset goes in too, since the developer declares it
+ * and only the ledger can act on it.
+ *
  * A dry morning never gets here, so the loop reports a quiet queue as a quiet
  * queue rather than reading the ledger to decline work that did not exist.
  */
@@ -424,7 +427,7 @@ async function consultTheGate(
   state: State,
 ): Promise<StandDown | undefined> {
   return budgetGate(
-    await ports.ledger.read(ports.clock.now()),
+    await ports.ledger.read(ports.clock.now(), budget.observedResetAt),
     budget,
     runsRecorded(state),
   );
