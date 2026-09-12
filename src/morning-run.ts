@@ -102,25 +102,32 @@ export type ProjectVerdict =
  * rewrite or drop, a broken sandbox is theirs to fix, and a morning that says
  * only "it failed" makes them go and find out which.
  */
-export type FailureKind =
-  /** The agent ran and stopped short: it said it could not, or left the tests red. */
-  | "gave-up"
-  /** The sandbox or the repo host could not do its part, so nothing ran. */
-  | "infrastructure";
+export type FailureKind = RunFailure["kind"];
 
 /** Why an iteration's run did not finish. */
-export interface RunFailure {
-  kind: FailureKind;
+export type RunFailure = GaveUp | InfrastructureFailure;
+
+/** The agent ran and stopped short: it said it could not, or left the tests red. */
+export interface GaveUp {
+  kind: "gave-up";
   reason: string;
   /**
-   * Whether the ticket made it back to the developer. Only an agent that gave
-   * up is handed back, so an infrastructure failure is always false and its
-   * ticket is left eligible on purpose. For one that gave up, false says the
-   * loop could not comment or relabel, so the ticket is still eligible and
-   * will be selected again — a morning that needs the developer to go and
-   * look at the ticket themselves.
+   * Whether the ticket made it back to the developer. False says the loop
+   * could not comment or relabel, so the ticket is still eligible and will be
+   * selected again — a morning that needs the developer to go and look at the
+   * ticket themselves.
    */
   handedBack: boolean;
+}
+
+/**
+ * The sandbox or the repo host could not do its part, so nothing ran. Never
+ * handed back: the ticket is left eligible on purpose, since the setup is the
+ * problem.
+ */
+export interface InfrastructureFailure {
+  kind: "infrastructure";
+  reason: string;
 }
 
 /** One registered project, and what the invocation made of it. */
@@ -157,7 +164,7 @@ export interface MorningRunReport {
   /**
    * Why the invocation stood down, absent when it never did: the gate
    * refusing, before the first run of the morning or between two later ones,
-   * or the provider's usage limit refusing a run that had already started.
+   * or the provider limit refusing a run that had already started.
    * Either way it is why the invocation stopped rather than having simply run
    * out of work.
    */
@@ -166,23 +173,28 @@ export interface MorningRunReport {
   message: string;
 }
 
+/** The gate's refusal, and the project it turned away. */
+export interface GateStandDown extends StandDown {
+  /** The project that was ready to work when the gate refused. */
+  refused: RepoSlug;
+}
+
 /**
- * A stand-down the gate never saw coming: the provider refused a run because
- * its usage limit is spent. The allowance the gate measures against is only
- * the developer's declaration of that limit, so the gate can say go while the
- * provider says no — and every run after the first refusal would be refused
- * the same way.
+ * A stand-down the gate never saw coming: a limit refusal. The allowance the
+ * gate measures against is only the developer's declaration of the provider
+ * limit, so the gate can say go while the provider says no — and every run
+ * after the first refusal would be refused the same way.
  */
 export interface ProviderLimitStandDown {
   reason: "provider-limit";
   /** What the provider said, reset time included, word for word. */
-  said: string;
+  limitRefusal: string;
   /** The ticket whose run it refused, left eligible exactly as it was. */
   ticket: Ticket;
 }
 
 /** Why an invocation stood down: the gate refused, or the provider did. */
-export type InvocationStandDown = StandDown | ProviderLimitStandDown;
+export type InvocationStandDown = GateStandDown | ProviderLimitStandDown;
 
 /** The project an iteration works, and the ticket it works there. */
 interface Selection {
@@ -192,30 +204,35 @@ interface Selection {
 
 /**
  * What one iteration did with the ticket it selected: finished a run, failed
- * one, had one refused by the provider limit, or worked a review ticket's own
- * run.
+ * one, worked a review ticket's own run, or had either kind of run refused by
+ * the provider limit. Told apart by `kind`, and nothing else.
  *
  * Nothing here is thrown. A run that gave up, and one that never happened, are
  * described rather than raised, so the invocation still reports on the
  * projects behind them.
  */
-type Iteration = Finished | Failed | Reviewed | Interrupted;
+type Iteration = Finished | Failed | Reviewed | LimitRefused;
 
 /**
- * An implementation run the provider's usage limit refused. Not a failure:
- * the ticket is nobody's problem, so it is neither commented on nor
- * relabelled, and stays eligible for a morning with limit left to spend.
+ * A limit refusal: an implementation or review run the provider limit
+ * refused. Not a failure: the ticket is nobody's problem, so it is neither
+ * commented on nor relabelled, and stays eligible for a morning with limit
+ * left to spend.
  */
-interface Interrupted {
-  run: SandboxRunResult;
+interface LimitRefused {
+  kind: "limit-refused";
   /** What the provider said. */
-  limitReached: string;
+  limitRefusal: string;
+  tokensUsed: TokenCount;
+  /** What the implementation run left behind. Absent for a review. */
+  run?: SandboxRunResult;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
 
 /** An iteration whose run finished, and how its work reached the developer. */
 interface Finished {
+  kind: "finished";
   run: SandboxRunResult;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
@@ -243,6 +260,7 @@ interface Handover {
  * is handed back, or an infrastructure failure, whose ticket is left as it was.
  */
 interface Failed {
+  kind: "failed";
   failure: RunFailure;
   /** What the agent left behind. Absent when it never ran. */
   run?: SandboxRunResult;
@@ -253,7 +271,7 @@ export type IterationOutcome =
   | ({ repo: RepoSlug; ticket: Ticket } & Finished)
   | ({ repo: RepoSlug; ticket: Ticket } & Failed)
   | ({ repo: RepoSlug; ticket: ReviewTicket } & Reviewed)
-  | ({ repo: RepoSlug; ticket: Ticket } & Interrupted);
+  | ({ repo: RepoSlug; ticket: Ticket } & LimitRefused);
 
 /**
  * One project with an eligible ticket, as far as selection is concerned: the
@@ -276,6 +294,7 @@ interface Candidate {
  * — and no further review to queue, since nothing reviews a review.
  */
 interface Reviewed {
+  kind: "reviewed";
   review: ReviewRunResult;
   /**
    * Whether the pull request now carries a new comment. False either when the
@@ -319,8 +338,6 @@ export async function morningRun(
   // adds mid-invocation still lands in the report instead of being silently
   // dropped from it.
   const registryOrder: RepoSlug[] = [];
-  /** The project a stand-down refused, if any — named for the message. */
-  let refused: RepoSlug | undefined;
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -347,9 +364,9 @@ export async function morningRun(
         }
 
         const budget = await ports.store.loadBudget();
-        standDown = await consultTheGate(ports, budget, state);
-        if (standDown !== undefined) {
-          refused = scan.selection.project.repo;
+        const refusal = await consultTheGate(ports, budget, state);
+        if (refusal !== undefined) {
+          standDown = { ...refusal, refused: scan.selection.project.repo };
           break;
         }
 
@@ -366,13 +383,12 @@ export async function morningRun(
           ...iteration,
         } as IterationOutcome);
 
-        // The provider's limit refuses every run after this one the same way,
+        // The provider limit refuses every run after this one the same way,
         // so the loop stops here rather than walking the backlog into it.
-        const said = limitReachedBy(iteration);
-        if (said !== undefined) {
+        if (iteration.kind === "limit-refused") {
           standDown = {
             reason: "provider-limit",
-            said,
+            limitRefusal: iteration.limitRefusal,
             ticket: scan.selection.ticket,
           };
           break;
@@ -408,7 +424,6 @@ export async function morningRun(
     projects: outcomes,
     runs,
     standDown,
-    refused,
     invocationFailure,
   };
   const line = summaryLine(facts);
@@ -440,14 +455,6 @@ export async function morningRun(
         ? line
         : `${line} The summary issue could not be published: ${publishFailure}.`,
   };
-}
-
-/** What the provider said, when its usage limit refused this iteration's run. */
-function limitReachedBy(iteration: Iteration): string | undefined {
-  if ("limitReached" in iteration) {
-    return iteration.limitReached;
-  }
-  return "review" in iteration ? iteration.review.limitReached : undefined;
 }
 
 function outcomeOf(
@@ -645,8 +652,8 @@ function leastRecentlyWorkedFirst(
  * The second step: run the selected ticket and record what that cost. An
  * implementation ticket hands its work over as a draft pull request with a
  * review queued against it, or — when the agent gave up — puts the ticket back
- * in the developer's hands, and leaves it untouched when the run was an
- * infrastructure failure or refused by the provider limit; a review ticket's own run posts its findings
+ * in the developer's hands. An infrastructure failure or a limit refusal
+ * leaves the ticket untouched. A review ticket's own run posts its findings
  * itself and is closed once it has.
  *
  * A failed run ends this iteration rather than the invocation: it is
@@ -659,13 +666,10 @@ async function work(
   spendCeiling: Usd,
 ): Promise<Iteration> {
   if (isReviewTicket(selection.ticket)) {
-    const repo = selection.project.repo;
-    const checkout = await ports.repoHost.clone(repo);
     return await runReview(
       ports,
-      repo,
+      selection.project.repo,
       selection.ticket,
-      checkout,
       state,
       spendCeiling,
     );
@@ -679,10 +683,12 @@ async function work(
   }
 
   const { run, checkout } = returned;
-  if (run.limitReached !== undefined) {
+  if (run.limitRefusal !== undefined) {
     return {
+      kind: "limit-refused",
+      limitRefusal: run.limitRefusal,
+      tokensUsed: run.tokensUsed,
       run,
-      limitReached: run.limitReached,
       discard: await discardBranch(ports, checkout, run),
     };
   }
@@ -698,10 +704,8 @@ async function work(
   return handTicketBack(
     ports,
     selection.ticket,
-    {
-      run,
-      failure: { kind: "gave-up", reason: run.failure, handedBack: false },
-    },
+    run,
+    { kind: "gave-up", reason: run.failure, handedBack: false },
     discard,
   );
 }
@@ -732,13 +736,17 @@ async function handOver(
       ticket,
       committedNothingComment(run),
     );
-    return { run, ...(handbackFailure !== undefined && { handbackFailure }) };
+    return {
+      kind: "finished",
+      run,
+      ...(handbackFailure !== undefined && { handbackFailure }),
+    };
   }
 
   // TODO[#10]: post the review's findings as comments on the pull request it
   // names, instead of dropping them here.
   if (isReview(ticket)) {
-    return { run };
+    return { kind: "finished", run };
   }
 
   const pullRequest = await ports.repoHost.openDraftPullRequest(
@@ -766,6 +774,7 @@ async function handOver(
   );
 
   return {
+    kind: "finished",
     run,
     handover: { pullRequest, reviewTicket },
     ...(handbackFailure !== undefined && { handbackFailure }),
@@ -805,22 +814,23 @@ async function handFinishedTicketBack(
 async function handTicketBack(
   ports: MorningRunPorts,
   ticket: Ticket,
-  failed: Failed,
+  run: SandboxRunResult,
+  failure: GaveUp,
   discard: Discard,
 ): Promise<Failed> {
-  const { failure, run } = failed;
   try {
     await ports.tracker.handBack(
       ticket,
       handbackComment(failure, run, discard),
     );
-    return { ...failed, failure: { ...failure, handedBack: true } };
+    return { kind: "failed", run, failure: { ...failure, handedBack: true } };
   } catch (error: unknown) {
     // The policy itself could not be carried out, which leaves the ticket
     // eligible and due to come round again. Saying so is what is left: a
     // silent failure here is the one that costs a morning every morning.
     return {
-      ...failed,
+      kind: "failed",
+      run,
       failure: {
         ...failure,
         reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
@@ -891,13 +901,7 @@ async function attemptRun(
     // can fail. The sandbox can reject after the agent has already worked,
     // though, and that run's spend is lost to the ledger.
     // TODO[#35]: record what a run spent even when the sandbox rejects.
-    return {
-      failure: {
-        kind: "infrastructure",
-        reason: errorMessage(error),
-        handedBack: false,
-      },
-    };
+    return infrastructureFailure(error);
   }
 
   const at = ports.clock.now();
@@ -905,6 +909,14 @@ async function attemptRun(
   state.set(repo, recordRun(state.get(repo), cost));
 
   return { run, checkout };
+}
+
+/** A checkout or a sandbox that could not do its part, as the iteration it comes to. */
+function infrastructureFailure(error: unknown): Failed {
+  return {
+    kind: "failed",
+    failure: { kind: "infrastructure", reason: errorMessage(error) },
+  };
 }
 
 /**
@@ -921,17 +933,26 @@ async function attemptRun(
  * nothing was ever posted. Either way nothing did — a failed process or a
  * clean one that posted nothing — the ticket is left ready-for-agent and
  * comes round again for a later morning to try.
+ *
+ * A checkout or a sandbox that could not do its part is an infrastructure
+ * failure here exactly as for an implementation run: reported, the ticket left
+ * as it was, and the invocation carries on.
  */
 async function runReview(
   ports: MorningRunPorts,
   repo: RepoSlug,
   ticket: ReviewTicket,
-  checkout: Checkout,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
-): Promise<Reviewed> {
+): Promise<Reviewed | LimitRefused | Failed> {
   const startedAt = ports.clock.now();
-  const review = await ports.sandbox.review({ ticket, checkout, spendCeiling });
+  let review: ReviewRunResult;
+  try {
+    const checkout = await ports.repoHost.clone(repo);
+    review = await ports.sandbox.review({ ticket, checkout, spendCeiling });
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
 
   state.set(
     repo,
@@ -941,16 +962,24 @@ async function runReview(
     }),
   );
 
+  if (review.limitRefusal !== undefined) {
+    return {
+      kind: "limit-refused",
+      limitRefusal: review.limitRefusal,
+      tokensUsed: review.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+
   const posted =
     review.failure === undefined &&
-    review.limitReached === undefined &&
     (await ports.repoHost.hasNewComment(ticket.pullRequest, startedAt));
 
   if (posted) {
     await ports.tracker.closeReviewTicket(ticket);
   }
 
-  return { review, posted };
+  return { kind: "reviewed", review, posted };
 }
 
 function outcome(
@@ -982,16 +1011,15 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 
 /**
  * Everything the summary is built from: the outcome of every registered
- * project, every attempt this invocation made, why the gate stopped it, if
- * it did, and whether the invocation itself broke before finishing. One
- * type rather than four parameters, since `summaryLine` and `summaryBody`
- * both need exactly these facts and nothing else.
+ * project, every attempt this invocation made, why it stood down, if it did,
+ * and whether the invocation itself broke before finishing. One type rather
+ * than four parameters, since `summaryLine` and `summaryBody` both need
+ * exactly these facts and nothing else.
  */
 interface SummaryFacts {
   projects: ProjectOutcome[];
   runs: IterationOutcome[];
   standDown: InvocationStandDown | undefined;
-  refused: RepoSlug | undefined;
   invocationFailure: string | undefined;
 }
 
@@ -1000,7 +1028,7 @@ function summaryLine(facts: SummaryFacts): string {
     return `The invocation did not finish: ${facts.invocationFailure}.`;
   }
 
-  const { projects, runs, standDown, refused } = facts;
+  const { projects, runs, standDown } = facts;
   const skipped = projects.flatMap((project) => {
     const reason = skipReason(project.verdict);
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
@@ -1008,19 +1036,20 @@ function summaryLine(facts: SummaryFacts): string {
 
   const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
 
+  if (runs.length > 0) {
+    // A stand-down after the morning had already done some good is said after
+    // what was worked, since the developer still needs both.
+    const worked = runs.map(describeRun).join(" ");
+    const stopped =
+      standDown === undefined
+        ? ""
+        : ` Stood down after that: ${whyStoodDown(standDown, "next")}`;
+    return `${worked}${stopped}${aside}`;
+  }
   // The gate refused before a single run this morning: there is work waiting,
   // named by the project the gate turned away, but none of it ran.
-  if (
-    runs.length === 0 &&
-    refused !== undefined &&
-    standDown !== undefined &&
-    standDown.reason !== "provider-limit"
-  ) {
-    return `Stood down: ${standDownReason(standDown)}. ${refused} was ready to work; the window resets ${standDown.resetsAt.toISOString()}.${aside}`;
-  }
-  if (runs.length > 0) {
-    const worked = runs.map(describeRun).join(" ");
-    return `${worked}${stoppedAfter(standDown, refused)}${aside}`;
+  if (standDown !== undefined) {
+    return `Stood down: ${whyStoodDown(standDown, "first")}${aside}`;
   }
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
@@ -1029,25 +1058,24 @@ function summaryLine(facts: SummaryFacts): string {
 }
 
 /**
- * Why a morning that had already run something stopped, said after what it
- * ran. The gate names what it turned away next and when the window resets;
- * the provider's limit names the ticket it interrupted, which is still
- * eligible, and quotes the reset the provider gave.
+ * Why the invocation stood down, and what that left waiting. The gate names
+ * the project it turned away and when the window resets; a limit refusal
+ * names the ticket it refused, which is still eligible, and quotes the reset
+ * the provider gave.
+ *
+ * `when` is whether any run came before the stand-down, which only changes
+ * how the gate's refused project is introduced.
  */
-function stoppedAfter(
-  standDown: InvocationStandDown | undefined,
-  refused: RepoSlug | undefined,
+function whyStoodDown(
+  standDown: InvocationStandDown,
+  when: "first" | "next",
 ): string {
-  if (standDown === undefined) {
-    return "";
-  }
   if (standDown.reason === "provider-limit") {
-    const { ticket, said } = standDown;
-    return ` Stood down after that: ${said}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+    const { ticket, limitRefusal } = standDown;
+    return `${limitRefusal}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
   }
-  return refused === undefined
-    ? ""
-    : ` Stood down after that: ${standDownReason(standDown)}. ${refused} was ready to work next; the window resets ${standDown.resetsAt.toISOString()}.`;
+  const ready = when === "next" ? "was ready to work next" : "was ready to work";
+  return `${standDownReason(standDown)}. ${standDown.refused} ${ready}; the window resets ${standDown.resetsAt.toISOString()}.`;
 }
 
 /** The summary issue's title: dated, so a string of mornings reads in order. */
@@ -1106,42 +1134,36 @@ function stillEligibleLine(run: { repo: RepoSlug; ticket: Ticket }): string {
  * here that needs a human to notice.
  */
 function waitingSection(runs: IterationOutcome[]): string | undefined {
-  const lines = runs.flatMap((run) => {
-    // An interrupted run's ticket waits on the provider, not the developer.
-    if ("review" in run || "limitReached" in run) {
-      return [];
-    }
-    if ("failure" in run) {
-      if (run.failure.kind === "infrastructure") {
+  const lines = runs.flatMap((run): string[] => {
+    switch (run.kind) {
+      case "reviewed":
+      // A limit refusal's ticket waits on the provider, not the developer.
+      case "limit-refused":
+        return [];
+      case "failed":
+        return [waitingOnFailure(run.repo, run.ticket, run.failure)];
+      case "finished": {
+        // A finished run's own hand-back, covering the two cases a queued
+        // review does not: a run that committed nothing, which has nothing to
+        // name but the relabel itself, and a run whose hand-back — of either
+        // kind — was refused by the tracker.
+        const { handover, handbackFailure } = run;
         return [
-          `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${run.failure.reason}`,
+          ...(handover === undefined
+            ? []
+            : [
+                `- ${run.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
+              ]),
+          ...(handbackFailure !== undefined
+            ? [stillEligibleLine(run)]
+            : handover === undefined
+              ? [
+                  `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
+                ]
+              : []),
         ];
       }
-      return run.failure.handedBack
-        ? [
-            `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`,
-          ]
-        : [stillEligibleLine(run)];
     }
-    // A finished run's own hand-back, covering the two cases a queued review
-    // does not: a run that committed nothing, which has nothing to name but
-    // the relabel itself, and a run whose hand-back — of either kind — was
-    // refused by the tracker.
-    const { handover, handbackFailure } = run;
-    return [
-      ...(handover === undefined
-        ? []
-        : [
-            `- ${run.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
-          ]),
-      ...(handbackFailure !== undefined
-        ? [stillEligibleLine(run)]
-        : handover === undefined
-          ? [
-              `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
-            ]
-          : []),
-    ];
   });
 
   return lines.length === 0
@@ -1149,32 +1171,55 @@ function waitingSection(runs: IterationOutcome[]): string | undefined {
     : ["## Waiting on you", ...lines].join("\n");
 }
 
+/** What a failed run leaves waiting on the developer. */
+function waitingOnFailure(
+  repo: RepoSlug,
+  ticket: Ticket,
+  failure: RunFailure,
+): string {
+  switch (failure.kind) {
+    case "infrastructure":
+      return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${failure.reason}`;
+    case "gave-up":
+      return failure.handedBack
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`
+        : stillEligibleLine({ repo, ticket });
+  }
+}
+
 /**
  * What one iteration's run or review cost. Absent only for a run that never
  * started — an infrastructure failure before the sandbox spent anything.
  */
 function costOf(iteration: IterationOutcome): TokenCount | undefined {
-  return "review" in iteration
-    ? iteration.review.tokensUsed
-    : iteration.run?.tokensUsed;
+  switch (iteration.kind) {
+    case "reviewed":
+      return iteration.review.tokensUsed;
+    case "limit-refused":
+      return iteration.tokensUsed;
+    case "failed":
+    case "finished":
+      return iteration.run?.tokensUsed;
+  }
 }
 
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */
 function describeRun(iteration: IterationOutcome): string {
-  if ("limitReached" in iteration) {
-    const kept =
-      iteration.discard.kind === "kept"
-        ? ` Its branch ${iteration.run.branch} could not be discarded: ${iteration.discard.reason}.`
-        : "";
-    return `Interrupted ${iteration.repo} #${iteration.ticket.number}: the provider's usage limit refused the run.${kept}`;
+  switch (iteration.kind) {
+    case "limit-refused": {
+      const kept =
+        iteration.discard.kind === "kept"
+          ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${iteration.discard.reason}.`
+          : "";
+      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${kept}`;
+    }
+    case "failed":
+      return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
+    case "reviewed":
+      return reviewSummary(iteration);
+    case "finished":
+      return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
   }
-  if ("failure" in iteration) {
-    return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
-  }
-  if ("review" in iteration) {
-    return reviewSummary(iteration);
-  }
-  return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
 }
 
 /**
@@ -1198,9 +1243,6 @@ function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
   const { repo, ticket, review, posted } = iteration;
-  if (review.limitReached !== undefined) {
-    return `Reviewed ${repo} #${ticket.number}: the provider's usage limit refused the run.`;
-  }
   if (review.failure !== undefined) {
     return `Reviewed ${repo} #${ticket.number}: the agent failed: ${review.failure}.`;
   }
@@ -1227,13 +1269,9 @@ function queued(finished: Finished): string {
  * of what happened is in the comment waiting there.
  */
 function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
-  const what =
-    failure.kind === "gave-up"
-      ? "the agent gave up"
-      : "the run would not start";
   const which = `#${ticket.number}`;
   if (failure.kind === "infrastructure") {
-    return `${what} on ${which}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
+    return `the run would not start on ${which}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and
@@ -1241,7 +1279,7 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   const now = failure.handedBack
     ? "Handed back for a human."
     : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
-  return `${what} on ${which}: ${failure.reason}. ${now}`;
+  return `the agent gave up on ${which}: ${failure.reason}. ${now}`;
 }
 
 /**

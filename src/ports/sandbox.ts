@@ -48,12 +48,12 @@ export interface SandboxRunResult {
    */
   failure?: string;
   /**
-   * What the provider said when it refused the run for a spent usage limit,
-   * absent when it did not. Set instead of `failure`, never beside it: the
-   * limit is nobody's problem with the ticket, and a caller that read it as
-   * an agent giving up would hand back every ticket the limit touches.
+   * What the provider said when the provider limit refused the run, absent
+   * when it did not. Set instead of `failure`, never beside it: the limit is
+   * nobody's problem with the ticket, and a caller that read it as an agent
+   * giving up would hand back every ticket the limit touches.
    */
-  limitReached?: string;
+  limitRefusal?: string;
 }
 
 /** What a reviewing agent's run in the container came back with. */
@@ -63,8 +63,8 @@ export interface ReviewRunResult {
   tokensUsed: TokenCount;
   /** Why the run did not finish cleanly, absent when it did. */
   failure?: string;
-  /** As `SandboxRunResult.limitReached`. */
-  limitReached?: string;
+  /** As `SandboxRunResult.limitRefusal`. */
+  limitRefusal?: string;
 }
 
 /**

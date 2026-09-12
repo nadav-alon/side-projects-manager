@@ -251,33 +251,34 @@ async function attempt(
 }
 
 /**
- * How the provider words a refusal for a spent usage limit, as the agent CLI
- * passes it on in place of any answer: "You've hit your session limit · resets
- * 1pm (UTC)". Anchored to the start of the output, which the refusal is the
- * whole of, so an agent that failed after quoting it is still an agent that
- * failed. The only place that wording is known, so a CLI that rewords it has
- * one line here to change.
+ * How the provider words a limit refusal, as the agent CLI passes it on in
+ * place of any answer: "You've hit your session limit · resets 1pm (UTC)", or
+ * "You've hit your monthly spend limit · raise it at …" — a window's name can
+ * be more than one word. Either apostrophe, since the wording is the
+ * provider's to typeset.
+ *
+ * Anchored to the start of the output, which the refusal is the whole of, so
+ * an agent that quotes the wording anywhere in what it says is not mistaken
+ * for one refused. The only place that wording is known, so a CLI that
+ * rewords it has one line here to change.
  */
-const LIMIT_REACHED = /^You've hit your [\w-]+ limit\b[^\n]*/;
+const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 
 /**
- * Whether `agent` stopped for a ticket reason, for the provider's usage limit,
- * or not at all.
+ * Whether `agent` was refused by the provider limit, stopped for a ticket
+ * reason, or finished.
  *
- * Read only off a run that failed. The CLI exits non-zero when the limit
- * refuses it, and an agent that finished is free to quote the wording — this
- * one would, working on the code that reads it.
+ * A refusal is read whatever the exit code: it is the whole of what the CLI
+ * said, so a refused run that exited zero is still no answer to the ticket.
  */
 function howItStopped(
   agent: AgentRun,
-): { failure?: string; limitReached?: string } {
-  if (agent.failure === undefined) {
-    return {};
+): { failure?: string; limitRefusal?: string } {
+  const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
+  if (refusal !== undefined) {
+    return { limitRefusal: refusal.trim() };
   }
-  const limit = LIMIT_REACHED.exec(agent.output)?.[0];
-  return limit === undefined
-    ? { failure: agent.failure }
-    : { limitReached: limit.trim() };
+  return agent.failure === undefined ? {} : { failure: agent.failure };
 }
 
 /**

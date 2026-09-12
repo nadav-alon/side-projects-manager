@@ -25,6 +25,7 @@ import {
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
+import { LIMIT_REFUSAL } from "../testing/index.ts";
 
 const run = promisify(execFile);
 
@@ -45,9 +46,6 @@ const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
 
 /** What the loop would have taken off the budget for one run. */
 const CEILING = usd(5);
-
-/** What the agent CLI says, and all it says, once the provider's limit is spent. */
-const SESSION_LIMIT = "You've hit your session limit · resets 1pm (UTC)";
 
 /**
  * A project checkout with one commit on `main`, which is what the repo host
@@ -284,48 +282,109 @@ describe("containerSandbox", () => {
   });
 
   /**
-   * What the CLI said, in the envelope's `result`, on every run of the
-   * morning that emptied a backlog in two minutes: it exits non-zero, spends
-   * nothing, and would otherwise read exactly like an agent that gave up.
+   * A limit refusal exits non-zero, spends nothing, and would otherwise read
+   * exactly like an agent that gave up.
    */
-  it("reports the provider's usage limit apart from a failed agent", async () => {
+  it("reports a limit refusal apart from a failed agent", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () => ({
-      output: SESSION_LIMIT,
+      output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
     }));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(result.limitReached, SESSION_LIMIT);
+    assert.equal(result.limitRefusal, LIMIT_REFUSAL);
     assert.equal(result.failure, undefined);
   });
 
-  it("does not mistake a failed agent that quoted the limit for one stopped by it", async () => {
+  it("reports a limit refusal even when the CLI exits zero", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () => ({
-      output: `The tests would not go green. The CLI says, on a spent limit:\n${SESSION_LIMIT}`,
+      output: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.limitRefusal, LIMIT_REFUSAL);
+  });
+
+  for (const refusal of [
+    "You’ve hit your session limit · resets 1pm (UTC)",
+    "You've hit your monthly spend limit · raise it at claude.ai/settings/usage",
+    "You've hit your weekly limit · resets Mon 9am (Asia/Jerusalem)",
+  ]) {
+    it(`reads "${refusal}" as a limit refusal`, async () => {
+      const directory = await project();
+      const sandbox = containerSandbox(async () => ({
+        output: refusal,
+        tokensUsed: tokenCount(0),
+        failure: "Command failed: docker run",
+      }));
+
+      const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+      assert.equal(result.limitRefusal, refusal);
+    });
+  }
+
+  it("reads a limit refusal out of the CLI's JSON envelope", async () => {
+    const directory = await project();
+    const stdout = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      result: LIMIT_REFUSAL,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    });
+    const sandbox = containerSandbox(async () => ({
+      ...readAgentRun(stdout),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.limitRefusal, LIMIT_REFUSAL);
+  });
+
+  it("reads a limit refusal the CLI printed as plain text rather than an envelope", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      ...readAgentRun(`${LIMIT_REFUSAL}\n`),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.limitRefusal, LIMIT_REFUSAL);
+  });
+
+  it("does not mistake a failed agent that quoted the limit for one refused by it", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: `The tests would not go green. The CLI says, on a spent limit:\n${LIMIT_REFUSAL}`,
       tokensUsed: tokenCount(1_000),
       failure: "Command failed: docker run",
     }));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(result.limitReached, undefined);
+    assert.equal(result.limitRefusal, undefined);
     assert.equal(result.failure, "Command failed: docker run");
   });
 
-  it("does not mistake a finished agent that mentions the limit for one stopped by it", async () => {
+  it("does not mistake a finished agent that mentions the limit for one refused by it", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () => ({
-      output: `Implemented the stand-down. The CLI says:\n${SESSION_LIMIT}`,
+      output: `Implemented the stand-down. The CLI says:\n${LIMIT_REFUSAL}`,
       tokensUsed: tokenCount(1_000),
     }));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(result.limitReached, undefined);
+    assert.equal(result.limitRefusal, undefined);
     assert.equal(result.failure, undefined);
   });
 
@@ -570,10 +629,10 @@ describe("containerSandbox.review", () => {
     assert.match(result.output, /gave up/);
   });
 
-  it("reports the provider's usage limit apart from a failed reviewer", async () => {
+  it("reports a limit refusal apart from a failed reviewer", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () => ({
-      output: SESSION_LIMIT,
+      output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
     }));
@@ -584,7 +643,7 @@ describe("containerSandbox.review", () => {
       spendCeiling: CEILING,
     });
 
-    assert.equal(result.limitReached, SESSION_LIMIT);
+    assert.equal(result.limitRefusal, LIMIT_REFUSAL);
     assert.equal(result.failure, undefined);
   });
 

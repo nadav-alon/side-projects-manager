@@ -25,6 +25,7 @@ import {
   FROZEN_NOW,
   FakeClock,
   FakeRepoHost,
+  LIMIT_REFUSAL,
   type FakePorts,
   fakePorts,
   spent,
@@ -42,14 +43,9 @@ function verdicts(projects: ProjectOutcome[]): [string, string][] {
   return projects.map((project) => [project.repo, project.verdict]);
 }
 
-/** The finished half of an iteration outcome — undefined if it failed or reviewed instead. */
+/** The finished half of an iteration outcome — undefined if it ended any other way. */
 function finished(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined &&
-    !("failure" in iteration) &&
-    !("review" in iteration) &&
-    !("limitReached" in iteration)
-    ? iteration
-    : undefined;
+  return iteration?.kind === "finished" ? iteration : undefined;
 }
 
 /** Why the gate refused — undefined if it never did, or the provider's limit stood the morning down instead. */
@@ -64,6 +60,12 @@ function failureOf(iteration: IterationOutcome | undefined) {
   return iteration !== undefined && "failure" in iteration
     ? iteration.failure
     : undefined;
+}
+
+/** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
+function handedBackOf(iteration: IterationOutcome | undefined) {
+  const failure = failureOf(iteration);
+  return failure?.kind === "gave-up" ? failure.handedBack : undefined;
 }
 
 function pullRequestOf(iteration: IterationOutcome | undefined) {
@@ -1325,10 +1327,50 @@ describe("morningRun", () => {
         await morningRun(ports);
 
         const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.ok(body.includes("## Attempts"));
+        assert.ok(body.includes("## Waiting on you"));
+        const attempts = body.slice(
+          body.indexOf("## Attempts"),
+          body.indexOf("## Waiting on you"),
+        );
+        assert.match(attempts, /#7/);
+        assert.match(attempts, new RegExp(BROKE));
         const waiting = body.slice(body.indexOf("## Waiting on you"));
         assert.match(waiting, /pilot #7/);
         assert.match(waiting, new RegExp(BROKE));
         assert.doesNotMatch(body, /relabel it yourself/);
+      });
+
+      it("carries on past a review whose checkout cannot be made, leaving the review open", async (t) => {
+        const ports = readyToWork();
+        const review = ports.tracker.addEligibleTicket(PILOT, {
+          number: 42,
+          title: "Review the draft pull request for #7",
+          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        });
+        const clone = ports.repoHost.clone.bind(ports.repoHost);
+        let clones = 0;
+        t.mock.method(ports.repoHost, "clone", async (repo: typeof PILOT) => {
+          clones += 1;
+          if (clones === 1) {
+            throw new Error("no such remote");
+          }
+          return clone(repo);
+        });
+
+        const report = await morningRun(ports);
+
+        assert.deepEqual(
+          report.runs.map((run) => [run.ticket.number, run.kind]),
+          [
+            [42, "failed"],
+            [7, "finished"],
+          ],
+        );
+        assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+        const backlog = await ports.tracker.listEligibleTickets(PILOT);
+        assert.ok(backlog.some((ticket) => ticket.number === review.number));
       });
 
       it("carries on to the next ticket", async (t) => {
@@ -1351,7 +1393,13 @@ describe("morningRun", () => {
 
         const report = await morningRun(ports);
 
-        assert.equal(report.runs.length, 2);
+        assert.deepEqual(
+          report.runs.map((run) => [run.ticket.number, run.kind]),
+          [
+            [7, "failed"],
+            [8, "finished"],
+          ],
+        );
         assert.equal(report.standDown, undefined);
       });
     });
@@ -1415,7 +1463,7 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.equal(failureOf(report.runs[0])?.kind, "gave-up");
-      assert.equal(failureOf(report.runs[0])?.handedBack, false);
+      assert.equal(handedBackOf(report.runs[0]), false);
       assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
       // The one morning the developer has to act on themselves: saying it was
@@ -1435,7 +1483,7 @@ describe("morningRun", () => {
 
       // Relabelling is the half that stops the ticket costing another
       // morning; a branch git will not delete must not take it down.
-      assert.equal(failureOf(report.runs[0])?.handedBack, true);
+      assert.equal(handedBackOf(report.runs[0]), true);
       assert.match(
         ports.tracker.handbacks[0]?.comment ?? "",
         /could not be discarded/,
@@ -1994,9 +2042,7 @@ describe("morningRun", () => {
     });
   });
 
-  describe("the provider's usage limit", () => {
-    const SESSION_LIMIT = "You've hit your session limit · resets 1pm (UTC)";
-
+  describe("a limit refusal", () => {
     /** One project, three tickets: enough to see what the loop does after the limit. */
     function threeTickets(): FakePorts {
       const ports = fakePorts();
@@ -2015,13 +2061,13 @@ describe("morningRun", () => {
       ports.sandbox.result = (ticket) => ({
         branch: branch(`issue-${ticket.number}`),
         commits: [],
-        output: ticket.number === 1 ? "done" : SESSION_LIMIT,
+        output: ticket.number === 1 ? "done" : LIMIT_REFUSAL,
         tokensUsed: tokenCount(ticket.number === 1 ? 5_000 : 0),
-        ...(ticket.number !== 1 && { limitReached: SESSION_LIMIT }),
+        ...(ticket.number !== 1 && { limitRefusal: LIMIT_REFUSAL }),
       });
     }
 
-    it("leaves the interrupted ticket exactly as it was, and runs nothing after it", async () => {
+    it("leaves the refused ticket exactly as it was, and runs nothing after it", async () => {
       const ports = threeTickets();
       limitAfterTheFirstRun(ports);
 
@@ -2043,7 +2089,7 @@ describe("morningRun", () => {
       assert.equal(report.standDown?.reason, "provider-limit");
     });
 
-    it("says it stood down on the provider's limit, naming the interrupted ticket and the reset", async () => {
+    it("says it stood down on the provider limit, naming the refused ticket and the reset", async () => {
       const ports = threeTickets();
       limitAfterTheFirstRun(ports);
 
@@ -2056,7 +2102,7 @@ describe("morningRun", () => {
       assert.doesNotMatch(body, /pilot #2: relabelled/);
     });
 
-    it("still records what the interrupted run spent", async () => {
+    it("still records what the refused run spent", async () => {
       const ports = threeTickets();
       limitAfterTheFirstRun(ports);
 
@@ -2064,6 +2110,28 @@ describe("morningRun", () => {
 
       const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
       assert.equal(runs.length, 2);
+    });
+
+    it("discards any branch the refused run left, without handing the ticket back", async () => {
+      const ports = threeTickets();
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`issue-${ticket.number}`),
+        commits: ["c0ffee1"],
+        output: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        limitRefusal: LIMIT_REFUSAL,
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, [
+        {
+          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+          branch: branch("issue-1"),
+        },
+      ]);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(ports.repoHost.pullRequests.length, 0);
     });
 
     it("stands down just the same when it refuses a review, leaving the review open", async () => {
@@ -2074,9 +2142,9 @@ describe("morningRun", () => {
         pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
       });
       ports.sandbox.reviewResult = () => ({
-        output: SESSION_LIMIT,
+        output: LIMIT_REFUSAL,
         tokensUsed: tokenCount(0),
-        limitReached: SESSION_LIMIT,
+        limitRefusal: LIMIT_REFUSAL,
       });
 
       const report = await morningRun(ports);

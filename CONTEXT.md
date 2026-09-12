@@ -204,8 +204,12 @@ blocks before it have ended; one more than five hours out names no block at all 
 _Avoid_: reset override, manual window, pinned reset
 
 **Provider limit**:
-The usage limit the provider itself enforces, which the manager learns of only when a run is refused for it. The allowance is the developer's declaration of it and can be wrong, so the gate can say go while the provider says no. A refused run is not a failure: its ticket is left exactly as it was, and the invocation stands down, since every run after it would be refused the same way.
-_Avoid_: rate limit, quota, session limit (the provider's own wording, for one of its windows)
+The usage limit the provider itself enforces, which the manager learns of only through a limit refusal. The allowance is the developer's declaration of it and can be wrong, so the gate can say go while the provider says no.
+_Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
+
+**Limit refusal**:
+A run, implementation or review, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+_Avoid_: interrupted, limit reached, rate-limited
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.

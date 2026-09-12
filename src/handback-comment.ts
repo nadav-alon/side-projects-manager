@@ -1,4 +1,4 @@
-import type { RunFailure } from "./morning-run.ts";
+import type { GaveUp } from "./morning-run.ts";
 import type { PullRequestUrl, SandboxRunResult, Ticket } from "./ports/index.ts";
 import { READY_FOR_AGENT_LABEL } from "./ports/index.ts";
 
@@ -34,15 +34,14 @@ const REASON_QUOTED = 4_000;
 /**
  * What a ticket whose agent gave up is told about the morning that failed on
  * it: why it stopped, what the agent said, what became of its branch, and how
- * to send the ticket round again. An infrastructure failure is never told
- * anything, since it says nothing about the ticket.
+ * to send the ticket round again.
  *
  * Markdown, because that is what a ticket comment is read as — and so the
  * agent's own output is fenced, since anything it said unfenced would be read
  * as Markdown too.
  */
 export function handbackComment(
-  failure: RunFailure,
+  failure: GaveUp,
   run: SandboxRunResult | undefined,
   discard: Discard,
 ): string {

@@ -9,6 +9,9 @@ import type {
 } from "../ports/index.ts";
 import { branch, tokenCount } from "../ports/index.ts";
 
+/** What the agent CLI says, and all it says, once the provider limit refuses a run. */
+export const LIMIT_REFUSAL = "You've hit your session limit · resets 1pm (UTC)";
+
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
  *
