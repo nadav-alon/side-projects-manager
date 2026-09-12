@@ -666,6 +666,61 @@ describe("readAgentRun", () => {
       "docker: command not found\n",
     );
   });
+
+  /**
+   * The envelope a sandbox that grants the agent nothing actually sends back,
+   * trimmed to the fields that matter. Note `is_error: false` and the ordinary
+   * `result`: nothing outside `permission_denials` says the run was refused,
+   * which is why a manager that reads only `result` reports it as a morning
+   * where the agent simply found nothing to do.
+   */
+  it("says which tools the agent was refused", () => {
+    const stdout = JSON.stringify({
+      is_error: false,
+      result: "It looks like the write permission was denied.",
+      usage: { input_tokens: 6, output_tokens: 219 },
+      permission_denials: [
+        { tool_name: "Bash", tool_input: { command: "git commit -m x" } },
+        { tool_name: "Write", tool_input: { file_path: "/repo/probe.txt" } },
+      ],
+    });
+
+    const agent = readAgentRun(stdout);
+
+    assert.match(agent.output, /refused these tools/);
+    assert.match(agent.output, /Bash/);
+    assert.match(agent.output, /Write/);
+    // The agent's own words are kept as well: what it was refused explains
+    // the run, but what it said is still what a developer reads first.
+    assert.match(agent.output, /write permission was denied/);
+  });
+
+  it("names each refused tool once, however often it was refused", () => {
+    const stdout = JSON.stringify({
+      result: "denied",
+      permission_denials: [
+        { tool_name: "Bash" },
+        { tool_name: "Bash" },
+        { tool_name: "Bash" },
+      ],
+    });
+
+    const denials = readAgentRun(stdout).output.match(/Bash/g) ?? [];
+    assert.equal(denials.length, 1);
+  });
+
+  /**
+   * A run nobody refused anything reads exactly as it did before, so the note
+   * stays a signal rather than a line on every hand-back comment.
+   */
+  it("says nothing about refusals when there were none", () => {
+    const stdout = JSON.stringify({
+      result: "done",
+      permission_denials: [],
+    });
+
+    assert.equal(readAgentRun(stdout).output, "done");
+  });
 });
 
 /**
@@ -748,6 +803,48 @@ describe("dockerCommand", () => {
 
     assert.ok(command.includes("GH_TOKEN"));
     assert.ok(command.includes("GITHUB_TOKEN"));
+  });
+
+  /**
+   * The other flag that fails silently, and the one that already has: without
+   * it `--print` sends every permission question to a host that is not there —
+   * `execFile` is not one — and the CLI denies the lot. A run so refused still
+   * exits zero, so nothing downstream can tell it apart from an agent that
+   * looked at the ticket and left it alone. The argument list is the only place
+   * this is observable without a container and a credential.
+   */
+  it("grants the agent its permissions, since no host is there to be asked", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
+
+    const mode = command.indexOf("--permission-mode");
+    assert.notEqual(
+      mode,
+      -1,
+      "no --permission-mode: every Bash, Write and Edit call would be denied",
+    );
+    assert.equal(command[mode + 1], "bypassPermissions");
+  });
+
+  /**
+   * A reviewer needs the same grant. What stops it pushing is the read-only
+   * mount and the scoped credential (see `Mount`), not a prompt — and a
+   * reviewer denied Bash cannot run `gh` to post its findings either, which
+   * would fail the same quiet way.
+   */
+  it("grants a review its permissions too", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "review it",
+      spendCeiling: usd(5),
+      mount: "ro",
+    });
+
+    assert.ok(command.includes("--permission-mode"));
   });
 });
 

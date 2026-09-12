@@ -90,10 +90,21 @@ export function handoverComment(
  * What a finished run's ticket is told when the run left nothing to review:
  * the agent finished without committing anything, so there is no pull
  * request and no review to name.
+ *
+ * Quotes what the agent said, exactly as `handbackComment` does for an agent
+ * that gave up. This comment used to say only that nothing was committed, and
+ * a run that commits nothing is precisely the run whose output nobody can
+ * infer: there is no branch to read and no pull request to open, so the output
+ * is the whole of the evidence. Dropping it hid a sandbox that was refusing
+ * the agent every tool it had — eighteen tickets were handed back as work the
+ * agent declined to do, each carrying a comment that said nothing about why.
  */
-export function committedNothingComment(): string {
+export function committedNothingComment(
+  run: SandboxRunResult | undefined,
+): string {
   return [
     `The morning loop ran this ticket and committed nothing.`,
+    `What it said:\n\n${quote(run?.output ?? "")}`,
     `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
   ].join("\n\n");
 }

@@ -658,7 +658,7 @@ async function handOver(
     const handbackFailure = await handFinishedTicketBack(
       ports,
       ticket,
-      committedNothingComment(),
+      committedNothingComment(run),
     );
     return { run, ...(handbackFailure !== undefined && { handbackFailure }) };
   }

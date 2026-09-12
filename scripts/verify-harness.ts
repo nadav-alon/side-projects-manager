@@ -30,6 +30,19 @@ type InstalledPlugin = {
 const SPEND_CEILING_FLAG = "--max-budget-usd";
 
 /**
+ * How the manager grants an unattended agent its permissions
+ * (docs/specs/morning-loop.md: Sandboxing). A run is unattended, so there is
+ * nobody to answer a permission question; without this flag the CLI denies
+ * every tool the agent reaches for, and the run exits zero having committed
+ * nothing. That is the same silent shape as a dropped spend ceiling, and it
+ * has already cost one invocation eighteen tickets — so it is checked the same
+ * way, against the CLI in the image rather than against the manager's belief
+ * about it.
+ */
+const PERMISSION_FLAG = "--permission-mode";
+const PERMISSION_MODE = "bypassPermissions";
+
+/**
  * One skill the harness must expose. Naming a specific skill is what separates
  * "a plugin directory exists" from "claude can enumerate the skills in it". It
  * is a third-party name, so its absence is reported as an incomplete harness
@@ -155,6 +168,23 @@ if (!usage.includes(SPEND_CEILING_FLAG)) {
   );
 }
 
+if (!usage.includes(PERMISSION_FLAG)) {
+  fail(
+    `this image's claude accepts no ${PERMISSION_FLAG}, so every run in it would be denied the tools it needs and commit nothing`,
+    usage,
+  );
+}
+
+// The mode by name as well as the flag: the flag surviving a rename of the
+// mode would leave the manager passing a value the CLI rejects, which fails
+// every run at once — loud, but only once somebody runs the loop.
+if (!usage.includes(PERMISSION_MODE)) {
+  fail(
+    `this image's claude does not list ${PERMISSION_MODE} among the modes ${PERMISSION_FLAG} takes, so the manager passes one it will refuse`,
+    usage,
+  );
+}
+
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} accepted`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted`,
 );
