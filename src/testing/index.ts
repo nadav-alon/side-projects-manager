@@ -13,7 +13,7 @@ export {
   type FakePullRequest,
   type FakePush,
 } from "./fake-repo-host.ts";
-export { FakeSandbox } from "./fake-sandbox.ts";
+export { FakeSandbox, LIMIT_REFUSAL } from "./fake-sandbox.ts";
 export {
   callWith,
   emptyBacklogGh,

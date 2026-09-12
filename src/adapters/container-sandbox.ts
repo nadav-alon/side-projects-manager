@@ -203,7 +203,7 @@ async function runOnClone(
       commits,
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...(agent.failure !== undefined && { failure: agent.failure }),
+      ...howItStopped(agent),
     };
   } finally {
     // Whatever became of the run, the clone does not outlive it — and a clone
@@ -251,6 +251,37 @@ async function attempt(
 }
 
 /**
+ * How the provider words a limit refusal, as the agent CLI passes it on in
+ * place of any answer: "You've hit your session limit · resets 1pm (UTC)", or
+ * "You've hit your monthly spend limit · raise it at …" — a window's name can
+ * be more than one word. Either apostrophe, since the wording is the
+ * provider's to typeset.
+ *
+ * Anchored to the start of the output, which the refusal is the whole of, so
+ * an agent that quotes the wording anywhere in what it says is not mistaken
+ * for one refused. The only place that wording is known, so a CLI that
+ * rewords it has one line here to change.
+ */
+const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
+
+/**
+ * Whether `agent` was refused by the provider limit, stopped for a ticket
+ * reason, or finished.
+ *
+ * A refusal is read whatever the exit code: it is the whole of what the CLI
+ * said, so a refused run that exited zero is still no answer to the ticket.
+ */
+function howItStopped(
+  agent: AgentRun,
+): { failure?: string; limitRefusal?: string } {
+  const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
+  if (refusal !== undefined) {
+    return { limitRefusal: refusal.trim() };
+  }
+  return agent.failure === undefined ? {} : { failure: agent.failure };
+}
+
+/**
  * The reviewer's run: a throwaway clone of its own, exactly like an
  * implementation run, but mounted read-only and never fetched back — a
  * review leaves nothing on the checkout, because what it produces is a
@@ -280,7 +311,7 @@ async function reviewOnClone(
     return {
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...(agent.failure !== undefined && { failure: agent.failure }),
+      ...howItStopped(agent),
     };
   } finally {
     await rm(clone, { recursive: true, force: true }).catch(
