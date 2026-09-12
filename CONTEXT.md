@@ -126,6 +126,14 @@ _Avoid_: ready, agent-ready, afk-ready
 Carrying the ready-for-agent label. The only tickets the loop may select.
 _Avoid_: available, valid, approved
 
+**Model label**:
+The label a ticket may carry, as `model:<name>`, naming the model its run uses. Set by the developer like any triage label, and read afresh each morning, so changing it changes the next run. The name is passed through, never ranked or interpreted by the loop. Wins over the model defaults.
+_Avoid_: model tag, model override, tier
+
+**Model defaults**:
+The hand-edited document naming the model each kind of ticket runs on when it carries no model label, one name per kind and the same for every project. `models.json` in the manager home. A kind it leaves out runs on the model the sandbox image is pinned to.
+_Avoid_: model config, model settings, tiers
+
 **ready-for-human**:
 The triage label a ticket carries once the loop has stopped working on it. Always written in full, as the tracker spells it.
 _Avoid_: needs-human, manual, blocked
