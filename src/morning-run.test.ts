@@ -1879,6 +1879,23 @@ describe("morningRun", () => {
         ]);
       });
 
+      it("tells the developer when the ledger refuses the reset they declared", async (t) => {
+        const ports = readyToWork();
+        t.mock.method(ports.ledger, "read", async () => {
+          throw new Error(
+            '"observedResetAt" is 2027-09-05T13:00:00.000Z, more than 5 hours after 2026-01-01T09:00:00.000Z',
+          );
+        });
+
+        const report = await morningRun(ports);
+
+        // A refused instant must read like a bad budget document — described
+        // in the summary, not lost to a rejected promise — because the
+        // developer fixes it by editing the field the message names.
+        assert.equal(report.outcome, "invocation-failed");
+        assert.match(report.message, /observedResetAt/);
+      });
+
       it("asks the gate first and the sandbox second, never the other way round", async (t) => {
         const ports = readyToWork();
         const order: string[] = [];

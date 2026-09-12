@@ -244,8 +244,12 @@ function observedResetField(
   return { observedResetAt };
 }
 
-/** A trailing `Z` or a `+hh:mm` / `-hh:mm` offset. */
-const HAS_ZONE = /(?:Z|[+-]\d{2}:?\d{2})$/;
+/**
+ * A trailing `Z` or a `+hh:mm` / `-hh:mm` offset. Lower-case `z` counts:
+ * RFC 3339 allows it and `Date` parses it, and a developer who wrote a zone
+ * should not be told they wrote none.
+ */
+const HAS_ZONE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/;
 
 /**
  * A window's declared size. A token count, and never 0: an allowance of

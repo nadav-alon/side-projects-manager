@@ -27,9 +27,13 @@ export interface Budget {
    *
    * Absent for most machines, and going stale is not a failure: an instant
    * from last week still correctly says the blocks before it have ended, and
-   * the inference takes over from there. It sits in the budget document
-   * because it is the developer's to write and the loop's only to read, which
-   * is what separates that document from the state one.
+   * the inference takes over from there. Ahead is the unforgiving direction —
+   * one more than 5 hours out names a block that has not opened, and the
+   * ledger refuses it rather than state an empty window.
+   *
+   * It sits in the budget document because it is the developer's to write and
+   * the loop's only to read, which is what separates that document from the
+   * state one.
    */
   observedResetAt?: Date;
 }

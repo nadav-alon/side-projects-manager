@@ -251,6 +251,12 @@ this is what repairs a window straddling a reset the logs never saw. Going stale
 instant from last week still correctly discards blocks that ended long ago, and the inference takes
 over from there.
 
+Ahead is the direction that is not forgiving. A reset more than five hours out names a block that
+has not opened, and taken at its word it would state an empty window and wave every morning through
+— so the loop refuses it and says so, exactly as it refuses any other unusable field. Claude only
+ever shows you the block you are in, so an instant it refuses is one you did not mean to write; a
+mistyped date is the usual cause.
+
 A field that is present but not a usable value fails the invocation rather than falling back, and so
 does a field that is not one of the five above. Every setting is optional, so `"reserve"` for
 `"reserveFraction"` is indistinguishable from leaving it out — and a reserve you believe you set and

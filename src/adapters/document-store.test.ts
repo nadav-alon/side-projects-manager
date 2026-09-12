@@ -311,6 +311,29 @@ describe("the budget document", () => {
     await assert.rejects(store.loadBudget(), /observedResetAt/);
   });
 
+  it("reads a lower-case zone, which is a zone all the same", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({ observedResetAt: "2026-09-12T08:00:00z" }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      ...DEFAULT_BUDGET,
+      observedResetAt: new Date("2026-09-12T08:00:00.000Z"),
+    });
+  });
+
+  it("refuses a reset written as anything but a string", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({ observedResetAt: 1_757_664_000_000 }),
+      }),
+    );
+
+    await assert.rejects(store.loadBudget(), /observedResetAt/);
+  });
+
   it("refuses a reset that is not a date at all", async () => {
     const store = documentStore(
       await home({

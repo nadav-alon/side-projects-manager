@@ -200,7 +200,7 @@ document, believed ahead of the boundary the ledger infers from this machine's l
 is blind to the developer's other surfaces, and its error runs one way — a block opened by a message
 the ledger never saw reads as later than it was — so the observed reset is how a boundary the ledger
 cannot see gets corrected. One still to come states the block now open; one already past says the
-blocks before it have ended.
+blocks before it have ended; one more than five hours out names no block at all and is refused.
 _Avoid_: reset override, manual window, pinned reset
 
 **Spend ceiling**:

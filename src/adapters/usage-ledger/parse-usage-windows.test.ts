@@ -161,6 +161,31 @@ describe("parseUsageWindows", () => {
       );
     });
 
+    /**
+     * The one direction a wrong instant is expensive in. Believed, it would
+     * state a window that has not opened, which holds no entries and no run
+     * costs — an empty 5-hour window waving every morning through.
+     */
+    it("refuses a reset further ahead than a block is long, rather than believing it", () => {
+      const logs = [at("09:00", 90), at("11:00", 5)].join("\n");
+
+      assert.throws(
+        () => parseUsageWindows([logs], NOW, new Date("2027-09-05T13:00:00.000Z")),
+        /observedResetAt/,
+      );
+    });
+
+    it("accepts a reset a whole block ahead, which is as far as one can honestly be", () => {
+      const windows = parseUsageWindows(
+        [at("09:00", 90)],
+        NOW,
+        new Date(NOW.getTime() + 5 * 60 * 60 * 1000),
+      );
+
+      assert.equal(windows.fiveHour.openedAt.toISOString(), NOW.toISOString());
+      assert.equal(windows.fiveHour.tokensUsed, 0);
+    });
+
     it("corrects the five-hour window without touching the weekly one", () => {
       const logs = [fixture("session-history.jsonl")];
 

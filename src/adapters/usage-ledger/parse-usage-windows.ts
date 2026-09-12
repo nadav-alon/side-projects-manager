@@ -128,6 +128,9 @@ function sumTokenFields(usage: Record<string, unknown>): number | undefined {
  * the ledger never saw, and it is why a stale instant is harmless rather than
  * wrong — an old boundary discards blocks that ended long ago and changes
  * nothing else.
+ *
+ * Staleness is harmless in that one direction only. A reset more than 5 hours
+ * ahead is refused rather than believed: see `refuseAResetTooFarAhead`.
  */
 function fiveHourWindow(
   entries: readonly UsageLogEntry[],
@@ -137,6 +140,8 @@ function fiveHourWindow(
   const sorted = [...entries].sort(
     (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
   );
+
+  refuseAResetTooFarAhead(observedReset, now);
 
   if (observedReset !== undefined && observedReset.getTime() > now.getTime()) {
     return activeWindow(
@@ -165,6 +170,42 @@ function fiveHourWindow(
   }
 
   return activeWindow(blockOpen, FIVE_HOURS_MS, since, now);
+}
+
+/**
+ * Refuses an observed reset more than 5 hours ahead of `now`, because the
+ * block ending then has not opened yet: there is no such block now open for it
+ * to state.
+ *
+ * A wrong one is believed absolutely and costs far more than the inference it
+ * replaced. The window it states opens in the future, so the ledger's entries
+ * all fall before it and so do the mornings' own run costs — the 5-hour gate
+ * reports an empty window and waves every run through, silently, every
+ * morning, with the budget wizard carrying the bad instant across re-runs. A
+ * date typo is all it takes.
+ *
+ * Throwing rather than falling back to the inference is how the budget
+ * document treats every other unusable value, and for the same reason: a
+ * setting the developer believes they made and the loop quietly disregarded is
+ * the failure this gate exists to prevent. The developer reads this instant
+ * off a display that only ever shows the block they are in, so a value this
+ * tool refuses is one they did not mean to write.
+ */
+function refuseAResetTooFarAhead(
+  observedReset: Date | undefined,
+  now: Date,
+): void {
+  if (
+    observedReset === undefined ||
+    observedReset.getTime() - now.getTime() <= FIVE_HOURS_MS
+  ) {
+    return;
+  }
+  throw new Error(
+    `"observedResetAt" is ${observedReset.toISOString()}, more than 5 hours ` +
+      `after ${now.toISOString()}: the 5-hour block that resets then has not ` +
+      `opened yet, so it cannot be the one now open`,
+  );
 }
 
 /** The weekly window, which opens on Sunday (UTC). */
