@@ -504,10 +504,13 @@ export function dockerNeverRan(error: unknown): boolean {
  * What the manager asks docker to run: the image, the clone bound at the
  * workdir it declares, and the agent invocation itself.
  *
- * Exported so the argument list can be asserted without docker installed. The
- * spend ceiling in particular has to be visible to a test: it is the only
- * thing bounding a run once the run has started, and a flag that quietly stopped
- * being passed would not fail anything until a morning had spent the week.
+ * Exported so the argument list can be asserted without docker installed. Two
+ * of the flags in particular have to be visible to a test, because both fail
+ * quietly: the spend ceiling is the only thing bounding a run once the run has
+ * started, and one that stopped being passed would cost a week before anything
+ * said so; the permission mode is the only thing letting a run touch the clone
+ * at all, and one that stopped being passed would report every ticket as work
+ * the agent chose not to do.
  *
  * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `mount` —
  * see `Mount` and `envFor` for which credential answers to that name.
@@ -535,6 +538,25 @@ export function dockerCommand({
     prompt,
     "--output-format",
     "json",
+    // Without this the agent cannot act on the ticket at all. `--print`
+    // defaults to `--permission-prompts host`, and there is no host here:
+    // `execFile` is not one, and no `--permission-prompt-tool` is passed. So
+    // every Bash, Write and Edit call is denied automatically, and the agent
+    // reads its ticket, says it has no permission, and exits zero having
+    // committed nothing — a morning that spends its tokens and reports "the
+    // run left nothing behind" on every ticket it touches.
+    //
+    // Granted wholesale rather than as an allow-list of tool names. An
+    // allow-list that included Bash — which it must, since a run's whole
+    // product is commits and `git commit` is a shell call — grants the same
+    // reach with more to keep in step, and one that omitted a tool the
+    // harness reaches for would fail the same silent way this did.
+    //
+    // What bounds a run is the container, not this flag: the agent's whole
+    // world is a throwaway clone of one project, and a review's is mounted
+    // read-only with a credential that cannot push (see `Mount`).
+    "--permission-mode",
+    "bypassPermissions",
     // The spend ceiling, enforced by the agent CLI rather than by the manager:
     // nothing out here can stop a run that is already going, and a run that
     // overspends is exactly the one the gate cannot catch until the morning
@@ -560,7 +582,8 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * and no spend rather than failing the run.
  *
  * `stderr` is appended rather than dropped: a run that went wrong says so
- * there, and that is exactly the run whose output somebody has to read.
+ * there, and that is exactly the run whose output somebody has to read. So are
+ * the tools the CLI refused the agent — see `deniedTools`.
  */
 export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const envelope: unknown = parse(stdout);
@@ -579,16 +602,62 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
     output: withDiagnostics(
       typeof result === "string" ? result : stdout,
       stderr,
+      deniedTools(envelope),
     ),
     tokensUsed: totalTokens(usage),
   };
 }
 
-function withDiagnostics(output: string, stderr: string): string {
-  if (stderr.trim() === "") {
-    return output;
+/**
+ * The tools the CLI refused the agent, named once each in the order it first
+ * refused them.
+ *
+ * A refusal is not an error to the CLI: it hands the agent a denial, the agent
+ * says it cannot proceed, and the envelope comes back `"is_error": false` with
+ * the denials listed in a field of their own. So a run refused everything it
+ * needs is indistinguishable, from `result` and the exit code alone, from a run
+ * that read the ticket and judged there was nothing to do — and that is exactly
+ * how a whole invocation reported "the run left nothing behind" on eighteen
+ * tickets while never being permitted to touch one of them.
+ *
+ * Read here, where the envelope already is, so the manager cannot go on
+ * discarding the one field that says why a run came to nothing.
+ */
+function deniedTools(envelope: object): string[] {
+  const { permission_denials: denials } = envelope as {
+    permission_denials?: unknown;
+  };
+  if (!Array.isArray(denials)) {
+    return [];
   }
-  return output === "" ? stderr : `${output}\n${stderr}`;
+
+  const names = denials
+    .map((denial: unknown) =>
+      typeof denial === "object" && denial !== null
+        ? (denial as { tool_name?: unknown }).tool_name
+        : undefined,
+    )
+    .filter((name): name is string => typeof name === "string");
+  return [...new Set(names)];
+}
+
+/**
+ * Everything worth keeping alongside what the agent said: what it wrote to
+ * stderr, and what it was refused.
+ */
+function withDiagnostics(
+  output: string,
+  stderr: string,
+  denied: readonly string[] = [],
+): string {
+  const notes = [
+    output,
+    stderr.trim() === "" ? "" : stderr,
+    denied.length === 0
+      ? ""
+      : `The agent was refused these tools and could not use them: ${denied.join(", ")}.`,
+  ].filter((note) => note !== "");
+  return notes.join("\n");
 }
 
 function parse(stdout: string): unknown {

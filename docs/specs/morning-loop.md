@@ -123,9 +123,13 @@ by a Dockerfile the manager owns, with the skills harness installed at image bui
 per run. The sandbox makes a throwaway clone of the project checkout, runs the agent on a
 branch there, and fetches back a branch that gained commits; it clones rather than using a worktree
 because a worktree's `.git` is a pointer into its parent repo and does not survive a bind mount.
-This replaces any use of blanket permission-skipping: the blast radius of an unattended run is one
-throwaway clone of one project. See `docs/adr/0001-manager-owns-its-container-adapter.md` — an
-earlier draft of this spec delegated the run to sandcastle, which the implementation does not.
+The container is what bounds an unattended run, rather than a permission prompt: the blast radius is
+one throwaway clone of one project. The agent inside it is granted its permissions wholesale, and
+has to be — a run is unattended by definition, so there is nobody to answer a prompt, and an agent
+that is asked one it cannot answer is denied and commits nothing. The isolation is the safety story;
+withholding permission inside it only stops the work. See
+`docs/adr/0001-manager-owns-its-container-adapter.md` — an earlier draft of this spec delegated the
+run to sandcastle, which the implementation does not.
 
 **Authentication.** The sandbox authenticates with a long-lived subscription OAuth token, not an API
 key. This keeps runs on the subscription rather than metered billing, and is why the budget is
