@@ -71,8 +71,8 @@ async function readLogFiles(directory: string): Promise<string[]> {
 
 /** Reads window totals from the local Claude Code session logs. */
 export const sessionLogUsageLedger: UsageLedger = {
-  read: async (now: Date): Promise<UsageWindows> => {
+  read: async (now: Date, observedReset?: Date): Promise<UsageWindows> => {
     const logFiles = await readLogFiles(logsDirectory());
-    return parseUsageWindows(logFiles, now);
+    return parseUsageWindows(logFiles, now, observedReset);
   },
 };

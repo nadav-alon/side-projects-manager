@@ -170,10 +170,12 @@ function parseRegistry(
  * `{ "fiveHourAllowance": 50000000, "weeklyAllowance": 500000000,
  *    "reserveFraction": 0.5, "spendCeiling": 5 }`
  *
- * Every field is optional and falls back to `DEFAULT_BUDGET`, so a developer
- * who only wants to move the reserve writes one line. A field that is present
+ * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
+ * `observedResetAt`, which has no default because a boundary nobody has seen
+ * is one the ledger must go on inferring. A developer who only wants to move
+ * the reserve writes one line. A field that is present
  * but not a usable value is an error rather than a fallback, and so is a field
- * that is not one of these four: a reserve the developer believes they set and
+ * that is not one of these: a reserve the developer believes they set and
  * the loop silently ignored is the one failure this whole gate exists to
  * prevent, and `"reserve"` for `"reserveFraction"` fails exactly that way.
  */
@@ -208,8 +210,42 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "spendCeiling" must be a dollar amount above 0`,
       DEFAULT_BUDGET.spendCeiling,
     ),
+    ...observedResetField(fieldOf(document, "observedResetAt", file), file),
   };
 }
+
+/**
+ * The observed reset, as an ISO 8601 instant — `"2026-09-12T08:00:00Z"`.
+ *
+ * Spread rather than assigned, so a budget that names no reset has no such
+ * property at all instead of one holding `undefined`.
+ *
+ * A timestamp without a zone is refused rather than read as local time. The
+ * developer copies this off a display showing their own clock and the loop
+ * compares it against instants from the session logs, which are UTC; a naive
+ * string would be believed to the hour and wrong by the offset, and a wrong
+ * boundary is worse than the inference it replaced.
+ */
+function observedResetField(
+  value: unknown,
+  file: string,
+): { observedResetAt?: Date } {
+  if (value === undefined) {
+    return {};
+  }
+  const message = `${file}: "observedResetAt" must be an ISO 8601 instant with a zone, such as "2026-09-12T08:00:00Z"`;
+  if (typeof value !== "string" || !HAS_ZONE.test(value)) {
+    throw new Error(message);
+  }
+  const observedResetAt = new Date(value);
+  if (Number.isNaN(observedResetAt.getTime())) {
+    throw new Error(message);
+  }
+  return { observedResetAt };
+}
+
+/** A trailing `Z` or a `+hh:mm` / `-hh:mm` offset. */
+const HAS_ZONE = /(?:Z|[+-]\d{2}:?\d{2})$/;
 
 /**
  * A window's declared size. A token count, and never 0: an allowance of
@@ -227,6 +263,7 @@ const BUDGET_FIELDS = [
   "weeklyAllowance",
   "reserveFraction",
   "spendCeiling",
+  "observedResetAt",
 ] as const;
 
 /**

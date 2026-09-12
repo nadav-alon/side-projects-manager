@@ -409,14 +409,27 @@ stage "Review and write budget.json"
 say "This is the document that will be written to $BUDGET_FILE:"
 printf '\n'
 BUDGET_JSON=$(node --input-type=module -e '
-const [fiveHour, weekly, reserve, ceiling] = process.argv.slice(1).map(Number);
+const fs = await import("node:fs");
+const [file, ...numbers] = process.argv.slice(1);
+const [fiveHour, weekly, reserve, ceiling] = numbers.map(Number);
+
+// observedResetAt is carried across rather than asked about: this wizard
+// replaces the document wholesale, and that field is a correction the
+// developer makes by hand long after setup. A re-run that dropped it would
+// put back the stand-downs it was written to stop.
+let observed;
+try {
+  observed = JSON.parse(fs.readFileSync(file, "utf8"))?.observedResetAt;
+} catch { /* no document yet, or one that will not parse: nothing to carry */ }
+
 process.stdout.write(JSON.stringify({
   fiveHourAllowance: fiveHour,
   weeklyAllowance: weekly,
   reserveFraction: reserve,
   spendCeiling: ceiling,
+  ...(typeof observed === "string" && { observedResetAt: observed }),
 }, undefined, 2));
-' "$FIVE_HOUR_ALLOWANCE" "$WEEKLY_ALLOWANCE" "$RESERVE_FRACTION" "$SPEND_CEILING")
+' "$BUDGET_FILE" "$FIVE_HOUR_ALLOWANCE" "$WEEKLY_ALLOWANCE" "$RESERVE_FRACTION" "$SPEND_CEILING")
 while IFS= read -r line; do printf '  %s%s%s\n' "$BOLD" "$line" "$RESET"; done <<<"$BUDGET_JSON"
 printf '\n'
 if [[ -f "$BUDGET_FILE" ]]; then

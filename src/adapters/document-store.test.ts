@@ -274,6 +274,53 @@ describe("the budget document", () => {
     await assert.rejects(store.loadBudget(), /weeklyAllowance/);
   });
 
+  it("reads an observed reset as an instant", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({ observedResetAt: "2026-09-12T08:00:00Z" }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      ...DEFAULT_BUDGET,
+      observedResetAt: new Date("2026-09-12T08:00:00.000Z"),
+    });
+  });
+
+  it("leaves the property off entirely when no reset was observed", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFraction: 0.75 }) }),
+    );
+
+    assert.ok(!("observedResetAt" in (await store.loadBudget())));
+  });
+
+  /**
+   * The developer copies this off a display showing their own clock, and it
+   * is compared against UTC instants from the session logs. Reading a naive
+   * string as local time would be believed to the hour and wrong by the
+   * offset — a worse boundary than the inference it was meant to replace.
+   */
+  it("refuses a timestamp with no zone rather than guessing one", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({ observedResetAt: "2026-09-12T08:00:00" }),
+      }),
+    );
+
+    await assert.rejects(store.loadBudget(), /observedResetAt/);
+  });
+
+  it("refuses a reset that is not a date at all", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({ observedResetAt: "this morning" }),
+      }),
+    );
+
+    await assert.rejects(store.loadBudget(), /observedResetAt/);
+  });
+
   it("survives the new-project command rewriting the registry", async () => {
     const directory = await home({
       registry: JSON.stringify({ projects: [{ repo: PILOT }] }),

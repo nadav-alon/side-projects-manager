@@ -30,8 +30,26 @@ export interface UsageWindows {
  *
  * Knowingly under-counts: it cannot see Claude chat or other machines. The
  * reserve is sized to absorb that.
+ *
+ * Blindness costs the 5-hour window a second way, and the reserve does not
+ * cover this one. That window's boundary is inferred from the messages the
+ * ledger can see, so a message it cannot see opens the real block earlier
+ * than the inferred one. The error runs one way only: the inferred opening is
+ * at or after the true opening, so the inferred reset is at or after the true
+ * reset, and the loop stands down past the moment its headroom came back.
+ * An inferred window that straddles a reset the ledger never saw is worse
+ * still, counting spend from the block that has already ended against the
+ * block now open. That is what `observedReset` is for, and it is the
+ * developer who supplies it because they are the one who can see it.
  */
 export interface UsageLedger {
-  /** The windows in force at `now`. */
-  read(now: Date): Promise<UsageWindows>;
+  /**
+   * The windows in force at `now`.
+   *
+   * `observedReset` is a true 5-hour boundary the developer read off the
+   * provider's own display, and it settles what the logs can only suggest.
+   * Absent means nobody has said, which is the ordinary case: the ledger
+   * infers the boundary and lives with the bias above.
+   */
+  read(now: Date, observedReset?: Date): Promise<UsageWindows>;
 }

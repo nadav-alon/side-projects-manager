@@ -18,10 +18,15 @@ interface UsageLogEntry {
  * Lines that aren't a well-formed assistant message carrying usage — other
  * message types, truncated JSON, a usage object missing its token counts —
  * are skipped rather than aborting the parse.
+ *
+ * `observedReset` is a 5-hour boundary the developer saw, and it corrects the
+ * 5-hour window only. The weekly window needs no such help: it opens on
+ * Sunday, which is a rule rather than an inference.
  */
 export function parseUsageWindows(
   logFiles: readonly string[],
   now: Date,
+  observedReset?: Date,
 ): UsageWindows {
   const entries = logFiles
     .flatMap((content) => content.split("\n"))
@@ -29,7 +34,7 @@ export function parseUsageWindows(
     .filter((entry): entry is UsageLogEntry => entry !== undefined);
 
   return {
-    fiveHour: fiveHourWindow(entries, now),
+    fiveHour: fiveHourWindow(entries, now, observedReset),
     weekly: weeklyWindow(entries, now),
   };
 }
@@ -106,17 +111,51 @@ function sumTokenFields(usage: Record<string, unknown>): number | undefined {
  * The 5-hour window, opened by the first message of the current block: a run
  * of entries none of which is 5 hours past the one that opened it. A gap of
  * 5 hours or more starts a new block at the entry that follows the gap.
+ *
+ * That inference reads only the messages this machine logged, so a developer
+ * who has seen the true boundary can hand it over as `observedReset`, and it
+ * is believed ahead of the logs. Which boundary they saw decides what it
+ * settles:
+ *
+ * A reset still to come is the block now open, stated outright: the provider
+ * says this block ends then, so it began 5 hours before then, and there is
+ * nothing left to infer.
+ *
+ * A reset already past says only that every block before it has ended. The
+ * block now open began with some message after it, which the logs may well
+ * hold, so the entries before that instant are dropped and the inference runs
+ * on what remains. This is the case that repairs a window straddling a reset
+ * the ledger never saw, and it is why a stale instant is harmless rather than
+ * wrong — an old boundary discards blocks that ended long ago and changes
+ * nothing else.
  */
 function fiveHourWindow(
   entries: readonly UsageLogEntry[],
   now: Date,
+  observedReset?: Date,
 ): UsageWindow {
   const sorted = [...entries].sort(
     (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
   );
 
+  if (observedReset !== undefined && observedReset.getTime() > now.getTime()) {
+    return activeWindow(
+      new Date(observedReset.getTime() - FIVE_HOURS_MS),
+      FIVE_HOURS_MS,
+      sorted,
+      now,
+    );
+  }
+
+  const since =
+    observedReset === undefined
+      ? sorted
+      : sorted.filter(
+          (entry) => entry.timestamp.getTime() >= observedReset.getTime(),
+        );
+
   let blockOpen: Date | undefined;
-  for (const entry of sorted) {
+  for (const entry of since) {
     if (
       blockOpen === undefined ||
       entry.timestamp.getTime() - blockOpen.getTime() >= FIVE_HOURS_MS
@@ -125,7 +164,7 @@ function fiveHourWindow(
     }
   }
 
-  return activeWindow(blockOpen, FIVE_HOURS_MS, sorted, now);
+  return activeWindow(blockOpen, FIVE_HOURS_MS, since, now);
 }
 
 /** The weekly window, which opens on Sunday (UTC). */

@@ -236,8 +236,23 @@ go. The gate does not subtract the cost of the run it is about to authorise, so 
 boundary spends its ceiling out of the reserve — the ceiling is the size of that accepted overshoot.
 It is recorded in `state.json` either way, so the next morning's gate counts it.
 
+`observedResetAt` is the one field with no default, and most `budget.json` files never carry it. It
+is a 5-hour reset instant you read off Claude's own display, written as ISO 8601 with a zone —
+`"2026-09-12T13:00:00Z"` — and it settles a boundary the ledger can otherwise only guess at. The
+guess goes wrong in one direction: the 5-hour block is inferred from messages this machine logged,
+so a message it never saw — you on Claude chat, or on your other machine — opened the real block
+earlier than the inferred one, and the loop stands down past the moment its headroom came back. It
+is worth setting when a morning stands down naming a reset later than the one Claude shows you.
+
+A reset still to come is taken as the block now open, stated outright: it began five hours before
+then, and nothing is left to infer. A reset already past says only that the blocks before it have
+ended, so their spend is dropped and the block now open is inferred from the messages that follow —
+this is what repairs a window straddling a reset the logs never saw. Going stale costs nothing: an
+instant from last week still correctly discards blocks that ended long ago, and the inference takes
+over from there.
+
 A field that is present but not a usable value fails the invocation rather than falling back, and so
-does a field that is not one of the four above. Every setting is optional, so `"reserve"` for
+does a field that is not one of the five above. Every setting is optional, so `"reserve"` for
 `"reserveFraction"` is indistinguishable from leaving it out — and a reserve you believe you set and
 the loop silently ignored is the one way this document can go wrong expensively.
 
@@ -245,7 +260,9 @@ What the gate counts is the ledger's totals **plus the run costs in `state.json`
 this machine's Claude Code session logs, and a run writes its log inside a container that is thrown
 away when it ends, so the mornings' own spend reaches the gate through `state.json` or not at all.
 What remains genuinely invisible is Claude chat and your other machines; the reserve is what absorbs
-that, which is why it is worth setting generously.
+that, which is why it is worth setting generously. The reserve absorbs the missing tokens, though,
+not the missing boundary — a block those surfaces opened is a block the ledger cannot place, and
+`observedResetAt` is how you place it.
 
 All three documents live in the manager home — this checkout, unless
 `SIDE_PROJECTS_MANAGER_HOME` says otherwise.

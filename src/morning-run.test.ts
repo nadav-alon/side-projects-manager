@@ -1862,7 +1862,21 @@ describe("morningRun", () => {
         await morningRun(ports);
 
         assert.equal(read.mock.callCount(), 1);
-        assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW]);
+        assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW, undefined]);
+      });
+
+      it("hands the ledger the observed reset the budget declares", async (t) => {
+        const ports = readyToWork();
+        const observedResetAt = new Date("2026-01-01T06:00:00.000Z");
+        ports.store.budget = { ...ports.store.budget, observedResetAt };
+        const read = t.mock.method(ports.ledger, "read");
+
+        await morningRun(ports);
+
+        assert.deepEqual(read.mock.calls[0]?.arguments, [
+          FROZEN_NOW,
+          observedResetAt,
+        ]);
       });
 
       it("asks the gate first and the sandbox second, never the other way round", async (t) => {
