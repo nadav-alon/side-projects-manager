@@ -25,10 +25,15 @@ do was `docker run` — and the manager already owned the image it would have ru
 ## What this costs
 
 Isolation is now exactly what the adapter's flags give and no more: one bind mount, `--rm`,
-credentials passed by name rather than value. There is no network restriction and no resource
-ceiling, and the container is root until #27. The spec's claim that the blast radius of an
-unattended run is one throwaway clone of one project is backed by this adapter's own choices, not
-by a sandbox someone else maintains — which means it is ours to keep true.
+credentials passed by name rather than value, and the container pinned to the invoking developer's
+own uid. There is no network restriction and no resource ceiling. The spec's claim that the blast
+radius of an unattended run is one throwaway clone of one project is backed by this adapter's own
+choices, not by a sandbox someone else maintains — which means it is ours to keep true.
+
+The user pin is not a privilege boundary and was never chosen as one: the agent runs as the
+developer, which is whose files the bind mount exposes anyway. What it buys is that the clone comes
+back owned by the developer, and that the CLI will run unattended at all — it refuses
+`bypassPermissions` under uid 0.
 
 ## Reversing it
 

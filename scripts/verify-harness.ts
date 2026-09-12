@@ -84,6 +84,24 @@ function claude(...args: string[]): string {
   }
 }
 
+// The uid this check runs as, which `npm run sandbox:verify` passes no `--user`
+// to override — so it is the image's own declared default.
+const UID = process.getuid?.();
+
+// Root is the one uid an unattended run cannot happen under: the CLI refuses
+// the permission mode below under root or sudo, and the container exits with a
+// plain-text refusal rather than the JSON envelope the manager reads — which
+// arrives downstream as an agent that spent nothing and gave up. Checked here
+// rather than trusted to the Dockerfile, because the harness lives in the
+// non-root user's home and moving one without the other is how the image ends
+// up with either no user or no skills.
+if (UID === 0) {
+  fail(
+    "this image runs as root by default, so the CLI will refuse the permission mode every unattended run needs",
+    "the Dockerfile's USER line is what declares the default user",
+  );
+}
+
 // Read off the image rather than restated here: the Dockerfile declares
 // HARNESS_PLUGIN and installs exactly that, so this cannot go on asserting
 // about a plugin the image stopped installing — which is the failure this
@@ -186,5 +204,5 @@ if (!usage.includes(PERMISSION_MODE)) {
 }
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID}`,
 );

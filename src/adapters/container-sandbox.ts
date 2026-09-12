@@ -167,9 +167,11 @@ async function runOnClone(
   );
 
   try {
-    // `--no-hardlinks`: the clone is handed to a container running as root
-    // (TODO[#27]), and nothing it does should be able to reach an object file
-    // the developer's own checkout is still using.
+    // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
+    // and nothing it does should be able to reach an object file the
+    // developer's own checkout is still using. The container runs as the
+    // developer's own uid (`dockerCommand`), so the filesystem would not stop
+    // it — the copy is what does.
     await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
     const base = await revision(clone, "HEAD");
     await run("git", ["-C", clone, "switch", "--create", onto]);
@@ -205,9 +207,10 @@ async function runOnClone(
     };
   } finally {
     // Whatever became of the run, the clone does not outlive it — and a clone
-    // that will not delete never costs the caller its result. The agent runs
-    // as root, so its files can be undeletable by the developer; that is worth
-    // a warning, not the loss of a branch that was pushed successfully.
+    // that will not delete never costs the caller its result. A run this
+    // process could not pin to a uid of its own (`hostUser`) can still leave
+    // files it does not own behind; that is worth a warning, not the loss of a
+    // branch that was pushed successfully.
     await rm(clone, { recursive: true, force: true }).catch(
       (error: unknown) => {
         console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
@@ -504,13 +507,16 @@ export function dockerNeverRan(error: unknown): boolean {
  * What the manager asks docker to run: the image, the clone bound at the
  * workdir it declares, and the agent invocation itself.
  *
- * Exported so the argument list can be asserted without docker installed. Two
- * of the flags in particular have to be visible to a test, because both fail
- * quietly: the spend ceiling is the only thing bounding a run once the run has
- * started, and one that stopped being passed would cost a week before anything
- * said so; the permission mode is the only thing letting a run touch the clone
- * at all, and one that stopped being passed would report every ticket as work
- * the agent chose not to do.
+ * Exported so the argument list can be asserted without docker installed.
+ * Three of the flags in particular have to be visible to a test, because all
+ * three fail quietly: the spend ceiling is the only thing bounding a run once
+ * the run has started, and one that stopped being passed would cost a week
+ * before anything said so; the permission mode is the only thing letting a run
+ * touch the clone at all, and one that stopped being passed would report every
+ * ticket as work the agent chose not to do; and the user pin is what makes the
+ * agent's commits and files the developer's own — dropped, it fails on every
+ * host whose developer is not the image's own uid, and looks like an agent
+ * declining the work.
  *
  * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `mount` —
  * see `Mount` and `envFor` for which credential answers to that name.
@@ -521,9 +527,18 @@ export function dockerCommand({
   spendCeiling,
   mount,
 }: RunOptions): string[] {
+  const user = hostUser();
+
   return [
     "run",
     "--rm",
+    // The clone is bind-mounted, so what the agent writes is written straight
+    // into the developer's filesystem with whatever uid the container runs as.
+    // Pinned to the invoking process's own, so the branch, the objects and any
+    // stray file the run leaves behind belong to the developer and need no
+    // sudo to delete. The image's default user is non-root either way — this
+    // is about *which* non-root user, not about staying out of root.
+    ...(user ? ["--user", user] : []),
     "--volume",
     // Half the enforcement for a review — see `Mount`.
     `${directory}:/repo${mount === "ro" ? ":ro" : ""}`,
@@ -565,6 +580,24 @@ export function dockerCommand({
     "--max-budget-usd",
     String(spendCeiling),
   ];
+}
+
+/**
+ * The `uid:gid` docker should run the container as: this process's own, so the
+ * clone comes back owned by the developer who started the run.
+ *
+ * Undefined where the host reports neither. `process.getuid` and
+ * `process.getgid` are POSIX-only — absent on Windows, and optional in the
+ * type definitions for exactly that reason — and a run as the image's own
+ * default user is worth more than a run that does not happen at all.
+ */
+function hostUser(): string | undefined {
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  if (uid === undefined || gid === undefined) {
+    return undefined;
+  }
+  return `${uid}:${gid}`;
 }
 
 /** What `execFile` captured before it rejected. Empty when it captured none. */
