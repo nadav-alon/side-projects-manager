@@ -16,6 +16,7 @@ import {
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
+import { MANAGER_HOME } from "./manager-home.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,23 +27,26 @@ const execFileAsync = promisify(execFile);
  *
  * `publishSummary` is the one exception: it names no repo, because `gh`
  * resolves it the same way it resolves any call this adapter does not name
- * one for — from the checkout it is run in, which for every real trigger is
- * the manager's own.
+ * one for — from the checkout it is run in. That checkout is `home`, named
+ * here rather than inherited from the working directory, because a trigger
+ * chooses its own: cron runs from the developer's home directory, where `gh`
+ * finds no repository at all and the summary is lost to an invocation that
+ * otherwise worked. The manager reports on itself, so the checkout it reports
+ * into is its own and is not the caller's to decide.
  *
  * TODO[#25]: `gh issue list` caps results at 30 by default with no override
  * here, so a backlog past that size is silently truncated.
  */
-export function ghIssueTracker(): IssueTracker & SummaryTracker {
+export function ghIssueTracker(
+  home: string = MANAGER_HOME,
+): IssueTracker & SummaryTracker {
   return {
     async publishSummary(title: string, body: string): Promise<void> {
-      await execFileAsync("gh", [
-        "issue",
-        "create",
-        "--title",
-        title,
-        "--body",
-        body,
-      ]);
+      await execFileAsync(
+        "gh",
+        ["issue", "create", "--title", title, "--body", body],
+        { cwd: home },
+      );
     },
 
     async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
