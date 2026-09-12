@@ -41,6 +41,9 @@ the manager leaves every project working.
 7. As a developer, I want the loop to consider every registered project, so that adding a repo to the registry is all it takes to include it.
 8. As a developer, I want a project with no ready-for-agent tickets to be skipped silently, so that an empty backlog isn't an error.
 9. As a developer, I want to know when *no* project had work, so that a quiet morning is distinguishable from a broken loop.
+56. As a developer, I want to label a ticket with a priority, so that important work inside a project is built before less important work.
+57. As a developer, I want unprioritised tickets worked oldest first, so that no ticket quietly rots behind newer ones.
+58. As a developer, I want to be told when a project's backlog was too long to read in full, so that a ticket the loop never saw doesn't go unnoticed.
 
 **Spending my quota safely**
 
@@ -150,7 +153,11 @@ different authors and different change rates.
 
 **Work queue.** Tickets are issues in each project's own repo, filtered to the ready-for-agent triage
 label. Selection is: review tickets before implementation tickets; then explicit priority; then least
-recently worked. One project per iteration.
+recently worked. One project per iteration. Within that project: review tickets first; then ticket
+priority, read from `priority:1`–`priority:3` labels (smallest wins when several are present, anything
+else is ignored); then lowest issue number. Ticket priority never influences which project is chosen.
+A backlog is read up to 100 tickets, the newest ones — a newly prioritised ticket costs more to miss
+than an old one — and a truncated backlog is named in the summary's waiting section.
 
 **The budget gate.** Before each run the ledger computes 5-hour and weekly token totals from local
 Claude session logs, which record per-message token counts with timestamps. Neither window is a
@@ -209,6 +216,8 @@ faked. This is the highest available seam and carries the bulk of the suite. Beh
 
 - reviews are selected before implementations
 - least-recently-worked ordering, and explicit priority overriding it
+- within a project, ticket priority ordering, oldest-first ties, and reviews still first
+- a truncated backlog appears in the summary's waiting section
 - paused projects are skipped
 - tickets without the ready-for-agent label are never selected
 - the gate declines to start when the reserve would be breached, and the loop reports it

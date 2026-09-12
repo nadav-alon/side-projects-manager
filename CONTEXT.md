@@ -25,7 +25,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: reviews before implementations, then explicit priority, then least recently worked.
+Choosing which project and ticket an iteration works: reviews before implementations, then explicit priority, then least recently worked. Within the chosen project: reviews first, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -77,7 +77,7 @@ Registered but never considered.
 _Avoid_: disabled, archived, muted
 
 **Priority**:
-The explicit rank a project may carry in the registry, overriding least-recently-worked ordering. A whole number from 1 upwards, smaller worked first; a project without one sorts after every project with one.
+The explicit rank a project may carry in the registry, overriding least-recently-worked ordering. A whole number from 1 upwards, smaller worked first; a project without one sorts after every project with one. Always a project's; the rank a ticket carries is ticket priority.
 _Avoid_: rank, weight, importance, order
 
 **Never worked**:
@@ -149,6 +149,14 @@ _Avoid_: clean up, prune, delete
 **Backlog**:
 One project's eligible tickets.
 _Avoid_: queue (the queue spans all projects), todo list
+
+**Ticket priority**:
+The explicit rank an implementation ticket may carry, as a label in its own project's tracker: one of three levels, smaller worked first; a ticket without one sorts after every ticket with one, and ties go to the oldest ticket. Orders tickets within one project only — it never decides which project an iteration works, and never outranks a review ticket. A ticket carrying more than one level counts as its smallest; a label outside the three is ignored.
+_Avoid_: priority (unqualified, which is the project's), urgency, severity, rank
+
+**Truncated backlog**:
+A backlog longer than the loop reads in one morning. The newest tickets are the ones considered, since a new ticket given ticket priority costs more to miss than an old one; the summary names the project so the developer can thin it.
+_Avoid_: overflow, capped backlog, full queue
 
 **Implementation ticket**:
 A ticket asking for something to be built.
