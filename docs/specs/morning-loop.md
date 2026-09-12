@@ -138,8 +138,11 @@ run to sandcastle, which the implementation does not.
 key. This keeps runs on the subscription rather than metered billing, and is why the budget is
 denominated in quota rather than money.
 
-**Model selection.** Both the implementing and reviewing agents are pinned to Sonnet explicitly,
-not left to the default. Opus is reserved for the developer's own interactive work.
+**Model selection.** Both the implementing and reviewing agents run on Sonnet unless told
+otherwise, pinned in the image rather than left to the CLI's default. A ticket can name another
+model with a model label, and the model defaults can name one per kind of ticket; see
+`docs/adr/0002-a-ticket-names-its-own-model.md`, which supersedes the original rule that the pin
+was fixed.
 
 **Ports.** The loop depends on six injected ports rather than reaching for the world directly: an
 issue-tracker port, a repo-host port, a sandbox port, a usage-ledger port, a clock, and a store.
@@ -263,8 +266,10 @@ project rather than following one.
 
 The design deliberately protects the expensive half of the work. Grilling, spec-writing and
 wayfinding run on Opus and are where the developer's judgement actually lives; implementation and
-review are mechanical and run on Sonnet. The reserve exists so the cheap half can never starve the
-expensive half. Any future tuning should preserve that asymmetry.
+review are mechanical and run on Sonnet by default. The reserve exists so the cheap half can never
+starve the expensive half. Any future tuning should preserve that asymmetry as the default; a ticket
+the developer labels for a stronger model is a deliberate exception to it
+(`docs/adr/0002-a-ticket-names-its-own-model.md`).
 
 The provider exposes consumption but not remaining quota — there is no interface that answers "how
 much is left". Everything the gate does is inference from measured spend against a self-declared
