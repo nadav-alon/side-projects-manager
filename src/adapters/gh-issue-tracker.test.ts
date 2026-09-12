@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { readFile, realpath } from "node:fs/promises";
+import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
@@ -12,7 +14,7 @@ import {
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
-import { callWith, recordingGh, valueOf } from "../testing/index.ts";
+import { callWith, recordingGh, tempHome, valueOf } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -134,6 +136,27 @@ describe("ghIssueTracker.publishSummary", () => {
     // lands in the tracker's own, and `gh` resolves that from the checkout
     // it is run in when nothing overrides it.
     assert.equal(valueOf(create, "--repo"), undefined);
+  });
+
+  it("creates the issue in the manager home, whatever the working directory", async (t) => {
+    const home = await tempHome("manager-home");
+    const recorded = path.join(await tempHome("gh-cwd"), "cwd");
+    await recordingGh(t, `pwd -P > ${recorded}`);
+
+    await ghIssueTracker(home).publishSummary(
+      "Morning run — 2026-01-01",
+      "Nothing to do.",
+    );
+
+    // The whole of the fix: `gh` resolves the repo from where it runs, and
+    // where it runs is the manager's own checkout rather than wherever the
+    // trigger happened to start. Cron starts it in the developer's home
+    // directory, which is no repository at all — an invocation that worked
+    // would then lose its summary to `gh` refusing to create an issue.
+    assert.equal(
+      (await readFile(recorded, "utf8")).trim(),
+      await realpath(home),
+    );
   });
 });
 
