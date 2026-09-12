@@ -191,6 +191,15 @@ project has never been worked.
 
 ## The budget
 
+`scripts/budget-wizard.sh` writes this document one field at a time, starting from what
+`state.json` says the mornings have actually been spending and reading the finished budget back
+through the manager's own parser. Re-running it is safe — it starts from the budget in force, so
+recalibrating a single number is one pass through it.
+
+```sh
+scripts/budget-wizard.sh
+```
+
 `budget.json` is the other document that is yours, and it is what the loop asks before it starts
 anything:
 
