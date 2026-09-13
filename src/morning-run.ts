@@ -511,8 +511,9 @@ export async function morningRun(
   } catch (error: unknown) {
     // Nothing above this point throws by design — a run that fails is
     // described, not raised. Reaching here means the loop's own plumbing
-    // broke instead: a registry that would not parse, or a port that could
-    // not be reached before a single iteration ran. `loadState` failing this
+    // broke instead: a registry that would not parse, a port that could
+    // not be reached before a single iteration ran, or one that broke its
+    // own contract. `loadState` failing this
     // way means there is nothing to write back, unlike a failure from inside
     // the loop, which the `finally` above already saved. Caught rather than
     // left to propagate, so the developer still gets a summary that says
@@ -768,11 +769,23 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
   }
 }
 
-/** A model refusal, as the failure its ticket is handed back with. */
+/**
+ * A model refusal, as the failure its ticket is handed back with.
+ *
+ * Throws when the run was given no model: the sandbox reports a refusal only
+ * for a model it was handed, so one arriving without is the port breaking its
+ * contract, not something to read as any other kind of run.
+ */
 function modelRefused(
   refusal: ModelRefusal,
-  source: ModelSource,
+  model: ResolvedModel | undefined,
 ): ModelRefused {
+  if (model === undefined) {
+    throw new Error(
+      `the sandbox reported the model ${refusal.model} refused for a run given no model`,
+    );
+  }
+  const { source } = model;
   return {
     kind: "model-refused",
     reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
@@ -897,11 +910,9 @@ async function work(
       discard: await discardBranch(ports, checkout, run),
     };
   }
-  // A refusal comes back only for a model the run was given, so `model` is
-  // set whenever this is.
-  if (run.modelRefusal !== undefined && model !== undefined) {
+  if (run.modelRefusal !== undefined) {
+    const failure = modelRefused(run.modelRefusal, model);
     const discard = await discardBranch(ports, checkout, run);
-    const failure = modelRefused(run.modelRefusal, model.source);
     return handTicketBack(
       ports,
       selection.ticket,
@@ -1205,8 +1216,8 @@ async function runReview(
   }
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
-  if (review.modelRefusal !== undefined && model !== undefined) {
-    const failure = modelRefused(review.modelRefusal, model.source);
+  if (review.modelRefusal !== undefined) {
+    const failure = modelRefused(review.modelRefusal, model);
     return {
       ...(await handTicketBack(
         ports,

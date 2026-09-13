@@ -2497,6 +2497,44 @@ describe("morningRun", () => {
         assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
       });
 
+      it("fails the invocation when the sandbox reports a refusal for a run given no model", async () => {
+        const { ports } = oneTicket();
+        ports.sandbox.result = (ticket) => ({
+          branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+          commits: [],
+          output: "",
+          tokensUsed: tokenCount(0),
+          modelRefusal: { model: OPUS, words: "refused model opus" },
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "invocation-failed");
+        assert.match(report.message, /refused for a run given no model/);
+        assert.deepEqual(ports.tracker.handbacks, []);
+      });
+
+      it("fails the invocation when the sandbox reports a refusal for a review given no model", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 42,
+          title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
+          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        });
+        ports.sandbox.reviewResult = () => ({
+          output: "",
+          tokensUsed: tokenCount(0),
+          modelRefusal: { model: HAIKU, words: "refused model haiku" },
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.outcome, "invocation-failed");
+        assert.deepEqual(ports.tracker.handbacks, []);
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      });
+
       it("reports it apart from an agent that gave up and from an infrastructure failure", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
