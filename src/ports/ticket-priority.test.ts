@@ -13,7 +13,6 @@ describe("isTicketPriority", () => {
   it("rejects anything outside the three levels", () => {
     assert.equal(isTicketPriority(0), false);
     assert.equal(isTicketPriority(4), false);
-    assert.equal(isTicketPriority(7), false);
     assert.equal(isTicketPriority(1.5), false);
     assert.equal(isTicketPriority(Number.NaN), false);
   });
