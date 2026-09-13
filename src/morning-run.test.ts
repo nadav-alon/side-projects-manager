@@ -723,8 +723,8 @@ describe("morningRun", () => {
           number: 3,
           title: "Add another thing",
         });
-        // Never worked, so PILOT would otherwise wait longest — the ticket
-        // priority on MANAGER's ticket must not be what wins it the mornings.
+        // MANAGER was never worked, so it waits longest; the ticket priority on
+        // PILOT's ticket must not be what wins it the morning.
         ports.store.register(PILOT);
         ports.store.markWorked(PILOT, YESTERDAY, {
           at: YESTERDAY,
