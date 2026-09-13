@@ -13,11 +13,14 @@ import type {
   State,
   Store,
   TicketKind,
+  WorkedTicket,
+  WorkedToday,
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
   MODEL_NAME_SHAPE,
   TICKET_KINDS,
+  isDay,
   isIterationLimit,
   isModelName,
   isPriority,
@@ -377,7 +380,54 @@ function parseState(document: unknown, file: string): State {
   if (document === undefined) {
     return { projects: new Map() };
   }
-  return { projects: parseProjectStates(fieldOf(document, "projects", file), file) };
+  const workedToday = fieldOf(document, "workedToday", file);
+  return {
+    projects: parseProjectStates(fieldOf(document, "projects", file), file),
+    ...(workedToday !== undefined && {
+      workedToday: parseWorkedToday(workedToday, `${file}: "workedToday"`),
+    }),
+  };
+}
+
+/**
+ * `{ "day": "2026-01-01", "tickets": [{ "repo": "owner/repo", "number": 7 }] }`
+ *
+ * Read as written, whatever day it names: whether that day is today is the
+ * loop's to judge, since only the loop has a clock.
+ */
+function parseWorkedToday(value: unknown, where: string): WorkedToday {
+  const recorded = fieldOf(value, "day", where);
+  if (typeof recorded !== "string" || !isDay(recorded)) {
+    throw new Error(
+      `${where}: "day" must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(recorded)}`,
+    );
+  }
+  const tickets = fieldOf(value, "tickets", where) ?? [];
+  if (!Array.isArray(tickets)) {
+    throw new Error(`${where}: "tickets" must be a list of tickets.`);
+  }
+  return {
+    day: recorded,
+    tickets: tickets.map((ticket, index) =>
+      parseWorkedTicket(ticket, `${where}: ticket ${index + 1}`),
+    ),
+  };
+}
+
+function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
+  const repo = fieldOf(ticket, "repo", where);
+  if (typeof repo !== "string" || !isRepoSlug(repo)) {
+    throw new Error(
+      `${where}: "repo" must be a repo slug, as owner/repo: ${JSON.stringify(repo)}`,
+    );
+  }
+  const number = fieldOf(ticket, "number", where);
+  if (typeof number !== "number" || !Number.isInteger(number) || number < 1) {
+    throw new Error(
+      `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
+    );
+  }
+  return { repo, number };
 }
 
 function parseProjectStates(
@@ -481,5 +531,13 @@ function formatState(state: State): string {
     ]),
   );
 
-  return `${JSON.stringify({ projects }, undefined, 2)}\n`;
+  const workedToday = state.workedToday && {
+    day: state.workedToday.day,
+    tickets: state.workedToday.tickets.map(({ repo, number }) => ({
+      repo,
+      number,
+    })),
+  };
+
+  return `${JSON.stringify({ projects, workedToday }, undefined, 2)}\n`;
 }
