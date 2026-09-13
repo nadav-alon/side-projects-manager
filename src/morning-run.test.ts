@@ -2322,6 +2322,24 @@ describe("morningRun", () => {
       assert.equal(ports.sandbox.runs[0]?.model, undefined);
     });
 
+    it("reads the model defaults once per invocation, however many tickets it works", async () => {
+      const { ports } = oneTicket();
+      ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+      ports.tracker.addEligibleTicket(PILOT, { number: 9, title: "After" });
+      ports.store.modelDefaults = { implementation: OPUS };
+      let reads = 0;
+      const load = ports.store.loadModelDefaults.bind(ports.store);
+      ports.store.loadModelDefaults = async () => {
+        reads += 1;
+        return load();
+      };
+
+      await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs.length, 3);
+      assert.equal(reads, 1);
+    });
+
     it("runs an implementation ticket without a model label on the implementation default", async () => {
       const { ports } = oneTicket();
       ports.store.modelDefaults = { implementation: OPUS };
