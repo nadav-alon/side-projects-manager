@@ -1,6 +1,7 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { ReviewTicket, Ticket } from "./issue-tracker.ts";
+import type { ModelName } from "./model-name.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
 
@@ -20,6 +21,12 @@ export interface RunRequest {
    * that has started can take the windows before the gate is asked again.
    */
   spendCeiling: Usd;
+  /**
+   * The model to start the agent CLI on, absent to leave the image's own pin
+   * in force. Resolving which model a ticket gets is not this port's job —
+   * whatever names it here is what the run uses, passed through unchanged.
+   */
+  model?: ModelName;
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -28,6 +35,24 @@ export interface ReviewRequest {
   /** The project's managed clone, read from but never written to. */
   checkout: Checkout;
   spendCeiling: Usd;
+  /** As `RunRequest.model`. */
+  model?: ModelName;
+}
+
+/**
+ * What the agent CLI said when it refused the model it was started on: the
+ * name that was asked for, and the CLI's own words refusing it.
+ *
+ * The ticket is the problem here, not the agent and not the setup — a bad
+ * model label or a stale model default is what this names, distinct from an
+ * agent that gave up on the work and from a sandbox that could not run the
+ * agent at all.
+ */
+export interface ModelRefusal {
+  /** The model the run was asked for. */
+  model: ModelName;
+  /** The agent CLI's own diagnostic naming it unrecognised. */
+  diagnostic: string;
 }
 
 export interface SandboxRunResult {
@@ -54,6 +79,11 @@ export interface SandboxRunResult {
    * giving up would hand back every ticket the limit touches.
    */
   limitRefusal?: string;
+  /**
+   * Set instead of `failure` and `limitRefusal`, never beside either, when
+   * `RunRequest.model` was refused by the agent CLI rather than run.
+   */
+  modelRefusal?: ModelRefusal;
 }
 
 /** What a reviewing agent's run in the container came back with. */
@@ -65,6 +95,8 @@ export interface ReviewRunResult {
   failure?: string;
   /** As `SandboxRunResult.limitRefusal`. */
   limitRefusal?: string;
+  /** As `SandboxRunResult.modelRefusal`. */
+  modelRefusal?: ModelRefusal;
 }
 
 /**

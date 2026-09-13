@@ -730,6 +730,7 @@ async function work(
       discard: await discardBranch(ports, checkout, run),
     };
   }
+  // TODO[#107]: act on `run.modelRefusal`.
   if (run.failure === undefined) {
     return handOver(ports, run, checkout, selection.ticket);
   }
@@ -1008,6 +1009,7 @@ async function runReview(
       discard: { kind: "none" },
     };
   }
+  // TODO[#107]: act on `review.modelRefusal`.
 
   const posted =
     review.failure === undefined &&

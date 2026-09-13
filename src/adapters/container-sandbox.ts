@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  ModelName,
+  ModelRefusal,
   ReviewRequest,
   ReviewRunResult,
   ReviewTicket,
@@ -94,10 +96,11 @@ export type Mount = "rw" | "ro";
 
 /**
  * What one container invocation needs: the clone to mount, the prompt to run,
- * the spend ceiling to enforce, and whether the clone is writable. Grouped
- * into one options object because the four travel together across every
- * boundary in this file — `Container`, `attempt`, `dockerContainer` and
- * `dockerCommand` all take exactly this and nothing else.
+ * the spend ceiling to enforce, whether the clone is writable, and the model
+ * to start the agent CLI on. Grouped into one options object because these
+ * travel together across every boundary in this file — `Container`,
+ * `attempt`, `dockerContainer` and `dockerCommand` all take exactly this and
+ * nothing else.
  */
 export interface RunOptions {
   /** The clone mounted into the container. */
@@ -105,6 +108,8 @@ export interface RunOptions {
   prompt: string;
   spendCeiling: Usd;
   mount: Mount;
+  /** As `RunRequest.model`, absent to leave the image's own pin in force. */
+  model?: ModelName;
 }
 
 /**
@@ -156,7 +161,7 @@ async function runOnClone(
   container: Container,
   request: RunRequest,
 ): Promise<SandboxRunResult> {
-  const { ticket, checkout: project, spendCeiling } = request;
+  const { ticket, checkout: project, spendCeiling, model } = request;
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
   );
@@ -182,6 +187,7 @@ async function runOnClone(
       prompt: promptFor(ticket),
       spendCeiling,
       mount: "rw",
+      ...(model === undefined ? {} : { model }),
     });
     const commits = await commitsSince(clone, base);
 
@@ -207,7 +213,7 @@ async function runOnClone(
       commits,
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...howItStopped(agent),
+      ...howItStopped(agent, model),
     };
   } finally {
     // If fetched back, the checkout now records the name; otherwise the name
@@ -274,15 +280,38 @@ async function attempt(
 const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 
 /**
- * Whether `agent` was refused by the provider limit, stopped for a ticket
- * reason, or finished.
+ * How the agent CLI flags a model it does not recognise, captured from the
+ * real CLI rather than guessed: `claude --print … --model <bogus>
+ * --output-format json` exits 1 and writes `[claude-code:unrecognized_model]
+ * {"model":"<bogus>","query_source":"sdk"}` to stderr. Its envelope is only
+ * `"is_error": true` with a `result` in prose that could be reworded any
+ * morning, so the stderr tag is what is matched. `withDiagnostics` folds stderr into
+ * `agent.output`, which is where this is read from — anchored to the start of
+ * a line (`m`) rather than the start of the string, since the CLI's own
+ * `result` comes first. The only place this line's shape is known, so a CLI
+ * that rewords it has one line here to change.
+ */
+const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
+
+/**
+ * Whether `agent` was refused by the model it was asked to run on, refused by
+ * the provider limit, stopped for a ticket reason, or finished.
  *
- * A refusal is read whatever the exit code: it is the whole of what the CLI
- * said, so a refused run that exited zero is still no answer to the ticket.
+ * The model check comes first and only applies when `model` was actually
+ * asked for: a refused model is the ticket's problem, not the agent's or the
+ * setup's, so it must not read as either, and naming the model needs the
+ * request, not just the CLI's own diagnostic.
  */
 function howItStopped(
   agent: AgentRun,
-): { failure?: string; limitRefusal?: string } {
+  model: ModelName | undefined,
+): { failure?: string; limitRefusal?: string; modelRefusal?: ModelRefusal } {
+  if (model !== undefined) {
+    const diagnostic = MODEL_REFUSAL.exec(agent.output)?.[0];
+    if (diagnostic !== undefined) {
+      return { modelRefusal: { model, diagnostic: diagnostic.trim() } };
+    }
+  }
   const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
   if (refusal !== undefined) {
     return { limitRefusal: refusal.trim() };
@@ -303,7 +332,7 @@ async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
 ): Promise<ReviewRunResult> {
-  const { ticket, checkout: project, spendCeiling } = request;
+  const { ticket, checkout: project, spendCeiling, model } = request;
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-review-")),
   );
@@ -317,12 +346,13 @@ async function reviewOnClone(
       prompt: reviewPromptFor(ticket),
       spendCeiling,
       mount: "ro",
+      ...(model === undefined ? {} : { model }),
     });
 
     return {
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...howItStopped(agent),
+      ...howItStopped(agent, model),
     };
   } finally {
     await rm(clone, { recursive: true, force: true }).catch(
@@ -581,6 +611,7 @@ export function dockerCommand({
   prompt,
   spendCeiling,
   mount,
+  model,
 }: RunOptions): string[] {
   const user = hostUser();
 
@@ -608,6 +639,11 @@ export function dockerCommand({
     prompt,
     "--output-format",
     "json",
+    // Absent when the request named no model, leaving the image's own pin in
+    // force. `model` is its own array
+    // element — `execFile` never runs through a shell, so whatever the name
+    // contains reaches the CLI as one argument rather than being interpreted.
+    ...(model === undefined ? [] : ["--model", model]),
     // Without this the agent cannot act on the ticket at all. `--print`
     // defaults to `--permission-prompts host`, and there is no host here:
     // `execFile` is not one, and no `--permission-prompt-tool` is passed. So

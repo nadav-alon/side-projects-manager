@@ -1,4 +1,5 @@
 import type {
+  ModelName,
   ReviewRequest,
   ReviewRunResult,
   ReviewTicket,
@@ -39,13 +40,42 @@ export class FakeSandbox implements Sandbox {
     tokensUsed: tokenCount(0),
   });
 
+  /**
+   * A model name every run or review asked for comes back refused for,
+   * unset to refuse none. Set to exercise a model refusal; `runs` and
+   * `reviews` say which model each was asked for.
+   */
+  refusedModel: ModelName | undefined = undefined;
+
   async run(request: RunRequest): Promise<SandboxRunResult> {
     this.runs.push(request);
+    if (request.model !== undefined && request.model === this.refusedModel) {
+      return {
+        branch: branch(`fake/${request.ticket.repo}/${request.ticket.number}`),
+        commits: [],
+        output: `refused model ${request.model}`,
+        tokensUsed: tokenCount(0),
+        modelRefusal: {
+          model: request.model,
+          diagnostic: `refused model ${request.model}`,
+        },
+      };
+    }
     return this.result(request.ticket);
   }
 
   async review(request: ReviewRequest): Promise<ReviewRunResult> {
     this.reviews.push(request);
+    if (request.model !== undefined && request.model === this.refusedModel) {
+      return {
+        output: `refused model ${request.model}`,
+        tokensUsed: tokenCount(0),
+        modelRefusal: {
+          model: request.model,
+          diagnostic: `refused model ${request.model}`,
+        },
+      };
+    }
     return this.reviewResult(request.ticket);
   }
 }
