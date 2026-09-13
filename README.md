@@ -297,9 +297,10 @@ CLI as written — an alias or a full model id — and never checked against a l
 model needs no change here; the only shape asked of it is a non-empty name without spaces that does
 not start with `-`. Nothing writes this document: not the loop, and not `new-project`.
 
-Not in effect yet: the file is read and checked, but no run chooses its model from it until #107,
-and the `model:<name>` label arrives with #103. Until then every run uses the image's model,
-whatever `models.json` says.
+A ticket's own `model:<name>` label wins over the default for its kind, and a review ticket reads
+its own labels, never the ticket it reviews. A ticket carrying two model labels is handed back
+without being run, and so is one whose model the agent CLI refuses — the comment names the model
+and whether the label or `models.json` named it. The summary says which model each run used.
 
 A key that is not `implementation` or `review` fails the invocation, and so does a name that is not
 a usable string. Both kinds are optional, so `"reveiw"` would otherwise read as no review default at
