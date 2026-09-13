@@ -19,8 +19,6 @@ const lastInLine = new Map<Checkout, Promise<void>>();
  * steps that do — and only around those, never around an agent's work, which
  * happens in a clone of its own.
  *
- * TODO[#121]: take it in the repo host.
- *
  * Process-wide, because the adapters that share a checkout are separate
  * objects. Two separate invocations of the manager are not covered — the
  * once-per-day lock is what stops those overlapping. Serializes callers per

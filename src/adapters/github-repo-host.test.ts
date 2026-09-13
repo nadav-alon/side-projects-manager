@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
+import { withCheckoutLock } from "./checkout-lock.ts";
 import { githubRepoHost } from "./github-repo-host.ts";
 import {
   branch as toBranch,
@@ -14,7 +15,7 @@ import {
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
-import { recordingGh, valueOf } from "../testing/index.ts";
+import { gate, HANGS, recordingGh, valueOf } from "../testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -340,6 +341,52 @@ describe("finding the checkout", () => {
     assert.deepEqual(await committedFiles(directory), ["local.md", "seed.md"]);
   });
 
+  /**
+   * A whole clone of another project — fetch, fast-forward and all — has to
+   * finish while this one waits: far more git than this one has left, so a
+   * catch-up that ignored the lock would have landed by then.
+   */
+  it("waits for the checkout lock before catching up, and only on its own checkout", HANGS, async () => {
+    const directory = await seeded();
+    const elsewhere = await seeded();
+    await landedElsewhere(directory, "merged.md");
+    await landedElsewhere(elsewhere, "merged.md");
+    const lock = gate();
+    const holding = withCheckoutLock(toCheckout(directory), () => lock.opened);
+
+    const waiting = githubRepoHost(locationOf(directory)).clone(PILOT);
+    await githubRepoHost(locationOf(elsewhere)).clone(PILOT);
+
+    assert.deepEqual(await committedFiles(elsewhere), ["merged.md", "seed.md"]);
+    assert.deepEqual(
+      await committedFiles(directory),
+      ["seed.md"],
+      "the clone caught up while its checkout was locked",
+    );
+    lock.open();
+    await holding;
+    await waiting;
+    assert.deepEqual(await committedFiles(directory), ["merged.md", "seed.md"]);
+  });
+
+  it("leaves the checkout free for the next run when catching up is refused", HANGS, async () => {
+    const directory = await seeded();
+    await landedElsewhere(directory, "merged.md");
+    await writeFile(path.join(directory, "local.md"), "local\n");
+    await run("git", ["-C", directory, "add", "local.md"]);
+    await run("git", ["-C", directory, "commit", "--message", "Local only"]);
+
+    await assert.rejects(
+      githubRepoHost(locationOf(directory)).clone(PILOT),
+      /cannot be brought up to date/,
+    );
+
+    assert.equal(
+      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      "ran",
+    );
+  });
+
   it("refuses a checkout of somebody else's repo of the same name", async () => {
     const directory = await checkout("someone-else/pilot");
 
@@ -488,6 +535,38 @@ describe("opening a draft pull request for a completed run", () => {
     assert.equal(valueOf(call, "--base"), BASE);
   });
 
+  it("waits for the checkout lock before pushing, and only on its own checkout", HANGS, async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    const elsewhere = await ran(RAN);
+    const lock = gate();
+    const holding = withCheckoutLock(directory, () => lock.opened);
+
+    const waiting = githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+    await githubRepoHost().openDraftPullRequest(elsewhere, toBranch(RAN), TICKET);
+
+    assert.deepEqual(await pushedFiles(elsewhere, `origin/${RAN}`), [
+      "seed.md",
+      "thing.md",
+    ]);
+    await assert.rejects(
+      pushedFiles(directory, `origin/${RAN}`),
+      "the branch was pushed while its checkout was locked",
+    );
+    assert.equal((await gh.calls()).length, 1);
+    lock.open();
+    await holding;
+    await waiting;
+    assert.deepEqual(await pushedFiles(directory, `origin/${RAN}`), [
+      "seed.md",
+      "thing.md",
+    ]);
+  });
+
   it("refuses rather than let gh choose the base, when there is no branch to name", async (t) => {
     const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await ran(RAN);
@@ -522,13 +601,13 @@ describe("opening a draft pull request for a completed run", () => {
     );
   });
 
-  it("says so when the branch cannot be pushed", async (t) => {
-    const gh = await recordingGh(t, `echo ${OPENED}`);
+  /**
+   * A checkout whose run branch the host already has, carrying something else
+   * — which is what a re-cloned checkout cannot see, since it looks for a free
+   * branch name among its own refs. Pushing the run's branch from it is refused.
+   */
+  async function takenOnHost(): Promise<Checkout> {
     const directory = await ran(RAN);
-
-    // The host already has a branch of this name, carrying something else —
-    // which is what a re-cloned checkout cannot see, since it looks for a free
-    // branch name among its own refs.
     await run("git", ["-C", directory, "push", "origin", RAN]);
     await run("git", ["-C", directory, "switch", RAN]);
     await writeFile(path.join(directory, "thing.md"), "something else\n");
@@ -542,6 +621,12 @@ describe("opening a draft pull request for a completed run", () => {
       "Add the thing",
     ]);
     await run("git", ["-C", directory, "switch", BASE]);
+    return directory;
+  }
+
+  it("says so when the branch cannot be pushed", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await takenOnHost();
 
     await assert.rejects(
       githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
@@ -550,6 +635,18 @@ describe("opening a draft pull request for a completed run", () => {
 
     // Nothing was asked of GitHub: there is no pushed branch to open against.
     assert.deepEqual(await gh.calls(), []);
+  });
+
+  it("leaves the checkout free for the next run when the push is refused", HANGS, async (t) => {
+    await recordingGh(t, `echo ${OPENED}`);
+    const directory = await takenOnHost();
+
+    await assert.rejects(
+      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
+      new RegExp(`Could not push ${RAN}`),
+    );
+
+    assert.equal(await withCheckoutLock(directory, async () => "ran"), "ran");
   });
 
   it("references the ticket it was run for", async (t) => {
@@ -663,6 +760,45 @@ describe("discarding a failed run's branch", () => {
     await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
 
     assert.deepEqual(await branchesIn(directory), ["main"]);
+  });
+
+  it("waits for the checkout lock before deleting, and only on its own checkout", HANGS, async () => {
+    const directory = await seeded();
+    const elsewhere = await seeded();
+    await unmerged(directory, FAILED);
+    await unmerged(elsewhere, FAILED);
+    const lock = gate();
+    const holding = withCheckoutLock(toCheckout(directory), () => lock.opened);
+
+    const waiting = githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(toCheckout(elsewhere), FAILED);
+
+    assert.deepEqual(await branchesIn(elsewhere), ["main"]);
+    assert.deepEqual(
+      await branchesIn(directory),
+      [FAILED, "main"],
+      "the branch was deleted while its checkout was locked",
+    );
+    lock.open();
+    await holding;
+    await waiting;
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+  });
+
+  it("leaves the checkout free for the next run when deleting is refused", HANGS, async () => {
+    const directory = await seeded();
+    await unmerged(directory, FAILED);
+    // Git will not delete the branch a checkout is on.
+    await run("git", ["-C", directory, "switch", FAILED]);
+
+    await assert.rejects(
+      githubRepoHost().discardBranch(toCheckout(directory), FAILED),
+    );
+
+    assert.equal(
+      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      "ran",
+    );
   });
 
   it("leaves every other branch where it was", async () => {
