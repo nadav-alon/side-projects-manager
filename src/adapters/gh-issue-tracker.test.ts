@@ -993,6 +993,14 @@ describe("ghIssueTracker.listEligibleTickets — ticket priority", () => {
     assert.equal(tickets[0]?.priority, 2);
   });
 
+  it("reads a priority label whatever its case, as GitHub matches labels", async (t) => {
+    await recordingGh(t, labelled("Priority:2"));
+
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.priority, 2);
+  });
+
   it("counts a ticket carrying several levels as its smallest", async (t) => {
     await recordingGh(t, labelled("priority:3", "priority:1"));
 

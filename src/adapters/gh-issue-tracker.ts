@@ -390,8 +390,12 @@ function issueNumberIn(stdout: string, repo: RepoSlug): number {
   return number;
 }
 
-/** A label naming one ticket priority level: `priority:1`, `priority:2` or `priority:3`. */
-const TICKET_PRIORITY_LABEL = /^priority:([123])$/;
+/**
+ * A label naming one ticket priority level: `priority:1`, `priority:2` or
+ * `priority:3`. Matched without regard to case, as GitHub matches label names,
+ * so `Priority:2` is the same label rather than one silently ignored.
+ */
+const TICKET_PRIORITY_LABEL = /^priority:([123])$/i;
 
 /**
  * The ticket priority `labels` carry: the smallest level named, since a ticket
