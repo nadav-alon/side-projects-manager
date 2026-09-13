@@ -198,7 +198,7 @@ function parseBudget(document: unknown, file: string): Budget {
   if (document === undefined) {
     return DEFAULT_BUDGET;
   }
-  rejectUnknownFields(document, BUDGET_FIELDS, file);
+  rejectUnknownFields(document, BUDGET_FIELDS, "setting", file);
 
   return {
     fiveHourAllowance: numberField(
@@ -293,16 +293,19 @@ const BUDGET_FIELDS = [
 ] as const;
 
 /**
- * Complains about anything in `document` that is not one of `known`.
+ * Complains about anything in `document` that is not one of `known`, calling
+ * each key a `noun` — what the document's keys are to the developer who wrote
+ * them.
  *
- * Every budget field is optional, so an unrecognised key is indistinguishable
- * from a misspelled one, and a misspelling reads as a budget the developer
- * never set. Refusing the document is the only way that mistake surfaces
- * before a morning has spent the reserve on it.
+ * For a document whose every key is optional, an unrecognised key is
+ * indistinguishable from a misspelled one, and a misspelling reads as a
+ * setting the developer never made. Refusing the document is the only way that
+ * mistake surfaces before a morning has run on it.
  */
 function rejectUnknownFields(
   document: unknown,
   known: readonly string[],
+  noun: string,
   file: string,
 ): void {
   if (!isRecord(document)) {
@@ -313,7 +316,7 @@ function rejectUnknownFields(
   );
   if (unknown.length > 0) {
     throw new Error(
-      `${file}: no such setting: ${unknown.join(", ")}. Expected any of: ${known.join(", ")}.`,
+      `${file}: no such ${noun}: ${unknown.join(", ")}. Expected any of: ${known.join(", ")}.`,
     );
   }
 }
@@ -346,7 +349,7 @@ function parseModelDefaults(document: unknown, file: string): ModelDefaults {
   if (document === undefined) {
     return {};
   }
-  rejectUnknownFields(document, TICKET_KINDS, file);
+  rejectUnknownFields(document, TICKET_KINDS, "kind", file);
 
   const defaults: Partial<Record<TicketKind, ModelName>> = {};
   for (const kind of TICKET_KINDS) {

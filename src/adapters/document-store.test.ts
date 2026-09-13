@@ -441,7 +441,10 @@ describe("the model defaults document", () => {
       await home({ models: JSON.stringify({ reveiw: "opus" }) }),
     );
 
-    await assert.rejects(store.loadModelDefaults(), /models\.json.*reveiw/);
+    await assert.rejects(
+      store.loadModelDefaults(),
+      /models\.json: no such kind: reveiw/,
+    );
   });
 
   for (const name of ["", " ", 4, null, ["opus"]]) {
