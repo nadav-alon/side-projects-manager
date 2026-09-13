@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     invokeLoop,
   );
   if (!invoked) {
-    console.log("morning-run already ran today; nothing to do.");
+    console.log("morning-run already invoked today; nothing to do.");
   }
 }
 
