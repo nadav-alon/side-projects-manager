@@ -26,7 +26,7 @@ import {
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
-import { LIMIT_REFUSAL } from "../testing/index.ts";
+import { gate, LIMIT_REFUSAL } from "../testing/index.ts";
 
 const run = promisify(execFile);
 
@@ -111,27 +111,18 @@ function agentCommitting(
   };
 }
 
-/** A promise, and the function that settles it. */
-function gate(): { opened: Promise<void>; open: () => void } {
-  let open = () => {};
-  const opened = new Promise<void>((resolve) => {
-    open = resolve;
-  });
-  return { opened, open };
-}
-
 /**
- * Agents that, once started, wait to be released before doing what `then`
- * does — so a test can see how many are in progress at once.
+ * Agents that, once started, wait to be released before doing what
+ * `afterRelease` does — so a test can see how many are in progress at once.
  *
- * `allInProgress` answers whether `count` of them were ever in progress
- * together, giving up after a while rather than hanging a sandbox that only
- * ever starts one.
+ * `allInProgress` settles once `count` of them are in progress together, and
+ * never otherwise: a sandbox that only ever starts one fails the test by its
+ * timeout rather than by a guess at how long is long enough.
  */
 function heldAgents(
   count: number,
-  then: Container,
-): { container: Container; allInProgress: () => Promise<boolean>; release: () => void } {
+  afterRelease: Container,
+): { container: Container; allInProgress: Promise<void>; release: () => void } {
   const started = gate();
   const released = gate();
   let inProgress = 0;
@@ -143,16 +134,15 @@ function heldAgents(
         started.open();
       }
       await released.opened;
-      return then(options);
+      return afterRelease(options);
     },
-    allInProgress: () =>
-      Promise.race([
-        started.opened.then(() => true),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
-      ]),
+    allInProgress: started.opened,
     release: released.open,
   };
 }
+
+/** Long enough for any git a test does; only a sandbox that hangs reaches it. */
+const HANGS = { timeout: 30_000 };
 
 describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
@@ -493,7 +483,7 @@ describe("containerSandbox", () => {
     ]);
   });
 
-  it("runs agents side by side on one checkout", async () => {
+  it("runs agents side by side on one checkout", HANGS, async () => {
     const directory = await project();
     const held = heldAgents(2, agentCommitting(["one.txt"]));
     const sandbox = containerSandbox(held.container);
@@ -506,11 +496,10 @@ describe("containerSandbox", () => {
         spendCeiling: CEILING,
       }),
     ]);
-    const together = await held.allInProgress();
+    // Never settles if the second agent waits for the first to finish.
+    await held.allInProgress;
     held.release();
     await runs;
-
-    assert.ok(together, "the second agent waited for the first to finish");
   });
 
   /**
@@ -518,7 +507,7 @@ describe("containerSandbox", () => {
    * second run choosing a name while the first is still in progress sees no
    * branch there yet — and must not be handed the same name.
    */
-  it("gives runs of one ticket in progress at once a branch each", async () => {
+  it("gives runs of one ticket in progress at once a branch each", HANGS, async () => {
     const directory = await project();
     const held = heldAgents(2, agentCommitting(["one.txt"]));
     const sandbox = containerSandbox(held.container);
@@ -527,7 +516,7 @@ describe("containerSandbox", () => {
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     ]);
-    await held.allInProgress();
+    await held.allInProgress;
     held.release();
     const results = await runs;
 
@@ -566,18 +555,39 @@ describe("containerSandbox", () => {
     assert.equal(cloned.length, 2);
   });
 
-  it("waits for the checkout lock before fetching its branch back", async () => {
+  /**
+   * The agent itself takes the lock before it hands back, so the lock is held
+   * before the run can reach its fetch. A whole run on another checkout —
+   * clone, agent, fetch back — then has to finish first: far more git than the
+   * locked run has left before its fetch, so a fetch that ignored the lock
+   * would have landed by then.
+   */
+  it("waits for the checkout lock before fetching its branch back, and only on its own checkout", HANGS, async () => {
     const directory = await project();
-    const held = heldAgents(1, agentCommitting(["one.txt"]));
-    const sandbox = containerSandbox(held.container);
-
-    const running = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    await held.allInProgress();
+    const elsewhere = await project();
     const lock = gate();
-    const holding = withCheckoutLock(directory, () => lock.opened);
-    held.release();
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    let holding: Promise<void> | undefined;
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = containerSandbox(async (options) => {
+      const agent = await commit(options);
+      holding = withCheckoutLock(directory, () => lock.opened);
+      return agent;
+    });
+    let settled = false;
 
+    const running = sandbox
+      .run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING })
+      .finally(() => {
+        settled = true;
+      });
+    const other = await containerSandbox(agentCommitting(["two.txt"])).run({
+      ticket: TICKET,
+      checkout: elsewhere,
+      spendCeiling: CEILING,
+    });
+
+    assert.deepEqual(await branchesIn(elsewhere), [other.branch, "main"]);
+    assert.equal(settled, false, "the run finished while its checkout was locked");
     assert.deepEqual(await branchesIn(directory), ["main"]);
     lock.open();
     await holding;
@@ -585,17 +595,25 @@ describe("containerSandbox", () => {
     assert.deepEqual(await branchesIn(directory), [result.branch, "main"]);
   });
 
-  it("leaves the checkout free for the next run when a container throws", async () => {
+  /**
+   * Fails a git step taken under the lock: every name the ticket may have is
+   * already a branch, so choosing one throws while the lock is held.
+   */
+  it("leaves the checkout free for the next run when a step under the lock fails", HANGS, async () => {
     const directory = await project();
-    const broken = containerSandbox(async () => {
-      throw new AgentNeverRan("docker is not running");
-    });
-    await assert.rejects(
-      broken.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
-      /docker is not running/,
-    );
+    const names = [BRANCH, ...Array.from({ length: 9 }, (_, i) => `${BRANCH}-${i + 2}`)];
+    for (const name of names) {
+      await run("git", ["-C", directory, "branch", name]);
+    }
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
-    const result = await containerSandbox(agentCommitting(["one.txt"])).run({
+    await assert.rejects(
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      /already has 10 branches/,
+    );
+    await run("git", ["-C", directory, "branch", "--delete", ...names]);
+
+    const result = await sandbox.run({
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -799,7 +817,7 @@ describe("containerSandbox.review", () => {
     );
   });
 
-  it("reviews side by side with an implementation run on the same checkout", async () => {
+  it("reviews side by side with an implementation run on the same checkout", HANGS, async () => {
     const directory = await project();
     const held = heldAgents(2, async () => ({
       output: "",
@@ -815,11 +833,10 @@ describe("containerSandbox.review", () => {
         spendCeiling: CEILING,
       }),
     ]);
-    const together = await held.allInProgress();
+    // Never settles if the review waits for the run to finish.
+    await held.allInProgress;
     held.release();
     await both;
-
-    assert.ok(together, "the review waited for the run to finish");
   });
 });
 
