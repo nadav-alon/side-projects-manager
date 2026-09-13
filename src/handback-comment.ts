@@ -6,7 +6,6 @@ import type {
 import type {
   PullRequestUrl,
   ReviewRunResult,
-  ReviewTicket,
   SandboxRunResult,
   Ticket,
 } from "./ports/index.ts";
@@ -60,37 +59,34 @@ export function handbackComment(
   run: SandboxRunResult | undefined,
   discard: Discard,
 ): string {
-  return [
-    `The morning loop ran this ticket and the agent gave up.`,
-    `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
-    `What it said:\n\n${quote(run?.output ?? "")}`,
-    ...branchNote(run, discard),
-    notRetried(),
-  ].join("\n\n");
+  return gaveUpComment(failure, run?.output ?? "", branchNote(run, discard));
 }
 
 /**
  * What a review ticket is told when the agent gave up on its review: it said
  * it could not, or it posted nothing. The pull request is not checked for a
  * comment from an agent that gave up — whatever it posted is not a finished
- * review — so either way the ticket is the developer's again.
+ * review — so either way the ticket is the developer's again. A review leaves
+ * no branch, so there is nothing to say about one.
  */
 export function reviewHandbackComment(
-  ticket: ReviewTicket,
+  failure: GaveUp,
   review: ReviewRunResult,
 ): string {
-  const what =
-    review.failure === undefined
-      ? [
-          `The morning loop ran this review and the agent gave up: it posted nothing to ${ticket.pullRequest}.`,
-        ]
-      : [
-          `The morning loop ran this review and the agent gave up.`,
-          `Why it stopped: ${tail(review.failure, REASON_QUOTED)}`,
-        ];
+  return gaveUpComment(failure, review.output, []);
+}
+
+/** The layout every gave-up comment shares, with `notes` before the last line. */
+function gaveUpComment(
+  failure: GaveUp,
+  output: string,
+  notes: string[],
+): string {
   return [
-    ...what,
-    `What it said:\n\n${quote(review.output)}`,
+    `The morning loop ran this ticket and the agent gave up.`,
+    `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
+    `What it said:\n\n${quote(output)}`,
+    ...notes,
     notRetried(),
   ].join("\n\n");
 }

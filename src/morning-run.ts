@@ -1352,7 +1352,7 @@ async function handReviewBack(
       ports,
       ticket,
       failure,
-      reviewHandbackComment(ticket, review),
+      reviewHandbackComment(failure, review),
     )),
     tokensUsed: review.tokensUsed,
   };
