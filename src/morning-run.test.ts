@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  modelName,
   priority,
   pullRequestUrl,
   repoSlug,
@@ -2294,6 +2295,207 @@ describe("morningRun", () => {
       const backlog = await ports.tracker.listEligibleTickets(PILOT);
       assert.ok(backlog.some((ticket) => ticket.number === review.number));
       assert.equal(report.standDown?.reason, "provider-limit");
+    });
+  });
+
+  describe("the model a run uses", () => {
+    const OPUS = modelName("opus");
+    const HAIKU = modelName("haiku");
+
+    /** One project with one implementation ticket, #7. */
+    function oneTicket(): { ports: FakePorts; ticket: Ticket } {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      return { ports, ticket };
+    }
+
+    it("asks the sandbox for no model when the ticket has no model label and there are no model defaults", async () => {
+      const { ports } = oneTicket();
+
+      await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(ports.sandbox.runs[0]?.model, undefined);
+    });
+
+    it("runs an implementation ticket without a model label on the implementation default", async () => {
+      const { ports } = oneTicket();
+      ports.store.modelDefaults = { implementation: OPUS };
+
+      await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.model, OPUS);
+    });
+
+    it("runs a review on the review default, and an implementation ticket not", async () => {
+      const { ports } = oneTicket();
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 42,
+        title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
+        pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+      });
+      ports.store.modelDefaults = { review: HAIKU };
+
+      await morningRun(ports);
+
+      assert.equal(ports.sandbox.reviews[0]?.model, HAIKU);
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(ports.sandbox.runs[0]?.model, undefined);
+    });
+
+    it("runs a ticket on its model label rather than the default for its kind", async () => {
+      const { ports, ticket } = oneTicket();
+      ports.tracker.addLabel(ticket, "model:opus");
+      ports.store.modelDefaults = { implementation: HAIKU };
+
+      await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.model, OPUS);
+    });
+
+    it("never runs a review ticket on its parent's model label", async () => {
+      const { ports, ticket } = oneTicket();
+      ports.tracker.addLabel(ticket, "model:opus");
+      ports.sandbox.result = () => ({
+        branch: branch("issue-7-add-the-thing"),
+        commits: ["c0ffee1"],
+        output: "",
+        tokensUsed: tokenCount(1_000),
+      });
+
+      await morningRun(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.model, OPUS);
+      assert.equal(ports.sandbox.reviews.length, 1);
+      assert.equal(ports.sandbox.reviews[0]?.model, undefined);
+      assert.equal(ports.sandbox.reviews[0]?.ticket.modelLabel, undefined);
+    });
+
+    describe("a ticket carrying two model labels", () => {
+      it("is handed back naming both and saying to keep one, and never run", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.tracker.addLabel(ticket, "model:haiku");
+
+        const report = await morningRun(ports);
+
+        assert.deepEqual(ports.sandbox.runs, []);
+        assert.deepEqual(ports.repoHost.clones, []);
+        assert.equal(ports.tracker.handbacks.length, 1);
+        const comment = ports.tracker.handbacks[0]?.comment ?? "";
+        assert.match(comment, /model:opus/);
+        assert.match(comment, /model:haiku/);
+        assert.match(comment, /keep one/i);
+        assert.deepEqual(await ports.tracker.listEligibleTickets(PILOT), []);
+        assert.equal(failureOf(report.runs[0])?.kind, "conflicting-model-labels");
+      });
+
+      it("spends nothing, and the invocation carries on to the next ticket", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.tracker.addLabel(ticket, "model:haiku");
+        ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+
+        await morningRun(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [8],
+        );
+        const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
+        assert.equal(runs.length, 1);
+      });
+    });
+
+    it("hands back a ticket whose model label names no usable model, quoting it, and never runs it", async () => {
+      const { ports, ticket } = oneTicket();
+      ports.tracker.addLabel(ticket, "model:");
+
+      await morningRun(ports);
+
+      assert.deepEqual(ports.sandbox.runs, []);
+      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /`model:`/);
+    });
+
+    describe("a model the agent CLI refuses", () => {
+      it("hands the ticket back naming the model, its model label, and the CLI's words", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.sandbox.refusedModel = OPUS;
+
+        const report = await morningRun(ports);
+
+        assert.equal(ports.tracker.handbacks.length, 1);
+        const comment = ports.tracker.handbacks[0]?.comment ?? "";
+        assert.match(comment, /opus/);
+        assert.match(comment, /model label/);
+        assert.match(comment, /refused model opus/);
+        assert.doesNotMatch(comment, /gave up/);
+        assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
+        assert.deepEqual(await ports.tracker.listEligibleTickets(PILOT), []);
+      });
+
+      it("says the model came from the model defaults when it did", async () => {
+        const { ports } = oneTicket();
+        ports.store.modelDefaults = { implementation: OPUS };
+        ports.sandbox.refusedModel = OPUS;
+
+        await morningRun(ports);
+
+        assert.match(
+          ports.tracker.handbacks[0]?.comment ?? "",
+          /model defaults/,
+        );
+      });
+
+      it("hands back a review ticket whose model is refused, rather than leaving it to come round again", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 42,
+          title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
+          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        });
+        ports.store.modelDefaults = { review: HAIKU };
+        ports.sandbox.refusedModel = HAIKU;
+
+        const report = await morningRun(ports);
+
+        assert.equal(ports.tracker.handbacks.length, 1);
+        assert.match(ports.tracker.handbacks[0]?.comment ?? "", /haiku/);
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+        assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
+      });
+
+      it("reports it apart from an agent that gave up and from an infrastructure failure", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.sandbox.refusedModel = OPUS;
+
+        const report = await morningRun(ports);
+
+        assert.doesNotMatch(report.message, /gave up|would not start/);
+        assert.match(report.message, /refused the model opus/);
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.match(body, /Waiting on you/);
+        assert.match(body, /pilot #7: relabelled ready-for-human — the model opus/);
+      });
+    });
+
+    it("names the model each run used in the summary", async () => {
+      const { ports, ticket } = oneTicket();
+      ports.tracker.addLabel(ticket, "model:opus");
+      ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+
+      await morningRun(ports);
+
+      // Oldest first: #7 on its label, then #8 on the image's pin.
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /tokens on opus\n- .*tokens on the image's model/);
     });
   });
 

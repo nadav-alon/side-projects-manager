@@ -3,6 +3,9 @@ import type {
   Checkout,
   Clock,
   IssueTracker,
+  ModelDefaults,
+  ModelName,
+  ModelRefusal,
   Priority,
   ProjectState,
   PullRequestUrl,
@@ -22,18 +25,22 @@ import type {
   Usd,
 } from "./ports/index.ts";
 import {
+  MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isBlocked,
   isBrokenOut,
   isReviewTicket,
   recordRun,
+  ticketKind,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
 import {
   committedNothingComment,
   handbackComment,
   handoverComment,
+  modelRefusalComment,
+  unusableModelLabelComment,
   type Discard,
 } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
@@ -106,8 +113,15 @@ export type ProjectVerdict =
  */
 export type FailureKind = RunFailure["kind"];
 
-/** Why an iteration's run did not finish. */
-export type RunFailure = GaveUp | InfrastructureFailure;
+/** Why an iteration's run did not finish, or never started. */
+export type RunFailure =
+  | GaveUp
+  | InfrastructureFailure
+  | ModelRefused
+  | UnusableModelLabel;
+
+/** A failure whose ticket the loop hands back: every kind but the setup's. */
+export type HandedBackFailure = Exclude<RunFailure, InfrastructureFailure>;
 
 /** The agent ran and stopped short: it said it could not, or left the tests red. */
 export interface GaveUp {
@@ -119,6 +133,47 @@ export interface GaveUp {
    * selected again — a morning that needs the developer to go and look at the
    * ticket themselves.
    */
+  handedBack: boolean;
+}
+
+/**
+ * Where the model a run was started on came from. Absent from a run started
+ * on no model at all, which the sandbox image's pin decides.
+ */
+export type ModelSource = "model label" | "model defaults";
+
+/** The model a ticket's run is started on, and what named it. */
+export interface ResolvedModel {
+  name: ModelName;
+  source: ModelSource;
+}
+
+/**
+ * A model refusal: the agent CLI would not start on the model the run was
+ * given. The ticket's model is the problem, so the ticket is handed back —
+ * but the agent never gave up, and the setup did its part.
+ */
+export interface ModelRefused {
+  kind: "model-refused";
+  reason: string;
+  refusal: ModelRefusal;
+  /** What named the refused model: the ticket's model label or the model defaults. */
+  source: ModelSource;
+  /** As `GaveUp.handedBack`. */
+  handedBack: boolean;
+}
+
+/**
+ * A ticket whose model labels no run could be started on — two or more that
+ * disagree, or one naming no usable model — caught at selection, so nothing
+ * was cloned, run or spent.
+ */
+export interface UnusableModelLabel {
+  kind: "conflicting-model-labels" | "unusable-model-label";
+  reason: string;
+  /** The model labels at fault, as the ticket carries them. */
+  labels: readonly string[];
+  /** As `GaveUp.handedBack`. */
   handedBack: boolean;
 }
 
@@ -277,16 +332,29 @@ interface Handover {
 interface Failed {
   kind: "failed";
   failure: RunFailure;
-  /** What the agent left behind. Absent when it never ran. */
+  /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: SandboxRunResult;
+  /** What a review whose model was refused spent, since it has no `run`. */
+  tokensUsed?: TokenCount;
+}
+
+/**
+ * The project and ticket an iteration worked, and the model its run was
+ * started on — absent when the sandbox image's pin decided, and when no run
+ * was started because the ticket's model labels were unusable.
+ */
+interface Attempt<T extends Ticket = Ticket> {
+  repo: RepoSlug;
+  ticket: T;
+  model?: ModelName;
 }
 
 /** One iteration's outcome, and the project and ticket that earned it. */
 export type IterationOutcome =
-  | ({ repo: RepoSlug; ticket: Ticket } & Finished)
-  | ({ repo: RepoSlug; ticket: Ticket } & Failed)
-  | ({ repo: RepoSlug; ticket: ReviewTicket } & Reviewed)
-  | ({ repo: RepoSlug; ticket: Ticket } & LimitRefused);
+  | (Attempt & Finished)
+  | (Attempt & Failed)
+  | (Attempt<ReviewTicket> & Reviewed)
+  | (Attempt & LimitRefused);
 
 /**
  * One project with an eligible ticket, as far as selection is concerned: the
@@ -358,6 +426,7 @@ export async function morningRun(
   let invocationFailure: string | undefined;
   try {
     const state = new Map(await ports.store.loadState());
+    const modelDefaults = await ports.store.loadModelDefaults();
     try {
       for (;;) {
         const scan = await considerProjects(ports, state, worked);
@@ -377,6 +446,26 @@ export async function morningRun(
         if (scan.selection === undefined) {
           break;
         }
+        const { ticket } = scan.selection;
+
+        // Ahead of the gate as well as of the run: handing a ticket back
+        // spends nothing, so a morning the gate refuses still gives the
+        // developer the ticket they need to fix.
+        const unusable = unusableModelLabel(ticket);
+        if (unusable !== undefined) {
+          worked.add(ticketKey(ticket));
+          runs.push({
+            repo: scan.selection.project.repo,
+            ticket,
+            ...(await handTicketBack(
+              ports,
+              ticket,
+              unusable,
+              unusableModelLabelComment(unusable),
+            )),
+          });
+          continue;
+        }
 
         const budget = await ports.store.loadBudget();
         const refusal = await consultTheGate(ports, budget, state);
@@ -385,16 +474,19 @@ export async function morningRun(
           break;
         }
 
+        const model = resolveModel(ticket, modelDefaults);
         const iteration = await work(
           ports,
           scan.selection,
           state,
           budget.spendCeiling,
+          model,
         );
-        worked.add(ticketKey(scan.selection.ticket));
+        worked.add(ticketKey(ticket));
         runs.push({
           repo: scan.selection.project.repo,
-          ticket: scan.selection.ticket,
+          ticket,
+          ...(model !== undefined && { model: model.name }),
           ...iteration,
         } as IterationOutcome);
 
@@ -623,6 +715,66 @@ function isReview(ticket: Ticket): boolean {
   return isReviewTicket(ticket);
 }
 
+/**
+ * The model `ticket`'s run is started on: the one its own model label names,
+ * else the model defaults' entry for its kind, else none, which leaves the
+ * sandbox image's pin in force.
+ */
+function resolveModel(
+  ticket: Ticket,
+  modelDefaults: ModelDefaults,
+): ResolvedModel | undefined {
+  if (ticket.modelLabel?.kind === "named") {
+    return { name: ticket.modelLabel.name, source: "model label" };
+  }
+  const name = modelDefaults[ticketKind(ticket)];
+  return name === undefined ? undefined : { name, source: "model defaults" };
+}
+
+/**
+ * Why no run can be started on `ticket`'s model labels, absent when they
+ * name one model or none. Never falls back to the model defaults: the
+ * developer asked for a model, and another one is not what they asked for.
+ */
+function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
+  const label = ticket.modelLabel;
+  switch (label?.kind) {
+    case undefined:
+    case "named":
+      return undefined;
+    case "conflicting": {
+      const labels = label.names.map((name) => `${MODEL_LABEL_PREFIX}${name}`);
+      return {
+        kind: "conflicting-model-labels",
+        reason: `it carries more than one model label (${labels.join(", ")})`,
+        labels,
+        handedBack: false,
+      };
+    }
+    case "unusable":
+      return {
+        kind: "unusable-model-label",
+        reason: `its model label names no usable model (${label.labels.join(", ")})`,
+        labels: label.labels,
+        handedBack: false,
+      };
+  }
+}
+
+/** A model refusal, as the failure its ticket is handed back with. */
+function modelRefused(
+  refusal: ModelRefusal,
+  source: ModelSource,
+): ModelRefused {
+  return {
+    kind: "model-refused",
+    reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
+    refusal,
+    source,
+    handedBack: false,
+  };
+}
+
 /** The key `worked` tracks a ticket by, unique within one invocation. */
 function ticketKey(ticket: Ticket): string {
   return `${ticket.repo}#${ticket.number}`;
@@ -702,6 +854,7 @@ async function work(
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
+  model: ResolvedModel | undefined,
 ): Promise<Iteration> {
   if (isReviewTicket(selection.ticket)) {
     return await runReview(
@@ -710,10 +863,17 @@ async function work(
       selection.ticket,
       state,
       spendCeiling,
+      model,
     );
   }
 
-  const returned = await attemptRun(ports, selection, state, spendCeiling);
+  const returned = await attemptRun(
+    ports,
+    selection,
+    state,
+    spendCeiling,
+    model,
+  );
   // An infrastructure failure says nothing about the ticket, so the ticket is
   // left exactly as it was: the summary names the setup to fix instead.
   if ("failure" in returned) {
@@ -730,7 +890,19 @@ async function work(
       discard: await discardBranch(ports, checkout, run),
     };
   }
-  // TODO[#107]: act on `run.modelRefusal`.
+  // A refusal comes back only for a model the run was given, so `model` is
+  // set whenever this is.
+  if (run.modelRefusal !== undefined && model !== undefined) {
+    const discard = await discardBranch(ports, checkout, run);
+    const failure = modelRefused(run.modelRefusal, model.source);
+    return handTicketBack(
+      ports,
+      selection.ticket,
+      failure,
+      modelRefusalComment(selection.ticket, failure, run, discard),
+      run,
+    );
+  }
   if (run.failure === undefined) {
     return handOver(ports, run, checkout, selection.ticket);
   }
@@ -740,12 +912,17 @@ async function work(
   // some worktree has checked out, and a ticket left eligible because of that
   // is the failure this whole policy exists to prevent.
   const discard = await discardBranch(ports, checkout, run);
+  const failure: GaveUp = {
+    kind: "gave-up",
+    reason: run.failure,
+    handedBack: false,
+  };
   return handTicketBack(
     ports,
     selection.ticket,
+    failure,
+    handbackComment(failure, run, discard),
     run,
-    { kind: "gave-up", reason: run.failure, handedBack: false },
-    discard,
   );
 }
 
@@ -844,8 +1021,9 @@ async function handFinishedTicketBack(
 }
 
 /**
- * Puts the ticket of an agent that gave up back in the developer's hands, and
- * says whether it got there.
+ * Puts the ticket of a run that failed on the ticket's account — an agent
+ * that gave up, or a model it could not use — back in the developer's hands
+ * with `comment`, and says whether it got there.
  *
  * Never throws. A tracker that could not be reached leaves the ticket eligible,
  * and saying so is the one thing still worth doing.
@@ -853,23 +1031,24 @@ async function handFinishedTicketBack(
 async function handTicketBack(
   ports: MorningRunPorts,
   ticket: Ticket,
-  run: SandboxRunResult,
-  failure: GaveUp,
-  discard: Discard,
+  failure: HandedBackFailure,
+  comment: string,
+  run?: SandboxRunResult,
 ): Promise<Failed> {
   try {
-    await ports.tracker.handBack(
-      ticket,
-      handbackComment(failure, run, discard),
-    );
-    return { kind: "failed", run, failure: { ...failure, handedBack: true } };
+    await ports.tracker.handBack(ticket, comment);
+    return {
+      kind: "failed",
+      ...(run !== undefined && { run }),
+      failure: { ...failure, handedBack: true },
+    };
   } catch (error: unknown) {
     // The policy itself could not be carried out, which leaves the ticket
     // eligible and due to come round again. Saying so is what is left: a
     // silent failure here is the one that costs a morning every morning.
     return {
       kind: "failed",
-      run,
+      ...(run !== undefined && { run }),
       failure: {
         ...failure,
         reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
@@ -921,6 +1100,7 @@ async function attemptRun(
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
+  model: ResolvedModel | undefined,
 ): Promise<{ run: SandboxRunResult; checkout: Checkout } | Failed> {
   const repo = selection.project.repo;
 
@@ -932,6 +1112,7 @@ async function attemptRun(
       ticket: selection.ticket,
       checkout,
       spendCeiling,
+      ...(model !== undefined && { model: model.name }),
     });
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
@@ -983,12 +1164,18 @@ async function runReview(
   ticket: ReviewTicket,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
+  model: ResolvedModel | undefined,
 ): Promise<Reviewed | LimitRefused | Failed> {
   const startedAt = ports.clock.now();
   let review: ReviewRunResult;
   try {
     const checkout = await ports.repoHost.clone(repo);
-    review = await ports.sandbox.review({ ticket, checkout, spendCeiling });
+    review = await ports.sandbox.review({
+      ticket,
+      checkout,
+      spendCeiling,
+      ...(model !== undefined && { model: model.name }),
+    });
   } catch (error: unknown) {
     return infrastructureFailure(error);
   }
@@ -1009,7 +1196,20 @@ async function runReview(
       discard: { kind: "none" },
     };
   }
-  // TODO[#107]: act on `review.modelRefusal`.
+  // Handed back rather than left to come round again, as an implementation
+  // ticket's is: every later morning would refuse the same model the same way.
+  if (review.modelRefusal !== undefined && model !== undefined) {
+    const failure = modelRefused(review.modelRefusal, model.source);
+    return {
+      ...(await handTicketBack(
+        ports,
+        ticket,
+        failure,
+        modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      )),
+      tokensUsed: review.tokensUsed,
+    };
+  }
 
   const posted =
     review.failure === undefined &&
@@ -1171,15 +1371,31 @@ function summaryBody(facts: SummaryFacts, line: string): string {
     .join("\n\n");
 }
 
-/** One bullet per attempt this invocation made, its outcome, and its cost. */
+/**
+ * One bullet per attempt this invocation made, its outcome, its cost, and the
+ * model it was started on. A ticket handed back for its model labels was never
+ * started, so it names neither.
+ */
 function attemptsSection(runs: IterationOutcome[]): string {
   const lines = runs.map((run) => {
+    if (run.kind === "failed" && isModelLabelFailure(run.failure)) {
+      return `- ${describeRun(run)} — nothing run`;
+    }
     const spent = costOf(run);
     const cost =
       spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
-    return `- ${describeRun(run)}${cost}`;
+    return `- ${describeRun(run)}${cost} on ${run.model ?? "the image's model"}`;
   });
   return ["## Attempts", ...lines].join("\n");
+}
+
+function isModelLabelFailure(
+  failure: RunFailure,
+): failure is UnusableModelLabel {
+  return (
+    failure.kind === "conflicting-model-labels" ||
+    failure.kind === "unusable-model-label"
+  );
 }
 
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
@@ -1254,6 +1470,15 @@ function waitingOnFailure(
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`
         : stillEligibleLine({ repo, ticket });
+    case "model-refused":
+      return failure.handedBack
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`
+        : stillEligibleLine({ repo, ticket });
+    case "conflicting-model-labels":
+    case "unusable-model-label":
+      return failure.handedBack
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
+        : stillEligibleLine({ repo, ticket });
   }
 }
 
@@ -1268,8 +1493,9 @@ function costOf(iteration: IterationOutcome): TokenCount | undefined {
     case "limit-refused":
       return iteration.tokensUsed;
     case "failed":
+      return iteration.run?.tokensUsed ?? iteration.tokensUsed;
     case "finished":
-      return iteration.run?.tokensUsed;
+      return iteration.run.tokensUsed;
   }
 }
 
@@ -1349,7 +1575,15 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   const now = failure.handedBack
     ? "Handed back for a human."
     : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
-  return `the agent gave up on ${which}: ${failure.reason}. ${now}`;
+  switch (failure.kind) {
+    case "gave-up":
+      return `the agent gave up on ${which}: ${failure.reason}. ${now}`;
+    case "model-refused":
+      return `${which} was not worked, because ${failure.reason}. ${now}`;
+    case "conflicting-model-labels":
+    case "unusable-model-label":
+      return `${which} was not run, because ${failure.reason}. ${now}`;
+  }
 }
 
 /**
