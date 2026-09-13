@@ -60,9 +60,13 @@ describe("modelLabelOf", () => {
     });
   });
 
-  it("reads only labels that start with the prefix", () => {
+  it("reads only labels that start with the prefix, whatever its case", () => {
     assert.equal(MODEL_LABEL_PREFIX, "model:");
-    assert.equal(modelLabelOf(["Model:opus", "my-model:opus"]), undefined);
+    assert.equal(modelLabelOf(["my-model:opus", "models:opus"]), undefined);
+    assert.deepEqual(modelLabelOf(["MODEL:Opus"]), {
+      kind: "named",
+      name: modelName("Opus"),
+    });
   });
 
   it("marks a bare prefix unusable, since it is a model label naming no model", () => {

@@ -43,13 +43,15 @@ export type ModelLabel =
  * names no model.
  *
  * Beside the port rather than in an adapter, so the real tracker and the fake
- * read labels identically.
+ * read labels identically. The prefix is matched without regard to case, the
+ * way GitHub matches label names, so `Model:opus` is a model label too; the
+ * name after it is kept as written.
  */
 export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   const names: ModelName[] = [];
   const unusable: string[] = [];
   for (const label of labels) {
-    if (!label.startsWith(MODEL_LABEL_PREFIX)) {
+    if (!label.toLowerCase().startsWith(MODEL_LABEL_PREFIX)) {
       continue;
     }
     const name = label.slice(MODEL_LABEL_PREFIX.length);
