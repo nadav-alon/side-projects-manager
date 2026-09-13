@@ -68,10 +68,9 @@ export type State = ReadonlyMap<RepoSlug, ProjectState>;
  * They are separate documents with separate methods because they have
  * different authors and different change rates: the registry, the budget and
  * the model defaults are the developer's, and the loop never touches any of
- * them, while the loop
- * writes the state and the developer never has to. The new-project command is
- * the one machine writer of the registry, and it writes it only to record a
- * project the developer just asked for.
+ * them, while the loop writes the state and the developer never has to. The
+ * new-project command is the one machine writer of the registry, and it writes
+ * it only to record a project the developer just asked for.
  */
 export interface Store {
   /** Every registered project, in the order the registry lists them. */
