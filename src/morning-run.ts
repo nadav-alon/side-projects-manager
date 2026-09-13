@@ -431,6 +431,19 @@ export async function morningRun(
       localDay(ports.clock.now()),
     );
   };
+  // Takes a claimed ticket back off today's record, leaving it excluded from
+  // the rest of this invocation.
+  const release = (ticket: Ticket): void => {
+    if (workedToday === undefined) {
+      return;
+    }
+    workedToday = {
+      ...workedToday,
+      tickets: workedToday.tickets.filter(
+        (recorded) => ticketKey(recorded) !== ticketKey(ticket),
+      ),
+    };
+  };
   const runs: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
@@ -524,6 +537,17 @@ export async function morningRun(
           ...(model !== undefined && { model: model.name }),
           ...iteration,
         } as IterationOutcome);
+
+        // An infrastructure failure or a limit refusal says nothing about the
+        // ticket, so it is left free for a later firing today — one that finds
+        // the setup fixed or the provider limit reset.
+        if (
+          iteration.kind === "limit-refused" ||
+          (iteration.kind === "failed" &&
+            iteration.failure.kind === "infrastructure")
+        ) {
+          release(ticket);
+        }
 
         // The provider limit refuses every run after this one the same way,
         // so the loop stops here rather than walking the backlog into it.

@@ -792,6 +792,48 @@ describe("morningRun", () => {
       });
     });
 
+    it("frees the ticket for a later firing today when the sandbox could not run it", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("the docker daemon is not running");
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("frees the ticket for a later firing today when the provider limit refused its run", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        output: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        limitRefusal: LIMIT_REFUSAL,
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
     it("has saved the ticket as worked today before the sandbox starts, so a run killed part way still counts", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);

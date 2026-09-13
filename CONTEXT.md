@@ -33,7 +33,7 @@ No registered project had an eligible ticket. A normal quiet morning, reported e
 _Avoid_: empty queue, no work, nothing found
 
 **Worked today**:
-The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes them over until the next day, even while they still carry ready-for-agent — a hand-back the tracker refused, a review that posted nothing, a finished run whose relabel failed — so a loop firing every hour does not spend a run on one every hour. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. A record for any other day reads as nothing worked today.
+The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes them over until the next day, even while they still carry ready-for-agent — a hand-back the tracker refused, a review that posted nothing, a finished run whose relabel failed — so a loop firing every hour does not spend a run on one every hour. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. A run that was an infrastructure failure or a limit refusal says nothing about its ticket, so the ticket comes off the record again and a later firing the same day may select it. A record for any other day reads as nothing worked today.
 _Avoid_: seen, attempted, cooldown
 
 **Stand down**:
