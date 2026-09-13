@@ -275,6 +275,71 @@ describe("finding the checkout", () => {
     assert.equal(await readFile(path.join(found, "mine.txt"), "utf8"), "kept\n");
   });
 
+  /**
+   * A commit landing on the remote from somewhere other than `directory` — a
+   * pull request merged on GitHub, as far as the managed clone can tell.
+   */
+  async function landedElsewhere(directory: string, file: string): Promise<void> {
+    const { stdout: origin } = await run("git", [
+      "-C",
+      directory,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
+    const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-elsewhere-"));
+    await run("git", ["clone", origin.trim(), elsewhere]);
+    await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
+    await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
+    await writeFile(path.join(elsewhere, file), `${file}\n`);
+    await run("git", ["-C", elsewhere, "add", file]);
+    await run("git", ["-C", elsewhere, "commit", "--message", `Add ${file}`]);
+    await run("git", ["-C", elsewhere, "push", "origin", "main"]);
+  }
+
+  /** A clone with history, tracking `origin/main`, as the loop's own clone is. */
+  async function seeded(): Promise<string> {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    return directory;
+  }
+
+  it("brings a reused clone up to what its remote has", async () => {
+    const directory = await seeded();
+    await landedElsewhere(directory, "merged.md");
+
+    const found = await githubRepoHost(locationOf(directory)).clone(PILOT);
+
+    assert.deepEqual(await committedFiles(found), ["merged.md", "seed.md"]);
+  });
+
+  it("carries the developer's uncommitted work across the catch-up", async () => {
+    const directory = await seeded();
+    await landedElsewhere(directory, "merged.md");
+    await writeFile(path.join(directory, "seed.md"), "mine\n");
+
+    const found = await githubRepoHost(locationOf(directory)).clone(PILOT);
+
+    assert.deepEqual(await committedFiles(found), ["merged.md", "seed.md"]);
+    assert.equal(await readFile(path.join(found, "seed.md"), "utf8"), "mine\n");
+  });
+
+  it("refuses a clone whose branch has moved apart from its remote", async () => {
+    const directory = await seeded();
+    await landedElsewhere(directory, "merged.md");
+    await writeFile(path.join(directory, "local.md"), "local\n");
+    await run("git", ["-C", directory, "add", "local.md"]);
+    await run("git", ["-C", directory, "commit", "--message", "Local only"]);
+
+    await assert.rejects(
+      githubRepoHost(locationOf(directory)).clone(PILOT),
+      new RegExp(`${directory}.*cannot be brought up to date`),
+    );
+    // Refused, not rewritten: the local commit is still where it was.
+    assert.deepEqual(await committedFiles(directory), ["local.md", "seed.md"]);
+  });
+
   it("refuses a checkout of somebody else's repo of the same name", async () => {
     const directory = await checkout("someone-else/pilot");
 
