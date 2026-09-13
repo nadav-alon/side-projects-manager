@@ -10,17 +10,20 @@ export type { Day } from "./day.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
 export {
+  MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   TICKET_KINDS,
   isBlocked,
   isBrokenOut,
   isReviewTicket,
+  modelLabelOf,
   reviewTitle,
   ticketKind,
 } from "./issue-tracker.ts";
 export type {
   IssueTracker,
+  ModelLabel,
   ReviewTicket,
   Ticket,
   TicketKind,

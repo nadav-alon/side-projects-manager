@@ -447,7 +447,10 @@ describe("morningRun", () => {
      * another project. Naming the pull request, not just the title, is what
      * `isReviewTicket` reads to tell it from an implementation.
      */
-    function reviewOf(parent: Ticket, number: number): Omit<Ticket, "repo"> {
+    function reviewOf(
+      parent: Ticket,
+      number: number,
+    ): Omit<Ticket, "repo" | "modelLabel"> {
       return {
         number,
         title: reviewTitle(parent),

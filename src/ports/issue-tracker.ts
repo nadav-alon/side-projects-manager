@@ -1,3 +1,4 @@
+import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
@@ -12,6 +13,66 @@ export const READY_FOR_AGENT_LABEL = "ready-for-agent";
  * `docs/agents/triage-labels.md` spells it.
  */
 export const READY_FOR_HUMAN_LABEL = "ready-for-human";
+
+/**
+ * What a label starts with when it is a model label, per `CONTEXT.md`: the
+ * rest of the label is the model's name. The one place the literal lives.
+ */
+export const MODEL_LABEL_PREFIX = "model:";
+
+/**
+ * What a ticket's model labels say, where it carries any: one model by name,
+ * several that disagree, or a label whose name no run could be handed. Absent
+ * from a ticket that names no model.
+ *
+ * `conflicting` still carries every name, in label order, so a hand-back can
+ * say which models the ticket named. `unusable` carries each model label
+ * whose name `isModelName` refuses — a bare `model:`, a name with a space in
+ * it, one that reads as an option — as written, so a hand-back can quote it.
+ * It wins over the other two: the developer asked for a model, and running
+ * the ticket on another one is not what they asked for. Whether to work
+ * either kind of ticket is the loop's decision; the tracker only reports it.
+ */
+export type ModelLabel =
+  | { kind: "named"; name: ModelName }
+  | { kind: "conflicting"; names: readonly ModelName[] }
+  | { kind: "unusable"; labels: readonly string[] };
+
+/**
+ * The model label a ticket carrying `labels` declares, or undefined where it
+ * names no model.
+ *
+ * Beside the port rather than in an adapter, so the real tracker and the fake
+ * read labels identically. The prefix is matched without regard to case, the
+ * way GitHub matches label names, so `Model:opus` is a model label too; the
+ * name after it is kept as written.
+ */
+export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
+  const names: ModelName[] = [];
+  const unusable: string[] = [];
+  for (const label of labels) {
+    if (!label.toLowerCase().startsWith(MODEL_LABEL_PREFIX)) {
+      continue;
+    }
+    const name = label.slice(MODEL_LABEL_PREFIX.length);
+    if (isModelName(name)) {
+      names.push(name);
+    } else {
+      unusable.push(label);
+    }
+  }
+
+  if (unusable.length > 0) {
+    return { kind: "unusable", labels: unusable };
+  }
+  const [name, ...others] = names;
+  if (name === undefined) {
+    return undefined;
+  }
+  return others.length === 0
+    ? { kind: "named", name }
+    : { kind: "conflicting", names };
+}
 
 /**
  * An issue in a project's own repo that the loop may work on.
@@ -33,6 +94,11 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
  * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
  * marked as blocking this one are still open, from that same listing. Absent
  * or zero means nothing open blocks it.
+ *
+ * `modelLabel` is what the ticket's own model labels say, read from that same
+ * listing on every call, so a label changed since yesterday is what today
+ * reads. Absent means the ticket names no model. A review ticket reads its
+ * own labels, never its parent's.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -42,6 +108,7 @@ export interface Ticket {
   pullRequest?: PullRequestUrl;
   openSubIssues?: number;
   openBlockers?: number;
+  modelLabel?: ModelLabel;
 }
 
 /**
