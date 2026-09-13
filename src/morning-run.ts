@@ -1270,7 +1270,7 @@ async function discardBranch(
   }
 }
 
-/** A run the sandbox carried out, whatever the agent made of it, and the checkout it ran against. */
+/** A run the sandbox carried out, whatever the agent made of it. */
 interface Ran {
   kind: "ran";
   run: SandboxRunResult;
