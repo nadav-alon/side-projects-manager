@@ -535,13 +535,23 @@ const dockerContainer: Container = async (options) => {
         `docker could not start the agent: ${errorMessage(error)}`,
       );
     }
-    // Any other non-zero exit is the agent's own, and it may have committed
-    // first. `execFile` hangs the output it did capture off the error, so the
-    // run still comes back with what it said and what it spent.
-    const { stdout, stderr } = captured(error);
-    return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+    return readExitedRun(error);
   }
 };
+
+/**
+ * What an agent that exited non-zero came back with. Any exit `dockerNeverRan`
+ * leaves alone is the agent's own, and it may have committed first. `execFile`
+ * hangs the output it did capture off the error, so the run still comes back
+ * with what it said and what it spent.
+ *
+ * Exported so a captured CLI exit can be read the way `dockerContainer` reads
+ * it, without docker installed.
+ */
+export function readExitedRun(error: unknown): AgentRun {
+  const { stdout, stderr } = captured(error);
+  return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+}
 
 /**
  * The environment `docker` itself runs in, which is what `--env GH_TOKEN`

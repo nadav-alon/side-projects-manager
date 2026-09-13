@@ -13,6 +13,7 @@ import {
   dockerCommand,
   dockerNeverRan,
   readAgentRun,
+  readExitedRun,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
@@ -170,6 +171,12 @@ const MODEL_REFUSAL_STDOUT = JSON.stringify({
 });
 const MODEL_REFUSAL_STDERR =
   '[claude-code:unrecognized_model] {"model":"this-model-does-not-exist-xyz","query_source":"sdk"}\n';
+
+/** What `execFile` rejects with when `docker run` passes on the refusal's exit 1. */
+const MODEL_REFUSAL_EXIT = Object.assign(
+  new Error("Command failed: docker run"),
+  { code: 1, stdout: MODEL_REFUSAL_STDOUT, stderr: MODEL_REFUSAL_STDERR },
+);
 
 describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
@@ -482,10 +489,9 @@ describe("containerSandbox", () => {
 
   it("reports a model refusal apart from a failed agent", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
-      ...readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR),
-      failure: "Command failed: docker run",
-    }));
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(MODEL_REFUSAL_EXIT),
+    );
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -504,10 +510,9 @@ describe("containerSandbox", () => {
 
   it("does not read a model refusal when the request named no model", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
-      ...readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR),
-      failure: "Command failed: docker run",
-    }));
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(MODEL_REFUSAL_EXIT),
+    );
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -925,10 +930,9 @@ describe("containerSandbox.review", () => {
 
   it("reports a model refusal apart from a failed reviewer, naming the model and the CLI's words", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
-      ...readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR),
-      failure: "Command failed: docker run",
-    }));
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(MODEL_REFUSAL_EXIT),
+    );
 
     const result = await sandbox.review({
       ticket: REVIEW_TICKET,
@@ -1454,6 +1458,10 @@ describe("dockerNeverRan", () => {
     for (const code of [1, 2, 137]) {
       assert.equal(dockerNeverRan(exited(code)), false, `exit ${code}`);
     }
+  });
+
+  it("leaves the CLI's refusal of a model to the agent", () => {
+    assert.equal(dockerNeverRan(MODEL_REFUSAL_EXIT), false);
   });
 
   it("does not mistake something thrown without a code for docker", () => {
