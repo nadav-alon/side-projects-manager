@@ -35,6 +35,12 @@ export interface FakeHandback {
   comment: string;
 }
 
+/**
+ * A ticket as a test hands it to the fake. No `modelLabel`: the fake reads
+ * that from the labels a ticket holds, the way the real tracker does.
+ */
+type TicketInput = Omit<Ticket, "repo" | "modelLabel">;
+
 /** A ticket as the fake holds it: the ticket itself, and the labels it carries. */
 interface Stored {
   ticket: Ticket;
@@ -70,7 +76,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /** Puts a ticket carrying `READY_FOR_AGENT_LABEL` in `repo`'s backlog and returns it. */
-  addEligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
+  addEligibleTicket(repo: RepoSlug, ticket: TicketInput): Ticket {
     return this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
   }
 
@@ -80,7 +86,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * triaged onto the loop, or has already handed back. Exists so a test can
    * prove such a ticket is never selected, even as its project's only ticket.
    */
-  addIneligibleTicket(repo: RepoSlug, ticket: Omit<Ticket, "repo">): Ticket {
+  addIneligibleTicket(repo: RepoSlug, ticket: TicketInput): Ticket {
     return this.#add(repo, ticket, READY_FOR_HUMAN_LABEL);
   }
 
@@ -93,7 +99,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   addBrokenOutTicket(
     repo: RepoSlug,
-    ticket: Omit<Ticket, "repo" | "openSubIssues">,
+    ticket: Omit<TicketInput, "openSubIssues">,
     openSubIssues: number,
   ): Ticket {
     return this.#add(repo, { ...ticket, openSubIssues }, READY_FOR_AGENT_LABEL);
@@ -107,7 +113,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   addBlockedTicket(
     repo: RepoSlug,
-    ticket: Omit<Ticket, "repo" | "openBlockers">,
+    ticket: Omit<TicketInput, "openBlockers">,
     openBlockers: number,
   ): Ticket {
     return this.#add(repo, { ...ticket, openBlockers }, READY_FOR_AGENT_LABEL);
@@ -132,12 +138,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     );
   }
 
-  #add(
-    repo: RepoSlug,
-    ticket: Omit<Ticket, "repo" | "modelLabel">,
-    label: string,
-  ): Ticket {
-    const stored: Ticket = { repo, ...ticket };
+  #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
+    // Dropped at runtime too: a wider `Ticket` still type-checks as the input,
+    // and a stored `modelLabel` would outlive the labels it claims to read.
+    const { modelLabel: _ignored, ...fields } = ticket as Omit<Ticket, "repo">;
+    const stored: Ticket = { repo, ...fields };
     const backlog = this.#backlogs.get(repo) ?? [];
     backlog.push({ ticket: stored, labels: new Set([label]) });
     this.#backlogs.set(repo, backlog);

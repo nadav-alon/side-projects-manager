@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { modelName, pullRequestUrl, repoSlug } from "../ports/index.ts";
+import {
+  modelName,
+  pullRequestUrl,
+  repoSlug,
+  type Ticket,
+} from "../ports/index.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -63,6 +68,21 @@ describe("FakeIssueTracker — model labels", () => {
   it("names no model for a ticket without a model label", async () => {
     const tracker = new FakeIssueTracker();
     tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+
+    const backlog = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(backlog[0]?.modelLabel, undefined);
+  });
+
+  it("reads the model label from labels alone, never from the ticket it was given", async () => {
+    const tracker = new FakeIssueTracker();
+    const given: Ticket = {
+      repo: PILOT,
+      number: 7,
+      title: "Add the thing",
+      modelLabel: { kind: "named", name: modelName("opus") },
+    };
+    tracker.addEligibleTicket(PILOT, given);
 
     const backlog = await tracker.listEligibleTickets(PILOT);
 
