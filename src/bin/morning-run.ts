@@ -38,7 +38,8 @@ async function main(): Promise<void> {
     report.outcome === "invocation-failed" ||
     report.iterations.some(
       (iteration) =>
-        "failure" in iteration && iteration.failure.kind === "infrastructure",
+        iteration.kind === "failed" &&
+        iteration.failure.kind === "infrastructure",
     );
   if (failed) {
     process.exitCode = 1;

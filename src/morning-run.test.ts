@@ -62,9 +62,7 @@ function gateRefusal(report: InvocationReport) {
 
 /** The failed half of an iteration outcome — undefined if it finished instead. */
 function failureOf(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && "failure" in iteration
-    ? iteration.failure
-    : undefined;
+  return iteration?.kind === "failed" ? iteration.failure : undefined;
 }
 
 /** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
@@ -83,9 +81,9 @@ function reviewTicketOf(iteration: IterationOutcome | undefined) {
 
 /** The sandbox run an iteration made — absent for a review, or a run that never started. */
 function ranWith(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && !("review" in iteration)
-    ? iteration.run
-    : undefined;
+  return iteration === undefined || iteration.kind === "reviewed"
+    ? undefined
+    : iteration.run;
 }
 
 describe("morningLoop", () => {
