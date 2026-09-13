@@ -651,11 +651,11 @@ function outcomeOf(
   // count as work when the morning then stood down: a stand-down that ran
   // nothing reads as one, whatever was handed back before it. Without a
   // stand-down, that hand-back is still work an iteration selected.
-  const ran = iterations.some(
+  const worked = iterations.some(
     (iteration) =>
       !(iteration.kind === "failed" && isModelLabelFailure(iteration.failure)),
   );
-  if (ran) {
+  if (worked) {
     return "work-selected";
   }
   if (standDown !== undefined) {
