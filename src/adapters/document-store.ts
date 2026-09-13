@@ -13,6 +13,7 @@ import type {
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
+  isIterationLimit,
   isPriority,
   isRepoSlug,
   isReserveFraction,
@@ -266,14 +267,6 @@ const HAS_ZONE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/;
  */
 function isAllowance(value: number): value is TokenCount {
   return isTokenCount(value) && value > 0;
-}
-
-/**
- * How many iterations may be in progress at once. Never 0: a limit of nothing
- * would start no work while reading as a budget that allows some.
- */
-function isIterationLimit(value: number): value is number {
-  return Number.isSafeInteger(value) && value >= 1;
 }
 
 const BUDGET_FIELDS = [

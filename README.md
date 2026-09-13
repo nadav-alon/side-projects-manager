@@ -243,9 +243,8 @@ boundary spends its ceiling out of the reserve — the ceiling is the size of th
 It is recorded in `state.json` either way, so the next morning's gate counts it.
 
 `maxConcurrentIterations` is the most iterations one invocation may have in progress at once: a
-whole number, 1 or more, defaulting to `1`. Nothing honours it yet — the loop still works one
-iteration at a time. Know what it costs before raising it. The gate does not count iterations still
-in progress, so up to `maxConcurrentIterations` runs can start at the boundary together, and the
+whole number, 1 or more, defaulting to `1`. Know what it costs before raising it. The gate does not
+count iterations still in progress, so up to `maxConcurrentIterations` runs can start at the boundary together, and the
 accepted overshoot grows from one spend ceiling to that many. Raising it is a reason to lower the
 allowances or raise the reserve.
 

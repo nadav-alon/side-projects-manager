@@ -276,7 +276,7 @@ describe("the budget document", () => {
     await assert.rejects(store.loadBudget(), /weeklyAllowance/);
   });
 
-  it("works one iteration at a time when no concurrency limit is declared", async () => {
+  it("defaults the concurrency limit to 1", async () => {
     const store = documentStore(
       await home({ budget: JSON.stringify({ reserveFraction: 0.75 }) }),
     );

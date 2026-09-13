@@ -410,41 +410,56 @@ say "This is the document that will be written to $BUDGET_FILE:"
 printf '\n'
 BUDGET_JSON=$(node --input-type=module -e '
 const fs = await import("node:fs");
-const [file, ...numbers] = process.argv.slice(1);
+const path = await import("node:path");
+const url = await import("node:url");
+const [home, file, ...numbers] = process.argv.slice(1);
 const [fiveHour, weekly, reserve, ceiling] = numbers.map(Number);
+const ports = url.pathToFileURL(path.join(home, "src", "ports", "index.ts")).href;
+const { isIterationLimit } = await import(ports);
 
-// observedResetAt is carried across rather than asked about: this wizard
-// replaces the document wholesale, and that field is a correction the
-// developer makes by hand long after setup. A re-run that dropped it would
-// put back the stand-downs it was written to stop.
-// maxConcurrentIterations is carried across for the same reason: not asked
-// about, but a re-run must not quietly put the mornings back to one at a time.
-// Only a usable limit is carried: an unusable one would make this document
-// fail to read back, and dropping it falls back to one at a time, the safe side.
-let observed;
-let concurrency;
+// Fields carried across rather than asked about. This wizard replaces the
+// document wholesale, and each of these is set by hand outside it, so a
+// re-run that dropped one would quietly undo it: an observed reset put back
+// the stand-downs it was written to stop, a concurrency limit put the
+// mornings back to one at a time. Only a usable value is carried, since an
+// unusable one would make the document fail to read back; dropping it falls
+// back to the default, and the developer is told, since the manager would
+// have refused that document rather than fall back.
+const carried = {
+  maxConcurrentIterations: (v) => typeof v === "number" && isIterationLimit(v),
+  observedResetAt: (v) => typeof v === "string",
+};
+let existing;
 try {
-  const existing = JSON.parse(fs.readFileSync(file, "utf8"));
-  observed = existing?.observedResetAt;
-  concurrency = existing?.maxConcurrentIterations;
+  existing = JSON.parse(fs.readFileSync(file, "utf8"));
 } catch { /* no document yet, or one that will not parse: nothing to carry */ }
+
+const kept = {};
+for (const [field, usable] of Object.entries(carried)) {
+  const value = existing?.[field];
+  if (value === undefined) continue;
+  if (usable(value)) {
+    kept[field] = value;
+  } else {
+    process.stderr.write(`dropping "${field}": ${JSON.stringify(value)} is not a value the manager accepts, so the default applies\n`);
+  }
+}
 
 process.stdout.write(JSON.stringify({
   fiveHourAllowance: fiveHour,
   weeklyAllowance: weekly,
   reserveFraction: reserve,
   spendCeiling: ceiling,
-  ...(Number.isSafeInteger(concurrency) && concurrency >= 1 && { maxConcurrentIterations: concurrency }),
-  ...(typeof observed === "string" && { observedResetAt: observed }),
+  ...kept,
 }, undefined, 2));
-' "$BUDGET_FILE" "$FIVE_HOUR_ALLOWANCE" "$WEEKLY_ALLOWANCE" "$RESERVE_FRACTION" "$SPEND_CEILING")
+' "$MANAGER_HOME" "$BUDGET_FILE" "$FIVE_HOUR_ALLOWANCE" "$WEEKLY_ALLOWANCE" "$RESERVE_FRACTION" "$SPEND_CEILING")
 while IFS= read -r line; do printf '  %s%s%s\n' "$BOLD" "$line" "$RESET"; done <<<"$BUDGET_JSON"
 printf '\n'
 if [[ -f "$BUDGET_FILE" ]]; then
   warn "this replaces the budget document already at that path."
 fi
-note "All four fields are stated outright, so reading the document back never"
-note "depends on remembering what DEFAULT_BUDGET holds."
+note "The four fields asked about are stated outright, so reading the document"
+note "back never depends on remembering what DEFAULT_BUDGET holds."
 printf '\n'
 
 if confirm "Write it?"; then
