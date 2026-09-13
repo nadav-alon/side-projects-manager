@@ -282,7 +282,26 @@ that, which is why it is worth setting generously. The reserve absorbs the missi
 not the missing boundary — a block those surfaces opened is a block the ledger cannot place, and
 `observedResetAt` is how you place it.
 
-All three documents live in the manager home — this checkout, unless
+### Model defaults
+
+`models.json` is the third document that is yours, and it names the model each kind of ticket runs on
+when the ticket carries no `model:<name>` label — the same for every project:
+
+```json
+{ "implementation": "sonnet", "review": "opus" }
+```
+
+Both kinds are optional, and so is the file. A kind you leave out, and every kind on a machine with
+no `models.json`, runs on the model the sandbox image is pinned to. A name is passed to the agent
+CLI as written — an alias or a full model id — and never checked against a list of models, so a new
+model needs no change here; the only shape asked of it is a non-empty name without spaces. Nothing
+writes this document: not the loop, and not `new-project`.
+
+A key that is not `implementation` or `review` fails the invocation, and so does a name that is not
+a usable string. Both kinds are optional, so `"reveiw"` would otherwise read as no review default at
+all, and your reviews would quietly run on the image's model.
+
+All four documents live in the manager home — this checkout, unless
 `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
 House rules for source — branded primitives, and what a comment is allowed to say — are in

@@ -1,5 +1,6 @@
 import type {
   Budget,
+  ModelDefaults,
   Priority,
   ProjectState,
   RegisteredProject,
@@ -29,6 +30,8 @@ export class FakeStore implements Store {
   #state = new Map<RepoSlug, ProjectState>();
   /** What the developer declared they are willing to spend. */
   budget: Budget = DEFAULT_BUDGET;
+  /** The model the developer named for each kind of ticket; none by default. */
+  modelDefaults: ModelDefaults = {};
 
   /** Registers a project, as the developer hand-editing the registry would. */
   register(repo: RepoSlug, registration: Registration = {}): void {
@@ -60,6 +63,10 @@ export class FakeStore implements Store {
 
   async loadBudget(): Promise<Budget> {
     return { ...this.budget };
+  }
+
+  async loadModelDefaults(): Promise<ModelDefaults> {
+    return { ...this.modelDefaults };
   }
 
   async loadState(): Promise<State> {

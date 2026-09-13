@@ -20,6 +20,10 @@ export {
 export type { IssueTracker, ReviewTicket, Ticket } from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
+export type { ModelDefaults, TicketKind } from "./model-defaults.ts";
+export { TICKET_KINDS } from "./model-defaults.ts";
+export { isModelName, modelName } from "./model-name.ts";
+export type { ModelName } from "./model-name.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
