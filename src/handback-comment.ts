@@ -3,7 +3,12 @@ import type {
   ModelRefused,
   UnusableModelLabel,
 } from "./morning-run.ts";
-import type { PullRequestUrl, SandboxRunResult, Ticket } from "./ports/index.ts";
+import type {
+  PullRequestUrl,
+  ReviewRunResult,
+  SandboxRunResult,
+  Ticket,
+} from "./ports/index.ts";
 import {
   MODEL_LABEL_PREFIX,
   MODEL_NAME_SHAPE,
@@ -54,11 +59,34 @@ export function handbackComment(
   run: SandboxRunResult | undefined,
   discard: Discard,
 ): string {
+  return gaveUpComment(failure, run?.output ?? "", branchNote(run, discard));
+}
+
+/**
+ * What a review ticket is told when the agent gave up on its review: it said
+ * it could not, or it posted nothing. The pull request is not checked for a
+ * comment from an agent that gave up — whatever it posted is not a finished
+ * review — so either way the ticket is the developer's again. A review leaves
+ * no branch, so there is nothing to say about one.
+ */
+export function reviewHandbackComment(
+  failure: GaveUp,
+  review: ReviewRunResult,
+): string {
+  return gaveUpComment(failure, review.output, []);
+}
+
+/** The layout every gave-up comment shares, with `notes` before the last line. */
+function gaveUpComment(
+  failure: GaveUp,
+  output: string,
+  notes: string[],
+): string {
   return [
     `The morning loop ran this ticket and the agent gave up.`,
     `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
-    `What it said:\n\n${quote(run?.output ?? "")}`,
-    ...branchNote(run, discard),
+    `What it said:\n\n${quote(output)}`,
+    ...notes,
     notRetried(),
   ].join("\n\n");
 }
