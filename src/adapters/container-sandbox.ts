@@ -656,9 +656,9 @@ export function dockerCommand({
     "--output-format",
     "json",
     // Absent when the request named no model, leaving the image's own pin in
-    // force. `model` is its own array
-    // element — `execFile` never runs through a shell, so whatever the name
-    // contains reaches the CLI as one argument rather than being interpreted.
+    // force. `model` is its own array element — `execFile` never runs through
+    // a shell, so whatever the name contains reaches the CLI as one argument
+    // rather than being interpreted.
     ...(model === undefined ? [] : ["--model", model]),
     // Without this the agent cannot act on the ticket at all. `--print`
     // defaults to `--permission-prompts host`, and there is no host here:
