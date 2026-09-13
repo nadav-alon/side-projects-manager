@@ -1001,13 +1001,15 @@ describe("ghIssueTracker.listEligibleTickets — ticket priority", () => {
     assert.equal(tickets[0]?.priority, 1);
   });
 
-  it("ignores a priority label outside the three levels", async (t) => {
-    await recordingGh(t, labelled("priority:7", "priority:high", "priority:"));
+  for (const label of ["priority:7", "priority:high", "priority:"]) {
+    it(`ignores ${label}, which names none of the three levels`, async (t) => {
+      await recordingGh(t, labelled(label));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+      const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
-    assert.equal(tickets[0]?.priority, undefined);
-  });
+      assert.equal(tickets[0]?.priority, undefined);
+    });
+  }
 
   it("leaves priority unset for a ticket carrying no priority label", async (t) => {
     await recordingGh(t, labelled(READY_FOR_AGENT_LABEL, "enhancement"));
