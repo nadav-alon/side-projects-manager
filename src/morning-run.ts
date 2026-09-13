@@ -661,7 +661,7 @@ function bestTicket(backlog: Ticket[]): Ticket | undefined {
 }
 
 function compareTickets(a: Ticket, b: Ticket): number {
-  const byPriority = compareRank(a.priority, b.priority);
+  const byPriority = absentLast(a.priority, b.priority);
   if (byPriority !== 0) {
     return byPriority;
   }
@@ -692,7 +692,7 @@ function compareCandidates(a: Candidate, b: Candidate): number {
   if (a.isReview !== b.isReview) {
     return a.isReview ? -1 : 1;
   }
-  const byPriority = compareRank(a.priority, b.priority);
+  const byPriority = absentLast(a.priority, b.priority);
   if (byPriority !== 0) {
     return byPriority;
   }
@@ -700,14 +700,20 @@ function compareCandidates(a: Candidate, b: Candidate): number {
 }
 
 /**
- * Ascending by rank — a project's `Priority` or a ticket's `TicketPriority` —
- * with an absent rank sorting after every present one. Not via arithmetic on
- * a sentinel, since `Infinity - Infinity` is `NaN`, and a comparator that can
- * return `NaN` leaves `Array.prototype.sort` free to return either order.
+ * Ascending by a project's `Priority` or by a ticket's `TicketPriority`, never
+ * one against the other, with an absent value sorting after every present
+ * one. Not via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`,
+ * and a comparator that can return `NaN` leaves `Array.prototype.sort` free to
+ * return either order.
  */
-function compareRank<Rank extends Priority | TicketPriority>(
-  a: Rank | undefined,
-  b: Rank | undefined,
+function absentLast(a: Priority | undefined, b: Priority | undefined): number;
+function absentLast(
+  a: TicketPriority | undefined,
+  b: TicketPriority | undefined,
+): number;
+function absentLast(
+  a: Priority | TicketPriority | undefined,
+  b: Priority | TicketPriority | undefined,
 ): number {
   if (a === undefined) {
     return b === undefined ? 0 : 1;
