@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0004
 ---
 
 # The gate accepts overshoot from runs in progress

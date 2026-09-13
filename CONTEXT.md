@@ -138,12 +138,16 @@ _Avoid_: model tag, model override, tier
 The hand-edited document naming the model each kind of ticket runs on when it carries no model label, one name per kind and the same for every project. `models.json` in the manager home. A kind it leaves out runs on the model the sandbox image is pinned to.
 _Avoid_: model config, model settings, tiers
 
+**Size label**:
+The label a ticket may carry, as `size:<size>`, saying how much of the budget its run is expected to spend: one of S, M, L or XL, each worth the tokens the budget document gives it. What sets the ticket's run estimate; a ticket without one counts as the size the budget document names for unsized tickets, and so does every review ticket, which never inherits its parent's size. Recommended by triage when a ticket is made ready-for-agent. A ticket carrying two sizes counts as the larger. Says nothing about the ticket's model: a ticket expected to run on a costlier model is sized larger.
+_Avoid_: estimate label, cost label, points, effort
+
 **ready-for-human**:
 The triage label a ticket carries once the loop has stopped working on it. Always written in full, as the tracker spells it.
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
-What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
+What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
@@ -197,15 +201,19 @@ _Avoid_: review task, review job, QA ticket
 ### Budget
 
 **Budget gate**:
-The check made before a run starts that refuses work which would eat into the reserve. Reads the ledger's windows and adds the runs the state document records inside them, since a run's own log dies with its container. Referred to as "the gate".
+The check made before a run starts that refuses work which would eat into the reserve. Reads the ledger's windows and adds the runs the state document records inside them, since a run's own log dies with its container. Then charges a run estimate for the run about to start and for every run still in progress, whose spend nothing can see until its container exits, so a run starts only if the reserve would survive it. A refusal the run estimates alone caused, with the windows themselves still inside what is spendable, is told apart from a window already spent. Referred to as "the gate".
 _Avoid_: throttle, rate limit, quota check
 
+**Run estimate**:
+The tokens the gate charges a run before it starts, in place of the cost nobody can know until it ends. Comes from the ticket's size label, and is the same whatever model the run uses. Never revised by what earlier runs cost: the summary sets each run's cost beside its estimate and flags a run that spent more, and correcting the figure is the developer's.
+_Avoid_: projection, forecast, reservation, hold, assumed cost
+
 **Reserve**:
-The fraction of the weekly window held back for the developer's own interactive work.
+The fraction of a window held back for the developer's own interactive work. Each window has its own: the weekly reserve keeps the developer a week's worth of room, the 5-hour reserve keeps a morning from spending the current block whole and locking the developer out until it resets.
 _Avoid_: buffer, headroom
 
 **Budget document**:
-The hand-edited document of what the mornings may spend: the two allowances, the reserve fraction, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+The hand-edited document of what the mornings may spend: the two allowances, the two reserve fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
