@@ -17,7 +17,6 @@ import {
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
-  ticketPriority,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
@@ -404,7 +403,9 @@ function ticketPriorityIn(labels: string[]): TicketPriority | undefined {
   const levels = labels
     .map((label) => Number(TICKET_PRIORITY_LABEL.exec(label)?.[1]))
     .filter(isTicketPriority);
-  return levels.length > 0 ? ticketPriority(Math.min(...levels)) : undefined;
+  return levels.length > 0
+    ? levels.reduce((smallest, level) => (level < smallest ? level : smallest))
+    : undefined;
 }
 
 /** How many of an issue's sub-issues are open, as `subIssuesSummary` reports it. */
