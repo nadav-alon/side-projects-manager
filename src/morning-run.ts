@@ -23,8 +23,6 @@ import type {
   TokenCount,
   UsageLedger,
   Usd,
-  WorkedTicket,
-  WorkedToday,
 } from "./ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
@@ -34,11 +32,10 @@ import {
   isReviewTicket,
   localDay,
   recordRun,
-  recordWorked,
   ticketKind,
-  unrecordWorked,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
+import { workedTickets, type WorkedTickets } from "./worked-today.ts";
 import {
   committedNothingComment,
   handbackComment,
@@ -420,26 +417,6 @@ export async function morningRun(
   ports: MorningRunPorts,
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
-  const worked = new Set<string>();
-  let workedToday: WorkedToday | undefined;
-  // A ticket counts as worked from the moment it is selected, whatever its
-  // iteration then comes to.
-  const claim = (ticket: Ticket): void => {
-    worked.add(ticketKey(ticket));
-    workedToday = recordWorked(
-      workedToday,
-      ticket,
-      localDay(ports.clock.now()),
-    );
-  };
-  // Takes a claimed ticket back off today's record, leaving it excluded from
-  // the rest of this invocation.
-  const release = (ticket: Ticket): void => {
-    if (workedToday === undefined) {
-      return;
-    }
-    workedToday = unrecordWorked(workedToday, ticket);
-  };
   const runs: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
@@ -451,24 +428,20 @@ export async function morningRun(
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
   try {
-    const loaded = await ports.store.loadState();
-    const state = new Map(loaded.projects);
-    // A record for any other day says nothing about today, so it is read as
-    // nothing worked yet.
-    if (loaded.workedToday?.day === localDay(startedAt)) {
-      workedToday = loaded.workedToday;
-      for (const ticket of loaded.workedToday.tickets) {
-        worked.add(ticketKey(ticket));
-      }
-    }
-    const snapshot = (): State => ({
-      projects: state,
-      ...(workedToday !== undefined && { workedToday }),
-    });
+    const stored = await ports.store.loadState();
+    const projects = new Map(stored.projects);
+    const worked = workedTickets(stored.workedToday, localDay(startedAt));
+    const stateToSave = (): State => {
+      const workedToday = worked.workedToday();
+      return {
+        projects,
+        ...(workedToday !== undefined && { workedToday }),
+      };
+    };
     const modelDefaults = await ports.store.loadModelDefaults();
     try {
       for (;;) {
-        const scan = await considerProjects(ports, state, worked);
+        const scan = await considerProjects(ports, projects, worked);
         // A project keeps its "selected" verdict once it has one: a later scan
         // in the same invocation, run after its ticket is excluded, would
         // otherwise read it right back to "no eligible tickets" and hide that
@@ -492,7 +465,7 @@ export async function morningRun(
         // developer the ticket they need to fix.
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
-          claim(ticket);
+          worked.record(ticket, localDay(ports.clock.now()));
           runs.push({
             repo: scan.selection.project.repo,
             ticket,
@@ -507,7 +480,7 @@ export async function morningRun(
         }
 
         const budget = await ports.store.loadBudget();
-        const refusal = await consultTheGate(ports, budget, state);
+        const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
           standDown = { ...refusal, refused: scan.selection.project.repo };
           break;
@@ -516,14 +489,14 @@ export async function morningRun(
         // Saved before the sandbox starts, not only at the end: a process
         // killed mid-run never reaches the final save, and would otherwise
         // free the ticket for the next firing the same day.
-        claim(ticket);
-        await ports.store.saveState(snapshot());
+        worked.record(ticket, localDay(ports.clock.now()));
+        await ports.store.saveState(stateToSave());
 
         const model = resolveModel(ticket, modelDefaults);
         const iteration = await work(
           ports,
           scan.selection,
-          state,
+          projects,
           budget.spendCeiling,
           model,
         );
@@ -542,7 +515,7 @@ export async function morningRun(
           (iteration.kind === "failed" &&
             iteration.failure.kind === "infrastructure")
         ) {
-          release(ticket);
+          worked.unrecord(ticket);
         }
 
         // The provider limit refuses every run after this one the same way,
@@ -562,7 +535,7 @@ export async function morningRun(
       // which has run the loop always has a state document to read next morning.
       // A run that fell over still spent tokens, and the morning it spent them
       // on is exactly the one worth having recorded.
-      await ports.store.saveState(snapshot());
+      await ports.store.saveState(stateToSave());
     }
   } catch (error: unknown) {
     // Nothing above this point throws by design — a run that fails is
@@ -663,18 +636,18 @@ function outcomeOf(
 async function consultTheGate(
   ports: MorningRunPorts,
   budget: Budget,
-  state: ProjectStates,
+  projects: ProjectStates,
 ): Promise<StandDown | undefined> {
   return budgetGate(
     await ports.ledger.read(ports.clock.now(), budget.observedResetAt),
     budget,
-    runsRecorded(state),
+    runsRecorded(projects),
   );
 }
 
 /** Every run the mornings have made, across every project, oldest first. */
-function runsRecorded(state: ProjectStates): RunCost[] {
-  return [...state.values()]
+function runsRecorded(projects: ProjectStates): RunCost[] {
+  return [...projects.values()]
     .flatMap((project) => project.runs)
     .sort((a, b) => a.at.getTime() - b.at.getTime());
 }
@@ -692,8 +665,8 @@ function runsRecorded(state: ProjectStates): RunCost[] {
  */
 async function considerProjects(
   ports: MorningRunPorts,
-  state: ProjectStates,
-  worked: ReadonlySet<string>,
+  projects: ProjectStates,
+  worked: WorkedTickets,
 ): Promise<RegistryScan> {
   const outcomes: ProjectOutcome[] = [];
   const candidates: Candidate[] = [];
@@ -702,7 +675,7 @@ async function considerProjects(
   const outcomeIndexByRepo = new Map<RepoSlug, number>();
 
   for (const project of await ports.store.loadRegistry()) {
-    const projectState = state.get(project.repo);
+    const projectState = projects.get(project.repo);
 
     if (project.paused) {
       outcomes.push(outcome(project.repo, "paused", projectState));
@@ -711,7 +684,7 @@ async function considerProjects(
 
     const backlog = (
       await ports.tracker.listEligibleTickets(project.repo)
-    ).tickets.filter((ticket) => !worked.has(ticketKey(ticket)));
+    ).tickets.filter((ticket) => !worked.passesOver(ticket));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
@@ -849,11 +822,6 @@ function modelRefused(
     source,
     handedBack: false,
   };
-}
-
-/** The key `worked` tracks a ticket by, unique across every project. */
-function ticketKey(ticket: WorkedTicket): string {
-  return `${ticket.repo}#${ticket.number}`;
 }
 
 /**
