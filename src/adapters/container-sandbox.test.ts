@@ -487,7 +487,7 @@ describe("containerSandbox", () => {
     assert.equal(result.failure, undefined);
   });
 
-  it("reports a model refusal apart from a failed agent", async () => {
+  it("reports a model refusal apart from an agent that gave up", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () =>
       readExitedRun(MODEL_REFUSAL_EXIT),
@@ -928,7 +928,7 @@ describe("containerSandbox.review", () => {
     assert.equal(result.failure, undefined);
   });
 
-  it("reports a model refusal apart from a failed reviewer, naming the model and the CLI's words", async () => {
+  it("reports a model refusal apart from a reviewer that gave up, naming the model and the CLI's words", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () =>
       readExitedRun(MODEL_REFUSAL_EXIT),
