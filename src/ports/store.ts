@@ -55,6 +55,19 @@ export function recordRun(
   };
 }
 
+/**
+ * `previous` with `ticket` recorded as worked on `day`. A record for any other
+ * day is replaced rather than extended, since it says nothing about `day`.
+ */
+export function recordWorked(
+  previous: WorkedToday | undefined,
+  ticket: WorkedTicket,
+  day: Day,
+): WorkedToday {
+  const earlier = previous?.day === day ? previous.tickets : [];
+  return { day, tickets: [...earlier, { repo: ticket.repo, number: ticket.number }] };
+}
+
 /** A ticket as the state document names it: its project, and its number there. */
 export interface WorkedTicket {
   repo: RepoSlug;

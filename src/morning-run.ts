@@ -23,6 +23,8 @@ import type {
   TokenCount,
   UsageLedger,
   Usd,
+  WorkedTicket,
+  WorkedToday,
 } from "./ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
@@ -30,7 +32,9 @@ import {
   isBlocked,
   isBrokenOut,
   isReviewTicket,
+  localDay,
   recordRun,
+  recordWorked,
   ticketKind,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
@@ -405,8 +409,8 @@ interface RegistryScan {
  * it stands when that run would start, every earlier run of the same morning
  * included, so a long morning stops mid-loop the moment headroom runs out.
  *
- * A ticket this invocation has already worked is never selected again within
- * it, even though nothing here closes it: a failed run's ticket is handed
+ * A ticket worked today, by this invocation or an earlier one, is not selected
+ * again until the next local calendar day, even though nothing here closes it: a failed run's ticket is handed
  * back by relabelling it, but a finished run's is left exactly as it was, so
  * without this an unattended morning with only one project registered would
  * work its one ticket over and over until the budget gate finally stopped it.
@@ -416,6 +420,17 @@ export async function morningRun(
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
   const worked = new Set<string>();
+  let workedToday: WorkedToday | undefined;
+  // A ticket counts as worked from the moment it is selected, whatever its
+  // iteration then comes to.
+  const claim = (ticket: Ticket): void => {
+    worked.add(ticketKey(ticket));
+    workedToday = recordWorked(
+      workedToday,
+      ticket,
+      localDay(ports.clock.now()),
+    );
+  };
   const runs: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
@@ -429,6 +444,18 @@ export async function morningRun(
   try {
     const loaded = await ports.store.loadState();
     const state = new Map(loaded.projects);
+    // A record for any other day says nothing about today, so it is read as
+    // nothing worked yet.
+    if (loaded.workedToday?.day === localDay(startedAt)) {
+      workedToday = loaded.workedToday;
+      for (const ticket of loaded.workedToday.tickets) {
+        worked.add(ticketKey(ticket));
+      }
+    }
+    const snapshot = (): State => ({
+      projects: state,
+      ...(workedToday !== undefined && { workedToday }),
+    });
     const modelDefaults = await ports.store.loadModelDefaults();
     try {
       for (;;) {
@@ -456,7 +483,7 @@ export async function morningRun(
         // developer the ticket they need to fix.
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
-          worked.add(ticketKey(ticket));
+          claim(ticket);
           runs.push({
             repo: scan.selection.project.repo,
             ticket,
@@ -477,6 +504,12 @@ export async function morningRun(
           break;
         }
 
+        // Saved before the sandbox starts, not only at the end: a process
+        // killed mid-run never reaches the final save, and would otherwise
+        // free the ticket for the next firing the same day.
+        claim(ticket);
+        await ports.store.saveState(snapshot());
+
         const model = resolveModel(ticket, modelDefaults);
         const iteration = await work(
           ports,
@@ -485,7 +518,6 @@ export async function morningRun(
           budget.spendCeiling,
           model,
         );
-        worked.add(ticketKey(ticket));
         runs.push({
           repo: scan.selection.project.repo,
           ticket,
@@ -510,7 +542,7 @@ export async function morningRun(
       // which has run the loop always has a state document to read next morning.
       // A run that fell over still spent tokens, and the morning it spent them
       // on is exactly the one worth having recorded.
-      await ports.store.saveState({ projects: state });
+      await ports.store.saveState(snapshot());
     }
   } catch (error: unknown) {
     // Nothing above this point throws by design — a run that fails is
@@ -799,8 +831,8 @@ function modelRefused(
   };
 }
 
-/** The key `worked` tracks a ticket by, unique within one invocation. */
-function ticketKey(ticket: Ticket): string {
+/** The key `worked` tracks a ticket by, unique across every project. */
+function ticketKey(ticket: WorkedTicket): string {
   return `${ticket.repo}#${ticket.number}`;
 }
 

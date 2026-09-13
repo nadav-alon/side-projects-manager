@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  localDay,
   modelName,
   priority,
   pullRequestUrl,
@@ -20,6 +21,8 @@ import {
   tokenCount,
   usd,
   type ReviewTicket,
+  type RunRequest,
+  type State,
   type Ticket,
 } from "./ports/index.ts";
 import {
@@ -687,6 +690,128 @@ describe("morningRun", () => {
       const report = await morningRun(ports);
 
       assert.deepEqual(report.projects[0]?.lastWorkedAt, YESTERDAY);
+    });
+  });
+
+  describe("tickets worked today", () => {
+    const TODAY = localDay(FROZEN_NOW);
+
+    it("does not select a ticket an earlier invocation worked today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 8,
+        title: "Add the other thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [8],
+      );
+    });
+
+    it("reads a project whose only ticket was worked today as having no eligible tickets", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
+      assert.equal(ports.sandbox.runs.length, 0);
+    });
+
+    it("selects a ticket again once the day it was worked on has passed", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(localDay(YESTERDAY), { repo: PILOT, number: 7 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7],
+      );
+    });
+
+    it("records a ticket it works as worked today, dropping an earlier day's record", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(localDay(YESTERDAY), {
+        repo: MANAGER,
+        number: 3,
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual((await ports.store.loadState()).workedToday, {
+        day: TODAY,
+        tickets: [{ repo: PILOT, number: 7 }],
+      });
+    });
+
+    it("keeps the tickets an earlier invocation worked today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: MANAGER, number: 3 });
+
+      await morningRun(ports);
+
+      assert.deepEqual((await ports.store.loadState()).workedToday, {
+        day: TODAY,
+        tickets: [
+          { repo: MANAGER, number: 3 },
+          { repo: PILOT, number: 7 },
+        ],
+      });
+    });
+
+    it("has saved the ticket as worked today before the sandbox starts, so a run killed part way still counts", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      let savedWhenRunStarted: State | undefined;
+      const run = ports.sandbox.run.bind(ports.sandbox);
+      t.mock.method(ports.sandbox, "run", async (request: RunRequest) => {
+        savedWhenRunStarted = await ports.store.loadState();
+        return run(request);
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(savedWhenRunStarted?.workedToday, {
+        day: TODAY,
+        tickets: [{ repo: PILOT, number: 7 }],
+      });
     });
   });
 
@@ -1398,7 +1523,11 @@ describe("morningRun", () => {
 
       await morningRun(ports);
 
-      assert.equal(saveState.mock.callCount(), 1);
+      assert.equal(
+        saveState.mock.callCount(),
+        2,
+        "once before the run, and again after it broke",
+      );
     });
 
     it("tells an agent that gave up apart from a sandbox that broke", async (t) => {
