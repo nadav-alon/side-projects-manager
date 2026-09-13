@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  CommitSha,
   ModelName,
   ModelRefusal,
   ReviewRequest,
@@ -21,6 +22,7 @@ import type {
 import {
   branch,
   checkout,
+  commitSha,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -493,13 +495,19 @@ async function revision(directory: Checkout, of: string): Promise<string> {
 }
 
 /** The commits the agent made, oldest first. Empty when it committed none. */
-async function commitsSince(clone: Checkout, base: string): Promise<string[]> {
+async function commitsSince(
+  clone: Checkout,
+  base: string,
+): Promise<CommitSha[]> {
   const { stdout } = await run(
     "git",
     ["-C", clone, "rev-list", "--reverse", `${base}..HEAD`],
     { maxBuffer: OUTPUT_LIMIT },
   );
-  return stdout.split("\n").filter((line) => line !== "");
+  return stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => commitSha(line));
 }
 
 /**

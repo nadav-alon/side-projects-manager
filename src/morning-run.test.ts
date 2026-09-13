@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  commitSha,
   localDay,
   modelName,
   priority,
@@ -21,6 +22,7 @@ import {
   ticketPriority,
   tokenCount,
   usd,
+  type CommitSha,
   type ReviewTicket,
   type RunRequest,
   type State,
@@ -1152,7 +1154,7 @@ describe("morningLoop", () => {
       });
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1", "c0ffee2"],
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
       });
@@ -1161,7 +1163,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(finished(report.iterations[0])?.run, {
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1", "c0ffee2"],
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
       });
@@ -1185,7 +1187,7 @@ describe("morningLoop", () => {
       });
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -1278,7 +1280,7 @@ describe("morningLoop", () => {
      */
     function ran(
       ports: FakePorts,
-      run: { commits?: string[]; failure?: string } = {},
+      run: { commits?: CommitSha[]; failure?: string } = {},
     ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
@@ -1287,7 +1289,7 @@ describe("morningLoop", () => {
       });
       ports.sandbox.result = () => ({
         branch: BRANCH,
-        commits: run.commits ?? ["c0ffee1"],
+        commits: run.commits ?? [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
         ...(run.failure !== undefined && { failure: run.failure }),
@@ -1538,7 +1540,7 @@ describe("morningLoop", () => {
       });
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -2076,7 +2078,7 @@ describe("morningLoop", () => {
     function agentGivesUp(ports: FakePorts): void {
       ports.sandbox.result = () => ({
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: SAID,
         tokensUsed: tokenCount(42_000),
         failure: GAVE_UP,
@@ -2361,7 +2363,7 @@ describe("morningLoop", () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "x".repeat(200_000),
         tokensUsed: tokenCount(42_000),
         // A failed `execFile` carries every byte the command wrote to stderr.
@@ -2379,7 +2381,7 @@ describe("morningLoop", () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "I tried:\n```ts\nconst x = 1;\n```\nand it broke",
         tokensUsed: tokenCount(42_000),
         failure: GAVE_UP,
@@ -2398,7 +2400,7 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.deepEqual(ranWith(report.iterations[0])?.commits, ["c0ffee1"]);
+      assert.deepEqual(ranWith(report.iterations[0])?.commits, [commitSha("c0ffee1")]);
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
     });
   });
@@ -2967,7 +2969,7 @@ describe("morningLoop", () => {
       const ports = threeTickets();
       ports.sandbox.result = (ticket) => ({
         branch: branch(`issue-${ticket.number}`),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: LIMIT_REFUSAL,
         tokensUsed: tokenCount(0),
         limitRefusal: LIMIT_REFUSAL,
@@ -3090,7 +3092,7 @@ describe("morningLoop", () => {
       ports.tracker.addLabel(ticket, "model:opus");
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(1_000),
       });
@@ -3230,7 +3232,7 @@ describe("morningLoop", () => {
         const left = branch("issue-7-add-the-thing");
         ports.sandbox.result = () => ({
           branch: left,
-          commits: ["c0ffee1"],
+          commits: [commitSha("c0ffee1")],
           output: "",
           tokensUsed: tokenCount(0),
           modelRefusal: { model: OPUS, words: "refused model opus" },
@@ -3360,7 +3362,7 @@ describe("morningLoop", () => {
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -3380,7 +3382,7 @@ describe("morningLoop", () => {
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -3402,7 +3404,7 @@ describe("morningLoop", () => {
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });

@@ -1,5 +1,6 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
+import type { CommitSha } from "./commit-sha.ts";
 import type { ReviewTicket, Ticket } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -58,7 +59,7 @@ export interface ModelRefusal {
 export interface SandboxRunResult {
   /** Branch the agent left its commits on. */
   branch: Branch;
-  commits: string[];
+  commits: CommitSha[];
   /** The agent's own output, for the ticket comment on failure. */
   output: string;
   /** Tokens the run consumed, fed back to the ledger and the summary. */
@@ -107,7 +108,7 @@ export interface ReviewRunResult {
  * queue rather than overlap. Sequential runs are what keeps a morning's spend
  * predictable and what lets the budget gate mean anything, so the guarantee
  * lives here rather than in each caller. Two invocations of the manager are a
- * separate problem, and #15's once-per-day lock is what answers it.
+ * separate problem, and the once-per-day trigger lock is what answers it.
  */
 export interface Sandbox {
   /**
