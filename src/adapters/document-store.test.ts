@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
+  modelName,
   priority,
   repoSlug,
   tokenCount,
@@ -19,9 +20,17 @@ const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");
 
 /** A manager home containing whichever documents a test writes. */
 async function home(
-  documents: { registry?: string; budget?: string; state?: string } = {},
+  documents: {
+    registry?: string;
+    budget?: string;
+    state?: string;
+    models?: string;
+  } = {},
 ): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "morning-run-"));
+  if (documents.models !== undefined) {
+    await writeFile(path.join(directory, "models.json"), documents.models);
+  }
   if (documents.registry !== undefined) {
     await writeFile(path.join(directory, "registry.json"), documents.registry);
   }
@@ -387,6 +396,86 @@ describe("the budget document", () => {
     await store.saveRegistry([{ repo: MANAGER, paused: false }]);
 
     assert.equal((await store.loadBudget()).reserveFraction, 0.75);
+  });
+});
+
+describe("the model defaults document", () => {
+  it("has no default for any kind when there is no document", async () => {
+    const store = documentStore(await home());
+
+    assert.deepEqual(await store.loadModelDefaults(), {});
+  });
+
+  it("has no default for a kind the developer left out", async () => {
+    const store = documentStore(
+      await home({ models: JSON.stringify({ review: "opus" }) }),
+    );
+
+    assert.deepEqual(await store.loadModelDefaults(), {
+      review: modelName("opus"),
+    });
+  });
+
+  it("reads a model for each kind, as written", async () => {
+    const store = documentStore(
+      await home({
+        models: JSON.stringify({
+          implementation: "sonnet",
+          review: "claude-opus-5",
+        }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadModelDefaults(), {
+      implementation: modelName("sonnet"),
+      review: modelName("claude-opus-5"),
+    });
+  });
+
+  /**
+   * Every kind is optional, so a misspelt kind is indistinguishable from one
+   * left out — and would silently run on the image's model instead.
+   */
+  it("refuses a kind it does not recognise, naming the file and the key", async () => {
+    const store = documentStore(
+      await home({ models: JSON.stringify({ reveiw: "opus" }) }),
+    );
+
+    await assert.rejects(
+      store.loadModelDefaults(),
+      /models\.json: no such kind: reveiw/,
+    );
+  });
+
+  for (const name of ["", " ", 4, null, ["opus"]]) {
+    it(`refuses a model name of ${JSON.stringify(name)}, naming the file`, async () => {
+      const store = documentStore(
+        await home({ models: JSON.stringify({ review: name }) }),
+      );
+
+      await assert.rejects(store.loadModelDefaults(), /models\.json.*review/);
+    });
+  }
+
+  it("refuses a document that is not an object of kinds", async () => {
+    const store = documentStore(
+      await home({ models: JSON.stringify(["sonnet"]) }),
+    );
+
+    await assert.rejects(store.loadModelDefaults(), /models\.json/);
+  });
+
+  it("survives the new-project command rewriting the registry", async () => {
+    const directory = await home({
+      models: JSON.stringify({ review: "opus" }),
+    });
+    const store = documentStore(directory);
+
+    await store.saveRegistry([{ repo: MANAGER, paused: false }]);
+
+    assert.deepEqual(await store.loadModelDefaults(), {
+      review: modelName("opus"),
+    });
   });
 });
 

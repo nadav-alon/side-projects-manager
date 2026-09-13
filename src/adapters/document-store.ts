@@ -3,6 +3,8 @@ import path from "node:path";
 
 import type {
   Budget,
+  ModelDefaults,
+  ModelName,
   ProjectState,
   TokenCount,
   RegisteredProject,
@@ -10,10 +12,14 @@ import type {
   RunCost,
   State,
   Store,
+  TicketKind,
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
+  MODEL_NAME_SHAPE,
+  TICKET_KINDS,
   isIterationLimit,
+  isModelName,
   isPriority,
   isRepoSlug,
   isReserveFraction,
@@ -26,13 +32,16 @@ import { errorMessage } from "../error-message.ts";
 const REGISTRY_FILE = "registry.json";
 const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
+const MODELS_FILE = "models.json";
 
 /**
- * The registry, budget and state documents as JSON files under `home`.
+ * The registry, budget, model defaults and state documents as JSON files
+ * under `home`.
  *
- * All three are optional on disk. A machine with no registry has nothing
- * registered, a machine with no budget runs under the default one, and a
- * machine with no state has worked nothing yet; none is an error, so the loop
+ * All four are optional on disk. A machine with no registry has nothing
+ * registered, a machine with no budget runs under the default one, a machine
+ * with no model defaults runs every kind on the image's model, and a machine
+ * with no state has worked nothing yet; none is an error, so the loop
  * runs on a clean checkout. A document that exists but cannot be read as what
  * it claims to be is an error, because silently ignoring a typo in the
  * registry would silently stop working a project — and silently ignoring one
@@ -47,6 +56,7 @@ export function documentStore(home: string = MANAGER_HOME): Store {
   const registryFile = path.join(home, REGISTRY_FILE);
   const budgetFile = path.join(home, BUDGET_FILE);
   const stateFile = path.join(home, STATE_FILE);
+  const modelsFile = path.join(home, MODELS_FILE);
 
   return {
     async loadRegistry(): Promise<RegisteredProject[]> {
@@ -59,6 +69,10 @@ export function documentStore(home: string = MANAGER_HOME): Store {
 
     async loadBudget(): Promise<Budget> {
       return parseBudget(await readDocument(budgetFile), budgetFile);
+    },
+
+    async loadModelDefaults(): Promise<ModelDefaults> {
+      return parseModelDefaults(await readDocument(modelsFile), modelsFile);
     },
 
     async loadState(): Promise<State> {
@@ -184,7 +198,7 @@ function parseBudget(document: unknown, file: string): Budget {
   if (document === undefined) {
     return DEFAULT_BUDGET;
   }
-  rejectUnknownFields(document, BUDGET_FIELDS, file);
+  rejectUnknownFields(document, BUDGET_FIELDS, "setting", file);
 
   return {
     fiveHourAllowance: numberField(
@@ -279,16 +293,19 @@ const BUDGET_FIELDS = [
 ] as const;
 
 /**
- * Complains about anything in `document` that is not one of `known`.
+ * Complains about anything in `document` that is not one of `known`, calling
+ * each key a `noun` — what the document's keys are to the developer who wrote
+ * them.
  *
- * Every budget field is optional, so an unrecognised key is indistinguishable
- * from a misspelled one, and a misspelling reads as a budget the developer
- * never set. Refusing the document is the only way that mistake surfaces
- * before a morning has spent the reserve on it.
+ * For a document whose every key is optional, an unrecognised key is
+ * indistinguishable from a misspelled one, and a misspelling reads as a
+ * setting the developer never made. Refusing the document is the only way that
+ * mistake surfaces before a morning has run on it.
  */
 function rejectUnknownFields(
   document: unknown,
   known: readonly string[],
+  noun: string,
   file: string,
 ): void {
   if (!isRecord(document)) {
@@ -299,7 +316,7 @@ function rejectUnknownFields(
   );
   if (unknown.length > 0) {
     throw new Error(
-      `${file}: no such setting: ${unknown.join(", ")}. Expected any of: ${known.join(", ")}.`,
+      `${file}: no such ${noun}: ${unknown.join(", ")}. Expected any of: ${known.join(", ")}.`,
     );
   }
 }
@@ -318,6 +335,36 @@ function numberField<T extends number>(
     throw new Error(`${message}: ${JSON.stringify(value)}`);
   }
   return value;
+}
+
+/**
+ * `{ "implementation": "sonnet", "review": "opus" }`
+ *
+ * Every kind is optional, and a kind left out has no default. A name is taken
+ * as written, never checked against a list of models. What is refused is a
+ * key that is not a kind, for the budget's reason: a misspelt kind reads
+ * exactly like one left out, and would silently run on the image's model.
+ */
+function parseModelDefaults(document: unknown, file: string): ModelDefaults {
+  if (document === undefined) {
+    return {};
+  }
+  rejectUnknownFields(document, TICKET_KINDS, "kind", file);
+
+  const defaults: Partial<Record<TicketKind, ModelName>> = {};
+  for (const kind of TICKET_KINDS) {
+    const name = fieldOf(document, kind, file);
+    if (name === undefined) {
+      continue;
+    }
+    if (typeof name !== "string" || !isModelName(name)) {
+      throw new Error(
+        `${file}: "${kind}" must be ${MODEL_NAME_SHAPE}: ${JSON.stringify(name)}`,
+      );
+    }
+    defaults[kind] = name;
+  }
+  return defaults;
 }
 
 /**

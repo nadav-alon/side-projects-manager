@@ -73,6 +73,16 @@ export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest !== undefined;
 }
 
+/** The kinds of ticket the loop runs, each of which may have its own model. */
+export const TICKET_KINDS = ["implementation", "review"] as const;
+
+export type TicketKind = (typeof TICKET_KINDS)[number];
+
+/** Which kind `ticket` is, read the way `isReviewTicket` reads it. */
+export function ticketKind(ticket: Ticket): TicketKind {
+  return isReviewTicket(ticket) ? "review" : "implementation";
+}
+
 /**
  * Reads and writes the tickets the loop works from.
  *
