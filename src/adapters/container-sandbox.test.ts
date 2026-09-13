@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,
   containerSandbox,
@@ -25,7 +26,7 @@ import {
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
-import { LIMIT_REFUSAL } from "../testing/index.ts";
+import { gate, LIMIT_REFUSAL } from "../testing/index.ts";
 
 const run = promisify(execFile);
 
@@ -109,6 +110,39 @@ function agentCommitting(
     return { output, tokensUsed: tokenCount(tokensUsed) };
   };
 }
+
+/**
+ * Agents that, once started, wait to be released before doing what
+ * `afterRelease` does — so a test can see how many are in progress at once.
+ *
+ * `allInProgress` settles once `count` of them are in progress together, and
+ * never otherwise: a sandbox that only ever starts one fails the test by its
+ * timeout rather than by a guess at how long is long enough.
+ */
+function heldAgents(
+  count: number,
+  afterRelease: Container,
+): { container: Container; allInProgress: Promise<void>; release: () => void } {
+  const started = gate();
+  const released = gate();
+  let inProgress = 0;
+
+  return {
+    container: async (options) => {
+      inProgress += 1;
+      if (inProgress === count) {
+        started.open();
+      }
+      await released.opened;
+      return afterRelease(options);
+    },
+    allInProgress: started.opened,
+    release: released.open,
+  };
+}
+
+/** Long enough for any git a test does; only a sandbox that hangs reaches it. */
+const HANGS = { timeout: 30_000 };
 
 describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
@@ -449,63 +483,144 @@ describe("containerSandbox", () => {
     ]);
   });
 
-  it("runs one agent at a time, however many runs are asked for at once", async () => {
+  it("runs agents side by side on one checkout", HANGS, async () => {
     const directory = await project();
-    const events: string[] = [];
-    const sandbox = containerSandbox(async () => {
-      events.push("enter");
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      events.push("leave");
-      return { output: "", tokensUsed: tokenCount(0) };
-    });
+    const held = heldAgents(2, agentCommitting(["one.txt"]));
+    const sandbox = containerSandbox(held.container);
 
-    await Promise.all([
+    const runs = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.run({
         ticket: { ...TICKET, number: 8, title: "Another" },
         checkout: directory,
         spendCeiling: CEILING,
       }),
-      sandbox.run({
-        ticket: { ...TICKET, number: 9, title: "A third" },
-        checkout: directory,
-        spendCeiling: CEILING,
-      }),
     ]);
-
-    assert.deepEqual(events, [
-      "enter",
-      "leave",
-      "enter",
-      "leave",
-      "enter",
-      "leave",
-    ]);
+    // Never settles if the second agent waits for the first to finish.
+    await held.allInProgress;
+    held.release();
+    await runs;
   });
 
-  it("keeps queued runs going when one of them fails", async () => {
+  /**
+   * A branch reaches the checkout only when its run is fetched back, so a
+   * second run choosing a name while the first is still in progress sees no
+   * branch there yet — and must not be handed the same name.
+   */
+  it("gives runs of one ticket in progress at once a branch each", HANGS, async () => {
     const directory = await project();
-    let first = true;
-    const sandbox = containerSandbox(async () => {
-      if (first) {
-        first = false;
-        throw new Error("the agent gave up");
-      }
-      return { output: "second", tokensUsed: tokenCount(0) };
+    const held = heldAgents(2, agentCommitting(["one.txt"]));
+    const sandbox = containerSandbox(held.container);
+
+    const runs = Promise.all([
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    ]);
+    await held.allInProgress;
+    held.release();
+    const results = await runs;
+
+    assert.deepEqual(results.map((result) => result.branch).sort(), [
+      BRANCH,
+      `${BRANCH}-2`,
+    ]);
+    assert.deepEqual(await branchesIn(directory), [
+      BRANCH,
+      `${BRANCH}-2`,
+      "main",
+    ]);
+    for (const result of results) {
+      assert.equal(await headOf(directory, result.branch), result.commits.at(-1));
+    }
+  });
+
+  it("waits for the checkout lock before cloning, and only on its own checkout", async () => {
+    const directory = await project();
+    const elsewhere = await project();
+    const cloned: string[] = [];
+    const sandbox = containerSandbox(async (options) => {
+      cloned.push(options.directory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+    const lock = gate();
+    const holding = withCheckoutLock(directory, () => lock.opened);
+
+    const waiting = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ ticket: TICKET, checkout: elsewhere, spendCeiling: CEILING });
+
+    assert.equal(cloned.length, 1, "the run on the locked checkout cloned it anyway");
+    lock.open();
+    await holding;
+    await waiting;
+    assert.equal(cloned.length, 2);
+  });
+
+  /**
+   * The agent itself takes the lock before it hands back, so the lock is held
+   * before the run can reach its fetch. A whole run on another checkout —
+   * clone, agent, fetch back — then has to finish first: far more git than the
+   * locked run has left before its fetch, so a fetch that ignored the lock
+   * would have landed by then.
+   */
+  it("waits for the checkout lock before fetching its branch back, and only on its own checkout", HANGS, async () => {
+    const directory = await project();
+    const elsewhere = await project();
+    const lock = gate();
+    let holding: Promise<void> | undefined;
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = containerSandbox(async (options) => {
+      const agent = await commit(options);
+      holding = withCheckoutLock(directory, () => lock.opened);
+      return agent;
+    });
+    let settled = false;
+
+    const running = sandbox
+      .run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING })
+      .finally(() => {
+        settled = true;
+      });
+    const other = await containerSandbox(agentCommitting(["two.txt"])).run({
+      ticket: TICKET,
+      checkout: elsewhere,
+      spendCeiling: CEILING,
     });
 
-    const [failed, succeeded] = await Promise.all([
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
-      sandbox.run({
-        ticket: { ...TICKET, number: 8, title: "Another" },
-        checkout: directory,
-        spendCeiling: CEILING,
-      }),
-    ]);
+    assert.deepEqual(await branchesIn(elsewhere), [other.branch, "main"]);
+    assert.equal(settled, false, "the run finished while its checkout was locked");
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+    lock.open();
+    await holding;
+    const result = await running;
+    assert.deepEqual(await branchesIn(directory), [result.branch, "main"]);
+  });
 
-    assert.match(failed?.failure ?? "", /gave up/);
-    assert.equal(succeeded?.failure, undefined);
-    assert.equal(succeeded?.output, "second");
+  /**
+   * Fails a git step taken under the lock: every name the ticket may have is
+   * already a branch, so choosing one throws while the lock is held.
+   */
+  it("leaves the checkout free for the next run when a step under the lock fails", HANGS, async () => {
+    const directory = await project();
+    const names = [BRANCH, ...Array.from({ length: 9 }, (_, i) => `${BRANCH}-${i + 2}`)];
+    for (const name of names) {
+      await run("git", ["-C", directory, "branch", name]);
+    }
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    await assert.rejects(
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      /already has 10 branches/,
+    );
+    await run("git", ["-C", directory, "branch", "--delete", ...names]);
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.branch, BRANCH);
+    assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
   });
 });
 
@@ -702,17 +817,15 @@ describe("containerSandbox.review", () => {
     );
   });
 
-  it("shares the one lane with implementation runs on the same sandbox", async () => {
+  it("reviews side by side with an implementation run on the same checkout", HANGS, async () => {
     const directory = await project();
-    const events: string[] = [];
-    const sandbox = containerSandbox(async () => {
-      events.push("enter");
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      events.push("leave");
-      return { output: "", tokensUsed: tokenCount(0) };
-    });
+    const held = heldAgents(2, async () => ({
+      output: "",
+      tokensUsed: tokenCount(0),
+    }));
+    const sandbox = containerSandbox(held.container);
 
-    await Promise.all([
+    const both = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.review({
         ticket: REVIEW_TICKET,
@@ -720,8 +833,10 @@ describe("containerSandbox.review", () => {
         spendCeiling: CEILING,
       }),
     ]);
-
-    assert.deepEqual(events, ["enter", "leave", "enter", "leave"]);
+    // Never settles if the review waits for the run to finish.
+    await held.allInProgress;
+    held.release();
+    await both;
   });
 });
 
