@@ -397,7 +397,13 @@ interface Reviewed {
    * Either way it is still ready-for-agent, and the developer checks the pull
    * request and closes it by hand.
    */
-  closeFailure?: string;
+  notClosed?: NotClosed;
+}
+
+/** Why a review that ran left its ticket open, and the error that stopped it. */
+interface NotClosed {
+  kind: "check-failed" | "close-failed";
+  error: string;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -1309,7 +1315,7 @@ async function runReview(
     return {
       kind: "reviewed",
       review,
-      closeFailure: `its pull request could not be checked for the comment it should have posted: ${errorMessage(error)}`,
+      notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
   }
   if (!posted) {
@@ -1327,7 +1333,7 @@ async function runReview(
     return {
       kind: "reviewed",
       review,
-      closeFailure: `it could not be closed: ${errorMessage(error)}`,
+      notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
   return { kind: "reviewed", review };
@@ -1562,11 +1568,9 @@ function waitingSection(runs: IterationOutcome[]): string | undefined {
   const lines = runs.flatMap((run): string[] => {
     switch (run.kind) {
       case "reviewed":
-        return run.closeFailure === undefined
+        return run.notClosed === undefined
           ? []
-          : [
-              `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — ${run.closeFailure}; check ${run.ticket.pullRequest} and close it yourself`,
-            ];
+          : [notClosedLine(run, run.notClosed)];
       // A limit refusal's ticket waits on the provider, not the developer.
       case "limit-refused":
         return [];
@@ -1682,11 +1686,29 @@ function handbackNote(finished: Finished): string {
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, closeFailure } = iteration;
-  if (closeFailure !== undefined) {
-    return `Reviewed ${repo} #${ticket.number}, but ${closeFailure}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest} for its findings and close it yourself.`;
+  const { repo, ticket, notClosed } = iteration;
+  switch (notClosed?.kind) {
+    case undefined:
+      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}.`;
+    case "check-failed":
+      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest} could not be checked for its findings: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest} and close it yourself.`;
+    case "close-failed":
+      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
-  return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}.`;
+}
+
+/** The Waiting-on-you line for a review that ran but left its ticket open. */
+function notClosedLine(
+  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
+  notClosed: NotClosed,
+): string {
+  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
+  switch (notClosed.kind) {
+    case "check-failed":
+      return `${still} — ${ticket.pullRequest} could not be checked for its findings: ${notClosed.error}; check it and close the ticket yourself`;
+    case "close-failed":
+      return `${still} — its findings are on ${ticket.pullRequest}, but it could not be closed: ${notClosed.error}; close it yourself`;
+  }
 }
 
 /**
