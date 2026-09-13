@@ -1,9 +1,5 @@
+import type { TicketKind } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
-
-/** The kinds of ticket the loop runs, each of which may have its own model. */
-export const TICKET_KINDS = ["implementation", "review"] as const;
-
-export type TicketKind = (typeof TICKET_KINDS)[number];
 
 /**
  * The model each kind of ticket runs on when it carries no model label, the

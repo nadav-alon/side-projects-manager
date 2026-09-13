@@ -12,16 +12,22 @@ export type { Harness, Scaffold } from "./harness.ts";
 export {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  TICKET_KINDS,
   isBlocked,
   isBrokenOut,
   isReviewTicket,
   reviewTitle,
+  ticketKind,
 } from "./issue-tracker.ts";
-export type { IssueTracker, ReviewTicket, Ticket } from "./issue-tracker.ts";
+export type {
+  IssueTracker,
+  ReviewTicket,
+  Ticket,
+  TicketKind,
+} from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
-export type { ModelDefaults, TicketKind } from "./model-defaults.ts";
-export { TICKET_KINDS } from "./model-defaults.ts";
+export type { ModelDefaults } from "./model-defaults.ts";
 export { MODEL_NAME_SHAPE, isModelName, modelName } from "./model-name.ts";
 export type { ModelName } from "./model-name.ts";
 export { isPriority, priority } from "./priority.ts";
