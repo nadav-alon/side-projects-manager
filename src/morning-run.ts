@@ -121,7 +121,10 @@ export type ProjectVerdict =
  */
 export type FailureKind = RunFailure["kind"];
 
-/** Why an iteration's run did not finish, or never started. */
+/**
+ * Why an iteration's run did not finish, never started, or finished without
+ * its work being handed over.
+ */
 export type RunFailure =
   | GaveUp
   | HandoverFailed
