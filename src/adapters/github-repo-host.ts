@@ -216,8 +216,8 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         // on. Asked rather than left to `gh`, which would open against the
         // remote's default branch and put every commit between the two in
         // the diff.
-        const found = await currentBranch(directory);
-        if (found === undefined) {
+        const onBranch = await currentBranch(directory);
+        if (onBranch === undefined) {
           // A detached HEAD has no branch to name, and carrying on without
           // `--base` would hand `gh` the default branch — the very diff the
           // flag is here to avoid. Refused before the push, so a checkout in
@@ -240,7 +240,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
             `Could not push ${branch} to ${ticket.repo}: ${errorMessage(error)}`,
           );
         }
-        return found;
+        return onBranch;
       });
 
       let opened: string;
