@@ -717,6 +717,28 @@ describe("morningRun", () => {
       );
     });
 
+    it("still selects another project's ticket with the same number as one worked today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.register(MANAGER);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.tracker.addEligibleTicket(MANAGER, {
+        number: 7,
+        title: "Add the other thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => [run.ticket.repo, run.ticket.number]),
+        [[MANAGER, 7]],
+      );
+    });
+
     it("reads a project whose only ticket was worked today as having no eligible tickets", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
