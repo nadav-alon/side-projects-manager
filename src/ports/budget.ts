@@ -1,3 +1,4 @@
+import { iterationLimit, type IterationLimit } from "./iteration-limit.ts";
 import { reserveFraction, type ReserveFraction } from "./reserve-fraction.ts";
 import { tokenCount, type TokenCount } from "./token-count.ts";
 import { usd, type Usd } from "./usd.ts";
@@ -19,6 +20,14 @@ export interface Budget {
   reserveFraction: ReserveFraction;
   /** The most a single run may spend, enforced by the agent CLI itself. */
   spendCeiling: Usd;
+  /**
+   * The most iterations one invocation may have in progress at once. Raising
+   * it multiplies the overshoot `spendCeiling` accepts; the README says by how
+   * much.
+   *
+   * TODO[#122]: have the loop honour it.
+   */
+  maxConcurrentIterations: IterationLimit;
   /**
    * A 5-hour reset instant the developer saw on the provider's own display,
    * which settles a boundary the ledger can only infer. See `UsageLedger`
@@ -57,4 +66,5 @@ export const DEFAULT_BUDGET: Budget = {
   weeklyAllowance: tokenCount(500_000_000),
   reserveFraction: reserveFraction(0.5),
   spendCeiling: usd(5),
+  maxConcurrentIterations: iterationLimit(1),
 };

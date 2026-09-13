@@ -13,6 +13,7 @@ import type {
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
+  isIterationLimit,
   isPriority,
   isRepoSlug,
   isReserveFraction,
@@ -210,6 +211,12 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "spendCeiling" must be a dollar amount above 0`,
       DEFAULT_BUDGET.spendCeiling,
     ),
+    maxConcurrentIterations: numberField(
+      fieldOf(document, "maxConcurrentIterations", file),
+      isIterationLimit,
+      `${file}: "maxConcurrentIterations" must be a whole number of 1 or more`,
+      DEFAULT_BUDGET.maxConcurrentIterations,
+    ),
     ...observedResetField(fieldOf(document, "observedResetAt", file), file),
   };
 }
@@ -267,6 +274,7 @@ const BUDGET_FIELDS = [
   "weeklyAllowance",
   "reserveFraction",
   "spendCeiling",
+  "maxConcurrentIterations",
   "observedResetAt",
 ] as const;
 
