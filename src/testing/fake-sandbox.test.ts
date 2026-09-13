@@ -10,6 +10,7 @@ import {
 } from "../ports/index.ts";
 import type { ReviewTicket, Ticket } from "../ports/index.ts";
 import { FakeSandbox } from "./fake-sandbox.ts";
+import { HANGS } from "./gate.ts";
 
 const TICKET: Ticket = {
   repo: repoSlug("nadav-alon/pilot"),
@@ -95,5 +96,27 @@ describe("FakeSandbox", () => {
 
     assert.equal(named.modelRefusal, undefined);
     assert.equal(unnamed.modelRefusal, undefined);
+  });
+
+  it("holds runs and reviews until released, in any order, counting how many were in progress", HANGS, async () => {
+    const sandbox = new FakeSandbox();
+    sandbox.hold();
+
+    const run = sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    const review = sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+    });
+    await sandbox.whenHeld(2);
+    assert.deepEqual(sandbox.held().map((ticket) => ticket.number), [7, 8]);
+    sandbox.release(REVIEW_TICKET);
+    await review;
+    assert.deepEqual(sandbox.held().map((ticket) => ticket.number), [7]);
+    sandbox.release(TICKET);
+    await run;
+
+    assert.equal(sandbox.mostInProgress, 2);
+    assert.deepEqual(sandbox.held(), []);
   });
 });

@@ -24,8 +24,6 @@ export interface Budget {
    * The most iterations one invocation may have in progress at once. Raising
    * it multiplies the overshoot `spendCeiling` accepts; the README says by how
    * much.
-   *
-   * TODO[#122]: have the loop honour it.
    */
   maxConcurrentIterations: IterationLimit;
   /**

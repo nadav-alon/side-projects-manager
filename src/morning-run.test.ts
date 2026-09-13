@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  iterationLimit,
   localDay,
   modelName,
   priority,
@@ -30,7 +31,9 @@ import {
   FROZEN_NOW,
   FakeClock,
   FakeRepoHost,
+  HANGS,
   LIMIT_REFUSAL,
+  gate,
   type FakePorts,
   fakePorts,
   spent,
@@ -2897,6 +2900,187 @@ describe("morningLoop", () => {
 
         assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
       });
+    });
+  });
+
+  describe("iterations in progress at once", () => {
+    /** More of the week than the default budget leaves spendable. */
+    const OVER_THE_RESERVE = 250_000_001;
+
+    /** PILOT with `count` eligible tickets, numbered from 1, run up to `limit` at once. */
+    function backlogOf(count: number, limit: number): FakePorts {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.budget = {
+        ...DEFAULT_BUDGET,
+        maxConcurrentIterations: iterationLimit(limit),
+      };
+      for (let number = 1; number <= count; number++) {
+        ports.tracker.addEligibleTicket(PILOT, {
+          number,
+          title: `Ticket ${number}`,
+        });
+      }
+      return ports;
+    }
+
+    function ticketOf(number: number): Ticket {
+      return { repo: PILOT, number, title: `Ticket ${number}` };
+    }
+
+    function numbersOf(tickets: { number: number }[]): number[] {
+      return tickets.map((ticket) => ticket.number);
+    }
+
+    it("has up to the limit in progress, never more, and works every ticket", HANGS, async () => {
+      const ports = backlogOf(5, 3);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(3);
+      assert.deepEqual(numbersOf(ports.sandbox.held()), [1, 2, 3]);
+      ports.sandbox.release(ticketOf(1));
+      await ports.sandbox.whenHeld(3);
+      ports.sandbox.release(ticketOf(2));
+      await ports.sandbox.whenHeld(3);
+      assert.deepEqual(numbersOf(ports.sandbox.held()), [3, 4, 5]);
+      for (const number of [3, 4, 5]) {
+        ports.sandbox.release(ticketOf(number));
+      }
+      const report = await invocation;
+
+      assert.equal(ports.sandbox.mostInProgress, 3);
+      assert.deepEqual(numbersOf(report.iterations.map((i) => i.ticket)), [1, 2, 3, 4, 5]);
+    });
+
+    it("starts no ticket twice in one invocation", async () => {
+      const ports = backlogOf(4, 3);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [1, 2, 3, 4],
+      );
+    });
+
+    it("starts no ticket its in-progress blocker still blocks", HANGS, async (t) => {
+      const ports = backlogOf(1, 2);
+      ports.tracker.addBlockedTicket(PILOT, { number: 2, title: "Ticket 2" }, 1);
+      ports.sandbox.hold();
+      const list = ports.tracker.listEligibleTickets.bind(ports.tracker);
+      const rescanned = gate();
+      let scans = 0;
+      t.mock.method(ports.tracker, "listEligibleTickets", async (repo: typeof PILOT) => {
+        const backlog = await list(repo);
+        if (++scans === 2) {
+          rescanned.open();
+        }
+        return backlog;
+      });
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(1);
+      await rescanned.opened;
+      assert.deepEqual(numbersOf(ports.sandbox.held()), [1]);
+      ports.sandbox.release(ticketOf(1));
+      await invocation;
+
+      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1]);
+    });
+
+    it("stands down on the gate with two in progress, starting nothing further and reporting both", HANGS, async (t) => {
+      const ports = backlogOf(3, 3);
+      ports.sandbox.hold();
+      const thirdAsked = gate();
+      let asked = 0;
+      t.mock.method(ports.ledger, "read", async () => {
+        if (++asked < 3) {
+          return spent({});
+        }
+        thirdAsked.open();
+        return spent({ weekly: OVER_THE_RESERVE });
+      });
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(2);
+      await thirdAsked.opened;
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1, 2]);
+      assert.deepEqual(numbersOf(report.iterations.map((i) => i.ticket)), [1, 2]);
+      assert.equal(report.standDown?.reason, "weekly-reserve");
+      assert.equal(gateRefusal(report)?.refused, PILOT);
+    });
+
+    it("stands down on the first limit refusal, letting the others in progress finish", HANGS, async () => {
+      const ports = backlogOf(4, 3);
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        output: "",
+        tokensUsed: tokenCount(0),
+        ...(ticket.number >= 2 && { limitRefusal: LIMIT_REFUSAL }),
+      });
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(3);
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(3));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1, 2, 3]);
+      assert.deepEqual(
+        report.iterations.map((i) => [i.ticket.number, i.kind]),
+        [
+          [1, "finished"],
+          [2, "limit-refused"],
+          [3, "limit-refused"],
+        ],
+      );
+      assert.equal(report.standDown?.reason, "provider-limit");
+      assert.match(report.message, /pilot #2 is still ready-for-agent/);
+    });
+
+    it("reports iterations in the order they started, not the order they finished", HANGS, async () => {
+      const ports = backlogOf(2, 2);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(2);
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.deepEqual(numbersOf(report.iterations.map((i) => i.ticket)), [1, 2]);
+    });
+
+    it("saves every run's cost", HANGS, async () => {
+      const ports = backlogOf(3, 3);
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        output: "",
+        tokensUsed: tokenCount(ticket.number * 100),
+      });
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(3);
+      for (const number of [3, 1, 2]) {
+        ports.sandbox.release(ticketOf(number));
+      }
+      await invocation;
+
+      const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
+      assert.deepEqual(
+        runs.map((run) => run.tokensUsed).sort((a, b) => a - b),
+        [100, 200, 300],
+      );
     });
   });
 
