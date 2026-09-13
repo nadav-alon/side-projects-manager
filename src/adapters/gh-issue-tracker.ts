@@ -26,7 +26,7 @@ import { MANAGER_HOME } from "./manager-home.ts";
 const execFileAsync = promisify(execFile);
 
 /** How many of a project's eligible tickets one morning reads. */
-const BACKLOG_READ = 100;
+const BACKLOG_READ_LIMIT = 100;
 
 /**
  * The tracker port backed by the `gh` CLI, per `docs/agents/issue-tracker.md`.
@@ -68,14 +68,14 @@ export function ghIssueTracker(
         // apart from a longer one. `gh` answers newest first, so the one
         // dropped is the oldest.
         "--limit",
-        String(BACKLOG_READ + 1),
+        String(BACKLOG_READ_LIMIT + 1),
         "--json",
         "number,title,body,subIssuesSummary,blockedBy,labels",
       ]);
 
       const issues = parseIssues(stdout, repo);
-      const truncated = issues.length > BACKLOG_READ;
-      const tickets = issues.slice(0, BACKLOG_READ).map(
+      const truncated = issues.length > BACKLOG_READ_LIMIT;
+      const tickets = issues.slice(0, BACKLOG_READ_LIMIT).map(
         ({ body, subIssuesSummary, blockedBy, labels, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
           const openSubIssues =
