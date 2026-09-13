@@ -5,7 +5,7 @@ import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
-import { morningLoop } from "../morning-run.ts";
+import { failedOnInfrastructure, morningLoop } from "../morning-run.ts";
 
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
@@ -36,11 +36,7 @@ async function main(): Promise<void> {
   // non-zero.
   const failed =
     report.outcome === "invocation-failed" ||
-    report.iterations.some(
-      (iteration) =>
-        iteration.kind === "failed" &&
-        iteration.failure.kind === "infrastructure",
-    );
+    report.iterations.some(failedOnInfrastructure);
   if (failed) {
     process.exitCode = 1;
   }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  failureOf,
   morningLoop,
   type IterationOutcome,
   type InvocationReport,
@@ -58,11 +59,6 @@ function gateRefusal(report: InvocationReport) {
   return report.standDown?.reason === "provider-limit"
     ? undefined
     : report.standDown;
-}
-
-/** The failed half of an iteration outcome — undefined if it finished instead. */
-function failureOf(iteration: IterationOutcome | undefined) {
-  return iteration?.kind === "failed" ? iteration.failure : undefined;
 }
 
 /** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */

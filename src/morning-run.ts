@@ -331,7 +331,7 @@ interface Selection {
  * described rather than raised, so the invocation still reports on the
  * projects behind them.
  */
-type Iteration = Finished | Failed | Reviewed | LimitRefused;
+export type Iteration = Finished | Failed | Reviewed | LimitRefused;
 
 /**
  * A limit refusal: an implementation or review run the provider limit
@@ -685,6 +685,21 @@ function isModelLabelFailure(
   );
 }
 
+/** Why `iteration` failed: undefined when it ended any other way, or there was none. */
+export function failureOf(
+  iteration: Iteration | undefined,
+): RunFailure | undefined {
+  return iteration?.kind === "failed" ? iteration.failure : undefined;
+}
+
+/**
+ * Whether `iteration` failed on the setup rather than the ticket: the one
+ * failure that leaves its ticket eligible, and that a trigger exits non-zero on.
+ */
+export function failedOnInfrastructure(iteration: Iteration): boolean {
+  return failureOf(iteration)?.kind === "infrastructure";
+}
+
 /**
  * The budget gate, asked immediately before a run and never earlier: the
  * windows it reads are the ones in force when the run would start, not the
@@ -979,8 +994,7 @@ function leastRecentlyWorkedFirst(
  */
 function leavesTicketUntouched(iteration: Iteration): boolean {
   return (
-    iteration.kind === "limit-refused" ||
-    (iteration.kind === "failed" && iteration.failure.kind === "infrastructure")
+    iteration.kind === "limit-refused" || failedOnInfrastructure(iteration)
   );
 }
 
