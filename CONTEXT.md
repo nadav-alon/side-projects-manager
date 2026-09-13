@@ -151,7 +151,7 @@ A run whose agent ran and stopped short — it said it could not, left the tests
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, because the sandbox or the repo host could not do its part. The setup is the problem. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
+A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
 _Avoid_: outage, crash, system error
 
 **Discard**:
