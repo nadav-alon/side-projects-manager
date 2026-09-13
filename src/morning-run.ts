@@ -571,15 +571,20 @@ function outcomeOf(
   if (invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  // A ticket handed back for its model labels was never run, so a morning the
-  // gate stood down after it is still a stand-down.
+  // A ticket handed back for its model labels was never run, so it does not
+  // count as work when the morning then stood down: a stand-down that ran
+  // nothing reads as one, whatever was handed back before it. Without a
+  // stand-down, that hand-back is still work an iteration selected.
   const ran = runs.some(
     (run) => !(run.kind === "failed" && isModelLabelFailure(run.failure)),
   );
-  if (ran || (runs.length > 0 && standDown === undefined)) {
+  if (ran) {
     return "work-selected";
   }
-  return standDown === undefined ? "dry-queue" : "stood-down";
+  if (standDown !== undefined) {
+    return "stood-down";
+  }
+  return runs.length > 0 ? "work-selected" : "dry-queue";
 }
 
 /**
