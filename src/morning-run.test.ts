@@ -743,7 +743,7 @@ describe("morningRun", () => {
     });
 
     describe("a truncated backlog", () => {
-      it("sets backlogTruncated on that project's outcome, whatever its verdict", async () => {
+      it("sets backlogTruncated on the selected project", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
         ports.tracker.addEligibleTicket(PILOT, {
@@ -754,6 +754,46 @@ describe("morningRun", () => {
 
         const report = await morningRun(ports);
 
+        assert.equal(report.projects[0]?.backlogTruncated, true);
+      });
+
+      it("sets backlogTruncated on a project another outranked", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER, { priority: priority(1) });
+        ports.tracker.addEligibleTicket(MANAGER, {
+          number: 3,
+          title: "Add another thing",
+        });
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        ports.tracker.truncateBacklog(PILOT);
+        // The gate refuses MANAGER's run, so no later iteration comes round to
+        // select PILOT and its verdict stays the one the first scan gave it.
+        ports.ledger.reports(spent({ weekly: Number.MAX_SAFE_INTEGER }));
+
+        const report = await morningRun(ports);
+
+        const pilot = report.projects.find(({ repo }) => repo === PILOT);
+        assert.equal(pilot?.verdict, "deferred");
+        assert.equal(pilot?.backlogTruncated, true);
+      });
+
+      it("sets backlogTruncated on a project with no eligible tickets", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addBrokenOutTicket(
+          PILOT,
+          { number: 66, title: "Too big for one run" },
+          7,
+        );
+        ports.tracker.truncateBacklog(PILOT);
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.projects[0]?.verdict, "no-eligible-tickets");
         assert.equal(report.projects[0]?.backlogTruncated, true);
       });
 
