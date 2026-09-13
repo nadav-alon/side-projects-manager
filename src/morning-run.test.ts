@@ -2490,10 +2490,9 @@ describe("morningRun", () => {
 
         await morningRun(ports);
 
-        assert.match(
-          ports.tracker.handbacks[0]?.comment ?? "",
-          /model defaults/,
-        );
+        const comment = ports.tracker.handbacks[0]?.comment ?? "";
+        assert.match(comment, /model defaults/);
+        assert.match(comment, /fix the implementation model in `models\.json`/);
       });
 
       it("hands back a review ticket whose model is refused, rather than leaving it to come round again", async () => {

@@ -59,7 +59,7 @@ export function handbackComment(
     `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
     `What it said:\n\n${quote(run?.output ?? "")}`,
     ...branchNote(run, discard),
-    `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
+    notRetried(),
   ].join("\n\n");
 }
 
@@ -76,15 +76,21 @@ export function modelRefusalComment(
   discard: Discard,
 ): string {
   const model = `\`${failure.refusal.model}\``;
-  const named =
+  const [named, fix] =
     failure.source === "model label"
-      ? `its model label, \`${MODEL_LABEL_PREFIX}${failure.refusal.model}\``
-      : `the model defaults for ${ticketKind(ticket)} tickets, in \`models.json\``;
+      ? [
+          `its model label, \`${MODEL_LABEL_PREFIX}${failure.refusal.model}\``,
+          `fix or remove its model label`,
+        ]
+      : [
+          `the model defaults for ${ticketKind(ticket)} tickets, in \`models.json\``,
+          `fix the ${ticketKind(ticket)} model in \`models.json\`, or give this ticket a model label`,
+        ];
   return [
     `The morning loop did not work this ticket: the agent CLI refused the model ${model}, named by ${named}.`,
     `What the CLI said:\n\n${quote(failure.refusal.words)}`,
     ...branchNote(run, discard),
-    `This ticket is yours again and will not be retried: fix the model, then add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
+    notRetried(fix),
   ].join("\n\n");
 }
 
@@ -106,7 +112,7 @@ export function unusableModelLabelComment(failure: UnusableModelLabel): string {
         ];
   return [
     `The morning loop did not run this ticket: ${what}. Nothing was run and nothing was spent.`,
-    `This ticket is yours again and will not be retried: ${fix}, then add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
+    notRetried(fix),
   ].join("\n\n");
 }
 
@@ -149,8 +155,18 @@ export function committedNothingComment(
   return [
     `The morning loop ran this ticket and committed nothing.`,
     `What it said:\n\n${quote(run?.output ?? "")}`,
-    `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
+    notRetried(),
   ].join("\n\n");
+}
+
+/**
+ * The line a handed-back ticket's comment ends on: the ticket is the
+ * developer's again, and what sends it round another morning — after `fix`,
+ * where there is something to fix first.
+ */
+function notRetried(fix?: string): string {
+  const sendRound = `add ${READY_FOR_AGENT_LABEL} back to send it round another morning`;
+  return `This ticket is yours again and will not be retried: ${fix === undefined ? sendRound : `${fix}, then ${sendRound}`}.`;
 }
 
 /** What the developer will find in the checkout, when it is worth saying. */
