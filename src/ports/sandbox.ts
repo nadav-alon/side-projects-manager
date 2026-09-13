@@ -51,8 +51,8 @@ export interface ReviewRequest {
 export interface ModelRefusal {
   /** The model the run was asked for. */
   model: ModelName;
-  /** The agent CLI's own diagnostic naming it unrecognised. */
-  diagnostic: string;
+  /** The agent CLI's own words refusing it, as a reader would want them. */
+  words: string;
 }
 
 export interface SandboxRunResult {

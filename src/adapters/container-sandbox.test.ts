@@ -149,6 +149,8 @@ function heldAgents(
  * stdout and the line below to stderr — see `MODEL_REFUSAL` in
  * container-sandbox.ts.
  */
+const MODEL_REFUSAL_WORDS =
+  "There's an issue with the selected model (this-model-does-not-exist-xyz). It may not exist or you may not have access to it. Run --model to pick a different model.";
 const MODEL_REFUSAL_STDOUT = JSON.stringify({
   type: "result",
   subtype: "success",
@@ -164,8 +166,7 @@ const MODEL_REFUSAL_STDOUT = JSON.stringify({
     output_tokens: 0,
   },
   permission_denials: [],
-  result:
-    "There's an issue with the selected model (this-model-does-not-exist-xyz). It may not exist or you may not have access to it. Run --model to pick a different model.",
+  result: MODEL_REFUSAL_WORDS,
 });
 const MODEL_REFUSAL_STDERR =
   '[claude-code:unrecognized_model] {"model":"this-model-does-not-exist-xyz","query_source":"sdk"}\n';
@@ -495,8 +496,7 @@ describe("containerSandbox", () => {
 
     assert.deepEqual(result.modelRefusal, {
       model: modelName("this-model-does-not-exist-xyz"),
-      diagnostic:
-        '[claude-code:unrecognized_model] {"model":"this-model-does-not-exist-xyz","query_source":"sdk"}',
+      words: MODEL_REFUSAL_WORDS,
     });
     assert.equal(result.failure, undefined);
     assert.equal(result.limitRefusal, undefined);
@@ -513,6 +513,49 @@ describe("containerSandbox", () => {
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
+    });
+
+    assert.equal(result.modelRefusal, undefined);
+    assert.equal(result.failure, "Command failed: docker run");
+  });
+
+  it("does not mistake a finished agent that quotes the model refusal tag for one refused", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readAgentRun(
+        JSON.stringify({
+          result: `Matched the CLI's line:\n${MODEL_REFUSAL_STDERR}`,
+        }),
+      ),
+    );
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(result.modelRefusal, undefined);
+    assert.equal(result.failure, undefined);
+  });
+
+  it("does not mistake an agent that gave up quoting the model refusal tag for one refused", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      ...readAgentRun(
+        JSON.stringify({
+          result: `The tests would not go green on:\n${MODEL_REFUSAL_STDERR}`,
+        }),
+      ),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
     });
 
     assert.equal(result.modelRefusal, undefined);
@@ -896,8 +939,7 @@ describe("containerSandbox.review", () => {
 
     assert.deepEqual(result.modelRefusal, {
       model: modelName("this-model-does-not-exist-xyz"),
-      diagnostic:
-        '[claude-code:unrecognized_model] {"model":"this-model-does-not-exist-xyz","query_source":"sdk"}',
+      words: MODEL_REFUSAL_WORDS,
     });
     assert.equal(result.failure, undefined);
   });
@@ -981,6 +1023,25 @@ describe("containerSandbox.review", () => {
 });
 
 describe("readAgentRun", () => {
+  it("reads a model refusal off stderr, in the words of the CLI's result", () => {
+    const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
+
+    assert.equal(agent.modelRefused, MODEL_REFUSAL_WORDS);
+  });
+
+  it("quotes the model refusal tag itself when there is no result to quote", () => {
+    const agent = readAgentRun("", MODEL_REFUSAL_STDERR);
+
+    assert.equal(agent.modelRefused, MODEL_REFUSAL_STDERR.trim());
+  });
+
+  it("reads no model refusal from the agent's own words", () => {
+    const agent = readAgentRun(
+      JSON.stringify({ result: MODEL_REFUSAL_STDERR }),
+    );
+
+    assert.equal(agent.modelRefused, undefined);
+  });
   it("reads the agent's result and totals every token field", () => {
     const stdout = JSON.stringify({
       result: "implemented the thing",

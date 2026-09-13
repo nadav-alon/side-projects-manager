@@ -64,6 +64,11 @@ export interface AgentRun {
    * spend is real either way.
    */
   failure?: string;
+  /**
+   * The CLI's own words refusing the model it was started on, absent unless
+   * it flagged the model unrecognised — see `MODEL_REFUSAL`.
+   */
+  modelRefused?: string;
 }
 
 /**
@@ -280,16 +285,16 @@ async function attempt(
 const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 
 /**
- * How the agent CLI flags a model it does not recognise, captured from the
- * real CLI rather than guessed: `claude --print … --model <bogus>
- * --output-format json` exits 1 and writes `[claude-code:unrecognized_model]
- * {"model":"<bogus>","query_source":"sdk"}` to stderr. Its envelope is only
- * `"is_error": true` with a `result` in prose that could be reworded any
- * morning, so the stderr tag is what is matched. `withDiagnostics` folds stderr into
- * `agent.output`, which is where this is read from — anchored to the start of
- * a line (`m`) rather than the start of the string, since the CLI's own
- * `result` comes first. The only place this line's shape is known, so a CLI
- * that rewords it has one line here to change.
+ * How the agent CLI flags a model it does not recognise, as captured from the
+ * real CLI: `claude --print … --model <bogus> --output-format json` exits 1
+ * and writes `[claude-code:unrecognized_model] {"model":"<bogus>",…}` to
+ * stderr. Its envelope says only `"is_error": true`, with a `result` in prose
+ * that could be reworded any morning, so the stderr tag is what is matched.
+ *
+ * Matched against stderr alone, never the agent's own words, so an agent that
+ * quotes the tag is not mistaken for one refused. Anchored to the start of a
+ * line (`m`), since other diagnostics can come before it. The only place this
+ * line's shape is known, so a CLI that rewords it has one line here to change.
  */
 const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
 
@@ -298,19 +303,20 @@ const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
  * the provider limit, stopped for a ticket reason, or finished.
  *
  * The model check comes first and only applies when `model` was actually
- * asked for: a refused model is the ticket's problem, not the agent's or the
- * setup's, so it must not read as either, and naming the model needs the
- * request, not just the CLI's own diagnostic.
+ * asked for and the CLI exited non-zero: a refused model is the ticket's
+ * problem, not the agent's or the setup's, so it must not read as either, and
+ * naming the model needs the request, not just the CLI's own words.
  */
 function howItStopped(
   agent: AgentRun,
   model: ModelName | undefined,
 ): { failure?: string; limitRefusal?: string; modelRefusal?: ModelRefusal } {
-  if (model !== undefined) {
-    const diagnostic = MODEL_REFUSAL.exec(agent.output)?.[0];
-    if (diagnostic !== undefined) {
-      return { modelRefusal: { model, diagnostic: diagnostic.trim() } };
-    }
+  if (
+    model !== undefined &&
+    agent.failure !== undefined &&
+    agent.modelRefused !== undefined
+  ) {
+    return { modelRefusal: { model, words: agent.modelRefused } };
   }
   const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
   if (refusal !== undefined) {
@@ -722,13 +728,18 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * `stderr` is appended rather than dropped: a run that went wrong says so
  * there, and that is exactly the run whose output somebody has to read. So are
  * the tools the CLI refused the agent — see `deniedTools`.
+ *
+ * A model refusal's words are the envelope's `result`, which is prose meant
+ * for a reader, or the stderr tag itself when there is no `result` to quote.
  */
 export function readAgentRun(stdout: string, stderr = ""): AgentRun {
+  const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
+      ...(refusalTag !== undefined && { modelRefused: refusalTag }),
     };
   }
 
@@ -743,6 +754,9 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
       deniedTools(envelope),
     ),
     tokensUsed: totalTokens(usage),
+    ...(refusalTag !== undefined && {
+      modelRefused: typeof result === "string" ? result.trim() : refusalTag,
+    }),
   };
 }
 

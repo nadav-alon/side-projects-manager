@@ -57,7 +57,7 @@ export class FakeSandbox implements Sandbox {
         tokensUsed: tokenCount(0),
         modelRefusal: {
           model: request.model,
-          diagnostic: `refused model ${request.model}`,
+          words: `refused model ${request.model}`,
         },
       };
     }
@@ -72,7 +72,7 @@ export class FakeSandbox implements Sandbox {
         tokensUsed: tokenCount(0),
         modelRefusal: {
           model: request.model,
-          diagnostic: `refused model ${request.model}`,
+          words: `refused model ${request.model}`,
         },
       };
     }
