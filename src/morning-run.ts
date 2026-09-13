@@ -57,6 +57,9 @@ export interface SummaryTracker {
   publishSummary(title: string, body: string): Promise<void>;
 }
 
+/** What the state document records of each project, by repo slug. */
+type ProjectStates = State["projects"];
+
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
  * GitHub, containers, session logs, the filesystem and the wall clock arrives
@@ -424,7 +427,8 @@ export async function morningRun(
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
   try {
-    const state = new Map(await ports.store.loadState());
+    const loaded = await ports.store.loadState();
+    const state = new Map(loaded.projects);
     const modelDefaults = await ports.store.loadModelDefaults();
     try {
       for (;;) {
@@ -506,7 +510,7 @@ export async function morningRun(
       // which has run the loop always has a state document to read next morning.
       // A run that fell over still spent tokens, and the morning it spent them
       // on is exactly the one worth having recorded.
-      await ports.store.saveState(state);
+      await ports.store.saveState({ projects: state });
     }
   } catch (error: unknown) {
     // Nothing above this point throws by design — a run that fails is
@@ -607,7 +611,7 @@ function outcomeOf(
 async function consultTheGate(
   ports: MorningRunPorts,
   budget: Budget,
-  state: State,
+  state: ProjectStates,
 ): Promise<StandDown | undefined> {
   return budgetGate(
     await ports.ledger.read(ports.clock.now(), budget.observedResetAt),
@@ -617,7 +621,7 @@ async function consultTheGate(
 }
 
 /** Every run the mornings have made, across every project, oldest first. */
-function runsRecorded(state: State): RunCost[] {
+function runsRecorded(state: ProjectStates): RunCost[] {
   return [...state.values()]
     .flatMap((project) => project.runs)
     .sort((a, b) => a.at.getTime() - b.at.getTime());
@@ -636,7 +640,7 @@ function runsRecorded(state: State): RunCost[] {
  */
 async function considerProjects(
   ports: MorningRunPorts,
-  state: State,
+  state: ProjectStates,
   worked: ReadonlySet<string>,
 ): Promise<RegistryScan> {
   const outcomes: ProjectOutcome[] = [];

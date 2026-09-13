@@ -820,7 +820,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -841,7 +841,7 @@ describe("morningRun", () => {
 
       const state = await ports.store.loadState();
       assert.deepEqual(
-        state.get(PILOT)?.runs.map((run) => run.at),
+        state.projects.get(PILOT)?.runs.map((run) => run.at),
         [YESTERDAY, FROZEN_NOW],
       );
     });
@@ -853,7 +853,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.equal(state.get(PILOT), undefined);
+      assert.equal(state.projects.get(PILOT), undefined);
     });
   });
 
@@ -1013,7 +1013,7 @@ describe("morningRun", () => {
       // review ticket in the same, otherwise-dry backlog — the review that
       // this same invocation went straight on to work, at its own cost.
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT), {
+      assert.deepEqual(state.projects.get(PILOT), {
         lastWorkedAt: FROZEN_NOW,
         runs: [
           { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1037,7 +1037,7 @@ describe("morningRun", () => {
       assert.equal(report.outcome, "invocation-failed");
       assert.match(report.message, /pull requests are disabled/);
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -1185,7 +1185,7 @@ describe("morningRun", () => {
       assert.equal(report.outcome, "invocation-failed");
       assert.match(report.message, /issues are disabled/);
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -1318,7 +1318,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(9_000) },
       ]);
     });
@@ -1589,7 +1589,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -1903,7 +1903,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.equal(state.get(PILOT), undefined);
+      assert.equal(state.projects.get(PILOT), undefined);
     });
 
     it("still writes state back on a morning it stood down", async (t) => {
@@ -2249,7 +2249,7 @@ describe("morningRun", () => {
 
       await morningRun(ports);
 
-      const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
+      const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
       assert.equal(runs.length, 2);
     });
 
@@ -2436,7 +2436,7 @@ describe("morningRun", () => {
           ports.sandbox.runs.map((run) => run.ticket.number),
           [8],
         );
-        const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
+        const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
         assert.equal(runs.length, 1);
       });
 

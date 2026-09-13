@@ -5,7 +5,7 @@ export type { Budget } from "./budget.ts";
 export { checkout, isCheckout } from "./checkout.ts";
 export type { Checkout } from "./checkout.ts";
 export type { Clock } from "./clock.ts";
-export { day, isDay } from "./day.ts";
+export { day, isDay, localDay } from "./day.ts";
 export type { Day } from "./day.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
@@ -65,4 +65,6 @@ export type {
   RunCost,
   State,
   Store,
+  WorkedTicket,
+  WorkedToday,
 } from "./store.ts";

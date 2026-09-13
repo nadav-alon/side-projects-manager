@@ -374,11 +374,17 @@ function parseModelDefaults(document: unknown, file: string): ModelDefaults {
  * rather than inheriting another project's.
  */
 function parseState(document: unknown, file: string): State {
-  const state = new Map<RepoSlug, ProjectState>();
   if (document === undefined) {
-    return state;
+    return { projects: new Map() };
   }
-  const projects = fieldOf(document, "projects", file);
+  return { projects: parseProjectStates(fieldOf(document, "projects", file), file) };
+}
+
+function parseProjectStates(
+  projects: unknown,
+  file: string,
+): Map<RepoSlug, ProjectState> {
+  const state = new Map<RepoSlug, ProjectState>();
   if (projects === undefined) {
     return state;
   }
@@ -461,7 +467,7 @@ function formatRegistry(projects: RegisteredProject[]): string {
 /** Indented and newline-terminated: the document is read in diffs. */
 function formatState(state: State): string {
   const projects = Object.fromEntries(
-    [...state].map(([repo, project]) => [
+    [...state.projects].map(([repo, project]) => [
       repo,
       {
         ...(project.lastWorkedAt !== undefined && {

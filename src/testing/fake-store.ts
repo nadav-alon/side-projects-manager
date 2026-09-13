@@ -70,17 +70,19 @@ export class FakeStore implements Store {
   }
 
   async loadState(): Promise<State> {
-    return new Map(
-      [...this.#state].map(([repo, state]) => [
-        repo,
-        { ...state, runs: [...state.runs] },
-      ]),
-    );
+    return {
+      projects: new Map(
+        [...this.#state].map(([repo, state]) => [
+          repo,
+          { ...state, runs: [...state.runs] },
+        ]),
+      ),
+    };
   }
 
   async saveState(state: State): Promise<void> {
     this.#state = new Map(
-      [...state].map(([repo, project]) => [
+      [...state.projects].map(([repo, project]) => [
         repo,
         { ...project, runs: [...project.runs] },
       ]),

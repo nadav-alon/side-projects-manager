@@ -1,4 +1,4 @@
-import { day, type Clock, type Day } from "./ports/index.ts";
+import { localDay, type Clock, type Day } from "./ports/index.ts";
 
 /**
  * What a trigger needs to coordinate with every other trigger: a way to claim
@@ -36,22 +36,10 @@ export async function runOncePerDay(
   clock: Clock,
   invoke: () => Promise<void>,
 ): Promise<boolean> {
-  const claimed = await lock.claim(dayOf(clock.now()));
+  const claimed = await lock.claim(localDay(clock.now()));
   if (!claimed) {
     return false;
   }
   await invoke();
   return true;
-}
-
-/**
- * The calendar day `at` falls on, in the machine's local time — the same
- * timezone a developer's schedule and logon happen in, so a day boundary
- * lands where they'd expect it rather than at UTC midnight.
- */
-function dayOf(at: Date): Day {
-  const year = at.getFullYear();
-  const month = `${at.getMonth() + 1}`.padStart(2, "0");
-  const date = `${at.getDate()}`.padStart(2, "0");
-  return day(`${year}-${month}-${date}`);
 }

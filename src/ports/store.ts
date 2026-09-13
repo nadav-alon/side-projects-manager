@@ -1,4 +1,5 @@
 import type { Budget } from "./budget.ts";
+import type { Day } from "./day.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -54,12 +55,32 @@ export function recordRun(
   };
 }
 
+/** A ticket as the state document names it: its project, and its number there. */
+export interface WorkedTicket {
+  repo: RepoSlug;
+  number: number;
+}
+
 /**
- * The machine-written state, by project. A project with no entry has never
- * been worked; that is not an error, and neither is a state document that
- * does not exist yet.
+ * The tickets the loop worked on one local calendar day, kept so a later
+ * invocation the same day does not select them again. A record for any day
+ * but today reads as nothing worked today.
  */
-export type State = ReadonlyMap<RepoSlug, ProjectState>;
+export interface WorkedToday {
+  day: Day;
+  tickets: WorkedTicket[];
+}
+
+/**
+ * The machine-written state. A project with no entry has never been worked;
+ * that is not an error, and neither is a state document that does not exist
+ * yet.
+ */
+export interface State {
+  projects: ReadonlyMap<RepoSlug, ProjectState>;
+  /** Absent when no day's worked tickets have been recorded. */
+  workedToday?: WorkedToday;
+}
 
 /**
  * Reads the developer's registry, budget and model defaults, and reads and

@@ -23,3 +23,15 @@ export function day(value: string): Day {
   }
   return value;
 }
+
+/**
+ * The calendar day `at` falls on, in the machine's local time — the same
+ * timezone a developer's schedule and logon happen in, so a day boundary
+ * lands where they'd expect it rather than at UTC midnight.
+ */
+export function localDay(at: Date): Day {
+  const year = at.getFullYear();
+  const month = `${at.getMonth() + 1}`.padStart(2, "0");
+  const date = `${at.getDate()}`.padStart(2, "0");
+  return day(`${year}-${month}-${date}`);
+}
