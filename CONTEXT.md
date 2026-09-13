@@ -236,7 +236,7 @@ A run, implementation or review, that the provider limit refused: the agent CLI'
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
-A run, implementation or review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket is the problem — a bad model label or model defaults — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
+A run, implementation or review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
 _Avoid_: bad model, model error, invalid model
 
 **Spend ceiling**:
