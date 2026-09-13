@@ -294,7 +294,7 @@ when the ticket carries no `model:<name>` label — the same for every project:
 Both kinds are optional, and so is the file. A kind you leave out, and every kind on a machine with
 no `models.json`, runs on the model the sandbox image is pinned to. A name is passed to the agent
 CLI as written — an alias or a full model id — and never checked against a list of models, so a new
-model needs no change here; the only shape asked of it is a non-empty name without spaces. Nothing
+model needs no change here; the only shape asked of it is a non-empty name without spaces that does not start with `-`. Nothing
 writes this document: not the loop, and not `new-project`.
 
 A key that is not `implementation` or `review` fails the invocation, and so does a name that is not

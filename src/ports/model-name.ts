@@ -15,16 +15,20 @@ declare const modelNameBrand: unique symbol;
  */
 export type ModelName = string & { readonly [modelNameBrand]: true };
 
-/** Whether `value` is non-empty and free of whitespace, which no model id carries. */
+/**
+ * Whether `value` is non-empty and free of whitespace, which no model id
+ * carries, and does not start with `-`: a name that reads as an option is one
+ * the CLI would take for a flag rather than a model.
+ */
 export function isModelName(value: string): value is ModelName {
-  return /^\S+$/.test(value);
+  return /^\S+$/.test(value) && !value.startsWith("-");
 }
 
 /** Narrows `value` to a `ModelName`, throwing if it cannot be one. */
 export function modelName(value: string): ModelName {
   if (!isModelName(value)) {
     throw new TypeError(
-      `Not a model name, expected a non-empty name without spaces: ${JSON.stringify(value)}`,
+      `Not a model name, expected a non-empty name without spaces or a leading "-": ${JSON.stringify(value)}`,
     );
   }
   return value;

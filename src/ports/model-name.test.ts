@@ -19,6 +19,11 @@ describe("isModelName", () => {
     assert.equal(isModelName("claude opus"), false);
     assert.equal(isModelName("opus\n"), false);
   });
+
+  it("rejects a name that reads as an option, which the CLI would take for a flag", () => {
+    assert.equal(isModelName("--dangerously-skip-permissions"), false);
+    assert.equal(isModelName("-p"), false);
+  });
 });
 
 describe("modelName", () => {
