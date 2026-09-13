@@ -2408,7 +2408,7 @@ describe("morningRun", () => {
         assert.match(comment, /model:opus/);
         assert.match(comment, /model:haiku/);
         assert.match(comment, /keep one/i);
-        assert.deepEqual(await ports.tracker.listEligibleTickets(PILOT), []);
+        assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
         assert.equal(failureOf(report.runs[0])?.kind, "conflicting-model-labels");
       });
 
@@ -2480,7 +2480,7 @@ describe("morningRun", () => {
         assert.match(comment, /refused model opus/);
         assert.doesNotMatch(comment, /gave up/);
         assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
-        assert.deepEqual(await ports.tracker.listEligibleTickets(PILOT), []);
+        assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
       });
 
       it("says the model came from the model defaults when it did", async () => {

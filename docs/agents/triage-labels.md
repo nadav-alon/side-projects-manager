@@ -26,4 +26,4 @@ Optional, on top of the state role. Orders `ready-for-agent` tickets within this
 
 - Apply at most one. If several are present, the smallest counts; any other `priority:` label is ignored.
 - A label may not exist yet in a given repo: create it on first use (`gh label create priority:1`) before `gh issue edit --add-label`.
-- Only the morning loop's per-project ordering reads these. They never make one project outrank another; that is the registry's `priority`.
+- They only order tickets within this project. They never make one project outrank another.
