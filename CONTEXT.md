@@ -55,7 +55,7 @@ The trigger that fires on every new interactive shell, relying on the once-per-d
 _Avoid_: startup hook, login script
 
 **Once-per-day lock**:
-What stops two triggers firing the same day: the first to claim a calendar day runs the loop, every later claim that day is refused. Claimed before the loop runs, so a run that fails still leaves the day claimed.
+What stops two triggers firing the same day: the first to claim a calendar day invokes the loop, every later claim that day is refused. Claimed before the loop is invoked, so an invocation that fails still leaves the day claimed.
 _Avoid_: mutex, semaphore, debounce
 
 ### Projects
