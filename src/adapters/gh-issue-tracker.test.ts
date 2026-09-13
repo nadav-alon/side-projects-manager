@@ -620,6 +620,30 @@ describe("ghIssueTracker.handBack", () => {
 });
 
 /**
+ * One issue as `gh issue list` answers for it: every field the adapter asks
+ * for, filled in as a ticket with none of it — no body, sub-issues, blockers
+ * or labels — unless `fields` names its own. Each listing test sets only the
+ * fields it is about.
+ */
+function rawIssue(fields: Record<string, unknown>): Record<string, unknown> {
+  return {
+    body: "",
+    subIssuesSummary: { total: 0, completed: 0 },
+    blockedBy: { nodes: [], totalCount: 0 },
+    labels: [],
+    ...fields,
+  };
+}
+
+// `printf '%s'` rather than `echo`: `/bin/sh`'s builtin `echo` interprets
+// `\n` in its argument on some shells (dash's is XSI-conformant), turning
+// the `\n` a body with a blank line in it serializes to back into a raw
+// newline and breaking the JSON `gh` is meant to answer with.
+function issues(rawIssues: Record<string, unknown>[]): string {
+  return `printf '%s' '${JSON.stringify(rawIssues.map(rawIssue))}'`;
+}
+
+/**
  * Telling a review ticket from an implementation ticket on a fresh process,
  * where `createReviewTicket`'s own answer is long gone: the only thing that
  * survives is what got written to GitHub, so this is read back from the body
@@ -630,24 +654,6 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/12",
   );
-
-  // `printf '%s'` rather than `echo`: `/bin/sh`'s builtin `echo` interprets
-  // `\n` in its argument on some shells (dash's is XSI-conformant), turning
-  // the `\n` a body with a blank line in it serializes to back into a raw
-  // newline and breaking the JSON `gh` is meant to answer with.
-  //
-  // Every issue gets a no-sub-issues `subIssuesSummary` unless it names its
-  // own: these fixtures are about the pull request a review's body names,
-  // not about open sub-issues.
-  function issues(rawIssues: Record<string, unknown>[]): string {
-    const withSubIssues = rawIssues.map((issue) => ({
-      subIssuesSummary: { total: 0, completed: 0 },
-      blockedBy: { nodes: [], totalCount: 0 },
-      labels: [],
-      ...issue,
-    }));
-    return `printf '%s' '${JSON.stringify(withSubIssues)}'`;
-  }
 
   it("carries the pull request a review ticket's body names", async (t) => {
     await recordingGh(
@@ -746,18 +752,12 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
     labels: string[],
     body = "",
   ): Record<string, unknown> {
-    return {
+    return rawIssue({
       number,
       title: `Ticket ${number}`,
       body,
-      subIssuesSummary: { total: 0, completed: 0 },
-      blockedBy: { nodes: [], totalCount: 0 },
       labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
-    };
-  }
-
-  function issues(rawIssues: Record<string, unknown>[]): string {
-    return `printf '%s' '${JSON.stringify(rawIssues)}'`;
+    });
   }
 
   it("names no model for a ticket without a model label", async (t) => {
@@ -853,16 +853,6 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
 describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
-  function issues(rawIssues: Record<string, unknown>[]): string {
-    const withBody = rawIssues.map((issue) => ({
-      body: "",
-      blockedBy: { nodes: [], totalCount: 0 },
-      labels: [],
-      ...issue,
-    }));
-    return `printf '%s' '${JSON.stringify(withBody)}'`;
-  }
-
   it("carries the count still open, not the total", async (t) => {
     await recordingGh(
       t,
@@ -917,16 +907,6 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
 
 describe("ghIssueTracker.listEligibleTickets — blockers", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
-
-  function issues(rawIssues: Record<string, unknown>[]): string {
-    const complete = rawIssues.map((issue) => ({
-      body: "",
-      subIssuesSummary: { total: 0, completed: 0 },
-      labels: [],
-      ...issue,
-    }));
-    return `printf '%s' '${JSON.stringify(complete)}'`;
-  }
 
   it("carries how many of a ticket's blockers are still open, not how many it has", async (t) => {
     await recordingGh(
