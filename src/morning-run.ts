@@ -20,6 +20,7 @@ import type {
   State,
   Store,
   Ticket,
+  TicketPriority,
   TokenCount,
   UsageLedger,
   Usd,
@@ -214,6 +215,12 @@ export interface ProjectOutcome {
    * `brokenOut`.
    */
   blocked?: Ticket[];
+  /**
+   * Set when this project's backlog held more eligible tickets than the read
+   * kept — regardless of verdict, since a project outranked this morning can
+   * still be the one whose backlog needs thinning.
+   */
+  backlogTruncated?: true;
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -678,9 +685,9 @@ async function considerProjects(
       continue;
     }
 
-    const backlog = (
-      await ports.tracker.listEligibleTickets(project.repo)
-    ).tickets.filter((ticket) => !worked.passesOver(ticket));
+    const { tickets, truncated: backlogTruncated } =
+      await ports.tracker.listEligibleTickets(project.repo);
+    const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
@@ -698,16 +705,13 @@ async function considerProjects(
         selectable.push(ticket);
       }
     }
-    // A review in the same backlog as its parent ticket is worked before it,
-    // so it is picked here even when it is not first in the list.
-    const ticket = selectable.find(isReview) ?? selectable[0];
+    const findings: ScanFindings = { brokenOut, blocked, backlogTruncated };
+    // A review in the same backlog as its parent ticket is worked before it.
+    const ticket = bestTicket(selectable);
 
     if (ticket === undefined) {
       outcomes.push(
-        outcome(project.repo, "no-eligible-tickets", projectState, {
-          brokenOut,
-          blocked,
-        }),
+        outcome(project.repo, "no-eligible-tickets", projectState, findings),
       );
       continue;
     }
@@ -722,9 +726,7 @@ async function considerProjects(
       }),
     });
     outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(
-      outcome(project.repo, "deferred", projectState, { brokenOut, blocked }),
-    );
+    outcomes.push(outcome(project.repo, "deferred", projectState, findings));
   }
 
   const winner = bestCandidate(candidates);
@@ -735,8 +737,9 @@ async function considerProjects(
   // Set by the loop above for every candidate, this one included.
   const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
   const scanned = outcomes[winnerIndex] as ProjectOutcome;
-  // Only the verdict changes: what the scan found, passed-over tickets
-  // included, is as true of the winner as of any project it outranked.
+  // Only the verdict changes: what the scan found, passed-over tickets and a
+  // truncated backlog included, is as true of the winner as of any project it
+  // outranked.
   outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
 
   return {
@@ -821,6 +824,31 @@ function modelRefused(
 }
 
 /**
+ * The one ticket `backlog` offers selection, within a single project: a
+ * review ticket before any implementation ticket, since finishing beats
+ * starting; among implementation tickets, `Ticket.priority` ascending, with
+ * an absent priority sorting after every ticket that has one; and, ties still
+ * standing, the oldest ticket — the lowest issue number — so the order the
+ * tracker happened to return them in never matters. Two review tickets, open
+ * on two different implementation tickets, fall to the oldest ticket the same
+ * way.
+ */
+function bestTicket(backlog: Ticket[]): Ticket | undefined {
+  return [...backlog].sort(compareTickets)[0];
+}
+
+function compareTickets(a: Ticket, b: Ticket): number {
+  if (isReview(a) !== isReview(b)) {
+    return isReview(a) ? -1 : 1;
+  }
+  const byPriority = absentLast(a.priority, b.priority);
+  if (byPriority !== 0) {
+    return byPriority;
+  }
+  return a.number - b.number;
+}
+
+/**
  * Selection's ordering rule, applied as one comparison rather than as
  * separate passes: reviews before implementations, then explicit priority,
  * then least recently worked. Each level only breaks ties the level before it
@@ -839,7 +867,7 @@ function compareCandidates(a: Candidate, b: Candidate): number {
   if (a.isReview !== b.isReview) {
     return a.isReview ? -1 : 1;
   }
-  const byPriority = comparePriority(a.priority, b.priority);
+  const byPriority = absentLast(a.priority, b.priority);
   if (byPriority !== 0) {
     return byPriority;
   }
@@ -847,14 +875,20 @@ function compareCandidates(a: Candidate, b: Candidate): number {
 }
 
 /**
- * A project without a priority sorts after every project that has one — not
- * via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`, and a
- * comparator that can return `NaN` leaves `Array.prototype.sort` free to
+ * Ascending by a project's `Priority` or by a ticket's `TicketPriority`, never
+ * one against the other, with an absent value sorting after every present
+ * one. Not via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`,
+ * and a comparator that can return `NaN` leaves `Array.prototype.sort` free to
  * return either order.
  */
-function comparePriority(
-  a: Priority | undefined,
-  b: Priority | undefined,
+function absentLast(a: Priority | undefined, b: Priority | undefined): number;
+function absentLast(
+  a: TicketPriority | undefined,
+  b: TicketPriority | undefined,
+): number;
+function absentLast(
+  a: Priority | TicketPriority | undefined,
+  b: Priority | TicketPriority | undefined,
 ): number {
   if (a === undefined) {
     return b === undefined ? 0 : 1;
@@ -1272,11 +1306,25 @@ async function runReview(
   return { kind: "reviewed", review, posted };
 }
 
+/**
+ * What scanning one project's backlog found, whatever its verdict: the tickets
+ * passed over, and whether the listing was truncated.
+ */
+interface ScanFindings {
+  brokenOut: Ticket[];
+  blocked: Ticket[];
+  backlogTruncated: boolean;
+}
+
 function outcome(
   repo: RepoSlug,
   verdict: ProjectVerdict,
   state: ProjectState | undefined,
-  { brokenOut = [], blocked = [] }: { brokenOut?: Ticket[]; blocked?: Ticket[] } = {},
+  {
+    brokenOut = [],
+    blocked = [],
+    backlogTruncated = false,
+  }: Partial<ScanFindings> = {},
 ): ProjectOutcome {
   const lastWorkedAt = state?.lastWorkedAt;
   return {
@@ -1285,6 +1333,7 @@ function outcome(
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
     ...(brokenOut.length > 0 && { brokenOut }),
     ...(blocked.length > 0 && { blocked }),
+    ...(backlogTruncated && { backlogTruncated: true }),
   };
 }
 
@@ -1394,7 +1443,8 @@ function whyStoodDown(
     const { ticket, limitRefusal } = standDown;
     return `${limitRefusal}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
   }
-  const ready = when === "next" ? "was ready to work next" : "was ready to work";
+  const ready =
+    when === "next" ? "was ready to work next" : "was ready to work";
   return `${standDownReason(standDown)}. ${standDown.refused} ${ready}; the window resets ${standDown.resetsAt.toISOString()}.`;
 }
 

@@ -18,6 +18,7 @@ import {
   repoSlug,
   reserveFraction,
   reviewTitle,
+  ticketPriority,
   tokenCount,
   usd,
   type ReviewTicket,
@@ -586,6 +587,232 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
+    });
+
+    describe("ticket priority, within one project", () => {
+      it("a priority:1 ticket is selected over an older unlabelled ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        // Added after #7, so winning proves priority rather than backlog order.
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: "Add the urgent thing",
+          priority: ticketPriority(1),
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
+      });
+
+      it("a priority:1 ticket is selected over an older priority:2 ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: "Add the urgent thing",
+          priority: ticketPriority(1),
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
+      });
+
+      it("with neither ticket labelled, the oldest ticket wins whatever order the tracker returns them in", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        // Added in descending order, so winning proves the tie-break rather
+        // than reflecting backlog order.
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: "Add the other thing",
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 7);
+      });
+
+      it("a review ticket is selected over a priority:1 implementation ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const implementation = ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(1),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: reviewTitle(implementation),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/1",
+          ),
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
+      });
+
+      it("with two review tickets, the oldest ticket wins whatever order the tracker returns them in", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const first = ports.tracker.addEligibleTicket(PILOT, {
+          number: 5,
+          title: "Add the thing",
+        });
+        const second = ports.tracker.addEligibleTicket(PILOT, {
+          number: 6,
+          title: "Add the other thing",
+        });
+        // Added in descending order, so winning proves the tie-break rather
+        // than reflecting backlog order.
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: reviewTitle(second),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/2",
+          ),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: reviewTitle(first),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/1",
+          ),
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
+      });
+
+      it("never lets a ticket's priority make its project outrank one with explicit registry priority", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER, { priority: priority(1) });
+        ports.tracker.addEligibleTicket(MANAGER, {
+          number: 3,
+          title: "Add another thing",
+        });
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the urgent thing",
+          priority: ticketPriority(1),
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.repo, MANAGER);
+      });
+
+      it("never lets a ticket's priority make its project outrank one worked less recently", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER);
+        ports.tracker.addEligibleTicket(MANAGER, {
+          number: 3,
+          title: "Add another thing",
+        });
+        // MANAGER was never worked, so it waits longest; the ticket priority on
+        // PILOT's ticket must not be what wins it the morning.
+        ports.store.register(PILOT);
+        ports.store.markWorked(PILOT, YESTERDAY, {
+          at: YESTERDAY,
+          tokensUsed: tokenCount(1),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the urgent thing",
+          priority: ticketPriority(1),
+        });
+
+        await morningRun(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.repo, MANAGER);
+      });
+    });
+
+    describe("a truncated backlog", () => {
+      it("sets backlogTruncated on the selected project", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        ports.tracker.truncateBacklog(PILOT);
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.projects[0]?.backlogTruncated, true);
+      });
+
+      it("sets backlogTruncated on a project another outranked", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER, { priority: priority(1) });
+        ports.tracker.addEligibleTicket(MANAGER, {
+          number: 3,
+          title: "Add another thing",
+        });
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        ports.tracker.truncateBacklog(PILOT);
+        // The gate refuses MANAGER's run, so no later iteration comes round to
+        // select PILOT and its verdict stays the one the first scan gave it.
+        ports.ledger.reports(spent({ weekly: Number.MAX_SAFE_INTEGER }));
+
+        const report = await morningRun(ports);
+
+        const pilot = report.projects.find(({ repo }) => repo === PILOT);
+        assert.equal(pilot?.verdict, "deferred");
+        assert.equal(pilot?.backlogTruncated, true);
+      });
+
+      it("sets backlogTruncated on a project with no eligible tickets", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addBrokenOutTicket(
+          PILOT,
+          { number: 66, title: "Too big for one run" },
+          7,
+        );
+        ports.tracker.truncateBacklog(PILOT);
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.projects[0]?.verdict, "no-eligible-tickets");
+        assert.equal(report.projects[0]?.backlogTruncated, true);
+      });
+
+      it("leaves backlogTruncated absent for an untruncated listing", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+
+        const report = await morningRun(ports);
+
+        assert.equal(report.projects[0]?.backlogTruncated, undefined);
+      });
     });
 
     it("never selects a paused project's ticket over another's, however high its priority", async () => {
@@ -2601,7 +2828,7 @@ describe("morningRun", () => {
         assert.match(comment, /model:opus/);
         assert.match(comment, /model:haiku/);
         assert.match(comment, /keep one/i);
-        assert.deepEqual(await ports.tracker.listEligibleTickets(PILOT), []);
+        assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
         assert.equal(failureOf(report.runs[0])?.kind, "conflicting-model-labels");
       });
 
@@ -2673,7 +2900,7 @@ describe("morningRun", () => {
         assert.match(comment, /refused model opus/);
         assert.doesNotMatch(comment, /gave up/);
         assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
-        assert.deepEqual(await ports.tracker.listEligibleTickets(PILOT), []);
+        assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
       });
 
       it("says the model came from the model defaults when it did", async () => {
