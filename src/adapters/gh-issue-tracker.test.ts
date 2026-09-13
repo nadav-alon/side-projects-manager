@@ -799,6 +799,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
     assert.deepEqual(tickets[0]?.modelLabel, {
       kind: "conflicting",
       names: [modelName("opus"), modelName("haiku")],
+      labels: ["model:opus", "model:haiku"],
     });
   });
 

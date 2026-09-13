@@ -26,8 +26,9 @@ export const MODEL_LABEL_PREFIX = "model:";
  * several that disagree, or a label whose name no run could be handed. Absent
  * from a ticket that names no model.
  *
- * `conflicting` still carries every name, in label order, so a hand-back can
- * say which models the ticket named. `unusable` carries each model label
+ * `conflicting` still carries every name, in label order, and each label as
+ * written, so a hand-back can quote the labels the ticket actually carries.
+ * `unusable` carries each model label
  * whose name `isModelName` refuses — a bare `model:`, a name with a space in
  * it, one that reads as an option — as written, so a hand-back can quote it.
  * It wins over the other two: the developer asked for a model, and running
@@ -36,7 +37,11 @@ export const MODEL_LABEL_PREFIX = "model:";
  */
 export type ModelLabel =
   | { kind: "named"; name: ModelName }
-  | { kind: "conflicting"; names: readonly ModelName[] }
+  | {
+      kind: "conflicting";
+      names: readonly ModelName[];
+      labels: readonly string[];
+    }
   | { kind: "unusable"; labels: readonly string[] };
 
 /**
@@ -50,6 +55,7 @@ export type ModelLabel =
  */
 export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   const names: ModelName[] = [];
+  const named: string[] = [];
   const unusable: string[] = [];
   for (const label of labels) {
     if (!label.toLowerCase().startsWith(MODEL_LABEL_PREFIX)) {
@@ -58,6 +64,7 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
     const name = label.slice(MODEL_LABEL_PREFIX.length);
     if (isModelName(name)) {
       names.push(name);
+      named.push(label);
     } else {
       unusable.push(label);
     }
@@ -72,7 +79,7 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   }
   return others.length === 0
     ? { kind: "named", name }
-    : { kind: "conflicting", names };
+    : { kind: "conflicting", names, labels: named };
 }
 
 /**

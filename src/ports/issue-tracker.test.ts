@@ -57,6 +57,15 @@ describe("modelLabelOf", () => {
     assert.deepEqual(modelLabelOf(["model:opus", "bug", "model:haiku"]), {
       kind: "conflicting",
       names: [modelName("opus"), modelName("haiku")],
+      labels: ["model:opus", "model:haiku"],
+    });
+  });
+
+  it("keeps conflicting labels as written, whatever the prefix's case", () => {
+    assert.deepEqual(modelLabelOf(["Model:Opus", "model:haiku"]), {
+      kind: "conflicting",
+      names: [modelName("Opus"), modelName("haiku")],
+      labels: ["Model:Opus", "model:haiku"],
     });
   });
 

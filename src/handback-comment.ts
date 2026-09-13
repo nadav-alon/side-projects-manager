@@ -1,6 +1,15 @@
-import type { GaveUp } from "./morning-run.ts";
+import type {
+  GaveUp,
+  ModelRefused,
+  UnusableModelLabel,
+} from "./morning-run.ts";
 import type { PullRequestUrl, SandboxRunResult, Ticket } from "./ports/index.ts";
-import { READY_FOR_AGENT_LABEL } from "./ports/index.ts";
+import {
+  MODEL_LABEL_PREFIX,
+  MODEL_NAME_SHAPE,
+  READY_FOR_AGENT_LABEL,
+  ticketKind,
+} from "./ports/index.ts";
 
 /**
  * What became of a failed run's branch when the loop discarded it, so that the
@@ -50,7 +59,60 @@ export function handbackComment(
     `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
     `What it said:\n\n${quote(run?.output ?? "")}`,
     ...branchNote(run, discard),
-    `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
+    notRetried(),
+  ].join("\n\n");
+}
+
+/**
+ * What a ticket is told when the agent CLI refused the model its run was
+ * started on: which model, what named it, and the CLI's own words — so the
+ * developer fixes the model rather than the ticket's wording, which an agent
+ * that never started has said nothing about.
+ */
+export function modelRefusalComment(
+  ticket: Ticket,
+  failure: ModelRefused,
+  run: SandboxRunResult | undefined,
+  discard: Discard,
+): string {
+  const model = `\`${failure.refusal.model}\``;
+  const [named, fix] =
+    failure.source === "model label"
+      ? [
+          `its model label, \`${MODEL_LABEL_PREFIX}${failure.refusal.model}\``,
+          `fix or remove its model label`,
+        ]
+      : [
+          `the model defaults for ${ticketKind(ticket)} tickets, in \`models.json\``,
+          `fix the ${ticketKind(ticket)} model in \`models.json\`, or give this ticket a model label`,
+        ];
+  return [
+    `The morning loop did not work this ticket: the agent CLI refused the model ${model}, named by ${named}.`,
+    `What the CLI said:\n\n${quote(failure.refusal.words)}`,
+    ...branchNote(run, discard),
+    notRetried(fix),
+  ].join("\n\n");
+}
+
+/**
+ * What a ticket is told when its model labels named no model a run could be
+ * started on. Said at selection, so there is no run, branch or output to name.
+ */
+export function unusableModelLabelComment(failure: UnusableModelLabel): string {
+  const labels = failure.labels.map((label) => `\`${label}\``).join(", ");
+  const [what, fix] =
+    failure.kind === "conflicting-model-labels"
+      ? [
+          `it carries more than one model label (${labels}), and there is no telling which model it should run on`,
+          `keep one of them`,
+        ]
+      : [
+          `its model label names no model a run could be started on (${labels}): a model label is \`${MODEL_LABEL_PREFIX}<name>\`, with ${MODEL_NAME_SHAPE}`,
+          `fix or remove it`,
+        ];
+  return [
+    `The morning loop did not run this ticket: ${what}. Nothing was run and nothing was spent.`,
+    notRetried(fix),
   ].join("\n\n");
 }
 
@@ -93,8 +155,18 @@ export function committedNothingComment(
   return [
     `The morning loop ran this ticket and committed nothing.`,
     `What it said:\n\n${quote(run?.output ?? "")}`,
-    `This ticket is yours again and will not be retried: add ${READY_FOR_AGENT_LABEL} back to send it round another morning.`,
+    notRetried(),
   ].join("\n\n");
+}
+
+/**
+ * The line a handed-back ticket's comment ends on: the ticket is the
+ * developer's again, and what sends it round another morning — after `fix`,
+ * where there is something to fix first.
+ */
+function notRetried(fix?: string): string {
+  const sendRound = `add ${READY_FOR_AGENT_LABEL} back to send it round another morning`;
+  return `This ticket is yours again and will not be retried: ${fix === undefined ? sendRound : `${fix}, then ${sendRound}`}.`;
 }
 
 /** What the developer will find in the checkout, when it is worth saying. */
