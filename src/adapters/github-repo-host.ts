@@ -13,6 +13,7 @@ import type {
   Ticket,
 } from "../ports/index.ts";
 import { checkout, pullRequestUrl } from "../ports/index.ts";
+import { withCheckoutLock } from "./checkout-lock.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -49,23 +50,28 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       const directory = checkout(path.join(location, repo));
       await mkdir(path.dirname(directory), { recursive: true });
 
-      const origin = await originOf(directory);
-      if (origin === undefined) {
-        await run("gh", ["repo", "clone", repo, directory]);
-        return directory;
-      }
+      // Every step from here reads or writes the checkout, which the sandbox
+      // may be branching from or fetching into for another run of this
+      // project.
+      return withCheckoutLock(directory, async () => {
+        const origin = await originOf(directory);
+        if (origin === undefined) {
+          await run("gh", ["repo", "clone", repo, directory]);
+          return directory;
+        }
 
-      // A checkout already there is reused, but only once it has proved it is
-      // this project. Scaffolding into somebody else's clone would push the
-      // harness to their remote and register this project against a codebase
-      // that is not it.
-      if (!isCloneOf(origin, repo)) {
-        throw new Error(
-          `${directory} is a checkout of ${origin}, not of ${repo}. Move it aside, or clone ${repo} somewhere else yourself.`,
-        );
-      }
-      await catchUp(directory);
-      return directory;
+        // A checkout already there is reused, but only once it has proved it
+        // is this project. Scaffolding into somebody else's clone would push
+        // the harness to their remote and register this project against a
+        // codebase that is not it.
+        if (!isCloneOf(origin, repo)) {
+          throw new Error(
+            `${directory} is a checkout of ${origin}, not of ${repo}. Move it aside, or clone ${repo} somewhere else yourself.`,
+          );
+        }
+        await catchUp(directory);
+        return directory;
+      });
     },
 
     async commitAndPush(
@@ -201,34 +207,41 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       branch: Branch,
       ticket: Ticket,
     ): Promise<PullRequestUrl> {
-      // What the run branched from: the sandbox clones this checkout at its
-      // HEAD, so the branch it is on is the base the commits actually sit on.
-      // Asked rather than left to `gh`, which would open against the remote's
-      // default branch and put every commit between the two in the diff.
-      const base = await currentBranch(directory);
-      if (base === undefined) {
-        // A detached HEAD has no branch to name, and carrying on without
-        // `--base` would hand `gh` the default branch — the very diff the
-        // flag is here to avoid. Refused before the push, so a checkout in
-        // this state costs nothing on the host.
-        throw new Error(
-          `${directory} is not on a branch, so there is no base to open a pull request against. Check out a branch and run this again.`,
-        );
-      }
+      // Only the git steps hold the checkout's lock. Opening the pull request
+      // is a conversation with GitHub alone, and waiting on it would hold up
+      // every other run of this project for no reason.
+      const base = await withCheckoutLock(directory, async () => {
+        // What the run branched from: the sandbox clones this checkout at its
+        // HEAD, so the branch it is on is the base the commits actually sit
+        // on. Asked rather than left to `gh`, which would open against the
+        // remote's default branch and put every commit between the two in
+        // the diff.
+        const found = await currentBranch(directory);
+        if (found === undefined) {
+          // A detached HEAD has no branch to name, and carrying on without
+          // `--base` would hand `gh` the default branch — the very diff the
+          // flag is here to avoid. Refused before the push, so a checkout in
+          // this state costs nothing on the host.
+          throw new Error(
+            `${directory} is not on a branch, so there is no base to open a pull request against. Check out a branch and run this again.`,
+          );
+        }
 
-      // By name, not by checking it out, and without upstream tracking: the
-      // branch came back from the sandbox as a ref in this checkout, and the
-      // developer's own checkout is never moved or reconfigured to push it.
-      try {
-        await run("git", ["-C", directory, "push", "origin", branch]);
-      } catch (error) {
-        // Most likely a branch of this name already on the host from an
-        // earlier morning, which a checkout that has since been re-cloned
-        // cannot see. Said plainly, because the raw push output does not.
-        throw new Error(
-          `Could not push ${branch} to ${ticket.repo}: ${errorMessage(error)}`,
-        );
-      }
+        // By name, not by checking it out, and without upstream tracking: the
+        // branch came back from the sandbox as a ref in this checkout, and the
+        // developer's own checkout is never moved or reconfigured to push it.
+        try {
+          await run("git", ["-C", directory, "push", "origin", branch]);
+        } catch (error) {
+          // Most likely a branch of this name already on the host from an
+          // earlier morning, which a checkout that has since been re-cloned
+          // cannot see. Said plainly, because the raw push output does not.
+          throw new Error(
+            `Could not push ${branch} to ${ticket.repo}: ${errorMessage(error)}`,
+          );
+        }
+        return found;
+      });
 
       let opened: string;
       try {
@@ -275,15 +288,17 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async discardBranch(directory: Checkout, branch: Branch): Promise<void> {
-      // Asked first, because `git branch -D` treats a branch that is not
-      // there as an error, and a run whose agent committed nothing never
-      // fetched one back — which is the commonest way to arrive here.
-      if (!(await hasBranch(directory, branch))) {
-        return;
-      }
-      // `-D` rather than `-d`: the branch was never merged anywhere, which is
-      // the whole reason it is being thrown away.
-      await run("git", ["-C", directory, "branch", "-D", branch]);
+      await withCheckoutLock(directory, async () => {
+        // Asked first, because `git branch -D` treats a branch that is not
+        // there as an error, and a run whose agent committed nothing never
+        // fetched one back — which is the commonest way to arrive here.
+        if (!(await hasBranch(directory, branch))) {
+          return;
+        }
+        // `-D` rather than `-d`: the branch was never merged anywhere, which
+        // is the whole reason it is being thrown away.
+        await run("git", ["-C", directory, "branch", "-D", branch]);
+      });
     },
 
     async hasNewComment(
