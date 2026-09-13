@@ -36,10 +36,11 @@ export interface FakeHandback {
 }
 
 /**
- * A ticket as a test hands it to the fake. No `modelLabel`: the fake reads
- * that from the labels a ticket holds, the way the real tracker does.
+ * A ticket as a test hands it to the fake. No `modelLabel`, not even on a
+ * wider `Ticket`: the fake reads that from the labels a ticket holds, the way
+ * the real tracker does.
  */
-type TicketInput = Omit<Ticket, "repo" | "modelLabel">;
+type TicketInput = Omit<Ticket, "repo" | "modelLabel"> & { modelLabel?: never };
 
 /** A ticket as the fake holds it: the ticket itself, and the labels it carries. */
 interface Stored {
@@ -139,10 +140,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
-    // Dropped at runtime too: a wider `Ticket` still type-checks as the input,
-    // and a stored `modelLabel` would outlive the labels it claims to read.
-    const { modelLabel: _ignored, ...fields } = ticket as Omit<Ticket, "repo">;
-    const stored: Ticket = { repo, ...fields };
+    const stored: Ticket = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];
     backlog.push({ ticket: stored, labels: new Set([label]) });
     this.#backlogs.set(repo, backlog);

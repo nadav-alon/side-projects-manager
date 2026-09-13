@@ -74,7 +74,8 @@ describe("FakeIssueTracker — model labels", () => {
     assert.equal(backlog[0]?.modelLabel, undefined);
   });
 
-  it("reads the model label from labels alone, never from the ticket it was given", async () => {
+  /** Checked by the type check: the model label comes from labels alone. */
+  it("takes no model label with the ticket it is given", () => {
     const tracker = new FakeIssueTracker();
     const given: Ticket = {
       repo: PILOT,
@@ -82,11 +83,8 @@ describe("FakeIssueTracker — model labels", () => {
       title: "Add the thing",
       modelLabel: { kind: "named", name: modelName("opus") },
     };
+    // @ts-expect-error: a ticket carrying a model label is not a TicketInput.
     tracker.addEligibleTicket(PILOT, given);
-
-    const backlog = await tracker.listEligibleTickets(PILOT);
-
-    assert.equal(backlog[0]?.modelLabel, undefined);
   });
 
   it("names the model a ticket labelled model:opus asks for", async () => {
