@@ -802,6 +802,18 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
     });
   });
 
+  it("marks a ticket whose model label names no usable model as unusable", async (t) => {
+    await recordingGh(t, issues([issue(7, ["model:claude opus"])]));
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets.length, 1, "an unusable ticket is still returned");
+    assert.deepEqual(tickets[0]?.modelLabel, {
+      kind: "unusable",
+      labels: ["model:claude opus"],
+    });
+  });
+
   it("reads a review ticket's own labels, not its parent's", async (t) => {
     const pullRequest = "https://github.com/nadav-alon/pilot/pull/12";
     await recordingGh(

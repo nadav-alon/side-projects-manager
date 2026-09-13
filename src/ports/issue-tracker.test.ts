@@ -65,11 +65,27 @@ describe("modelLabelOf", () => {
     assert.equal(modelLabelOf(["Model:opus", "my-model:opus"]), undefined);
   });
 
-  it("ignores a bare prefix, which names no model", () => {
-    assert.equal(modelLabelOf(["model:"]), undefined);
-    assert.deepEqual(modelLabelOf(["model:", "model:opus"]), {
-      kind: "named",
-      name: modelName("opus"),
+  it("marks a bare prefix unusable, since it is a model label naming no model", () => {
+    assert.deepEqual(modelLabelOf(["model:"]), {
+      kind: "unusable",
+      labels: ["model:"],
+    });
+  });
+
+  it("marks a name no run could be handed unusable, carrying the labels as written", () => {
+    assert.deepEqual(
+      modelLabelOf(["model: opus", "bug", "model:claude opus", "model:-p"]),
+      {
+        kind: "unusable",
+        labels: ["model: opus", "model:claude opus", "model:-p"],
+      },
+    );
+  });
+
+  it("marks a ticket unusable even beside a usable model label", () => {
+    assert.deepEqual(modelLabelOf(["model:opus", "model:"]), {
+      kind: "unusable",
+      labels: ["model:"],
     });
   });
 });

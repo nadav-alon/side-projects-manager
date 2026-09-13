@@ -130,6 +130,20 @@ describe("FakeIssueTracker — model labels", () => {
     });
   });
 
+  it("marks a ticket whose model label names no usable model as unusable", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addLabel(ticket, "model:claude opus");
+
+    const backlog = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(backlog.length, 1, "an unusable ticket is still returned");
+    assert.deepEqual(backlog[0]?.modelLabel, {
+      kind: "unusable",
+      labels: ["model:claude opus"],
+    });
+  });
+
   it("reads a review ticket's own labels, not its parent's", async () => {
     const tracker = new FakeIssueTracker();
     const parent = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });

@@ -22,29 +22,47 @@ export const MODEL_LABEL_PREFIX = "model:";
 
 /**
  * What a ticket's model labels say, where it carries any: one model by name,
- * or several that disagree. Absent from a ticket that names no model.
+ * several that disagree, or a label whose name no run could be handed. Absent
+ * from a ticket that names no model.
  *
  * `conflicting` still carries every name, in label order, so a hand-back can
- * say which models the ticket named. Whether to work such a ticket is the
- * loop's decision; the tracker only reports it.
+ * say which models the ticket named. `unusable` carries each model label
+ * whose name `isModelName` refuses — a bare `model:`, a name with a space in
+ * it, one that reads as an option — as written, so a hand-back can quote it.
+ * It wins over the other two: the developer asked for a model, and running
+ * the ticket on another one is not what they asked for. Whether to work
+ * either kind of ticket is the loop's decision; the tracker only reports it.
  */
 export type ModelLabel =
   | { kind: "named"; name: ModelName }
-  | { kind: "conflicting"; names: readonly ModelName[] };
+  | { kind: "conflicting"; names: readonly ModelName[] }
+  | { kind: "unusable"; labels: readonly string[] };
 
 /**
  * The model label a ticket carrying `labels` declares, or undefined where it
  * names no model.
  *
  * Beside the port rather than in an adapter, so the real tracker and the fake
- * read labels identically. A bare `model:` names nothing and is skipped.
+ * read labels identically.
  */
 export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
-  const names = [...labels]
-    .filter((label) => label.startsWith(MODEL_LABEL_PREFIX))
-    .map((label) => label.slice(MODEL_LABEL_PREFIX.length))
-    .filter(isModelName);
+  const names: ModelName[] = [];
+  const unusable: string[] = [];
+  for (const label of labels) {
+    if (!label.startsWith(MODEL_LABEL_PREFIX)) {
+      continue;
+    }
+    const name = label.slice(MODEL_LABEL_PREFIX.length);
+    if (isModelName(name)) {
+      names.push(name);
+    } else {
+      unusable.push(label);
+    }
+  }
 
+  if (unusable.length > 0) {
+    return { kind: "unusable", labels: unusable };
+  }
   const [name, ...others] = names;
   if (name === undefined) {
     return undefined;
