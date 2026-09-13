@@ -42,6 +42,7 @@ import {
   handbackComment,
   handoverComment,
   modelRefusalComment,
+  reviewHandbackComment,
   unusableModelLabelComment,
   type Discard,
 } from "./handback-comment.ts";
@@ -345,7 +346,7 @@ interface Failed {
   failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: SandboxRunResult;
-  /** What a review whose model was refused spent, since it has no `run`. */
+  /** What a review that ran spent, since it has no `run`. */
   tokensUsed?: TokenCount;
 }
 
@@ -382,20 +383,21 @@ interface Candidate {
 }
 
 /**
- * What a review ticket's own run comes to: the reviewer's output, and whether
- * it actually landed on the pull request the ticket names. There is no pull
- * request to name here — the review ticket already names the one it is about
- * — and no further review to queue, since nothing reviews a review.
+ * A review ticket's own run that finished without the agent giving up. There
+ * is no pull request to name here — the review ticket already names the one
+ * it is about — and no further review to queue, since nothing reviews a
+ * review. A review that gave up or posted nothing is `Failed` instead.
  */
 interface Reviewed {
   kind: "reviewed";
   review: ReviewRunResult;
   /**
-   * Whether the pull request now carries a new comment. False either when the
-   * agent's own run failed or when it exited clean but never posted, which is
-   * why this is checked rather than inferred from `review.failure` alone.
+   * Set when the loop could not finish the ticket off: the pull request could
+   * not be checked for the posted comment, or the ticket could not be closed.
+   * Either way it is still ready-for-agent, and the developer checks the pull
+   * request and closes it by hand.
    */
-  posted: boolean;
+  closeFailure?: string;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -1234,13 +1236,14 @@ function infrastructureFailure(error: unknown): Failed {
  * the sandbox process merely exiting clean: an agent can run the review skill
  * fine and still fail its own last step, `gh pr comment`, and a ticket closed
  * on process success alone would tell the developer a review happened when
- * nothing was ever posted. Either way nothing did — a failed process or a
- * clean one that posted nothing — the ticket is left ready-for-agent and
- * comes round again for a later morning to try.
+ * nothing was ever posted. Either way nothing did — an agent that gave up, or
+ * a clean exit that posted nothing — the ticket is handed back, as an
+ * implementation ticket's is.
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
- * as it was, and the invocation carries on.
+ * as it was, and the invocation carries on. A check or a close that fails
+ * after the review ran is reported on the iteration, never raised.
  */
 async function runReview(
   ports: MorningRunPorts,
@@ -1295,15 +1298,58 @@ async function runReview(
     };
   }
 
-  const posted =
-    review.failure === undefined &&
-    (await ports.repoHost.hasNewComment(ticket.pullRequest, startedAt));
-
-  if (posted) {
-    await ports.tracker.closeReviewTicket(ticket);
+  if (review.failure !== undefined) {
+    return handReviewBack(ports, ticket, review, review.failure);
   }
 
-  return { kind: "reviewed", review, posted };
+  let posted: boolean;
+  try {
+    posted = await ports.repoHost.hasNewComment(ticket.pullRequest, startedAt);
+  } catch (error: unknown) {
+    return {
+      kind: "reviewed",
+      review,
+      closeFailure: `its pull request could not be checked for the comment it should have posted: ${errorMessage(error)}`,
+    };
+  }
+  if (!posted) {
+    return handReviewBack(
+      ports,
+      ticket,
+      review,
+      `the agent finished but posted nothing to ${ticket.pullRequest}`,
+    );
+  }
+
+  try {
+    await ports.tracker.closeReviewTicket(ticket);
+  } catch (error: unknown) {
+    return {
+      kind: "reviewed",
+      review,
+      closeFailure: `it could not be closed: ${errorMessage(error)}`,
+    };
+  }
+  return { kind: "reviewed", review };
+}
+
+/** Hands back a review that left no findings on its pull request, as an agent that gave up. */
+async function handReviewBack(
+  ports: MorningRunPorts,
+  ticket: ReviewTicket,
+  review: ReviewRunResult,
+  reason: string,
+): Promise<Failed> {
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  return {
+    ...(await handTicketBack(
+      ports,
+      ticket,
+      failure,
+      reviewHandbackComment(ticket, review),
+    )),
+    tokensUsed: review.tokensUsed,
+  };
 }
 
 /**
@@ -1509,20 +1555,18 @@ function stillEligibleLine(run: { repo: RepoSlug; ticket: Ticket }): string {
  * eligible, or — the one case a failed run can leave
  * behind that is the developer's alone, per `RunFailure.handedBack`'s own
  * note — a ticket the hand-back itself could not reach, still eligible and
- * due to come round again until somebody relabels it by hand.
- *
- * An unposted review is left out, and deliberately so rather than by the
- * same oversight: a failed hand-back is here because the loop's own
- * recovery — relabelling the ticket — already failed, so nothing but a human
- * fixes it. An unposted review's recovery has not failed; it has not
- * happened yet. The ticket stays ready-for-agent and the loop retries it
- * unassisted next iteration, exactly like a normal ticket — there is nothing
- * here that needs a human to notice.
+ * due to come round again until somebody relabels it by hand. A review the
+ * loop could not close is there for the same reason.
  */
 function waitingSection(runs: IterationOutcome[]): string | undefined {
   const lines = runs.flatMap((run): string[] => {
     switch (run.kind) {
       case "reviewed":
+        return run.closeFailure === undefined
+          ? []
+          : [
+              `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — ${run.closeFailure}; check ${run.ticket.pullRequest} and close it yourself`,
+            ];
       // A limit refusal's ticket waits on the provider, not the developer.
       case "limit-refused":
         return [];
@@ -1633,17 +1677,14 @@ function handbackNote(finished: Finished): string {
 
 /**
  * How a review ticket's own run reads to the developer: where its findings
- * landed, or why there are none to read.
+ * landed, or why the loop could not finish the ticket off.
  */
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, review, posted } = iteration;
-  if (review.failure !== undefined) {
-    return `Reviewed ${repo} #${ticket.number}: the agent failed: ${review.failure}.`;
-  }
-  if (!posted) {
-    return `Reviewed ${repo} #${ticket.number}: the agent finished but posted nothing to ${ticket.pullRequest}. Still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+  const { repo, ticket, closeFailure } = iteration;
+  if (closeFailure !== undefined) {
+    return `Reviewed ${repo} #${ticket.number}, but ${closeFailure}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest} for its findings and close it yourself.`;
   }
   return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}.`;
 }

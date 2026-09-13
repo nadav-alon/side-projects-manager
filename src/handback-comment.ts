@@ -3,7 +3,13 @@ import type {
   ModelRefused,
   UnusableModelLabel,
 } from "./morning-run.ts";
-import type { PullRequestUrl, SandboxRunResult, Ticket } from "./ports/index.ts";
+import type {
+  PullRequestUrl,
+  ReviewRunResult,
+  ReviewTicket,
+  SandboxRunResult,
+  Ticket,
+} from "./ports/index.ts";
 import {
   MODEL_LABEL_PREFIX,
   MODEL_NAME_SHAPE,
@@ -59,6 +65,32 @@ export function handbackComment(
     `Why it stopped: ${tail(failure.reason, REASON_QUOTED)}`,
     `What it said:\n\n${quote(run?.output ?? "")}`,
     ...branchNote(run, discard),
+    notRetried(),
+  ].join("\n\n");
+}
+
+/**
+ * What a review ticket is told when its review did not finish: the agent gave
+ * up, or finished without posting. The pull request is not checked for a
+ * comment from an agent that gave up — whatever it posted is not a finished
+ * review — so either way the ticket is the developer's again.
+ */
+export function reviewHandbackComment(
+  ticket: ReviewTicket,
+  review: ReviewRunResult,
+): string {
+  const what =
+    review.failure === undefined
+      ? [
+          `The morning loop ran this review and the agent finished, but posted nothing to ${ticket.pullRequest}.`,
+        ]
+      : [
+          `The morning loop ran this review and the agent gave up.`,
+          `Why it stopped: ${tail(review.failure, REASON_QUOTED)}`,
+        ];
+  return [
+    ...what,
+    `What it said:\n\n${quote(review.output)}`,
     notRetried(),
   ].join("\n\n");
 }

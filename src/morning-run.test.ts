@@ -1660,34 +1660,180 @@ describe("morningRun", () => {
       assert.deepEqual(backlog, []);
     });
 
-    it("leaves a failed review open, for a later morning to try again", async () => {
+    it("hands back a review whose agent gave up, rather than leaving it to come round again", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
       ports.sandbox.reviewResult = () => ({
-        output: "the agent gave up",
+        output: "I could not read the diff",
         tokensUsed: tokenCount(1_000),
-        failure: "the agent gave up",
+        failure: "the review skill exited 1",
       });
 
-      await morningRun(ports);
+      const report = await morningRun(ports);
+      const tomorrow = await morningRun(ports);
 
+      assert.equal(failureOf(report.runs[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.runs[0]), true);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
-      assert.deepEqual(backlog, [ticket]);
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback.comment, /the review skill exited 1/);
+      assert.match(handback.comment, /I could not read the diff/);
+      assert.match(handback.comment, /will not be retried/);
+      assert.equal(ports.sandbox.reviews.length, 1);
+      assert.equal(tomorrow.outcome, "dry-queue");
     });
 
-    it("leaves the ticket open when the agent finished but posted nothing, for a later morning to try again", async () => {
+    it("hands back a review whose agent finished but posted nothing, naming the pull request", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
       // The sandbox process exited clean, but its own last step — posting the
       // aggregated report — never landed on the pull request.
       ports.repoHost.newCommentPosted = false;
 
+      const report = await morningRun(ports);
+
+      assert.equal(failureOf(report.runs[0])?.kind, "gave-up");
+      assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback.comment, /posted nothing/);
+      assert.ok(handback.comment.includes(PULL_REQUEST));
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(backlog, []);
+    });
+
+    it("records what a review that gave up cost", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        output: "",
+        tokensUsed: tokenCount(3_000),
+        failure: "the review skill exited 1",
+      });
+
       await morningRun(ports);
 
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(3_000) },
+      ]);
+    });
+
+    it("says a review's hand-back itself failed, leaving the ticket for the developer to relabel", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.newCommentPosted = false;
+      t.mock.method(ports.tracker, "handBack", async () => {
+        throw new Error("gh is not logged in");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(handedBackOf(report.runs[0]), false);
+      assert.match(report.message, /gh is not logged in/);
+      assert.match(report.message, /relabel it yourself/);
+    });
+
+    it("reports a review whose pull request cannot be checked for the comment, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.sandbox.reviewResult = () => ({
+        output: "posted findings",
+        tokensUsed: tokenCount(9_000),
+      });
+      t.mock.method(ports.repoHost, "hasNewComment", async () => {
+        throw new Error("gh api rate limited");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.notEqual(report.outcome, "invocation-failed");
+      assert.deepEqual(
+        report.runs.map((run) => [run.ticket.number, run.kind]),
+        [
+          [42, "reviewed"],
+          [7, "finished"],
+        ],
+      );
+      assert.match(report.message, /gh api rate limited/);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
-      assert.deepEqual(backlog, [ticket]);
+      assert.deepEqual(ports.tracker.handbacks.map((h) => h.ticket.number), [7]);
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      const waiting = body.slice(body.indexOf("## Waiting on you"));
+      assert.match(waiting, new RegExp(`pilot #${ticket.number}`));
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.projects.get(PILOT)?.runs[0], {
+        at: FROZEN_NOW,
+        tokensUsed: tokenCount(9_000),
+      });
+    });
+
+    it("reports a review ticket that cannot be closed, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(report.runs[0]?.kind, "reviewed");
+      assert.match(report.message, /issue is locked/);
+      assert.match(report.message, /close it yourself/);
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /## Waiting on you[\s\S]*pilot #42/);
+    });
+
+    it("carries on past a review whose sandbox breaks, as an infrastructure failure that leaves the review open", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      t.mock.method(ports.sandbox, "review", async () => {
+        throw new Error("docker is not running");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(
+        report.runs.map((run) => [run.ticket.number, run.kind]),
+        [
+          [42, "failed"],
+          [7, "finished"],
+        ],
+      );
+      assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+      assert.ok(
+        ports.tracker.handbacks.every((h) => h.ticket.number !== ticket.number),
+      );
+    });
+
+    it("tells a review that gave up apart from one whose sandbox broke, in the summary", async (t) => {
+      const gaveUp = fakePorts();
+      queued(gaveUp);
+      gaveUp.sandbox.reviewResult = () => ({
+        output: "",
+        tokensUsed: tokenCount(1_000),
+        failure: "the review skill exited 1",
+      });
+      const broke = fakePorts();
+      queued(broke);
+      t.mock.method(broke.sandbox, "review", async () => {
+        throw new Error("docker is not running");
+      });
+
+      await morningRun(gaveUp);
+      await morningRun(broke);
+
+      const gaveUpBody = gaveUp.tracker.summaries[0]?.body ?? "";
+      const brokeBody = broke.tracker.summaries[0]?.body ?? "";
+      assert.match(gaveUpBody, /gave up on #42/);
+      assert.match(gaveUpBody, /pilot #42: relabelled ready-for-human/);
+      assert.doesNotMatch(gaveUpBody, /fix the setup/);
+      assert.match(brokeBody, /pilot #42: still ready-for-agent — the sandbox or checkout failed/);
+      assert.doesNotMatch(brokeBody, /gave up/);
     });
 
     it("checks the pull request for a comment made no earlier than when the review started", async () => {
@@ -1761,7 +1907,7 @@ describe("morningRun", () => {
 
       const report = await morningRun(ports);
 
-      assert.match(report.message, /the agent failed: the agent gave up/i);
+      assert.match(report.message, /the agent gave up on #42: the agent gave up/i);
     });
   });
 
