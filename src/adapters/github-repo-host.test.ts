@@ -601,13 +601,13 @@ describe("opening a draft pull request for a completed run", () => {
     );
   });
 
-  it("says so when the branch cannot be pushed", async (t) => {
-    const gh = await recordingGh(t, `echo ${OPENED}`);
+  /**
+   * A checkout whose run branch the host already has, carrying something else
+   * — which is what a re-cloned checkout cannot see, since it looks for a free
+   * branch name among its own refs. Pushing the run's branch from it is refused.
+   */
+  async function takenOnHost(): Promise<Checkout> {
     const directory = await ran(RAN);
-
-    // The host already has a branch of this name, carrying something else —
-    // which is what a re-cloned checkout cannot see, since it looks for a free
-    // branch name among its own refs.
     await run("git", ["-C", directory, "push", "origin", RAN]);
     await run("git", ["-C", directory, "switch", RAN]);
     await writeFile(path.join(directory, "thing.md"), "something else\n");
@@ -621,6 +621,12 @@ describe("opening a draft pull request for a completed run", () => {
       "Add the thing",
     ]);
     await run("git", ["-C", directory, "switch", BASE]);
+    return directory;
+  }
+
+  it("says so when the branch cannot be pushed", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await takenOnHost();
 
     await assert.rejects(
       githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
@@ -629,6 +635,18 @@ describe("opening a draft pull request for a completed run", () => {
 
     // Nothing was asked of GitHub: there is no pushed branch to open against.
     assert.deepEqual(await gh.calls(), []);
+  });
+
+  it("leaves the checkout free for the next run when the push is refused", HANGS, async (t) => {
+    await recordingGh(t, `echo ${OPENED}`);
+    const directory = await takenOnHost();
+
+    await assert.rejects(
+      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
+      new RegExp(`Could not push ${RAN}`),
+    );
+
+    assert.equal(await withCheckoutLock(directory, async () => "ran"), "ran");
   });
 
   it("references the ticket it was run for", async (t) => {
@@ -765,6 +783,22 @@ describe("discarding a failed run's branch", () => {
     await holding;
     await waiting;
     assert.deepEqual(await branchesIn(directory), ["main"]);
+  });
+
+  it("leaves the checkout free for the next run when deleting is refused", HANGS, async () => {
+    const directory = await seeded();
+    await unmerged(directory, FAILED);
+    // Git will not delete the branch a checkout is on.
+    await run("git", ["-C", directory, "switch", FAILED]);
+
+    await assert.rejects(
+      githubRepoHost().discardBranch(toCheckout(directory), FAILED),
+    );
+
+    assert.equal(
+      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      "ran",
+    );
   });
 
   it("leaves every other branch where it was", async () => {
