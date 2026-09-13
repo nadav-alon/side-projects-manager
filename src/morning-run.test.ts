@@ -352,6 +352,8 @@ describe("morningRun", () => {
         ports.sandbox.runs.map((run) => run.ticket.number),
         [67],
       );
+      // Selected for #67, yet still says #66 was passed over.
+      assert.match(report.message, /#66 broken out into sub-issues/);
     });
 
     it("reads a backlog that is only broken-out tickets as having no eligible tickets, not an error", async () => {

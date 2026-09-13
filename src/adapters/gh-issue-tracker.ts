@@ -413,25 +413,15 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
       string,
       unknown
     >;
-    if (typeof number !== "number") {
-      throw new Error(`${at}: "number" must be a number.`);
-    }
-    if (typeof title !== "string") {
-      throw new Error(`${at}: "title" must be a string.`);
-    }
-    if (typeof body !== "string") {
-      throw new Error(`${at}: "body" must be a string.`);
-    }
     return {
-      number,
-      title,
-      body,
+      number: expectField(number, "number", "number", at),
+      title: expectField(title, "string", "title", at),
+      body: expectField(body, "string", "body", at),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
     };
   });
 }
 
-/** Validates `subIssuesSummary` the way `parseIssues` validates its siblings. */
 function parseSubIssuesSummary(
   value: unknown,
   at: string,
@@ -440,11 +430,31 @@ function parseSubIssuesSummary(
     throw new Error(`${at}: "subIssuesSummary" must be an object.`);
   }
   const { total, completed } = value as Record<string, unknown>;
-  if (typeof total !== "number") {
-    throw new Error(`${at}: "subIssuesSummary.total" must be a number.`);
+  return {
+    total: expectField(total, "number", "subIssuesSummary.total", at),
+    completed: expectField(
+      completed,
+      "number",
+      "subIssuesSummary.completed",
+      at,
+    ),
+  };
+}
+
+interface FieldTypes {
+  number: number;
+  string: string;
+}
+
+/** `value`, if it is of `type`; otherwise an error naming `field` at `at`. */
+function expectField<T extends keyof FieldTypes>(
+  value: unknown,
+  type: T,
+  field: string,
+  at: string,
+): FieldTypes[T] {
+  if (typeof value !== type) {
+    throw new Error(`${at}: "${field}" must be a ${type}.`);
   }
-  if (typeof completed !== "number") {
-    throw new Error(`${at}: "subIssuesSummary.completed" must be a number.`);
-  }
-  return { total, completed };
+  return value as FieldTypes[T];
 }

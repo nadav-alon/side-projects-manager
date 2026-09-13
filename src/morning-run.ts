@@ -544,18 +544,21 @@ async function considerProjects(
       continue;
     }
 
-    const eligible = (
+    const backlog = (
       await ports.tracker.listEligibleTickets(project.repo)
     ).filter((ticket) => !worked.has(ticketKey(ticket)));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
     // name what it passed over.
-    const brokenOut = eligible.filter(isBrokenOut);
-    const backlog = eligible.filter((ticket) => !isBrokenOut(ticket));
+    const brokenOut: Ticket[] = [];
+    const selectable: Ticket[] = [];
+    for (const ticket of backlog) {
+      (isBrokenOut(ticket) ? brokenOut : selectable).push(ticket);
+    }
     // A review in the same backlog as its parent ticket is worked before it,
     // so it is picked here even when it is not first in the list.
-    const ticket = backlog.find(isReview) ?? backlog[0];
+    const ticket = selectable.find(isReview) ?? selectable[0];
 
     if (ticket === undefined) {
       outcomes.push(
@@ -582,13 +585,12 @@ async function considerProjects(
     return { outcomes };
   }
 
-  const winnerIndex = outcomeIndexByRepo.get(winner.project.repo);
   // Set by the loop above for every candidate, this one included.
-  outcomes[winnerIndex as number] = outcome(
-    winner.project.repo,
-    "selected",
-    state.get(winner.project.repo),
-  );
+  const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
+  const scanned = outcomes[winnerIndex] as ProjectOutcome;
+  // Only the verdict changes: what the scan found, broken-out tickets
+  // included, is as true of the winner as of any project it outranked.
+  outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
 
   return {
     outcomes,
@@ -1013,22 +1015,8 @@ function outcome(
   };
 }
 
-/**
- * How a project's outcome reads to the developer. A selected project was not
- * skipped. Names any ticket passed over for being broken out alongside the
- * verdict itself, since a project's backlog can look full and still skip for
- * exactly that reason.
- */
-function skipReason(project: ProjectOutcome): string | undefined {
-  const verdict = verdictReason(project.verdict);
-  if (verdict === undefined) {
-    return undefined;
-  }
-  const brokenOut = brokenOutNote(project.passedOverAsBrokenOut);
-  return brokenOut === undefined ? verdict : `${verdict}; ${brokenOut}`;
-}
-
-function verdictReason(verdict: ProjectVerdict): string | undefined {
+/** How a verdict reads to the developer. A selected project was not skipped. */
+function skipReason(verdict: ProjectVerdict): string | undefined {
   switch (verdict) {
     case "paused":
       return "paused";
@@ -1041,13 +1029,23 @@ function verdictReason(verdict: ProjectVerdict): string | undefined {
   }
 }
 
-/** Names the tickets a scan passed over for being broken out, if any. */
-function brokenOutNote(brokenOut: Ticket[] | undefined): string | undefined {
-  if (brokenOut === undefined || brokenOut.length === 0) {
-    return undefined;
-  }
-  const which = brokenOut.map((ticket) => `#${ticket.number}`).join(", ");
-  return `${which} broken out into sub-issues`;
+/**
+ * Names every ticket a scan passed over for being broken out, whatever its
+ * project's verdict: a project can be selected for one ticket while another
+ * in its backlog is broken out, and a backlog that looks full but yields
+ * nothing is only explicable if the summary says so.
+ */
+function passedOverAside(projects: ProjectOutcome[]): string {
+  const passedOver = projects.flatMap(({ repo, passedOverAsBrokenOut }) => {
+    if (passedOverAsBrokenOut === undefined) {
+      return [];
+    }
+    const which = passedOverAsBrokenOut
+      .map((ticket) => `#${ticket.number}`)
+      .join(", ");
+    return [`${repo} (${which} broken out into sub-issues)`];
+  });
+  return passedOver.length > 0 ? ` Passed over ${passedOver.join(", ")}.` : "";
 }
 
 /**
@@ -1071,11 +1069,12 @@ function summaryLine(facts: SummaryFacts): string {
 
   const { projects, runs, standDown } = facts;
   const skipped = projects.flatMap((project) => {
-    const reason = skipReason(project);
+    const reason = skipReason(project.verdict);
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
   });
 
-  const aside = skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : "";
+  const passedOver = passedOverAside(projects);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}`;
 
   if (runs.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -1095,7 +1094,7 @@ function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}`;
 }
 
 /**
