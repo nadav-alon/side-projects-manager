@@ -1753,7 +1753,7 @@ describe("morningRun", () => {
       assert.deepEqual(
         report.runs.map((run) => [run.ticket.number, run.kind]),
         [
-          [42, "reviewed"],
+          [ticket.number, "reviewed"],
           [7, "finished"],
         ],
       );
@@ -1772,7 +1772,7 @@ describe("morningRun", () => {
 
     it("reports a review ticket that cannot be closed, rather than raising it", async (t) => {
       const ports = fakePorts();
-      queued(ports);
+      const ticket = queued(ports);
       t.mock.method(ports.tracker, "closeReviewTicket", async () => {
         throw new Error("issue is locked");
       });
@@ -1784,7 +1784,10 @@ describe("morningRun", () => {
       assert.match(report.message, /issue is locked/);
       assert.match(report.message, /close it yourself/);
       const body = ports.tracker.summaries[0]?.body ?? "";
-      assert.match(body, /## Waiting on you[\s\S]*pilot #42/);
+      assert.match(
+        body,
+        new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
+      );
     });
 
     it("carries on past a review whose sandbox breaks, as an infrastructure failure that leaves the review open", async (t) => {
@@ -1800,7 +1803,7 @@ describe("morningRun", () => {
       assert.deepEqual(
         report.runs.map((run) => [run.ticket.number, run.kind]),
         [
-          [42, "failed"],
+          [ticket.number, "failed"],
           [7, "finished"],
         ],
       );
@@ -1842,7 +1845,7 @@ describe("morningRun", () => {
 
     it("tells a review that gave up apart from one whose sandbox broke, in the summary", async (t) => {
       const gaveUp = fakePorts();
-      queued(gaveUp);
+      const ticket = queued(gaveUp);
       gaveUp.sandbox.reviewResult = () => ({
         output: "",
         tokensUsed: tokenCount(1_000),
@@ -1859,10 +1862,14 @@ describe("morningRun", () => {
 
       const gaveUpBody = gaveUp.tracker.summaries[0]?.body ?? "";
       const brokeBody = broke.tracker.summaries[0]?.body ?? "";
-      assert.match(gaveUpBody, /gave up on #42/);
-      assert.match(gaveUpBody, /pilot #42: relabelled ready-for-human/);
+      const which = `#${ticket.number}`;
+      assert.match(gaveUpBody, new RegExp(`gave up on ${which}`));
+      assert.match(gaveUpBody, new RegExp(`pilot ${which}: relabelled ready-for-human`));
       assert.doesNotMatch(gaveUpBody, /fix the setup/);
-      assert.match(brokeBody, /pilot #42: still ready-for-agent — the sandbox or checkout failed/);
+      assert.match(
+        brokeBody,
+        new RegExp(`pilot ${which}: still ready-for-agent — the sandbox or checkout failed`),
+      );
       assert.doesNotMatch(brokeBody, /gave up/);
     });
 
@@ -1928,7 +1935,7 @@ describe("morningRun", () => {
 
     it("is reported with the agent's failure, when the review did not finish", async () => {
       const ports = fakePorts();
-      queued(ports);
+      const ticket = queued(ports);
       ports.sandbox.reviewResult = () => ({
         output: "the agent gave up",
         tokensUsed: tokenCount(1_000),
@@ -1937,7 +1944,10 @@ describe("morningRun", () => {
 
       const report = await morningRun(ports);
 
-      assert.match(report.message, /the agent gave up on #42: the agent gave up/i);
+      assert.match(
+        report.message,
+        new RegExp(`the agent gave up on #${ticket.number}: the agent gave up`, "i"),
+      );
     });
   });
 
