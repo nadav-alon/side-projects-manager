@@ -58,7 +58,12 @@ export type { TokenCount } from "./token-count.ts";
 export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";
-export { recordRun, recordWorked } from "./store.ts";
+export {
+  recordRun,
+  recordWorked,
+  unrecordWorked,
+  workedTicket,
+} from "./store.ts";
 export type {
   ProjectState,
   RegisteredProject,

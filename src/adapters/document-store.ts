@@ -25,6 +25,7 @@ import {
   isModelName,
   isPriority,
   isRepoSlug,
+  workedTicket,
   isReserveFraction,
   isTokenCount,
   isUsd,
@@ -533,10 +534,7 @@ function formatState(state: State): string {
 
   const workedToday = state.workedToday && {
     day: state.workedToday.day,
-    tickets: state.workedToday.tickets.map(({ repo, number }) => ({
-      repo,
-      number,
-    })),
+    tickets: state.workedToday.tickets.map(workedTicket),
   };
 
   return `${JSON.stringify({ projects, workedToday }, undefined, 2)}\n`;

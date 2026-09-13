@@ -12,7 +12,7 @@ import type {
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
-import { DEFAULT_BUDGET } from "../ports/index.ts";
+import { DEFAULT_BUDGET, workedTicket } from "../ports/index.ts";
 
 /** What the developer may say about a project when registering it. */
 export interface Registration {
@@ -111,5 +111,5 @@ export class FakeStore implements Store {
 
 /** A copy the loop cannot reach back into once saved or loaded. */
 function copyWorkedToday({ day, tickets }: WorkedToday): WorkedToday {
-  return { day, tickets: tickets.map((ticket) => ({ ...ticket })) };
+  return { day, tickets: tickets.map(workedTicket) };
 }

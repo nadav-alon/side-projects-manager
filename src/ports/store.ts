@@ -65,7 +65,29 @@ export function recordWorked(
   day: Day,
 ): WorkedToday {
   const earlier = previous?.day === day ? previous.tickets : [];
-  return { day, tickets: [...earlier, { repo: ticket.repo, number: ticket.number }] };
+  return { day, tickets: [...earlier, workedTicket(ticket)] };
+}
+
+/** `previous` with `ticket` taken back off it, on the same day. */
+export function unrecordWorked(
+  previous: WorkedToday,
+  ticket: WorkedTicket,
+): WorkedToday {
+  return {
+    day: previous.day,
+    tickets: previous.tickets.filter(
+      (recorded) =>
+        recorded.repo !== ticket.repo || recorded.number !== ticket.number,
+    ),
+  };
+}
+
+/**
+ * `ticket` as the state document names it, and nothing more: a whole `Ticket`
+ * passes for one, but its title and labels are not the record's to keep.
+ */
+export function workedTicket({ repo, number }: WorkedTicket): WorkedTicket {
+  return { repo, number };
 }
 
 /** A ticket as the state document names it: its project, and its number there. */

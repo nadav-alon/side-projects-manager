@@ -36,6 +36,7 @@ import {
   recordRun,
   recordWorked,
   ticketKind,
+  unrecordWorked,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
 import {
@@ -437,12 +438,7 @@ export async function morningRun(
     if (workedToday === undefined) {
       return;
     }
-    workedToday = {
-      ...workedToday,
-      tickets: workedToday.tickets.filter(
-        (recorded) => ticketKey(recorded) !== ticketKey(ticket),
-      ),
-    };
+    workedToday = unrecordWorked(workedToday, ticket);
   };
   const runs: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
