@@ -1,5 +1,6 @@
 import type {
   GaveUp,
+  HandoverFailed,
   ModelRefused,
   UnusableModelLabel,
 } from "./morning-run.ts";
@@ -160,6 +161,40 @@ export function handoverComment(
   return [
     `The morning loop finished this ticket. Its work is waiting in a draft pull request: ${pullRequest}`,
     `A review has been queued as #${reviewTicket.number}.`,
+    `This ticket is yours again: it will not be retried.`,
+  ].join("\n\n");
+}
+
+/**
+ * Where a failed handover left the work: its branch, and how far that got.
+ * The one wording of it, for the summary and the ticket comment alike;
+ * `code` marks up the branch and checkout where the reader renders it.
+ */
+export function workLocation(
+  failure: HandoverFailed,
+  code: (text: string) => string = (text) => text,
+): string {
+  const branch = code(failure.branch);
+  switch (failure.where.kind) {
+    case "unpushed":
+      return `${branch} (not pushed: only in the checkout at ${code(failure.where.checkout)})`;
+    case "pushed":
+      return branch;
+    case "opened":
+      return `${branch} (draft pull request ${failure.where.pullRequest})`;
+  }
+}
+
+/**
+ * What a finished run's ticket is told when its work could not be handed over:
+ * why, and where the work is — the branch, and the draft pull request when one
+ * was opened — so the developer picks it up from there rather than re-running
+ * a ticket whose work already exists.
+ */
+export function handoverFailureComment(failure: HandoverFailed): string {
+  return [
+    `The morning loop finished this ticket, but could not hand its work over: ${tail(failure.reason, REASON_QUOTED)}`,
+    `Its work is on the branch ${workLocation(failure, (text) => `\`${text}\``)}.`,
     `This ticket is yours again: it will not be retried.`,
   ].join("\n\n");
 }

@@ -24,6 +24,25 @@ export type Proposal =
   | { kind: "pushed"; branch: string; failure: string };
 
 /**
+ * What opening a finished run's draft pull request came to.
+ *
+ * Every end says whether the branch reached the host, because that is where
+ * the developer goes looking for the work: the pull request, the branch on the
+ * host, or the checkout the branch never left.
+ */
+export type DraftPullRequestOpening =
+  /** The branch is on the host, and `pullRequest` is the draft for it. */
+  | { kind: "opened"; pullRequest: PullRequestUrl }
+  /**
+   * The branch is on the host, but no pull request is known to be open for
+   * it. One may exist all the same, when `gh` answered with something that is
+   * not a pull request URL; `failure` says which.
+   */
+  | { kind: "pushed"; failure: string }
+  /** The branch never reached the host: it is only in the checkout. */
+  | { kind: "unpushed"; failure: string };
+
+/**
  * How the manager reaches GitHub and git: creating a repo, getting a checkout
  * of it into the managed location, publishing what the new-project command
  * scaffolded into it, and handing a completed run's work to the developer.
@@ -84,7 +103,9 @@ export interface RepoHost {
   ): Promise<Proposal>;
   /**
    * Pushes `branch` from the checkout at `directory` and opens a draft pull
-   * request for it against `ticket`, answering with the pull request's URL.
+   * request for it against `ticket`, answering with how far it got. Failures
+   * resolve rather than reject, so a caller has one thing to read: which end
+   * it came to, and so where the work is.
    *
    * Draft, and only ever draft: there is no verb here that promotes a pull
    * request or merges one, because promoting and merging are the developer's
@@ -97,7 +118,7 @@ export interface RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-  ): Promise<PullRequestUrl>;
+  ): Promise<DraftPullRequestOpening>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.
    *

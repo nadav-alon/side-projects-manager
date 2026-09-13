@@ -190,6 +190,9 @@ auto-merged; promotion and merge are the developer's.
 **Failure policy.** A run that fails — agent gives up, tests stay red, sandbox errors — discards its
 branch, comments on the ticket, and relabels it for human attention. It is not retried automatically,
 because a genuinely too-hard ticket left in the queue would consume budget every morning indefinitely.
+A run that finished but whose handover fails — the branch will not push, no draft PR opens, or its
+review ticket cannot be created — fails the same way, except that its branch is kept: the branch is
+the work, and the comment names where it is. The invocation carries on to the next iteration.
 
 **Reporting.** Each loop invocation writes one summary issue in the manager repo covering every run
 attempted, what each cost, what is now waiting on the developer, and an explicit notice when the

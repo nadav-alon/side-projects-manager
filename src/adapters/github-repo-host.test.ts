@@ -518,7 +518,7 @@ describe("opening a draft pull request for a completed run", () => {
   it("answers with the pull request it opened", async (t) => {
     const { url } = await openedFor(t);
 
-    assert.equal(url, OPENED);
+    assert.deepEqual(url, { kind: "opened", pullRequest: OPENED });
   });
 
   it("opens it as a draft, from the run's branch", async (t) => {
@@ -575,8 +575,15 @@ describe("opening a draft pull request for a completed run", () => {
     // branch and every commit between it and the run.
     await run("git", ["-C", directory, "checkout", "--detach"]);
 
-    await assert.rejects(
-      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    assert.equal(opening.kind, "unpushed");
+    assert.match(
+      opening.kind === "unpushed" ? opening.failure : "",
       /is not on a branch/,
     );
 
@@ -628,8 +635,15 @@ describe("opening a draft pull request for a completed run", () => {
     const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await takenOnHost();
 
-    await assert.rejects(
-      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    assert.equal(opening.kind, "unpushed");
+    assert.match(
+      opening.kind === "unpushed" ? opening.failure : "",
       new RegExp(`Could not push ${RAN}`),
     );
 
@@ -641,10 +655,7 @@ describe("opening a draft pull request for a completed run", () => {
     await recordingGh(t, `echo ${OPENED}`);
     const directory = await takenOnHost();
 
-    await assert.rejects(
-      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
-      new RegExp(`Could not push ${RAN}`),
-    );
+    await githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET);
 
     assert.equal(await withCheckoutLock(directory, async () => "ran"), "ran");
   });
@@ -670,16 +681,45 @@ describe("opening a draft pull request for a completed run", () => {
     await recordingGh(t, "echo 'pull requests are disabled' >&2\nexit 1");
     const directory = await ran(RAN);
 
-    await assert.rejects(
-      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
-      // The branch and the base both: a base the host does not have is the
-      // likeliest reason `gh` refused, and neither is visible from the raw
-      // failure.
-      new RegExp(`${RAN}.*${BASE}`),
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    // Pushed, not unpushed: the branch is on the host, and that is where the
+    // developer will look for it.
+    assert.equal(opening.kind, "pushed");
+    // The base, since a base the host does not have is the likeliest reason
+    // `gh` refused, and it is not visible from the raw failure.
+    assert.match(
+      opening.kind === "pushed" ? opening.failure : "",
+      new RegExp(`${BASE}.*pull requests are disabled`, "s"),
     );
 
     // The push happened before the pull request was asked for, so the work is
     // on the host and the message is what tells the developer where.
+    assert.deepEqual(await pushedFiles(directory, `origin/${RAN}`), [
+      "seed.md",
+      "thing.md",
+    ]);
+  });
+
+  it("says a pull request may exist, rather than that the branch was not pushed, when gh answers with something that is not one", async (t) => {
+    await recordingGh(t, "echo 'something went sideways'");
+    const directory = await ran(RAN);
+
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    assert.equal(opening.kind, "pushed");
+    assert.match(
+      opening.kind === "pushed" ? opening.failure : "",
+      /something went sideways.*may have been opened/,
+    );
     assert.deepEqual(await pushedFiles(directory, `origin/${RAN}`), [
       "seed.md",
       "thing.md",

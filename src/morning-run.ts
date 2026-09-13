@@ -1,4 +1,5 @@
 import type {
+  Branch,
   Budget,
   Checkout,
   Clock,
@@ -41,9 +42,11 @@ import {
   committedNothingComment,
   handbackComment,
   handoverComment,
+  handoverFailureComment,
   modelRefusalComment,
   reviewHandbackComment,
   unusableModelLabelComment,
+  workLocation,
   type Discard,
 } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
@@ -119,9 +122,13 @@ export type ProjectVerdict =
  */
 export type FailureKind = RunFailure["kind"];
 
-/** Why an iteration's run did not finish, or never started. */
+/**
+ * Why an iteration's run did not finish, never started, or finished without
+ * its work being handed over.
+ */
 export type RunFailure =
   | GaveUp
+  | HandoverFailed
   | InfrastructureFailure
   | ModelRefused
   | UnusableModelLabel;
@@ -141,6 +148,34 @@ export interface GaveUp {
    */
   handedBack: boolean;
 }
+
+/**
+ * A run that finished and committed, whose work could not be handed over: the
+ * branch would not push or no draft pull request would open for it, or the
+ * pull request opened and its review ticket could not be created.
+ *
+ * Handed back all the same, since the work exists and running the ticket again
+ * would only make it twice. The branch is kept, not discarded: it is the work.
+ */
+export interface HandoverFailed {
+  kind: "handover-failed";
+  reason: string;
+  /** Where the run's commits are. */
+  branch: Branch;
+  /** How far the branch got, and so where the developer finds the work. */
+  where: HandoverReach;
+  /** As `GaveUp.handedBack`. */
+  handedBack: boolean;
+}
+
+/** How far a failed handover's branch got before the handover failed. */
+export type HandoverReach =
+  /** Never reached the host: `checkout` is the one place the work is. */
+  | { kind: "unpushed"; checkout: Checkout }
+  /** On the host, with no draft pull request known to be open for it. */
+  | { kind: "pushed" }
+  /** On the host, in `pullRequest`: only the review ticket failed. */
+  | { kind: "opened"; pullRequest: PullRequestUrl };
 
 /**
  * Where the model a run was started on came from. Absent from a run started
@@ -1029,6 +1064,9 @@ async function work(
  * reaches here — its handover is comments on the pull request it already
  * names, not a pull request of its own.
  *
+ * A handover that fails part way is a failed iteration rather than a thrown
+ * one, so the invocation goes on: see `HandoverFailed`.
+ *
  * Only a run that finished. A failed agent's commits never reach here — they
  * go to `discardBranch` instead, because they are not work to review.
  */
@@ -1037,7 +1075,7 @@ async function handOver(
   run: SandboxRunResult,
   checkout: Checkout,
   ticket: Ticket,
-): Promise<Finished> {
+): Promise<Finished | Failed> {
   if (run.commits.length === 0) {
     const handbackFailure = await handFinishedTicketBack(
       ports,
@@ -1051,29 +1089,46 @@ async function handOver(
     };
   }
 
-  // TODO[#10]: post the review's findings as comments on the pull request it
-  // names, instead of dropping them here.
-  if (isReview(ticket)) {
-    return { kind: "finished", run };
-  }
-
-  const pullRequest = await ports.repoHost.openDraftPullRequest(
+  const opening = await ports.repoHost.openDraftPullRequest(
     checkout,
     run.branch,
     ticket,
   );
+  if (opening.kind === "unpushed") {
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `it was not pushed: ${opening.failure}`,
+      { kind: "unpushed", checkout },
+    );
+  }
+  if (opening.kind === "pushed") {
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `it was pushed, but ${opening.failure}`,
+      { kind: "pushed" },
+    );
+  }
+  const { pullRequest } = opening;
 
   // Queued here rather than asked of the agent that wrote the code: an agent
   // that ran out of steam cannot forget to, and the review it asks for is a
   // run of its own rather than the tail of the one being reviewed.
-  //
-  // TODO[#13]: report a review that could not be opened as a failed run, so
-  // that a morning which did push a branch and open a pull request still says
-  // where they are.
-  const reviewTicket = await ports.tracker.createReviewTicket(
-    ticket,
-    pullRequest,
-  );
+  let reviewTicket: Ticket;
+  try {
+    reviewTicket = await ports.tracker.createReviewTicket(ticket, pullRequest);
+  } catch (error: unknown) {
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `the review ticket could not be created: ${errorMessage(error)}`,
+      { kind: "opened", pullRequest },
+    );
+  }
 
   const handbackFailure = await handFinishedTicketBack(
     ports,
@@ -1087,6 +1142,33 @@ async function handOver(
     handover: { pullRequest, reviewTicket },
     ...(handbackFailure !== undefined && { handbackFailure }),
   };
+}
+
+/**
+ * A finished run whose handover failed, as the failed iteration it comes to:
+ * its ticket handed back with a comment naming where the work is.
+ */
+async function handoverFailed(
+  ports: MorningRunPorts,
+  ticket: Ticket,
+  run: SandboxRunResult,
+  reason: string,
+  where: HandoverReach,
+): Promise<Failed> {
+  const failure: HandoverFailed = {
+    kind: "handover-failed",
+    reason,
+    branch: run.branch,
+    where,
+    handedBack: false,
+  };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    handoverFailureComment(failure),
+    run,
+  );
 }
 
 /**
@@ -1618,6 +1700,10 @@ function waitingOnFailure(
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`
         : stillEligibleLine({ repo, ticket });
+    case "handover-failed":
+      return failure.handedBack
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${failure.reason}`
+        : stillEligibleLine({ repo, ticket });
     case "model-refused":
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`
@@ -1741,6 +1827,8 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   switch (failure.kind) {
     case "gave-up":
       return `the agent gave up on ${which}: ${failure.reason}. ${now}`;
+    case "handover-failed":
+      return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${failure.reason}. ${now}`;
     case "model-refused":
       return `${which} was not worked, because ${failure.reason}. ${now}`;
     case "conflicting-model-labels":
