@@ -553,7 +553,7 @@ async function considerProjects(
 
     const backlog = (
       await ports.tracker.listEligibleTickets(project.repo)
-    ).filter((ticket) => !worked.has(ticketKey(ticket)));
+    ).tickets.filter((ticket) => !worked.has(ticketKey(ticket)));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still

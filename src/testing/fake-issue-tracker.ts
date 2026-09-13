@@ -1,4 +1,5 @@
 import type {
+  Backlog,
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
@@ -59,6 +60,7 @@ interface Stored {
  */
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly #backlogs = new Map<RepoSlug, Stored[]>();
+  readonly #truncated = new Set<RepoSlug>();
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
@@ -148,12 +150,21 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * Marks `repo`'s backlog as a truncated backlog: longer than the loop reads
+   * in one morning. The tickets listed stay exactly those added, so a test
+   * arranges the ones read and says there were more.
+   */
+  truncateBacklog(repo: RepoSlug): void {
+    this.#truncated.add(repo);
+  }
+
+  /**
    * A ticket's model label is read from the labels it holds at the time of
    * the call, through the same `modelLabelOf` the real tracker uses, so a
    * label changed between calls changes what the next call returns.
    */
-  async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
-    return (this.#backlogs.get(repo) ?? [])
+  async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
+    const tickets = (this.#backlogs.get(repo) ?? [])
       .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
       .map((entry) => {
         const modelLabel = modelLabelOf(entry.labels);
@@ -161,6 +172,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
           ? entry.ticket
           : { ...entry.ticket, modelLabel };
       });
+    return { tickets, truncated: this.#truncated.has(repo) };
   }
 
   /**

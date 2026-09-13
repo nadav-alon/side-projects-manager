@@ -1122,7 +1122,7 @@ describe("morningRun", () => {
       // ticket that earned it, and the ticket itself goes to the developer,
       // so a later morning does not select it again — closing the review
       // ticket stays the developer's, separately.
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.ok(!backlog.some((eligible) => eligible.number === ticket.number));
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
     });
@@ -1239,7 +1239,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.deepEqual(backlog, []);
     });
 
@@ -1255,7 +1255,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.deepEqual(backlog, [ticket]);
     });
 
@@ -1269,7 +1269,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.deepEqual(backlog, [ticket]);
     });
 
@@ -1451,7 +1451,7 @@ describe("morningRun", () => {
         await morningRun(ports);
 
         assert.deepEqual(ports.tracker.handbacks, []);
-        const backlog = await ports.tracker.listEligibleTickets(PILOT);
+        const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
         assert.deepEqual(
           backlog.map((ticket) => ticket.number),
           [7],
@@ -1509,7 +1509,7 @@ describe("morningRun", () => {
         );
         assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
-        const backlog = await ports.tracker.listEligibleTickets(PILOT);
+        const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
         assert.ok(backlog.some((ticket) => ticket.number === review.number));
       });
 
@@ -1723,7 +1723,7 @@ describe("morningRun", () => {
         ports.tracker.handbacks[0]?.comment ?? "",
         /committed nothing/,
       );
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.deepEqual(backlog, []);
     });
 
@@ -2221,7 +2221,7 @@ describe("morningRun", () => {
         ports.tracker.handbacks.map((handback) => handback.ticket.number),
         [1],
       );
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.deepEqual(
         backlog.map((ticket) => ticket.number),
         [2, 3],
@@ -2291,7 +2291,7 @@ describe("morningRun", () => {
 
       assert.equal(ports.sandbox.runs.length, 0);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      const backlog = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
       assert.ok(backlog.some((ticket) => ticket.number === review.number));
       assert.equal(report.standDown?.reason, "provider-limit");
     });

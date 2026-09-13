@@ -1,6 +1,7 @@
 import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
  * The triage label that makes a ticket eligible, as `docs/agents/triage-labels.md`
@@ -99,6 +100,9 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
  * listing on every call, so a label changed since yesterday is what today
  * reads. Absent means the ticket names no model. A review ticket reads its
  * own labels, never its parent's.
+ *
+ * `priority` is the ticket priority it carries, from that same listing.
+ * Absent means it carries none.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -109,6 +113,7 @@ export interface Ticket {
   openSubIssues?: number;
   openBlockers?: number;
   modelLabel?: ModelLabel;
+  priority?: TicketPriority;
 }
 
 /**
@@ -130,6 +135,16 @@ export function isBlocked(ticket: Ticket): boolean {
  */
 export function isBrokenOut(ticket: Ticket): boolean {
   return (ticket.openSubIssues ?? 0) > 0;
+}
+
+/**
+ * One project's backlog as one morning reads it: its eligible tickets, and
+ * whether it is a truncated backlog — longer than the loop reads in one
+ * morning, so `tickets` holds only the newest of it.
+ */
+export interface Backlog {
+  tickets: Ticket[];
+  truncated: boolean;
 }
 
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
@@ -163,7 +178,7 @@ export interface IssueTracker {
    * empty backlog returns an empty list; that is a normal morning, not an
    * error.
    */
-  listEligibleTickets(repo: RepoSlug): Promise<Ticket[]>;
+  listEligibleTickets(repo: RepoSlug): Promise<Backlog>;
   /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.
