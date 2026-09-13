@@ -23,6 +23,7 @@ import {
   type TokenCount,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
+import { withCheckoutLock } from "./checkout-lock.ts";
 
 const run = promisify(execFile);
 
@@ -129,50 +130,56 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  * mounted on its own is not a repository at all from inside the container.
  * A clone carries its objects with it and needs nothing else mounted.
  *
- * Runs are serialized within this process: a second call waits for the first
- * rather than starting a container beside it, whether the two are runs,
- * reviews, or one of each — a review budgeted while an implementation is
- * still spending would make the gate's accounting a race. Two separate
- * invocations of the manager are not covered by this — the once-per-day lock
- * in #15 is what stops those overlapping.
+ * Calls run side by side, on one checkout or several: each works in a clone of
+ * its own, so two containers never share anything but the checkout they came
+ * from. The steps that do touch that checkout — choosing a branch name,
+ * cloning, fetching a branch back — take its checkout lock, held for those git
+ * steps and never while an agent works. Nothing here waits for a run to finish
+ * before a review is budgeted: the gate does not count runs in progress, and
+ * the overshoot that allows is accepted rather than queued away.
  */
 export function containerSandbox(
   container: Container = dockerContainer,
 ): Sandbox {
-  // The tail of the queue. Never rejecting, so a failed run delays the work
-  // behind it rather than cancelling it.
-  let queue: Promise<unknown> = Promise.resolve();
-
-  function enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const result = queue.then(task);
-    queue = result.catch(() => undefined);
-    return result;
-  }
-
   return {
-    run: (request: RunRequest) => enqueue(() => runOnClone(container, request)),
-    review: (request: ReviewRequest) =>
-      enqueue(() => reviewOnClone(container, request)),
+    run: (request: RunRequest) => runOnClone(container, request),
+    review: (request: ReviewRequest) => reviewOnClone(container, request),
   };
 }
+
+/**
+ * The branch names each checkout has handed to a run still in progress.
+ *
+ * A run's branch reaches the checkout only when it is fetched back, so until
+ * then the checkout cannot say the name is taken, and a second run of the same
+ * ticket would be handed it too. Process-wide, like the checkout lock the names
+ * are chosen under, because two sandboxes can share a checkout.
+ */
+const inProgress = new Map<Checkout, Set<Branch>>();
 
 async function runOnClone(
   container: Container,
   request: RunRequest,
 ): Promise<SandboxRunResult> {
   const { ticket, checkout: project, spendCeiling } = request;
-  const onto = await freeBranch(project, branchFor(ticket));
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
   );
+  let onto: Branch | undefined;
 
   try {
-    // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
-    // and nothing it does should be able to reach an object file the
-    // developer's own checkout is still using. The container runs as the
-    // developer's own uid (`dockerCommand`), so the filesystem would not stop
-    // it — the copy is what does.
-    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    onto = await withCheckoutLock(project, async () => {
+      const taken = inProgress.get(project) ?? new Set<Branch>();
+      const free = await freeBranch(project, branchFor(ticket), taken);
+      // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
+      // and nothing it does should be able to reach an object file the
+      // developer's own checkout is still using. The container runs as the
+      // developer's own uid (`dockerCommand`), so the filesystem would not
+      // stop it — the copy is what does.
+      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+      inProgress.set(project, taken.add(free));
+      return free;
+    });
     const base = await revision(clone, "HEAD");
     await run("git", ["-C", clone, "switch", "--create", onto]);
 
@@ -188,14 +195,17 @@ async function runOnClone(
     // it started from is not work, and the checkout should not collect one
     // for every morning that came to nothing.
     if (commits.length > 0) {
-      await run("git", [
-        "-C",
-        project,
-        "fetch",
-        "--no-tags",
-        clone,
-        `${onto}:${onto}`,
-      ]);
+      const branch = onto;
+      await withCheckoutLock(project, () =>
+        run("git", [
+          "-C",
+          project,
+          "fetch",
+          "--no-tags",
+          clone,
+          `${branch}:${branch}`,
+        ]),
+      );
     }
 
     return {
@@ -206,6 +216,11 @@ async function runOnClone(
       ...howItStopped(agent),
     };
   } finally {
+    // Fetched back, the checkout itself now says the name is taken; not, the
+    // name is free for the next run to have.
+    if (onto !== undefined) {
+      release(project, onto);
+    }
     // Whatever became of the run, the clone does not outlive it — and a clone
     // that will not delete never costs the caller its result. A run this
     // process could not pin to a uid of its own (`hostUser`) can still leave
@@ -300,7 +315,9 @@ async function reviewOnClone(
   );
 
   try {
-    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    await withCheckoutLock(project, () =>
+      run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
+    );
     const agent = await attempt(container, {
       directory: clone,
       prompt: reviewPromptFor(ticket),
@@ -396,22 +413,39 @@ function branchFor(ticket: Ticket): Branch {
 }
 
 /**
- * `wanted`, or the first free name after it.
+ * `wanted`, or the first free name after it: one the checkout has no branch
+ * of, and no run in progress (`taken`) has been handed.
  *
  * A ticket stays selectable until somebody closes it, so the same ticket comes
  * round again on a later morning. A second attempt gets its own branch rather
  * than failing the morning or writing over what the first one left.
+ *
+ * Only under the checkout lock: a name found free here is free only until
+ * another run looks.
  */
-async function freeBranch(project: Checkout, wanted: Branch): Promise<Branch> {
+async function freeBranch(
+  project: Checkout,
+  wanted: Branch,
+  taken: ReadonlySet<Branch>,
+): Promise<Branch> {
   for (let attempt = 1; attempt <= BRANCH_ATTEMPTS; attempt++) {
     const candidate = attempt === 1 ? wanted : branch(`${wanted}-${attempt}`);
-    if (!(await hasBranch(project, candidate))) {
+    if (!taken.has(candidate) && !(await hasBranch(project, candidate))) {
       return candidate;
     }
   }
   throw new Error(
     `${project} already has ${BRANCH_ATTEMPTS} branches named after ${wanted}. Close the ticket, or clear the old ones out.`,
   );
+}
+
+/** Hands `name` back once the run it was chosen for has ended. */
+function release(project: Checkout, name: Branch): void {
+  const taken = inProgress.get(project);
+  taken?.delete(name);
+  if (taken?.size === 0) {
+    inProgress.delete(project);
+  }
 }
 
 async function hasBranch(project: Checkout, of: Branch): Promise<boolean> {
