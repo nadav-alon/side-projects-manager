@@ -125,6 +125,7 @@ describe("FakeIssueTracker — model labels", () => {
     assert.deepEqual(backlog[0]?.modelLabel, {
       kind: "conflicting",
       names: [modelName("opus"), modelName("haiku")],
+      labels: ["model:opus", "model:haiku"],
     });
   });
 

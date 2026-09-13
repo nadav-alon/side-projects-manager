@@ -2394,6 +2394,18 @@ describe("morningRun", () => {
         assert.equal(failureOf(report.runs[0])?.kind, "conflicting-model-labels");
       });
 
+      it("names the labels as the ticket carries them", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "Model:Opus");
+        ports.tracker.addLabel(ticket, "model:haiku");
+
+        await morningRun(ports);
+
+        const comment = ports.tracker.handbacks[0]?.comment ?? "";
+        assert.match(comment, /`Model:Opus`/);
+        assert.doesNotMatch(comment, /`model:Opus`/);
+      });
+
       it("spends nothing, and the invocation carries on to the next ticket", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");

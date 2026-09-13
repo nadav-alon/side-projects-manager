@@ -25,7 +25,6 @@ import type {
   Usd,
 } from "./ports/index.ts";
 import {
-  MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isBlocked,
@@ -747,15 +746,13 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
     case undefined:
     case "named":
       return undefined;
-    case "conflicting": {
-      const labels = label.names.map((name) => `${MODEL_LABEL_PREFIX}${name}`);
+    case "conflicting":
       return {
         kind: "conflicting-model-labels",
-        reason: `it carries more than one model label (${labels.join(", ")})`,
-        labels,
+        reason: `it carries more than one model label (${label.labels.join(", ")})`,
+        labels: label.labels,
         handedBack: false,
       };
-    }
     case "unusable":
       return {
         kind: "unusable-model-label",
