@@ -403,7 +403,7 @@ function parseWorkedToday(value: unknown, where: string): WorkedToday {
       `${where}: "day" must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(recorded)}`,
     );
   }
-  const tickets = fieldOf(value, "tickets", where) ?? [];
+  const tickets = fieldOf(value, "tickets", where);
   if (!Array.isArray(tickets)) {
     throw new Error(`${where}: "tickets" must be a list of tickets.`);
   }

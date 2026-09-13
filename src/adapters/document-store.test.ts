@@ -647,6 +647,19 @@ describe("the state document", () => {
     await assert.rejects(store.loadState(), /workedToday/);
   });
 
+  it("rejects tickets worked today recorded with no list of tickets", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          workedToday: { day: "2026-01-01" },
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"tickets" must be a list/);
+  });
+
   it("rejects a ticket worked today that names no repo slug", async () => {
     const store = documentStore(
       await home({
