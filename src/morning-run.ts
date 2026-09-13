@@ -24,6 +24,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isBlocked,
   isBrokenOut,
   isReviewTicket,
   recordRun,
@@ -148,6 +149,12 @@ export interface ProjectOutcome {
    * one that was simply empty.
    */
   brokenOut?: Ticket[];
+  /**
+   * Tickets this scan found carrying ready-for-agent but passed over because
+   * an open ticket blocks them, in backlog order — for the same reason as
+   * `brokenOut`.
+   */
+  blocked?: Ticket[];
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -550,11 +557,19 @@ async function considerProjects(
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
-    // name what it passed over.
+    // name what it passed over. A ticket an open ticket blocks is set aside
+    // the same way: its work builds on work not yet done.
     const brokenOut: Ticket[] = [];
+    const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
     for (const ticket of backlog) {
-      (isBrokenOut(ticket) ? brokenOut : selectable).push(ticket);
+      if (isBrokenOut(ticket)) {
+        brokenOut.push(ticket);
+      } else if (isBlocked(ticket)) {
+        blocked.push(ticket);
+      } else {
+        selectable.push(ticket);
+      }
     }
     // A review in the same backlog as its parent ticket is worked before it,
     // so it is picked here even when it is not first in the list.
@@ -562,7 +577,10 @@ async function considerProjects(
 
     if (ticket === undefined) {
       outcomes.push(
-        outcome(project.repo, "no-eligible-tickets", projectState, brokenOut),
+        outcome(project.repo, "no-eligible-tickets", projectState, {
+          brokenOut,
+          blocked,
+        }),
       );
       continue;
     }
@@ -577,7 +595,9 @@ async function considerProjects(
       }),
     });
     outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(outcome(project.repo, "deferred", projectState, brokenOut));
+    outcomes.push(
+      outcome(project.repo, "deferred", projectState, { brokenOut, blocked }),
+    );
   }
 
   const winner = bestCandidate(candidates);
@@ -588,7 +608,7 @@ async function considerProjects(
   // Set by the loop above for every candidate, this one included.
   const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
   const scanned = outcomes[winnerIndex] as ProjectOutcome;
-  // Only the verdict changes: what the scan found, broken-out tickets
+  // Only the verdict changes: what the scan found, passed-over tickets
   // included, is as true of the winner as of any project it outranked.
   outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
 
@@ -1004,7 +1024,7 @@ function outcome(
   repo: RepoSlug,
   verdict: ProjectVerdict,
   state: ProjectState | undefined,
-  brokenOut: Ticket[] = [],
+  { brokenOut = [], blocked = [] }: { brokenOut?: Ticket[]; blocked?: Ticket[] } = {},
 ): ProjectOutcome {
   const lastWorkedAt = state?.lastWorkedAt;
   return {
@@ -1012,6 +1032,7 @@ function outcome(
     verdict,
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
     ...(brokenOut.length > 0 && { brokenOut }),
+    ...(blocked.length > 0 && { blocked }),
   };
 }
 
@@ -1030,20 +1051,29 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 }
 
 /**
- * Names every ticket a scan passed over for being broken out, whatever its
- * project's verdict: a project can be selected for one ticket while another
- * in its backlog is broken out, and a backlog that looks full but yields
- * nothing is only explicable if the summary says so.
+ * Names every ticket a scan passed over for being broken out or blocked,
+ * whatever its project's verdict: a project can be selected for one ticket
+ * while another in its backlog is passed over, and a backlog that looks full
+ * but yields nothing is only explicable if the summary says so.
  */
 function passedOverAside(projects: ProjectOutcome[]): string {
-  const passedOver = projects.flatMap(({ repo, brokenOut }) => {
-    if (brokenOut === undefined) {
-      return [];
-    }
-    const which = brokenOut.map((ticket) => `#${ticket.number}`).join(", ");
-    return [`${repo} (${which} broken out into sub-issues)`];
+  const passedOver = projects.flatMap(({ repo, brokenOut, blocked }) => {
+    const reasons = [
+      ...(brokenOut === undefined
+        ? []
+        : [`${numbers(brokenOut)} broken out into sub-issues`]),
+      ...(blocked === undefined
+        ? []
+        : [`${numbers(blocked)} blocked by an open ticket`]),
+    ];
+    return reasons.length > 0 ? [`${repo} (${reasons.join("; ")})`] : [];
   });
   return passedOver.length > 0 ? ` Passed over ${passedOver.join(", ")}.` : "";
+}
+
+/** Tickets as the summary names them: `#1, #2`. */
+function numbers(tickets: Ticket[]): string {
+  return tickets.map((ticket) => `#${ticket.number}`).join(", ");
 }
 
 /**

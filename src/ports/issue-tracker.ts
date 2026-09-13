@@ -29,6 +29,10 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
  * Absent or zero means the ticket has none open — indistinguishable from a
  * ticket with no sub-issues at all, since neither is workable any
  * differently from the other.
+ *
+ * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
+ * marked as blocking this one are still open, from that same listing. Absent
+ * or zero means nothing open blocks it.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -37,6 +41,17 @@ export interface Ticket {
   title: string;
   pullRequest?: PullRequestUrl;
   openSubIssues?: number;
+  openBlockers?: number;
+}
+
+/**
+ * Whether an open ticket still blocks `ticket`, per `CONTEXT.md`'s "Blocked
+ * ticket": its work builds on work not yet done, so a run started now would
+ * build on nothing. The tracker only reports the count; this is the judgment
+ * selection makes from it.
+ */
+export function isBlocked(ticket: Ticket): boolean {
+  return (ticket.openBlockers ?? 0) > 0;
 }
 
 /**

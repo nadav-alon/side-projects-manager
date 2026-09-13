@@ -60,18 +60,22 @@ export function ghIssueTracker(
         "--label",
         READY_FOR_AGENT_LABEL,
         "--json",
-        "number,title,body,subIssuesSummary",
+        "number,title,body,subIssuesSummary,blockedBy",
       ]);
 
       return parseIssues(stdout, repo).map(
-        ({ body, subIssuesSummary, ...issue }) => {
+        ({ body, subIssuesSummary, blockedBy, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
           const openSubIssues =
             subIssuesSummary.total - subIssuesSummary.completed;
+          const openBlockers = blockedBy.filter(
+            (blocker) => blocker.state === "OPEN",
+          ).length;
           return {
             repo,
             ...issue,
             ...(openSubIssues > 0 && { openSubIssues }),
+            ...(openBlockers > 0 && { openBlockers }),
             ...(pullRequest !== undefined && { pullRequest }),
           };
         },
@@ -377,7 +381,7 @@ interface RawSubIssuesSummary {
 }
 
 /**
- * One issue as `gh issue list --json number,title,body,subIssuesSummary`
+ * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy`
  * reports it.
  */
 interface RawIssue {
@@ -385,11 +389,17 @@ interface RawIssue {
   title: string;
   body: string;
   subIssuesSummary: RawSubIssuesSummary;
+  blockedBy: RawBlocker[];
+}
+
+/** One ticket blocking an issue, as `blockedBy.nodes` reports it. */
+interface RawBlocker {
+  state: string;
 }
 
 /**
- * `gh --json number,title,body,subIssuesSummary`: a JSON array of
- * `{ number, title, body, subIssuesSummary }`.
+ * `gh --json number,title,body,subIssuesSummary,blockedBy`: a JSON array of
+ * `{ number, title, body, subIssuesSummary, blockedBy }`.
  */
 function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
@@ -409,16 +419,37 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, subIssuesSummary } = issue as Record<
-      string,
-      unknown
-    >;
+    const { number, title, body, subIssuesSummary, blockedBy } =
+      issue as Record<string, unknown>;
     return {
       number: expectField(number, "number", "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
+      blockedBy: parseBlockedBy(blockedBy, at),
     };
+  });
+}
+
+/**
+ * `blockedBy` as `gh` reports it: `{ nodes: [{ number, state, … }], totalCount }`.
+ * Only each blocker's state is kept, since whether it is still open is all
+ * selection asks of it.
+ */
+function parseBlockedBy(value: unknown, at: string): RawBlocker[] {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${at}: "blockedBy" must be an object.`);
+  }
+  const { nodes } = value as Record<string, unknown>;
+  if (!Array.isArray(nodes)) {
+    throw new Error(`${at}: "blockedBy.nodes" must be an array.`);
+  }
+  return nodes.map((node) => {
+    if (typeof node !== "object" || node === null) {
+      throw new Error(`${at}: "blockedBy.nodes" must hold objects.`);
+    }
+    const { state } = node as Record<string, unknown>;
+    return { state: expectField(state, "string", "blockedBy.nodes.state", at) };
   });
 }
 

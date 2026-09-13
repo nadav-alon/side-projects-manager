@@ -636,6 +636,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
   function issues(rawIssues: Record<string, unknown>[]): string {
     const withSubIssues = rawIssues.map((issue) => ({
       subIssuesSummary: { total: 0, completed: 0 },
+      blockedBy: { nodes: [], totalCount: 0 },
       ...issue,
     }));
     return `printf '%s' '${JSON.stringify(withSubIssues)}'`;
@@ -718,7 +719,10 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
 
     const list = callWith(await gh.calls(), "issue", "list");
     assert.ok(list);
-    assert.equal(valueOf(list, "--json"), "number,title,body,subIssuesSummary");
+    assert.equal(
+      valueOf(list, "--json"),
+      "number,title,body,subIssuesSummary,blockedBy",
+    );
   });
 });
 
@@ -726,7 +730,11 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
   function issues(rawIssues: Record<string, unknown>[]): string {
-    const withBody = rawIssues.map((issue) => ({ body: "", ...issue }));
+    const withBody = rawIssues.map((issue) => ({
+      body: "",
+      blockedBy: { nodes: [], totalCount: 0 },
+      ...issue,
+    }));
     return `printf '%s' '${JSON.stringify(withBody)}'`;
   }
 
@@ -779,6 +787,80 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
     const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openSubIssues, undefined);
+  });
+});
+
+describe("ghIssueTracker.listEligibleTickets — blockers", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  function issues(rawIssues: Record<string, unknown>[]): string {
+    const complete = rawIssues.map((issue) => ({
+      body: "",
+      subIssuesSummary: { total: 0, completed: 0 },
+      ...issue,
+    }));
+    return `printf '%s' '${JSON.stringify(complete)}'`;
+  }
+
+  it("carries how many of a ticket's blockers are still open, not how many it has", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 56,
+          title: "Waits on others",
+          blockedBy: {
+            nodes: [
+              { number: 55, state: "OPEN" },
+              { number: 54, state: "OPEN" },
+              { number: 53, state: "CLOSED" },
+            ],
+            totalCount: 3,
+          },
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.openBlockers, 2);
+  });
+
+  it("leaves openBlockers unset once every blocker has closed", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 54,
+          title: "Was waiting",
+          blockedBy: {
+            nodes: [{ number: 47, state: "CLOSED" }],
+            totalCount: 1,
+          },
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.openBlockers, undefined);
+  });
+
+  it("leaves openBlockers unset for a ticket nothing blocks", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 7,
+          title: "Add the thing",
+          blockedBy: { nodes: [], totalCount: 0 },
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.openBlockers, undefined);
   });
 });
 

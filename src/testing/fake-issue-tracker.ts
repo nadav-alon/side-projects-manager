@@ -98,6 +98,20 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return this.#add(repo, { ...ticket, openSubIssues }, READY_FOR_AGENT_LABEL);
   }
 
+  /**
+   * Puts a blocked ticket — carrying `READY_FOR_AGENT_LABEL` with
+   * `openBlockers` open tickets blocking it — in `repo`'s backlog and returns
+   * it. Exists so a test can prove such a ticket is passed over even though it
+   * still carries the label.
+   */
+  addBlockedTicket(
+    repo: RepoSlug,
+    ticket: Omit<Ticket, "repo" | "openBlockers">,
+    openBlockers: number,
+  ): Ticket {
+    return this.#add(repo, { ...ticket, openBlockers }, READY_FOR_AGENT_LABEL);
+  }
+
   #add(repo: RepoSlug, ticket: Omit<Ticket, "repo">, label: string): Ticket {
     const stored: Ticket = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];
