@@ -572,7 +572,12 @@ function outcomeOf(
   if (invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  if (runs.length > 0) {
+  // A ticket handed back for its model labels was never run, so a morning the
+  // gate stood down after it is still a stand-down.
+  const ran = runs.some(
+    (run) => !(run.kind === "failed" && isModelLabelFailure(run.failure)),
+  );
+  if (ran || (runs.length > 0 && standDown === undefined)) {
     return "work-selected";
   }
   return standDown === undefined ? "dry-queue" : "stood-down";

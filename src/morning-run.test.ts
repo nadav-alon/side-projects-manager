@@ -2409,6 +2409,20 @@ describe("morningRun", () => {
         const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
         assert.equal(runs.length, 1);
       });
+
+      it("is handed back even when the gate then stands the morning down, which still reads as a stand-down", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.tracker.addLabel(ticket, "model:haiku");
+        ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+        ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
+
+        const report = await morningRun(ports);
+
+        assert.equal(ports.tracker.handbacks.length, 1);
+        assert.deepEqual(ports.sandbox.runs, []);
+        assert.equal(report.outcome, "stood-down");
+      });
     });
 
     it("hands back a ticket whose model label names no usable model, quoting it, and never runs it", async () => {
