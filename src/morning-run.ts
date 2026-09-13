@@ -147,7 +147,7 @@ export interface ProjectOutcome {
    * full but yielded nothing explicable, rather than indistinguishable from
    * one that was simply empty.
    */
-  passedOverAsBrokenOut?: Ticket[];
+  brokenOut?: Ticket[];
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -1011,7 +1011,7 @@ function outcome(
     repo,
     verdict,
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
-    ...(brokenOut.length > 0 && { passedOverAsBrokenOut: brokenOut }),
+    ...(brokenOut.length > 0 && { brokenOut }),
   };
 }
 
@@ -1036,13 +1036,11 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
  * nothing is only explicable if the summary says so.
  */
 function passedOverAside(projects: ProjectOutcome[]): string {
-  const passedOver = projects.flatMap(({ repo, passedOverAsBrokenOut }) => {
-    if (passedOverAsBrokenOut === undefined) {
+  const passedOver = projects.flatMap(({ repo, brokenOut }) => {
+    if (brokenOut === undefined) {
       return [];
     }
-    const which = passedOverAsBrokenOut
-      .map((ticket) => `#${ticket.number}`)
-      .join(", ");
+    const which = brokenOut.map((ticket) => `#${ticket.number}`).join(", ");
     return [`${repo} (${which} broken out into sub-issues)`];
   });
   return passedOver.length > 0 ? ` Passed over ${passedOver.join(", ")}.` : "";
