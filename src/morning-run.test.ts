@@ -298,6 +298,99 @@ describe("morningRun", () => {
     });
   });
 
+  describe("broken-out tickets", () => {
+    it("never selects a ticket carrying ready-for-agent with an open sub-issue, even as its project's only ticket", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addBrokenOutTicket(
+        PILOT,
+        { number: 66, title: "Too big for one run" },
+        7,
+      );
+      const run = t.mock.method(ports.sandbox, "run");
+
+      const report = await morningRun(ports);
+
+      assert.equal(run.mock.callCount(), 0);
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
+    });
+
+    it("is selectable again once it carries no more open sub-issues", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 66,
+        title: "Too big for one run",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.deepEqual(verdicts(report.projects), [[PILOT, "selected"]]);
+    });
+
+    it("selects a sibling ticket instead, when one in the same backlog is broken out", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addBrokenOutTicket(
+        PILOT,
+        { number: 66, title: "Too big for one run" },
+        7,
+      );
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 67,
+        title: "One of the slices",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [67],
+      );
+      // Selected for #67, yet still says #66 was passed over.
+      assert.match(report.message, /#66 broken out into sub-issues/);
+    });
+
+    it("reads a backlog that is only broken-out tickets as having no eligible tickets, not an error", async () => {
+      const ports = fakePorts();
+      ports.store.register(MANAGER);
+      ports.store.register(PILOT);
+      ports.tracker.addBrokenOutTicket(
+        MANAGER,
+        { number: 66, title: "Too big for one run" },
+        7,
+      );
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [MANAGER, "no-eligible-tickets"],
+        [PILOT, "no-eligible-tickets"],
+      ]);
+      assert.match(report.message, /nothing to do/i);
+    });
+
+    it("says a passed-over ticket was broken out, so a full-looking backlog is explicable", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addBrokenOutTicket(
+        PILOT,
+        { number: 66, title: "Too big for one run" },
+        7,
+      );
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /#66 broken out into sub-issues/);
+    });
+  });
+
   describe("selection ordering", () => {
     /** The pull request every `reviewOf` in this suite names, since none of them care which. */
     const SOME_PULL_REQUEST = pullRequestUrl(

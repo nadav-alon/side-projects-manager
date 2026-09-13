@@ -111,6 +111,53 @@ describe("ghIssueTracker", () => {
 
     assert.deepEqual(tickets, []);
   });
+
+  it("carries how many of an eligible ticket's sub-issues are still open", async () => {
+    const { stdout } = await execFileAsync("gh", [
+      "issue",
+      "list",
+      "--repo",
+      MANAGER,
+      "--state",
+      "open",
+      "--label",
+      READY_FOR_AGENT_LABEL,
+      "--json",
+      "number,subIssuesSummary",
+    ]);
+    const all = JSON.parse(stdout) as {
+      number: number;
+      subIssuesSummary: { total: number; completed: number };
+    }[];
+
+    const brokenOut = all.find(
+      (issue) => issue.subIssuesSummary.total > issue.subIssuesSummary.completed,
+    );
+    const whole = all.find(
+      (issue) => issue.subIssuesSummary.total <= issue.subIssuesSummary.completed,
+    );
+    // The fixture repo must exercise both, or the assertions below would pass
+    // whether or not the adapter reads `subIssuesSummary` at all.
+    assert.ok(
+      brokenOut,
+      "fixture repo needs an eligible issue with an open sub-issue",
+    );
+    assert.ok(
+      whole,
+      "fixture repo needs an eligible issue with no open sub-issues",
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(MANAGER);
+
+    const brokenOutTicket = tickets.find((t) => t.number === brokenOut.number);
+    assert.equal(
+      brokenOutTicket?.openSubIssues,
+      brokenOut.subIssuesSummary.total - brokenOut.subIssuesSummary.completed,
+    );
+
+    const wholeTicket = tickets.find((t) => t.number === whole.number);
+    assert.equal(wholeTicket?.openSubIssues, undefined);
+  });
 });
 
 /**
@@ -582,8 +629,16 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
   // `\n` in its argument on some shells (dash's is XSI-conformant), turning
   // the `\n` a body with a blank line in it serializes to back into a raw
   // newline and breaking the JSON `gh` is meant to answer with.
-  function issues(body: unknown): string {
-    return `printf '%s' '${JSON.stringify(body)}'`;
+  //
+  // Every issue gets a no-sub-issues `subIssuesSummary` unless it names its
+  // own: these fixtures are about the pull request a review's body names,
+  // not about open sub-issues.
+  function issues(rawIssues: Record<string, unknown>[]): string {
+    const withSubIssues = rawIssues.map((issue) => ({
+      subIssuesSummary: { total: 0, completed: 0 },
+      ...issue,
+    }));
+    return `printf '%s' '${JSON.stringify(withSubIssues)}'`;
   }
 
   it("carries the pull request a review ticket's body names", async (t) => {
@@ -663,7 +718,67 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
 
     const list = callWith(await gh.calls(), "issue", "list");
     assert.ok(list);
-    assert.equal(valueOf(list, "--json"), "number,title,body");
+    assert.equal(valueOf(list, "--json"), "number,title,body,subIssuesSummary");
+  });
+});
+
+describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  function issues(rawIssues: Record<string, unknown>[]): string {
+    const withBody = rawIssues.map((issue) => ({ body: "", ...issue }));
+    return `printf '%s' '${JSON.stringify(withBody)}'`;
+  }
+
+  it("carries the count still open, not the total", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 66,
+          title: "Too big for one run",
+          subIssuesSummary: { total: 7, completed: 3 },
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.openSubIssues, 4);
+  });
+
+  it("leaves openSubIssues unset once every sub-issue has closed", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 66,
+          title: "Too big for one run",
+          subIssuesSummary: { total: 7, completed: 7 },
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.openSubIssues, undefined);
+  });
+
+  it("leaves openSubIssues unset for a ticket with no sub-issues at all", async (t) => {
+    await recordingGh(
+      t,
+      issues([
+        {
+          number: 7,
+          title: "Add the thing",
+          subIssuesSummary: { total: 0, completed: 0 },
+        },
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.openSubIssues, undefined);
   });
 });
 

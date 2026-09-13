@@ -60,17 +60,22 @@ export function ghIssueTracker(
         "--label",
         READY_FOR_AGENT_LABEL,
         "--json",
-        "number,title,body",
+        "number,title,body,subIssuesSummary",
       ]);
 
-      return parseIssues(stdout, repo).map(({ body, ...issue }) => {
-        const pullRequest = pullRequestReviewed(body);
-        return {
-          repo,
-          ...issue,
-          ...(pullRequest !== undefined && { pullRequest }),
-        };
-      });
+      return parseIssues(stdout, repo).map(
+        ({ body, subIssuesSummary, ...issue }) => {
+          const pullRequest = pullRequestReviewed(body);
+          const openSubIssues =
+            subIssuesSummary.total - subIssuesSummary.completed;
+          return {
+            repo,
+            ...issue,
+            ...(openSubIssues > 0 && { openSubIssues }),
+            ...(pullRequest !== undefined && { pullRequest }),
+          };
+        },
+      );
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
@@ -365,14 +370,27 @@ function issueNumberIn(stdout: string, repo: RepoSlug): number {
   return number;
 }
 
-/** One issue as `gh issue list --json number,title,body` reports it. */
+/** How many of an issue's sub-issues are open, as `subIssuesSummary` reports it. */
+interface RawSubIssuesSummary {
+  total: number;
+  completed: number;
+}
+
+/**
+ * One issue as `gh issue list --json number,title,body,subIssuesSummary`
+ * reports it.
+ */
 interface RawIssue {
   number: number;
   title: string;
   body: string;
+  subIssuesSummary: RawSubIssuesSummary;
 }
 
-/** `gh --json number,title,body`: a JSON array of `{ number, title, body }`. */
+/**
+ * `gh --json number,title,body,subIssuesSummary`: a JSON array of
+ * `{ number, title, body, subIssuesSummary }`.
+ */
 function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
 
@@ -391,16 +409,52 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body } = issue as Record<string, unknown>;
-    if (typeof number !== "number") {
-      throw new Error(`${at}: "number" must be a number.`);
-    }
-    if (typeof title !== "string") {
-      throw new Error(`${at}: "title" must be a string.`);
-    }
-    if (typeof body !== "string") {
-      throw new Error(`${at}: "body" must be a string.`);
-    }
-    return { number, title, body };
+    const { number, title, body, subIssuesSummary } = issue as Record<
+      string,
+      unknown
+    >;
+    return {
+      number: expectField(number, "number", "number", at),
+      title: expectField(title, "string", "title", at),
+      body: expectField(body, "string", "body", at),
+      subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
+    };
   });
+}
+
+function parseSubIssuesSummary(
+  value: unknown,
+  at: string,
+): RawSubIssuesSummary {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${at}: "subIssuesSummary" must be an object.`);
+  }
+  const { total, completed } = value as Record<string, unknown>;
+  return {
+    total: expectField(total, "number", "subIssuesSummary.total", at),
+    completed: expectField(
+      completed,
+      "number",
+      "subIssuesSummary.completed",
+      at,
+    ),
+  };
+}
+
+interface FieldTypes {
+  number: number;
+  string: string;
+}
+
+/** `value`, if it is of `type`; otherwise an error naming `field` at `at`. */
+function expectField<T extends keyof FieldTypes>(
+  value: unknown,
+  type: T,
+  field: string,
+  at: string,
+): FieldTypes[T] {
+  if (typeof value !== type) {
+    throw new Error(`${at}: "${field}" must be a ${type}.`);
+  }
+  return value as FieldTypes[T];
 }
