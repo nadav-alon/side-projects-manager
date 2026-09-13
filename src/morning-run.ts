@@ -17,6 +17,7 @@ import type {
   State,
   Store,
   Ticket,
+  TicketPriority,
   TokenCount,
   UsageLedger,
   Usd,
@@ -155,6 +156,12 @@ export interface ProjectOutcome {
    * `brokenOut`.
    */
   blocked?: Ticket[];
+  /**
+   * Set when this project's backlog held more eligible tickets than the read
+   * kept — regardless of verdict, since a project outranked this morning can
+   * still be the one whose backlog needs thinning.
+   */
+  backlogTruncated?: true;
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -551,9 +558,12 @@ async function considerProjects(
       continue;
     }
 
-    const backlog = (
-      await ports.tracker.listEligibleTickets(project.repo)
-    ).tickets.filter((ticket) => !worked.has(ticketKey(ticket)));
+    const { tickets, truncated } = await ports.tracker.listEligibleTickets(
+      project.repo,
+    );
+    const backlog = tickets.filter(
+      (ticket) => !worked.has(ticketKey(ticket)),
+    );
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
@@ -572,14 +582,16 @@ async function considerProjects(
       }
     }
     // A review in the same backlog as its parent ticket is worked before it,
-    // so it is picked here even when it is not first in the list.
-    const ticket = selectable.find(isReview) ?? selectable[0];
+    // and ahead of every implementation ticket by ticket priority or issue
+    // number, so it is picked here even when it is not first in the list.
+    const ticket = bestTicket(selectable);
 
     if (ticket === undefined) {
       outcomes.push(
         outcome(project.repo, "no-eligible-tickets", projectState, {
           brokenOut,
           blocked,
+          truncated,
         }),
       );
       continue;
@@ -596,7 +608,11 @@ async function considerProjects(
     });
     outcomeIndexByRepo.set(project.repo, outcomes.length);
     outcomes.push(
-      outcome(project.repo, "deferred", projectState, { brokenOut, blocked }),
+      outcome(project.repo, "deferred", projectState, {
+        brokenOut,
+        blocked,
+        truncated,
+      }),
     );
   }
 
@@ -608,8 +624,9 @@ async function considerProjects(
   // Set by the loop above for every candidate, this one included.
   const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
   const scanned = outcomes[winnerIndex] as ProjectOutcome;
-  // Only the verdict changes: what the scan found, passed-over tickets
-  // included, is as true of the winner as of any project it outranked.
+  // Only the verdict changes: what the scan found, passed-over tickets and a
+  // truncated backlog included, is as true of the winner as of any project it
+  // outranked.
   outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
 
   return {
@@ -621,6 +638,34 @@ async function considerProjects(
 /** Whether `ticket` is a review rather than an implementation. */
 function isReview(ticket: Ticket): boolean {
   return isReviewTicket(ticket);
+}
+
+/**
+ * The one ticket `backlog` offers selection, within a single project: a
+ * review ticket before any implementation ticket, since finishing beats
+ * starting; among implementation tickets, `Ticket.priority` ascending, with
+ * an absent priority sorting after every ticket that has one; and, ties still
+ * standing, the lowest issue number, so the order the tracker happened to
+ * return them in never matters.
+ *
+ * Where several review tickets are eligible in the same backlog, the first
+ * the tracker returned wins — nothing here orders reviews against each other,
+ * since only one review is ever open on a ticket at a time in practice.
+ */
+function bestTicket(backlog: Ticket[]): Ticket | undefined {
+  const review = backlog.find(isReview);
+  if (review !== undefined) {
+    return review;
+  }
+  return [...backlog].sort(compareTickets)[0];
+}
+
+function compareTickets(a: Ticket, b: Ticket): number {
+  const byPriority = compareRank(a.priority, b.priority);
+  if (byPriority !== 0) {
+    return byPriority;
+  }
+  return a.number - b.number;
 }
 
 /** The key `worked` tracks a ticket by, unique within one invocation. */
@@ -647,7 +692,7 @@ function compareCandidates(a: Candidate, b: Candidate): number {
   if (a.isReview !== b.isReview) {
     return a.isReview ? -1 : 1;
   }
-  const byPriority = comparePriority(a.priority, b.priority);
+  const byPriority = compareRank(a.priority, b.priority);
   if (byPriority !== 0) {
     return byPriority;
   }
@@ -655,14 +700,14 @@ function compareCandidates(a: Candidate, b: Candidate): number {
 }
 
 /**
- * A project without a priority sorts after every project that has one — not
- * via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`, and a
- * comparator that can return `NaN` leaves `Array.prototype.sort` free to
- * return either order.
+ * Ascending by rank — a project's `Priority` or a ticket's `TicketPriority` —
+ * with an absent rank sorting after every present one. Not via arithmetic on
+ * a sentinel, since `Infinity - Infinity` is `NaN`, and a comparator that can
+ * return `NaN` leaves `Array.prototype.sort` free to return either order.
  */
-function comparePriority(
-  a: Priority | undefined,
-  b: Priority | undefined,
+function compareRank<Rank extends Priority | TicketPriority>(
+  a: Rank | undefined,
+  b: Rank | undefined,
 ): number {
   if (a === undefined) {
     return b === undefined ? 0 : 1;
@@ -1026,7 +1071,11 @@ function outcome(
   repo: RepoSlug,
   verdict: ProjectVerdict,
   state: ProjectState | undefined,
-  { brokenOut = [], blocked = [] }: { brokenOut?: Ticket[]; blocked?: Ticket[] } = {},
+  {
+    brokenOut = [],
+    blocked = [],
+    truncated = false,
+  }: { brokenOut?: Ticket[]; blocked?: Ticket[]; truncated?: boolean } = {},
 ): ProjectOutcome {
   const lastWorkedAt = state?.lastWorkedAt;
   return {
@@ -1035,6 +1084,7 @@ function outcome(
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
     ...(brokenOut.length > 0 && { brokenOut }),
     ...(blocked.length > 0 && { blocked }),
+    ...(truncated && { backlogTruncated: true }),
   };
 }
 
