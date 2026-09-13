@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  ModelName,
+  ModelRefusal,
   ReviewRequest,
   ReviewRunResult,
   ReviewTicket,
@@ -62,6 +64,11 @@ export interface AgentRun {
    * spend is real either way.
    */
   failure?: string;
+  /**
+   * The CLI's own words refusing the model it was started on, absent unless
+   * it flagged the model unrecognised — see `MODEL_REFUSAL`.
+   */
+  modelRefused?: string;
 }
 
 /**
@@ -94,10 +101,11 @@ export type Mount = "rw" | "ro";
 
 /**
  * What one container invocation needs: the clone to mount, the prompt to run,
- * the spend ceiling to enforce, and whether the clone is writable. Grouped
- * into one options object because the four travel together across every
- * boundary in this file — `Container`, `attempt`, `dockerContainer` and
- * `dockerCommand` all take exactly this and nothing else.
+ * the spend ceiling to enforce, whether the clone is writable, and the model
+ * to start the agent CLI on. Grouped into one options object because these
+ * travel together across every boundary in this file — `Container`,
+ * `attempt`, `dockerContainer` and `dockerCommand` all take exactly this and
+ * nothing else.
  */
 export interface RunOptions {
   /** The clone mounted into the container. */
@@ -105,6 +113,8 @@ export interface RunOptions {
   prompt: string;
   spendCeiling: Usd;
   mount: Mount;
+  /** As `RunRequest.model`, absent to leave the image's own pin in force. */
+  model?: ModelName;
 }
 
 /**
@@ -156,7 +166,7 @@ async function runOnClone(
   container: Container,
   request: RunRequest,
 ): Promise<SandboxRunResult> {
-  const { ticket, checkout: project, spendCeiling } = request;
+  const { ticket, checkout: project, spendCeiling, model } = request;
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
   );
@@ -182,6 +192,7 @@ async function runOnClone(
       prompt: promptFor(ticket),
       spendCeiling,
       mount: "rw",
+      ...(model === undefined ? {} : { model }),
     });
     const commits = await commitsSince(clone, base);
 
@@ -207,7 +218,7 @@ async function runOnClone(
       commits,
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...howItStopped(agent),
+      ...howItStopped(agent, model),
     };
   } finally {
     // If fetched back, the checkout now records the name; otherwise the name
@@ -274,15 +285,39 @@ async function attempt(
 const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 
 /**
- * Whether `agent` was refused by the provider limit, stopped for a ticket
- * reason, or finished.
+ * How the agent CLI flags a model it does not recognise, as captured from the
+ * real CLI: `claude --print … --model <bogus> --output-format json` exits 1
+ * and writes `[claude-code:unrecognized_model] {"model":"<bogus>",…}` to
+ * stderr. Its envelope says only `"is_error": true`, with a `result` in prose
+ * that could be reworded any morning, so the stderr tag is what is matched.
  *
- * A refusal is read whatever the exit code: it is the whole of what the CLI
- * said, so a refused run that exited zero is still no answer to the ticket.
+ * Matched against stderr alone, never the agent's own words, so an agent that
+ * quotes the tag is not mistaken for one refused. Anchored to the start of a
+ * line (`m`), since other diagnostics can come before it. The only place this
+ * line's shape is known, so a CLI that rewords it has one line here to change.
+ */
+const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
+
+/**
+ * Whether `agent` was refused by the model it was asked to run on, refused by
+ * the provider limit, stopped for a ticket reason, or finished.
+ *
+ * The model check comes first and only applies when `model` was actually
+ * asked for and the CLI exited non-zero: a refused model is the ticket's
+ * problem, not the agent's or the setup's, so it must not read as either, and
+ * naming the model needs the request, not just the CLI's own words.
  */
 function howItStopped(
   agent: AgentRun,
-): { failure?: string; limitRefusal?: string } {
+  model: ModelName | undefined,
+): { failure?: string; limitRefusal?: string; modelRefusal?: ModelRefusal } {
+  if (
+    model !== undefined &&
+    agent.failure !== undefined &&
+    agent.modelRefused !== undefined
+  ) {
+    return { modelRefusal: { model, words: agent.modelRefused } };
+  }
   const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
   if (refusal !== undefined) {
     return { limitRefusal: refusal.trim() };
@@ -303,7 +338,7 @@ async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
 ): Promise<ReviewRunResult> {
-  const { ticket, checkout: project, spendCeiling } = request;
+  const { ticket, checkout: project, spendCeiling, model } = request;
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-review-")),
   );
@@ -317,12 +352,13 @@ async function reviewOnClone(
       prompt: reviewPromptFor(ticket),
       spendCeiling,
       mount: "ro",
+      ...(model === undefined ? {} : { model }),
     });
 
     return {
       output: agent.output,
       tokensUsed: agent.tokensUsed,
-      ...howItStopped(agent),
+      ...howItStopped(agent, model),
     };
   } finally {
     await rm(clone, { recursive: true, force: true }).catch(
@@ -499,13 +535,23 @@ const dockerContainer: Container = async (options) => {
         `docker could not start the agent: ${errorMessage(error)}`,
       );
     }
-    // Any other non-zero exit is the agent's own, and it may have committed
-    // first. `execFile` hangs the output it did capture off the error, so the
-    // run still comes back with what it said and what it spent.
-    const { stdout, stderr } = captured(error);
-    return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+    return readExitedRun(error);
   }
 };
+
+/**
+ * What an agent that exited non-zero came back with. Any exit `dockerNeverRan`
+ * leaves alone is the agent's own, and it may have committed first. `execFile`
+ * hangs the output it did capture off the error, so the run still comes back
+ * with what it said and what it spent.
+ *
+ * Exported so a captured CLI exit can be read the way `dockerContainer` reads
+ * it, without docker installed.
+ */
+export function readExitedRun(error: unknown): AgentRun {
+  const { stdout, stderr } = captured(error);
+  return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+}
 
 /**
  * The environment `docker` itself runs in, which is what `--env GH_TOKEN`
@@ -581,6 +627,7 @@ export function dockerCommand({
   prompt,
   spendCeiling,
   mount,
+  model,
 }: RunOptions): string[] {
   const user = hostUser();
 
@@ -608,6 +655,11 @@ export function dockerCommand({
     prompt,
     "--output-format",
     "json",
+    // Absent when the request named no model, leaving the image's own pin in
+    // force. `model` is its own array element — `execFile` never runs through
+    // a shell, so whatever the name contains reaches the CLI as one argument
+    // rather than being interpreted.
+    ...(model === undefined ? [] : ["--model", model]),
     // Without this the agent cannot act on the ticket at all. `--print`
     // defaults to `--permission-prompts host`, and there is no host here:
     // `execFile` is not one, and no `--permission-prompt-tool` is passed. So
@@ -686,13 +738,18 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * `stderr` is appended rather than dropped: a run that went wrong says so
  * there, and that is exactly the run whose output somebody has to read. So are
  * the tools the CLI refused the agent — see `deniedTools`.
+ *
+ * A model refusal's words are the envelope's `result`, which is prose meant
+ * for a reader, or the stderr tag itself when there is no `result` to quote.
  */
 export function readAgentRun(stdout: string, stderr = ""): AgentRun {
+  const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
+      ...(refusalTag !== undefined && { modelRefused: refusalTag }),
     };
   }
 
@@ -707,6 +764,9 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
       deniedTools(envelope),
     ),
     tokensUsed: totalTokens(usage),
+    ...(refusalTag !== undefined && {
+      modelRefused: typeof result === "string" ? result.trim() : refusalTag,
+    }),
   };
 }
 

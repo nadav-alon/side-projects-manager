@@ -40,6 +40,7 @@ export type { RepoSlug } from "./repo-slug.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
 export type {
+  ModelRefusal,
   ReviewRequest,
   ReviewRunResult,
   RunRequest,

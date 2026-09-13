@@ -1,4 +1,6 @@
 import type {
+  ModelName,
+  ModelRefusal,
   ReviewRequest,
   ReviewRunResult,
   ReviewTicket,
@@ -39,13 +41,47 @@ export class FakeSandbox implements Sandbox {
     tokensUsed: tokenCount(0),
   });
 
+  /**
+   * A model name every run or review asked for comes back refused for,
+   * unset to refuse none. Set to exercise a model refusal; `runs` and
+   * `reviews` say which model each was asked for.
+   */
+  refusedModel: ModelName | undefined = undefined;
+
   async run(request: RunRequest): Promise<SandboxRunResult> {
     this.runs.push(request);
+    const modelRefusal = this.refusal(request);
+    if (modelRefusal !== undefined) {
+      return {
+        branch: branch(`fake/${request.ticket.repo}/${request.ticket.number}`),
+        commits: [],
+        output: modelRefusal.words,
+        tokensUsed: tokenCount(0),
+        modelRefusal,
+      };
+    }
     return this.result(request.ticket);
   }
 
   async review(request: ReviewRequest): Promise<ReviewRunResult> {
     this.reviews.push(request);
+    const modelRefusal = this.refusal(request);
+    if (modelRefusal !== undefined) {
+      return {
+        output: modelRefusal.words,
+        tokensUsed: tokenCount(0),
+        modelRefusal,
+      };
+    }
     return this.reviewResult(request.ticket);
+  }
+
+  /** The refusal `refusedModel` calls for, absent for any other model or none. */
+  private refusal({
+    model,
+  }: RunRequest | ReviewRequest): ModelRefusal | undefined {
+    return model !== undefined && model === this.refusedModel
+      ? { model, words: `refused model ${model}` }
+      : undefined;
   }
 }

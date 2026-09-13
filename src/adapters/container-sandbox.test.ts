@@ -13,11 +13,13 @@ import {
   dockerCommand,
   dockerNeverRan,
   readAgentRun,
+  readExitedRun,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
 import {
   checkout,
+  modelName,
   pullRequestUrl,
   repoSlug,
   tokenCount,
@@ -141,6 +143,41 @@ function heldAgents(
   };
 }
 
+/**
+ * Captured from the real CLI, signed in: `claude --print "say hi" --model
+ * this-model-does-not-exist-xyz --output-format json` exits 1, printing this
+ * envelope (trimmed to the fields the adapter or a reader cares about) to
+ * stdout and the line below to stderr — see `MODEL_REFUSAL` in
+ * container-sandbox.ts.
+ */
+const MODEL_REFUSAL_WORDS =
+  "There's an issue with the selected model (this-model-does-not-exist-xyz). It may not exist or you may not have access to it. Run --model to pick a different model.";
+const MODEL_REFUSAL_STDOUT = JSON.stringify({
+  type: "result",
+  subtype: "success",
+  is_error: true,
+  api_error_status: 404,
+  terminal_reason: "api_error",
+  num_turns: 1,
+  total_cost_usd: 0,
+  usage: {
+    input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    output_tokens: 0,
+  },
+  permission_denials: [],
+  result: MODEL_REFUSAL_WORDS,
+});
+const MODEL_REFUSAL_STDERR =
+  '[claude-code:unrecognized_model] {"model":"this-model-does-not-exist-xyz","query_source":"sdk"}\n';
+
+/** What `execFile` rejects with when `docker run` passes on the refusal's exit 1. */
+const MODEL_REFUSAL_EXIT = Object.assign(
+  new Error("Command failed: docker run"),
+  { code: 1, stdout: MODEL_REFUSAL_STDOUT, stderr: MODEL_REFUSAL_STDERR },
+);
+
 describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
     const directory = await project();
@@ -193,6 +230,37 @@ describe("containerSandbox", () => {
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /gh issue view 7 --repo nadav-alon\/pilot/);
+  });
+
+  it("asks docker for no model when the request names none", async () => {
+    const directory = await project();
+    let seen: string | undefined = "unset";
+    const sandbox = containerSandbox(async ({ model }) => {
+      seen = model;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(seen, undefined);
+  });
+
+  it("passes the request's model to the agent CLI as a single value", async () => {
+    const directory = await project();
+    let seen: string | undefined;
+    const sandbox = containerSandbox(async ({ model }) => {
+      seen = model;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(seen, "opus");
   });
 
   it("leaves the agent's commits on a branch named for the ticket", async () => {
@@ -419,6 +487,86 @@ describe("containerSandbox", () => {
     assert.equal(result.failure, undefined);
   });
 
+  it("reports a model refusal apart from an agent that gave up", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(MODEL_REFUSAL_EXIT),
+    );
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("this-model-does-not-exist-xyz"),
+    });
+
+    assert.deepEqual(result.modelRefusal, {
+      model: modelName("this-model-does-not-exist-xyz"),
+      words: MODEL_REFUSAL_WORDS,
+    });
+    assert.equal(result.failure, undefined);
+    assert.equal(result.limitRefusal, undefined);
+  });
+
+  it("does not read a model refusal when the request named no model", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(MODEL_REFUSAL_EXIT),
+    );
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.modelRefusal, undefined);
+    assert.equal(result.failure, "Command failed: docker run");
+  });
+
+  it("does not mistake a finished agent that quotes the model refusal tag for one refused", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readAgentRun(
+        JSON.stringify({
+          result: `Matched the CLI's line:\n${MODEL_REFUSAL_STDERR}`,
+        }),
+      ),
+    );
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(result.modelRefusal, undefined);
+    assert.equal(result.failure, undefined);
+  });
+
+  it("does not mistake an agent that gave up quoting the model refusal tag for one refused", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      ...readAgentRun(
+        JSON.stringify({
+          result: `The tests would not go green on:\n${MODEL_REFUSAL_STDERR}`,
+        }),
+      ),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(result.modelRefusal, undefined);
+    assert.equal(result.failure, "Command failed: docker run");
+  });
+
   /**
    * The line the loop reads a failure's kind off. A container that never
    * started the agent has no commits, output or spend to keep, and reporting it
@@ -643,6 +791,27 @@ describe("containerSandbox.review", () => {
     assert.deepEqual(mounts, ["ro"]);
   });
 
+  it("passes the review's model to the agent CLI the same way a run does, and stays read-only", async () => {
+    const directory = await project();
+    let seenModel: string | undefined;
+    let seenMount: Mount | undefined;
+    const sandbox = containerSandbox(async ({ model, mount }) => {
+      seenModel = model;
+      seenMount = mount;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(seenModel, "opus");
+    assert.equal(seenMount, "ro");
+  });
+
   it("names the pull request to review, since the clone's origin can't say", async () => {
     const directory = await project();
     let asked = "";
@@ -759,6 +928,26 @@ describe("containerSandbox.review", () => {
     assert.equal(result.failure, undefined);
   });
 
+  it("reports a model refusal apart from a reviewer that gave up, naming the model and the CLI's words", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(MODEL_REFUSAL_EXIT),
+    );
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("this-model-does-not-exist-xyz"),
+    });
+
+    assert.deepEqual(result.modelRefusal, {
+      model: modelName("this-model-does-not-exist-xyz"),
+      words: MODEL_REFUSAL_WORDS,
+    });
+    assert.equal(result.failure, undefined);
+  });
+
   it("takes the clone away once the review finishes", async () => {
     const directory = await project();
     let clone = "";
@@ -838,6 +1027,25 @@ describe("containerSandbox.review", () => {
 });
 
 describe("readAgentRun", () => {
+  it("reads a model refusal off stderr, in the words of the CLI's result", () => {
+    const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
+
+    assert.equal(agent.modelRefused, MODEL_REFUSAL_WORDS);
+  });
+
+  it("quotes the model refusal tag itself when there is no result to quote", () => {
+    const agent = readAgentRun("", MODEL_REFUSAL_STDERR);
+
+    assert.equal(agent.modelRefused, MODEL_REFUSAL_STDERR.trim());
+  });
+
+  it("reads no model refusal from the agent's own words", () => {
+    const agent = readAgentRun(
+      JSON.stringify({ result: MODEL_REFUSAL_STDERR }),
+    );
+
+    assert.equal(agent.modelRefused, undefined);
+  });
   it("reads the agent's result and totals every token field", () => {
     const stdout = JSON.stringify({
       result: "implemented the thing",
@@ -969,6 +1177,46 @@ describe("readAgentRun", () => {
  */
 describe("dockerCommand", () => {
   const CLONE = checkout("/tmp/clone");
+
+  it("passes no model argument when none is asked for", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
+
+    assert.ok(!command.includes("--model"));
+  });
+
+  it("passes the model to the agent CLI as one argument, whatever it contains", () => {
+    const name = "opus;rm$(whoami)'x'|&";
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+      model: modelName(name),
+    });
+
+    const flag = command.indexOf("--model");
+    assert.ok(flag > command.indexOf("--print"), "--model must reach the CLI, not docker");
+    assert.equal(command[flag + 1], name);
+    assert.equal(command.filter((argument) => argument.includes("opus")).length, 1);
+  });
+
+  it("passes a review's model the same way, and still mounts read-only", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "review it",
+      spendCeiling: usd(5),
+      mount: "ro",
+      model: modelName("opus"),
+    });
+
+    assert.equal(command[command.indexOf("--model") + 1], "opus");
+    assert.ok(command.includes(`${CLONE}:/repo:ro`));
+  });
 
   it("hands the agent CLI the run's spend ceiling", () => {
     const command = dockerCommand({
@@ -1210,6 +1458,10 @@ describe("dockerNeverRan", () => {
     for (const code of [1, 2, 137]) {
       assert.equal(dockerNeverRan(exited(code)), false, `exit ${code}`);
     }
+  });
+
+  it("leaves the CLI's refusal of a model to the agent", () => {
+    assert.equal(dockerNeverRan(MODEL_REFUSAL_EXIT), false);
   });
 
   it("does not mistake something thrown without a code for docker", () => {
