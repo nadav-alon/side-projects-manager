@@ -22,6 +22,7 @@ export {
   ticketKind,
 } from "./issue-tracker.ts";
 export type {
+  Backlog,
   IssueTracker,
   ModelLabel,
   ReviewTicket,

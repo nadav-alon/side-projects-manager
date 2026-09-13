@@ -137,6 +137,16 @@ export function isBrokenOut(ticket: Ticket): boolean {
   return (ticket.openSubIssues ?? 0) > 0;
 }
 
+/**
+ * One project's backlog as one morning reads it: its eligible tickets, and
+ * whether it is a truncated backlog — longer than the loop reads in one
+ * morning, so `tickets` holds only the newest of it.
+ */
+export interface Backlog {
+  tickets: Ticket[];
+  truncated: boolean;
+}
+
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
 export type ReviewTicket = Ticket & { pullRequest: PullRequestUrl };
 
@@ -167,13 +177,8 @@ export interface IssueTracker {
    * label, which are the only tickets the loop may select. A project with an
    * empty backlog returns an empty list; that is a normal morning, not an
    * error.
-   *
-   * `truncated` says the backlog is a truncated backlog: longer than the loop
-   * reads in one morning, so `tickets` holds only the newest of it.
    */
-  listEligibleTickets(
-    repo: RepoSlug,
-  ): Promise<{ tickets: Ticket[]; truncated: boolean }>;
+  listEligibleTickets(repo: RepoSlug): Promise<Backlog>;
   /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.

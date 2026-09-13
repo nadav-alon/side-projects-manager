@@ -1,4 +1,5 @@
 import type {
+  Backlog,
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
@@ -162,9 +163,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * the call, through the same `modelLabelOf` the real tracker uses, so a
    * label changed between calls changes what the next call returns.
    */
-  async listEligibleTickets(
-    repo: RepoSlug,
-  ): Promise<{ tickets: Ticket[]; truncated: boolean }> {
+  async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
     const tickets = (this.#backlogs.get(repo) ?? [])
       .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
       .map((entry) => {

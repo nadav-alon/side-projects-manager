@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type {
+  Backlog,
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
@@ -53,9 +54,7 @@ export function ghIssueTracker(
       );
     },
 
-    async listEligibleTickets(
-      repo: RepoSlug,
-    ): Promise<{ tickets: Ticket[]; truncated: boolean }> {
+    async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
       const { stdout } = await execFileAsync("gh", [
         "issue",
         "list",
