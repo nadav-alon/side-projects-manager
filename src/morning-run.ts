@@ -45,6 +45,7 @@ import {
   handoverFailureComment,
   modelRefusalComment,
   unusableModelLabelComment,
+  workLocation,
   type Discard,
 } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
@@ -157,16 +158,20 @@ export interface HandoverFailed {
   reason: string;
   /** Where the run's commits are. */
   branch: Branch;
-  /** The draft pull request, when one was opened before the handover failed. */
-  pullRequest?: PullRequestUrl;
-  /**
-   * Set when the branch never reached the host: the checkout it is still
-   * only in, which is the one place the developer can find the work.
-   */
-  unpushedIn?: Checkout;
+  /** How far the branch got, and so where the developer finds the work. */
+  where: HandoverReach;
   /** As `GaveUp.handedBack`. */
   handedBack: boolean;
 }
+
+/** How far a failed handover's branch got before the handover failed. */
+export type HandoverReach =
+  /** Never reached the host: `checkout` is the one place the work is. */
+  | { kind: "unpushed"; checkout: Checkout }
+  /** On the host, with no draft pull request known to be open for it. */
+  | { kind: "pushed" }
+  /** On the host, in `pullRequest`: only the review ticket failed. */
+  | { kind: "opened"; pullRequest: PullRequestUrl };
 
 /**
  * Where the model a run was started on came from. Absent from a run started
@@ -1079,15 +1084,22 @@ async function handOver(
     ticket,
   );
   if (opening.kind === "unpushed") {
-    return handoverFailed(ports, ticket, run, {
-      reason: `it was not pushed: ${opening.failure}`,
-      unpushedIn: checkout,
-    });
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `it was not pushed: ${opening.failure}`,
+      { kind: "unpushed", checkout },
+    );
   }
   if (opening.kind === "pushed") {
-    return handoverFailed(ports, ticket, run, {
-      reason: `it was pushed, but ${opening.failure}`,
-    });
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `it was pushed, but ${opening.failure}`,
+      { kind: "pushed" },
+    );
   }
   const { pullRequest } = opening;
 
@@ -1098,10 +1110,13 @@ async function handOver(
   try {
     reviewTicket = await ports.tracker.createReviewTicket(ticket, pullRequest);
   } catch (error: unknown) {
-    return handoverFailed(ports, ticket, run, {
-      reason: `the review ticket could not be created: ${errorMessage(error)}`,
-      pullRequest,
-    });
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `the review ticket could not be created: ${errorMessage(error)}`,
+      { kind: "opened", pullRequest },
+    );
   }
 
   const handbackFailure = await handFinishedTicketBack(
@@ -1126,18 +1141,14 @@ async function handoverFailed(
   ports: MorningRunPorts,
   ticket: Ticket,
   run: SandboxRunResult,
-  {
-    reason,
-    pullRequest,
-    unpushedIn,
-  }: { reason: string; pullRequest?: PullRequestUrl; unpushedIn?: Checkout },
+  reason: string,
+  where: HandoverReach,
 ): Promise<Failed> {
   const failure: HandoverFailed = {
     kind: "handover-failed",
     reason,
     branch: run.branch,
-    ...(pullRequest !== undefined && { pullRequest }),
-    ...(unpushedIn !== undefined && { unpushedIn }),
+    where,
     handedBack: false,
   };
   return handTicketBack(
@@ -1758,16 +1769,6 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
     case "unusable-model-label":
       return `${which} was not run, because ${failure.reason}. ${now}`;
   }
-}
-
-/** Where a failed handover left the work: its branch, and any pull request. */
-function workLocation(failure: HandoverFailed): string {
-  if (failure.unpushedIn !== undefined) {
-    return `${failure.branch} (not pushed, only in the checkout at ${failure.unpushedIn})`;
-  }
-  return failure.pullRequest === undefined
-    ? failure.branch
-    : `${failure.branch} (${failure.pullRequest})`;
 }
 
 /**
