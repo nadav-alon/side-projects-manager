@@ -87,7 +87,7 @@ describe("ghIssueTracker", () => {
       "fixture repo needs an open, unlabelled issue to prove the label is filtered",
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(MANAGER);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(MANAGER);
     const numbers = tickets.map((ticket) => ticket.number);
 
     // Excluded by state, excluded by label: neither belongs in the result,
@@ -113,7 +113,7 @@ describe("ghIssueTracker", () => {
   });
 
   it("returns an empty backlog for a project with no eligible tickets, without an error", async () => {
-    const tickets = await ghIssueTracker().listEligibleTickets(EMPTY);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(EMPTY);
 
     assert.deepEqual(tickets, []);
   });
@@ -153,7 +153,7 @@ describe("ghIssueTracker", () => {
       "fixture repo needs an eligible issue with no open sub-issues",
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(MANAGER);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(MANAGER);
 
     const brokenOutTicket = tickets.find((t) => t.number === brokenOut.number);
     assert.equal(
@@ -667,7 +667,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets.length, 1);
     assert.equal(tickets[0]?.pullRequest, PULL_REQUEST);
@@ -679,7 +679,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       issues([{ number: 7, title: "Add the thing", body: "Do the thing." }]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets.length, 1);
     assert.equal(tickets[0]?.pullRequest, undefined);
@@ -697,7 +697,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.pullRequest, undefined);
   });
@@ -720,7 +720,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.pullRequest, PULL_REQUEST);
   });
@@ -763,7 +763,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   it("names no model for a ticket without a model label", async (t) => {
     await recordingGh(t, issues([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.modelLabel, undefined);
   });
@@ -771,7 +771,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   it("names the model a ticket labelled model:opus asks for", async (t) => {
     await recordingGh(t, issues([issue(7, [READY_FOR_AGENT_LABEL, "model:opus"])]));
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.deepEqual(tickets[0]?.modelLabel, {
       kind: "named",
@@ -782,7 +782,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   it("passes a name no Claude model uses through unchanged", async (t) => {
     await recordingGh(t, issues([issue(7, ["model:GPT-9-Turbo"])]));
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.deepEqual(tickets[0]?.modelLabel, {
       kind: "named",
@@ -793,7 +793,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   it("marks a ticket with two model labels as conflicting, with both names", async (t) => {
     await recordingGh(t, issues([issue(7, ["model:opus", "model:haiku"])]));
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets.length, 1, "a conflicting ticket is still returned");
     assert.deepEqual(tickets[0]?.modelLabel, {
@@ -805,7 +805,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   it("marks a ticket whose model label names no usable model as unusable", async (t) => {
     await recordingGh(t, issues([issue(7, ["model:claude opus"])]));
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets.length, 1, "an unusable ticket is still returned");
     assert.deepEqual(tickets[0]?.modelLabel, {
@@ -828,7 +828,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     const review = tickets.find((ticket) => ticket.number === 42);
     assert.equal(review?.pullRequest, pullRequest);
@@ -841,9 +841,9 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
     const tracker = ghIssueTracker();
 
     await writeFile(listing, JSON.stringify([issue(7, ["model:opus"])]));
-    const before = await tracker.listEligibleTickets(PILOT);
+    const { tickets: before } = await tracker.listEligibleTickets(PILOT);
     await writeFile(listing, JSON.stringify([issue(7, ["model:sonnet"])]));
-    const after = await tracker.listEligibleTickets(PILOT);
+    const { tickets: after } = await tracker.listEligibleTickets(PILOT);
 
     assert.deepEqual(before[0]?.modelLabel, { kind: "named", name: modelName("opus") });
     assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });
@@ -865,7 +865,7 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openSubIssues, 4);
   });
@@ -882,7 +882,7 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openSubIssues, undefined);
   });
@@ -899,7 +899,7 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openSubIssues, undefined);
   });
@@ -927,7 +927,7 @@ describe("ghIssueTracker.listEligibleTickets — blockers", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openBlockers, 2);
   });
@@ -947,7 +947,7 @@ describe("ghIssueTracker.listEligibleTickets — blockers", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openBlockers, undefined);
   });
@@ -964,9 +964,107 @@ describe("ghIssueTracker.listEligibleTickets — blockers", () => {
       ]),
     );
 
-    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
 
     assert.equal(tickets[0]?.openBlockers, undefined);
+  });
+});
+
+describe("ghIssueTracker.listEligibleTickets — ticket priority", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  function labelled(...names: string[]): string {
+    const issue = {
+      number: 7,
+      title: "Add the thing",
+      body: "",
+      subIssuesSummary: { total: 0, completed: 0 },
+      blockedBy: { nodes: [], totalCount: 0 },
+      labels: names.map((name) => ({ name })),
+    };
+    return `printf '%s' '${JSON.stringify([issue])}'`;
+  }
+
+  it("carries the level a priority label names", async (t) => {
+    await recordingGh(t, labelled(READY_FOR_AGENT_LABEL, "priority:2"));
+
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.priority, 2);
+  });
+
+  it("counts a ticket carrying several levels as its smallest", async (t) => {
+    await recordingGh(t, labelled("priority:3", "priority:1"));
+
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.priority, 1);
+  });
+
+  it("ignores a priority label outside the three levels", async (t) => {
+    await recordingGh(t, labelled("priority:7", "priority:high", "priority:"));
+
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.priority, undefined);
+  });
+
+  it("leaves priority unset for a ticket carrying no priority label", async (t) => {
+    await recordingGh(t, labelled(READY_FOR_AGENT_LABEL, "enhancement"));
+
+    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.priority, undefined);
+  });
+});
+
+describe("ghIssueTracker.listEligibleTickets — truncated backlog", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  /** `count` eligible issues, newest first, the order `gh issue list` answers in. */
+  function newestFirst(count: number): string {
+    const all = Array.from({ length: count }, (_, index) => ({
+      number: count - index,
+      title: `Ticket ${count - index}`,
+      body: "",
+      subIssuesSummary: { total: 0, completed: 0 },
+      blockedBy: { nodes: [], totalCount: 0 },
+      labels: [],
+    }));
+    return `printf '%s' '${JSON.stringify(all)}'`;
+  }
+
+  it("asks for one more issue than it reads, so it can tell a full backlog from a longer one", async (t) => {
+    const gh = await recordingGh(t, newestFirst(0));
+
+    await ghIssueTracker().listEligibleTickets(PILOT);
+
+    const list = callWith(await gh.calls(), "issue", "list");
+    assert.ok(list);
+    assert.equal(valueOf(list, "--limit"), "101");
+  });
+
+  it("reads the newest 100 of a longer backlog and says it was truncated", async (t) => {
+    await recordingGh(t, newestFirst(101));
+
+    const { tickets, truncated } =
+      await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(truncated, true);
+    assert.equal(tickets.length, 100);
+    assert.equal(tickets[0]?.number, 101);
+    assert.ok(!tickets.some((ticket) => ticket.number === 1));
+  });
+
+  it("reads all of a backlog of 100 and says it was not truncated", async (t) => {
+    await recordingGh(t, newestFirst(100));
+
+    const { tickets, truncated } =
+      await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(truncated, false);
+    assert.equal(tickets.length, 100);
+    assert.ok(tickets.some((ticket) => ticket.number === 1));
   });
 });
 

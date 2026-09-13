@@ -7,19 +7,25 @@ import type {
   RepoSlug,
   ReviewTicket,
   Ticket,
+  TicketPriority,
 } from "../ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isPullRequestUrl,
+  isTicketPriority,
   modelLabelOf,
   reviewTitle,
+  ticketPriority,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 const execFileAsync = promisify(execFile);
+
+/** How many of a project's eligible tickets one morning reads. */
+const BACKLOG_READ = 100;
 
 /**
  * The tracker port backed by the `gh` CLI, per `docs/agents/issue-tracker.md`.
@@ -34,9 +40,6 @@ const execFileAsync = promisify(execFile);
  * finds no repository at all and the summary is lost to an invocation that
  * otherwise worked. The manager reports on itself, so the checkout it reports
  * into is its own and is not the caller's to decide.
- *
- * TODO[#25]: `gh issue list` caps results at 30 by default with no override
- * here, so a backlog past that size is silently truncated.
  */
 export function ghIssueTracker(
   home: string = MANAGER_HOME,
@@ -50,7 +53,9 @@ export function ghIssueTracker(
       );
     },
 
-    async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
+    async listEligibleTickets(
+      repo: RepoSlug,
+    ): Promise<{ tickets: Ticket[]; truncated: boolean }> {
       const { stdout } = await execFileAsync("gh", [
         "issue",
         "list",
@@ -60,11 +65,18 @@ export function ghIssueTracker(
         "open",
         "--label",
         READY_FOR_AGENT_LABEL,
+        // One past what is read, so a backlog of exactly that many is told
+        // apart from a longer one. `gh` answers newest first, so the one
+        // dropped is the oldest.
+        "--limit",
+        String(BACKLOG_READ + 1),
         "--json",
         "number,title,body,subIssuesSummary,blockedBy,labels",
       ]);
 
-      return parseIssues(stdout, repo).map(
+      const issues = parseIssues(stdout, repo);
+      const truncated = issues.length > BACKLOG_READ;
+      const tickets = issues.slice(0, BACKLOG_READ).map(
         ({ body, subIssuesSummary, blockedBy, labels, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
           const openSubIssues =
@@ -73,6 +85,7 @@ export function ghIssueTracker(
             (blocker) => blocker.state === "OPEN",
           ).length;
           const modelLabel = modelLabelOf(labels);
+          const priority = ticketPriorityIn(labels);
           return {
             repo,
             ...issue,
@@ -80,9 +93,11 @@ export function ghIssueTracker(
             ...(openBlockers > 0 && { openBlockers }),
             ...(pullRequest !== undefined && { pullRequest }),
             ...(modelLabel !== undefined && { modelLabel }),
+            ...(priority !== undefined && { priority }),
           };
         },
       );
+      return { tickets, truncated };
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
@@ -375,6 +390,22 @@ function issueNumberIn(stdout: string, repo: RepoSlug): number {
     );
   }
   return number;
+}
+
+/** A label naming one ticket priority level: `priority:1`, `priority:2` or `priority:3`. */
+const TICKET_PRIORITY_LABEL = /^priority:([123])$/;
+
+/**
+ * The ticket priority `labels` carry: the smallest level named, since a ticket
+ * labelled with several counts as its most urgent. Any other `priority:` label
+ * is ignored rather than refused — it is the developer's typo, and a ticket
+ * that fails to list would cost the whole project its morning.
+ */
+function ticketPriorityIn(labels: string[]): TicketPriority | undefined {
+  const levels = labels
+    .map((label) => Number(TICKET_PRIORITY_LABEL.exec(label)?.[1]))
+    .filter(isTicketPriority);
+  return levels.length > 0 ? ticketPriority(Math.min(...levels)) : undefined;
 }
 
 /** How many of an issue's sub-issues are open, as `subIssuesSummary` reports it. */

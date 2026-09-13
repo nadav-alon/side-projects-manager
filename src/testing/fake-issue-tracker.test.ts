@@ -5,6 +5,7 @@ import {
   modelName,
   pullRequestUrl,
   repoSlug,
+  ticketPriority,
   type Ticket,
 } from "../ports/index.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
@@ -20,7 +21,7 @@ describe("FakeIssueTracker", () => {
       title: "Not triaged yet",
     });
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.deepEqual(
       backlog.map((ticket) => ticket.number),
@@ -37,16 +38,47 @@ describe("FakeIssueTracker", () => {
 
     await tracker.handBack(ticket, "gave up");
 
-    assert.deepEqual(await tracker.listEligibleTickets(PILOT), []);
+    assert.deepEqual((await tracker.listEligibleTickets(PILOT)).tickets, []);
   });
 
   it("lists a blocked ticket alongside its open blocker count", async () => {
     const tracker = new FakeIssueTracker();
     tracker.addBlockedTicket(PILOT, { number: 56, title: "Waits on #55" }, 2);
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.equal(backlog[0]?.openBlockers, 2);
+  });
+
+  it("lists a ticket alongside the ticket priority it was given", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, {
+      number: 7,
+      title: "Add the thing",
+      priority: ticketPriority(2),
+    });
+
+    const { tickets } = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.priority, 2);
+  });
+
+  it("reports a backlog as truncated only once set up as one", async () => {
+    const tracker = new FakeIssueTracker();
+    const OTHER = repoSlug("nadav-alon/other");
+    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(OTHER, { number: 1, title: "Another" });
+
+    tracker.truncateBacklog(PILOT);
+
+    const pilot = await tracker.listEligibleTickets(PILOT);
+    const other = await tracker.listEligibleTickets(OTHER);
+    assert.equal(pilot.truncated, true);
+    assert.deepEqual(
+      pilot.tickets.map((ticket) => ticket.number),
+      [7],
+    );
+    assert.equal(other.truncated, false);
   });
 
   it("lists a broken-out ticket alongside its open sub-issue count", async () => {
@@ -57,7 +89,7 @@ describe("FakeIssueTracker", () => {
       7,
     );
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.equal(backlog[0]?.openSubIssues, 7);
   });
@@ -69,7 +101,7 @@ describe("FakeIssueTracker — model labels", () => {
     const tracker = new FakeIssueTracker();
     tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.equal(backlog[0]?.modelLabel, undefined);
   });
@@ -92,7 +124,7 @@ describe("FakeIssueTracker — model labels", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
     tracker.addLabel(ticket, "model:opus");
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.deepEqual(backlog[0]?.modelLabel, {
       kind: "named",
@@ -105,7 +137,7 @@ describe("FakeIssueTracker — model labels", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
     tracker.addLabel(ticket, "model:GPT-9-Turbo");
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.deepEqual(backlog[0]?.modelLabel, {
       kind: "named",
@@ -119,7 +151,7 @@ describe("FakeIssueTracker — model labels", () => {
     tracker.addLabel(ticket, "model:opus");
     tracker.addLabel(ticket, "model:haiku");
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.equal(backlog.length, 1, "a conflicting ticket is still returned");
     assert.deepEqual(backlog[0]?.modelLabel, {
@@ -133,7 +165,7 @@ describe("FakeIssueTracker — model labels", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
     tracker.addLabel(ticket, "model:claude opus");
 
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     assert.equal(backlog.length, 1, "an unusable ticket is still returned");
     assert.deepEqual(backlog[0]?.modelLabel, {
@@ -151,7 +183,7 @@ describe("FakeIssueTracker — model labels", () => {
       parent,
       pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
     );
-    const backlog = await tracker.listEligibleTickets(PILOT);
+    const { tickets: backlog } = await tracker.listEligibleTickets(PILOT);
 
     const listed = backlog.find((ticket) => ticket.number === review.number);
     assert.ok(listed);
@@ -162,11 +194,11 @@ describe("FakeIssueTracker — model labels", () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
     tracker.addLabel(ticket, "model:opus");
-    const before = await tracker.listEligibleTickets(PILOT);
+    const { tickets: before } = await tracker.listEligibleTickets(PILOT);
 
     tracker.removeLabel(ticket, "model:opus");
     tracker.addLabel(ticket, "model:sonnet");
-    const after = await tracker.listEligibleTickets(PILOT);
+    const { tickets: after } = await tracker.listEligibleTickets(PILOT);
 
     assert.deepEqual(before[0]?.modelLabel, { kind: "named", name: modelName("opus") });
     assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });

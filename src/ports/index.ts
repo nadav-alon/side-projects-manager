@@ -50,6 +50,8 @@ export type {
   Sandbox,
   SandboxRunResult,
 } from "./sandbox.ts";
+export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
+export type { TicketPriority } from "./ticket-priority.ts";
 export { isTokenCount, tokenCount } from "./token-count.ts";
 export type { TokenCount } from "./token-count.ts";
 export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
