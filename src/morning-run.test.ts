@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import {
-  failureOf,
   morningLoop,
-  type IterationOutcome,
   type InvocationReport,
   type ProjectOutcome,
 } from "./morning-run.ts";

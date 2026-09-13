@@ -3,13 +3,15 @@ import { workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type Finished,
-  type InvocationStandDown,
   type IterationOutcome,
   type NotClosed,
-  type ProjectOutcome,
-  type ProjectVerdict,
   type Reviewed,
   type RunFailure,
+} from "./iteration-outcome.ts";
+import type {
+  InvocationStandDown,
+  ProjectOutcome,
+  ProjectVerdict,
 } from "./morning-run.ts";
 import type {
   RepoSlug,

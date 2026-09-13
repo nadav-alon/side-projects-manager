@@ -3,7 +3,7 @@ import type {
   HandoverFailed,
   ModelRefused,
   UnusableModelLabel,
-} from "./morning-run.ts";
+} from "./iteration-outcome.ts";
 import type {
   PullRequestUrl,
   ReviewRunResult,
