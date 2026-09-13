@@ -558,12 +558,9 @@ async function considerProjects(
       continue;
     }
 
-    const { tickets, truncated } = await ports.tracker.listEligibleTickets(
-      project.repo,
-    );
-    const backlog = tickets.filter(
-      (ticket) => !worked.has(ticketKey(ticket)),
-    );
+    const { tickets, truncated: backlogTruncated } =
+      await ports.tracker.listEligibleTickets(project.repo);
+    const backlog = tickets.filter((ticket) => !worked.has(ticketKey(ticket)));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
@@ -581,16 +578,13 @@ async function considerProjects(
         selectable.push(ticket);
       }
     }
+    const findings: ScanFindings = { brokenOut, blocked, backlogTruncated };
     // A review in the same backlog as its parent ticket is worked before it.
     const ticket = bestTicket(selectable);
 
     if (ticket === undefined) {
       outcomes.push(
-        outcome(project.repo, "no-eligible-tickets", projectState, {
-          brokenOut,
-          blocked,
-          truncated,
-        }),
+        outcome(project.repo, "no-eligible-tickets", projectState, findings),
       );
       continue;
     }
@@ -605,13 +599,7 @@ async function considerProjects(
       }),
     });
     outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(
-      outcome(project.repo, "deferred", projectState, {
-        brokenOut,
-        blocked,
-        truncated,
-      }),
-    );
+    outcomes.push(outcome(project.repo, "deferred", projectState, findings));
   }
 
   const winner = bestCandidate(candidates);
@@ -1067,6 +1055,16 @@ async function runReview(
   return { kind: "reviewed", review, posted };
 }
 
+/**
+ * What scanning one project's backlog found, whatever its verdict: the tickets
+ * passed over, and whether the listing was truncated.
+ */
+interface ScanFindings {
+  brokenOut: Ticket[];
+  blocked: Ticket[];
+  backlogTruncated: boolean;
+}
+
 function outcome(
   repo: RepoSlug,
   verdict: ProjectVerdict,
@@ -1074,8 +1072,8 @@ function outcome(
   {
     brokenOut = [],
     blocked = [],
-    truncated = false,
-  }: { brokenOut?: Ticket[]; blocked?: Ticket[]; truncated?: boolean } = {},
+    backlogTruncated = false,
+  }: Partial<ScanFindings> = {},
 ): ProjectOutcome {
   const lastWorkedAt = state?.lastWorkedAt;
   return {
@@ -1084,7 +1082,7 @@ function outcome(
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
     ...(brokenOut.length > 0 && { brokenOut }),
     ...(blocked.length > 0 && { blocked }),
-    ...(truncated && { backlogTruncated: true }),
+    ...(backlogTruncated && { backlogTruncated: true }),
   };
 }
 
@@ -1194,7 +1192,8 @@ function whyStoodDown(
     const { ticket, limitRefusal } = standDown;
     return `${limitRefusal}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
   }
-  const ready = when === "next" ? "was ready to work next" : "was ready to work";
+  const ready =
+    when === "next" ? "was ready to work next" : "was ready to work";
   return `${standDownReason(standDown)}. ${standDown.refused} ${ready}; the window resets ${standDown.resetsAt.toISOString()}.`;
 }
 
