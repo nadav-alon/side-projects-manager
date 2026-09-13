@@ -16,6 +16,7 @@ import type {
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
+  MODEL_NAME_SHAPE,
   TICKET_KINDS,
   isIterationLimit,
   isModelName,
@@ -355,7 +356,7 @@ function parseModelDefaults(document: unknown, file: string): ModelDefaults {
     }
     if (typeof name !== "string" || !isModelName(name)) {
       throw new Error(
-        `${file}: "${kind}" must be a model name, non-empty and without spaces or a leading "-": ${JSON.stringify(name)}`,
+        `${file}: "${kind}" must be ${MODEL_NAME_SHAPE}: ${JSON.stringify(name)}`,
       );
     }
     defaults[kind] = name;

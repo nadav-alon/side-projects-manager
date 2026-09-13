@@ -22,7 +22,7 @@ export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
 export type { ModelDefaults, TicketKind } from "./model-defaults.ts";
 export { TICKET_KINDS } from "./model-defaults.ts";
-export { isModelName, modelName } from "./model-name.ts";
+export { MODEL_NAME_SHAPE, isModelName, modelName } from "./model-name.ts";
 export type { ModelName } from "./model-name.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";

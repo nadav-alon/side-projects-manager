@@ -15,6 +15,9 @@ declare const modelNameBrand: unique symbol;
  */
 export type ModelName = string & { readonly [modelNameBrand]: true };
 
+/** What `isModelName` asks of a name, in words, for every error that refuses one. */
+export const MODEL_NAME_SHAPE = 'a non-empty name without spaces or a leading "-"';
+
 /**
  * Whether `value` is non-empty and free of whitespace, which no model id
  * carries, and does not start with `-`: a name that reads as an option is one
@@ -28,7 +31,7 @@ export function isModelName(value: string): value is ModelName {
 export function modelName(value: string): ModelName {
   if (!isModelName(value)) {
     throw new TypeError(
-      `Not a model name, expected a non-empty name without spaces or a leading "-": ${JSON.stringify(value)}`,
+      `Not a model name, expected ${MODEL_NAME_SHAPE}: ${JSON.stringify(value)}`,
     );
   }
   return value;
