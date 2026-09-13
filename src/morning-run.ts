@@ -510,11 +510,7 @@ export async function morningRun(
         // An infrastructure failure or a limit refusal says nothing about the
         // ticket, so it is left free for a later firing today — one that finds
         // the setup fixed or the provider limit reset.
-        if (
-          iteration.kind === "limit-refused" ||
-          (iteration.kind === "failed" &&
-            iteration.failure.kind === "infrastructure")
-        ) {
+        if (leavesTicketUntouched(iteration)) {
           worked.unrecord(ticket);
         }
 
@@ -880,6 +876,18 @@ function leastRecentlyWorkedFirst(
     return 1;
   }
   return a.getTime() - b.getTime();
+}
+
+/**
+ * Whether `iteration` was one of the two that say nothing about its ticket —
+ * an infrastructure failure or a limit refusal — and so, as `work` leaves it,
+ * leaves the ticket exactly as it was.
+ */
+function leavesTicketUntouched(iteration: Iteration): boolean {
+  return (
+    iteration.kind === "limit-refused" ||
+    (iteration.kind === "failed" && iteration.failure.kind === "infrastructure")
+  );
 }
 
 /**
