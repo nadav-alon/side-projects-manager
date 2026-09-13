@@ -1499,7 +1499,16 @@ describe("morningRun", () => {
       assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
       assert.match(report.message, /the remote rejected the push/);
       assert.match(report.message, new RegExp(BRANCH));
+      // Never said to be on the host: the branch is only in the checkout.
+      const checkoutPath = `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`;
+      assert.match(report.message, /not pushed/);
+      assert.match(report.message, new RegExp(checkoutPath));
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
+      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /not pushed/);
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        new RegExp(checkoutPath),
+      );
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },

@@ -145,9 +145,11 @@ export function handoverComment(
  */
 export function handoverFailureComment(failure: HandoverFailed): string {
   const where =
-    failure.pullRequest === undefined
-      ? `the branch \`${failure.branch}\``
-      : `the branch \`${failure.branch}\`, in the draft pull request ${failure.pullRequest}`;
+    failure.unpushedIn !== undefined
+      ? `the branch \`${failure.branch}\`, which was not pushed: it is only in the checkout at \`${failure.unpushedIn}\``
+      : failure.pullRequest === undefined
+        ? `the branch \`${failure.branch}\``
+        : `the branch \`${failure.branch}\`, in the draft pull request ${failure.pullRequest}`;
   return [
     `The morning loop finished this ticket, but could not hand its work over: ${tail(failure.reason, REASON_QUOTED)}`,
     `Its work is on ${where}.`,

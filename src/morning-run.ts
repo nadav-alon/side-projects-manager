@@ -160,6 +160,11 @@ export interface HandoverFailed {
   branch: Branch;
   /** The draft pull request, when one was opened before the handover failed. */
   pullRequest?: PullRequestUrl;
+  /**
+   * Set when the branch never reached the host: the checkout it is still
+   * only in, which is the one place the developer can find the work.
+   */
+  unpushedIn?: Checkout;
   /** As `GaveUp.handedBack`. */
   handedBack: boolean;
 }
@@ -1078,7 +1083,8 @@ async function handOver(
     );
   } catch (error: unknown) {
     return handoverFailed(ports, ticket, run, {
-      reason: `the draft pull request could not be opened: ${errorMessage(error)}`,
+      reason: `no draft pull request was opened: ${errorMessage(error)}`,
+      unpushedIn: checkout,
     });
   }
   if (opening.kind === "pushed") {
@@ -1123,13 +1129,18 @@ async function handoverFailed(
   ports: MorningRunPorts,
   ticket: Ticket,
   run: SandboxRunResult,
-  { reason, pullRequest }: { reason: string; pullRequest?: PullRequestUrl },
+  {
+    reason,
+    pullRequest,
+    unpushedIn,
+  }: { reason: string; pullRequest?: PullRequestUrl; unpushedIn?: Checkout },
 ): Promise<Failed> {
   const failure: HandoverFailed = {
     kind: "handover-failed",
     reason,
     branch: run.branch,
     ...(pullRequest !== undefined && { pullRequest }),
+    ...(unpushedIn !== undefined && { unpushedIn }),
     handedBack: false,
   };
   return handTicketBack(
@@ -1754,6 +1765,9 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
 
 /** Where a failed handover left the work: its branch, and any pull request. */
 function workLocation(failure: HandoverFailed): string {
+  if (failure.unpushedIn !== undefined) {
+    return `${failure.branch} (not pushed, only in the checkout at ${failure.unpushedIn})`;
+  }
   return failure.pullRequest === undefined
     ? failure.branch
     : `${failure.branch} (${failure.pullRequest})`;
