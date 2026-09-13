@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
@@ -9,6 +9,8 @@ import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  modelLabelOf,
+  modelName,
   pullRequestUrl,
   repoSlug,
   type ReviewTicket,
@@ -103,6 +105,10 @@ describe("ghIssueTracker", () => {
       assert.ok(issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL));
       assert.equal(ticket.title, issue.title);
       assert.equal(ticket.repo, MANAGER);
+      assert.deepEqual(
+        ticket.modelLabel,
+        modelLabelOf(issue.labels.map((label) => label.name)),
+      );
     }
   });
 
@@ -637,6 +643,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
     const withSubIssues = rawIssues.map((issue) => ({
       subIssuesSummary: { total: 0, completed: 0 },
       blockedBy: { nodes: [], totalCount: 0 },
+      labels: [],
       ...issue,
     }));
     return `printf '%s' '${JSON.stringify(withSubIssues)}'`;
@@ -721,8 +728,113 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
     assert.ok(list);
     assert.equal(
       valueOf(list, "--json"),
-      "number,title,body,subIssuesSummary,blockedBy",
+      "number,title,body,subIssuesSummary,blockedBy,labels",
     );
+  });
+});
+
+/**
+ * A ticket's model label, read from the labels the same listing carries.
+ * What a label says is `modelLabelOf`'s to decide; these check that the
+ * adapter hands it every label a ticket has, and only that ticket's.
+ */
+describe("ghIssueTracker.listEligibleTickets — model labels", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  function issue(
+    number: number,
+    labels: string[],
+    body = "",
+  ): Record<string, unknown> {
+    return {
+      number,
+      title: `Ticket ${number}`,
+      body,
+      subIssuesSummary: { total: 0, completed: 0 },
+      blockedBy: { nodes: [], totalCount: 0 },
+      labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
+    };
+  }
+
+  function issues(rawIssues: Record<string, unknown>[]): string {
+    return `printf '%s' '${JSON.stringify(rawIssues)}'`;
+  }
+
+  it("names no model for a ticket without a model label", async (t) => {
+    await recordingGh(t, issues([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets[0]?.modelLabel, undefined);
+  });
+
+  it("names the model a ticket labelled model:opus asks for", async (t) => {
+    await recordingGh(t, issues([issue(7, [READY_FOR_AGENT_LABEL, "model:opus"])]));
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.deepEqual(tickets[0]?.modelLabel, {
+      kind: "named",
+      name: modelName("opus"),
+    });
+  });
+
+  it("passes a name no Claude model uses through unchanged", async (t) => {
+    await recordingGh(t, issues([issue(7, ["model:GPT-9-Turbo"])]));
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.deepEqual(tickets[0]?.modelLabel, {
+      kind: "named",
+      name: modelName("GPT-9-Turbo"),
+    });
+  });
+
+  it("marks a ticket with two model labels as conflicting, with both names", async (t) => {
+    await recordingGh(t, issues([issue(7, ["model:opus", "model:haiku"])]));
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    assert.equal(tickets.length, 1, "a conflicting ticket is still returned");
+    assert.deepEqual(tickets[0]?.modelLabel, {
+      kind: "conflicting",
+      names: [modelName("opus"), modelName("haiku")],
+    });
+  });
+
+  it("reads a review ticket's own labels, not its parent's", async (t) => {
+    const pullRequest = "https://github.com/nadav-alon/pilot/pull/12";
+    await recordingGh(
+      t,
+      issues([
+        issue(7, ["model:opus"]),
+        issue(
+          42,
+          [READY_FOR_AGENT_LABEL],
+          `Review ${pullRequest}, the draft pull request opened for #7.`,
+        ),
+      ]),
+    );
+
+    const tickets = await ghIssueTracker().listEligibleTickets(PILOT);
+
+    const review = tickets.find((ticket) => ticket.number === 42);
+    assert.equal(review?.pullRequest, pullRequest);
+    assert.equal(review?.modelLabel, undefined);
+  });
+
+  it("reads the labels afresh on every call", async (t) => {
+    const listing = path.join(await tempHome("gh-listing"), "issues.json");
+    await recordingGh(t, `cat ${listing}`);
+    const tracker = ghIssueTracker();
+
+    await writeFile(listing, JSON.stringify([issue(7, ["model:opus"])]));
+    const before = await tracker.listEligibleTickets(PILOT);
+    await writeFile(listing, JSON.stringify([issue(7, ["model:sonnet"])]));
+    const after = await tracker.listEligibleTickets(PILOT);
+
+    assert.deepEqual(before[0]?.modelLabel, { kind: "named", name: modelName("opus") });
+    assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });
   });
 });
 
@@ -733,6 +845,7 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
     const withBody = rawIssues.map((issue) => ({
       body: "",
       blockedBy: { nodes: [], totalCount: 0 },
+      labels: [],
       ...issue,
     }));
     return `printf '%s' '${JSON.stringify(withBody)}'`;
@@ -797,6 +910,7 @@ describe("ghIssueTracker.listEligibleTickets — blockers", () => {
     const complete = rawIssues.map((issue) => ({
       body: "",
       subIssuesSummary: { total: 0, completed: 0 },
+      labels: [],
       ...issue,
     }));
     return `printf '%s' '${JSON.stringify(complete)}'`;

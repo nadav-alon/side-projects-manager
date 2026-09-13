@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { ticketKind } from "./issue-tracker.ts";
+import {
+  MODEL_LABEL_PREFIX,
+  READY_FOR_AGENT_LABEL,
+  modelLabelOf,
+  ticketKind,
+} from "./issue-tracker.ts";
+import { modelName } from "./model-name.ts";
 import { pullRequestUrl } from "./pull-request-url.ts";
 import { repoSlug } from "./repo-slug.ts";
 
@@ -24,5 +30,46 @@ describe("ticketKind", () => {
       ticketKind({ repo: PILOT, number: 12, title: "Add a thing" }),
       "implementation",
     );
+  });
+});
+
+describe("modelLabelOf", () => {
+  it("names no model for a ticket without a model label", () => {
+    assert.equal(modelLabelOf([READY_FOR_AGENT_LABEL, "enhancement"]), undefined);
+    assert.equal(modelLabelOf([]), undefined);
+  });
+
+  it("names the model a single model label names", () => {
+    assert.deepEqual(modelLabelOf([READY_FOR_AGENT_LABEL, "model:opus"]), {
+      kind: "named",
+      name: modelName("opus"),
+    });
+  });
+
+  it("passes the name through as written, whatever it is", () => {
+    assert.deepEqual(modelLabelOf(["model:Not-A-Claude-Model"]), {
+      kind: "named",
+      name: modelName("Not-A-Claude-Model"),
+    });
+  });
+
+  it("marks two model labels as conflicting, carrying every name", () => {
+    assert.deepEqual(modelLabelOf(["model:opus", "bug", "model:haiku"]), {
+      kind: "conflicting",
+      names: [modelName("opus"), modelName("haiku")],
+    });
+  });
+
+  it("reads only labels that start with the prefix", () => {
+    assert.equal(MODEL_LABEL_PREFIX, "model:");
+    assert.equal(modelLabelOf(["Model:opus", "my-model:opus"]), undefined);
+  });
+
+  it("ignores a bare prefix, which names no model", () => {
+    assert.equal(modelLabelOf(["model:"]), undefined);
+    assert.deepEqual(modelLabelOf(["model:", "model:opus"]), {
+      kind: "named",
+      name: modelName("opus"),
+    });
   });
 });

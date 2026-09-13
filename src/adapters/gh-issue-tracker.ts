@@ -12,6 +12,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isPullRequestUrl,
+  modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
@@ -60,23 +61,25 @@ export function ghIssueTracker(
         "--label",
         READY_FOR_AGENT_LABEL,
         "--json",
-        "number,title,body,subIssuesSummary,blockedBy",
+        "number,title,body,subIssuesSummary,blockedBy,labels",
       ]);
 
       return parseIssues(stdout, repo).map(
-        ({ body, subIssuesSummary, blockedBy, ...issue }) => {
+        ({ body, subIssuesSummary, blockedBy, labels, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
           const openSubIssues =
             subIssuesSummary.total - subIssuesSummary.completed;
           const openBlockers = blockedBy.filter(
             (blocker) => blocker.state === "OPEN",
           ).length;
+          const modelLabel = modelLabelOf(labels);
           return {
             repo,
             ...issue,
             ...(openSubIssues > 0 && { openSubIssues }),
             ...(openBlockers > 0 && { openBlockers }),
             ...(pullRequest !== undefined && { pullRequest }),
+            ...(modelLabel !== undefined && { modelLabel }),
           };
         },
       );
@@ -381,8 +384,8 @@ interface RawSubIssuesSummary {
 }
 
 /**
- * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy`
- * reports it.
+ * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy,labels`
+ * reports it, with each label reduced to its name.
  */
 interface RawIssue {
   number: number;
@@ -390,6 +393,7 @@ interface RawIssue {
   body: string;
   subIssuesSummary: RawSubIssuesSummary;
   blockedBy: RawBlocker[];
+  labels: string[];
 }
 
 /** One ticket blocking an issue, as `blockedBy.nodes` reports it. */
@@ -398,8 +402,8 @@ interface RawBlocker {
 }
 
 /**
- * `gh --json number,title,body,subIssuesSummary,blockedBy`: a JSON array of
- * `{ number, title, body, subIssuesSummary, blockedBy }`.
+ * `gh --json number,title,body,subIssuesSummary,blockedBy,labels`: a JSON
+ * array of `{ number, title, body, subIssuesSummary, blockedBy, labels }`.
  */
 function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
@@ -419,7 +423,7 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, subIssuesSummary, blockedBy } =
+    const { number, title, body, subIssuesSummary, blockedBy, labels } =
       issue as Record<string, unknown>;
     return {
       number: expectField(number, "number", "number", at),
@@ -427,7 +431,25 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
       body: expectField(body, "string", "body", at),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
       blockedBy: parseBlockedBy(blockedBy, at),
+      labels: parseLabels(labels, at),
     };
+  });
+}
+
+/**
+ * `labels` as `gh` reports it: `[{ id, name, description, color }]`. Only each
+ * label's name is kept, since the name is all a label says to the loop.
+ */
+function parseLabels(value: unknown, at: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${at}: "labels" must be an array.`);
+  }
+  return value.map((label) => {
+    if (typeof label !== "object" || label === null) {
+      throw new Error(`${at}: "labels" must hold objects.`);
+    }
+    const { name } = label as Record<string, unknown>;
+    return expectField(name, "string", "labels.name", at);
   });
 }
 

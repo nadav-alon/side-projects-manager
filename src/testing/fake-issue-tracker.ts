@@ -8,6 +8,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
@@ -112,7 +113,30 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return this.#add(repo, { ...ticket, openBlockers }, READY_FOR_AGENT_LABEL);
   }
 
-  #add(repo: RepoSlug, ticket: Omit<Ticket, "repo">, label: string): Ticket {
+  /**
+   * Puts `label` on `ticket`, the way the developer labels a ticket by hand —
+   * a model label, say. Read on the next `listEligibleTickets`, not before.
+   */
+  addLabel(ticket: Ticket, label: string): void {
+    this.#find(ticket)?.labels.add(label);
+  }
+
+  /** Takes `label` off `ticket`, the way the developer unlabels one by hand. */
+  removeLabel(ticket: Ticket, label: string): void {
+    this.#find(ticket)?.labels.delete(label);
+  }
+
+  #find(ticket: Ticket): Stored | undefined {
+    return (this.#backlogs.get(ticket.repo) ?? []).find(
+      (candidate) => candidate.ticket.number === ticket.number,
+    );
+  }
+
+  #add(
+    repo: RepoSlug,
+    ticket: Omit<Ticket, "repo" | "modelLabel">,
+    label: string,
+  ): Ticket {
     const stored: Ticket = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];
     backlog.push({ ticket: stored, labels: new Set([label]) });
@@ -120,10 +144,20 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return stored;
   }
 
+  /**
+   * A ticket's model label is read from the labels it holds at the time of
+   * the call, through the same `modelLabelOf` the real tracker uses, so a
+   * label changed between calls changes what the next call returns.
+   */
   async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
     return (this.#backlogs.get(repo) ?? [])
       .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
-      .map((entry) => entry.ticket);
+      .map((entry) => {
+        const modelLabel = modelLabelOf(entry.labels);
+        return modelLabel === undefined
+          ? entry.ticket
+          : { ...entry.ticket, modelLabel };
+      });
   }
 
   /**
@@ -156,9 +190,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     // real tracker makes — not removed from the backlog, since the ticket is
     // still there for the developer to find. Tests assert no retry by
     // invoking the loop again and finding nothing to select.
-    const entry = (this.#backlogs.get(ticket.repo) ?? []).find(
-      (candidate) => candidate.ticket.number === ticket.number,
-    );
+    const entry = this.#find(ticket);
     entry?.labels.delete(READY_FOR_AGENT_LABEL);
     entry?.labels.add(READY_FOR_HUMAN_LABEL);
   }
