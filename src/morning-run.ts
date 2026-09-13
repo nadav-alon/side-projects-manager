@@ -1317,7 +1317,7 @@ async function runReview(
       ports,
       ticket,
       review,
-      `the agent finished but posted nothing to ${ticket.pullRequest}`,
+      `the agent ran but posted nothing to ${ticket.pullRequest}`,
     );
   }
 

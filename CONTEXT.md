@@ -147,7 +147,7 @@ What the loop does with a ticket whose run gave up or finished, or whose model i
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
-A run whose agent ran and stopped short — it said it could not, or left the tests red. The ticket is the problem.
+A run whose agent ran and stopped short — it said it could not, left the tests red, or, for a review, posted no findings to the pull request. The ticket is the problem.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:

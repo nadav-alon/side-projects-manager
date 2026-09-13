@@ -1847,7 +1847,7 @@ describe("morningRun", () => {
       ]);
     });
 
-    it("is reported with nothing posted, when the agent finished but the comment never landed", async () => {
+    it("is reported with nothing posted, when the agent ran but the comment never landed", async () => {
       const ports = fakePorts();
       queued(ports);
       ports.repoHost.newCommentPosted = false;
