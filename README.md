@@ -294,15 +294,19 @@ when the ticket carries no `model:<name>` label — the same for every project:
 Both kinds are optional, and so is the file. A kind you leave out, and every kind on a machine with
 no `models.json`, runs on the model the sandbox image is pinned to. A name is passed to the agent
 CLI as written — an alias or a full model id — and never checked against a list of models, so a new
-model needs no change here; the only shape asked of it is a non-empty name without spaces that does not start with `-`. Nothing
-writes this document: not the loop, and not `new-project`.
+model needs no change here; the only shape asked of it is a non-empty name without spaces that does
+not start with `-`. Nothing writes this document: not the loop, and not `new-project`.
+
+Not in effect yet: the file is read and checked, but no run chooses its model from it until #107,
+and the `model:<name>` label arrives with #103. Until then every run uses the image's model,
+whatever `models.json` says.
 
 A key that is not `implementation` or `review` fails the invocation, and so does a name that is not
 a usable string. Both kinds are optional, so `"reveiw"` would otherwise read as no review default at
 all, and your reviews would quietly run on the image's model.
 
-All four documents live in the manager home — this checkout, unless
-`SIDE_PROJECTS_MANAGER_HOME` says otherwise.
+All four documents, your three and the loop's `state.json`, live in the manager home: this
+checkout, unless `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
 House rules for source — branded primitives, and what a comment is allowed to say — are in
 [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
