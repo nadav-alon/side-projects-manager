@@ -2514,6 +2514,30 @@ describe("morningRun", () => {
         assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
       });
 
+      it("discards any branch the refused run left, and says so", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        const left = branch("issue-7-add-the-thing");
+        ports.sandbox.result = () => ({
+          branch: left,
+          commits: ["c0ffee1"],
+          output: "",
+          tokensUsed: tokenCount(0),
+          modelRefusal: { model: OPUS, words: "refused model opus" },
+        });
+
+        await morningRun(ports);
+
+        assert.deepEqual(
+          ports.repoHost.discarded.map((discard) => discard.branch),
+          [left],
+        );
+        assert.match(
+          ports.tracker.handbacks[0]?.comment ?? "",
+          /has been discarded/,
+        );
+      });
+
       it("fails the invocation when the sandbox reports a refusal for a run given no model", async () => {
         const { ports } = oneTicket();
         ports.sandbox.result = (ticket) => ({
@@ -2559,9 +2583,13 @@ describe("morningRun", () => {
 
         const report = await morningRun(ports);
 
-        assert.doesNotMatch(report.message, /gave up|would not start/);
+        const infrastructure = /would not start|fix the setup|sandbox or checkout failed/;
+        assert.doesNotMatch(report.message, /gave up/);
+        assert.doesNotMatch(report.message, infrastructure);
         assert.match(report.message, /refused the model opus/);
         const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.doesNotMatch(body, /gave up/);
+        assert.doesNotMatch(body, infrastructure);
         assert.match(body, /Waiting on you/);
         assert.match(body, /pilot #7: relabelled ready-for-human — the model opus/);
       });
@@ -2577,6 +2605,16 @@ describe("morningRun", () => {
       // Oldest first: #7 on its label, then #8 on the image's pin.
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /tokens on opus\n- .*tokens on the image's model/);
+    });
+
+    it("names a model from the model defaults in the summary", async () => {
+      const { ports } = oneTicket();
+      ports.store.modelDefaults = { implementation: HAIKU };
+
+      await morningRun(ports);
+
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /## Attempts\n- .*tokens on haiku/);
     });
   });
 
