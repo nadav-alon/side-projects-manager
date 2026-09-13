@@ -330,7 +330,7 @@ if confirm "Build it now (npm run sandbox:build && npm run sandbox:verify)?"; th
     SKIPPED+=("sandbox:build failed — investigate, then re-run 'npm run sandbox:build'")
   fi
 else
-  SKIPPED+=("docker image — run 'npm run sandbox:build && npm run sandbox:verify' before the first morning run")
+  SKIPPED+=("docker image — run 'npm run sandbox:build && npm run sandbox:verify' before the first morning loop invocation")
 fi
 
 # ── Stage 5: the daily schedule + logon guard ──────────────────────────────
