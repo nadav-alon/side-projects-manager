@@ -154,12 +154,7 @@ function parseRegistry(
   const registered = new Set<string>();
   return projects.map((entry, index) => {
     const where = `${file}: project ${index + 1}`;
-    const repo = fieldOf(entry, "repo", where);
-    if (typeof repo !== "string" || !isRepoSlug(repo)) {
-      throw new Error(
-        `${where}: "repo" must be a repo slug, as owner/repo: ${JSON.stringify(repo)}`,
-      );
-    }
+    const repo = repoSlugField(entry, where);
     // State is keyed by slug, so a project listed twice would be considered
     // twice and share one last-worked entry with itself.
     if (registered.has(repo)) {
@@ -416,12 +411,7 @@ function parseWorkedToday(value: unknown, where: string): WorkedToday {
 }
 
 function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
-  const repo = fieldOf(ticket, "repo", where);
-  if (typeof repo !== "string" || !isRepoSlug(repo)) {
-    throw new Error(
-      `${where}: "repo" must be a repo slug, as owner/repo: ${JSON.stringify(repo)}`,
-    );
-  }
+  const repo = repoSlugField(ticket, where);
   const number = fieldOf(ticket, "number", where);
   if (typeof number !== "number" || !Number.isInteger(number) || number < 1) {
     throw new Error(
@@ -477,6 +467,17 @@ function parseRun(run: unknown, where: string): RunCost {
     at: parseInstant(fieldOf(run, "at", where), `${where}: "at"`),
     tokensUsed,
   };
+}
+
+/** The `"repo"` field of `value`, which must be a repo slug. */
+function repoSlugField(value: unknown, where: string): RepoSlug {
+  const repo = fieldOf(value, "repo", where);
+  if (typeof repo !== "string" || !isRepoSlug(repo)) {
+    throw new Error(
+      `${where}: "repo" must be a repo slug, as owner/repo: ${JSON.stringify(repo)}`,
+    );
+  }
+  return repo;
 }
 
 function parseInstant(value: unknown, where: string): Date {
