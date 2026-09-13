@@ -20,6 +20,15 @@ export interface Budget {
   /** The most a single run may spend, enforced by the agent CLI itself. */
   spendCeiling: Usd;
   /**
+   * The most iterations one invocation may have in progress at once. A whole
+   * number, 1 or more.
+   *
+   * The gate does not count iterations still in progress, so this many runs
+   * can start at the boundary together, and the accepted overshoot is this
+   * many spend ceilings rather than one.
+   */
+  maxConcurrentIterations: number;
+  /**
    * A 5-hour reset instant the developer saw on the provider's own display,
    * which settles a boundary the ledger can only infer. See `UsageLedger`
    * for why the inference needs settling, and `parseUsageWindows` for what a
@@ -57,4 +66,5 @@ export const DEFAULT_BUDGET: Budget = {
   weeklyAllowance: tokenCount(500_000_000),
   reserveFraction: reserveFraction(0.5),
   spendCeiling: usd(5),
+  maxConcurrentIterations: 1,
 };

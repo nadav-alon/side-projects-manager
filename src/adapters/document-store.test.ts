@@ -181,6 +181,7 @@ describe("the budget document", () => {
           weeklyAllowance: 100_000_000,
           reserveFraction: 0.75,
           spendCeiling: 2.5,
+          maxConcurrentIterations: 2,
         }),
       }),
     );
@@ -190,6 +191,7 @@ describe("the budget document", () => {
       weeklyAllowance: 100_000_000,
       reserveFraction: 0.75,
       spendCeiling: 2.5,
+      maxConcurrentIterations: 2,
     });
   });
 
@@ -273,6 +275,37 @@ describe("the budget document", () => {
 
     await assert.rejects(store.loadBudget(), /weeklyAllowance/);
   });
+
+  it("works one iteration at a time when no concurrency limit is declared", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFraction: 0.75 }) }),
+    );
+
+    assert.equal((await store.loadBudget()).maxConcurrentIterations, 1);
+  });
+
+  it("reads a declared concurrency limit", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ maxConcurrentIterations: 3 }) }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      ...DEFAULT_BUDGET,
+      maxConcurrentIterations: 3,
+    });
+  });
+
+  for (const limit of [0, -1, 1.5, "3", null]) {
+    it(`refuses a concurrency limit of ${JSON.stringify(limit)}`, async () => {
+      const store = documentStore(
+        await home({
+          budget: JSON.stringify({ maxConcurrentIterations: limit }),
+        }),
+      );
+
+      await assert.rejects(store.loadBudget(), /maxConcurrentIterations/);
+    });
+  }
 
   it("reads an observed reset as an instant", async () => {
     const store = documentStore(

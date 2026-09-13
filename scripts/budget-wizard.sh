@@ -417,9 +417,16 @@ const [fiveHour, weekly, reserve, ceiling] = numbers.map(Number);
 // replaces the document wholesale, and that field is a correction the
 // developer makes by hand long after setup. A re-run that dropped it would
 // put back the stand-downs it was written to stop.
+// maxConcurrentIterations is carried across for the same reason: not asked
+// about, but a re-run must not quietly put the mornings back to one at a time.
+// Only a usable limit is carried: an unusable one would make this document
+// fail to read back, and dropping it falls back to one at a time, the safe side.
 let observed;
+let concurrency;
 try {
-  observed = JSON.parse(fs.readFileSync(file, "utf8"))?.observedResetAt;
+  const existing = JSON.parse(fs.readFileSync(file, "utf8"));
+  observed = existing?.observedResetAt;
+  concurrency = existing?.maxConcurrentIterations;
 } catch { /* no document yet, or one that will not parse: nothing to carry */ }
 
 process.stdout.write(JSON.stringify({
@@ -427,6 +434,7 @@ process.stdout.write(JSON.stringify({
   weeklyAllowance: weekly,
   reserveFraction: reserve,
   spendCeiling: ceiling,
+  ...(Number.isSafeInteger(concurrency) && concurrency >= 1 && { maxConcurrentIterations: concurrency }),
   ...(typeof observed === "string" && { observedResetAt: observed }),
 }, undefined, 2));
 ' "$BUDGET_FILE" "$FIVE_HOUR_ALLOWANCE" "$WEEKLY_ALLOWANCE" "$RESERVE_FRACTION" "$SPEND_CEILING")

@@ -210,6 +210,12 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "spendCeiling" must be a dollar amount above 0`,
       DEFAULT_BUDGET.spendCeiling,
     ),
+    maxConcurrentIterations: numberField(
+      fieldOf(document, "maxConcurrentIterations", file),
+      isIterationLimit,
+      `${file}: "maxConcurrentIterations" must be a whole number of 1 or more`,
+      DEFAULT_BUDGET.maxConcurrentIterations,
+    ),
     ...observedResetField(fieldOf(document, "observedResetAt", file), file),
   };
 }
@@ -262,11 +268,20 @@ function isAllowance(value: number): value is TokenCount {
   return isTokenCount(value) && value > 0;
 }
 
+/**
+ * How many iterations may be in progress at once. Never 0: a limit of nothing
+ * would start no work while reading as a budget that allows some.
+ */
+function isIterationLimit(value: number): value is number {
+  return Number.isSafeInteger(value) && value >= 1;
+}
+
 const BUDGET_FIELDS = [
   "fiveHourAllowance",
   "weeklyAllowance",
   "reserveFraction",
   "spendCeiling",
+  "maxConcurrentIterations",
   "observedResetAt",
 ] as const;
 

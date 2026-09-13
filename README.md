@@ -242,6 +242,13 @@ go. The gate does not subtract the cost of the run it is about to authorise, so 
 boundary spends its ceiling out of the reserve — the ceiling is the size of that accepted overshoot.
 It is recorded in `state.json` either way, so the next morning's gate counts it.
 
+`maxConcurrentIterations` is the most iterations one invocation may have in progress at once: a
+whole number, 1 or more, defaulting to `1`. Nothing honours it yet — the loop still works one
+iteration at a time. Know what it costs before raising it. The gate does not count iterations still
+in progress, so up to `maxConcurrentIterations` runs can start at the boundary together, and the
+accepted overshoot grows from one spend ceiling to that many. Raising it is a reason to lower the
+allowances or raise the reserve.
+
 `observedResetAt` is the one field with no default, and most `budget.json` files never carry it. It
 is a 5-hour reset instant you read off Claude's own display, written as ISO 8601 with a zone —
 `"2026-09-12T13:00:00Z"` — and it settles a boundary the ledger can otherwise only guess at. The
@@ -264,7 +271,7 @@ ever shows you the block you are in, so an instant it refuses is one you did not
 mistyped date is the usual cause.
 
 A field that is present but not a usable value fails the invocation rather than falling back, and so
-does a field that is not one of the five above. Every setting is optional, so `"reserve"` for
+does a field that is not one of the six above. Every setting is optional, so `"reserve"` for
 `"reserveFraction"` is indistinguishable from leaving it out — and a reserve you believe you set and
 the loop silently ignored is the one way this document can go wrong expensively.
 
