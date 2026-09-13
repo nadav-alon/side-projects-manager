@@ -1489,9 +1489,10 @@ describe("morningRun", () => {
     it("gives a failed iteration naming the branch when the push itself was refused, and leaves the work recorded", async () => {
       const ports = fakePorts();
       const ticket = ran(ports);
-      ports.repoHost.draftPullRequest = async () => {
-        throw new Error("the remote rejected the push");
-      };
+      ports.repoHost.draftPullRequest = async () => ({
+        kind: "unpushed",
+        failure: "the remote rejected the push",
+      });
 
       const report = await morningRun(ports);
 

@@ -1,7 +1,7 @@
 import type {
   Branch,
   Checkout,
-  DraftPullRequest,
+  DraftPullRequestOpening,
   Proposal,
   PullRequestUrl,
   RepoHost,
@@ -90,7 +90,7 @@ export class FakeRepoHost implements RepoHost {
   });
 
   /** What the next draft pull request comes to. One that opens, unless set. */
-  draftPullRequest: () => Promise<DraftPullRequest> = async () => ({
+  draftPullRequest: () => Promise<DraftPullRequestOpening> = async () => ({
     kind: "opened",
     pullRequest: FakeRepoHost.RUN_PULL_REQUEST,
   });
@@ -143,7 +143,7 @@ export class FakeRepoHost implements RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-  ): Promise<DraftPullRequest> {
+  ): Promise<DraftPullRequestOpening> {
     this.pullRequests.push({ directory, branch, ticket });
     return this.draftPullRequest();
   }

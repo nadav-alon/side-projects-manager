@@ -3,7 +3,6 @@ import type {
   Budget,
   Checkout,
   Clock,
-  DraftPullRequest,
   IssueTracker,
   ModelDefaults,
   ModelName,
@@ -1074,16 +1073,14 @@ async function handOver(
     };
   }
 
-  let opening: DraftPullRequest;
-  try {
-    opening = await ports.repoHost.openDraftPullRequest(
-      checkout,
-      run.branch,
-      ticket,
-    );
-  } catch (error: unknown) {
+  const opening = await ports.repoHost.openDraftPullRequest(
+    checkout,
+    run.branch,
+    ticket,
+  );
+  if (opening.kind === "unpushed") {
     return handoverFailed(ports, ticket, run, {
-      reason: `no draft pull request was opened: ${errorMessage(error)}`,
+      reason: `it was not pushed: ${opening.failure}`,
       unpushedIn: checkout,
     });
   }
