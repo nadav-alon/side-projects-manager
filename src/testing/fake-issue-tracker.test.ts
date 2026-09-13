@@ -18,7 +18,7 @@ describe("FakeIssueTracker", () => {
     const backlog = await tracker.listEligibleTickets(PILOT);
 
     assert.deepEqual(
-      backlog.map((ticket) => ticket.number),
+      backlog.tickets.map((ticket) => ticket.number),
       [7],
     );
   });
@@ -32,7 +32,26 @@ describe("FakeIssueTracker", () => {
 
     await tracker.handBack(ticket, "gave up");
 
-    assert.deepEqual(await tracker.listEligibleTickets(PILOT), []);
+    assert.deepEqual((await tracker.listEligibleTickets(PILOT)).tickets, []);
+  });
+
+  it("reports untruncated by default", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+
+    const backlog = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(backlog.truncated, false);
+  });
+
+  it("reports truncated once told to", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.truncateBacklog(PILOT);
+
+    const backlog = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(backlog.truncated, true);
   });
 
   it("lists a blocked ticket alongside its open blocker count", async () => {
@@ -41,7 +60,7 @@ describe("FakeIssueTracker", () => {
 
     const backlog = await tracker.listEligibleTickets(PILOT);
 
-    assert.equal(backlog[0]?.openBlockers, 2);
+    assert.equal(backlog.tickets[0]?.openBlockers, 2);
   });
 
   it("lists a broken-out ticket alongside its open sub-issue count", async () => {
@@ -54,6 +73,6 @@ describe("FakeIssueTracker", () => {
 
     const backlog = await tracker.listEligibleTickets(PILOT);
 
-    assert.equal(backlog[0]?.openSubIssues, 7);
+    assert.equal(backlog.tickets[0]?.openSubIssues, 7);
   });
 });

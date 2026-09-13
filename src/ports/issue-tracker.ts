@@ -1,5 +1,6 @@
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
  * The triage label that makes a ticket eligible, as `docs/agents/triage-labels.md`
@@ -42,6 +43,20 @@ export interface Ticket {
   pullRequest?: PullRequestUrl;
   openSubIssues?: number;
   openBlockers?: number;
+  /**
+   * The ticket's own rank among its project's implementation tickets, read
+   * from a `priority:1`–`priority:3` label. Absent sorts after every ticket
+   * that carries one, and never influences which project an iteration works
+   * — that is `Priority`, the registry's own field.
+   */
+  priority?: TicketPriority;
+}
+
+/** What one read of a project's backlog came back with. */
+export interface Backlog {
+  tickets: Ticket[];
+  /** Whether the backlog held more tickets than this read looked at. */
+  truncated: boolean;
 }
 
 /**
@@ -85,8 +100,12 @@ export interface IssueTracker {
    * label, which are the only tickets the loop may select. A project with an
    * empty backlog returns an empty list; that is a normal morning, not an
    * error.
+   *
+   * `truncated` is set when the project's backlog held more tickets than this
+   * read looked at — the newest ones are kept, since a newly prioritised
+   * ticket costs more to miss than an old one.
    */
-  listEligibleTickets(repo: RepoSlug): Promise<Ticket[]>;
+  listEligibleTickets(repo: RepoSlug): Promise<Backlog>;
   /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.

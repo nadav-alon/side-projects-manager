@@ -17,9 +17,16 @@ export {
   isReviewTicket,
   reviewTitle,
 } from "./issue-tracker.ts";
-export type { IssueTracker, ReviewTicket, Ticket } from "./issue-tracker.ts";
+export type {
+  Backlog,
+  IssueTracker,
+  ReviewTicket,
+  Ticket,
+} from "./issue-tracker.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
+export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
+export type { TicketPriority } from "./ticket-priority.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
 export type { Proposal, RepoHost } from "./repo-host.ts";

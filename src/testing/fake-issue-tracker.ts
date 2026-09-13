@@ -1,4 +1,5 @@
 import type {
+  Backlog,
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
@@ -51,6 +52,7 @@ interface Stored {
  */
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly #backlogs = new Map<RepoSlug, Stored[]>();
+  readonly #truncated = new Set<RepoSlug>();
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
@@ -120,10 +122,20 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return stored;
   }
 
-  async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
-    return (this.#backlogs.get(repo) ?? [])
+  /**
+   * Marks `repo`'s backlog as having been read truncated, so a loop test can
+   * arrange a project whose listing reports `truncated: true` without having
+   * to add 101 tickets to prove it.
+   */
+  truncateBacklog(repo: RepoSlug): void {
+    this.#truncated.add(repo);
+  }
+
+  async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
+    const tickets = (this.#backlogs.get(repo) ?? [])
       .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
       .map((entry) => entry.ticket);
+    return { tickets, truncated: this.#truncated.has(repo) };
   }
 
   /**

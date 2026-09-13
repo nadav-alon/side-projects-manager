@@ -8,6 +8,9 @@ declare const priorityBrand: unique symbol;
  * that the project the developer cares about right now is priority 1. A
  * project without one sorts after every project that has one.
  *
+ * Always a project's; the rank a ticket carries is `TicketPriority`, a
+ * separate brand.
+ *
  * Branded, so a priority cannot be handed a token count or an issue number.
  * Values enter through `priority` or `isPriority`.
  */

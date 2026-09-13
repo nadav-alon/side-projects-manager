@@ -2,16 +2,19 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type {
+  Backlog,
   IssueTracker,
   PullRequestUrl,
   RepoSlug,
   ReviewTicket,
   Ticket,
+  TicketPriority,
 } from "../ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isPullRequestUrl,
+  isTicketPriority,
   reviewTitle,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
@@ -33,9 +36,6 @@ const execFileAsync = promisify(execFile);
  * finds no repository at all and the summary is lost to an invocation that
  * otherwise worked. The manager reports on itself, so the checkout it reports
  * into is its own and is not the caller's to decide.
- *
- * TODO[#25]: `gh issue list` caps results at 30 by default with no override
- * here, so a backlog past that size is silently truncated.
  */
 export function ghIssueTracker(
   home: string = MANAGER_HOME,
@@ -49,7 +49,7 @@ export function ghIssueTracker(
       );
     },
 
-    async listEligibleTickets(repo: RepoSlug): Promise<Ticket[]> {
+    async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
       const { stdout } = await execFileAsync("gh", [
         "issue",
         "list",
@@ -59,13 +59,22 @@ export function ghIssueTracker(
         "open",
         "--label",
         READY_FOR_AGENT_LABEL,
+        "--limit",
+        String(BACKLOG_READ_LIMIT),
         "--json",
-        "number,title,body,subIssuesSummary,blockedBy",
+        "number,title,body,labels,subIssuesSummary,blockedBy",
       ]);
 
-      return parseIssues(stdout, repo).map(
-        ({ body, subIssuesSummary, blockedBy, ...issue }) => {
+      const issues = parseIssues(stdout, repo);
+      // GitHub's own default order is newest first, so the one to drop when
+      // the read is full is the last in the array, not the first.
+      const truncated = issues.length === BACKLOG_READ_LIMIT;
+      const kept = truncated ? issues.slice(0, -1) : issues;
+
+      const tickets = kept.map(
+        ({ body, labels, subIssuesSummary, blockedBy, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
+          const priority = ticketPriorityOf(labels);
           const openSubIssues =
             subIssuesSummary.total - subIssuesSummary.completed;
           const openBlockers = blockedBy.filter(
@@ -77,9 +86,12 @@ export function ghIssueTracker(
             ...(openSubIssues > 0 && { openSubIssues }),
             ...(openBlockers > 0 && { openBlockers }),
             ...(pullRequest !== undefined && { pullRequest }),
+            ...(priority !== undefined && { priority }),
           };
         },
       );
+
+      return { tickets, truncated };
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
@@ -381,13 +393,15 @@ interface RawSubIssuesSummary {
 }
 
 /**
- * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy`
+ * One issue as
+ * `gh issue list --json number,title,body,labels,subIssuesSummary,blockedBy`
  * reports it.
  */
 interface RawIssue {
   number: number;
   title: string;
   body: string;
+  labels: string[];
   subIssuesSummary: RawSubIssuesSummary;
   blockedBy: RawBlocker[];
 }
@@ -398,8 +412,9 @@ interface RawBlocker {
 }
 
 /**
- * `gh --json number,title,body,subIssuesSummary,blockedBy`: a JSON array of
- * `{ number, title, body, subIssuesSummary, blockedBy }`.
+ * `gh --json number,title,body,labels,subIssuesSummary,blockedBy`: a JSON
+ * array of `{ number, title, body, labels: [{ name }], subIssuesSummary,
+ * blockedBy }`.
  */
 function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
@@ -419,12 +434,16 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, subIssuesSummary, blockedBy } =
+    const { number, title, body, labels, subIssuesSummary, blockedBy } =
       issue as Record<string, unknown>;
+    if (!Array.isArray(labels)) {
+      throw new Error(`${at}: "labels" must be an array.`);
+    }
     return {
       number: expectField(number, "number", "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
+      labels: labels.map((label) => (label as { name: string }).name),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
       blockedBy: parseBlockedBy(blockedBy, at),
     };
@@ -488,4 +507,23 @@ function expectField<T extends keyof FieldTypes>(
     throw new Error(`${at}: "${field}" must be a ${type}.`);
   }
   return value as FieldTypes[T];
+}
+
+/** Requested per read: 100 kept plus one to detect a backlog longer than that. */
+const BACKLOG_READ_LIMIT = 101;
+
+/** A `priority:1`–`priority:3` label, the only ones ticket priority reads. */
+const PRIORITY_LABEL = /^priority:(\d+)$/;
+
+/**
+ * The smallest ticket priority named among `labels`, or undefined where none
+ * is: no `priority:`-prefixed label at all, or every one of them out of range
+ * or malformed — both read the same as absent, per the tracker port's own
+ * note.
+ */
+function ticketPriorityOf(labels: string[]): TicketPriority | undefined {
+  const levels = labels
+    .map((label) => Number(PRIORITY_LABEL.exec(label)?.[1]))
+    .filter(isTicketPriority);
+  return levels.length === 0 ? undefined : levels.reduce((a, b) => (a < b ? a : b));
 }
