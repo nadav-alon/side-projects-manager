@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { fileTriggerLock } from "../adapters/file-trigger-lock.ts";
 import { systemClock } from "../adapters/system-clock.ts";
-import { runOncePerDay } from "../trigger-guard.ts";
+import { invokeOncePerDay } from "../trigger-guard.ts";
 
 // `morning-run.ts` in this checkout, `morning-run.js` once built — matching
 // this file's own extension rather than hardcoding one means the build's
@@ -26,7 +26,7 @@ const LOOP_ENTRY_POINT = path.join(
  * this script's only job is deciding whether that process runs at all.
  */
 async function main(): Promise<void> {
-  const invoked = await runOncePerDay(
+  const invoked = await invokeOncePerDay(
     fileTriggerLock(),
     systemClock,
     invokeLoop,
