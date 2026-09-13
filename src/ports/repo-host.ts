@@ -24,6 +24,18 @@ export type Proposal =
   | { kind: "pushed"; branch: string; failure: string };
 
 /**
+ * What opening a finished run's draft pull request came to, once its branch
+ * was pushed: the pull request, or why none could be opened for a branch that
+ * is on the host all the same.
+ *
+ * Resolved rather than rejected, because a pushed branch is work the developer
+ * can find, and a push that never happened is not.
+ */
+export type DraftPullRequest =
+  | { kind: "opened"; pullRequest: PullRequestUrl }
+  | { kind: "pushed"; failure: string };
+
+/**
  * How the manager reaches GitHub and git: creating a repo, getting a checkout
  * of it into the managed location, publishing what the new-project command
  * scaffolded into it, and handing a completed run's work to the developer.
@@ -84,7 +96,9 @@ export interface RepoHost {
   ): Promise<Proposal>;
   /**
    * Pushes `branch` from the checkout at `directory` and opens a draft pull
-   * request for it against `ticket`, answering with the pull request's URL.
+   * request for it against `ticket`, answering with the pull request's URL —
+   * or, when the push landed but the pull request would not open, with why.
+   * Rejects when the branch never reached the host.
    *
    * Draft, and only ever draft: there is no verb here that promotes a pull
    * request or merges one, because promoting and merging are the developer's
@@ -97,7 +111,7 @@ export interface RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-  ): Promise<PullRequestUrl>;
+  ): Promise<DraftPullRequest>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.
    *

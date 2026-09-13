@@ -187,7 +187,7 @@ How a run's work reaches the developer: the branch it committed to, pushed, with
 _Avoid_: PR (say pull request), submission, patch
 
 **Handover**:
-What a finished run comes to for the developer: the run itself, and the draft pull request its commits are waiting in. A run that committed nothing, and one the agent did not finish, are runs without a handover.
+What a finished run comes to for the developer: the run itself, and the draft pull request its commits are waiting in. A run that committed nothing, and one the agent did not finish, are runs without a handover. A handover that fails part way — the branch would not push, no draft pull request would open, or its review ticket could not be created — is a failed iteration: the ticket is handed back naming the branch and any pull request, the branch is kept, and the invocation carries on.
 _Avoid_: work, result, outcome
 
 **Review ticket**:

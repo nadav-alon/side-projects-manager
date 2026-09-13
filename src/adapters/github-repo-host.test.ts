@@ -518,7 +518,7 @@ describe("opening a draft pull request for a completed run", () => {
   it("answers with the pull request it opened", async (t) => {
     const { url } = await openedFor(t);
 
-    assert.equal(url, OPENED);
+    assert.deepEqual(url, { kind: "opened", pullRequest: OPENED });
   });
 
   it("opens it as a draft, from the run's branch", async (t) => {
@@ -670,12 +670,20 @@ describe("opening a draft pull request for a completed run", () => {
     await recordingGh(t, "echo 'pull requests are disabled' >&2\nexit 1");
     const directory = await ran(RAN);
 
-    await assert.rejects(
-      githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET),
-      // The branch and the base both: a base the host does not have is the
-      // likeliest reason `gh` refused, and neither is visible from the raw
-      // failure.
-      new RegExp(`${RAN}.*${BASE}`),
+    const opening = await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+    );
+
+    // Resolved rather than rejected: the branch is on the host, which is a
+    // different thing to tell the developer from a push that never happened.
+    assert.equal(opening.kind, "pushed");
+    // The base, since a base the host does not have is the likeliest reason
+    // `gh` refused, and it is not visible from the raw failure.
+    assert.match(
+      opening.kind === "pushed" ? opening.failure : "",
+      new RegExp(`${BASE}.*pull requests are disabled`, "s"),
     );
 
     // The push happened before the pull request was asked for, so the work is

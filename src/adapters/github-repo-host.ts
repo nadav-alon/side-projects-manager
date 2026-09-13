@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  DraftPullRequest,
   Proposal,
   PullRequestUrl,
   RepoHost,
@@ -206,7 +207,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       directory: Checkout,
       branch: Branch,
       ticket: Ticket,
-    ): Promise<PullRequestUrl> {
+    ): Promise<DraftPullRequest> {
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
       // every other run of this project for no reason.
@@ -269,22 +270,21 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         );
         opened = stdout;
       } catch (error) {
-        // The commits are on the host either way, so the branch is named here:
-        // a morning whose pull request could not be opened still produced work,
-        // and the developer needs to be able to find it. The base is named too,
-        // because a base the host does not have is the likeliest reason `gh`
-        // refused, and it is not visible from anything else in this message.
-        //
-        // TODO[#13]: return a failure rather than throwing.
-        throw new Error(
-          `Pushed ${branch} to ${ticket.repo}, but could not open a pull request for it against ${base}: ${errorMessage(error)}`,
-        );
+        // Resolved rather than rejected: the commits are on the host either
+        // way, so a morning whose pull request could not be opened still
+        // produced work the developer can find. The base is named, because a
+        // base the host does not have is the likeliest reason `gh` refused,
+        // and it is not visible from anything else in this message.
+        return {
+          kind: "pushed",
+          failure: `could not open a pull request against ${base}: ${errorMessage(error)}`,
+        };
       }
 
       // Outside the catch: `gh` answering with something that is not a pull
       // request is a different failure from `gh` refusing, and reporting it as
-      // the second would send the developer looking for a push that worked.
-      return pullRequestUrl(opened.trim());
+      // the second would say a pull request was refused that may well exist.
+      return { kind: "opened", pullRequest: pullRequestUrl(opened.trim()) };
     },
 
     async discardBranch(directory: Checkout, branch: Branch): Promise<void> {

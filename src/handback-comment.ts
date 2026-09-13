@@ -1,5 +1,6 @@
 import type {
   GaveUp,
+  HandoverFailed,
   ModelRefused,
   UnusableModelLabel,
 } from "./morning-run.ts";
@@ -132,6 +133,24 @@ export function handoverComment(
   return [
     `The morning loop finished this ticket. Its work is waiting in a draft pull request: ${pullRequest}`,
     `A review has been queued as #${reviewTicket.number}.`,
+    `This ticket is yours again: it will not be retried.`,
+  ].join("\n\n");
+}
+
+/**
+ * What a finished run's ticket is told when its work could not be handed over:
+ * why, and where the work is — the branch, and the draft pull request when one
+ * was opened — so the developer picks it up from there rather than re-running
+ * a ticket whose work already exists.
+ */
+export function handoverFailureComment(failure: HandoverFailed): string {
+  const where =
+    failure.pullRequest === undefined
+      ? `the branch \`${failure.branch}\``
+      : `the branch \`${failure.branch}\`, in the draft pull request ${failure.pullRequest}`;
+  return [
+    `The morning loop finished this ticket, but could not hand its work over: ${tail(failure.reason, REASON_QUOTED)}`,
+    `Its work is on ${where}.`,
     `This ticket is yours again: it will not be retried.`,
   ].join("\n\n");
 }

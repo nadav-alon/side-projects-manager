@@ -1438,24 +1438,90 @@ describe("morningRun", () => {
       });
     });
 
-    it("leaves the work recorded even when it could not be opened", async () => {
+    it("gives a failed iteration naming the pushed branch when it could not be opened, and the invocation goes on", async () => {
       const ports = fakePorts();
       ran(ports);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 8,
+        title: "Add the other thing",
+      });
+      ports.repoHost.draftPullRequest = async () => ({
+        kind: "pushed",
+        failure: "pull requests are disabled on this repository",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
+      assert.match(report.message, /pull requests are disabled/);
+      assert.match(report.message, new RegExp(BRANCH));
+      assert.match(ports.tracker.summaries[0]?.body ?? "", new RegExp(BRANCH));
+      // The next iteration still ran: #8, after #7's handover failed.
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7, 8],
+      );
+    });
+
+    it("hands the ticket back when it could not be opened, with a comment naming the branch", async () => {
+      const ports = fakePorts();
+      const ticket = ran(ports);
+      ports.repoHost.draftPullRequest = async () => ({
+        kind: "pushed",
+        failure: "pull requests are disabled on this repository",
+      });
+
+      await morningRun(ports);
+
+      const handback = ports.tracker.handbacks.find(
+        (entry) => entry.ticket.number === ticket.number,
+      );
+      assert.ok(handback, "the implementation ticket should have been handed back");
+      assert.match(handback.comment, new RegExp(BRANCH));
+      assert.match(handback.comment, /pull requests are disabled/);
+      // The branch is the work, so it is kept rather than discarded.
+      assert.deepEqual(ports.repoHost.discarded, []);
+      const tomorrow = await morningRun(ports);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("gives a failed iteration naming the branch when the push itself was refused, and leaves the work recorded", async () => {
+      const ports = fakePorts();
+      const ticket = ran(ports);
       ports.repoHost.draftPullRequest = async () => {
-        throw new Error("pull requests are disabled on this repository");
+        throw new Error("the remote rejected the push");
       };
 
       const report = await morningRun(ports);
 
-      // The run still spent its tokens even though the loop's own next step
-      // failed — recorded by the `finally` inside the loop before the
-      // failure ends the invocation rather than the ticket's own run.
-      assert.equal(report.outcome, "invocation-failed");
-      assert.match(report.message, /pull requests are disabled/);
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
+      assert.match(report.message, /the remote rejected the push/);
+      assert.match(report.message, new RegExp(BRANCH));
+      assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
+    });
+
+    it("says the ticket is still eligible when it could not be opened and the hand-back was refused too", async (t) => {
+      const ports = fakePorts();
+      ran(ports);
+      ports.repoHost.draftPullRequest = async () => ({
+        kind: "pushed",
+        failure: "pull requests are disabled on this repository",
+      });
+      t.mock.method(ports.tracker, "handBack", async () => {
+        throw new Error("the tracker is unreachable");
+      });
+
+      const report = await morningRun(ports);
+
+      assert.match(report.message, /the tracker is unreachable/);
+      assert.match(report.message, /still ready-for-agent/);
+      assert.match(report.message, new RegExp(BRANCH));
     });
   });
 
@@ -1517,7 +1583,10 @@ describe("morningRun", () => {
       const order: string[] = [];
       t.mock.method(ports.repoHost, "openDraftPullRequest", async () => {
         order.push("pull request");
-        return FakeRepoHost.RUN_PULL_REQUEST;
+        return {
+          kind: "opened" as const,
+          pullRequest: FakeRepoHost.RUN_PULL_REQUEST,
+        };
       });
       t.mock.method(ports.tracker, "createReviewTicket", async () => {
         order.push("review ticket");
@@ -1589,21 +1658,53 @@ describe("morningRun", () => {
       assert.equal(reviewTicketOf(report.runs[0]), undefined);
     });
 
-    it("leaves the work recorded even when it could not be opened", async (t) => {
+    it("gives a failed iteration naming the draft pull request when it could not be created, and the invocation goes on", async (t) => {
       const ports = fakePorts();
       ranSuccessfully(ports);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 8,
+        title: "Add the other thing",
+      });
       t.mock.method(ports.tracker, "createReviewTicket", async () => {
         throw new Error("issues are disabled on this repository");
       });
 
       const report = await morningRun(ports);
 
-      assert.equal(report.outcome, "invocation-failed");
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
       assert.match(report.message, /issues are disabled/);
+      assert.match(report.message, new RegExp(FakeRepoHost.RUN_PULL_REQUEST));
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7, 8],
+      );
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
+    });
+
+    it("hands the ticket back when it could not be created, with a comment naming the draft pull request", async (t) => {
+      const ports = fakePorts();
+      const ticket = ranSuccessfully(ports);
+      t.mock.method(ports.tracker, "createReviewTicket", async () => {
+        throw new Error("issues are disabled on this repository");
+      });
+
+      await morningRun(ports);
+
+      const handback = ports.tracker.handbacks.find(
+        (entry) => entry.ticket.number === ticket.number,
+      );
+      assert.ok(handback, "the implementation ticket should have been handed back");
+      assert.match(
+        handback.comment,
+        new RegExp(FakeRepoHost.RUN_PULL_REQUEST),
+      );
+      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      assert.deepEqual(backlog, []);
     });
   });
 

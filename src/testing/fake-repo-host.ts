@@ -1,6 +1,7 @@
 import type {
   Branch,
   Checkout,
+  DraftPullRequest,
   Proposal,
   PullRequestUrl,
   RepoHost,
@@ -89,8 +90,10 @@ export class FakeRepoHost implements RepoHost {
   });
 
   /** What the next draft pull request comes to. One that opens, unless set. */
-  draftPullRequest: () => Promise<PullRequestUrl> = async () =>
-    FakeRepoHost.RUN_PULL_REQUEST;
+  draftPullRequest: () => Promise<DraftPullRequest> = async () => ({
+    kind: "opened",
+    pullRequest: FakeRepoHost.RUN_PULL_REQUEST,
+  });
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -140,7 +143,7 @@ export class FakeRepoHost implements RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-  ): Promise<PullRequestUrl> {
+  ): Promise<DraftPullRequest> {
     this.pullRequests.push({ directory, branch, ticket });
     return this.draftPullRequest();
   }
