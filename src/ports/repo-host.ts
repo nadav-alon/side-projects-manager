@@ -48,6 +48,11 @@ export interface RepoHost {
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is
    * what makes a missing clone self-healing and an existing one safe.
+   *
+   * A reused clone is first fast-forwarded to what its remote has, so work
+   * started from it starts from current code. One that cannot be — its branch
+   * has moved apart from the remote — rejects rather than being handed back
+   * stale.
    */
   clone(repo: RepoSlug): Promise<Checkout>;
   /**

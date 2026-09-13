@@ -64,6 +64,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
           `${directory} is a checkout of ${origin}, not of ${repo}. Move it aside, or clone ${repo} somewhere else yourself.`,
         );
       }
+      await catchUp(directory);
       return directory;
     },
 
@@ -486,6 +487,41 @@ function pullRequestParts(
     throw new Error(`${url} does not look like a GitHub pull request URL.`);
   }
   return { owner, repo, number };
+}
+
+/**
+ * Fast-forwards the branch the checkout is on to what its remote has.
+ *
+ * A reused clone is otherwise frozen at whenever it was made: the sandbox
+ * clones it at its HEAD, so every run would start from that day's code and
+ * open a pull request that fights everything merged since.
+ *
+ * Fast-forward only. A branch with commits its remote lacks, or uncommitted
+ * work the incoming changes would overwrite, is refused rather than rebased,
+ * merged or reset — none of those are this adapter's to decide, and running on
+ * the stale code instead is the failure this exists to stop. Uncommitted work
+ * the update does not touch is carried across. A branch with no upstream (a
+ * detached HEAD, an empty repo) has nothing to catch up to and is left alone.
+ */
+async function catchUp(directory: Checkout): Promise<void> {
+  try {
+    await run("git", ["-C", directory, "fetch", "--quiet", "origin"]);
+    if (!(await hasUpstream(directory))) {
+      return;
+    }
+    await run("git", [
+      "-C",
+      directory,
+      "merge",
+      "--ff-only",
+      "--quiet",
+      "@{upstream}",
+    ]);
+  } catch (error) {
+    throw new Error(
+      `${directory} cannot be brought up to date with its remote: ${errorMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
+    );
+  }
 }
 
 /** The branch the checkout is on, or undefined on a detached HEAD. */
