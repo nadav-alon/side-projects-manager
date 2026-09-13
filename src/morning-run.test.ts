@@ -1810,6 +1810,36 @@ describe("morningRun", () => {
       );
     });
 
+    it("carries on past a review whose checkout cannot be made, as an infrastructure failure that leaves the review open", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      const clone = ports.repoHost.clone.bind(ports.repoHost);
+      let clones = 0;
+      t.mock.method(ports.repoHost, "clone", async (repo: typeof PILOT) => {
+        clones += 1;
+        if (clones === 1) {
+          throw new Error("no such remote");
+        }
+        return clone(repo);
+      });
+
+      const report = await morningRun(ports);
+
+      assert.deepEqual(
+        report.runs.map((run) => [run.ticket.number, run.kind]),
+        [
+          [ticket.number, "failed"],
+          [7, "finished"],
+        ],
+      );
+      assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+      assert.equal(ports.sandbox.reviews.length, 0);
+      assert.ok(
+        ports.tracker.handbacks.every((h) => h.ticket.number !== ticket.number),
+      );
+    });
+
     it("tells a review that gave up apart from one whose sandbox broke, in the summary", async (t) => {
       const gaveUp = fakePorts();
       queued(gaveUp);
