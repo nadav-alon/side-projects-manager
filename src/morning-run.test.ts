@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import {
   morningLoop,
-  type IterationOutcome,
   type InvocationReport,
   type ProjectOutcome,
 } from "./morning-run.ts";
@@ -60,13 +60,6 @@ function gateRefusal(report: InvocationReport) {
     : report.standDown;
 }
 
-/** The failed half of an iteration outcome — undefined if it finished instead. */
-function failureOf(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && "failure" in iteration
-    ? iteration.failure
-    : undefined;
-}
-
 /** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
   const failure = failureOf(iteration);
@@ -83,9 +76,9 @@ function reviewTicketOf(iteration: IterationOutcome | undefined) {
 
 /** The sandbox run an iteration made — absent for a review, or a run that never started. */
 function ranWith(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && !("review" in iteration)
-    ? iteration.run
-    : undefined;
+  return iteration === undefined || iteration.kind === "reviewed"
+    ? undefined
+    : iteration.run;
 }
 
 describe("morningLoop", () => {
