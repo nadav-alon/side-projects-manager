@@ -178,11 +178,11 @@ describe("ghIssueTracker.publishSummary", () => {
   it("creates one issue, naming no repo of its own", async (t) => {
     const gh = await recordingGh(t, ": ");
 
-    await ghIssueTracker().publishSummary("Morning run — 2026-01-01", "Nothing to do.");
+    await ghIssueTracker().publishSummary("Morning loop summary — 2026-01-01", "Nothing to do.");
 
     const create = callWith(await gh.calls(), "issue", "create");
     assert.ok(create, "the summary should be created with `gh issue create`");
-    assert.equal(valueOf(create, "--title"), "Morning run — 2026-01-01");
+    assert.equal(valueOf(create, "--title"), "Morning loop summary — 2026-01-01");
     assert.equal(valueOf(create, "--body"), "Nothing to do.");
     // No `--repo`: the tracker's other writes all name one, explicitly,
     // because they land in a project. This is the one write that always
@@ -197,7 +197,7 @@ describe("ghIssueTracker.publishSummary", () => {
     await recordingGh(t, `pwd -P > ${recorded}`);
 
     await ghIssueTracker(home).publishSummary(
-      "Morning run — 2026-01-01",
+      "Morning loop summary — 2026-01-01",
       "Nothing to do.",
     );
 

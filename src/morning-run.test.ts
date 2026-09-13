@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  morningRun,
+  morningLoop,
   type IterationOutcome,
-  type MorningRunReport,
+  type InvocationReport,
   type ProjectOutcome,
 } from "./morning-run.ts";
 import {
@@ -54,7 +54,7 @@ function finished(iteration: IterationOutcome | undefined) {
 }
 
 /** Why the gate refused — undefined if it never did, or the provider's limit stood the morning down instead. */
-function gateRefusal(report: MorningRunReport) {
+function gateRefusal(report: InvocationReport) {
   return report.standDown?.reason === "provider-limit"
     ? undefined
     : report.standDown;
@@ -88,11 +88,11 @@ function ranWith(iteration: IterationOutcome | undefined) {
     : undefined;
 }
 
-describe("morningRun", () => {
+describe("morningLoop", () => {
   it("reports a dry queue when nothing is registered", async () => {
     const ports = fakePorts();
 
-    const report = await morningRun(ports);
+    const report = await morningLoop(ports);
 
     assert.equal(report.outcome, "dry-queue");
     assert.deepEqual(report.projects, []);
@@ -104,7 +104,7 @@ describe("morningRun", () => {
     ports.store.register(MANAGER);
     ports.store.register(PILOT);
 
-    const report = await morningRun(ports);
+    const report = await morningLoop(ports);
 
     assert.equal(report.outcome, "dry-queue");
     assert.deepEqual(verdicts(report.projects), [
@@ -123,7 +123,7 @@ describe("morningRun", () => {
       "listEligibleTickets",
     );
 
-    await morningRun(ports);
+    await morningLoop(ports);
 
     assert.equal(listEligibleTickets.mock.callCount(), 2);
     assert.deepEqual(
@@ -137,7 +137,7 @@ describe("morningRun", () => {
     ports.store.register(PILOT);
     const run = t.mock.method(ports.sandbox, "run");
 
-    await morningRun(ports);
+    await morningLoop(ports);
 
     assert.equal(run.mock.callCount(), 0);
   });
@@ -150,7 +150,7 @@ describe("morningRun", () => {
       title: "Add the thing",
     });
 
-    const report = await morningRun(ports);
+    const report = await morningLoop(ports);
 
     assert.equal(report.outcome, "work-selected");
     assert.deepEqual(verdicts(report.projects), [[PILOT, "selected"]]);
@@ -170,7 +170,7 @@ describe("morningRun", () => {
       "listEligibleTickets",
     );
 
-    await morningRun(ports);
+    await morningLoop(ports);
 
     // Twice each: once to select PILOT's one ticket, and again once it is
     // worked, to confirm nothing else — MANAGER included — was left waiting.
@@ -192,7 +192,7 @@ describe("morningRun", () => {
       title: "Add the other thing",
     });
 
-    await morningRun(ports);
+    await morningLoop(ports);
 
     // Two distinct tickets, each its own sandbox run: an iteration is one
     // project and one ticket, and the second iteration picked up what the
@@ -208,7 +208,7 @@ describe("morningRun", () => {
     const ports = fakePorts();
     const startedAt = ports.clock.now();
 
-    const report = await morningRun(ports);
+    const report = await morningLoop(ports);
 
     assert.deepEqual(report.startedAt, startedAt);
   });
@@ -226,7 +226,7 @@ describe("morningRun", () => {
         "listEligibleTickets",
       );
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(listEligibleTickets.mock.callCount(), 0);
       assert.equal(report.outcome, "dry-queue");
@@ -241,7 +241,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.deepEqual(verdicts(report.projects), [
@@ -255,7 +255,7 @@ describe("morningRun", () => {
       ports.store.register(MANAGER, { paused: true });
       ports.store.register(PILOT);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(
         report.message,
@@ -277,7 +277,7 @@ describe("morningRun", () => {
         title: "Not triaged yet",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "dry-queue");
       assert.deepEqual(verdicts(report.projects), [
@@ -294,7 +294,7 @@ describe("morningRun", () => {
       });
 
       await ports.tracker.handBack(ticket, "gave up");
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "dry-queue");
       assert.deepEqual(verdicts(report.projects), [
@@ -314,7 +314,7 @@ describe("morningRun", () => {
       );
       const run = t.mock.method(ports.sandbox, "run");
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(run.mock.callCount(), 0);
       assert.equal(report.outcome, "dry-queue");
@@ -331,7 +331,7 @@ describe("morningRun", () => {
         title: "Too big for one run",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.deepEqual(verdicts(report.projects), [[PILOT, "selected"]]);
@@ -350,7 +350,7 @@ describe("morningRun", () => {
         title: "One of the slices",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.deepEqual(
@@ -371,7 +371,7 @@ describe("morningRun", () => {
         7,
       );
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "dry-queue");
       assert.deepEqual(verdicts(report.projects), [
@@ -390,7 +390,7 @@ describe("morningRun", () => {
         7,
       );
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(report.message, /#66 broken out into sub-issues/);
     });
@@ -407,7 +407,7 @@ describe("morningRun", () => {
       );
       const run = t.mock.method(ports.sandbox, "run");
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(run.mock.callCount(), 0);
       assert.equal(report.outcome, "dry-queue");
@@ -429,7 +429,7 @@ describe("morningRun", () => {
         title: "The blocker",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.deepEqual(
@@ -474,7 +474,7 @@ describe("morningRun", () => {
       // rather than just reflecting backlog order.
       ports.tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // The review goes first — the invocation goes on afterwards to work the
       // implementation too, since nothing else was eligible, but that is a
@@ -496,7 +496,7 @@ describe("morningRun", () => {
       });
       ports.tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // PILOT's review goes first, however MANAGER — registered first, no
       // priority set for either — would otherwise have sorted.
@@ -517,7 +517,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
     });
@@ -535,7 +535,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
     });
@@ -561,7 +561,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
     });
@@ -584,7 +584,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
     });
@@ -604,7 +604,7 @@ describe("morningRun", () => {
           priority: ticketPriority(1),
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
       });
@@ -623,7 +623,7 @@ describe("morningRun", () => {
           priority: ticketPriority(1),
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
       });
@@ -642,7 +642,7 @@ describe("morningRun", () => {
           title: "Add the thing",
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.runs[0]?.ticket.number, 7);
       });
@@ -663,7 +663,7 @@ describe("morningRun", () => {
           ),
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
       });
@@ -696,7 +696,7 @@ describe("morningRun", () => {
           ),
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
       });
@@ -715,7 +715,7 @@ describe("morningRun", () => {
           priority: ticketPriority(1),
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.runs[0]?.ticket.repo, MANAGER);
       });
@@ -740,7 +740,7 @@ describe("morningRun", () => {
           priority: ticketPriority(1),
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.runs[0]?.ticket.repo, MANAGER);
       });
@@ -756,7 +756,7 @@ describe("morningRun", () => {
         });
         ports.tracker.truncateBacklog(PILOT);
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.projects[0]?.backlogTruncated, true);
       });
@@ -778,7 +778,7 @@ describe("morningRun", () => {
         // select PILOT and its verdict stays the one the first scan gave it.
         ports.ledger.reports(spent({ weekly: Number.MAX_SAFE_INTEGER }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         const pilot = report.projects.find(({ repo }) => repo === PILOT);
         assert.equal(pilot?.verdict, "deferred");
@@ -795,7 +795,7 @@ describe("morningRun", () => {
         );
         ports.tracker.truncateBacklog(PILOT);
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.projects[0]?.verdict, "no-eligible-tickets");
         assert.equal(report.projects[0]?.backlogTruncated, true);
@@ -809,7 +809,7 @@ describe("morningRun", () => {
           title: "Add the thing",
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.projects[0]?.backlogTruncated, undefined);
       });
@@ -828,7 +828,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.ticket.repo, PILOT);
       assert.deepEqual(verdicts(report.projects), [
@@ -859,13 +859,13 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(2_000),
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // PILOT's iteration ran; MANAGER's was selected next but the gate — now
       // counting PILOT's own cost — refused before a second run started.
       assert.equal(report.outcome, "work-selected");
-      assert.equal(report.runs.length, 1);
-      assert.equal(report.runs[0]?.repo, PILOT);
+      assert.equal(report.iterations.length, 1);
+      assert.equal(report.iterations[0]?.repo, PILOT);
       assert.equal(report.standDown?.reason, "weekly-reserve");
       assert.equal(ports.sandbox.runs.length, 1);
       assert.match(report.message, /nadav-alon\/side-projects-manager/);
@@ -877,7 +877,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.projects[0]?.lastWorkedAt, undefined);
     });
@@ -890,7 +890,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(120_000),
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(report.projects[0]?.lastWorkedAt, YESTERDAY);
     });
@@ -900,7 +900,7 @@ describe("morningRun", () => {
       ports.store.register(PILOT);
       const saveState = t.mock.method(ports.store, "saveState");
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(saveState.mock.callCount(), 1);
     });
@@ -913,8 +913,8 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(120_000),
       });
 
-      await morningRun(ports);
-      const report = await morningRun(ports);
+      await morningLoop(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(report.projects[0]?.lastWorkedAt, YESTERDAY);
     });
@@ -936,7 +936,7 @@ describe("morningRun", () => {
       });
       ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(
         ports.sandbox.runs.map((run) => run.ticket.number),
@@ -958,7 +958,7 @@ describe("morningRun", () => {
       });
       ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(
         ports.sandbox.runs.map((run) => [run.ticket.repo, run.ticket.number]),
@@ -975,7 +975,7 @@ describe("morningRun", () => {
       });
       ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "dry-queue");
       assert.deepEqual(verdicts(report.projects), [
@@ -993,7 +993,7 @@ describe("morningRun", () => {
       });
       ports.store.markWorkedOn(localDay(YESTERDAY), { repo: PILOT, number: 7 });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(
         ports.sandbox.runs.map((run) => run.ticket.number),
@@ -1013,7 +1013,7 @@ describe("morningRun", () => {
         number: 3,
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual((await ports.store.loadState()).workedToday, {
         day: TODAY,
@@ -1030,7 +1030,7 @@ describe("morningRun", () => {
       });
       ports.store.markWorkedOn(TODAY, { repo: MANAGER, number: 3 });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual((await ports.store.loadState()).workedToday, {
         day: TODAY,
@@ -1052,7 +1052,7 @@ describe("morningRun", () => {
         throw new Error("the docker daemon is not running");
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(
         (await ports.store.loadState()).workedToday?.tickets,
@@ -1075,7 +1075,7 @@ describe("morningRun", () => {
         limitRefusal: LIMIT_REFUSAL,
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(
         (await ports.store.loadState()).workedToday?.tickets,
@@ -1097,7 +1097,7 @@ describe("morningRun", () => {
         return run(request);
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(savedWhenRunStarted?.workedToday, {
         day: TODAY,
@@ -1115,7 +1115,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.sandbox.runs, [
         {
@@ -1135,7 +1135,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.clones, [PILOT]);
     });
@@ -1144,7 +1144,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.clones, []);
       assert.deepEqual(ports.sandbox.runs, []);
@@ -1164,9 +1164,9 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(42_000),
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.deepEqual(finished(report.runs[0])?.run, {
+      assert.deepEqual(finished(report.iterations[0])?.run, {
         branch: branch("issue-7-add-the-thing"),
         commits: ["c0ffee1", "c0ffee2"],
         output: "implemented the thing",
@@ -1178,9 +1178,9 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.deepEqual(report.runs, []);
+      assert.deepEqual(report.iterations, []);
     });
 
     it("says in the message what the run left behind", async () => {
@@ -1197,7 +1197,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(42_000),
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(report.message, /nadav-alon\/pilot/);
       assert.match(report.message, /issue-7-add-the-thing/);
@@ -1213,8 +1213,8 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
-      const report = await morningRun(ports);
+      await morningLoop(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(report.projects[0]?.lastWorkedAt, FROZEN_NOW);
     });
@@ -1233,7 +1233,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(42_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
@@ -1253,7 +1253,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(
@@ -1266,7 +1266,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
@@ -1306,7 +1306,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       const ticket = ran(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.pullRequests, [
         {
@@ -1321,9 +1321,9 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ran(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(pullRequestOf(report.runs[0]), FakeRepoHost.RUN_PULL_REQUEST);
+      assert.equal(pullRequestOf(report.iterations[0]), FakeRepoHost.RUN_PULL_REQUEST);
       assert.match(report.message, new RegExp(FakeRepoHost.RUN_PULL_REQUEST));
     });
 
@@ -1331,7 +1331,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       const ticket = ran(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const handback = ports.tracker.handbacks.find(
         (entry) => entry.ticket.number === ticket.number,
@@ -1351,8 +1351,8 @@ describe("morningRun", () => {
       // after, the review it queued — this same fake's review always posts.
       // A later invocation finding nothing at all is what proves neither
       // ticket is still eligible.
-      await morningRun(ports);
-      const tomorrow = await morningRun(ports);
+      await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
@@ -1362,17 +1362,17 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ran(ports, { commits: [] });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.pullRequests, []);
-      assert.equal(pullRequestOf(report.runs[0]), undefined);
+      assert.equal(pullRequestOf(report.iterations[0]), undefined);
     });
 
     it("leaves the message saying nothing was left behind", async () => {
       const ports = fakePorts();
       ran(ports, { commits: [] });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // Never the branch: the sandbox keeps no branch for a run that
       // committed nothing, so naming one would send the developer looking
@@ -1385,17 +1385,17 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ran(ports, { failure: "the agent gave up" });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.pullRequests, []);
-      assert.equal(pullRequestOf(report.runs[0]), undefined);
+      assert.equal(pullRequestOf(report.iterations[0]), undefined);
     });
 
     it("names no branch for a failed run, whose commits are discarded", async () => {
       const ports = fakePorts();
       ran(ports, { failure: "the agent gave up" });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // What became of a failed agent's commits is settled: they are thrown
       // away. Naming the branch would send the developer into the checkout
@@ -1409,10 +1409,10 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.pullRequests, []);
-      assert.equal(pullRequestOf(report.runs[0]), undefined);
+      assert.equal(pullRequestOf(report.iterations[0]), undefined);
     });
 
     it("still leaves the project recorded as worked, at what the run cost", async () => {
@@ -1423,7 +1423,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(3_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // Two runs: the implementation, and — since it committed and left a
       // review ticket in the same, otherwise-dry backlog — the review that
@@ -1450,10 +1450,10 @@ describe("morningRun", () => {
         failure: "pull requests are disabled on this repository",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
+      assert.equal(failureOf(report.iterations[0])?.kind, "handover-failed");
       assert.match(report.message, /pull requests are disabled/);
       assert.match(report.message, new RegExp(BRANCH));
       assert.match(ports.tracker.summaries[0]?.body ?? "", new RegExp(BRANCH));
@@ -1472,7 +1472,7 @@ describe("morningRun", () => {
         failure: "pull requests are disabled on this repository",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const handback = ports.tracker.handbacks.find(
         (entry) => entry.ticket.number === ticket.number,
@@ -1482,7 +1482,7 @@ describe("morningRun", () => {
       assert.match(handback.comment, /pull requests are disabled/);
       // The branch is the work, so it is kept rather than discarded.
       assert.deepEqual(ports.repoHost.discarded, []);
-      const tomorrow = await morningRun(ports);
+      const tomorrow = await morningLoop(ports);
       assert.equal(tomorrow.outcome, "dry-queue");
     });
 
@@ -1494,10 +1494,10 @@ describe("morningRun", () => {
         failure: "the remote rejected the push",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
+      assert.equal(failureOf(report.iterations[0])?.kind, "handover-failed");
       assert.match(report.message, /the remote rejected the push/);
       assert.match(report.message, new RegExp(BRANCH));
       // Never said to be on the host: the branch is only in the checkout.
@@ -1527,7 +1527,7 @@ describe("morningRun", () => {
         throw new Error("the tracker is unreachable");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(report.message, /the tracker is unreachable/);
       assert.match(report.message, /still ready-for-agent/);
@@ -1556,7 +1556,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       const ticket = ranSuccessfully(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(
         ports.tracker.reviewTickets.map((review) => ({
@@ -1580,7 +1580,7 @@ describe("morningRun", () => {
       const run = t.mock.method(ports.sandbox, "run");
       const review = t.mock.method(ports.sandbox, "review");
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(run.mock.callCount(), 1);
       assert.equal(review.mock.callCount(), 1);
@@ -1603,7 +1603,7 @@ describe("morningRun", () => {
         return { repo: PILOT, number: 8, title: "Review" };
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(order, ["pull request", "review ticket"]);
     });
@@ -1612,7 +1612,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       const ticket = ranSuccessfully(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // Handed back rather than left eligible: a review is queued beside the
       // ticket that earned it, and the ticket itself goes to the developer,
@@ -1627,10 +1627,10 @@ describe("morningRun", () => {
       const ports = fakePorts();
       ranSuccessfully(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       const review = ports.tracker.reviewTickets[0]?.ticket;
-      assert.deepEqual(reviewTicketOf(report.runs[0]), review);
+      assert.deepEqual(reviewTicketOf(report.iterations[0]), review);
       // In the line as well as the field: the message is the whole of what a
       // trigger prints, so a review only the field knows about is a review
       // nobody is told is waiting.
@@ -1651,21 +1651,21 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(42_000),
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // Nothing was opened, so there is nothing to review.
       assert.deepEqual(ports.tracker.reviewTickets, []);
-      assert.equal(reviewTicketOf(report.runs[0]), undefined);
+      assert.equal(reviewTicketOf(report.iterations[0]), undefined);
     });
 
     it("is not opened on a morning that ran nothing", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(ports.tracker.reviewTickets, []);
-      assert.equal(reviewTicketOf(report.runs[0]), undefined);
+      assert.equal(reviewTicketOf(report.iterations[0]), undefined);
     });
 
     it("gives a failed iteration naming the draft pull request when it could not be created, and the invocation goes on", async (t) => {
@@ -1679,10 +1679,10 @@ describe("morningRun", () => {
         throw new Error("issues are disabled on this repository");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.equal(failureOf(report.runs[0])?.kind, "handover-failed");
+      assert.equal(failureOf(report.iterations[0])?.kind, "handover-failed");
       assert.match(report.message, /issues are disabled/);
       assert.match(report.message, new RegExp(FakeRepoHost.RUN_PULL_REQUEST));
       assert.deepEqual(
@@ -1703,7 +1703,7 @@ describe("morningRun", () => {
         throw new Error("issues are disabled on this repository");
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const handback = ports.tracker.handbacks.find(
         (entry) => entry.ticket.number === ticket.number,
@@ -1739,7 +1739,7 @@ describe("morningRun", () => {
       const run = t.mock.method(ports.sandbox, "run");
       const review = t.mock.method(ports.sandbox, "review");
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(run.mock.callCount(), 0);
       assert.equal(review.mock.callCount(), 1);
@@ -1749,7 +1749,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       const ticket = queued(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.sandbox.reviews, [
         {
@@ -1764,7 +1764,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       const ticket = queued(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
       const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
@@ -1780,11 +1780,11 @@ describe("morningRun", () => {
         failure: "the review skill exited 1",
       });
 
-      const report = await morningRun(ports);
-      const tomorrow = await morningRun(ports);
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
 
-      assert.equal(failureOf(report.runs[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.runs[0]), true);
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), true);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
@@ -1802,9 +1802,9 @@ describe("morningRun", () => {
       // aggregated report — never landed on the pull request.
       ports.repoHost.newCommentPosted = false;
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(failureOf(report.runs[0])?.kind, "gave-up");
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
@@ -1823,7 +1823,7 @@ describe("morningRun", () => {
         failure: "the review skill exited 1",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
@@ -1839,9 +1839,9 @@ describe("morningRun", () => {
         throw new Error("gh is not logged in");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(handedBackOf(report.runs[0]), false);
+      assert.equal(handedBackOf(report.iterations[0]), false);
       assert.match(report.message, /gh is not logged in/);
       assert.match(report.message, /relabel it yourself/);
     });
@@ -1858,11 +1858,11 @@ describe("morningRun", () => {
         throw new Error("gh api rate limited");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.notEqual(report.outcome, "invocation-failed");
       assert.deepEqual(
-        report.runs.map((run) => [run.ticket.number, run.kind]),
+        report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
         [
           [ticket.number, "reviewed"],
           [7, "finished"],
@@ -1888,10 +1888,10 @@ describe("morningRun", () => {
         throw new Error("issue is locked");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.equal(report.runs[0]?.kind, "reviewed");
+      assert.equal(report.iterations[0]?.kind, "reviewed");
       assert.match(report.message, /issue is locked/);
       assert.match(report.message, /close it yourself/);
       const body = ports.tracker.summaries[0]?.body ?? "";
@@ -1909,16 +1909,16 @@ describe("morningRun", () => {
         throw new Error("docker is not running");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(
-        report.runs.map((run) => [run.ticket.number, run.kind]),
+        report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
         [
           [ticket.number, "failed"],
           [7, "finished"],
         ],
       );
-      assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
       assert.ok(
         ports.tracker.handbacks.every((h) => h.ticket.number !== ticket.number),
       );
@@ -1938,16 +1938,16 @@ describe("morningRun", () => {
         return clone(repo);
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(
-        report.runs.map((run) => [run.ticket.number, run.kind]),
+        report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
         [
           [ticket.number, "failed"],
           [7, "finished"],
         ],
       );
-      assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
       assert.equal(ports.sandbox.reviews.length, 0);
       assert.ok(
         ports.tracker.handbacks.every((h) => h.ticket.number !== ticket.number),
@@ -1968,8 +1968,8 @@ describe("morningRun", () => {
         throw new Error("docker is not running");
       });
 
-      await morningRun(gaveUp);
-      await morningRun(broke);
+      await morningLoop(gaveUp);
+      await morningLoop(broke);
 
       const gaveUpBody = gaveUp.tracker.summaries[0]?.body ?? "";
       const brokeBody = broke.tracker.summaries[0]?.body ?? "";
@@ -1988,7 +1988,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       queued(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.commentChecks, [
         { pullRequest: PULL_REQUEST, since: FROZEN_NOW },
@@ -2000,7 +2000,7 @@ describe("morningRun", () => {
       queued(ports);
       ports.repoHost.newCommentPosted = false;
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(report.message, /posted nothing/i);
     });
@@ -2009,12 +2009,12 @@ describe("morningRun", () => {
       const ports = fakePorts();
       queued(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(ports.repoHost.pullRequests.length, 0);
       assert.equal(ports.tracker.reviewTickets.length, 0);
-      assert.equal(pullRequestOf(report.runs[0]), undefined);
-      assert.equal(reviewTicketOf(report.runs[0]), undefined);
+      assert.equal(pullRequestOf(report.iterations[0]), undefined);
+      assert.equal(reviewTicketOf(report.iterations[0]), undefined);
     });
 
     it("records what the review cost", async () => {
@@ -2025,7 +2025,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(9_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
@@ -2037,7 +2037,7 @@ describe("morningRun", () => {
       const ports = fakePorts();
       queued(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.match(report.message, /Reviewed nadav-alon\/pilot #42/);
@@ -2053,7 +2053,7 @@ describe("morningRun", () => {
         failure: "the agent gave up",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(
         report.message,
@@ -2096,9 +2096,9 @@ describe("morningRun", () => {
         throw new Error(BROKE);
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
       assert.match(report.message, new RegExp(BROKE));
     });
 
@@ -2109,7 +2109,7 @@ describe("morningRun", () => {
       });
       const saveState = t.mock.method(ports.store, "saveState");
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(
         saveState.mock.callCount(),
@@ -2126,10 +2126,10 @@ describe("morningRun", () => {
         throw new Error(BROKE);
       });
 
-      const gaveUpReport = await morningRun(gaveUp);
-      const brokeReport = await morningRun(broke);
-      assert.equal(failureOf(gaveUpReport.runs[0])?.kind, "gave-up");
-      assert.equal(failureOf(brokeReport.runs[0])?.kind, "infrastructure");
+      const gaveUpReport = await morningLoop(gaveUp);
+      const brokeReport = await morningLoop(broke);
+      assert.equal(failureOf(gaveUpReport.iterations[0])?.kind, "gave-up");
+      assert.equal(failureOf(brokeReport.iterations[0])?.kind, "infrastructure");
     });
 
     it("counts a checkout that cannot be made as infrastructure, not the agent", async (t) => {
@@ -2138,9 +2138,9 @@ describe("morningRun", () => {
         throw new Error("no such remote");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
       assert.equal(ports.sandbox.runs.length, 0);
     });
 
@@ -2149,7 +2149,7 @@ describe("morningRun", () => {
         const ports = readyToWork();
         agentGivesUp(ports);
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         const [handback] = ports.tracker.handbacks;
         assert.equal(handback?.ticket.number, 7);
@@ -2166,7 +2166,7 @@ describe("morningRun", () => {
           throw new Error(BROKE);
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.deepEqual(ports.tracker.handbacks, []);
         const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
@@ -2182,7 +2182,7 @@ describe("morningRun", () => {
           throw new Error(BROKE);
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         const body = ports.tracker.summaries[0]?.body ?? "";
         assert.ok(body.includes("## Attempts"));
@@ -2216,16 +2216,16 @@ describe("morningRun", () => {
           return clone(repo);
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.deepEqual(
-          report.runs.map((run) => [run.ticket.number, run.kind]),
+          report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
           [
             [42, "failed"],
             [7, "finished"],
           ],
         );
-        assert.equal(failureOf(report.runs[0])?.kind, "infrastructure");
+        assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
         const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
         assert.ok(backlog.some((ticket) => ticket.number === review.number));
@@ -2249,10 +2249,10 @@ describe("morningRun", () => {
           };
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.deepEqual(
-          report.runs.map((run) => [run.ticket.number, run.kind]),
+          report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
           [
             [7, "failed"],
             [8, "finished"],
@@ -2266,8 +2266,8 @@ describe("morningRun", () => {
       const ports = readyToWork();
       agentGivesUp(ports);
 
-      await morningRun(ports);
-      const tomorrow = await morningRun(ports);
+      await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
 
       assert.equal(ports.tracker.handbacks.length, 1);
       assert.equal(ports.sandbox.runs.length, 1);
@@ -2278,7 +2278,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       agentGivesUp(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, [
         {
@@ -2294,7 +2294,7 @@ describe("morningRun", () => {
         throw new Error(BROKE);
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, []);
     });
@@ -2303,7 +2303,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       agentGivesUp(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
@@ -2318,10 +2318,10 @@ describe("morningRun", () => {
         throw new Error("gh is not logged in");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(failureOf(report.runs[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.runs[0]), false);
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), false);
       assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
       // The one morning the developer has to act on themselves: saying it was
@@ -2337,11 +2337,11 @@ describe("morningRun", () => {
         throw new Error("used by worktree at /elsewhere");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // Relabelling is the half that stops the ticket costing another
       // morning; a branch git will not delete must not take it down.
-      assert.equal(handedBackOf(report.runs[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), true);
       assert.match(
         ports.tracker.handbacks[0]?.comment ?? "",
         /could not be discarded/,
@@ -2358,7 +2358,7 @@ describe("morningRun", () => {
         failure: GAVE_UP,
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, []);
       assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /discard/);
@@ -2375,7 +2375,7 @@ describe("morningRun", () => {
         failure: "y".repeat(200_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // GitHub's own limit on a comment body. A comment it rejects is a
       // ticket that never gets handed back.
@@ -2392,7 +2392,7 @@ describe("morningRun", () => {
         failure: GAVE_UP,
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // A fence longer than any run of backticks inside, or the rest of the
       // output renders as Markdown and its `#123`s become cross-references.
@@ -2403,10 +2403,10 @@ describe("morningRun", () => {
       const ports = readyToWork();
       agentGivesUp(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.deepEqual(ranWith(report.runs[0])?.commits, ["c0ffee1"]);
-      assert.equal(failureOf(report.runs[0])?.reason, GAVE_UP);
+      assert.deepEqual(ranWith(report.iterations[0])?.commits, ["c0ffee1"]);
+      assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
     });
   });
 
@@ -2419,9 +2419,9 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      assert.equal(failureOf(report.runs[0]), undefined);
+      assert.equal(failureOf(report.iterations[0]), undefined);
       assert.deepEqual(ports.repoHost.discarded, []);
     });
 
@@ -2433,7 +2433,7 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.tracker.handbacks.length, 1);
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
@@ -2453,8 +2453,8 @@ describe("morningRun", () => {
         title: "Add the thing",
       });
 
-      await morningRun(ports);
-      const tomorrow = await morningRun(ports);
+      await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
@@ -2471,7 +2471,7 @@ describe("morningRun", () => {
         throw new Error("gh is not logged in");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.match(report.message, /could not be handed back/);
@@ -2504,7 +2504,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.equal(report.standDown, undefined);
@@ -2515,7 +2515,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
       assert.equal(ports.sandbox.runs.length, 1);
@@ -2525,7 +2525,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "stood-down");
       assert.equal(report.standDown?.reason, "weekly-reserve");
@@ -2541,11 +2541,11 @@ describe("morningRun", () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "stood-down");
       assert.deepEqual(ports.repoHost.pullRequests, []);
-      assert.deepEqual(report.runs, []);
+      assert.deepEqual(report.iterations, []);
     });
 
     it("stands down when the 5-hour window is spent, whatever the week looks like", async () => {
@@ -2555,7 +2555,7 @@ describe("morningRun", () => {
         weekly: 0,
       }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "stood-down");
       assert.equal(report.standDown?.reason, "five-hour-window");
@@ -2569,7 +2569,7 @@ describe("morningRun", () => {
         weekly: SPENDABLE_THIS_WEEK + 1,
       }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.standDown?.reason, "weekly-reserve");
     });
@@ -2595,7 +2595,7 @@ describe("morningRun", () => {
         },
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.standDown?.reason, "five-hour-window");
       assert.deepEqual(
@@ -2608,7 +2608,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.clones, []);
     });
@@ -2617,7 +2617,7 @@ describe("morningRun", () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
@@ -2628,7 +2628,7 @@ describe("morningRun", () => {
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
       const saveState = t.mock.method(ports.store, "saveState");
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(saveState.mock.callCount(), 1);
     });
@@ -2638,7 +2638,7 @@ describe("morningRun", () => {
         const ports = readyToWork();
         ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.match(report.message, /stood down/i);
         assert.match(report.message, /reserve/i);
@@ -2649,7 +2649,7 @@ describe("morningRun", () => {
         const ports = readyToWork();
         ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.match(report.message, /nadav-alon\/pilot/);
         assert.match(
@@ -2664,7 +2664,7 @@ describe("morningRun", () => {
           fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
         }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.match(report.message, /5-hour/);
       });
@@ -2673,7 +2673,7 @@ describe("morningRun", () => {
         const ports = readyToWork();
         ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(gateRefusal(report)?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
         assert.equal(gateRefusal(report)?.spendable, SPENDABLE_THIS_WEEK);
@@ -2700,7 +2700,7 @@ describe("morningRun", () => {
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "stood-down");
         assert.equal(report.standDown?.reason, "weekly-reserve");
@@ -2715,7 +2715,7 @@ describe("morningRun", () => {
           tokensUsed: tokenCount(101),
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "stood-down");
         assert.equal(gateRefusal(report)?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
@@ -2730,7 +2730,7 @@ describe("morningRun", () => {
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "stood-down");
       });
@@ -2743,7 +2743,7 @@ describe("morningRun", () => {
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "work-selected");
         assert.equal(ports.sandbox.runs.length, 1);
@@ -2762,7 +2762,7 @@ describe("morningRun", () => {
           tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "work-selected");
         assert.equal(ports.sandbox.runs.length, 1);
@@ -2778,7 +2778,7 @@ describe("morningRun", () => {
         };
         ports.ledger.reports(spent({ weekly: 60_000_000 }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "stood-down");
         assert.equal(gateRefusal(report)?.spendable, 50_000_000);
@@ -2792,7 +2792,7 @@ describe("morningRun", () => {
         };
         ports.ledger.reports(spent({ weekly: 60_000_000 }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "work-selected");
       });
@@ -2806,7 +2806,7 @@ describe("morningRun", () => {
         };
         ports.ledger.reports(spent({ weekly: 501 }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "stood-down");
         assert.equal(gateRefusal(report)?.spendable, 500);
@@ -2818,7 +2818,7 @@ describe("morningRun", () => {
         const ports = readyToWork();
         const read = t.mock.method(ports.ledger, "read");
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(read.mock.callCount(), 1);
         assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW, undefined]);
@@ -2830,7 +2830,7 @@ describe("morningRun", () => {
         ports.store.budget = { ...ports.store.budget, observedResetAt };
         const read = t.mock.method(ports.ledger, "read");
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.deepEqual(read.mock.calls[0]?.arguments, [
           FROZEN_NOW,
@@ -2846,7 +2846,7 @@ describe("morningRun", () => {
           );
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         // A refused instant must read like a bad budget document — described
         // in the summary, not lost to a rejected promise — because the
@@ -2871,7 +2871,7 @@ describe("morningRun", () => {
           });
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.deepEqual(order, ["gate", "run"]);
       });
@@ -2881,7 +2881,7 @@ describe("morningRun", () => {
         ports.store.register(PILOT);
         const read = t.mock.method(ports.ledger, "read");
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "dry-queue");
         assert.equal(read.mock.callCount(), 0);
@@ -2893,7 +2893,7 @@ describe("morningRun", () => {
         const ports = readyToWork();
         ports.store.budget = { ...DEFAULT_BUDGET, spendCeiling: usd(2.5) };
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
       });
@@ -2929,7 +2929,7 @@ describe("morningRun", () => {
       const ports = threeTickets();
       limitAfterTheFirstRun(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(
         ports.sandbox.runs.map((run) => run.ticket.number),
@@ -2951,7 +2951,7 @@ describe("morningRun", () => {
       const ports = threeTickets();
       limitAfterTheFirstRun(ports);
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.match(report.message, /stood down/i);
       assert.match(report.message, /nadav-alon\/pilot #2 is still ready-for-agent/);
@@ -2964,7 +2964,7 @@ describe("morningRun", () => {
       const ports = threeTickets();
       limitAfterTheFirstRun(ports);
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
       assert.equal(runs.length, 2);
@@ -2980,7 +2980,7 @@ describe("morningRun", () => {
         limitRefusal: LIMIT_REFUSAL,
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, [
         {
@@ -3005,7 +3005,7 @@ describe("morningRun", () => {
         limitRefusal: LIMIT_REFUSAL,
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs.length, 0);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
@@ -3033,7 +3033,7 @@ describe("morningRun", () => {
     it("asks the sandbox for no model when the ticket has no model label and there are no model defaults", async () => {
       const { ports } = oneTicket();
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs.length, 1);
       assert.equal(ports.sandbox.runs[0]?.model, undefined);
@@ -3051,7 +3051,7 @@ describe("morningRun", () => {
         return load();
       };
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs.length, 3);
       assert.equal(reads, 1);
@@ -3061,7 +3061,7 @@ describe("morningRun", () => {
       const { ports } = oneTicket();
       ports.store.modelDefaults = { implementation: OPUS };
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.model, OPUS);
     });
@@ -3075,7 +3075,7 @@ describe("morningRun", () => {
       });
       ports.store.modelDefaults = { review: HAIKU };
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.reviews[0]?.model, HAIKU);
       assert.equal(ports.sandbox.runs.length, 1);
@@ -3087,7 +3087,7 @@ describe("morningRun", () => {
       ports.tracker.addLabel(ticket, "model:opus");
       ports.store.modelDefaults = { implementation: HAIKU };
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.model, OPUS);
     });
@@ -3102,7 +3102,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(1_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.sandbox.runs[0]?.model, OPUS);
       assert.equal(ports.sandbox.reviews.length, 1);
@@ -3116,7 +3116,7 @@ describe("morningRun", () => {
         ports.tracker.addLabel(ticket, "model:opus");
         ports.tracker.addLabel(ticket, "model:haiku");
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.deepEqual(ports.sandbox.runs, []);
         assert.deepEqual(ports.repoHost.clones, []);
@@ -3126,7 +3126,7 @@ describe("morningRun", () => {
         assert.match(comment, /model:haiku/);
         assert.match(comment, /keep one/i);
         assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
-        assert.equal(failureOf(report.runs[0])?.kind, "conflicting-model-labels");
+        assert.equal(failureOf(report.iterations[0])?.kind, "conflicting-model-labels");
       });
 
       it("names the labels as the ticket carries them", async () => {
@@ -3134,7 +3134,7 @@ describe("morningRun", () => {
         ports.tracker.addLabel(ticket, "Model:Opus");
         ports.tracker.addLabel(ticket, "model:haiku");
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         const comment = ports.tracker.handbacks[0]?.comment ?? "";
         assert.match(comment, /`Model:Opus`/);
@@ -3147,7 +3147,7 @@ describe("morningRun", () => {
         ports.tracker.addLabel(ticket, "model:haiku");
         ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.deepEqual(
           ports.sandbox.runs.map((run) => run.ticket.number),
@@ -3164,7 +3164,7 @@ describe("morningRun", () => {
         ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
         ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(ports.tracker.handbacks.length, 1);
         assert.deepEqual(ports.sandbox.runs, []);
@@ -3176,7 +3176,7 @@ describe("morningRun", () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:");
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.deepEqual(ports.sandbox.runs, []);
       assert.match(ports.tracker.handbacks[0]?.comment ?? "", /`model:`/);
@@ -3188,7 +3188,7 @@ describe("morningRun", () => {
         ports.tracker.addLabel(ticket, "model:opus");
         ports.sandbox.refusedModel = OPUS;
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(ports.tracker.handbacks.length, 1);
         const comment = ports.tracker.handbacks[0]?.comment ?? "";
@@ -3196,7 +3196,7 @@ describe("morningRun", () => {
         assert.match(comment, /model label/);
         assert.match(comment, /refused model opus/);
         assert.doesNotMatch(comment, /gave up/);
-        assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
+        assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
         assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
       });
 
@@ -3205,7 +3205,7 @@ describe("morningRun", () => {
         ports.store.modelDefaults = { implementation: OPUS };
         ports.sandbox.refusedModel = OPUS;
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         const comment = ports.tracker.handbacks[0]?.comment ?? "";
         assert.match(comment, /model defaults/);
@@ -3223,12 +3223,12 @@ describe("morningRun", () => {
         ports.store.modelDefaults = { review: HAIKU };
         ports.sandbox.refusedModel = HAIKU;
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(ports.tracker.handbacks.length, 1);
         assert.match(ports.tracker.handbacks[0]?.comment ?? "", /haiku/);
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
-        assert.equal(failureOf(report.runs[0])?.kind, "model-refused");
+        assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
       });
 
       it("discards any branch the refused run left, and says so", async () => {
@@ -3243,7 +3243,7 @@ describe("morningRun", () => {
           modelRefusal: { model: OPUS, words: "refused model opus" },
         });
 
-        await morningRun(ports);
+        await morningLoop(ports);
 
         assert.deepEqual(
           ports.repoHost.discarded.map((discard) => discard.branch),
@@ -3265,7 +3265,7 @@ describe("morningRun", () => {
           modelRefusal: { model: OPUS, words: "refused model opus" },
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "invocation-failed");
         assert.match(report.message, /refused for a run given no model/);
@@ -3286,7 +3286,7 @@ describe("morningRun", () => {
           modelRefusal: { model: HAIKU, words: "refused model haiku" },
         });
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "invocation-failed");
         assert.deepEqual(ports.tracker.handbacks, []);
@@ -3298,7 +3298,7 @@ describe("morningRun", () => {
         ports.tracker.addLabel(ticket, "model:opus");
         ports.sandbox.refusedModel = OPUS;
 
-        const report = await morningRun(ports);
+        const report = await morningLoop(ports);
 
         const infrastructure = /would not start|fix the setup|sandbox or checkout failed/;
         assert.doesNotMatch(report.message, /gave up/);
@@ -3317,7 +3317,7 @@ describe("morningRun", () => {
       ports.tracker.addLabel(ticket, "model:opus");
       ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // Oldest first: #7 on its label, then #8 on the image's pin.
       const body = ports.tracker.summaries[0]?.body ?? "";
@@ -3328,7 +3328,7 @@ describe("morningRun", () => {
       const { ports } = oneTicket();
       ports.store.modelDefaults = { implementation: HAIKU };
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /## Attempts\n- .*tokens on haiku/);
@@ -3339,7 +3339,7 @@ describe("morningRun", () => {
     it("is published exactly once on a dry queue", async () => {
       const ports = fakePorts();
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.tracker.summaries.length, 1);
       assert.match(ports.tracker.summaries[0]?.body ?? "", /nothing to do/i);
@@ -3351,7 +3351,7 @@ describe("morningRun", () => {
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "stood-down");
       assert.equal(ports.tracker.summaries.length, 1);
@@ -3376,7 +3376,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(3_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       assert.equal(ports.tracker.summaries.length, 1);
     });
@@ -3396,7 +3396,7 @@ describe("morningRun", () => {
         tokensUsed: tokenCount(3_000),
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /42,000 tokens/);
@@ -3423,9 +3423,9 @@ describe("morningRun", () => {
         reserveFraction: reserveFraction(0),
       };
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
-      const review = reviewTicketOf(report.runs[0]);
+      const review = reviewTicketOf(report.iterations[0]);
       assert.ok(review, "the first run should have queued a review");
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /Waiting on you/);
@@ -3444,7 +3444,7 @@ describe("morningRun", () => {
         failure: "the tests are red",
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /Waiting on you/);
@@ -3467,7 +3467,7 @@ describe("morningRun", () => {
         throw new Error("gh is not logged in");
       });
 
-      await morningRun(ports);
+      await morningLoop(ports);
 
       // Still ready-for-agent, not relabelled: this is the one failure that
       // is the developer's alone to notice, so it belongs in the curated
@@ -3485,7 +3485,7 @@ describe("morningRun", () => {
         throw new Error("rate limited");
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // The developer still reads what the morning did — losing that to the
       // one write meant to carry it would be exactly the failure this write
@@ -3504,13 +3504,13 @@ describe("morningRun", () => {
         throw new Error('registry.json: project 1: "repo" must be a repo slug');
       });
 
-      const report = await morningRun(ports);
+      const report = await morningLoop(ports);
 
       // Nothing ran, so there is no run to blame — the loop's own plumbing
       // broke, and the developer still needs to be told that, not just left
       // with a rejected promise nobody wrote down.
       assert.equal(report.outcome, "invocation-failed");
-      assert.deepEqual(report.runs, []);
+      assert.deepEqual(report.iterations, []);
       assert.match(report.message, /registry\.json.*repo slug/);
       assert.equal(ports.tracker.summaries.length, 1);
       assert.match(

@@ -10,7 +10,7 @@ import { runOncePerDay } from "../trigger-guard.ts";
 // this file's own extension rather than hardcoding one means the build's
 // `.ts` → `.js` rewrite (`tsconfig.build.json`) doesn't have to know this
 // path exists, since it only rewrites import specifiers, not runtime strings.
-const MORNING_RUN = path.join(
+const LOOP_ENTRY_POINT = path.join(
   import.meta.dirname,
   `morning-run${path.extname(import.meta.filename)}`,
 );
@@ -19,26 +19,28 @@ const MORNING_RUN = path.join(
  * What both the daily schedule and the logon guard call (`scripts/install-triggers.sh`):
  * whichever gets here first for a calendar day runs `morning-run.ts`, and the
  * other is a no-op. `morning-run.ts` itself stays the direct, unguarded entry
- * point — nothing here changes what a manual run does.
+ * point — nothing here changes what a manual invocation does.
  *
  * Spawns `morning-run.ts` as its own process rather than importing its
  * `main`, so its own exit-code and error-reporting policy applies unchanged:
  * this script's only job is deciding whether that process runs at all.
  */
 async function main(): Promise<void> {
-  const ran = await runOncePerDay(
+  const invoked = await runOncePerDay(
     fileTriggerLock(),
     systemClock,
-    runMorningRun,
+    invokeLoop,
   );
-  if (!ran) {
+  if (!invoked) {
     console.log("morning-run already ran today; nothing to do.");
   }
 }
 
-function runMorningRun(): Promise<void> {
+function invokeLoop(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [MORNING_RUN], { stdio: "inherit" });
+    const child = spawn(process.execPath, [LOOP_ENTRY_POINT], {
+      stdio: "inherit",
+    });
     child.on("error", reject);
     child.on("exit", (code) => {
       // The child already reported its own failure; passing its exit code

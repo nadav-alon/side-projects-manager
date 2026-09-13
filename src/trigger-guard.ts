@@ -5,7 +5,7 @@ import { localDay, type Clock, type Day } from "./ports/index.ts";
  * a calendar day, once, however many of them race for it.
  *
  * Not one of the loop's six ports (CONTEXT.md: Port) — the loop itself never
- * sees this. It exists only for whatever calls `morningRun`, which is exactly
+ * sees this. It exists only for whatever calls `morningLoop`, which is exactly
  * where the once-per-day lock belongs: the loop stays callable directly, with
  * no trigger-specific logic inside it.
  */

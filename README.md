@@ -20,11 +20,11 @@ The full spec is [`docs/specs/morning-loop.md`](docs/specs/morning-loop.md), and
 [`CONTEXT.md`](CONTEXT.md) is the glossary the code and the tickets are both written in — an
 invocation, an iteration and a run are three different things.
 
-`morningRun` ([`src/morning-run.ts`](src/morning-run.ts)) is the loop's single entry point. It reaches
+`morningLoop` ([`src/morning-run.ts`](src/morning-run.ts)) is the loop's single entry point. It reaches
 the outside world only through six injected ports — issue tracker, repo host, sandbox, usage ledger,
 clock and store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
 ([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the daily schedule,
-the logon guard and any future cloud trigger are callers of `morningRun` exactly like it is.
+the logon guard and any future cloud trigger are callers of `morningLoop` exactly like it is.
 
 ## Triggers
 
