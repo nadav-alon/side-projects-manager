@@ -581,9 +581,7 @@ async function considerProjects(
         selectable.push(ticket);
       }
     }
-    // A review in the same backlog as its parent ticket is worked before it,
-    // and ahead of every implementation ticket by ticket priority or issue
-    // number, so it is picked here even when it is not first in the list.
+    // A review in the same backlog as its parent ticket is worked before it.
     const ticket = bestTicket(selectable);
 
     if (ticket === undefined) {
