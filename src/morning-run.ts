@@ -646,21 +646,17 @@ function isReview(ticket: Ticket): boolean {
  * starting; among implementation tickets, `Ticket.priority` ascending, with
  * an absent priority sorting after every ticket that has one; and, ties still
  * standing, the lowest issue number, so the order the tracker happened to
- * return them in never matters.
- *
- * Where several review tickets are eligible in the same backlog, the first
- * the tracker returned wins — nothing here orders reviews against each other,
- * since only one review is ever open on a ticket at a time in practice.
+ * return them in never matters. Two review tickets, open on two different
+ * implementation tickets, fall to the lowest issue number the same way.
  */
 function bestTicket(backlog: Ticket[]): Ticket | undefined {
-  const review = backlog.find(isReview);
-  if (review !== undefined) {
-    return review;
-  }
   return [...backlog].sort(compareTickets)[0];
 }
 
 function compareTickets(a: Ticket, b: Ticket): number {
+  if (isReview(a) !== isReview(b)) {
+    return isReview(a) ? -1 : 1;
+  }
   const byPriority = absentLast(a.priority, b.priority);
   if (byPriority !== 0) {
     return byPriority;
