@@ -26,7 +26,6 @@ const REVIEW_TICKET: ReviewTicket = {
 const CHECKOUT = checkout("/tmp/pilot");
 const CEILING = usd(5);
 
-/** The model plumbing has no caller in the loop yet, so its contract is pinned here. */
 describe("FakeSandbox", () => {
   it("records the model each run and review was asked for", async () => {
     const sandbox = new FakeSandbox();
