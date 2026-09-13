@@ -1,7 +1,7 @@
 import type { StandDown } from "./budget-gate.ts";
 import { workLocation } from "./handback-comment.ts";
 import {
-  handedBackUnrun,
+  handedBackForModelLabels,
   type Finished,
   type InvocationStandDown,
   type IterationOutcome,
@@ -167,7 +167,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
  */
 function attemptsSection(iterations: IterationOutcome[]): string {
   const lines = iterations.map((iteration) => {
-    if (handedBackUnrun(iteration)) {
+    if (handedBackForModelLabels(iteration)) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
     const spent = costOf(iteration);

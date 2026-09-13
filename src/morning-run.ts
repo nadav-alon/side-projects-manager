@@ -654,7 +654,9 @@ function outcomeOf(
   // count as work when the morning then stood down: a stand-down that ran
   // nothing reads as one, whatever was handed back before it. Without a
   // stand-down, that hand-back is still work an iteration selected.
-  const worked = iterations.some((iteration) => !handedBackUnrun(iteration));
+  const worked = iterations.some(
+    (iteration) => !handedBackForModelLabels(iteration),
+  );
   if (worked) {
     return "work-selected";
   }
@@ -668,7 +670,9 @@ function outcomeOf(
  * Whether `iteration` handed its ticket back for its model labels, and so
  * never started a run: nothing was spent, and on no model.
  */
-export function handedBackUnrun(iteration: IterationOutcome): boolean {
+export function handedBackForModelLabels(
+  iteration: IterationOutcome,
+): boolean {
   return iteration.kind === "failed" && isModelLabelFailure(iteration.failure);
 }
 
