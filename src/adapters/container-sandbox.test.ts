@@ -26,7 +26,7 @@ import {
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
-import { gate, LIMIT_REFUSAL } from "../testing/index.ts";
+import { gate, HANGS, LIMIT_REFUSAL } from "../testing/index.ts";
 
 const run = promisify(execFile);
 
@@ -140,9 +140,6 @@ function heldAgents(
     release: released.open,
   };
 }
-
-/** Long enough for any git a test does; only a sandbox that hangs reaches it. */
-const HANGS = { timeout: 30_000 };
 
 describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {

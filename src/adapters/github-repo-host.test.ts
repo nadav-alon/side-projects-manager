@@ -15,12 +15,9 @@ import {
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
-import { gate, recordingGh, valueOf } from "../testing/index.ts";
+import { gate, HANGS, recordingGh, valueOf } from "../testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
-
-/** For a test that would hang, rather than fail, if the lock were never let go. */
-const HANGS = { timeout: 30_000 };
 
 const run = promisify(execFile);
 

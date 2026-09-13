@@ -1,6 +1,6 @@
 export { FROZEN_NOW, FakeClock } from "./fake-clock.ts";
 export { FakeGrilling } from "./fake-grilling.ts";
-export { gate } from "./gate.ts";
+export { gate, HANGS } from "./gate.ts";
 export { FakeHarness, type FakeInstall } from "./fake-harness.ts";
 export {
   FakeIssueTracker,
