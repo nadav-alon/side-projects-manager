@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  localDay,
   modelName,
   priority,
   pullRequestUrl,
@@ -21,6 +22,8 @@ import {
   tokenCount,
   usd,
   type ReviewTicket,
+  type RunRequest,
+  type State,
   type Ticket,
 } from "./ports/index.ts";
 import {
@@ -917,6 +920,192 @@ describe("morningRun", () => {
     });
   });
 
+  describe("tickets worked today", () => {
+    const TODAY = localDay(FROZEN_NOW);
+
+    it("does not select a ticket an earlier invocation worked today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 8,
+        title: "Add the other thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [8],
+      );
+    });
+
+    it("still selects another project's ticket with the same number as one worked today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.register(MANAGER);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.tracker.addEligibleTicket(MANAGER, {
+        number: 7,
+        title: "Add the other thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => [run.ticket.repo, run.ticket.number]),
+        [[MANAGER, 7]],
+      );
+    });
+
+    it("reads a project whose only ticket was worked today as having no eligible tickets", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
+      assert.equal(ports.sandbox.runs.length, 0);
+    });
+
+    it("selects a ticket again once the day it was worked on has passed", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(localDay(YESTERDAY), { repo: PILOT, number: 7 });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7],
+      );
+    });
+
+    it("records a ticket it works as worked today, dropping an earlier day's record", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(localDay(YESTERDAY), {
+        repo: MANAGER,
+        number: 3,
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual((await ports.store.loadState()).workedToday, {
+        day: TODAY,
+        tickets: [{ repo: PILOT, number: 7 }],
+      });
+    });
+
+    it("keeps the tickets an earlier invocation worked today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: MANAGER, number: 3 });
+
+      await morningRun(ports);
+
+      assert.deepEqual((await ports.store.loadState()).workedToday, {
+        day: TODAY,
+        tickets: [
+          { repo: MANAGER, number: 3 },
+          { repo: PILOT, number: 7 },
+        ],
+      });
+    });
+
+    it("frees the ticket for a later firing today when the sandbox could not run it", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("the docker daemon is not running");
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("frees the ticket for a later firing today when the provider limit refused its run", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        output: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        limitRefusal: LIMIT_REFUSAL,
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("has saved the ticket as worked today before the sandbox starts, so a run killed part way still counts", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      let savedWhenRunStarted: State | undefined;
+      const run = ports.sandbox.run.bind(ports.sandbox);
+      t.mock.method(ports.sandbox, "run", async (request: RunRequest) => {
+        savedWhenRunStarted = await ports.store.loadState();
+        return run(request);
+      });
+
+      await morningRun(ports);
+
+      assert.deepEqual(savedWhenRunStarted?.workedToday, {
+        day: TODAY,
+        tickets: [{ repo: PILOT, number: 7 }],
+      });
+    });
+  });
+
   describe("the run", () => {
     it("passes the selected ticket and the project checkout to the sandbox", async () => {
       const ports = fakePorts();
@@ -1047,7 +1236,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -1068,7 +1257,7 @@ describe("morningRun", () => {
 
       const state = await ports.store.loadState();
       assert.deepEqual(
-        state.get(PILOT)?.runs.map((run) => run.at),
+        state.projects.get(PILOT)?.runs.map((run) => run.at),
         [YESTERDAY, FROZEN_NOW],
       );
     });
@@ -1080,7 +1269,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.equal(state.get(PILOT), undefined);
+      assert.equal(state.projects.get(PILOT), undefined);
     });
   });
 
@@ -1240,7 +1429,7 @@ describe("morningRun", () => {
       // review ticket in the same, otherwise-dry backlog — the review that
       // this same invocation went straight on to work, at its own cost.
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT), {
+      assert.deepEqual(state.projects.get(PILOT), {
         lastWorkedAt: FROZEN_NOW,
         runs: [
           { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1264,7 +1453,7 @@ describe("morningRun", () => {
       assert.equal(report.outcome, "invocation-failed");
       assert.match(report.message, /pull requests are disabled/);
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -1412,7 +1601,7 @@ describe("morningRun", () => {
       assert.equal(report.outcome, "invocation-failed");
       assert.match(report.message, /issues are disabled/);
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -1545,7 +1734,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(9_000) },
       ]);
     });
@@ -1625,7 +1814,11 @@ describe("morningRun", () => {
 
       await morningRun(ports);
 
-      assert.equal(saveState.mock.callCount(), 1);
+      assert.equal(
+        saveState.mock.callCount(),
+        2,
+        "once before the run, and again after it broke",
+      );
     });
 
     it("tells an agent that gave up apart from a sandbox that broke", async (t) => {
@@ -1816,7 +2009,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.get(PILOT)?.runs, [
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
       ]);
     });
@@ -2130,7 +2323,7 @@ describe("morningRun", () => {
       await morningRun(ports);
 
       const state = await ports.store.loadState();
-      assert.equal(state.get(PILOT), undefined);
+      assert.equal(state.projects.get(PILOT), undefined);
     });
 
     it("still writes state back on a morning it stood down", async (t) => {
@@ -2476,7 +2669,7 @@ describe("morningRun", () => {
 
       await morningRun(ports);
 
-      const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
+      const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
       assert.equal(runs.length, 2);
     });
 
@@ -2663,7 +2856,7 @@ describe("morningRun", () => {
           ports.sandbox.runs.map((run) => run.ticket.number),
           [8],
         );
-        const runs = (await ports.store.loadState()).get(PILOT)?.runs ?? [];
+        const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
         assert.equal(runs.length, 1);
       });
 

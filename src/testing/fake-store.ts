@@ -1,5 +1,6 @@
 import type {
   Budget,
+  Day,
   ModelDefaults,
   Priority,
   ProjectState,
@@ -8,8 +9,10 @@ import type {
   RunCost,
   State,
   Store,
+  WorkedTicket,
+  WorkedToday,
 } from "../ports/index.ts";
-import { DEFAULT_BUDGET } from "../ports/index.ts";
+import { DEFAULT_BUDGET, workedTicket } from "../ports/index.ts";
 
 /** What the developer may say about a project when registering it. */
 export interface Registration {
@@ -21,13 +24,14 @@ export interface Registration {
  * The two documents in memory. Both start empty: nothing registered, nothing
  * ever worked.
  *
- * Tests arrange the registry with `register` and the state with `markWorked`,
- * which is what the developer's editor and a past invocation respectively
- * would have left behind.
+ * Tests arrange the registry with `register` and the state with `markWorked`
+ * and `markWorkedOn`, which is what the developer's editor and a past
+ * invocation respectively would have left behind.
  */
 export class FakeStore implements Store {
   #registry: RegisteredProject[] = [];
   #state = new Map<RepoSlug, ProjectState>();
+  #workedToday: WorkedToday | undefined = undefined;
   /** What the developer declared they are willing to spend. */
   budget: Budget = DEFAULT_BUDGET;
   /** The model the developer named for each kind of ticket; none by default. */
@@ -53,6 +57,14 @@ export class FakeStore implements Store {
     });
   }
 
+  /**
+   * Records `tickets` as worked on `day`, as an earlier invocation that day
+   * would have — replacing whatever day was recorded before.
+   */
+  markWorkedOn(day: Day, ...tickets: WorkedTicket[]): void {
+    this.#workedToday = { day, tickets: [...tickets] };
+  }
+
   async loadRegistry(): Promise<RegisteredProject[]> {
     return this.#registry.map((project) => ({ ...project }));
   }
@@ -70,20 +82,34 @@ export class FakeStore implements Store {
   }
 
   async loadState(): Promise<State> {
-    return new Map(
-      [...this.#state].map(([repo, state]) => [
-        repo,
-        { ...state, runs: [...state.runs] },
-      ]),
-    );
+    return {
+      projects: new Map(
+        [...this.#state].map(([repo, state]) => [
+          repo,
+          { ...state, runs: [...state.runs] },
+        ]),
+      ),
+      ...(this.#workedToday !== undefined && {
+        workedToday: copyWorkedToday(this.#workedToday),
+      }),
+    };
   }
 
   async saveState(state: State): Promise<void> {
     this.#state = new Map(
-      [...state].map(([repo, project]) => [
+      [...state.projects].map(([repo, project]) => [
         repo,
         { ...project, runs: [...project.runs] },
       ]),
     );
+    this.#workedToday =
+      state.workedToday === undefined
+        ? undefined
+        : copyWorkedToday(state.workedToday);
   }
+}
+
+/** A copy the loop cannot reach back into once saved or loaded. */
+function copyWorkedToday({ day, tickets }: WorkedToday): WorkedToday {
+  return { day, tickets: tickets.map(workedTicket) };
 }

@@ -31,10 +31,12 @@ import {
   isBlocked,
   isBrokenOut,
   isReviewTicket,
+  localDay,
   recordRun,
   ticketKind,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
+import { workedTickets, type WorkedTickets } from "./worked-today.ts";
 import {
   committedNothingComment,
   handbackComment,
@@ -57,6 +59,9 @@ import { errorMessage } from "./error-message.ts";
 export interface SummaryTracker {
   publishSummary(title: string, body: string): Promise<void>;
 }
+
+/** What the state document records of each project, by repo slug. */
+type ProjectStates = State["projects"];
 
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
@@ -409,8 +414,8 @@ interface RegistryScan {
  * it stands when that run would start, every earlier run of the same morning
  * included, so a long morning stops mid-loop the moment headroom runs out.
  *
- * A ticket this invocation has already worked is never selected again within
- * it, even though nothing here closes it: a failed run's ticket is handed
+ * A ticket worked today, by this invocation or an earlier one, is not selected
+ * again until the next local calendar day, even though nothing here closes it: a failed run's ticket is handed
  * back by relabelling it, but a finished run's is left exactly as it was, so
  * without this an unattended morning with only one project registered would
  * work its one ticket over and over until the budget gate finally stopped it.
@@ -419,7 +424,6 @@ export async function morningRun(
   ports: MorningRunPorts,
 ): Promise<MorningRunReport> {
   const startedAt = ports.clock.now();
-  const worked = new Set<string>();
   const runs: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
@@ -431,11 +435,20 @@ export async function morningRun(
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
   try {
-    const state = new Map(await ports.store.loadState());
+    const stored = await ports.store.loadState();
+    const projects = new Map(stored.projects);
+    const worked = workedTickets(stored.workedToday, localDay(startedAt));
+    const stateToSave = (): State => {
+      const workedToday = worked.workedToday();
+      return {
+        projects,
+        ...(workedToday !== undefined && { workedToday }),
+      };
+    };
     const modelDefaults = await ports.store.loadModelDefaults();
     try {
       for (;;) {
-        const scan = await considerProjects(ports, state, worked);
+        const scan = await considerProjects(ports, projects, worked);
         // A project keeps its "selected" verdict once it has one: a later scan
         // in the same invocation, run after its ticket is excluded, would
         // otherwise read it right back to "no eligible tickets" and hide that
@@ -459,7 +472,7 @@ export async function morningRun(
         // developer the ticket they need to fix.
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
-          worked.add(ticketKey(ticket));
+          worked.record(ticket, localDay(ports.clock.now()));
           runs.push({
             repo: scan.selection.project.repo,
             ticket,
@@ -474,27 +487,39 @@ export async function morningRun(
         }
 
         const budget = await ports.store.loadBudget();
-        const refusal = await consultTheGate(ports, budget, state);
+        const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
           standDown = { ...refusal, refused: scan.selection.project.repo };
           break;
         }
 
+        // Saved before the sandbox starts, not only at the end: a process
+        // killed mid-run never reaches the final save, and would otherwise
+        // free the ticket for the next firing the same day.
+        worked.record(ticket, localDay(ports.clock.now()));
+        await ports.store.saveState(stateToSave());
+
         const model = resolveModel(ticket, modelDefaults);
         const iteration = await work(
           ports,
           scan.selection,
-          state,
+          projects,
           budget.spendCeiling,
           model,
         );
-        worked.add(ticketKey(ticket));
         runs.push({
           repo: scan.selection.project.repo,
           ticket,
           ...(model !== undefined && { model: model.name }),
           ...iteration,
         } as IterationOutcome);
+
+        // An infrastructure failure or a limit refusal says nothing about the
+        // ticket, so it is left free for a later firing today — one that finds
+        // the setup fixed or the provider limit reset.
+        if (leavesTicketUntouched(iteration)) {
+          worked.unrecord(ticket);
+        }
 
         // The provider limit refuses every run after this one the same way,
         // so the loop stops here rather than walking the backlog into it.
@@ -513,7 +538,7 @@ export async function morningRun(
       // which has run the loop always has a state document to read next morning.
       // A run that fell over still spent tokens, and the morning it spent them
       // on is exactly the one worth having recorded.
-      await ports.store.saveState(state);
+      await ports.store.saveState(stateToSave());
     }
   } catch (error: unknown) {
     // Nothing above this point throws by design — a run that fails is
@@ -614,18 +639,18 @@ function outcomeOf(
 async function consultTheGate(
   ports: MorningRunPorts,
   budget: Budget,
-  state: State,
+  projects: ProjectStates,
 ): Promise<StandDown | undefined> {
   return budgetGate(
     await ports.ledger.read(ports.clock.now(), budget.observedResetAt),
     budget,
-    runsRecorded(state),
+    runsRecorded(projects),
   );
 }
 
 /** Every run the mornings have made, across every project, oldest first. */
-function runsRecorded(state: State): RunCost[] {
-  return [...state.values()]
+function runsRecorded(projects: ProjectStates): RunCost[] {
+  return [...projects.values()]
     .flatMap((project) => project.runs)
     .sort((a, b) => a.at.getTime() - b.at.getTime());
 }
@@ -643,8 +668,8 @@ function runsRecorded(state: State): RunCost[] {
  */
 async function considerProjects(
   ports: MorningRunPorts,
-  state: State,
-  worked: ReadonlySet<string>,
+  projects: ProjectStates,
+  worked: WorkedTickets,
 ): Promise<RegistryScan> {
   const outcomes: ProjectOutcome[] = [];
   const candidates: Candidate[] = [];
@@ -653,7 +678,7 @@ async function considerProjects(
   const outcomeIndexByRepo = new Map<RepoSlug, number>();
 
   for (const project of await ports.store.loadRegistry()) {
-    const projectState = state.get(project.repo);
+    const projectState = projects.get(project.repo);
 
     if (project.paused) {
       outcomes.push(outcome(project.repo, "paused", projectState));
@@ -662,7 +687,7 @@ async function considerProjects(
 
     const { tickets, truncated: backlogTruncated } =
       await ports.tracker.listEligibleTickets(project.repo);
-    const backlog = tickets.filter((ticket) => !worked.has(ticketKey(ticket)));
+    const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
     // the rule can be exercised against the fake and the summary can still
@@ -823,11 +848,6 @@ function compareTickets(a: Ticket, b: Ticket): number {
   return a.number - b.number;
 }
 
-/** The key `worked` tracks a ticket by, unique within one invocation. */
-function ticketKey(ticket: Ticket): string {
-  return `${ticket.repo}#${ticket.number}`;
-}
-
 /**
  * Selection's ordering rule, applied as one comparison rather than as
  * separate passes: reviews before implementations, then explicit priority,
@@ -890,6 +910,18 @@ function leastRecentlyWorkedFirst(
     return 1;
   }
   return a.getTime() - b.getTime();
+}
+
+/**
+ * Whether `iteration` was one of the two that say nothing about its ticket —
+ * an infrastructure failure or a limit refusal — and so, as `work` leaves it,
+ * leaves the ticket exactly as it was.
+ */
+function leavesTicketUntouched(iteration: Iteration): boolean {
+  return (
+    iteration.kind === "limit-refused" ||
+    (iteration.kind === "failed" && iteration.failure.kind === "infrastructure")
+  );
 }
 
 /**

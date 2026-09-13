@@ -13,15 +13,19 @@ import type {
   State,
   Store,
   TicketKind,
+  WorkedTicket,
+  WorkedToday,
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
   MODEL_NAME_SHAPE,
   TICKET_KINDS,
+  isDay,
   isIterationLimit,
   isModelName,
   isPriority,
   isRepoSlug,
+  workedTicket,
   isReserveFraction,
   isTokenCount,
   isUsd,
@@ -150,12 +154,7 @@ function parseRegistry(
   const registered = new Set<string>();
   return projects.map((entry, index) => {
     const where = `${file}: project ${index + 1}`;
-    const repo = fieldOf(entry, "repo", where);
-    if (typeof repo !== "string" || !isRepoSlug(repo)) {
-      throw new Error(
-        `${where}: "repo" must be a repo slug, as owner/repo: ${JSON.stringify(repo)}`,
-      );
-    }
+    const repo = repoSlugField(entry, where);
     // State is keyed by slug, so a project listed twice would be considered
     // twice and share one last-worked entry with itself.
     if (registered.has(repo)) {
@@ -374,11 +373,59 @@ function parseModelDefaults(document: unknown, file: string): ModelDefaults {
  * rather than inheriting another project's.
  */
 function parseState(document: unknown, file: string): State {
-  const state = new Map<RepoSlug, ProjectState>();
   if (document === undefined) {
-    return state;
+    return { projects: new Map() };
   }
-  const projects = fieldOf(document, "projects", file);
+  const workedToday = fieldOf(document, "workedToday", file);
+  return {
+    projects: parseProjectStates(fieldOf(document, "projects", file), file),
+    ...(workedToday !== undefined && {
+      workedToday: parseWorkedToday(workedToday, `${file}: "workedToday"`),
+    }),
+  };
+}
+
+/**
+ * `{ "day": "2026-01-01", "tickets": [{ "repo": "owner/repo", "number": 7 }] }`
+ *
+ * Read as written, whatever day it names: whether that day is today is the
+ * loop's to judge, since only the loop has a clock.
+ */
+function parseWorkedToday(value: unknown, where: string): WorkedToday {
+  const recorded = fieldOf(value, "day", where);
+  if (typeof recorded !== "string" || !isDay(recorded)) {
+    throw new Error(
+      `${where}: "day" must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(recorded)}`,
+    );
+  }
+  const tickets = fieldOf(value, "tickets", where);
+  if (!Array.isArray(tickets)) {
+    throw new Error(`${where}: "tickets" must be a list of tickets.`);
+  }
+  return {
+    day: recorded,
+    tickets: tickets.map((ticket, index) =>
+      parseWorkedTicket(ticket, `${where}: ticket ${index + 1}`),
+    ),
+  };
+}
+
+function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
+  const repo = repoSlugField(ticket, where);
+  const number = fieldOf(ticket, "number", where);
+  if (typeof number !== "number" || !Number.isInteger(number) || number < 1) {
+    throw new Error(
+      `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
+    );
+  }
+  return { repo, number };
+}
+
+function parseProjectStates(
+  projects: unknown,
+  file: string,
+): Map<RepoSlug, ProjectState> {
+  const state = new Map<RepoSlug, ProjectState>();
   if (projects === undefined) {
     return state;
   }
@@ -422,6 +469,17 @@ function parseRun(run: unknown, where: string): RunCost {
   };
 }
 
+/** The `"repo"` field of `value`, which must be a repo slug. */
+function repoSlugField(value: unknown, where: string): RepoSlug {
+  const repo = fieldOf(value, "repo", where);
+  if (typeof repo !== "string" || !isRepoSlug(repo)) {
+    throw new Error(
+      `${where}: "repo" must be a repo slug, as owner/repo: ${JSON.stringify(repo)}`,
+    );
+  }
+  return repo;
+}
+
 function parseInstant(value: unknown, where: string): Date {
   const at = typeof value === "string" ? new Date(value) : new Date(Number.NaN);
   if (Number.isNaN(at.getTime())) {
@@ -461,7 +519,7 @@ function formatRegistry(projects: RegisteredProject[]): string {
 /** Indented and newline-terminated: the document is read in diffs. */
 function formatState(state: State): string {
   const projects = Object.fromEntries(
-    [...state].map(([repo, project]) => [
+    [...state.projects].map(([repo, project]) => [
       repo,
       {
         ...(project.lastWorkedAt !== undefined && {
@@ -475,5 +533,10 @@ function formatState(state: State): string {
     ]),
   );
 
-  return `${JSON.stringify({ projects }, undefined, 2)}\n`;
+  const workedToday = state.workedToday && {
+    day: state.workedToday.day,
+    tickets: state.workedToday.tickets.map(workedTicket),
+  };
+
+  return `${JSON.stringify({ projects, workedToday }, undefined, 2)}\n`;
 }

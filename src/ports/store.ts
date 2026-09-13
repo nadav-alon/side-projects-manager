@@ -1,4 +1,5 @@
 import type { Budget } from "./budget.ts";
+import type { Day } from "./day.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -55,11 +56,66 @@ export function recordRun(
 }
 
 /**
- * The machine-written state, by project. A project with no entry has never
- * been worked; that is not an error, and neither is a state document that
- * does not exist yet.
+ * `previous` with `ticket` recorded as worked on `day`. A record for any other
+ * day is replaced rather than extended, since it says nothing about `day`.
  */
-export type State = ReadonlyMap<RepoSlug, ProjectState>;
+export function recordWorked(
+  previous: WorkedToday | undefined,
+  ticket: WorkedTicket,
+  day: Day,
+): WorkedToday {
+  const earlier = previous?.day === day ? previous.tickets : [];
+  return { day, tickets: [...earlier, workedTicket(ticket)] };
+}
+
+/** `previous` with `ticket` taken back off it, on the same day. */
+export function unrecordWorked(
+  previous: WorkedToday,
+  ticket: WorkedTicket,
+): WorkedToday {
+  return {
+    day: previous.day,
+    tickets: previous.tickets.filter(
+      (recorded) =>
+        recorded.repo !== ticket.repo || recorded.number !== ticket.number,
+    ),
+  };
+}
+
+/**
+ * `ticket` as the state document names it, and nothing more: a whole `Ticket`
+ * passes for one, but its title and labels are not the record's to keep.
+ */
+export function workedTicket({ repo, number }: WorkedTicket): WorkedTicket {
+  return { repo, number };
+}
+
+/** A ticket as the state document names it: its project, and its number there. */
+export interface WorkedTicket {
+  repo: RepoSlug;
+  number: number;
+}
+
+/**
+ * The tickets the loop worked on one local calendar day, kept so a later
+ * invocation the same day does not select them again. A record for any day
+ * but today reads as nothing worked today.
+ */
+export interface WorkedToday {
+  day: Day;
+  tickets: WorkedTicket[];
+}
+
+/**
+ * The machine-written state. A project with no entry has never been worked;
+ * that is not an error, and neither is a state document that does not exist
+ * yet.
+ */
+export interface State {
+  projects: ReadonlyMap<RepoSlug, ProjectState>;
+  /** Absent when no day's worked tickets have been recorded. */
+  workedToday?: WorkedToday;
+}
 
 /**
  * Reads the developer's registry, budget and model defaults, and reads and

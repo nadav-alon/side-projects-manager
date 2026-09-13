@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
+  day,
   modelName,
   priority,
   repoSlug,
@@ -499,7 +500,7 @@ describe("the state document", () => {
 
     const state = await store.loadState();
 
-    assert.deepEqual(state.get(PILOT), {
+    assert.deepEqual(state.projects.get(PILOT), {
       lastWorkedAt: YESTERDAY,
       runs: [
         { at: YESTERDAY, tokensUsed: tokenCount(120_000) },
@@ -511,13 +512,13 @@ describe("the state document", () => {
   it("treats a missing document as nothing ever worked", async () => {
     const store = documentStore(await home());
 
-    assert.equal((await store.loadState()).size, 0);
+    assert.equal((await store.loadState()).projects.size, 0);
   });
 
   it("treats an empty document as nothing ever worked", async () => {
     const store = documentStore(await home({ state: "" }));
 
-    assert.equal((await store.loadState()).size, 0);
+    assert.equal((await store.loadState()).projects.size, 0);
   });
 
   it("treats a project it has no entry for as never worked", async () => {
@@ -527,7 +528,7 @@ describe("the state document", () => {
       }),
     );
 
-    assert.equal((await store.loadState()).get(PILOT), undefined);
+    assert.equal((await store.loadState()).projects.get(PILOT), undefined);
   });
 
   it("reads a project that is registered but not yet worked", async () => {
@@ -537,7 +538,7 @@ describe("the state document", () => {
       }),
     );
 
-    assert.deepEqual((await store.loadState()).get(PILOT), { runs: [] });
+    assert.deepEqual((await store.loadState()).projects.get(PILOT), { runs: [] });
   });
 
   it("rejects a timestamp that is not a date", async () => {
@@ -554,15 +555,17 @@ describe("the state document", () => {
 
   it("survives a round trip through the document", async () => {
     const store = documentStore(await home());
-    const state = new Map([
-      [
-        PILOT,
-        {
-          lastWorkedAt: YESTERDAY,
-          runs: [{ at: YESTERDAY, tokensUsed: tokenCount(120_000) }],
-        },
-      ],
-    ]);
+    const state = {
+      projects: new Map([
+        [
+          PILOT,
+          {
+            lastWorkedAt: YESTERDAY,
+            runs: [{ at: YESTERDAY, tokensUsed: tokenCount(120_000) }],
+          },
+        ],
+      ]),
+    };
 
     await store.saveState(state);
 
@@ -573,9 +576,9 @@ describe("the state document", () => {
     const directory = await home();
     const store = documentStore(directory);
 
-    await store.saveState(
-      new Map([[PILOT, { lastWorkedAt: YESTERDAY, runs: [] }]]),
-    );
+    await store.saveState({
+      projects: new Map([[PILOT, { lastWorkedAt: YESTERDAY, runs: [] }]]),
+    });
 
     const written = await readFile(path.join(directory, "state.json"), "utf8");
     assert.equal(
@@ -595,9 +598,78 @@ describe("the state document", () => {
   it("replaces what an earlier invocation wrote", async () => {
     const store = documentStore(await home());
 
-    await store.saveState(new Map([[PILOT, { lastWorkedAt: YESTERDAY, runs: [] }]]));
-    await store.saveState(new Map());
+    await store.saveState({
+      projects: new Map([[PILOT, { lastWorkedAt: YESTERDAY, runs: [] }]]),
+    });
+    await store.saveState({ projects: new Map() });
 
-    assert.equal((await store.loadState()).size, 0);
+    assert.equal((await store.loadState()).projects.size, 0);
+  });
+
+  it("reads a document that records no tickets worked today as none worked", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: { [PILOT]: { runs: [] } } }),
+      }),
+    );
+
+    assert.equal((await store.loadState()).workedToday, undefined);
+  });
+
+  it("survives a round trip with the tickets worked today", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      workedToday: {
+        day: day("2026-01-01"),
+        tickets: [
+          { repo: PILOT, number: 7 },
+          { repo: MANAGER, number: 12 },
+        ],
+      },
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects tickets worked today recorded against something that is not a day", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          workedToday: { day: "today", tickets: [] },
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /workedToday/);
+  });
+
+  it("rejects tickets worked today recorded with no list of tickets", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          workedToday: { day: "2026-01-01" },
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"tickets" must be a list/);
+  });
+
+  it("rejects a ticket worked today that names no repo slug", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          workedToday: { day: "2026-01-01", tickets: [{ repo: "pilot", number: 7 }] },
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /workedToday/);
   });
 });
