@@ -631,9 +631,10 @@ function isReview(ticket: Ticket): boolean {
  * review ticket before any implementation ticket, since finishing beats
  * starting; among implementation tickets, `Ticket.priority` ascending, with
  * an absent priority sorting after every ticket that has one; and, ties still
- * standing, the lowest issue number, so the order the tracker happened to
- * return them in never matters. Two review tickets, open on two different
- * implementation tickets, fall to the lowest issue number the same way.
+ * standing, the oldest ticket — the lowest issue number — so the order the
+ * tracker happened to return them in never matters. Two review tickets, open
+ * on two different implementation tickets, fall to the oldest ticket the same
+ * way.
  */
 function bestTicket(backlog: Ticket[]): Ticket | undefined {
   return [...backlog].sort(compareTickets)[0];

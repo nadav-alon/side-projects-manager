@@ -624,7 +624,7 @@ describe("morningRun", () => {
         assert.equal(ports.sandbox.runs[0]?.ticket.number, 8);
       });
 
-      it("with neither ticket labelled, the lower issue number wins whatever order the tracker returns them in", async () => {
+      it("with neither ticket labelled, the oldest ticket wins whatever order the tracker returns them in", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
         // Added in descending order, so winning proves the tie-break rather
@@ -664,7 +664,7 @@ describe("morningRun", () => {
         assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
       });
 
-      it("with two review tickets, the lower issue number wins whatever order the tracker returns them in", async () => {
+      it("with two review tickets, the oldest ticket wins whatever order the tracker returns them in", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
         const first = ports.tracker.addEligibleTicket(PILOT, {
