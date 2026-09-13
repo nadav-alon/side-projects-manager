@@ -1,4 +1,4 @@
-import type { MorningRunPorts } from "../morning-run.ts";
+import type { MorningLoopPorts } from "../morning-run.ts";
 import { FakeClock } from "./fake-clock.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
 import { FakeRepoHost } from "./fake-repo-host.ts";
@@ -7,7 +7,7 @@ import { FakeStore } from "./fake-store.ts";
 import { FakeUsageLedger } from "./fake-usage-ledger.ts";
 
 /** The six fakes, typed concretely so tests can both inject and inspect them. */
-export interface FakePorts extends MorningRunPorts {
+export interface FakePorts extends MorningLoopPorts {
   tracker: FakeIssueTracker;
   repoHost: FakeRepoHost;
   sandbox: FakeSandbox;

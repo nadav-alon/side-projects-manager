@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { FakeClock, FakeTriggerLock } from "./testing/index.ts";
-import { runOncePerDay } from "./trigger-guard.ts";
+import { invokeOncePerDay } from "./trigger-guard.ts";
 
-describe("runOncePerDay", () => {
+describe("invokeOncePerDay", () => {
   it("invokes the first caller for a day", async () => {
     let invoked = 0;
-    const ran = await runOncePerDay(new FakeTriggerLock(), new FakeClock(), async () => {
+    const claimed = await invokeOncePerDay(new FakeTriggerLock(), new FakeClock(), async () => {
       invoked += 1;
     });
 
-    assert.equal(ran, true);
+    assert.equal(claimed, true);
     assert.equal(invoked, 1);
   });
 
@@ -23,8 +23,8 @@ describe("runOncePerDay", () => {
       invoked += 1;
     };
 
-    const first = await runOncePerDay(lock, clock, invoke);
-    const second = await runOncePerDay(lock, clock, invoke);
+    const first = await invokeOncePerDay(lock, clock, invoke);
+    const second = await invokeOncePerDay(lock, clock, invoke);
 
     assert.equal(first, true);
     assert.equal(second, false);
@@ -38,8 +38,8 @@ describe("runOncePerDay", () => {
       invoked += 1;
     };
 
-    await runOncePerDay(lock, new FakeClock(new Date("2026-01-01T23:00:00")), invoke);
-    const nextDay = await runOncePerDay(
+    await invokeOncePerDay(lock, new FakeClock(new Date("2026-01-01T23:00:00")), invoke);
+    const nextDay = await invokeOncePerDay(
       lock,
       new FakeClock(new Date("2026-01-02T01:00:00")),
       invoke,
@@ -54,13 +54,13 @@ describe("runOncePerDay", () => {
     const clock = new FakeClock();
 
     await assert.rejects(
-      runOncePerDay(lock, clock, async () => {
+      invokeOncePerDay(lock, clock, async () => {
         throw new Error("the sandbox never came up");
       }),
     );
 
     let invoked = false;
-    const second = await runOncePerDay(lock, clock, async () => {
+    const second = await invokeOncePerDay(lock, clock, async () => {
       invoked = true;
     });
 

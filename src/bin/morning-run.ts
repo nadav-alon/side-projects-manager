@@ -5,16 +5,16 @@ import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
-import { morningRun } from "../morning-run.ts";
+import { morningLoop } from "../morning-run.ts";
 
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
- * trigger is a caller of `morningRun`, exactly like this one — including
+ * trigger is a caller of `morningLoop`, exactly like this one — including
  * `guarded-morning-run.ts`, which is what the daily schedule and the logon
  * guard actually call; this file stays the direct, unguarded entry point.
  */
 async function main(): Promise<void> {
-  const report = await morningRun({
+  const report = await morningLoop({
     tracker: ghIssueTracker(),
     repoHost: githubRepoHost(),
     sandbox: containerSandbox(),
@@ -36,8 +36,9 @@ async function main(): Promise<void> {
   // non-zero.
   const failed =
     report.outcome === "invocation-failed" ||
-    report.runs.some(
-      (run) => "failure" in run && run.failure.kind === "infrastructure",
+    report.iterations.some(
+      (iteration) =>
+        "failure" in iteration && iteration.failure.kind === "infrastructure",
     );
   if (failed) {
     process.exitCode = 1;

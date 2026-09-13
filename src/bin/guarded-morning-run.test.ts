@@ -37,7 +37,7 @@ describe("the guarded-morning-run command", () => {
     await run(directory);
     const { stdout } = await run(directory);
 
-    assert.match(stdout, /already ran today/i);
+    assert.match(stdout, /already invoked today/i);
 
     const creates = (await gh.calls()).filter(
       (call) => call[0] === "issue" && call[1] === "create",

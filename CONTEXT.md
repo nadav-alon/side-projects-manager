@@ -47,7 +47,7 @@ _Avoid_: report, digest, changelog
 ### Triggers
 
 **Trigger**:
-Whatever calls `morningRun`: the daily schedule, the logon guard, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
+Whatever calls `morningLoop`: the daily schedule, the logon guard, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
@@ -55,7 +55,7 @@ The trigger that fires on every new interactive shell, relying on the once-per-d
 _Avoid_: startup hook, login script
 
 **Once-per-day lock**:
-What stops two triggers firing the same day: the first to claim a calendar day runs the loop, every later claim that day is refused. Claimed before the loop runs, so a run that fails still leaves the day claimed.
+What stops two triggers firing the same day: the first to claim a calendar day invokes the loop, every later claim that day is refused. Claimed before the loop is invoked, so an invocation that fails still leaves the day claimed.
 _Avoid_: mutex, semaphore, debounce
 
 ### Projects

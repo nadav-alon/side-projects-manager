@@ -72,7 +72,7 @@ type ProjectStates = State["projects"];
  * GitHub, containers, session logs, the filesystem and the wall clock arrives
  * through these.
  */
-export interface MorningRunPorts {
+export interface MorningLoopPorts {
   tracker: IssueTracker & SummaryTracker;
   repoHost: RepoHost;
   sandbox: Sandbox;
@@ -81,7 +81,7 @@ export interface MorningRunPorts {
   store: Store;
 }
 
-export type MorningRunOutcome =
+export type InvocationOutcome =
   /** No registered project had an eligible ticket. A quiet morning. */
   | "dry-queue"
   /** There was work, and the budget gate refused to start it. */
@@ -93,7 +93,7 @@ export type MorningRunOutcome =
    * would not parse, or a port that could not be reached before a single
    * iteration ran. Distinct from a run that gave up or an infrastructure
    * failure inside one iteration, both of which are reported as normal
-   * runs; this is the invocation itself never getting that far.
+   * iterations; this is the invocation itself never getting that far.
    */
   | "invocation-failed";
 
@@ -260,16 +260,16 @@ export interface ProjectOutcome {
 }
 
 /** What one invocation did. The summary issue is written from this. */
-export interface MorningRunReport {
+export interface InvocationReport {
   /** When the invocation started. */
   startedAt: Date;
-  outcome: MorningRunOutcome;
+  outcome: InvocationOutcome;
   /**
    * Every registered project, in registry order, with why it was skipped —
    * or, once it has been, that it was selected, which then sticks for the
    * rest of the invocation even on a later iteration that finds nothing left
    * of its backlog to select. What each one was actually worked on is in
-   * `runs`; this says only whether its turn came at all.
+   * `iterations`; this says only whether its turn came at all.
    */
   projects: ProjectOutcome[];
   /**
@@ -277,7 +277,7 @@ export interface MorningRunReport {
    * that ran nothing — a dry queue, or a gate that refused before the first
    * run.
    */
-  runs: IterationOutcome[];
+  iterations: IterationOutcome[];
   /**
    * Why the invocation stood down, absent when it never did: the gate
    * refusing, before the first run of the morning or between two later ones,
@@ -463,11 +463,11 @@ interface RegistryScan {
  * without this an unattended morning with only one project registered would
  * work its one ticket over and over until the budget gate finally stopped it.
  */
-export async function morningRun(
-  ports: MorningRunPorts,
-): Promise<MorningRunReport> {
+export async function morningLoop(
+  ports: MorningLoopPorts,
+): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
-  const runs: IterationOutcome[] = [];
+  const iterations: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
   // rather than snapshotted from the first scan, so a project the developer
@@ -516,7 +516,7 @@ export async function morningRun(
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
-          runs.push({
+          iterations.push({
             repo: scan.selection.project.repo,
             ticket,
             ...(await handTicketBack(
@@ -550,7 +550,7 @@ export async function morningRun(
           budget.spendCeiling,
           model,
         );
-        runs.push({
+        iterations.push({
           repo: scan.selection.project.repo,
           ticket,
           ...(model !== undefined && { model: model.name }),
@@ -604,7 +604,7 @@ export async function morningRun(
   );
   const facts: SummaryFacts = {
     projects: outcomes,
-    runs,
+    iterations,
     standDown,
     invocationFailure,
   };
@@ -629,9 +629,9 @@ export async function morningRun(
   return {
     startedAt,
     projects: outcomes,
-    runs,
+    iterations,
     ...(standDown !== undefined && { standDown }),
-    outcome: outcomeOf(runs, standDown, invocationFailure),
+    outcome: outcomeOf(iterations, standDown, invocationFailure),
     message:
       publishFailure === undefined
         ? line
@@ -640,10 +640,10 @@ export async function morningRun(
 }
 
 function outcomeOf(
-  runs: IterationOutcome[],
+  iterations: IterationOutcome[],
   standDown: InvocationStandDown | undefined,
   invocationFailure: string | undefined,
-): MorningRunOutcome {
+): InvocationOutcome {
   if (invocationFailure !== undefined) {
     return "invocation-failed";
   }
@@ -651,16 +651,17 @@ function outcomeOf(
   // count as work when the morning then stood down: a stand-down that ran
   // nothing reads as one, whatever was handed back before it. Without a
   // stand-down, that hand-back is still work an iteration selected.
-  const ran = runs.some(
-    (run) => !(run.kind === "failed" && isModelLabelFailure(run.failure)),
+  const worked = iterations.some(
+    (iteration) =>
+      !(iteration.kind === "failed" && isModelLabelFailure(iteration.failure)),
   );
-  if (ran) {
+  if (worked) {
     return "work-selected";
   }
   if (standDown !== undefined) {
     return "stood-down";
   }
-  return runs.length > 0 ? "work-selected" : "dry-queue";
+  return iterations.length > 0 ? "work-selected" : "dry-queue";
 }
 
 /**
@@ -680,7 +681,7 @@ function outcomeOf(
  * queue rather than reading the ledger to decline work that did not exist.
  */
 async function consultTheGate(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   budget: Budget,
   projects: ProjectStates,
 ): Promise<StandDown | undefined> {
@@ -710,7 +711,7 @@ function runsRecorded(projects: ProjectStates): RunCost[] {
  * only way to know which project wins is to have looked at all of them.
  */
 async function considerProjects(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   projects: ProjectStates,
   worked: WorkedTickets,
 ): Promise<RegistryScan> {
@@ -762,7 +763,7 @@ async function considerProjects(
     candidates.push({
       project,
       ticket,
-      isReview: isReview(ticket),
+      isReview: isReviewTicket(ticket),
       ...(project.priority !== undefined && { priority: project.priority }),
       ...(projectState?.lastWorkedAt !== undefined && {
         lastWorkedAt: projectState.lastWorkedAt,
@@ -789,11 +790,6 @@ async function considerProjects(
     outcomes,
     selection: { project: winner.project, ticket: winner.ticket },
   };
-}
-
-/** Whether `ticket` is a review rather than an implementation. */
-function isReview(ticket: Ticket): boolean {
-  return isReviewTicket(ticket);
 }
 
 /**
@@ -881,8 +877,8 @@ function bestTicket(backlog: Ticket[]): Ticket | undefined {
 }
 
 function compareTickets(a: Ticket, b: Ticket): number {
-  if (isReview(a) !== isReview(b)) {
-    return isReview(a) ? -1 : 1;
+  if (isReviewTicket(a) !== isReviewTicket(b)) {
+    return isReviewTicket(a) ? -1 : 1;
   }
   const byPriority = absentLast(a.priority, b.priority);
   if (byPriority !== 0) {
@@ -979,7 +975,7 @@ function leavesTicketUntouched(iteration: Iteration): boolean {
  * reported, and the loop goes on to consider the next iteration.
  */
 async function work(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
@@ -1071,7 +1067,7 @@ async function work(
  * go to `discardBranch` instead, because they are not work to review.
  */
 async function handOver(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   run: SandboxRunResult,
   checkout: Checkout,
   ticket: Ticket,
@@ -1149,7 +1145,7 @@ async function handOver(
  * its ticket handed back with a comment naming where the work is.
  */
 async function handoverFailed(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   ticket: Ticket,
   run: SandboxRunResult,
   reason: string,
@@ -1182,7 +1178,7 @@ async function handoverFailed(
  * to come round again.
  */
 async function handFinishedTicketBack(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   ticket: Ticket,
   comment: string,
 ): Promise<string | undefined> {
@@ -1203,7 +1199,7 @@ async function handFinishedTicketBack(
  * and saying so is the one thing still worth doing.
  */
 async function handTicketBack(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   ticket: Ticket,
   failure: HandedBackFailure,
   comment: string,
@@ -1239,7 +1235,7 @@ async function handTicketBack(
  * cost.
  */
 async function discardBranch(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   checkout: Checkout,
   run: SandboxRunResult,
 ): Promise<Discard> {
@@ -1270,7 +1266,7 @@ async function discardBranch(
  * `failure`.
  */
 async function attemptRun(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   selection: Selection,
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
@@ -1334,7 +1330,7 @@ function infrastructureFailure(error: unknown): Failed {
  * after the review ran is reported on the iteration, never raised.
  */
 async function runReview(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ReviewTicket,
   state: Map<RepoSlug, ProjectState>,
@@ -1423,7 +1419,7 @@ async function runReview(
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */
 async function handReviewBack(
-  ports: MorningRunPorts,
+  ports: MorningLoopPorts,
   ticket: ReviewTicket,
   review: ReviewRunResult,
   reason: string,
@@ -1520,7 +1516,7 @@ function numbers(tickets: Ticket[]): string {
  */
 interface SummaryFacts {
   projects: ProjectOutcome[];
-  runs: IterationOutcome[];
+  iterations: IterationOutcome[];
   standDown: InvocationStandDown | undefined;
   invocationFailure: string | undefined;
 }
@@ -1530,7 +1526,7 @@ function summaryLine(facts: SummaryFacts): string {
     return `The invocation did not finish: ${facts.invocationFailure}.`;
   }
 
-  const { projects, runs, standDown } = facts;
+  const { projects, iterations, standDown } = facts;
   const skipped = projects.flatMap((project) => {
     const reason = skipReason(project.verdict);
     return reason === undefined ? [] : [`${project.repo} (${reason})`];
@@ -1539,10 +1535,10 @@ function summaryLine(facts: SummaryFacts): string {
   const passedOver = passedOverAside(projects);
   const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}`;
 
-  if (runs.length > 0) {
+  if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
     // what was worked, since the developer still needs both.
-    const worked = runs.map(describeRun).join(" ");
+    const worked = iterations.map(describeIteration).join(" ");
     const stopped =
       standDown === undefined
         ? ""
@@ -1584,7 +1580,7 @@ function whyStoodDown(
 
 /** The summary issue's title: dated, so a string of mornings reads in order. */
 function summaryTitle(startedAt: Date): string {
-  return `Morning run — ${startedAt.toISOString().slice(0, 10)}`;
+  return `Morning loop summary — ${startedAt.toISOString().slice(0, 10)}`;
 }
 
 /**
@@ -1598,8 +1594,10 @@ function summaryTitle(startedAt: Date): string {
 function summaryBody(facts: SummaryFacts, line: string): string {
   return [
     line,
-    facts.runs.length === 0 ? undefined : attemptsSection(facts.runs),
-    waitingSection(facts.runs),
+    facts.iterations.length === 0
+      ? undefined
+      : attemptsSection(facts.iterations),
+    waitingSection(facts.iterations),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
@@ -1610,15 +1608,18 @@ function summaryBody(facts: SummaryFacts, line: string): string {
  * model it was started on. A ticket handed back for its model labels was never
  * started, so it names neither.
  */
-function attemptsSection(runs: IterationOutcome[]): string {
-  const lines = runs.map((run) => {
-    if (run.kind === "failed" && isModelLabelFailure(run.failure)) {
-      return `- ${describeRun(run)} — nothing run`;
+function attemptsSection(iterations: IterationOutcome[]): string {
+  const lines = iterations.map((iteration) => {
+    if (
+      iteration.kind === "failed" &&
+      isModelLabelFailure(iteration.failure)
+    ) {
+      return `- ${describeIteration(iteration)} — nothing run`;
     }
-    const spent = costOf(run);
+    const spent = costOf(iteration);
     const cost =
       spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
-    return `- ${describeRun(run)}${cost} on ${run.model ?? "the image's model"}`;
+    return `- ${describeIteration(iteration)}${cost} on ${iteration.model ?? "the image's model"}`;
   });
   return ["## Attempts", ...lines].join("\n");
 }
@@ -1633,8 +1634,11 @@ function isModelLabelFailure(
 }
 
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
-function stillEligibleLine(run: { repo: RepoSlug; ticket: Ticket }): string {
-  return `- ${run.repo} #${run.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
+function stillEligibleLine(iteration: {
+  repo: RepoSlug;
+  ticket: Ticket;
+}): string {
+  return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
 }
 
 /**
@@ -1646,35 +1650,37 @@ function stillEligibleLine(run: { repo: RepoSlug; ticket: Ticket }): string {
  * due to come round again until somebody relabels it by hand. A review the
  * loop could not close is there for the same reason.
  */
-function waitingSection(runs: IterationOutcome[]): string | undefined {
-  const lines = runs.flatMap((run): string[] => {
-    switch (run.kind) {
+function waitingSection(iterations: IterationOutcome[]): string | undefined {
+  const lines = iterations.flatMap((iteration): string[] => {
+    switch (iteration.kind) {
       case "reviewed":
-        return run.notClosed === undefined
+        return iteration.notClosed === undefined
           ? []
-          : [notClosedLine(run, run.notClosed)];
+          : [notClosedLine(iteration, iteration.notClosed)];
       // A limit refusal's ticket waits on the provider, not the developer.
       case "limit-refused":
         return [];
       case "failed":
-        return [waitingOnFailure(run.repo, run.ticket, run.failure)];
+        return [
+          waitingOnFailure(iteration.repo, iteration.ticket, iteration.failure),
+        ];
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
         // name but the relabel itself, and a run whose hand-back — of either
         // kind — was refused by the tracker.
-        const { handover, handbackFailure } = run;
+        const { handover, handbackFailure } = iteration;
         return [
           ...(handover === undefined
             ? []
             : [
-                `- ${run.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
+                `- ${iteration.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
               ]),
           ...(handbackFailure !== undefined
-            ? [stillEligibleLine(run)]
+            ? [stillEligibleLine(iteration)]
             : handover === undefined
               ? [
-                  `- ${run.repo} #${run.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
+                  `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
                 ]
               : []),
         ];
@@ -1734,7 +1740,7 @@ function costOf(iteration: IterationOutcome): TokenCount | undefined {
 }
 
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */
-function describeRun(iteration: IterationOutcome): string {
+function describeIteration(iteration: IterationOutcome): string {
   switch (iteration.kind) {
     case "limit-refused": {
       const kept =
