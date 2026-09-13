@@ -136,7 +136,7 @@ _Avoid_: model config, model settings, tiers
 
 **ready-for-human**:
 The triage label a ticket carries once the loop has stopped working on it. Always written in full, as the tracker spells it.
-_Avoid_: needs-human, manual, blocked
+_Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
 What the loop does with a ticket whose run gave up or finished: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those two: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
@@ -169,6 +169,10 @@ _Avoid_: overflow, capped backlog, full queue
 **Broken-out ticket**:
 A ticket whose work has moved into one or more open sub-issues: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any sub-issue is open — the tracker reports the open count, and selection is what reads it. Selectable again, like any other ticket, once every sub-issue has closed.
 _Avoid_: parent ticket, container ticket, epic, spec ticket
+
+**Blocked ticket**:
+A ticket the tracker marks as blocked by one or more tickets that are still open: its work builds on work not yet done. Still carries ready-for-agent, but is not selected while any blocker is open — the tracker reports the open count, and selection is what reads it. Selectable again once every blocker has closed.
+_Avoid_: dependent ticket, waiting ticket, stacked ticket
 
 **Implementation ticket**:
 A ticket asking for something to be built.

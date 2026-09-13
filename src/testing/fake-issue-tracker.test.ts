@@ -35,6 +35,15 @@ describe("FakeIssueTracker", () => {
     assert.deepEqual(await tracker.listEligibleTickets(PILOT), []);
   });
 
+  it("lists a blocked ticket alongside its open blocker count", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addBlockedTicket(PILOT, { number: 56, title: "Waits on #55" }, 2);
+
+    const backlog = await tracker.listEligibleTickets(PILOT);
+
+    assert.equal(backlog[0]?.openBlockers, 2);
+  });
+
   it("lists a broken-out ticket alongside its open sub-issue count", async () => {
     const tracker = new FakeIssueTracker();
     tracker.addBrokenOutTicket(

@@ -391,6 +391,50 @@ describe("morningRun", () => {
     });
   });
 
+  describe("blocked tickets", () => {
+    it("never selects a ticket carrying ready-for-agent that an open ticket blocks, even as its project's only ticket", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addBlockedTicket(
+        PILOT,
+        { number: 56, title: "Waits on #55" },
+        1,
+      );
+      const run = t.mock.method(ports.sandbox, "run");
+
+      const report = await morningRun(ports);
+
+      assert.equal(run.mock.callCount(), 0);
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(verdicts(report.projects), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
+    });
+
+    it("selects a sibling ticket instead, and says the blocked one was passed over", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addBlockedTicket(
+        PILOT,
+        { number: 56, title: "Waits on #55" },
+        2,
+      );
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 55,
+        title: "The blocker",
+      });
+
+      const report = await morningRun(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [55],
+      );
+      assert.match(report.message, /#56 blocked by an open ticket/);
+    });
+  });
+
   describe("selection ordering", () => {
     /** The pull request every `reviewOf` in this suite names, since none of them care which. */
     const SOME_PULL_REQUEST = pullRequestUrl(
