@@ -16,7 +16,7 @@ import type {
 import type {
   RepoSlug,
   ReviewTicket,
-  SandboxRunResult,
+  RunFinished,
   Ticket,
   TokenCount,
 } from "./ports/index.ts";
@@ -437,7 +437,7 @@ function tokens(count: TokenCount): string {
 }
 
 /** How many commits the run left, said the way a person would say it. */
-function commitCount(run: SandboxRunResult): string {
+function commitCount(run: RunFinished): string {
   const count = run.commits.length;
   return count === 1 ? "1 commit" : `${count} commits`;
 }
