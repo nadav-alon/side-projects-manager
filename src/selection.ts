@@ -128,21 +128,16 @@ export function invocationSelection(
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
   worked: WorkedTickets,
 ): InvocationSelection {
+  // Registry order falls out of insertion order for free: a `Map` iterates
+  // in the order its keys were first set, and a repo is always set here the
+  // first time it is seen across every scan `next` makes — a project
+  // outranked into "deferred" on the first scan and never asked about again
+  // still keeps its place, since re-setting an existing key never moves it.
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
-  // Registry order as each repo is first seen across every scan `next`
-  // makes, not the order of any one scan: a project outranked into
-  // "deferred" on the first scan and never asked about again still has to
-  // keep its place.
-  const registryOrder: RepoSlug[] = [];
 
   return {
-    next: () => scan(ports, projectStates, worked, outcomesByRepo, registryOrder),
-    verdicts: () =>
-      registryOrder.map(
-        // Set for every repo named in `registryOrder`, which is read from
-        // the very outcomes this populates.
-        (repo) => outcomesByRepo.get(repo) as ProjectOutcome,
-      ),
+    next: () => scan(ports, projectStates, worked, outcomesByRepo),
+    verdicts: () => [...outcomesByRepo.values()],
   };
 }
 
@@ -173,8 +168,8 @@ interface ScanFindings {
 /**
  * One scan of the registry: asks every non-paused project's backlog for a
  * candidate ticket, hands the best one to `bestCandidate`, then folds this
- * scan's outcomes into the invocation's sticky `outcomesByRepo` and
- * `registryOrder` before answering with the winner, if any.
+ * scan's outcomes into the invocation's sticky `outcomesByRepo` before
+ * answering with the winner, if any.
  *
  * A paused project is passed over without asking the tracker anything,
  * because paused means never considered; a project this invocation has
@@ -186,7 +181,6 @@ async function scan(
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
   worked: WorkedTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
-  registryOrder: RepoSlug[],
 ): Promise<Selection | undefined> {
   const outcomes: ProjectOutcome[] = [];
   const candidates: Candidate[] = [];
@@ -268,9 +262,6 @@ async function scan(
   // "selected" immune to this scan even when it wins again — its first
   // "selected" outcome is the one the invocation reports.
   for (const found of outcomes) {
-    if (!registryOrder.includes(found.repo)) {
-      registryOrder.push(found.repo);
-    }
     if (outcomesByRepo.get(found.repo)?.verdict !== "selected") {
       outcomesByRepo.set(found.repo, found);
     }
