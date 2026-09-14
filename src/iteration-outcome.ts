@@ -151,6 +151,7 @@ export interface LimitRefused {
   kind: "limit-refused";
   /** What the provider said. */
   limitRefusal: string;
+  /** As `Failed.tokensUsed`: always set, whatever the sandbox spent before the provider refused. */
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
@@ -162,6 +163,8 @@ export interface LimitRefused {
 export interface Finished {
   kind: "finished";
   run: RunFinished;
+  /** As `Failed.tokensUsed`: always set, a run having finished. */
+  tokensUsed: TokenCount;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
@@ -192,7 +195,12 @@ export interface Failed {
   failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: RunOutcome;
-  /** What a review that ran spent, since it has no `run`. */
+  /**
+   * What ran spent, carried the same way whether it was a run's failure or a
+   * review's — so the summary reads it without telling the two apart. Absent
+   * only when the ticket was handed back before a sandbox call was ever made:
+   * an infrastructure failure, or model labels naming no run to start.
+   */
   tokensUsed?: TokenCount;
 }
 
@@ -224,6 +232,8 @@ export type IterationOutcome =
 export interface Reviewed {
   kind: "reviewed";
   review: ReviewFinished;
+  /** As `Failed.tokensUsed`: always set, a review having finished. */
+  tokensUsed: TokenCount;
   /**
    * Set when the loop could not finish the ticket off: the pull request could
    * not be checked for the posted comment, or the ticket could not be closed.
@@ -251,6 +261,8 @@ export interface AppliedReview {
   kind: "applied-review";
   /** The run. Absent when no thread was open to answer, so nothing ran. */
   review?: ReviewFinished;
+  /** As `Failed.tokensUsed`: absent exactly when `review` is, nothing having run. */
+  tokensUsed?: TokenCount;
   /**
    * The replies the run posted, by verdict. Absent when nothing ran, and when
    * they could not be read — `notClosed` says so.

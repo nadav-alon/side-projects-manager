@@ -309,22 +309,13 @@ function waitingOnFailure(
 }
 
 /**
- * What one iteration's run or review cost. Absent only for a run that never
- * started — an infrastructure failure before the sandbox spent anything.
+ * What one iteration's run or review cost — one field every kind carries the
+ * same way, so this needs nothing to tell a run and a review apart. Absent
+ * only for a run that never started — an infrastructure failure before the
+ * sandbox spent anything.
  */
 function costOf(iteration: IterationOutcome): TokenCount | undefined {
-  switch (iteration.kind) {
-    case "reviewed":
-      return iteration.review.tokensUsed;
-    case "applied-review":
-      return iteration.review?.tokensUsed;
-    case "limit-refused":
-      return iteration.tokensUsed;
-    case "failed":
-      return iteration.run?.tokensUsed ?? iteration.tokensUsed;
-    case "finished":
-      return iteration.run.tokensUsed;
-  }
+  return iteration.tokensUsed;
 }
 
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */
