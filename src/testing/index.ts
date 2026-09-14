@@ -14,7 +14,8 @@ export {
   type FakePullRequest,
   type FakePush,
 } from "./fake-repo-host.ts";
-export { FakeSandbox, LIMIT_REFUSAL } from "./fake-sandbox.ts";
+export { FakeSandbox } from "./fake-sandbox.ts";
+export { LIMIT_REFUSAL } from "./limit-refusal.ts";
 export {
   callWith,
   emptyBacklogGh,

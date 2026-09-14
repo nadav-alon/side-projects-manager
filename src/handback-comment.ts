@@ -6,8 +6,12 @@ import type {
 } from "./iteration-outcome.ts";
 import type {
   PullRequestUrl,
-  ReviewRunResult,
-  SandboxRunResult,
+  ReviewFinished,
+  ReviewGaveUp,
+  RunFinished,
+  RunGaveUp,
+  RunModelRefused,
+  RunOutcome,
   Ticket,
 } from "./ports/index.ts";
 import {
@@ -57,22 +61,24 @@ const REASON_QUOTED = 4_000;
  */
 export function handbackComment(
   failure: GaveUp,
-  run: SandboxRunResult | undefined,
+  run: RunGaveUp,
   discard: Discard,
 ): string {
-  return gaveUpComment(failure, run?.output ?? "", branchNote(run, discard));
+  return gaveUpComment(failure, run.output, branchNote(run, discard));
 }
 
 /**
  * What a review ticket is told when the agent gave up on its review: it said
- * it could not, or it posted nothing. The pull request is not checked for a
+ * it could not, or it posted nothing — which is why `review` also accepts a
+ * review that finished cleanly but posted no findings, not only one the CLI
+ * itself reports as `"gave-up"`. The pull request is not checked for a
  * comment from an agent that gave up — whatever it posted is not a finished
  * review — so either way the ticket is the developer's again. A review leaves
  * no branch, so there is nothing to say about one.
  */
 export function reviewHandbackComment(
   failure: GaveUp,
-  review: ReviewRunResult,
+  review: ReviewFinished | ReviewGaveUp,
 ): string {
   return gaveUpComment(failure, review.output, []);
 }
@@ -101,7 +107,7 @@ function gaveUpComment(
 export function modelRefusalComment(
   ticket: Ticket,
   failure: ModelRefused,
-  run: SandboxRunResult | undefined,
+  run: RunModelRefused | undefined,
   discard: Discard,
 ): string {
   const model = `\`${failure.refusal.model}\``;
@@ -212,12 +218,10 @@ export function handoverFailureComment(failure: HandoverFailed): string {
  * the agent every tool it had — eighteen tickets were handed back as work the
  * agent declined to do, each carrying a comment that said nothing about why.
  */
-export function committedNothingComment(
-  run: SandboxRunResult | undefined,
-): string {
+export function committedNothingComment(run: RunFinished): string {
   return [
     `The morning loop ran this ticket and committed nothing.`,
-    `What it said:\n\n${quote(run?.output ?? "")}`,
+    `What it said:\n\n${quote(run.output)}`,
     notRetried(),
   ].join("\n\n");
 }
@@ -233,10 +237,7 @@ function notRetried(fix?: string): string {
 }
 
 /** What the developer will find in the checkout, when it is worth saying. */
-function branchNote(
-  run: SandboxRunResult | undefined,
-  discard: Discard,
-): string[] {
+function branchNote(run: RunOutcome | undefined, discard: Discard): string[] {
   switch (discard.kind) {
     case "none":
       return [];

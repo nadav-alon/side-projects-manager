@@ -45,11 +45,19 @@ export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
 export type {
   ModelRefusal,
+  ReviewFinished,
+  ReviewGaveUp,
+  ReviewLimitRefused,
+  ReviewModelRefused,
+  ReviewOutcome,
   ReviewRequest,
-  ReviewRunResult,
+  RunFinished,
+  RunGaveUp,
+  RunLimitRefused,
+  RunModelRefused,
+  RunOutcome,
   RunRequest,
   Sandbox,
-  SandboxRunResult,
 } from "./sandbox.ts";
 export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
 export type { TicketPriority } from "./ticket-priority.ts";

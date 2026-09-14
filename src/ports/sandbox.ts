@@ -55,59 +55,108 @@ export interface ModelRefusal {
   words: string;
 }
 
-export interface SandboxRunResult {
-  /** Branch the agent left its commits on. */
-  branch: Branch;
-  commits: string[];
-  /** The agent's own output, for the ticket comment on failure. */
-  output: string;
+/** Tokens a run or a review consumed. True of every way either can end. */
+interface Ended {
   /** Tokens the run consumed, fed back to the ledger and the summary. */
   tokensUsed: TokenCount;
-  /**
-   * Why the run did not finish cleanly, absent when it did.
-   *
-   * A failed agent is still a run: it spent tokens, it may have committed
-   * before it fell over, and what it said is what a person needs to read. So
-   * the failure is reported alongside that rather than thrown in place of it,
-   * and a caller that ignores this field must not read the result as success.
-   */
-  failure?: string;
-  /**
-   * What the provider said when the provider limit refused the run, absent
-   * when it did not. Set instead of `failure`, never beside it: the limit is
-   * nobody's problem with the ticket, and a caller that read it as an agent
-   * giving up would hand back every ticket the limit touches.
-   */
-  limitRefusal?: string;
-  /**
-   * Set instead of `failure` and `limitRefusal`, never beside either, when
-   * `RunRequest.model` was refused by the agent CLI rather than run.
-   */
-  modelRefusal?: ModelRefusal;
 }
 
-/** What a reviewing agent's run in the container came back with. */
-export interface ReviewRunResult {
+/**
+ * The branch an implementation run worked on, and what it committed there.
+ * True of every variant an implementation run can end as — the branch is
+ * created before the agent starts, so even a run refused before the agent did
+ * anything still leaves one, empty of commits. A review has neither: it
+ * never creates a branch.
+ */
+interface Worked {
+  /** Branch the agent worked on. */
+  branch: Branch;
+  commits: string[];
+}
+
+/** The agent ran to completion. */
+export interface RunFinished extends Ended, Worked {
+  kind: "finished";
+  /** The agent's own output, for the ticket comment when it committed nothing. */
+  output: string;
+}
+
+/** As `RunFinished`, for a review: there is no branch or commits to carry. */
+export interface ReviewFinished extends Ended {
+  kind: "finished";
   /** The reviewer's own output: what it posted, or why it could not. */
   output: string;
-  tokensUsed: TokenCount;
-  /** Why the run did not finish cleanly, absent when it did. */
-  failure?: string;
-  /** As `SandboxRunResult.limitRefusal`. */
-  limitRefusal?: string;
-  /** As `SandboxRunResult.modelRefusal`. */
-  modelRefusal?: ModelRefusal;
 }
+
+/** The agent ran and stopped short: it said it could not, or left the tests red. */
+export interface RunGaveUp extends Ended, Worked {
+  kind: "gave-up";
+  /** The agent's own output, kept for the ticket comment. */
+  output: string;
+  /** Why the run did not finish cleanly. */
+  reason: string;
+}
+
+/** As `RunGaveUp`, for a review. */
+export interface ReviewGaveUp extends Ended {
+  kind: "gave-up";
+  output: string;
+  reason: string;
+}
+
+/**
+ * The provider limit refused the run: the agent CLI's whole answer is the
+ * provider's own words, reset included.
+ */
+export interface RunLimitRefused extends Ended, Worked {
+  kind: "limit-refused";
+  /** What the provider said, word for word. */
+  words: string;
+}
+
+/** As `RunLimitRefused`, for a review. */
+export interface ReviewLimitRefused extends Ended {
+  kind: "limit-refused";
+  words: string;
+}
+
+/** `RunRequest.model` was refused by the agent CLI rather than run. */
+export interface RunModelRefused extends Ended, Worked {
+  kind: "model-refused";
+  refusal: ModelRefusal;
+}
+
+/** As `RunModelRefused`, for a review. */
+export interface ReviewModelRefused extends Ended {
+  kind: "model-refused";
+  refusal: ModelRefusal;
+}
+
+/**
+ * How a run in the container ended, as exactly one variant: finished, gave
+ * up, was refused by the provider limit, or was refused the model it was
+ * asked to run on. Told apart by `kind`, and nothing else — a caller that
+ * matches on it exhaustively needs no other field to know which is which.
+ */
+export type RunOutcome = RunFinished | RunGaveUp | RunLimitRefused | RunModelRefused;
+
+/** As `RunOutcome`, for a review — with no branch or commits on any variant. */
+export type ReviewOutcome =
+  | ReviewFinished
+  | ReviewGaveUp
+  | ReviewLimitRefused
+  | ReviewModelRefused;
 
 /**
  * Runs a coding agent against one ticket, in a container, on a checkout of its
  * own. The loop never runs an agent on the host.
  *
- * Implementations run one agent at a time within a process: concurrent calls
- * queue rather than overlap. Sequential runs are what keeps a morning's spend
- * predictable and what lets the budget gate mean anything, so the guarantee
- * lives here rather than in each caller. Two invocations of the manager are a
- * separate problem, and #15's once-per-day lock is what answers it.
+ * Runs and reviews run side by side, on one checkout or several: an
+ * implementation does not wait for another implementation, or for a review,
+ * to finish first. See ADR-0003 for why the budget gate accepts the
+ * overshoot that comes with it, and the container adapter's own doc comment
+ * for what still serializes on one checkout — the git steps around an
+ * agent's work, never the agent itself.
  */
 export interface Sandbox {
   /**
@@ -118,10 +167,16 @@ export interface Sandbox {
    *
    * Rejects only when the sandbox itself could not be set up or taken down,
    * which includes a container that could not start the agent at all. An
-   * agent that ran and failed comes back as a result carrying `failure`,
+   * agent that ran and failed comes back as a result carrying `"gave-up"`,
    * because its commits, its output and its spend are all still the morning's.
+   *
+   * A request naming no model can never come back refused for one: that
+   * variant of `RunOutcome` is excluded from what this overload returns,
+   * since nothing was asked of the agent CLI for it to refuse.
    */
-  run(request: RunRequest): Promise<SandboxRunResult>;
+  run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
+  run(request: RunRequest & { model?: undefined }): Promise<Exclude<RunOutcome, RunModelRefused>>;
+
   /**
    * Runs a reviewing agent against `request.ticket.pullRequest`, in a
    * container with no context from the run that produced it — a fresh
@@ -134,8 +189,10 @@ export interface Sandbox {
    * attempt to commit or push fails whatever is tried and wherever it is
    * tried from (see the container adapter's `Mount` for the full story).
    *
-   * Queues behind, and ahead of, calls to `run` on the same instance: reviews
-   * and implementations still share the one budgeted lane.
+   * As `run`, a review naming no model can never come back refused for one.
    */
-  review(request: ReviewRequest): Promise<ReviewRunResult>;
+  review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
+  review(
+    request: ReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
 }

@@ -6,9 +6,11 @@ import type {
   ModelRefusal,
   PullRequestUrl,
   RepoSlug,
-  ReviewRunResult,
+  ReviewFinished,
   ReviewTicket,
-  SandboxRunResult,
+  RunFinished,
+  RunLimitRefused,
+  RunOutcome,
   Ticket,
   TokenCount,
 } from "./ports/index.ts";
@@ -145,7 +147,7 @@ export interface LimitRefused {
   limitRefusal: string;
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
-  run?: SandboxRunResult;
+  run?: RunLimitRefused;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
@@ -153,7 +155,7 @@ export interface LimitRefused {
 /** An iteration whose run finished, and how its work reached the developer. */
 export interface Finished {
   kind: "finished";
-  run: SandboxRunResult;
+  run: RunFinished;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
@@ -183,7 +185,7 @@ export interface Failed {
   kind: "failed";
   failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
-  run?: SandboxRunResult;
+  run?: RunOutcome;
   /** What a review that ran spent, since it has no `run`. */
   tokensUsed?: TokenCount;
 }
@@ -214,7 +216,7 @@ export type IterationOutcome =
  */
 export interface Reviewed {
   kind: "reviewed";
-  review: ReviewRunResult;
+  review: ReviewFinished;
   /**
    * Set when the loop could not finish the ticket off: the pull request could
    * not be checked for the posted comment, or the ticket could not be closed.

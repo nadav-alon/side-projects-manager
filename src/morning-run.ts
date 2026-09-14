@@ -11,11 +11,14 @@ import type {
   RegisteredProject,
   RepoHost,
   RepoSlug,
-  ReviewRunResult,
+  ReviewFinished,
+  ReviewGaveUp,
+  ReviewOutcome,
   ReviewTicket,
   RunCost,
+  RunFinished,
+  RunOutcome,
   Sandbox,
-  SandboxRunResult,
   State,
   Store,
   Ticket,
@@ -638,20 +641,20 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
 /**
  * A model refusal, as the failure its ticket is handed back with.
  *
- * Throws when the run was given no model: the sandbox reports a refusal only
- * for a model it was handed, so one arriving without is the port breaking its
- * contract, not something to read as any other kind of run.
+ * `source` is worked out again from `ticket` rather than threaded through
+ * from `resolveModel`'s own answer: a `"model-refused"` outcome can only come
+ * back from a run the sandbox was actually given a model for (`Sandbox.run`'s
+ * own overload rules that out for a run given none), and the model it names
+ * is always the one that run was given — so which of the ticket's own model
+ * label or the model defaults that was is a fact of `ticket`, not something
+ * this needs handed to it separately, and there is no "given no model" case
+ * left here to guard against.
  */
-function modelRefused(
-  refusal: ModelRefusal,
-  model: ResolvedModel | undefined,
-): ModelRefused {
-  if (model === undefined) {
-    throw new Error(
-      `the sandbox reported the model ${refusal.model} refused for a run given no model`,
-    );
-  }
-  const { source } = model;
+function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
+  const source: ModelSource =
+    ticket.modelLabel?.kind === "named" && ticket.modelLabel.name === refusal.model
+      ? "model label"
+      : "model defaults";
   return {
     kind: "model-refused",
     reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
@@ -803,18 +806,22 @@ async function work(
     return returned;
   }
 
+  // A variant is exactly one kind, so nothing here turns on the order the
+  // three failing kinds are checked in — unlike the field-presence checks
+  // this replaced, which had to run limit refusal before model refusal
+  // before a bare failure to read a run the same way every time.
   const { run, checkout } = returned;
-  if (run.limitRefusal !== undefined) {
+  if (run.kind === "limit-refused") {
     return {
       kind: "limit-refused",
-      limitRefusal: run.limitRefusal,
+      limitRefusal: run.words,
       tokensUsed: run.tokensUsed,
       run,
       discard: await discardBranch(ports, checkout, run),
     };
   }
-  if (run.modelRefusal !== undefined) {
-    const failure = modelRefused(run.modelRefusal, model);
+  if (run.kind === "model-refused") {
+    const failure = modelRefused(selection.ticket, run.refusal);
     const discard = await discardBranch(ports, checkout, run);
     return handTicketBack(
       ports,
@@ -824,7 +831,7 @@ async function work(
       run,
     );
   }
-  if (run.failure === undefined) {
+  if (run.kind === "finished") {
     return handOver(ports, run, checkout, selection.ticket);
   }
 
@@ -835,7 +842,7 @@ async function work(
   const discard = await discardBranch(ports, checkout, run);
   const failure: GaveUp = {
     kind: "gave-up",
-    reason: run.failure,
+    reason: run.reason,
     handedBack: false,
   };
   return handTicketBack(
@@ -866,7 +873,7 @@ async function work(
  */
 async function handOver(
   ports: MorningLoopPorts,
-  run: SandboxRunResult,
+  run: RunFinished,
   checkout: Checkout,
   ticket: Ticket,
 ): Promise<Finished | Failed> {
@@ -945,7 +952,7 @@ async function handOver(
 async function handoverFailed(
   ports: MorningLoopPorts,
   ticket: Ticket,
-  run: SandboxRunResult,
+  run: RunFinished,
   reason: string,
   where: HandoverReach,
 ): Promise<Failed> {
@@ -1001,7 +1008,7 @@ async function handTicketBack(
   ticket: Ticket,
   failure: HandedBackFailure,
   comment: string,
-  run?: SandboxRunResult,
+  run?: RunOutcome,
 ): Promise<Failed> {
   try {
     await ports.tracker.handBack(ticket, comment);
@@ -1035,7 +1042,7 @@ async function handTicketBack(
 async function discardBranch(
   ports: MorningLoopPorts,
   checkout: Checkout,
-  run: SandboxRunResult,
+  run: RunOutcome,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -1054,7 +1061,7 @@ async function discardBranch(
 /** A run the sandbox carried out, whatever the agent made of it. */
 interface Ran {
   kind: "ran";
-  run: SandboxRunResult;
+  run: RunOutcome;
   checkout: Checkout;
 }
 
@@ -1068,7 +1075,7 @@ interface Ran {
  * The two ways a run ends badly are told apart by where they surface: the
  * sandbox port rejects only when it could not set itself up, start the agent,
  * or tear itself down, and reports an agent that gave up as a result carrying
- * `failure`.
+ * the `"gave-up"` variant.
  */
 async function attemptRun(
   ports: MorningLoopPorts,
@@ -1080,15 +1087,27 @@ async function attemptRun(
   const repo = selection.project.repo;
 
   let checkout: Checkout;
-  let run: SandboxRunResult;
+  let run: RunOutcome;
   try {
     checkout = await ports.repoHost.clone(repo);
-    run = await ports.sandbox.run({
-      ticket: selection.ticket,
-      checkout,
-      spendCeiling,
-      ...(model !== undefined && { model: model.name }),
-    });
+    // Built as two distinct calls rather than one call with `model` spread in
+    // conditionally: `Sandbox.run` is overloaded on whether `model` is
+    // present precisely so that a run given none can never come back with a
+    // model refusal, and only a call whose own argument is plainly one shape
+    // or the other resolves to the right overload.
+    run =
+      model === undefined
+        ? await ports.sandbox.run({
+            ticket: selection.ticket,
+            checkout,
+            spendCeiling,
+          })
+        : await ports.sandbox.run({
+            ticket: selection.ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          });
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
     // token count — so there is nothing to record against the project, and no
@@ -1143,15 +1162,21 @@ async function runReview(
   model: ResolvedModel | undefined,
 ): Promise<Reviewed | LimitRefused | Failed> {
   const startedAt = ports.clock.now();
-  let review: ReviewRunResult;
+  let review: ReviewOutcome;
   try {
     const checkout = await ports.repoHost.clone(repo);
-    review = await ports.sandbox.review({
-      ticket,
-      checkout,
-      spendCeiling,
-      ...(model !== undefined && { model: model.name }),
-    });
+    // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
+    // overload that actually matches, rather than one call TypeScript could
+    // not resolve to either.
+    review =
+      model === undefined
+        ? await ports.sandbox.review({ ticket, checkout, spendCeiling })
+        : await ports.sandbox.review({
+            ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          });
   } catch (error: unknown) {
     return infrastructureFailure(error);
   }
@@ -1164,18 +1189,18 @@ async function runReview(
     }),
   );
 
-  if (review.limitRefusal !== undefined) {
+  if (review.kind === "limit-refused") {
     return {
       kind: "limit-refused",
-      limitRefusal: review.limitRefusal,
+      limitRefusal: review.words,
       tokensUsed: review.tokensUsed,
       discard: { kind: "none" },
     };
   }
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
-  if (review.modelRefusal !== undefined) {
-    const failure = modelRefused(review.modelRefusal, model);
+  if (review.kind === "model-refused") {
+    const failure = modelRefused(ticket, review.refusal);
     return {
       ...(await handTicketBack(
         ports,
@@ -1187,8 +1212,8 @@ async function runReview(
     };
   }
 
-  if (review.failure !== undefined) {
-    return handReviewBack(ports, ticket, review, review.failure);
+  if (review.kind === "gave-up") {
+    return handReviewBack(ports, ticket, review, review.reason);
   }
 
   let posted: boolean;
@@ -1226,7 +1251,7 @@ async function runReview(
 async function handReviewBack(
   ports: MorningLoopPorts,
   ticket: ReviewTicket,
-  review: ReviewRunResult,
+  review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
