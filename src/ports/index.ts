@@ -33,6 +33,8 @@ export type {
 } from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
+export { isMilliseconds, milliseconds } from "./milliseconds.ts";
+export type { Milliseconds } from "./milliseconds.ts";
 export type { ModelDefaults } from "./model-defaults.ts";
 export { MODEL_NAME_SHAPE, isModelName, modelName } from "./model-name.ts";
 export type { ModelName } from "./model-name.ts";
