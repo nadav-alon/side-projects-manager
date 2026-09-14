@@ -9,7 +9,7 @@ import type {
   SandboxRunResult,
   Ticket,
 } from "../ports/index.ts";
-import { branch, tokenCount } from "../ports/index.ts";
+import { branch, ticketKey, tokenCount } from "../ports/index.ts";
 import { gate } from "./gate.ts";
 
 /** What the agent CLI says, and all it says, once the provider limit refuses a run. */
@@ -75,9 +75,7 @@ export class FakeSandbox implements Sandbox {
   /** Lets the held run or review on `ticket` finish. Throws if none is held. */
   release(ticket: Ticket): void {
     const index = this.#held.findIndex(
-      (entry) =>
-        entry.ticket.repo === ticket.repo &&
-        entry.ticket.number === ticket.number,
+      (entry) => ticketKey(entry.ticket) === ticketKey(ticket),
     );
     const [entry] = index === -1 ? [] : this.#held.splice(index, 1);
     if (entry === undefined) {
