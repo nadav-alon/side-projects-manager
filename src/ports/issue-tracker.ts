@@ -198,6 +198,62 @@ export function backlogIn(open: OpenIssues): Backlog {
   return { tickets, truncated: open.truncated };
 }
 
+/**
+ * The ticket priority of each issue in `open` that has one, by issue number,
+ * per `CONTEXT.md`'s "Ticket priority": the smallest of its own priority
+ * label and that of every issue reaching it by stepping, in any mix, from a
+ * parent to its sub-issues and from a blocked issue to its open blockers.
+ * Never the other way. An issue absent from the map has no ticket priority.
+ *
+ * Only issues in `open` pass anything on: a parent or blocker number not
+ * among them — closed, in another repo, or not read — contributes nothing.
+ *
+ * Labels are spread smallest level first, and an issue keeps the first level
+ * that reaches it, so each issue is visited once and cycles end.
+ */
+export function ticketPrioritiesIn(
+  open: OpenIssues,
+): ReadonlyMap<number, TicketPriority> {
+  const passesTo = new Map<number, number[]>();
+  const read = new Set(open.issues.map((issue) => issue.number));
+  const edge = (from: number, to: number) => {
+    if (read.has(from) && read.has(to)) {
+      const tos = passesTo.get(from) ?? [];
+      tos.push(to);
+      passesTo.set(from, tos);
+    }
+  };
+  for (const issue of open.issues) {
+    if (issue.parent !== undefined) {
+      edge(issue.parent, issue.number);
+    }
+    for (const blocker of issue.openBlockerNumbers) {
+      edge(issue.number, blocker);
+    }
+  }
+
+  const labelled = open.issues
+    .filter((issue) => issue.priority !== undefined)
+    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+  const priorities = new Map<number, TicketPriority>();
+  for (const { number, priority } of labelled) {
+    if (priority === undefined || priorities.has(number)) {
+      continue;
+    }
+    const reached = [number];
+    priorities.set(number, priority);
+    for (let next = reached.pop(); next !== undefined; next = reached.pop()) {
+      for (const to of passesTo.get(next) ?? []) {
+        if (!priorities.has(to)) {
+          priorities.set(to, priority);
+          reached.push(to);
+        }
+      }
+    }
+  }
+  return priorities;
+}
+
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
 export type ReviewTicket = Ticket & { pullRequest: PullRequestUrl };
 

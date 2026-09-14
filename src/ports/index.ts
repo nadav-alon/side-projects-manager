@@ -23,6 +23,7 @@ export {
   modelLabelOf,
   reviewTitle,
   ticketKind,
+  ticketPrioritiesIn,
 } from "./issue-tracker.ts";
 export type {
   Backlog,
