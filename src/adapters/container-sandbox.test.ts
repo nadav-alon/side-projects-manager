@@ -34,24 +34,14 @@ import { gate, HANGS, LIMIT_REFUSAL } from "../testing/index.ts";
 
 const run = promisify(execFile);
 
-/** The finished variant of `result`, absent if it ended any other way. */
-function finished(result: RunOutcome | ReviewOutcome) {
-  return result.kind === "finished" ? result : undefined;
-}
-
-/** The gave-up variant of `result`, absent if it ended any other way. */
-function gaveUp(result: RunOutcome | ReviewOutcome) {
-  return result.kind === "gave-up" ? result : undefined;
-}
-
-/** The limit-refused variant of `result`, absent if it ended any other way. */
-function limitRefused(result: RunOutcome | ReviewOutcome) {
-  return result.kind === "limit-refused" ? result : undefined;
-}
-
-/** The model-refused variant of `result`, absent if it ended any other way. */
-function modelRefused(result: RunOutcome | ReviewOutcome) {
-  return result.kind === "model-refused" ? result : undefined;
+/** The `kind` variant of `result`, absent if it ended any other way. */
+function variant<
+  Outcome extends RunOutcome | ReviewOutcome,
+  Kind extends Outcome["kind"],
+>(result: Outcome, kind: Kind): Extract<Outcome, { kind: Kind }> | undefined {
+  return result.kind === kind
+    ? (result as Extract<Outcome, { kind: Kind }>)
+    : undefined;
 }
 
 const TICKET: Ticket = {
@@ -349,7 +339,7 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
-    assert.equal(finished(result)?.output, "implemented the thing");
+    assert.equal(variant(result, "finished")?.output, "implemented the thing");
     assert.equal(result.tokensUsed, tokenCount(42_000));
   });
 
@@ -397,8 +387,8 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
-    assert.match(gaveUp(result)?.reason ?? "", /gave up/);
-    assert.match(gaveUp(result)?.output ?? "", /gave up/);
+    assert.match(variant(result, "gave-up")?.reason ?? "", /gave up/);
+    assert.match(variant(result, "gave-up")?.output ?? "", /gave up/);
     assert.equal(result.commits.length, 1);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
   });
@@ -418,7 +408,7 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "limit-refused");
-    assert.equal(limitRefused(result)?.words, LIMIT_REFUSAL);
+    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
 
   it("reports a limit refusal even when the CLI exits zero", async () => {
@@ -430,7 +420,7 @@ describe("containerSandbox", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(limitRefused(result)?.words, LIMIT_REFUSAL);
+    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
 
   for (const refusal of [
@@ -448,7 +438,7 @@ describe("containerSandbox", () => {
 
       const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-      assert.equal(limitRefused(result)?.words, refusal);
+      assert.equal(variant(result, "limit-refused")?.words, refusal);
     });
   }
 
@@ -468,7 +458,7 @@ describe("containerSandbox", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(limitRefused(result)?.words, LIMIT_REFUSAL);
+    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
 
   it("reads a limit refusal the CLI printed as plain text rather than an envelope", async () => {
@@ -480,7 +470,7 @@ describe("containerSandbox", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(limitRefused(result)?.words, LIMIT_REFUSAL);
+    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
 
   it("does not mistake a failed agent that quoted the limit for one refused by it", async () => {
@@ -494,7 +484,7 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(gaveUp(result)?.reason, "Command failed: docker run");
+    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
   });
 
   it("does not mistake a finished agent that mentions the limit for one refused by it", async () => {
@@ -523,7 +513,7 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "model-refused");
-    assert.deepEqual(modelRefused(result)?.refusal, {
+    assert.deepEqual(variant(result, "model-refused")?.refusal, {
       model: modelName("this-model-does-not-exist-xyz"),
       words: MODEL_REFUSAL_WORDS,
     });
@@ -542,7 +532,7 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(gaveUp(result)?.reason, "Command failed: docker run");
+    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
   });
 
   /**
@@ -606,7 +596,7 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(gaveUp(result)?.reason, "Command failed: docker run");
+    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
   });
 
   /**
@@ -932,7 +922,7 @@ describe("containerSandbox.review", () => {
     });
 
     assert.equal(result.kind, "finished");
-    assert.equal(finished(result)?.output, "posted findings");
+    assert.equal(variant(result, "finished")?.output, "posted findings");
     assert.equal(result.tokensUsed, tokenCount(9_000));
   });
 
@@ -949,8 +939,8 @@ describe("containerSandbox.review", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.match(gaveUp(result)?.reason ?? "", /gave up/);
-    assert.match(gaveUp(result)?.output ?? "", /gave up/);
+    assert.match(variant(result, "gave-up")?.reason ?? "", /gave up/);
+    assert.match(variant(result, "gave-up")?.output ?? "", /gave up/);
   });
 
   it("reports a limit refusal apart from a failed reviewer", async () => {
@@ -968,7 +958,7 @@ describe("containerSandbox.review", () => {
     });
 
     assert.equal(result.kind, "limit-refused");
-    assert.equal(limitRefused(result)?.words, LIMIT_REFUSAL);
+    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
 
   it("reports a model refusal apart from a reviewer that gave up, naming the model and the CLI's words", async () => {
@@ -985,7 +975,7 @@ describe("containerSandbox.review", () => {
     });
 
     assert.equal(result.kind, "model-refused");
-    assert.deepEqual(modelRefused(result)?.refusal, {
+    assert.deepEqual(variant(result, "model-refused")?.refusal, {
       model: modelName("this-model-does-not-exist-xyz"),
       words: MODEL_REFUSAL_WORDS,
     });
