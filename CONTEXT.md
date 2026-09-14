@@ -264,21 +264,21 @@ document is keyed by project and rewritten wholesale, while the journal is appen
 time, one record per invocation. Distinct from `trigger.log` too: that file is the raw stdout of
 whatever a trigger ran, gitignored and local to this machine, where the journal is committed and
 records outcomes rather than capturing output. Committed.
-_Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file.
+_Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
 
 **Invocation record**:
 One journal entry. Opened before the loop runs, closed with the report.
-_Avoid_: entry, row, event.
+_Avoid_: entry, row, event
 
 **In flight**:
 An invocation record that was opened and never closed. The invocation is either still running or
 died before it could close.
-_Avoid_: open, pending, stuck, orphaned.
+_Avoid_: open, pending, stuck, orphaned
 
 **Armed**:
 A trigger that is registered on this machine and still points at this manager home. Registration
 alone is not armed: a cron line naming a path that no longer exists is registered and not armed.
-_Avoid_: installed, enabled, active, live.
+_Avoid_: installed, enabled, active, live
 
 ### The seam
 
