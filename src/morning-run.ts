@@ -507,12 +507,15 @@ export async function morningLoop(
     const thrown: unknown[] = [];
     // Read from the budget before every start. Nothing is in progress before
     // the first, so there is no limit to wait on until then.
-    let limit: IterationLimit | undefined;
+    let concurrencyLimit: IterationLimit | undefined;
     const stopped = (): boolean =>
       standDown !== undefined || thrown.length > 0;
     try {
       for (;;) {
-        while (limit !== undefined && inProgress.size >= limit) {
+        while (
+          concurrencyLimit !== undefined &&
+          inProgress.size >= concurrencyLimit
+        ) {
           await Promise.race(inProgress);
         }
         if (stopped()) {
@@ -568,7 +571,7 @@ export async function morningLoop(
         }
 
         const budget = await ports.store.loadBudget();
-        limit = budget.maxConcurrentIterations;
+        concurrencyLimit = budget.maxConcurrentIterations;
         const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
