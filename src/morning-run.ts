@@ -479,7 +479,7 @@ export async function morningLoop(
   const startedAt = ports.clock.now();
   // One slot per iteration, in the order they started. A slot is left empty
   // only by an iteration that threw.
-  const started: (IterationOutcome | undefined)[] = [];
+  const outcomeSlots: (IterationOutcome | undefined)[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
   // rather than snapshotted from the first scan, so a project the developer
@@ -557,7 +557,7 @@ export async function morningLoop(
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
-          started.push({
+          outcomeSlots.push({
             repo: scan.selection.project.repo,
             ticket,
             ...(await handTicketBack(
@@ -593,8 +593,8 @@ export async function morningLoop(
         const { repo } = scan.selection.project;
         const model = resolveModel(ticket, modelDefaults);
         // Reported where it started, however long it then takes to finish.
-        const slot = started.push(undefined) - 1;
-        const settled: Promise<void> = work(
+        const slot = outcomeSlots.push(undefined) - 1;
+        const completion: Promise<void> = work(
           ports,
           scan.selection,
           projects,
@@ -603,7 +603,7 @@ export async function morningLoop(
         )
           .then(
             (iteration) => {
-              started[slot] = {
+              outcomeSlots[slot] = {
                 repo,
                 ticket,
                 ...(model !== undefined && { model: model.name }),
@@ -632,8 +632,8 @@ export async function morningLoop(
               thrown.push(error);
             },
           )
-          .finally(() => inProgress.delete(settled));
-        inProgress.add(settled);
+          .finally(() => inProgress.delete(completion));
+        inProgress.add(completion);
       }
     } finally {
       // Never rejects: each iteration's own settling catches what it threw.
@@ -662,7 +662,7 @@ export async function morningLoop(
     invocationFailure = errorMessage(error);
   }
 
-  const iterations = started.filter(
+  const iterations = outcomeSlots.filter(
     (iteration): iteration is IterationOutcome => iteration !== undefined,
   );
   const outcomes = registryOrder.map(
