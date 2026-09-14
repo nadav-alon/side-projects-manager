@@ -2,7 +2,7 @@
 # Registers the two triggers docs/specs/morning-loop.md calls for: a daily
 # schedule (cron) and a first-logon-of-the-day guard (a shell rc snippet).
 # Both just call guarded-morning-run.ts (src/bin/guarded-morning-run.ts); the
-# once-per-day lock inside it is what stops them double-firing, so neither
+# invocation lease inside it is what stops them double-firing, so neither
 # registration here needs to know about the other.
 #
 # Idempotent: re-running leaves an up-to-date registration alone, and rewrites

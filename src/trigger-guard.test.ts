@@ -1,70 +1,50 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { FakeClock, FakeTriggerLock } from "./testing/index.ts";
-import { invokeOncePerDay } from "./trigger-guard.ts";
+import { FakeInvocationLease } from "./testing/index.ts";
+import { invokeExclusively } from "./trigger-guard.ts";
 
-describe("invokeOncePerDay", () => {
-  it("invokes the first caller for a day", async () => {
+describe("invokeExclusively", () => {
+  it("invokes when the lease is acquired", async () => {
     let invoked = 0;
-    const claimed = await invokeOncePerDay(new FakeTriggerLock(), new FakeClock(), async () => {
+    const ran = await invokeExclusively(new FakeInvocationLease(), async () => {
       invoked += 1;
     });
 
-    assert.equal(claimed, true);
+    assert.equal(ran, true);
     assert.equal(invoked, 1);
   });
 
-  it("skips a second caller the same day, whichever trigger it is", async () => {
-    const lock = new FakeTriggerLock();
-    const clock = new FakeClock();
+  it("skips when the lease is refused", async () => {
+    const lease = new FakeInvocationLease();
+    await lease.acquire();
     let invoked = 0;
-    const invoke = async () => {
+
+    const ran = await invokeExclusively(lease, async () => {
       invoked += 1;
-    };
+    });
 
-    const first = await invokeOncePerDay(lock, clock, invoke);
-    const second = await invokeOncePerDay(lock, clock, invoke);
-
-    assert.equal(first, true);
-    assert.equal(second, false);
-    assert.equal(invoked, 1, "the loop fires exactly once");
+    assert.equal(ran, false);
+    assert.equal(invoked, 0);
   });
 
-  it("invokes again once the calendar day changes", async () => {
-    const lock = new FakeTriggerLock();
-    let invoked = 0;
-    const invoke = async () => {
-      invoked += 1;
-    };
+  it("releases the lease after the invocation", async () => {
+    const lease = new FakeInvocationLease();
 
-    await invokeOncePerDay(lock, new FakeClock(new Date("2026-01-01T23:00:00")), invoke);
-    const nextDay = await invokeOncePerDay(
-      lock,
-      new FakeClock(new Date("2026-01-02T01:00:00")),
-      invoke,
-    );
+    await invokeExclusively(lease, async () => {});
 
-    assert.equal(nextDay, true);
-    assert.equal(invoked, 2);
+    assert.equal(await lease.acquire(), true, "the lease is free again");
   });
 
-  it("leaves the day claimed even when the invocation throws", async () => {
-    const lock = new FakeTriggerLock();
-    const clock = new FakeClock();
+  it("releases the lease even when the invocation throws", async () => {
+    const lease = new FakeInvocationLease();
 
     await assert.rejects(
-      invokeOncePerDay(lock, clock, async () => {
+      invokeExclusively(lease, async () => {
         throw new Error("the sandbox never came up");
       }),
     );
 
-    let invoked = false;
-    const second = await invokeOncePerDay(lock, clock, async () => {
-      invoked = true;
-    });
-
-    assert.equal(second, false, "the failed run still claimed the day");
-    assert.equal(invoked, false);
+    assert.equal(await lease.acquire(), true, "the lease is free again");
   });
 });

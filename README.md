@@ -31,13 +31,15 @@ the logon guard and any future cloud trigger are callers of `morningLoop` exactl
 Two triggers fire the loop: a daily schedule and a guard that catches a day the machine was off
 overnight by firing on first logon instead. Both call
 [`src/bin/guarded-morning-run.ts`](src/bin/guarded-morning-run.ts) rather than `morning-run.ts`
-directly — it wraps the same entry point in a once-per-day lock
-([`src/trigger-guard.ts`](src/trigger-guard.ts)), so whichever of the two gets there first for a
-calendar day runs the loop and the other is a no-op. The lock is a file per claimed day
-([`src/adapters/file-trigger-lock.ts`](src/adapters/file-trigger-lock.ts)), created exclusively so two
-triggers racing for the same day can't both believe they won, and claimed before the loop runs so a
-run that fails still leaves the day claimed. `morning-run.ts` itself carries none of this — it stays
-directly callable, unguarded, exactly as before.
+directly — it wraps the same entry point in an invocation lease
+([`src/trigger-guard.ts`](src/trigger-guard.ts)), so whichever firing acquires it runs the loop and
+every other firing, however long the first one takes, is a no-op that says an invocation is already
+running. The lease is a single file holding the holder's pid
+([`src/adapters/file-invocation-lease.ts`](src/adapters/file-invocation-lease.ts)), created
+exclusively so two firings racing for it can't both believe they won; a lease whose holder's pid is
+no longer alive is stale and is taken over, so a process killed mid-run doesn't stop the loop for
+good. `morning-run.ts` itself carries none of this — it stays directly callable, unguarded, exactly as
+before.
 
 `npm run triggers:install` ([`scripts/install-triggers.sh`](scripts/install-triggers.sh)) registers
 both on the current machine: a cron line for the schedule, and a snippet appended to `~/.bashrc` and
@@ -96,7 +98,7 @@ is applied. If the tracker itself cannot be reached, the summary says the ticket
 `ready-for-agent` and needs relabelling by hand.
 
 Runs are serialized within one process — a second run waits for the first rather than starting a
-container beside it. Two separate invocations are covered separately, by the once-per-day lock —
+container beside it. Two separate invocations are covered separately, by the invocation lease —
 see [Triggers](#triggers) below. Build the image with
 `npm run sandbox:build`, and export `CLAUDE_CODE_OAUTH_TOKEN` before a run — the container
 authenticates on the subscription, not on a metered API key. Export `GH_TOKEN` (or `GITHUB_TOKEN`;
