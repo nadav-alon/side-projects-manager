@@ -48,6 +48,17 @@ export type {
 } from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
+export { JOURNAL_LIMIT, isProcessId, processId } from "./journal.ts";
+export type {
+  InvocationClosing,
+  InvocationHandle,
+  InvocationOutcome,
+  InvocationRecord,
+  Journal,
+  JournaledProject,
+  OpenInvocation,
+  ProcessId,
+} from "./journal.ts";
 export { isMilliseconds, milliseconds } from "./milliseconds.ts";
 export type { Milliseconds } from "./milliseconds.ts";
 export type { ModelDefaults } from "./model-defaults.ts";

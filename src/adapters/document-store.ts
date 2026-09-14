@@ -4,8 +4,16 @@ import path from "node:path";
 import type {
   Budget,
   Day,
+  InvocationClosing,
+  InvocationHandle,
+  InvocationOutcome,
+  InvocationRecord,
+  Journal,
+  JournaledProject,
   ModelDefaults,
   ModelName,
+  OpenInvocation,
+  ProcessId,
   ProjectState,
   TokenCount,
   RegisteredProject,
@@ -20,6 +28,7 @@ import type {
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
+  JOURNAL_LIMIT,
   MODEL_NAME_SHAPE,
   SIZES,
   TICKET_KINDS,
@@ -28,6 +37,7 @@ import {
   isIterationLimit,
   isModelName,
   isPriority,
+  isProcessId,
   isRepoSlug,
   isSize,
   workedTicket,
@@ -42,15 +52,17 @@ const REGISTRY_FILE = "registry.json";
 const BUDGET_FILE = "budget.json";
 const STATE_FILE = "state.json";
 const MODELS_FILE = "models.json";
+const JOURNAL_FILE = "journal.json";
 
 /**
- * The registry, budget, model defaults and state documents as JSON files
- * under `home`.
+ * The registry, budget, model defaults, state and journal documents as JSON
+ * files under `home`.
  *
- * All four are optional on disk. A machine with no registry has nothing
+ * All five are optional on disk. A machine with no registry has nothing
  * registered, a machine with no budget runs under the default one, a machine
- * with no model defaults runs every kind on the image's model, and a machine
- * with no state has worked nothing yet; none is an error, so the loop
+ * with no model defaults runs every kind on the image's model, a machine
+ * with no state has worked nothing yet, and a machine with no journal has
+ * never had an invocation recorded; none is an error, so the loop
  * runs on a clean checkout. A document that exists but cannot be read as what
  * it claims to be is an error, because silently ignoring a typo in the
  * registry would silently stop working a project — and silently ignoring one
@@ -59,13 +71,18 @@ const MODELS_FILE = "models.json";
  * The budget is its own document rather than a section of the registry
  * because the new-project command rewrites the registry, and a budget living
  * there would be rewritten out of existence by a command that has no business
- * touching it.
+ * touching it. The journal is its own document rather than a section of the
+ * state for the same reason state is its own document rather than a section
+ * of the registry: a different author (here, none — both are machine-written,
+ * but at a different rate) and a different shape, append-only and keyed by
+ * time rather than rewritten wholesale and keyed by project.
  */
 export function documentStore(home: string = MANAGER_HOME): Store {
   const registryFile = path.join(home, REGISTRY_FILE);
   const budgetFile = path.join(home, BUDGET_FILE);
   const stateFile = path.join(home, STATE_FILE);
   const modelsFile = path.join(home, MODELS_FILE);
+  const journalFile = path.join(home, JOURNAL_FILE);
 
   return {
     async loadRegistry(): Promise<RegisteredProject[]> {
@@ -91,7 +108,66 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     async saveState(state: State): Promise<void> {
       await writeDocument(home, stateFile, formatState(state));
     },
+
+    async openInvocation(opened: OpenInvocation): Promise<InvocationHandle> {
+      const journal = await loadJournalDocument(journalFile);
+      journal.records.push({ openedAt: opened.openedAt, process: opened.process });
+      await writeJournal(home, journalFile, journal);
+      return { ...opened };
+    },
+
+    async closeInvocation(
+      opened: InvocationHandle,
+      closing: InvocationClosing,
+    ): Promise<void> {
+      const journal = await loadJournalDocument(journalFile);
+      const record = findRecord(journal, opened);
+      if (record === undefined) {
+        throw new Error(
+          `${journalFile}: no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}.`,
+        );
+      }
+      if (record.closedAt !== undefined) {
+        throw new Error(
+          `${journalFile}: the invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process} is already closed.`,
+        );
+      }
+      Object.assign(record, closing);
+      await writeJournal(home, journalFile, journal);
+    },
+
+    async loadJournal(): Promise<Journal> {
+      return loadJournalDocument(journalFile);
+    },
   };
+}
+
+/** The record in `journal` opened at `opened`'s instant by `opened`'s process, whatever its closed state. */
+function findRecord(
+  journal: Journal,
+  opened: OpenInvocation,
+): InvocationRecord | undefined {
+  return journal.records.find(
+    (record) =>
+      record.openedAt.getTime() === opened.openedAt.getTime() &&
+      record.process === opened.process,
+  );
+}
+
+async function loadJournalDocument(journalFile: string): Promise<Journal> {
+  return parseJournal(await readDocument(journalFile), journalFile);
+}
+
+/** Trims to `JOURNAL_LIMIT`, oldest first, before writing — every write, not only when it overflows. */
+async function writeJournal(
+  home: string,
+  journalFile: string,
+  journal: Journal,
+): Promise<void> {
+  const trimmed: Journal = {
+    records: journal.records.slice(-JOURNAL_LIMIT),
+  };
+  await writeDocument(home, journalFile, formatJournal(trimmed));
 }
 
 async function writeDocument(
@@ -614,4 +690,148 @@ function formatState(state: State): string {
     undefined,
     2,
   )}\n`;
+}
+
+const RECORD_FIELDS = [
+  "openedAt",
+  "process",
+  "closedAt",
+  "outcome",
+  "projects",
+  "standDownReason",
+] as const;
+
+const INVOCATION_OUTCOMES = [
+  "dry-queue",
+  "stood-down",
+  "work-selected",
+  "invocation-failed",
+] as const;
+
+/**
+ * `{ "records": [{ "openedAt": "…", "process": 123, "closedAt": "…",
+ *    "outcome": "work-selected", "projects": [{ "repo": "owner/repo",
+ *    "tokensUsed": 12000 }], "standDownReason": "…" }] }`
+ *
+ * A record with no `closedAt` is in flight, and carries nothing else — the
+ * fields closing adds are read only once `closedAt` says they were written.
+ */
+function parseJournal(document: unknown, file: string): Journal {
+  if (document === undefined) {
+    return { records: [] };
+  }
+  const records = fieldOf(document, "records", file);
+  if (records === undefined) {
+    return { records: [] };
+  }
+  if (!Array.isArray(records)) {
+    throw new Error(`${file}: "records" must be a list of invocation records.`);
+  }
+  return {
+    records: records.map((record, index) =>
+      parseInvocationRecord(record, `${file}: record ${index + 1}`),
+    ),
+  };
+}
+
+function parseInvocationRecord(
+  record: unknown,
+  where: string,
+): InvocationRecord {
+  rejectUnknownFields(record, RECORD_FIELDS, "field", where);
+
+  const openedAt = parseInstant(
+    fieldOf(record, "openedAt", where),
+    `${where}: "openedAt"`,
+  );
+  const process = processField(fieldOf(record, "process", where), where);
+
+  const closedAt = fieldOf(record, "closedAt", where);
+  if (closedAt === undefined) {
+    return { openedAt, process };
+  }
+
+  return {
+    openedAt,
+    process,
+    closedAt: parseInstant(closedAt, `${where}: "closedAt"`),
+    outcome: outcomeField(fieldOf(record, "outcome", where), where),
+    projects: journaledProjectsField(fieldOf(record, "projects", where), where),
+    ...standDownReasonField(fieldOf(record, "standDownReason", where), where),
+  };
+}
+
+function processField(value: unknown, where: string): ProcessId {
+  if (typeof value !== "number" || !isProcessId(value)) {
+    throw new Error(
+      `${where}: "process" must be a whole number above 0: ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
+}
+
+function outcomeField(value: unknown, where: string): InvocationOutcome {
+  if (
+    typeof value !== "string" ||
+    !(INVOCATION_OUTCOMES as readonly string[]).includes(value)
+  ) {
+    throw new Error(
+      `${where}: "outcome" must be one of ${INVOCATION_OUTCOMES.join(", ")}: ${JSON.stringify(value)}`,
+    );
+  }
+  return value as InvocationOutcome;
+}
+
+function journaledProjectsField(
+  value: unknown,
+  where: string,
+): JournaledProject[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where}: "projects" must be a list of projects.`);
+  }
+  return value.map((project, index) => {
+    const projectWhere = `${where}: project ${index + 1}`;
+    const repo = repoSlugField(project, projectWhere);
+    const tokensUsed = fieldOf(project, "tokensUsed", projectWhere);
+    if (typeof tokensUsed !== "number" || !isTokenCount(tokensUsed)) {
+      throw new Error(
+        `${projectWhere}: "tokensUsed" must be a whole number of tokens, 0 or more: ${JSON.stringify(tokensUsed)}`,
+      );
+    }
+    return { repo, tokensUsed };
+  });
+}
+
+function standDownReasonField(
+  value: unknown,
+  where: string,
+): { standDownReason?: string } {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${where}: "standDownReason" must be a string: ${JSON.stringify(value)}`);
+  }
+  return { standDownReason: value };
+}
+
+/** Indented and newline-terminated: the document is read in diffs. */
+function formatJournal(journal: Journal): string {
+  const records = journal.records.map((record) => ({
+    openedAt: record.openedAt.toISOString(),
+    process: record.process,
+    ...(record.closedAt !== undefined && {
+      closedAt: record.closedAt.toISOString(),
+      outcome: record.outcome,
+      projects: (record.projects ?? []).map(({ repo, tokensUsed }) => ({
+        repo,
+        tokensUsed,
+      })),
+      ...(record.standDownReason !== undefined && {
+        standDownReason: record.standDownReason,
+      }),
+    }),
+  }));
+
+  return `${JSON.stringify({ records }, undefined, 2)}\n`;
 }

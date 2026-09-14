@@ -1,7 +1,12 @@
 import type {
   Budget,
   Day,
+  InvocationClosing,
+  InvocationHandle,
+  InvocationRecord,
+  Journal,
   ModelDefaults,
+  OpenInvocation,
   Priority,
   ProjectState,
   RegisteredProject,
@@ -12,7 +17,7 @@ import type {
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
-import { DEFAULT_BUDGET, workedTicket } from "../ports/index.ts";
+import { DEFAULT_BUDGET, JOURNAL_LIMIT, workedTicket } from "../ports/index.ts";
 
 /** What the developer may say about a project when registering it. */
 export interface Registration {
@@ -33,6 +38,7 @@ export class FakeStore implements Store {
   #state = new Map<RepoSlug, ProjectState>();
   #workedToday: WorkedToday | undefined = undefined;
   #announcedOn: Day | undefined = undefined;
+  #journal: InvocationRecord[] = [];
   /** What the developer declared they are willing to spend. */
   budget: Budget = DEFAULT_BUDGET;
   /** The model the developer named for each kind of ticket; none by default. */
@@ -116,6 +122,56 @@ export class FakeStore implements Store {
         ? undefined
         : copyWorkedToday(state.workedToday);
     this.#announcedOn = state.announcedOn;
+  }
+
+  async openInvocation(opened: OpenInvocation): Promise<InvocationHandle> {
+    this.#journal.push({ openedAt: opened.openedAt, process: opened.process });
+    this.#journal = this.#journal.slice(-JOURNAL_LIMIT);
+    return { ...opened };
+  }
+
+  async closeInvocation(
+    opened: InvocationHandle,
+    closing: InvocationClosing,
+  ): Promise<void> {
+    const record = this.#findRecord(opened);
+    if (record === undefined) {
+      throw new Error(
+        `no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}`,
+      );
+    }
+    if (record.closedAt !== undefined) {
+      throw new Error(
+        `the invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process} is already closed`,
+      );
+    }
+    Object.assign(record, {
+      closedAt: closing.closedAt,
+      outcome: closing.outcome,
+      projects: [...closing.projects],
+      ...(closing.standDownReason !== undefined && {
+        standDownReason: closing.standDownReason,
+      }),
+    });
+  }
+
+  async loadJournal(): Promise<Journal> {
+    return {
+      records: this.#journal.map((record) => ({
+        ...record,
+        ...(record.projects !== undefined && {
+          projects: [...record.projects],
+        }),
+      })),
+    };
+  }
+
+  #findRecord(opened: OpenInvocation): InvocationRecord | undefined {
+    return this.#journal.find(
+      (record) =>
+        record.openedAt.getTime() === opened.openedAt.getTime() &&
+        record.process === opened.process,
+    );
   }
 }
 
