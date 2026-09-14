@@ -24,7 +24,10 @@ limit refuses runs.
 with `sandcastle.run()`" — published to npm, MIT-licensed, source at
 [github.com/mattpocock/sandcastle](https://github.com/mattpocock/sandcastle). It is obtained with
 `npm install --save-dev @ai-hero/sandcastle`; there is no paywall and no metered cost to the library
-itself.
+itself. Nothing gates it to an account or organisation, so it is available to this developer as it
+is to anyone: it is on the public registry this repo's own dependencies already install from
+(`package-lock.json` resolves everything from `registry.npmjs.org`), and `npm view
+@ai-hero/sandcastle` from this machine returns it, MIT, with `latest` at `0.12.0`.
 
 - **Footprint.** Its only hard runtime dependency is `@clack/prompts` (CLI prompt UI). `@daytona/sdk`
   and `@vercel/sandbox` are optional peer dependencies needed only by those two cloud providers —
