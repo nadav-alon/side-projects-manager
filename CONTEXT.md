@@ -190,6 +190,10 @@ _Avoid_: feature ticket, build ticket
 How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. It stays a draft — the manager opens one and never promotes or merges it.
 _Avoid_: PR (say pull request), submission, patch
 
+**Ticket gist**:
+One sentence saying what an implementation ticket asked for — not what its diff did — written by the agent that implemented it, and opening the body of the draft pull request its run hands over. Optional: a run whose agent gave none, or gave more than one line, opens its draft pull request without one, and is no less finished for it.
+_Avoid_: summary (the summary is the invocation's issue), description, synopsis
+
 **Handover**:
 What a finished run comes to for the developer: the run itself, and the draft pull request its commits are waiting in. A run that committed nothing, and one the agent did not finish, are runs without a handover. A handover that fails part way — the branch would not push, no draft pull request would open, or its review ticket could not be created — is a failed iteration: the ticket is handed back naming the branch and any pull request, the branch is kept, and the invocation carries on.
 _Avoid_: work, result, outcome
