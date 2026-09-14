@@ -115,6 +115,12 @@ export interface State {
   projects: ReadonlyMap<RepoSlug, ProjectState>;
   /** Absent when no day's worked tickets have been recorded. */
   workedToday?: WorkedToday;
+  /**
+   * The local calendar day a summary was last published, set only once a
+   * publish has actually succeeded. Absent, or naming any day but today,
+   * reads as not yet announced today.
+   */
+  announcedOn?: Day;
 }
 
 /**

@@ -2,6 +2,7 @@ import type {
   Budget,
   Checkout,
   Clock,
+  Day,
   IssueTracker,
   ModelDefaults,
   ModelName,
@@ -262,11 +263,17 @@ interface RegistryScan {
  * back by relabelling it, but a finished run's is left exactly as it was, so
  * without this an unattended morning with only one project registered would
  * work its one ticket over and over until the budget gate finally stopped it.
+ *
+ * The summary always publishes when the invocation worked something; a quiet
+ * or broken invocation publishes only if none has been announced yet today,
+ * so a loop firing every hour reports one quiet or broken morning rather than
+ * up to twenty-four.
  */
 export async function morningLoop(
   ports: MorningLoopPorts,
 ): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
+  const today = localDay(startedAt);
   const iterations: IterationOutcome[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
@@ -277,15 +284,23 @@ export async function morningLoop(
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
+  // Set once `loadState` has succeeded, since only then is there a state
+  // document to fold a successful publish's announcement back into. Absent
+  // when the loop's own plumbing broke before that point — there is nothing
+  // to write back then, as the final `catch` below already notes.
+  let announcedOn: Day | undefined;
+  let stateToSave: (() => State) | undefined;
   try {
     const stored = await ports.store.loadState();
+    announcedOn = stored.announcedOn;
     const projects = new Map(stored.projects);
-    const worked = workedTickets(stored.workedToday, localDay(startedAt));
-    const stateToSave = (): State => {
+    const worked = workedTickets(stored.workedToday, today);
+    stateToSave = (): State => {
       const workedToday = worked.workedToday();
       return {
         projects,
         ...(workedToday !== undefined && { workedToday }),
+        ...(announcedOn !== undefined && { announcedOn }),
       };
     };
     const modelDefaults = await ports.store.loadModelDefaults();
@@ -409,21 +424,34 @@ export async function morningLoop(
     invocationFailure,
   };
   const line = summaryLine(facts);
+  const outcome = outcomeOf(iterations, standDown, invocationFailure);
 
-  // Last, so a morning that worked something still gets its state recorded
-  // above even if the tracker refuses this. Never thrown: a summary issue
-  // that could not be written must not cost the developer the account of
-  // everything else the invocation did, which is exactly the account this
-  // write exists to carry — said in the message instead, the same way a
-  // tracker that refuses `handBack` is said rather than thrown.
+  // An invocation that worked something always publishes. A quiet or broken
+  // one — dry queue, stand-down, invocation failure — publishes only if
+  // nothing has been announced yet today, so a firing every hour reports one
+  // quiet morning rather than up to twenty-four.
   let publishFailure: string | undefined;
-  try {
-    await ports.tracker.publishSummary(
-      summaryTitle(startedAt),
-      summaryBody(facts, line),
-    );
-  } catch (error: unknown) {
-    publishFailure = errorMessage(error);
+  if (outcome === "work-selected" || announcedOn !== today) {
+    // Last, so a morning that worked something still gets its state recorded
+    // above even if the tracker refuses this. Never thrown: a summary issue
+    // that could not be written must not cost the developer the account of
+    // everything else the invocation did, which is exactly the account this
+    // write exists to carry — said in the message instead, the same way a
+    // tracker that refuses `handBack` is said rather than thrown.
+    try {
+      await ports.tracker.publishSummary(
+        summaryTitle(startedAt),
+        summaryBody(facts, line),
+      );
+      // Recorded only now that the publish is known to have succeeded, and
+      // only when there is a state document to fold it back into.
+      if (stateToSave !== undefined) {
+        announcedOn = today;
+        await ports.store.saveState(stateToSave());
+      }
+    } catch (error: unknown) {
+      publishFailure = errorMessage(error);
+    }
   }
 
   return {
@@ -431,7 +459,7 @@ export async function morningLoop(
     projects: outcomes,
     iterations,
     ...(standDown !== undefined && { standDown }),
-    outcome: outcomeOf(iterations, standDown, invocationFailure),
+    outcome,
     message:
       publishFailure === undefined
         ? line
