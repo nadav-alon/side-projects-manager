@@ -10,6 +10,7 @@ import type {
   RegisteredProject,
   RepoSlug,
   RunCost,
+  Size,
   State,
   Store,
   TicketKind,
@@ -19,12 +20,14 @@ import type {
 import {
   DEFAULT_BUDGET,
   MODEL_NAME_SHAPE,
+  SIZES,
   TICKET_KINDS,
   isDay,
   isIterationLimit,
   isModelName,
   isPriority,
   isRepoSlug,
+  isSize,
   workedTicket,
   isReserveFraction,
   isTokenCount,
@@ -182,7 +185,8 @@ function parseRegistry(
 
 /**
  * `{ "fiveHourAllowance": 50000000, "weeklyAllowance": 500000000,
- *    "reserveFraction": 0.5, "spendCeiling": 5 }`
+ *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 5,
+ *    "sizes": { "S": 500000 }, "unsizedCountsAs": "M" }`
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
  * `observedResetAt`, which has no default because a boundary nobody has seen
@@ -218,6 +222,12 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "reserveFraction" must be at least 0 and less than 1`,
       DEFAULT_BUDGET.reserveFraction,
     ),
+    fiveHourReserveFraction: numberField(
+      fieldOf(document, "fiveHourReserveFraction", file),
+      isReserveFraction,
+      `${file}: "fiveHourReserveFraction" must be at least 0 and less than 1`,
+      DEFAULT_BUDGET.fiveHourReserveFraction,
+    ),
     spendCeiling: numberField(
       fieldOf(document, "spendCeiling", file),
       isUsd,
@@ -230,8 +240,40 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "maxConcurrentIterations" must be a whole number of 1 or more`,
       DEFAULT_BUDGET.maxConcurrentIterations,
     ),
+    sizes: sizesField(fieldOf(document, "sizes", file), file),
+    unsizedCountsAs: stringField(
+      fieldOf(document, "unsizedCountsAs", file),
+      isSize,
+      `${file}: "unsizedCountsAs" must be one of ${SIZES.join(", ")}`,
+      DEFAULT_BUDGET.unsizedCountsAs,
+    ),
     ...observedResetField(fieldOf(document, "observedResetAt", file), file),
   };
+}
+
+/**
+ * `{ "S": 500000, "M": 2000000 }`
+ *
+ * Every size is optional and falls back to the default for that size alone,
+ * so a document raising just `L` leaves the other three where they were.
+ */
+function sizesField(value: unknown, file: string): Record<Size, TokenCount> {
+  if (value === undefined) {
+    return DEFAULT_BUDGET.sizes;
+  }
+  rejectUnknownFields(value, SIZES, "size", `${file}: "sizes"`);
+
+  return Object.fromEntries(
+    SIZES.map((size) => [
+      size,
+      numberField(
+        fieldOf(value, size, `${file}: "sizes"`),
+        isTokenCount,
+        `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
+        DEFAULT_BUDGET.sizes[size],
+      ),
+    ]),
+  ) as Record<Size, TokenCount>;
 }
 
 /**
@@ -286,8 +328,11 @@ const BUDGET_FIELDS = [
   "fiveHourAllowance",
   "weeklyAllowance",
   "reserveFraction",
+  "fiveHourReserveFraction",
   "spendCeiling",
   "maxConcurrentIterations",
+  "sizes",
+  "unsizedCountsAs",
   "observedResetAt",
 ] as const;
 
@@ -331,6 +376,22 @@ function numberField<T extends number>(
     return fallback;
   }
   if (typeof value !== "number" || !is(value)) {
+    throw new Error(`${message}: ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+/** `value` narrowed by `is`, `fallback` when absent, an error when neither. */
+function stringField<T extends string>(
+  value: unknown,
+  is: (candidate: string) => candidate is T,
+  message: string,
+  fallback: T,
+): T {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (typeof value !== "string" || !is(value)) {
     throw new Error(`${message}: ${JSON.stringify(value)}`);
   }
   return value;
