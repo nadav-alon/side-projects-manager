@@ -56,7 +56,8 @@ export class FakeSandbox implements Sandbox {
   #holding = false;
   /** Held runs and reviews, in the order they started, with what releases each. */
   readonly #held: { ticket: Ticket; release: () => void }[] = [];
-  readonly #waiters: { count: number; resolve: () => void }[] = [];
+  /** The one `whenHeld` still pending, if any. */
+  #waiter: { count: number; resolve: () => void } | undefined;
 
   /**
    * Holds every run and review from now on until `release` names its ticket,
@@ -84,11 +85,14 @@ export class FakeSandbox implements Sandbox {
     entry.release();
   }
 
-  /** Settles once at least `count` runs or reviews are held. */
+  /** Settles once at least `count` runs or reviews are held. Throws while another is pending. */
   whenHeld(count: number): Promise<void> {
+    if (this.#waiter !== undefined) {
+      throw new Error("already waiting on held runs");
+    }
     return new Promise((resolve) => {
-      this.#waiters.push({ count, resolve });
-      this.#wakeWaiters();
+      this.#waiter = { count, resolve };
+      this.#wakeWaiter();
     });
   }
 
@@ -132,7 +136,7 @@ export class FakeSandbox implements Sandbox {
       if (this.#holding) {
         const released = gate();
         this.#held.push({ ticket, release: released.open });
-        this.#wakeWaiters();
+        this.#wakeWaiter();
         await released.opened;
       }
       return finish();
@@ -141,12 +145,11 @@ export class FakeSandbox implements Sandbox {
     }
   }
 
-  #wakeWaiters(): void {
-    for (const waiter of [...this.#waiters]) {
-      if (this.#held.length >= waiter.count) {
-        this.#waiters.splice(this.#waiters.indexOf(waiter), 1);
-        waiter.resolve();
-      }
+  #wakeWaiter(): void {
+    const waiter = this.#waiter;
+    if (waiter !== undefined && this.#held.length >= waiter.count) {
+      this.#waiter = undefined;
+      waiter.resolve();
     }
   }
 
