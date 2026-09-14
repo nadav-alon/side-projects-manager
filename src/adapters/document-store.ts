@@ -406,12 +406,7 @@ function parseDayField(value: unknown, where: string): Day {
  * loop's to judge, since only the loop has a clock.
  */
 function parseWorkedToday(value: unknown, where: string): WorkedToday {
-  const recorded = fieldOf(value, "day", where);
-  if (typeof recorded !== "string" || !isDay(recorded)) {
-    throw new Error(
-      `${where}: "day" must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(recorded)}`,
-    );
-  }
+  const recorded = parseDayField(fieldOf(value, "day", where), `${where}: "day"`);
   const tickets = fieldOf(value, "tickets", where);
   if (!Array.isArray(tickets)) {
     throw new Error(`${where}: "tickets" must be a list of tickets.`);
