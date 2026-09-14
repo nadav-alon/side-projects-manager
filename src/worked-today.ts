@@ -1,5 +1,5 @@
 import type { Day, WorkedTicket, WorkedToday } from "./ports/index.ts";
-import { recordWorked, unrecordWorked } from "./ports/index.ts";
+import { recordWorked, ticketKey, unrecordWorked } from "./ports/index.ts";
 
 /**
  * What one invocation knows of the tickets worked today: which ones selection
@@ -53,9 +53,4 @@ export function workedTickets(
     },
     workedToday: () => record,
   };
-}
-
-/** The key a ticket is passed over by, unique across every project. */
-function ticketKey(ticket: WorkedTicket): string {
-  return `${ticket.repo}#${ticket.number}`;
 }

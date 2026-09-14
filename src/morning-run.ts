@@ -4,6 +4,7 @@ import type {
   Clock,
   Day,
   IssueTracker,
+  IterationLimit,
   ModelDefaults,
   ModelName,
   ModelRefusal,
@@ -185,7 +186,8 @@ export interface InvocationReport {
    */
   projects: ProjectOutcome[];
   /**
-   * Every iteration the invocation made, oldest first. Empty on a morning
+   * Every iteration the invocation made, in the order they started — not the
+   * order they finished, since several can be in progress at once. Empty on a morning
    * that ran nothing — a dry queue, or a gate that refused before the first
    * run.
    */
@@ -261,6 +263,14 @@ interface RegistryScan {
  * it stands when that run would start, every earlier run of the same morning
  * included, so a long morning stops mid-loop the moment headroom runs out.
  *
+ * Up to the budget's `maxConcurrentIterations` iterations are in progress at
+ * once: whenever fewer are, another is selected, gated and started. The gate
+ * counts only the runs recorded so far, never those in progress. Once it
+ * refuses, or the provider limit refuses a run, nothing further starts, and
+ * the iterations already in progress finish and are reported. Tickets that
+ * must not run together are kept apart only by blocking edges, which
+ * selection already honours, since a blocker in progress is still open.
+ *
  * A ticket worked today, by this invocation or an earlier one, is not selected
  * again until the next local calendar day, even though nothing here closes it: a failed run's ticket is handed
  * back by relabelling it, but a finished run's is left exactly as it was, so
@@ -277,7 +287,9 @@ export async function morningLoop(
 ): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
   const today = localDay(startedAt);
-  const iterations: IterationOutcome[] = [];
+  // One slot per iteration, in the order they started. A slot is left empty
+  // only by an iteration that threw.
+  const outcomeSlots: (IterationOutcome | undefined)[] = [];
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Registry order as each repo is first seen. Read fresh every iteration
   // rather than snapshotted from the first scan, so a project the developer
@@ -307,8 +319,27 @@ export async function morningLoop(
       };
     };
     const modelDefaults = await ports.store.loadModelDefaults();
+    const inProgress = new Set<Promise<void>>();
+    // What an iteration in progress threw, rethrown once the others finish:
+    // only a port breaking its own contract gets here.
+    const thrown: unknown[] = [];
+    // Read from the budget before every start. Nothing is in progress before
+    // the first, so there is no limit to wait on until then.
+    let concurrencyLimit: IterationLimit | undefined;
+    const stopped = (): boolean =>
+      standDown !== undefined || thrown.length > 0;
     try {
       for (;;) {
+        while (
+          concurrencyLimit !== undefined &&
+          inProgress.size >= concurrencyLimit
+        ) {
+          await Promise.race(inProgress);
+        }
+        if (stopped()) {
+          break;
+        }
+
         const scan = await considerProjects(ports, projects, worked);
         // A project keeps its "selected" verdict once it has one: a later scan
         // in the same invocation, run after its ticket is excluded, would
@@ -324,6 +355,16 @@ export async function morningLoop(
         }
 
         if (scan.selection === undefined) {
+          // An iteration in progress can still queue work — a finished run's
+          // review ticket — so nothing left means nothing left once none is.
+          if (inProgress.size === 0) {
+            break;
+          }
+          await Promise.race(inProgress);
+          continue;
+        }
+        // A refusal can land while the registry was being read.
+        if (stopped()) {
           break;
         }
         const { ticket } = scan.selection;
@@ -334,7 +375,7 @@ export async function morningLoop(
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
-          iterations.push({
+          outcomeSlots.push({
             repo: scan.selection.project.repo,
             ticket,
             ...(await handTicketBack(
@@ -348,58 +389,82 @@ export async function morningLoop(
         }
 
         const budget = await ports.store.loadBudget();
+        concurrencyLimit = budget.maxConcurrentIterations;
         const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
-          standDown = { ...refusal, refused: scan.selection.project.repo };
+          // The first refusal is the stand-down, whichever of the two it was.
+          standDown ??= { ...refusal, refused: scan.selection.project.repo };
           break;
         }
 
         // Saved before the sandbox starts, not only at the end: a process
         // killed mid-run never reaches the final save, and would otherwise
-        // free the ticket for the next firing the same day.
+        // free the ticket for the next firing the same day. Recorded, too, is
+        // what keeps a ticket in progress from being selected again.
         worked.record(ticket, localDay(ports.clock.now()));
         await ports.store.saveState(stateToSave());
+        if (stopped()) {
+          worked.unrecord(ticket);
+          break;
+        }
 
+        const { repo } = scan.selection.project;
         const model = resolveModel(ticket, modelDefaults);
-        const iteration = await work(
+        // Reported where it started, however long it then takes to finish.
+        const slot = outcomeSlots.push(undefined) - 1;
+        const completion: Promise<void> = work(
           ports,
           scan.selection,
           projects,
           budget.spendCeiling,
           model,
-        );
-        iterations.push({
-          repo: scan.selection.project.repo,
-          ticket,
-          ...(model !== undefined && { model: model.name }),
-          ...iteration,
-        } as IterationOutcome);
+        )
+          .then(
+            (iteration) => {
+              outcomeSlots[slot] = {
+                repo,
+                ticket,
+                ...(model !== undefined && { model: model.name }),
+                ...iteration,
+              } as IterationOutcome;
 
-        // An infrastructure failure or a limit refusal says nothing about the
-        // ticket, so it is left free for a later firing today — one that finds
-        // the setup fixed or the provider limit reset.
-        if (leavesTicketUntouched(iteration)) {
-          worked.unrecord(ticket);
-        }
+              // An infrastructure failure or a limit refusal says nothing
+              // about the ticket, so it is left free for a later firing today
+              // — one that finds the setup fixed or the provider limit reset.
+              if (leavesTicketUntouched(iteration)) {
+                worked.unrecord(ticket);
+              }
 
-        // The provider limit refuses every run after this one the same way,
-        // so the loop stops here rather than walking the backlog into it.
-        if (iteration.kind === "limit-refused") {
-          standDown = {
-            reason: "provider-limit",
-            limitRefusal: iteration.limitRefusal,
-            ticket: scan.selection.ticket,
-          };
-          break;
-        }
+              // The provider limit refuses every run after this one the same
+              // way, so nothing further starts. The iterations already in
+              // progress are left to finish on their own.
+              if (iteration.kind === "limit-refused") {
+                standDown ??= {
+                  reason: "provider-limit",
+                  limitRefusal: iteration.limitRefusal,
+                  ticket,
+                };
+              }
+            },
+            (error: unknown) => {
+              thrown.push(error);
+            },
+          )
+          .finally(() => inProgress.delete(completion));
+        inProgress.add(completion);
       }
     } finally {
+      // Never rejects: each iteration's own settling catches what it threw.
+      await Promise.all(inProgress);
       // State is written back at the end of every invocation, including one that
       // worked nothing and one whose run failed part way, so that a machine
       // which has run the loop always has a state document to read next morning.
       // A run that fell over still spent tokens, and the morning it spent them
       // on is exactly the one worth having recorded.
       await ports.store.saveState(stateToSave());
+    }
+    if (thrown.length > 0) {
+      throw thrown[0];
     }
   } catch (error: unknown) {
     // Nothing above this point throws by design — a run that fails is
@@ -415,6 +480,9 @@ export async function morningLoop(
     invocationFailure = errorMessage(error);
   }
 
+  const iterations = outcomeSlots.filter(
+    (iteration): iteration is IterationOutcome => iteration !== undefined,
+  );
   const outcomes = registryOrder.map(
     // Set for every repo named in `registryOrder`, which is read from the
     // very outcomes this populates.

@@ -10,7 +10,8 @@ import type {
   Sandbox,
   Ticket,
 } from "../ports/index.ts";
-import { branch, tokenCount } from "../ports/index.ts";
+import { branch, ticketKey, tokenCount } from "../ports/index.ts";
+import { gate } from "./gate.ts";
 
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
@@ -45,13 +46,60 @@ export class FakeSandbox implements Sandbox {
     tokensUsed: tokenCount(0),
   });
 
+  /** The most runs and reviews that were in progress at once. */
+  mostInProgress = 0;
+
+  #running = 0;
+  #holding = false;
+  /** Held runs and reviews, in the order they started, with what releases each. */
+  readonly #held: { ticket: Ticket; release: () => void }[] = [];
+  /** The one `whenHeld` still pending, if any. */
+  #waiter: { count: number; resolve: () => void } | undefined;
+
+  /**
+   * Holds every run and review from now on until `release` names its ticket,
+   * so a test can see several in progress at once and finish them in any
+   * order it likes.
+   */
+  hold(): void {
+    this.#holding = true;
+  }
+
+  /** The tickets whose runs or reviews are held, in the order they started. */
+  held(): Ticket[] {
+    return this.#held.map((entry) => entry.ticket);
+  }
+
+  /** Lets the held run or review on `ticket` finish. Throws if none is held. */
+  release(ticket: Ticket): void {
+    const index = this.#held.findIndex(
+      (entry) => ticketKey(entry.ticket) === ticketKey(ticket),
+    );
+    const [entry] = index === -1 ? [] : this.#held.splice(index, 1);
+    if (entry === undefined) {
+      throw new Error(`no run held on ${ticket.repo} #${ticket.number}`);
+    }
+    entry.release();
+  }
+
+  /** Settles once at least `count` runs or reviews are held. Throws while another is pending. */
+  whenHeld(count: number): Promise<void> {
+    if (this.#waiter !== undefined) {
+      throw new Error("already waiting on held runs");
+    }
+    return new Promise((resolve) => {
+      this.#waiter = { count, resolve };
+      this.#wakeWaiter();
+    });
+  }
+
   run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   async run(request: RunRequest): Promise<RunOutcome> {
     this.runs.push(request);
-    return this.result(request.ticket);
+    return this.#inProgress(request.ticket, () => this.result(request.ticket));
   }
 
   review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
@@ -60,6 +108,33 @@ export class FakeSandbox implements Sandbox {
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   async review(request: ReviewRequest): Promise<ReviewOutcome> {
     this.reviews.push(request);
-    return this.reviewResult(request.ticket);
+    return this.#inProgress(request.ticket, () =>
+      this.reviewResult(request.ticket),
+    );
+  }
+
+  /** Counts `ticket`'s run or review as in progress until `finish`, holding it first if told to. */
+  async #inProgress<T>(ticket: Ticket, finish: () => T): Promise<T> {
+    this.#running++;
+    this.mostInProgress = Math.max(this.mostInProgress, this.#running);
+    try {
+      if (this.#holding) {
+        const released = gate();
+        this.#held.push({ ticket, release: released.open });
+        this.#wakeWaiter();
+        await released.opened;
+      }
+      return finish();
+    } finally {
+      this.#running--;
+    }
+  }
+
+  #wakeWaiter(): void {
+    const waiter = this.#waiter;
+    if (waiter !== undefined && this.#held.length >= waiter.count) {
+      this.#waiter = undefined;
+      waiter.resolve();
+    }
   }
 }

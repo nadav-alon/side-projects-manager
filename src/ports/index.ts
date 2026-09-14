@@ -75,6 +75,7 @@ export type { Usd } from "./usd.ts";
 export {
   recordRun,
   recordWorked,
+  ticketKey,
   unrecordWorked,
   workedTicket,
 } from "./store.ts";

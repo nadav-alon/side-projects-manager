@@ -76,10 +76,14 @@ export function unrecordWorked(
   return {
     day: previous.day,
     tickets: previous.tickets.filter(
-      (recorded) =>
-        recorded.repo !== ticket.repo || recorded.number !== ticket.number,
+      (recorded) => ticketKey(recorded) !== ticketKey(ticket),
     ),
   };
+}
+
+/** The key a ticket is known by, unique across every project. */
+export function ticketKey(ticket: WorkedTicket): string {
+  return `${ticket.repo}#${ticket.number}`;
 }
 
 /**
