@@ -905,6 +905,29 @@ describe("containerSandbox.review", () => {
   });
 
   /**
+   * A `--print` run has nobody on the other end. A reviewer that finishes,
+   * then asks "shall I submit this?", posts nothing — and the loop hands the
+   * ticket back with the findings surviving only in its comment.
+   */
+  it("says the run is unattended, so the review is submitted without asking", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /unattended/);
+    assert.match(asked, /without asking/);
+  });
+
+  /**
    * A reviewer has nothing to commit, and nothing here ever fetches a branch
    * back — unlike a run, whose whole product is the branch it leaves.
    */

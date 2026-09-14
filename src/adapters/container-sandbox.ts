@@ -455,6 +455,11 @@ function promptFor(ticket: Ticket): string {
  * is exactly what a summary comment strips away. `RepoHost.hasNewComment`
  * checks for this same shape: an inline comment on the pull request, not an
  * issue-level one.
+ *
+ * The prompt also says the run is unattended. A `--print` run gets no reply,
+ * so a reviewer that finishes and then asks whether to submit posts nothing;
+ * the loop hands the ticket back and the findings survive only in its
+ * hand-back comment.
  */
 function reviewPromptFor(ticket: ReviewTicket): string {
   return [
@@ -473,6 +478,9 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     '`{"event": "COMMENT", "comments": [{"path": <file>, "line": <line>, "body": <finding>}, ...]}`,',
     "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
     "sit on — a one-line summary, or a finding that spans the whole change.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered. Posting",
+    "the review is the job, so submit it without asking for confirmation — a review that stops at",
+    "\"shall I submit?\" has posted nothing.",
     "You are reviewing, not implementing: do not commit or push anything — this checkout is",
     "read-only, so neither would work anyway.",
   ].join(" ");
