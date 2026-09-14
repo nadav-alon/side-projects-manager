@@ -26,4 +26,7 @@ Optional, on top of the state role. Orders `ready-for-agent` tickets within this
 
 - Apply at most one. If several are present, the smallest counts; any other `priority:` label is ignored.
 - A label may not exist yet in a given repo: create it on first use (`gh label create priority:1`) before `gh issue edit --add-label`.
+- They carry: a ticket counts as the smallest of its own label and the label of every open issue in this repo it is a sub-issue of (at any depth) or that it blocks (at any depth, either way mixed). Label the spec, not each sub-issue; a blocker of a `priority:1` ticket is worked as `priority:1`. A label never passes up to a parent or forward to what a ticket blocks.
+- Any open issue passes its label on, including a `ready-for-human` spec. Closed issues and issues in other repos pass on nothing.
+- A sub-issue labelled larger than its spec still counts as the spec's level: a label can raise a ticket's priority, never lower it.
 - They only order tickets within this project. They never make one project outrank another.
