@@ -186,7 +186,9 @@ async function runOnClone(
       reserveBranch(project, free);
       return free;
     });
-    const base = await revision(clone, "HEAD");
+    // Branded before the agent starts: a clone whose hashes this cannot read
+    // fails the sandbox's set-up, not a run whose work is already done.
+    const base = commitSha(await revision(clone, "HEAD"));
     await run("git", ["-C", clone, "switch", "--create", onto]);
 
     const agent = await attempt(container, {
@@ -497,7 +499,7 @@ async function revision(directory: Checkout, of: string): Promise<string> {
 /** The commits the agent made, oldest first. Empty when it committed none. */
 async function commitsSince(
   clone: Checkout,
-  base: string,
+  base: CommitSha,
 ): Promise<CommitSha[]> {
   const { stdout } = await run(
     "git",

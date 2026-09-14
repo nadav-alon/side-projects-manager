@@ -20,8 +20,17 @@ describe("isCommitSha", () => {
     assert.equal(isCommitSha(""), false);
   });
 
-  it("rejects anything longer than a full hash", () => {
+  it("accepts a full-length SHA-256 hash", () => {
+    assert.equal(isCommitSha("c0ffee12".repeat(8)), true);
+  });
+
+  it("rejects anything between a full SHA-1 and a full SHA-256 hash", () => {
     assert.equal(isCommitSha(`${"a".repeat(41)}`), false);
+    assert.equal(isCommitSha(`${"a".repeat(63)}`), false);
+  });
+
+  it("rejects anything longer than a full SHA-256 hash", () => {
+    assert.equal(isCommitSha(`${"a".repeat(65)}`), false);
   });
 
   it("rejects characters outside git's hex alphabet", () => {

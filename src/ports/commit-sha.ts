@@ -10,8 +10,11 @@ declare const commitShaBrand: unique symbol;
  */
 export type CommitSha = string & { readonly [commitShaBrand]: true };
 
-/** Git's own object id alphabet, at the lengths `rev-parse` actually returns. */
-const SHAPE = /^[0-9a-f]{7,40}$/;
+/**
+ * Git's own object id alphabet, at the lengths it hands out: an abbreviation of
+ * at least 7, or a full hash — 40 characters under SHA-1, 64 under SHA-256.
+ */
+const SHAPE = /^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/;
 
 /** Whether `value` is shaped like a commit hash git would recognise. */
 export function isCommitSha(value: string): value is CommitSha {

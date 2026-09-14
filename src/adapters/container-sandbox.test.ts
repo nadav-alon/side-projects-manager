@@ -55,9 +55,16 @@ const CEILING = usd(5);
  * hands the sandbox. Only the git half of the adapter is exercised here; the
  * container half needs docker and a credential, and is injected instead.
  */
-async function project(): Promise<Checkout> {
+async function project(
+  objectFormat: "sha1" | "sha256" = "sha1",
+): Promise<Checkout> {
   const directory = checkout(await mkdtemp(path.join(tmpdir(), "sandbox-")));
-  await run("git", ["init", "--initial-branch=main", directory]);
+  await run("git", [
+    "init",
+    "--initial-branch=main",
+    `--object-format=${objectFormat}`,
+    directory,
+  ]);
   await identify(directory);
   await writeFile(path.join(directory, "README.md"), "pilot\n");
   await run("git", ["-C", directory, "add", "."]);
@@ -306,6 +313,17 @@ describe("containerSandbox", () => {
     );
     assert.match(log[0] ?? "", /Add one\.txt/);
     assert.match(log[1] ?? "", /Add two\.txt/);
+  });
+
+  it("returns the commits of a repository whose object ids are SHA-256", async () => {
+    const directory = await project("sha256");
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.commits.length, 1);
+    assert.equal(result.commits[0]?.length, 64);
+    assert.equal(await headOf(directory, BRANCH), result.commits.at(-1));
   });
 
   it("reports no commits, and leaves no branch, when the agent committed nothing", async () => {
