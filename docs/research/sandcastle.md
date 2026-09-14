@@ -12,6 +12,12 @@ pinned to `v0.12.0` (its `package.json` version at the time of writing) so a lin
 correct even if the project moves on. Nothing here was run — no sandcastle install, no live agent —
 per the ticket's own scope.
 
+Two words below are sandcastle's, not [`CONTEXT.md`](../../CONTEXT.md)'s. **Worktree** means a real
+`git worktree`, the mechanism sandcastle mounts — not our throwaway clone, which the glossary says is
+no worktree. **Provider** means sandcastle's own backend abstraction (`docker()`, `claudeCode()`,
+`AgentProvider`) — roughly what the glossary calls an adapter, and unrelated to the provider whose
+limit refuses runs.
+
 ## What sandcastle is
 
 `@ai-hero/sandcastle` is a TypeScript library — "Orchestrate sandboxed coding agents in TypeScript
