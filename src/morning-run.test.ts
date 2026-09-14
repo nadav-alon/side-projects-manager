@@ -3308,15 +3308,6 @@ describe("morningLoop", () => {
         );
       });
 
-      // A refusal reported for a run or a review given no model used to be
-      // tested here as a defensive throw the loop raised on: `Sandbox.run`
-      // and `Sandbox.review` are now overloaded so that a call naming no
-      // model resolves to the one overload whose `RunOutcome`/`ReviewOutcome`
-      // excludes `"model-refused"` outright (see container-sandbox.test.ts
-      // and fake-sandbox.test.ts) — there is no longer a way to construct
-      // that case through the port at all, so there is nothing left here to
-      // defend against or to test.
-
       it("reports it apart from an agent that gave up and from an infrastructure failure", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
