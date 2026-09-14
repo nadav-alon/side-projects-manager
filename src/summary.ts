@@ -156,7 +156,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     facts.iterations.length === 0
       ? undefined
       : attemptsSection(facts.iterations),
-    waitingSection(facts.iterations),
+    waitingSection(facts.iterations, facts.projects),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
@@ -195,9 +195,15 @@ function stillEligibleLine(iteration: {
  * behind that is the developer's alone, per `RunFailure.handedBack`'s own
  * note — a ticket the hand-back itself could not reach, still eligible and
  * due to come round again until somebody relabels it by hand. A review the
- * loop could not close is there for the same reason.
+ * loop could not close is there for the same reason. A project whose backlog
+ * was too long to read in full belongs here too, in registry order, since
+ * thinning it is the developer's to do regardless of what else the morning
+ * found.
  */
-function waitingSection(iterations: IterationOutcome[]): string | undefined {
+function waitingSection(
+  iterations: IterationOutcome[],
+  projects: ProjectOutcome[],
+): string | undefined {
   const lines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed":
@@ -235,9 +241,21 @@ function waitingSection(iterations: IterationOutcome[]): string | undefined {
     }
   });
 
-  return lines.length === 0
+  const truncated = projects.flatMap((project) =>
+    project.backlogTruncated === undefined
+      ? []
+      : [backlogTruncatedLine(project.repo)],
+  );
+
+  const all = [...lines, ...truncated];
+  return all.length === 0
     ? undefined
-    : ["## Waiting on you", ...lines].join("\n");
+    : ["## Waiting on you", ...all].join("\n");
+}
+
+/** A backlog the loop could not read in full: too many to name, so the project stands in for its own. */
+function backlogTruncatedLine(repo: RepoSlug): string {
+  return `- ${repo}: holds more than 100 ${READY_FOR_AGENT_LABEL} tickets — only the newest 100 were considered`;
 }
 
 /** What a failed run leaves waiting on the developer. */
