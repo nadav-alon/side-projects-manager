@@ -3082,6 +3082,39 @@ describe("morningLoop", () => {
         [100, 200, 300],
       );
     });
+
+    it("lets the others in progress finish, and saves their cost, when one throws", HANGS, async () => {
+      const ports = backlogOf(2, 2);
+      ports.sandbox.result = (ticket) => ({
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        output: "",
+        tokensUsed: tokenCount(ticket.number * 100),
+        // A refusal for a run given no model is a sandbox breaking its contract.
+        ...(ticket.number === 2 && {
+          modelRefusal: { model: modelName("opus"), words: "refused model opus" },
+        }),
+      });
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(2);
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.equal(report.outcome, "invocation-failed");
+      assert.match(report.message, /refused for a run given no model/);
+      assert.deepEqual(
+        report.iterations.map((i) => [i.ticket.number, i.kind]),
+        [[1, "finished"]],
+      );
+      const runs = (await ports.store.loadState()).projects.get(PILOT)?.runs ?? [];
+      assert.deepEqual(
+        runs.map((run) => run.tokensUsed).sort((a, b) => a - b),
+        [100, 200],
+      );
+    });
   });
 
   describe("a limit refusal", () => {
