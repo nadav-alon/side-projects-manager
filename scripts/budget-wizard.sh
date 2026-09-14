@@ -415,7 +415,7 @@ const url = await import("node:url");
 const [home, file, ...numbers] = process.argv.slice(1);
 const [fiveHour, weekly, reserve, ceiling] = numbers.map(Number);
 const ports = url.pathToFileURL(path.join(home, "src", "ports", "index.ts")).href;
-const { isIterationLimit, isReserveFraction, SIZES } = await import(ports);
+const { isIterationLimit, isReserveFraction, isTokenCount, SIZES } = await import(ports);
 
 // Fields carried across rather than asked about. This wizard replaces the
 // document wholesale, and each of these is set by hand outside it, so a
@@ -428,7 +428,11 @@ const { isIterationLimit, isReserveFraction, SIZES } = await import(ports);
 const carried = {
   maxConcurrentIterations: (v) => typeof v === "number" && isIterationLimit(v),
   fiveHourReserveFraction: (v) => typeof v === "number" && isReserveFraction(v),
-  sizes: (v) => v !== null && typeof v === "object" && !Array.isArray(v),
+  sizes: (v) =>
+    v !== null && typeof v === "object" && !Array.isArray(v) &&
+    Object.entries(v).every(
+      ([size, tokens]) => SIZES.includes(size) && typeof tokens === "number" && isTokenCount(tokens),
+    ),
   unsizedCountsAs: (v) => typeof v === "string" && SIZES.includes(v),
   observedResetAt: (v) => typeof v === "string",
 };
