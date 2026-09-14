@@ -415,7 +415,7 @@ const url = await import("node:url");
 const [home, file, ...numbers] = process.argv.slice(1);
 const [fiveHour, weekly, reserve, ceiling] = numbers.map(Number);
 const ports = url.pathToFileURL(path.join(home, "src", "ports", "index.ts")).href;
-const { isIterationLimit } = await import(ports);
+const { isIterationLimit, isReserveFraction, isTokenCount, SIZES } = await import(ports);
 
 // Fields carried across rather than asked about. This wizard replaces the
 // document wholesale, and each of these is set by hand outside it, so a
@@ -427,6 +427,13 @@ const { isIterationLimit } = await import(ports);
 // have refused that document rather than fall back.
 const carried = {
   maxConcurrentIterations: (v) => typeof v === "number" && isIterationLimit(v),
+  fiveHourReserveFraction: (v) => typeof v === "number" && isReserveFraction(v),
+  sizes: (v) =>
+    v !== null && typeof v === "object" && !Array.isArray(v) &&
+    Object.entries(v).every(
+      ([size, tokens]) => SIZES.includes(size) && typeof tokens === "number" && isTokenCount(tokens),
+    ),
+  unsizedCountsAs: (v) => typeof v === "string" && SIZES.includes(v),
   observedResetAt: (v) => typeof v === "string",
 };
 let existing;
@@ -492,7 +499,11 @@ try {
   const { documentStore } = await import(store);
   const budget = await documentStore(home).loadBudget();
   for (const [field, value] of Object.entries(budget)) {
-    console.log(`${field}: ${value.toLocaleString("en-US")}`);
+    const shown = typeof value === "number" ? value.toLocaleString("en-US")
+      : value instanceof Date ? value.toISOString()
+      : typeof value === "object" ? JSON.stringify(value)
+      : value;
+    console.log(`${field}: ${shown}`);
   }
 } catch (error) {
   // The parser message names the file and the setting, which is the whole of
@@ -504,7 +515,7 @@ try {
   say "The loop reads this budget:"
   while IFS= read -r line; do printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$line"; done <<<"$parsed"
   printf '\n'
-  note "A field that is present but unusable, or not one of the four, fails the"
+  note "A field that is present but unusable, or not one of the nine, fails the"
   note "invocation rather than falling back — which is what just passed."
 else
   warn "the manager cannot read the budget document at that path:"
