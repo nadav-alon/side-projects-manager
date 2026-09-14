@@ -167,19 +167,23 @@ One project's eligible tickets.
 _Avoid_: queue (the queue spans all projects), todo list
 
 **Ticket priority**:
-The explicit rank an implementation ticket may carry, as a label in its own project's tracker: one of three levels, smaller worked first; a ticket without one sorts after every ticket with one, and ties go to the oldest ticket. Orders tickets within one project only — it never decides which project an iteration works, and never outranks a review ticket. A ticket carrying more than one level counts as its smallest; a label outside the three is ignored.
-_Avoid_: priority (unqualified, which is the project's), urgency, severity, rank
+The rank selection orders an implementation ticket by: one of three levels, smaller worked first; a ticket without one sorts after every ticket with one, and ties go to the oldest ticket. The smallest of the ticket's own priority label and the priority label of every open issue in the same project that reaches it by following, any number of times and in any mix, two steps: from an issue to its sub-issues, and from a ticket to the tickets blocking it. So a spec's priority label carries into its sub-issues, and what an urgent ticket waits on is worked as urgently. Never the other way: a sub-issue lends nothing to the issue it belongs to, nor a blocker to what it blocks. Any open issue passes it on, whatever its triage label; a closed issue, one in another repo, or one the loop did not read passes on nothing. Orders tickets within one project only — it never decides which project an iteration works, and never outranks a review ticket. Selection is what works it out, from what the tracker reports.
+_Avoid_: priority (unqualified, which is the project's), inherited priority, effective priority, urgency, severity, rank
+
+**Priority label**:
+The label an issue may carry, as `priority:<level>`, naming one of the three ticket priority levels. What ticket priority is worked out from; an issue carrying more than one level counts as its smallest, and a label outside the three is ignored. Carried by any open issue, not only an eligible one: a spec left ready-for-human still lends it to its sub-issues.
+_Avoid_: ticket priority (the rank worked out from the labels), priority tag
 
 **Truncated backlog**:
-A backlog longer than the loop reads in one morning. The newest tickets are the ones considered, since a new ticket given ticket priority costs more to miss than an old one; the summary names the project so the developer can thin it.
+A project with more open issues than the loop reads in one morning. Every open issue is read, not only eligible tickets, since ticket priority can reach a ticket through issues that are not themselves eligible; the newest are the ones read, since a new ticket given a priority label costs more to miss than an old one. An issue not read neither is selected nor passes on its priority label. The summary names the project so the developer can thin it.
 _Avoid_: overflow, capped backlog, full queue
 
 **Broken-out ticket**:
-A ticket whose work has moved into one or more open sub-issues: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any sub-issue is open — the tracker reports the open count, and selection is what reads it. Selectable again, like any other ticket, once every sub-issue has closed.
+A ticket whose work has moved into one or more open sub-issues: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any sub-issue is open — the tracker reports the open count, and selection is what reads it. Selectable again, like any other ticket, once every sub-issue has closed. Its ticket priority carries into its sub-issues.
 _Avoid_: parent ticket, container ticket, epic, spec ticket
 
 **Blocked ticket**:
-A ticket the tracker marks as blocked by one or more tickets that are still open: its work builds on work not yet done. Still carries ready-for-agent, but is not selected while any blocker is open — the tracker reports the open count, and selection is what reads it. Selectable again once every blocker has closed.
+A ticket the tracker marks as blocked by one or more tickets that are still open: its work builds on work not yet done. Still carries ready-for-agent, but is not selected while any blocker is open — the tracker reports the open count, and selection is what reads it. Selectable again once every blocker has closed. Its ticket priority carries into each blocker still open.
 _Avoid_: dependent ticket, waiting ticket, stacked ticket
 
 **Implementation ticket**:
