@@ -2943,8 +2943,11 @@ describe("morningLoop", () => {
       };
     }
 
-    function numbersOf(tickets: { number: number }[]): number[] {
-      return tickets.map((ticket) => ticket.number);
+    /** The numbers of `items`, each a ticket or something run on one. */
+    function numbersOf(
+      items: ({ number: number } | { ticket: { number: number } })[],
+    ): number[] {
+      return items.map((item) => ("ticket" in item ? item.ticket : item).number);
     }
 
     it("has up to the limit in progress, never more, and works every ticket", HANGS, async () => {
@@ -2965,7 +2968,7 @@ describe("morningLoop", () => {
       const report = await invocation;
 
       assert.equal(ports.sandbox.mostInProgress, 3);
-      assert.deepEqual(numbersOf(report.iterations.map((i) => i.ticket)), [1, 2, 3, 4, 5]);
+      assert.deepEqual(numbersOf(report.iterations), [1, 2, 3, 4, 5]);
     });
 
     it("starts no ticket twice in one invocation", async () => {
@@ -3001,7 +3004,7 @@ describe("morningLoop", () => {
       ports.sandbox.release(ticketOf(1));
       await invocation;
 
-      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1]);
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1]);
     });
 
     it("stands down on the gate with two in progress, starting nothing further and reporting both", HANGS, async (t) => {
@@ -3024,8 +3027,8 @@ describe("morningLoop", () => {
       ports.sandbox.release(ticketOf(1));
       const report = await invocation;
 
-      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1, 2]);
-      assert.deepEqual(numbersOf(report.iterations.map((i) => i.ticket)), [1, 2]);
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2]);
+      assert.deepEqual(numbersOf(report.iterations), [1, 2]);
       assert.equal(report.standDown?.reason, "weekly-reserve");
       assert.equal(gateRefusal(report)?.refused, PILOT);
     });
@@ -3043,7 +3046,7 @@ describe("morningLoop", () => {
       ports.sandbox.release(ticketOf(1));
       const report = await invocation;
 
-      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1, 2, 3]);
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2, 3]);
       assert.deepEqual(
         report.iterations.map((i) => [i.ticket.number, i.kind]),
         [
@@ -3069,7 +3072,7 @@ describe("morningLoop", () => {
       ports.sandbox.release(ticketOf(1));
       const report = await invocation;
 
-      assert.deepEqual(numbersOf(ports.sandbox.runs.map((run) => run.ticket)), [1, 2, 3]);
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2, 3]);
       assert.ok(report.standDown?.reason === "provider-limit");
       assert.equal(report.standDown.ticket.number, 2);
     });
@@ -3084,7 +3087,7 @@ describe("morningLoop", () => {
       ports.sandbox.release(ticketOf(1));
       const report = await invocation;
 
-      assert.deepEqual(numbersOf(report.iterations.map((i) => i.ticket)), [1, 2]);
+      assert.deepEqual(numbersOf(report.iterations), [1, 2]);
     });
 
     it("saves every run's cost", HANGS, async () => {
