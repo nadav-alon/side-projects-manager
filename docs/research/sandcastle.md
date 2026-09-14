@@ -4,7 +4,7 @@
 `dockerContainer` — that clones the project checkout, runs the manager's own image with `docker run`,
 and reports back branch, commits, output and token usage. The spec originally said this work was
 delegated to sandcastle; [ADR 0001](../adr/0001-manager-owns-its-container-adapter.md) records owning
-it instead as a decision revisitable once this research lands. This answers whether it is worth
+it instead as a decision revisitable once this research (#29) lands. This answers whether it is worth
 reversing.
 
 Every finding below cites a primary source: sandcastle's own source, docs, ADRs or release metadata,
@@ -34,7 +34,7 @@ itself.
   ([repo metadata](https://api.github.com/repos/mattpocock/sandcastle),
   [releases](https://github.com/mattpocock/sandcastle/releases),
   [contributors](https://api.github.com/repos/mattpocock/sandcastle/contributors))
-  The triage note on this issue says v0.12.0 published 2026‑09‑14; the release API disagrees (it
+  The triage note on #29 says v0.12.0 published 2026‑09‑14; the release API disagrees (it
   shipped 2026‑06‑29) — the identity and license check out, but re-verify currency before relying on
   the "actively maintained" framing again.
 - **Providers.** It is provider-agnostic: built-in Docker, Podman, Vercel (Firecracker microVMs) and
