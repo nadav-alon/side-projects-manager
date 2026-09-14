@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type {
   Budget,
+  Day,
   ModelDefaults,
   ModelName,
   ProjectState,
@@ -377,12 +378,25 @@ function parseState(document: unknown, file: string): State {
     return { projects: new Map() };
   }
   const workedToday = fieldOf(document, "workedToday", file);
+  const announcedOn = fieldOf(document, "announcedOn", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
       workedToday: parseWorkedToday(workedToday, `${file}: "workedToday"`),
     }),
+    ...(announcedOn !== undefined && {
+      announcedOn: parseDayField(announcedOn, `${file}: "announcedOn"`),
+    }),
   };
+}
+
+function parseDayField(value: unknown, where: string): Day {
+  if (typeof value !== "string" || !isDay(value)) {
+    throw new Error(
+      `${where} must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -538,5 +552,9 @@ function formatState(state: State): string {
     tickets: state.workedToday.tickets.map(workedTicket),
   };
 
-  return `${JSON.stringify({ projects, workedToday }, undefined, 2)}\n`;
+  return `${JSON.stringify(
+    { projects, workedToday, announcedOn: state.announcedOn },
+    undefined,
+    2,
+  )}\n`;
 }

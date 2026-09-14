@@ -41,7 +41,7 @@ What the loop does when the budget gate refuses, or when the provider limit refu
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
-The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer.
+The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer. An invocation that worked something always publishes one; a quiet or broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none has been published yet that local calendar day, recorded in the state document as `announcedOn` once the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather than up to twenty-four. The title carries the local time to the minute beside the date, since more than one summary can land on one day.
 _Avoid_: report, digest, changelog
 
 ### Triggers

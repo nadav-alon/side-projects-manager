@@ -672,4 +672,33 @@ describe("the state document", () => {
 
     await assert.rejects(store.loadState(), /workedToday/);
   });
+
+  it("reads a document with no announcedOn as not announced", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {} }),
+      }),
+    );
+
+    assert.equal((await store.loadState()).announcedOn, undefined);
+  });
+
+  it("survives a round trip with the day last announced", async () => {
+    const store = documentStore(await home());
+    const state = { projects: new Map(), announcedOn: day("2026-01-01") };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects a day last announced that is not a calendar day", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {}, announcedOn: "today" }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /announcedOn/);
+  });
 });
