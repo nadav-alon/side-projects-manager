@@ -30,3 +30,22 @@ Optional, on top of the state role. Orders `ready-for-agent` tickets within this
 - Any open issue passes its label on, including a `ready-for-human` spec. Closed issues and issues in other repos pass on nothing.
 - A sub-issue labelled larger than its spec still counts as the spec's level: a label can raise a ticket's priority, never lower it.
 - They only order tickets within this project. They never make one project outrank another.
+
+## Ticket size labels
+
+How large a ticket's run is expected to be, as `size:<size>`. Triage recommends one when moving a
+ticket to `ready-for-agent`; the budget document is what sets the tokens each one is worth.
+
+| Label     | Meaning        |
+| --------- | -------------- |
+| `size:S`  | Smallest       |
+| `size:M`  |                |
+| `size:L`  |                |
+| `size:XL` | Largest        |
+
+- Apply at most one recognised size. If several are present, the largest counts — overestimating is
+  the safe direction.
+- A ticket carrying no size label, and every review ticket regardless of its parent's size, runs as
+  whatever size the budget document names for unsized tickets.
+- Says nothing about which model a ticket runs on: a ticket expected to run on a costlier model is
+  sized larger instead.

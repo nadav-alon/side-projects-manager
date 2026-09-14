@@ -18,6 +18,7 @@ import {
   issueNumber,
   modelLabelOf,
   reviewTitle,
+  sizeLabelOf,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 
@@ -45,19 +46,22 @@ export interface FakeHandback {
 
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
- * without what the fake works out on each listing — no `eligible` or
- * `modelLabel`, which come from the labels it carries — and
+ * without what the fake works out on each listing — no `eligible`,
+ * `modelLabel` or `sizeLabel`, which come from the labels it carries — and
  * `openBlockerNumbers` optional, since most tests give none.
  */
-type StoredIssue = Omit<Ticket, "modelLabel"> &
+type StoredIssue = Omit<Ticket, "modelLabel" | "sizeLabel"> &
   Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
 
 /**
- * A ticket as a test hands it to the fake. No `modelLabel`, not even on a
- * wider `Ticket`: the fake reads that from the labels a ticket holds, the way
- * the real tracker does.
+ * A ticket as a test hands it to the fake. No `modelLabel` or `sizeLabel`,
+ * not even on a wider `Ticket`: the fake reads both from the labels a ticket
+ * holds, the way the real tracker does.
  */
-type TicketInput = Omit<StoredIssue, "repo"> & { modelLabel?: never };
+type TicketInput = Omit<StoredIssue, "repo"> & {
+  modelLabel?: never;
+  sizeLabel?: never;
+};
 
 /** One entry the fake holds: the open issue, and the labels it carries. */
 interface Stored {
@@ -212,18 +216,24 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * An issue's eligibility and model label are read from the labels it holds
-   * at the time of the call, through the same `modelLabelOf` the real tracker
-   * uses, so a label changed between calls changes what the next call
-   * returns. Issues are listed in the order they were added.
+   * An issue's eligibility, model label and size label are read from the
+   * labels it holds at the time of the call, through the same `modelLabelOf`
+   * and `sizeLabelOf` the real tracker uses, so a label changed between calls
+   * changes what the next call returns. Issues are listed in the order they
+   * were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
     throwOnUncountedPullRequestTickets(this.#issues.get(repo) ?? []);
     const issues = (this.#issues.get(repo) ?? []).map((entry) => {
       const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
       const modelLabel = modelLabelOf(entry.labels);
+      const sizeLabel = sizeLabelOf(entry.labels);
       return {
-        ticket: { ...ticket, ...(modelLabel !== undefined && { modelLabel }) },
+        ticket: {
+          ...ticket,
+          ...(modelLabel !== undefined && { modelLabel }),
+          ...(sizeLabel !== undefined && { sizeLabel }),
+        },
         eligible: carriesReadyForAgent(entry.labels),
         openBlockerNumbers,
         ...(parent !== undefined && { parent }),

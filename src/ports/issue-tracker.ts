@@ -2,6 +2,7 @@ import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import { SIZES, isSize, type Size } from "./size.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -35,6 +36,13 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
  * rest of the label is the model's name. The one place the literal lives.
  */
 export const MODEL_LABEL_PREFIX = "model:";
+
+/**
+ * What a label starts with when it is a size label, per `CONTEXT.md`: the
+ * rest of the label names one of the four recognised sizes. The one place
+ * the literal lives.
+ */
+export const SIZE_LABEL_PREFIX = "size:";
 
 /**
  * What a ticket's model labels say, where it carries any: one model by name,
@@ -98,6 +106,62 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
 }
 
 /**
+ * What a ticket's size labels say, where it carries any: one recognised
+ * size, or a label whose name none of the four recognised sizes match.
+ * Absent from a ticket that names no size — an unsized ticket, per
+ * `CONTEXT.md`'s "Size label".
+ *
+ * `unusable` carries each size label whose name `isSize` refuses — as
+ * written, so a hand-back can quote it. It wins even beside a recognised
+ * size: the developer named a size, and running the ticket unsized or under
+ * the other size is not what they asked for. Two recognised sizes are not an
+ * error the same way: overestimating is the safe direction, so the larger
+ * one counts instead.
+ */
+export type SizeLabel =
+  | { kind: "declared"; size: Size }
+  | { kind: "unusable"; labels: readonly string[] };
+
+/**
+ * The size label a ticket carrying `labels` declares, or undefined where it
+ * names no size.
+ *
+ * Beside the port rather than in an adapter, so the real tracker and the fake
+ * read labels identically. The prefix is matched without regard to case, the
+ * way `modelLabelOf` matches `MODEL_LABEL_PREFIX`, and so is the size itself:
+ * `size:s` and `size:S` declare the same size.
+ */
+export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
+  const declared: Size[] = [];
+  const unusable: string[] = [];
+  for (const label of labels) {
+    if (!label.toLowerCase().startsWith(SIZE_LABEL_PREFIX)) {
+      continue;
+    }
+    const value = label.slice(SIZE_LABEL_PREFIX.length).toUpperCase();
+    if (isSize(value)) {
+      declared.push(value);
+    } else {
+      unusable.push(label);
+    }
+  }
+
+  if (unusable.length > 0) {
+    return { kind: "unusable", labels: unusable };
+  }
+  const [first, ...rest] = declared;
+  if (first === undefined) {
+    return undefined;
+  }
+  const largest = rest.reduce(
+    (largest, candidate) =>
+      SIZES.indexOf(candidate) > SIZES.indexOf(largest) ? candidate : largest,
+    first,
+  );
+  return { kind: "declared", size: largest };
+}
+
+/**
  * The pull request a ticket is bound to, and why: `review` binds a review
  * ticket to the draft it was opened to review; `apply-review` binds an
  * apply-review ticket to the draft the apply-review workflow asks the loop to
@@ -145,6 +209,11 @@ export interface PullRequestBinding {
  *
  * `priority` is the level its own priority label names, from that same
  * listing. Absent means it carries none.
+ *
+ * `sizeLabel` is what the ticket's own size labels say, read from that same
+ * listing on every call. Absent means the ticket names no size — an unsized
+ * ticket, per `CONTEXT.md`'s "Size label". A review ticket reads its own
+ * labels, never its parent's, and never inherits a size from it.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -156,6 +225,7 @@ export interface Ticket {
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
+  sizeLabel?: SizeLabel;
 }
 
 /**

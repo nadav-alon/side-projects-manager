@@ -17,6 +17,7 @@ export {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SIZE_LABEL_PREFIX,
   TICKET_KINDS,
   backlogIn,
   carriesReadyForAgent,
@@ -29,6 +30,7 @@ export {
   isReviewTicket,
   modelLabelOf,
   reviewTitle,
+  sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
 } from "./issue-tracker.ts";
@@ -43,6 +45,7 @@ export type {
   PullRequestTicket,
   RebaseTicket,
   ReviewTicket,
+  SizeLabel,
   Ticket,
   TicketKind,
 } from "./issue-tracker.ts";

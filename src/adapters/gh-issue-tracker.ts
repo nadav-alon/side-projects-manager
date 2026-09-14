@@ -24,6 +24,7 @@ import {
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
+  sizeLabelOf,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
@@ -99,6 +100,7 @@ export function ghIssueTracker(
             .map((blocker) => blocker.number);
           const modelLabel = modelLabelOf(labels);
           const priority = priorityLabelIn(labels);
+          const sizeLabel = sizeLabelOf(labels);
           return {
             ticket: {
               repo,
@@ -108,6 +110,7 @@ export function ghIssueTracker(
               ...(pullRequest !== undefined && { pullRequest }),
               ...(modelLabel !== undefined && { modelLabel }),
               ...(priority !== undefined && { priority }),
+              ...(sizeLabel !== undefined && { sizeLabel }),
             },
             eligible: carriesReadyForAgent(labels),
             openBlockerNumbers,
