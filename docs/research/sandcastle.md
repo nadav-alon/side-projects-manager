@@ -237,10 +237,11 @@ persists for follow-up work). It also matches our model flag, permission-mode fl
 credential, and build-time-image constraints well enough to be viable in principle.
 
 But of the four questions added during triage — the ones that exist precisely because the adapter
-grew *after* this ticket was written — it fails three outright and only partially answers the fourth:
-no way to mount the primary checkout read-only for a review, no spend ceiling of any kind, no
-`permission_denials` signal, and no distinction between a run that never started and one that ran and
-gave up. The missing spend ceiling is disqualifying on its own terms: our own vocabulary calls it
+grew *after* this ticket was written — it meets none in full. Each is partial, and each is missing a
+piece our adapter depends on: no way to mount the primary checkout read-only for a review (finding 7),
+no spend ceiling of any kind (finding 8), no `permission_denials` signal and no distinction between a
+run that never started and one that ran and gave up (finding 9), and no refusal to run as root
+(finding 10). The missing spend ceiling is disqualifying on its own terms: our own vocabulary calls it
 "the only thing bounding a run once it has started," and sandcastle has nothing that plays that role
 — not a different flag, not a hook, nothing. Layered on top, a failed run's commits, output and spent
 tokens are thrown away by default (finding 5) — the exact silent-failure mode our adapter's own
