@@ -4,6 +4,7 @@ import {
   handedBackForModelLabels,
   type AppliedReview,
   type Finished,
+  type Handover,
   type IterationOutcome,
   type NotClosed,
   type Reviewed,
@@ -223,6 +224,7 @@ function waitingSection(
   iterations: IterationOutcome[],
   projects: ProjectOutcome[],
 ): string | undefined {
+  const reviewOutcomes = workedReviewOutcomes(iterations);
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed":
@@ -247,9 +249,11 @@ function waitingSection(
         return [
           ...(handover === undefined
             ? []
-            : [
-                `- ${iteration.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
-              ]),
+            : handoverLine(
+                iteration.repo,
+                handover,
+                reviewOutcomes.get(reviewKey(iteration.repo, handover)),
+              )),
           ...(handbackFailure !== undefined
             ? [stillEligibleLine(iteration)]
             : handover === undefined
@@ -277,6 +281,54 @@ function waitingSection(
 /** A backlog too long to read in full: the bullet names the project, since the tickets it left unread are too many to name. */
 function backlogTruncatedLine(repo: RepoSlug): string {
   return `- ${repo}: holds more than 100 ${READY_FOR_AGENT_LABEL} tickets — only the newest 100 were considered`;
+}
+
+/** Keys a review ticket by its repo and number, to look it up across iterations. */
+function reviewKey(repo: RepoSlug, handover: Handover): string {
+  return `${repo}#${handover.reviewTicket.number}`;
+}
+
+/**
+ * Every iteration this invocation itself worked a review ticket's own run,
+ * keyed by repo and ticket number, so a finished run's handover line can tell
+ * whether its queued review already ran — a limit refusal leaves the review
+ * ticket untouched, so it is not counted here.
+ */
+function workedReviewOutcomes(
+  iterations: IterationOutcome[],
+): Map<string, IterationOutcome> {
+  const outcomes = new Map<string, IterationOutcome>();
+  for (const iteration of iterations) {
+    if (iteration.kind === "reviewed" || iteration.kind === "failed") {
+      outcomes.set(`${iteration.repo}#${iteration.ticket.number}`, iteration);
+    }
+  }
+  return outcomes;
+}
+
+/**
+ * The Waiting-on-you line for a finished run's handover. A review not yet
+ * worked this invocation is still queued; one that ran and closed its ticket
+ * cleanly needs a line here naming the pull request as reviewed, since the
+ * `reviewed` case has none to add for that outcome; one that failed, or ran
+ * but could not close its ticket, already has its own line from that
+ * iteration's own case, so nothing is added here — a second line would only
+ * repeat it.
+ */
+function handoverLine(
+  repo: RepoSlug,
+  handover: Handover,
+  reviewOutcome: IterationOutcome | undefined,
+): string[] {
+  if (reviewOutcome === undefined) {
+    return [
+      `- ${repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
+    ];
+  }
+  if (reviewOutcome.kind === "reviewed" && reviewOutcome.notClosed === undefined) {
+    return [`- ${repo}: ${handover.pullRequest} — reviewed, findings posted`];
+  }
+  return [];
 }
 
 /** What a failed run leaves waiting on the developer. */
