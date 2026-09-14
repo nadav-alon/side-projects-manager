@@ -261,7 +261,7 @@ _Avoid_: budget, limit, cap
 The machine-written account of every invocation: when it started, when it ended, and what it came
 to. A document in the manager home alongside the state document — but a separate one: the state
 document is keyed by project and rewritten wholesale, while the journal is append-only and keyed by
-time, one record per invocation. Distinct from `trigger.log` too: that file is the raw stdout of
+time, one record per invocation. Distinct from `trigger.log` too: that file is the raw output of
 whatever a trigger ran, gitignored and local to this machine, where the journal is committed and
 records outcomes rather than capturing output. Committed.
 _Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
