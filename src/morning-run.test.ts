@@ -2917,16 +2917,14 @@ describe("morningLoop", () => {
         maxConcurrentIterations: iterationLimit(limit),
       };
       for (let number = 1; number <= count; number++) {
-        ports.tracker.addEligibleTicket(PILOT, {
-          number,
-          title: `Ticket ${number}`,
-        });
+        const { repo, ...ticket } = ticketOf(number);
+        ports.tracker.addEligibleTicket(repo, ticket);
       }
       return ports;
     }
 
-    function ticketOf(number: number): Ticket {
-      return { repo: PILOT, number, title: `Ticket ${number}` };
+    function ticketOf(number: number) {
+      return { repo: PILOT, number, title: `Ticket ${number}` } satisfies Ticket;
     }
 
     /** A costless, empty run on `ticket`, but for what `overrides` sets. */
