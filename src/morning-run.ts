@@ -1,8 +1,8 @@
 import type {
-  Branch,
   Budget,
   Checkout,
   Clock,
+  Day,
   IssueTracker,
   IterationLimit,
   ModelDefaults,
@@ -10,26 +10,25 @@ import type {
   ModelRefusal,
   Priority,
   ProjectState,
-  PullRequestUrl,
   RegisteredProject,
   RepoHost,
   RepoSlug,
-  ReviewRunResult,
+  ReviewFinished,
+  ReviewGaveUp,
+  ReviewOutcome,
   ReviewTicket,
   RunCost,
+  RunFinished,
+  RunOutcome,
   Sandbox,
-  SandboxRunResult,
   State,
   Store,
   Ticket,
   TicketPriority,
-  TokenCount,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
 import {
-  READY_FOR_AGENT_LABEL,
-  READY_FOR_HUMAN_LABEL,
   isBlocked,
   isBrokenOut,
   isReviewTicket,
@@ -47,10 +46,32 @@ import {
   modelRefusalComment,
   reviewHandbackComment,
   unusableModelLabelComment,
-  workLocation,
   type Discard,
 } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
+import {
+  failedOnInfrastructure,
+  handedBackForModelLabels,
+  type Failed,
+  type Finished,
+  type GaveUp,
+  type HandedBackFailure,
+  type HandoverFailed,
+  type HandoverReach,
+  type Iteration,
+  type IterationOutcome,
+  type LimitRefused,
+  type ModelRefused,
+  type ModelSource,
+  type Reviewed,
+  type UnusableModelLabel,
+} from "./iteration-outcome.ts";
+import {
+  summaryBody,
+  summaryLine,
+  summaryTitle,
+  type SummaryFacts,
+} from "./summary.ts";
 
 /**
  * The one write on the tracker that `ports/issue-tracker.ts` deliberately
@@ -114,119 +135,10 @@ export type ProjectVerdict =
   /** Considered and selected: the project this iteration works. */
   | "selected";
 
-/**
- * Whose problem a failed run is.
- *
- * The distinction is the one the developer acts on: a hard ticket is theirs to
- * rewrite or drop, a broken sandbox is theirs to fix, and a morning that says
- * only "it failed" makes them go and find out which.
- */
-export type FailureKind = RunFailure["kind"];
-
-/**
- * Why an iteration's run did not finish, never started, or finished without
- * its work being handed over.
- */
-export type RunFailure =
-  | GaveUp
-  | HandoverFailed
-  | InfrastructureFailure
-  | ModelRefused
-  | UnusableModelLabel;
-
-/** A failure whose ticket the loop hands back: every kind but the setup's. */
-export type HandedBackFailure = Exclude<RunFailure, InfrastructureFailure>;
-
-/** The agent ran and stopped short: it said it could not, or left the tests red. */
-export interface GaveUp {
-  kind: "gave-up";
-  reason: string;
-  /**
-   * Whether the ticket made it back to the developer. False says the loop
-   * could not comment or relabel, so the ticket is still eligible and will be
-   * selected again — a morning that needs the developer to go and look at the
-   * ticket themselves.
-   */
-  handedBack: boolean;
-}
-
-/**
- * A run that finished and committed, whose work could not be handed over: the
- * branch would not push or no draft pull request would open for it, or the
- * pull request opened and its review ticket could not be created.
- *
- * Handed back all the same, since the work exists and running the ticket again
- * would only make it twice. The branch is kept, not discarded: it is the work.
- */
-export interface HandoverFailed {
-  kind: "handover-failed";
-  reason: string;
-  /** Where the run's commits are. */
-  branch: Branch;
-  /** How far the branch got, and so where the developer finds the work. */
-  where: HandoverReach;
-  /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
-}
-
-/** How far a failed handover's branch got before the handover failed. */
-export type HandoverReach =
-  /** Never reached the host: `checkout` is the one place the work is. */
-  | { kind: "unpushed"; checkout: Checkout }
-  /** On the host, with no draft pull request known to be open for it. */
-  | { kind: "pushed" }
-  /** On the host, in `pullRequest`: only the review ticket failed. */
-  | { kind: "opened"; pullRequest: PullRequestUrl };
-
-/**
- * Where the model a run was started on came from. Absent from a run started
- * on no model at all, which the sandbox image's pin decides.
- */
-export type ModelSource = "model label" | "model defaults";
-
 /** The model a ticket's run is started on, and what named it. */
 export interface ResolvedModel {
   name: ModelName;
   source: ModelSource;
-}
-
-/**
- * A model refusal: the agent CLI would not start on the model the run was
- * given. The ticket's model is the problem, so the ticket is handed back —
- * but the agent never gave up, and the setup did its part.
- */
-export interface ModelRefused {
-  kind: "model-refused";
-  reason: string;
-  refusal: ModelRefusal;
-  /** What named the refused model: the ticket's model label or the model defaults. */
-  source: ModelSource;
-  /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
-}
-
-/**
- * A ticket whose model labels no run could be started on — two or more that
- * disagree, or one naming no usable model — caught at selection, so nothing
- * was cloned, run or spent.
- */
-export interface UnusableModelLabel {
-  kind: "conflicting-model-labels" | "unusable-model-label";
-  reason: string;
-  /** The model labels at fault, as the ticket carries them. */
-  labels: readonly string[];
-  /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
-}
-
-/**
- * The sandbox or the repo host could not do its part, so nothing ran. Never
- * handed back: the ticket is left eligible on purpose, since the setup is the
- * problem.
- */
-export interface InfrastructureFailure {
-  kind: "infrastructure";
-  reason: string;
 }
 
 /** One registered project, and what the invocation made of it. */
@@ -322,90 +234,6 @@ interface Selection {
 }
 
 /**
- * What one iteration did with the ticket it selected: finished a run, failed
- * one, worked a review ticket's own run, or had either kind of run refused by
- * the provider limit. Told apart by `kind`, and nothing else.
- *
- * Nothing here is thrown. A run that gave up, and one that never happened, are
- * described rather than raised, so the invocation still reports on the
- * projects behind them.
- */
-type Iteration = Finished | Failed | Reviewed | LimitRefused;
-
-/**
- * A limit refusal: an implementation or review run the provider limit
- * refused. Not a failure: the ticket is nobody's problem, so it is neither
- * commented on nor relabelled, and stays eligible for a morning with limit
- * left to spend.
- */
-interface LimitRefused {
-  kind: "limit-refused";
-  /** What the provider said. */
-  limitRefusal: string;
-  tokensUsed: TokenCount;
-  /** What the implementation run left behind. Absent for a review. */
-  run?: SandboxRunResult;
-  /** What became of any branch the run left, discarded as a failed run's is. */
-  discard: Discard;
-}
-
-/** An iteration whose run finished, and how its work reached the developer. */
-interface Finished {
-  kind: "finished";
-  run: SandboxRunResult;
-  /** Absent when the run committed nothing, so there was nothing to hand over. */
-  handover?: Handover;
-  /**
-   * Set when the ticket itself could not be taken out of the queue: the
-   * tracker refused the comment or the relabel that `handFinishedTicketBack`
-   * tried on its behalf. Absent when that succeeded, whether or not the run
-   * produced a handover — a run that committed nothing is given back too,
-   * just with nothing to name in the comment but that.
-   */
-  handbackFailure?: string;
-}
-
-/**
- * What a finished run comes to for the developer: the draft pull request its
- * commits wait in, and the review queued against that pull request.
- */
-interface Handover {
-  pullRequest: PullRequestUrl;
-  reviewTicket: Ticket;
-}
-
-/**
- * An iteration whose run did not finish: an agent that gave up, whose ticket
- * is handed back, or an infrastructure failure, whose ticket is left as it was.
- */
-interface Failed {
-  kind: "failed";
-  failure: RunFailure;
-  /** What the agent left behind. Absent when it never ran, and for a review. */
-  run?: SandboxRunResult;
-  /** What a review that ran spent, since it has no `run`. */
-  tokensUsed?: TokenCount;
-}
-
-/**
- * The project and ticket an iteration worked, and the model its run was
- * started on — absent when the sandbox image's pin decided, and when no run
- * was started because the ticket's model labels were unusable.
- */
-interface Attempt<T extends Ticket = Ticket> {
-  repo: RepoSlug;
-  ticket: T;
-  model?: ModelName;
-}
-
-/** One iteration's outcome, and the project and ticket that earned it. */
-export type IterationOutcome =
-  | (Attempt & Finished)
-  | (Attempt & Failed)
-  | (Attempt<ReviewTicket> & Reviewed)
-  | (Attempt & LimitRefused);
-
-/**
  * One project with an eligible ticket, as far as selection is concerned: the
  * project itself, the ticket selection would work on its behalf, and whether
  * that ticket is a review — everything the ordering rule needs and nothing
@@ -417,30 +245,6 @@ interface Candidate {
   isReview: boolean;
   priority?: Priority;
   lastWorkedAt?: Date;
-}
-
-/**
- * A review ticket's own run that finished without the agent giving up. There
- * is no pull request to name here — the review ticket already names the one
- * it is about — and no further review to queue, since nothing reviews a
- * review. A review that gave up or posted nothing is `Failed` instead.
- */
-interface Reviewed {
-  kind: "reviewed";
-  review: ReviewRunResult;
-  /**
-   * Set when the loop could not finish the ticket off: the pull request could
-   * not be checked for the posted comment, or the ticket could not be closed.
-   * Either way it is still ready-for-agent, and the developer checks the pull
-   * request and closes it by hand.
-   */
-  notClosed?: NotClosed;
-}
-
-/** Why a review that ran left its ticket open, and the error that stopped it. */
-interface NotClosed {
-  kind: "check-failed" | "close-failed";
-  error: string;
 }
 
 /** What walking the registry came to: the verdicts, and any work found. */
@@ -472,11 +276,17 @@ interface RegistryScan {
  * back by relabelling it, but a finished run's is left exactly as it was, so
  * without this an unattended morning with only one project registered would
  * work its one ticket over and over until the budget gate finally stopped it.
+ *
+ * The summary always publishes when the invocation worked something; a quiet
+ * or broken invocation publishes only if none has been announced yet today,
+ * so a loop firing every hour reports one quiet or broken morning rather than
+ * up to twenty-four.
  */
 export async function morningLoop(
   ports: MorningLoopPorts,
 ): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
+  const today = localDay(startedAt);
   // One slot per iteration, in the order they started. A slot is left empty
   // only by an iteration that threw.
   const outcomeSlots: (IterationOutcome | undefined)[] = [];
@@ -489,15 +299,23 @@ export async function morningLoop(
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
+  // Set once `loadState` has succeeded, since only then is there a state
+  // document to fold a successful publish's announcement back into. Absent
+  // when the loop's own plumbing broke before that point — there is nothing
+  // to write back then, as the final `catch` below already notes.
+  let announcedOn: Day | undefined;
+  let stateToSave: (() => State) | undefined;
   try {
     const stored = await ports.store.loadState();
+    announcedOn = stored.announcedOn;
     const projects = new Map(stored.projects);
-    const worked = workedTickets(stored.workedToday, localDay(startedAt));
-    const stateToSave = (): State => {
+    const worked = workedTickets(stored.workedToday, today);
+    stateToSave = (): State => {
       const workedToday = worked.workedToday();
       return {
         projects,
         ...(workedToday !== undefined && { workedToday }),
+        ...(announcedOn !== undefined && { announcedOn }),
       };
     };
     const modelDefaults = await ports.store.loadModelDefaults();
@@ -677,21 +495,34 @@ export async function morningLoop(
     invocationFailure,
   };
   const line = summaryLine(facts);
+  const outcome = outcomeOf(iterations, standDown, invocationFailure);
 
-  // Last, so a morning that worked something still gets its state recorded
-  // above even if the tracker refuses this. Never thrown: a summary issue
-  // that could not be written must not cost the developer the account of
-  // everything else the invocation did, which is exactly the account this
-  // write exists to carry — said in the message instead, the same way a
-  // tracker that refuses `handBack` is said rather than thrown.
+  // An invocation that worked something always publishes. A quiet or broken
+  // one — dry queue, stand-down, invocation failure — publishes only if
+  // nothing has been announced yet today, so a firing every hour reports one
+  // quiet morning rather than up to twenty-four.
   let publishFailure: string | undefined;
-  try {
-    await ports.tracker.publishSummary(
-      summaryTitle(startedAt),
-      summaryBody(facts, line),
-    );
-  } catch (error: unknown) {
-    publishFailure = errorMessage(error);
+  if (outcome === "work-selected" || announcedOn !== today) {
+    // Last, so a morning that worked something still gets its state recorded
+    // above even if the tracker refuses this. Never thrown: a summary issue
+    // that could not be written must not cost the developer the account of
+    // everything else the invocation did, which is exactly the account this
+    // write exists to carry — said in the message instead, the same way a
+    // tracker that refuses `handBack` is said rather than thrown.
+    try {
+      await ports.tracker.publishSummary(
+        summaryTitle(startedAt),
+        summaryBody(facts, line),
+      );
+      // Recorded only now that the publish is known to have succeeded, and
+      // only when there is a state document to fold it back into.
+      if (stateToSave !== undefined) {
+        announcedOn = today;
+        await ports.store.saveState(stateToSave());
+      }
+    } catch (error: unknown) {
+      publishFailure = errorMessage(error);
+    }
   }
 
   return {
@@ -699,7 +530,7 @@ export async function morningLoop(
     projects: outcomes,
     iterations,
     ...(standDown !== undefined && { standDown }),
-    outcome: outcomeOf(iterations, standDown, invocationFailure),
+    outcome,
     message:
       publishFailure === undefined
         ? line
@@ -720,8 +551,7 @@ function outcomeOf(
   // nothing reads as one, whatever was handed back before it. Without a
   // stand-down, that hand-back is still work an iteration selected.
   const worked = iterations.some(
-    (iteration) =>
-      !(iteration.kind === "failed" && isModelLabelFailure(iteration.failure)),
+    (iteration) => !handedBackForModelLabels(iteration),
   );
   if (worked) {
     return "work-selected";
@@ -907,20 +737,20 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
 /**
  * A model refusal, as the failure its ticket is handed back with.
  *
- * Throws when the run was given no model: the sandbox reports a refusal only
- * for a model it was handed, so one arriving without is the port breaking its
- * contract, not something to read as any other kind of run.
+ * `source` is worked out again from `ticket` rather than threaded through
+ * from `resolveModel`'s own answer: a `"model-refused"` outcome can only come
+ * back from a run the sandbox was actually given a model for (`Sandbox.run`'s
+ * own overload rules that out for a run given none), and the model it names
+ * is always the one that run was given — so which of the ticket's own model
+ * label or the model defaults that was is a fact of `ticket`, not something
+ * this needs handed to it separately, and there is no "given no model" case
+ * left here to guard against.
  */
-function modelRefused(
-  refusal: ModelRefusal,
-  model: ResolvedModel | undefined,
-): ModelRefused {
-  if (model === undefined) {
-    throw new Error(
-      `the sandbox reported the model ${refusal.model} refused for a run given no model`,
-    );
-  }
-  const { source } = model;
+function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
+  const source: ModelSource =
+    ticket.modelLabel?.kind === "named" && ticket.modelLabel.name === refusal.model
+      ? "model label"
+      : "model defaults";
   return {
     kind: "model-refused",
     reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
@@ -1026,8 +856,7 @@ function leastRecentlyWorkedFirst(
  */
 function leavesTicketUntouched(iteration: Iteration): boolean {
   return (
-    iteration.kind === "limit-refused" ||
-    (iteration.kind === "failed" && iteration.failure.kind === "infrastructure")
+    iteration.kind === "limit-refused" || failedOnInfrastructure(iteration)
   );
 }
 
@@ -1069,22 +898,24 @@ async function work(
   );
   // An infrastructure failure says nothing about the ticket, so the ticket is
   // left exactly as it was: the summary names the setup to fix instead.
-  if ("failure" in returned) {
+  if (returned.kind === "failed") {
     return returned;
   }
 
+  // A variant is exactly one kind, so nothing here turns on the order the
+  // three failing kinds are checked in.
   const { run, checkout } = returned;
-  if (run.limitRefusal !== undefined) {
+  if (run.kind === "limit-refused") {
     return {
       kind: "limit-refused",
-      limitRefusal: run.limitRefusal,
+      limitRefusal: run.words,
       tokensUsed: run.tokensUsed,
       run,
       discard: await discardBranch(ports, checkout, run),
     };
   }
-  if (run.modelRefusal !== undefined) {
-    const failure = modelRefused(run.modelRefusal, model);
+  if (run.kind === "model-refused") {
+    const failure = modelRefused(selection.ticket, run.refusal);
     const discard = await discardBranch(ports, checkout, run);
     return handTicketBack(
       ports,
@@ -1094,7 +925,7 @@ async function work(
       run,
     );
   }
-  if (run.failure === undefined) {
+  if (run.kind === "finished") {
     return handOver(ports, run, checkout, selection.ticket);
   }
 
@@ -1105,7 +936,7 @@ async function work(
   const discard = await discardBranch(ports, checkout, run);
   const failure: GaveUp = {
     kind: "gave-up",
-    reason: run.failure,
+    reason: run.reason,
     handedBack: false,
   };
   return handTicketBack(
@@ -1136,7 +967,7 @@ async function work(
  */
 async function handOver(
   ports: MorningLoopPorts,
-  run: SandboxRunResult,
+  run: RunFinished,
   checkout: Checkout,
   ticket: Ticket,
 ): Promise<Finished | Failed> {
@@ -1215,7 +1046,7 @@ async function handOver(
 async function handoverFailed(
   ports: MorningLoopPorts,
   ticket: Ticket,
-  run: SandboxRunResult,
+  run: RunFinished,
   reason: string,
   where: HandoverReach,
 ): Promise<Failed> {
@@ -1271,7 +1102,7 @@ async function handTicketBack(
   ticket: Ticket,
   failure: HandedBackFailure,
   comment: string,
-  run?: SandboxRunResult,
+  run?: RunOutcome,
 ): Promise<Failed> {
   try {
     await ports.tracker.handBack(ticket, comment);
@@ -1305,7 +1136,7 @@ async function handTicketBack(
 async function discardBranch(
   ports: MorningLoopPorts,
   checkout: Checkout,
-  run: SandboxRunResult,
+  run: RunOutcome,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -1321,6 +1152,13 @@ async function discardBranch(
   }
 }
 
+/** A run the sandbox carried out, whatever the agent made of it. */
+interface Ran {
+  kind: "ran";
+  run: RunOutcome;
+  checkout: Checkout;
+}
+
 /**
  * The run itself, and what it cost.
  *
@@ -1331,7 +1169,7 @@ async function discardBranch(
  * The two ways a run ends badly are told apart by where they surface: the
  * sandbox port rejects only when it could not set itself up, start the agent,
  * or tear itself down, and reports an agent that gave up as a result carrying
- * `failure`.
+ * the `"gave-up"` variant.
  */
 async function attemptRun(
   ports: MorningLoopPorts,
@@ -1339,19 +1177,31 @@ async function attemptRun(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<{ run: SandboxRunResult; checkout: Checkout } | Failed> {
+): Promise<Ran | Failed> {
   const repo = selection.project.repo;
 
   let checkout: Checkout;
-  let run: SandboxRunResult;
+  let run: RunOutcome;
   try {
     checkout = await ports.repoHost.clone(repo);
-    run = await ports.sandbox.run({
-      ticket: selection.ticket,
-      checkout,
-      spendCeiling,
-      ...(model !== undefined && { model: model.name }),
-    });
+    // Built as two distinct calls rather than one call with `model` spread in
+    // conditionally: `Sandbox.run` is overloaded on whether `model` is
+    // present precisely so that a run given none can never come back with a
+    // model refusal, and only a call whose own argument is plainly one shape
+    // or the other resolves to the right overload.
+    run =
+      model === undefined
+        ? await ports.sandbox.run({
+            ticket: selection.ticket,
+            checkout,
+            spendCeiling,
+          })
+        : await ports.sandbox.run({
+            ticket: selection.ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          });
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
     // token count — so there is nothing to record against the project, and no
@@ -1366,7 +1216,7 @@ async function attemptRun(
   const cost = { at, tokensUsed: run.tokensUsed };
   state.set(repo, recordRun(state.get(repo), cost));
 
-  return { run, checkout };
+  return { kind: "ran", run, checkout };
 }
 
 /** A checkout or a sandbox that could not do its part, as the iteration it comes to. */
@@ -1406,15 +1256,21 @@ async function runReview(
   model: ResolvedModel | undefined,
 ): Promise<Reviewed | LimitRefused | Failed> {
   const startedAt = ports.clock.now();
-  let review: ReviewRunResult;
+  let review: ReviewOutcome;
   try {
     const checkout = await ports.repoHost.clone(repo);
-    review = await ports.sandbox.review({
-      ticket,
-      checkout,
-      spendCeiling,
-      ...(model !== undefined && { model: model.name }),
-    });
+    // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
+    // overload that actually matches, rather than one call TypeScript could
+    // not resolve to either.
+    review =
+      model === undefined
+        ? await ports.sandbox.review({ ticket, checkout, spendCeiling })
+        : await ports.sandbox.review({
+            ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          });
   } catch (error: unknown) {
     return infrastructureFailure(error);
   }
@@ -1427,18 +1283,18 @@ async function runReview(
     }),
   );
 
-  if (review.limitRefusal !== undefined) {
+  if (review.kind === "limit-refused") {
     return {
       kind: "limit-refused",
-      limitRefusal: review.limitRefusal,
+      limitRefusal: review.words,
       tokensUsed: review.tokensUsed,
       discard: { kind: "none" },
     };
   }
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
-  if (review.modelRefusal !== undefined) {
-    const failure = modelRefused(review.modelRefusal, model);
+  if (review.kind === "model-refused") {
+    const failure = modelRefused(ticket, review.refusal);
     return {
       ...(await handTicketBack(
         ports,
@@ -1450,8 +1306,8 @@ async function runReview(
     };
   }
 
-  if (review.failure !== undefined) {
-    return handReviewBack(ports, ticket, review, review.failure);
+  if (review.kind === "gave-up") {
+    return handReviewBack(ports, ticket, review, review.reason);
   }
 
   let posted: boolean;
@@ -1489,7 +1345,7 @@ async function runReview(
 async function handReviewBack(
   ports: MorningLoopPorts,
   ticket: ReviewTicket,
-  review: ReviewRunResult,
+  review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
@@ -1533,420 +1389,4 @@ function outcome(
     ...(blocked.length > 0 && { blocked }),
     ...(backlogTruncated && { backlogTruncated: true }),
   };
-}
-
-/** How a verdict reads to the developer. A selected project was not skipped. */
-function skipReason(verdict: ProjectVerdict): string | undefined {
-  switch (verdict) {
-    case "paused":
-      return "paused";
-    case "no-eligible-tickets":
-      return "no ready-for-agent tickets";
-    case "deferred":
-      return "outranked this morning";
-    case "selected":
-      return undefined;
-  }
-}
-
-/**
- * Names every ticket a scan passed over for being broken out or blocked,
- * whatever its project's verdict: a project can be selected for one ticket
- * while another in its backlog is passed over, and a backlog that looks full
- * but yields nothing is only explicable if the summary says so.
- */
-function passedOverAside(projects: ProjectOutcome[]): string {
-  const passedOver = projects.flatMap(({ repo, brokenOut, blocked }) => {
-    const reasons = [
-      ...(brokenOut === undefined
-        ? []
-        : [`${numbers(brokenOut)} broken out into sub-issues`]),
-      ...(blocked === undefined
-        ? []
-        : [`${numbers(blocked)} blocked by an open ticket`]),
-    ];
-    return reasons.length > 0 ? [`${repo} (${reasons.join("; ")})`] : [];
-  });
-  return passedOver.length > 0 ? ` Passed over ${passedOver.join(", ")}.` : "";
-}
-
-/** Tickets as the summary names them: `#1, #2`. */
-function numbers(tickets: Ticket[]): string {
-  return tickets.map((ticket) => `#${ticket.number}`).join(", ");
-}
-
-/**
- * Everything the summary is built from: the outcome of every registered
- * project, every attempt this invocation made, why it stood down, if it did,
- * and whether the invocation itself broke before finishing. One type rather
- * than four parameters, since `summaryLine` and `summaryBody` both need
- * exactly these facts and nothing else.
- */
-interface SummaryFacts {
-  projects: ProjectOutcome[];
-  iterations: IterationOutcome[];
-  standDown: InvocationStandDown | undefined;
-  invocationFailure: string | undefined;
-}
-
-function summaryLine(facts: SummaryFacts): string {
-  if (facts.invocationFailure !== undefined) {
-    return `The invocation did not finish: ${facts.invocationFailure}.`;
-  }
-
-  const { projects, iterations, standDown } = facts;
-  const skipped = projects.flatMap((project) => {
-    const reason = skipReason(project.verdict);
-    return reason === undefined ? [] : [`${project.repo} (${reason})`];
-  });
-
-  const passedOver = passedOverAside(projects);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}`;
-
-  if (iterations.length > 0) {
-    // A stand-down after the morning had already done some good is said after
-    // what was worked, since the developer still needs both.
-    const worked = iterations.map(describeIteration).join(" ");
-    const stopped =
-      standDown === undefined
-        ? ""
-        : ` Stood down after that: ${whyStoodDown(standDown, "next")}`;
-    return `${worked}${stopped}${aside}`;
-  }
-  // The gate refused before a single run this morning: there is work waiting,
-  // named by the project the gate turned away, but none of it ran.
-  if (standDown !== undefined) {
-    return `Stood down: ${whyStoodDown(standDown, "first")}${aside}`;
-  }
-  if (skipped.length === 0) {
-    return "Nothing to do: no projects registered. Add one to registry.json (see README).";
-  }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}`;
-}
-
-/**
- * Why the invocation stood down, and what that left waiting. The gate names
- * the project it turned away and when the window resets; a limit refusal
- * names the ticket it refused, which is still eligible, and quotes the reset
- * the provider gave.
- *
- * `when` is whether any run came before the stand-down, which only changes
- * how the gate's refused project is introduced.
- */
-function whyStoodDown(
-  standDown: InvocationStandDown,
-  when: "first" | "next",
-): string {
-  if (standDown.reason === "provider-limit") {
-    const { ticket, limitRefusal } = standDown;
-    return `${limitRefusal}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
-  }
-  const ready =
-    when === "next" ? "was ready to work next" : "was ready to work";
-  return `${standDownReason(standDown)}. ${standDown.refused} ${ready}; the window resets ${standDown.resetsAt.toISOString()}.`;
-}
-
-/** The summary issue's title: dated, so a string of mornings reads in order. */
-function summaryTitle(startedAt: Date): string {
-  return `Morning loop summary — ${startedAt.toISOString().slice(0, 10)}`;
-}
-
-/**
- * The summary issue's body: CONTEXT.md's "Summary" entry, written out in
- * full. `message` stays the one line a terminal or a trigger's own log wants;
- * this is the fuller account — every attempt with its cost, and what is now
- * waiting on the developer — the issue itself carries. `line` is passed in
- * rather than recomputed from `facts`: the caller already built it for
- * `message`, and it reads the same either way.
- */
-function summaryBody(facts: SummaryFacts, line: string): string {
-  return [
-    line,
-    facts.iterations.length === 0
-      ? undefined
-      : attemptsSection(facts.iterations),
-    waitingSection(facts.iterations),
-  ]
-    .filter((section): section is string => section !== undefined)
-    .join("\n\n");
-}
-
-/**
- * One bullet per attempt this invocation made, its outcome, its cost, and the
- * model it was started on. A ticket handed back for its model labels was never
- * started, so it names neither.
- */
-function attemptsSection(iterations: IterationOutcome[]): string {
-  const lines = iterations.map((iteration) => {
-    if (
-      iteration.kind === "failed" &&
-      isModelLabelFailure(iteration.failure)
-    ) {
-      return `- ${describeIteration(iteration)} — nothing run`;
-    }
-    const spent = costOf(iteration);
-    const cost =
-      spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
-    return `- ${describeIteration(iteration)}${cost} on ${iteration.model ?? "the image's model"}`;
-  });
-  return ["## Attempts", ...lines].join("\n");
-}
-
-function isModelLabelFailure(
-  failure: RunFailure,
-): failure is UnusableModelLabel {
-  return (
-    failure.kind === "conflicting-model-labels" ||
-    failure.kind === "unusable-model-label"
-  );
-}
-
-/** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
-function stillEligibleLine(iteration: {
-  repo: RepoSlug;
-  ticket: Ticket;
-}): string {
-  return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
-}
-
-/**
- * What now needs the developer: a draft pull request to review, a ticket
- * relabelled for human attention, a setup that broke under a ticket it left
- * eligible, or — the one case a failed run can leave
- * behind that is the developer's alone, per `RunFailure.handedBack`'s own
- * note — a ticket the hand-back itself could not reach, still eligible and
- * due to come round again until somebody relabels it by hand. A review the
- * loop could not close is there for the same reason.
- */
-function waitingSection(iterations: IterationOutcome[]): string | undefined {
-  const lines = iterations.flatMap((iteration): string[] => {
-    switch (iteration.kind) {
-      case "reviewed":
-        return iteration.notClosed === undefined
-          ? []
-          : [notClosedLine(iteration, iteration.notClosed)];
-      // A limit refusal's ticket waits on the provider, not the developer.
-      case "limit-refused":
-        return [];
-      case "failed":
-        return [
-          waitingOnFailure(iteration.repo, iteration.ticket, iteration.failure),
-        ];
-      case "finished": {
-        // A finished run's own hand-back, covering the two cases a queued
-        // review does not: a run that committed nothing, which has nothing to
-        // name but the relabel itself, and a run whose hand-back — of either
-        // kind — was refused by the tracker.
-        const { handover, handbackFailure } = iteration;
-        return [
-          ...(handover === undefined
-            ? []
-            : [
-                `- ${iteration.repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
-              ]),
-          ...(handbackFailure !== undefined
-            ? [stillEligibleLine(iteration)]
-            : handover === undefined
-              ? [
-                  `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
-                ]
-              : []),
-        ];
-      }
-    }
-  });
-
-  return lines.length === 0
-    ? undefined
-    : ["## Waiting on you", ...lines].join("\n");
-}
-
-/** What a failed run leaves waiting on the developer. */
-function waitingOnFailure(
-  repo: RepoSlug,
-  ticket: Ticket,
-  failure: RunFailure,
-): string {
-  switch (failure.kind) {
-    case "infrastructure":
-      return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${failure.reason}`;
-    case "gave-up":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`
-        : stillEligibleLine({ repo, ticket });
-    case "handover-failed":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${failure.reason}`
-        : stillEligibleLine({ repo, ticket });
-    case "model-refused":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`
-        : stillEligibleLine({ repo, ticket });
-    case "conflicting-model-labels":
-    case "unusable-model-label":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
-        : stillEligibleLine({ repo, ticket });
-  }
-}
-
-/**
- * What one iteration's run or review cost. Absent only for a run that never
- * started — an infrastructure failure before the sandbox spent anything.
- */
-function costOf(iteration: IterationOutcome): TokenCount | undefined {
-  switch (iteration.kind) {
-    case "reviewed":
-      return iteration.review.tokensUsed;
-    case "limit-refused":
-      return iteration.tokensUsed;
-    case "failed":
-      return iteration.run?.tokensUsed ?? iteration.tokensUsed;
-    case "finished":
-      return iteration.run.tokensUsed;
-  }
-}
-
-/** One line for one iteration: what it landed, why it did not finish, or what it found. */
-function describeIteration(iteration: IterationOutcome): string {
-  switch (iteration.kind) {
-    case "limit-refused": {
-      const kept =
-        iteration.discard.kind === "kept"
-          ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${iteration.discard.reason}.`
-          : "";
-      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${kept}`;
-    }
-    case "failed":
-      return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
-    case "reviewed":
-      return reviewSummary(iteration);
-    case "finished":
-      return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
-  }
-}
-
-/**
- * Says when a finished run's own hand-back — the relabel that takes its
- * ticket out of the queue — was refused. Empty when it succeeded, since
- * `landed` and `queued` already say what became of the run itself, and a
- * ticket successfully handed back needs nothing more said about it here.
- */
-function handbackNote(finished: Finished): string {
-  if (finished.handbackFailure === undefined) {
-    return "";
-  }
-  return ` The ticket could not be handed back: ${finished.handbackFailure} — still ${READY_FOR_AGENT_LABEL} and will come round again; relabel it yourself.`;
-}
-
-/**
- * How a review ticket's own run reads to the developer: where its findings
- * landed, or why the loop could not finish the ticket off.
- */
-function reviewSummary(
-  iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
-): string {
-  const { repo, ticket, notClosed } = iteration;
-  switch (notClosed?.kind) {
-    case undefined:
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}.`;
-    case "check-failed":
-      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest} could not be checked for its findings: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest} and close it yourself.`;
-    case "close-failed":
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
-  }
-}
-
-/** The Waiting-on-you line for a review that ran but left its ticket open. */
-function notClosedLine(
-  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
-  notClosed: NotClosed,
-): string {
-  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
-  switch (notClosed.kind) {
-    case "check-failed":
-      return `${still} — ${ticket.pullRequest} could not be checked for its findings: ${notClosed.error}; check it and close the ticket yourself`;
-    case "close-failed":
-      return `${still} — its findings are on ${ticket.pullRequest}, but it could not be closed: ${notClosed.error}; close it yourself`;
-  }
-}
-
-/**
- * The review waiting on the developer, named by number because that is how a
- * backlog is read. Nothing to say on a morning that opened no pull request,
- * which is the only morning that queues no review.
- */
-function queued(finished: Finished): string {
-  const review = finished.handover?.reviewTicket;
-  return review === undefined ? "" : ` Queued #${review.number} to review it.`;
-}
-
-/**
- * Why the morning stopped, in the half-sentence the summary carries.
- *
- * Names the ticket, because the developer's next move is to open it: the whole
- * of what happened is in the comment waiting there.
- */
-function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
-  const which = `#${ticket.number}`;
-  if (failure.kind === "infrastructure") {
-    return `the run would not start on ${which}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
-  }
-  // A ticket that could not be handed back is the one thing here the developer
-  // has to act on themselves: it is still eligible, so it will come round and
-  // cost another morning until somebody relabels it.
-  const now = failure.handedBack
-    ? "Handed back for a human."
-    : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
-  switch (failure.kind) {
-    case "gave-up":
-      return `the agent gave up on ${which}: ${failure.reason}. ${now}`;
-    case "handover-failed":
-      return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${failure.reason}. ${now}`;
-    case "model-refused":
-      return `${which} was not worked, because ${failure.reason}. ${now}`;
-    case "conflicting-model-labels":
-    case "unusable-model-label":
-      return `${which} was not run, because ${failure.reason}. ${now}`;
-  }
-}
-
-/**
- * Where one run's work ended up.
- *
- * A run that committed nothing left no branch behind either — the sandbox
- * keeps one only for commits — so there is nothing to name. A run that failed
- * never gets here: the summary says why it stopped instead.
- */
-function landed(finished: Finished): string {
-  if (finished.run.commits.length === 0) {
-    return "the run left nothing behind";
-  }
-  const { run, handover } = finished;
-  const where =
-    handover === undefined
-      ? run.branch
-      : `${run.branch} (${handover.pullRequest})`;
-  return `${commitCount(run)} on ${where}`;
-}
-
-/**
- * Why the gate refused, in the developer's terms: what was spent, against
- * what it was measured, and which of the two windows said no.
- */
-function standDownReason(standDown: StandDown): string {
-  const spent = `${tokens(standDown.tokensUsed)} of ${tokens(standDown.spendable)} tokens`;
-  return standDown.reason === "weekly-reserve"
-    ? `spending more of the week would eat into the reserve (${spent} spendable this week)`
-    : `the 5-hour window is spent (${spent})`;
-}
-
-function tokens(count: TokenCount): string {
-  return count.toLocaleString("en-US");
-}
-
-/** How many commits the run left, said the way a person would say it. */
-function commitCount(run: SandboxRunResult): string {
-  const count = run.commits.length;
-  return count === 1 ? "1 commit" : `${count} commits`;
 }

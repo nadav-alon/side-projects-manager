@@ -1,25 +1,27 @@
 import type {
   ModelName,
-  ModelRefusal,
+  ReviewModelRefused,
+  ReviewOutcome,
   ReviewRequest,
-  ReviewRunResult,
   ReviewTicket,
+  RunModelRefused,
+  RunOutcome,
   RunRequest,
   Sandbox,
-  SandboxRunResult,
   Ticket,
 } from "../ports/index.ts";
 import { branch, ticketKey, tokenCount } from "../ports/index.ts";
 import { gate } from "./gate.ts";
 
-/** What the agent CLI says, and all it says, once the provider limit refuses a run. */
-export const LIMIT_REFUSAL = "You've hit your session limit · resets 1pm (UTC)";
-
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
  *
- * Tests arrange what a run comes back with through `result`, and inspect
- * `runs` to see which tickets the loop ran and against which checkouts.
+ * Tests arrange what a run or a review comes to through `result` and
+ * `reviewResult`, and inspect `runs` and `reviews` to see which tickets the
+ * loop ran and against which checkouts. Whatever those return is what comes
+ * back, verbatim: this fake detects no refusal and words none of its own, so
+ * a test after a limit refusal or a model refusal writes the exact variant it
+ * wants.
  */
 export class FakeSandbox implements Sandbox {
   /** Every run asked for, in order. */
@@ -28,26 +30,21 @@ export class FakeSandbox implements Sandbox {
   /** Every review asked for, in order. */
   readonly reviews: ReviewRequest[] = [];
 
-  /** What the next run comes to. An empty, costless run unless set. */
-  result: (ticket: Ticket) => SandboxRunResult = (ticket) => ({
+  /** What the next run comes to. An empty, costless, finished run unless set. */
+  result: (ticket: Ticket) => RunOutcome = (ticket) => ({
+    kind: "finished",
     branch: branch(`fake/${ticket.repo}/${ticket.number}`),
     commits: [],
     output: "",
     tokensUsed: tokenCount(0),
   });
 
-  /** What the next review comes to. A costless, posted review unless set. */
-  reviewResult: (ticket: ReviewTicket) => ReviewRunResult = () => ({
+  /** What the next review comes to. A costless, finished review unless set. */
+  reviewResult: (ticket: ReviewTicket) => ReviewOutcome = () => ({
+    kind: "finished",
     output: "",
     tokensUsed: tokenCount(0),
   });
-
-  /**
-   * A model name every run or review asked for comes back refused for,
-   * unset to refuse none. Set to exercise a model refusal; `runs` and
-   * `reviews` say which model each was asked for.
-   */
-  refusedModel: ModelName | undefined = undefined;
 
   /** The most runs and reviews that were in progress at once. */
   mostInProgress = 0;
@@ -96,36 +93,24 @@ export class FakeSandbox implements Sandbox {
     });
   }
 
-  async run(request: RunRequest): Promise<SandboxRunResult> {
+  run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
+  run(
+    request: RunRequest & { model?: undefined },
+  ): Promise<Exclude<RunOutcome, RunModelRefused>>;
+  async run(request: RunRequest): Promise<RunOutcome> {
     this.runs.push(request);
-    return this.#inProgress(request.ticket, () => {
-      const modelRefusal = this.refusal(request);
-      if (modelRefusal !== undefined) {
-        return {
-          branch: branch(`fake/${request.ticket.repo}/${request.ticket.number}`),
-          commits: [],
-          output: modelRefusal.words,
-          tokensUsed: tokenCount(0),
-          modelRefusal,
-        };
-      }
-      return this.result(request.ticket);
-    });
+    return this.#inProgress(request.ticket, () => this.result(request.ticket));
   }
 
-  async review(request: ReviewRequest): Promise<ReviewRunResult> {
+  review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
+  review(
+    request: ReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
+  async review(request: ReviewRequest): Promise<ReviewOutcome> {
     this.reviews.push(request);
-    return this.#inProgress(request.ticket, () => {
-      const modelRefusal = this.refusal(request);
-      if (modelRefusal !== undefined) {
-        return {
-          output: modelRefusal.words,
-          tokensUsed: tokenCount(0),
-          modelRefusal,
-        };
-      }
-      return this.reviewResult(request.ticket);
-    });
+    return this.#inProgress(request.ticket, () =>
+      this.reviewResult(request.ticket),
+    );
   }
 
   /** Counts `ticket`'s run or review as in progress until `finish`, holding it first if told to. */
@@ -151,14 +136,5 @@ export class FakeSandbox implements Sandbox {
       this.#waiter = undefined;
       waiter.resolve();
     }
-  }
-
-  /** The refusal `refusedModel` calls for, absent for any other model or none. */
-  private refusal({
-    model,
-  }: RunRequest | ReviewRequest): ModelRefusal | undefined {
-    return model !== undefined && model === this.refusedModel
-      ? { model, words: `refused model ${model}` }
-      : undefined;
   }
 }

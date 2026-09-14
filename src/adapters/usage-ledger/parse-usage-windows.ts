@@ -1,13 +1,18 @@
-import type { UsageWindow, UsageWindows } from "../../ports/index.ts";
-import { tokenCount } from "../../ports/index.ts";
+import type {
+  Milliseconds,
+  TokenCount,
+  UsageWindow,
+  UsageWindows,
+} from "../../ports/index.ts";
+import { milliseconds, tokenCount } from "../../ports/index.ts";
 
-const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const FIVE_HOURS_MS = milliseconds(5 * 60 * 60 * 1000);
+const WEEK_MS = milliseconds(7 * 24 * 60 * 60 * 1000);
 
 /** One assistant log line with usage, reduced to what a window needs. */
 interface UsageLogEntry {
   timestamp: Date;
-  tokensUsed: number;
+  tokensUsed: TokenCount;
 }
 
 /**
@@ -91,7 +96,7 @@ function parseTimestamp(value: unknown): Date | undefined {
 }
 
 /** Aggregates input, output, and both cache token fields. Missing cache fields count as zero. */
-function sumTokenFields(usage: Record<string, unknown>): number | undefined {
+function sumTokenFields(usage: Record<string, unknown>): TokenCount | undefined {
   const input = usage.input_tokens;
   const output = usage.output_tokens;
   if (typeof input !== "number" || typeof output !== "number") {
@@ -99,11 +104,11 @@ function sumTokenFields(usage: Record<string, unknown>): number | undefined {
   }
   const cacheCreation = usage.cache_creation_input_tokens;
   const cacheRead = usage.cache_read_input_tokens;
-  return (
+  return tokenCount(
     input +
-    output +
-    (typeof cacheCreation === "number" ? cacheCreation : 0) +
-    (typeof cacheRead === "number" ? cacheRead : 0)
+      output +
+      (typeof cacheCreation === "number" ? cacheCreation : 0) +
+      (typeof cacheRead === "number" ? cacheRead : 0),
   );
 }
 
@@ -225,7 +230,7 @@ function weeklyWindow(
  */
 function activeWindow(
   openedAt: Date | undefined,
-  durationMs: number,
+  durationMs: Milliseconds,
   entries: readonly UsageLogEntry[],
   now: Date,
 ): UsageWindow {

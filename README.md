@@ -214,7 +214,10 @@ anything:
   "fiveHourAllowance": 50000000,
   "weeklyAllowance": 500000000,
   "reserveFraction": 0.5,
-  "spendCeiling": 5
+  "fiveHourReserveFraction": 0,
+  "spendCeiling": 5,
+  "sizes": { "S": 500000, "M": 2000000, "L": 5000000, "XL": 10000000 },
+  "unsizedCountsAs": "M"
 }
 ```
 
@@ -227,11 +230,26 @@ it may, so zero would authorise a run every morning rather than stopping them. T
 pause the projects.
 
 `reserveFraction` is the share of the weekly allowance held back for you. At the default of `0.5`
-the mornings may spend half the week: the gate refuses once more than half is gone. The 5-hour
-window has no reserve of its own — the reserve is a share of the week — and is measured against
-`fiveHourAllowance` whole, because a spent block is a wall rather than a supply to ration. When both
+the mornings may spend half the week: the gate refuses once more than half is gone. When both
 windows refuse, you are told about whichever resets later, since that is when work could actually
 resume.
+
+`fiveHourReserveFraction` is the share of the current 5-hour block held back for you, the same way
+`reserveFraction` holds back a share of the week — same validation, same meaning, a different
+window. It defaults to `0`, so a `budget.json` that never mentions it holds nothing back from the
+block and behaves exactly as it did before this field existed: a morning may still spend the block
+whole. Raise it if a run locking you out until the block resets is a cost you want the gate to
+weigh.
+
+`sizes` is what each ticket size label is worth, in tokens: the run estimate the gate charges before
+a run starts. Any of `S`, `M`, `L` or `XL` may be left out, and each missing one falls back to its
+own default shown above; a `sizes` document naming only `L` leaves `S`, `M` and `XL` where they were.
+Every value must be a whole number of tokens, 0 or more, and a key that is not one of the four sizes
+is refused the same way an unrecognised top-level setting is.
+
+`unsizedCountsAs` is the size a ticket with no size label counts as, and the size every review ticket
+counts as — a review never inherits its parent's size. It must name one of the four sizes, and
+defaults to `M`.
 
 `spendCeiling` is the one ceiling the manager does not enforce itself: it is passed to the agent CLI
 as `--max-budget-usd`, which stops the run from inside. It is dollars because that flag is, not
@@ -270,7 +288,7 @@ ever shows you the block you are in, so an instant it refuses is one you did not
 mistyped date is the usual cause.
 
 A field that is present but not a usable value fails the invocation rather than falling back, and so
-does a field that is not one of the six above. Every setting is optional, so `"reserve"` for
+does a field that is not one of the nine above. Every setting is optional, so `"reserve"` for
 `"reserveFraction"` is indistinguishable from leaving it out — and a reserve you believe you set and
 the loop silently ignored is the one way this document can go wrong expensively.
 

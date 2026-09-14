@@ -1,5 +1,6 @@
 import { iterationLimit, type IterationLimit } from "./iteration-limit.ts";
 import { reserveFraction, type ReserveFraction } from "./reserve-fraction.ts";
+import type { Size } from "./size.ts";
 import { tokenCount, type TokenCount } from "./token-count.ts";
 import { usd, type Usd } from "./usd.ts";
 
@@ -18,6 +19,8 @@ export interface Budget {
   weeklyAllowance: TokenCount;
   /** The share of `weeklyAllowance` held back for the developer. */
   reserveFraction: ReserveFraction;
+  /** The share of `fiveHourAllowance` held back for the developer. */
+  fiveHourReserveFraction: ReserveFraction;
   /** The most a single run may spend, enforced by the agent CLI itself. */
   spendCeiling: Usd;
   /**
@@ -26,6 +29,17 @@ export interface Budget {
    * much.
    */
   maxConcurrentIterations: IterationLimit;
+  /**
+   * The tokens each ticket size is worth, keyed by the size label a ticket
+   * may carry. What the gate charges as a run's estimate, whatever model the
+   * run uses; see `CONTEXT.md`'s "Run estimate".
+   */
+  sizes: Record<Size, TokenCount>;
+  /**
+   * The size an unsized ticket counts as, and the size every review ticket
+   * counts as, since a review never inherits its parent's size.
+   */
+  unsizedCountsAs: Size;
   /**
    * A 5-hour reset instant the developer saw on the provider's own display,
    * which settles a boundary the ledger can only infer. See `UsageLedger`
@@ -51,7 +65,9 @@ export interface Budget {
  * Deliberately cautious rather than accurate: the allowances are a starting
  * point, not a measurement, and the ledger under-counts beneath them. Half
  * the week is held back because the developer's own Opus work is the half
- * this whole design exists to protect.
+ * this whole design exists to protect. The 5-hour window holds nothing back
+ * by default, since a machine that declares no `fiveHourReserveFraction`
+ * should behave exactly as it did before that setting existed.
  *
  * These numbers are never revised by anything running here — nothing writes
  * the budget document, and the provider reports consumption but never
@@ -63,6 +79,14 @@ export const DEFAULT_BUDGET: Budget = {
   fiveHourAllowance: tokenCount(50_000_000),
   weeklyAllowance: tokenCount(500_000_000),
   reserveFraction: reserveFraction(0.5),
+  fiveHourReserveFraction: reserveFraction(0),
   spendCeiling: usd(5),
   maxConcurrentIterations: iterationLimit(1),
+  sizes: {
+    S: tokenCount(500_000),
+    M: tokenCount(2_000_000),
+    L: tokenCount(5_000_000),
+    XL: tokenCount(10_000_000),
+  },
+  unsizedCountsAs: "M",
 };

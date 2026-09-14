@@ -41,7 +41,7 @@ What the loop does when the budget gate refuses, or when the provider limit refu
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
-The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer.
+The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer. An invocation that worked something always publishes one; a quiet or broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none has been published yet that local calendar day, recorded in the state document with that day once the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather than up to twenty-four. The title carries the local time to the minute beside the date, since more than one summary can land on one day.
 _Avoid_: report, digest, changelog
 
 ### Triggers
@@ -138,12 +138,16 @@ _Avoid_: model tag, model override, tier
 The hand-edited document naming the model each kind of ticket runs on when it carries no model label, one name per kind and the same for every project. `models.json` in the manager home. A kind it leaves out runs on the model the sandbox image is pinned to.
 _Avoid_: model config, model settings, tiers
 
+**Size label**:
+The label a ticket may carry, as `size:<size>`, saying how much of the budget its run is expected to spend: one of S, M, L or XL, each worth the tokens the budget document gives it. What sets the ticket's run estimate; a ticket without one counts as the size the budget document names for unsized tickets, and so does every review ticket, which never inherits its parent's size. Recommended by triage when a ticket is made ready-for-agent. A ticket carrying two sizes counts as the larger. Says nothing about the ticket's model: a ticket expected to run on a costlier model is sized larger.
+_Avoid_: estimate label, cost label, points, effort
+
 **ready-for-human**:
 The triage label a ticket carries once the loop has stopped working on it. Always written in full, as the tracker spells it.
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
-What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
+What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
@@ -151,7 +155,7 @@ A run whose agent ran and stopped short — it said it could not, left the tests
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, because the sandbox or the repo host could not do its part. The setup is the problem. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
+A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
 _Avoid_: outage, crash, system error
 
 **Discard**:
@@ -197,15 +201,19 @@ _Avoid_: review task, review job, QA ticket
 ### Budget
 
 **Budget gate**:
-The check made before a run starts that refuses work which would eat into the reserve. Reads the ledger's windows and adds the runs the state document records inside them, since a run's own log dies with its container. Referred to as "the gate".
+The check made before a run starts that refuses work which would eat into the reserve. Reads the ledger's windows and adds the runs the state document records inside them, since a run's own log dies with its container. Then charges a run estimate for the run about to start and for every run still in progress, whose spend nothing can see until its container exits, so a run starts only if the reserve would survive it. A refusal the run estimates alone caused, with the windows themselves still inside what is spendable, is told apart from a window already spent. Referred to as "the gate".
 _Avoid_: throttle, rate limit, quota check
 
+**Run estimate**:
+The tokens the gate charges a run before it starts, in place of the cost nobody can know until it ends. Comes from the ticket's size label, and is the same whatever model the run uses. Never revised by what earlier runs cost: the summary sets each run's cost beside its estimate and flags a run that spent more, and correcting the figure is the developer's.
+_Avoid_: projection, forecast, reservation, hold, assumed cost
+
 **Reserve**:
-The fraction of the weekly window held back for the developer's own interactive work.
+The fraction of a window held back for the developer's own interactive work. Each window has its own: the weekly reserve keeps the developer a week's worth of room, the 5-hour reserve keeps a morning from spending the current block whole and locking the developer out until it resets.
 _Avoid_: buffer, headroom
 
 **Budget document**:
-The hand-edited document of what the mornings may spend: the two allowances, the reserve fraction, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+The hand-edited document of what the mornings may spend: the two allowances, the two reserve fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
@@ -246,6 +254,31 @@ _Avoid_: bad model, model error, invalid model
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.
 _Avoid_: budget, limit, cap
+
+### Observability
+
+**Journal**:
+The machine-written account of every invocation: when it started, when it ended, and what it came
+to. A document in the manager home alongside the state document — but a separate one: the state
+document is keyed by project and rewritten wholesale, while the journal is append-only and keyed by
+time, one record per invocation. Distinct from `trigger.log` too: that file is the raw output of
+whatever a trigger ran, gitignored and local to this machine, where the journal is committed and
+records outcomes rather than capturing output.
+_Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
+
+**Invocation record**:
+One journal entry. Opened before the loop runs, closed with the report.
+_Avoid_: entry, row, event
+
+**In flight**:
+An invocation record that was opened and never closed. The invocation is either still running or
+died before it could close.
+_Avoid_: open, pending, stuck, orphaned
+
+**Armed**:
+A trigger that is registered on this machine and still points at this manager home. Registration
+alone is not armed: a cron line naming a path that no longer exists is registered and not armed.
+_Avoid_: installed, enabled, active, live
 
 ### The seam
 

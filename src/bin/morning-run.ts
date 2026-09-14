@@ -5,6 +5,7 @@ import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
+import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { morningLoop } from "../morning-run.ts";
 
 /**
@@ -36,10 +37,7 @@ async function main(): Promise<void> {
   // non-zero.
   const failed =
     report.outcome === "invocation-failed" ||
-    report.iterations.some(
-      (iteration) =>
-        "failure" in iteration && iteration.failure.kind === "infrastructure",
-    );
+    report.iterations.some(failedOnInfrastructure);
   if (failed) {
     process.exitCode = 1;
   }

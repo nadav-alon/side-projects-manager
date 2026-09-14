@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import {
   morningLoop,
-  type IterationOutcome,
   type InvocationReport,
   type ProjectOutcome,
 } from "./morning-run.ts";
@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  commitSha,
   iterationLimit,
   localDay,
   modelName,
@@ -22,9 +23,11 @@ import {
   ticketPriority,
   tokenCount,
   usd,
+  type CommitSha,
   type ReviewTicket,
+  type RunFinished,
+  type RunOutcome,
   type RunRequest,
-  type SandboxRunResult,
   type State,
   type Ticket,
 } from "./ports/index.ts";
@@ -64,13 +67,6 @@ function gateRefusal(report: InvocationReport) {
     : report.standDown;
 }
 
-/** The failed half of an iteration outcome — undefined if it finished instead. */
-function failureOf(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && "failure" in iteration
-    ? iteration.failure
-    : undefined;
-}
-
 /** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
   const failure = failureOf(iteration);
@@ -87,9 +83,9 @@ function reviewTicketOf(iteration: IterationOutcome | undefined) {
 
 /** The sandbox run an iteration made — absent for a review, or a run that never started. */
 function ranWith(iteration: IterationOutcome | undefined) {
-  return iteration !== undefined && !("review" in iteration)
-    ? iteration.run
-    : undefined;
+  return iteration === undefined || iteration.kind === "reviewed"
+    ? undefined
+    : iteration.run;
 }
 
 describe("morningLoop", () => {
@@ -857,6 +853,7 @@ describe("morningLoop", () => {
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1_000 }));
       // Leaves only 1,000 tokens of reserve headroom; one run of 2,000 blows it.
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "",
@@ -906,7 +903,9 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.equal(saveState.mock.callCount(), 1);
+      // Once for the invocation's own bookkeeping, and again once the quiet
+      // summary — today's first — has published, to record today as announced.
+      assert.equal(saveState.mock.callCount(), 2);
     });
 
     it("keeps what earlier invocations recorded", async () => {
@@ -1072,11 +1071,11 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
         branch: branch(`fake/${ticket.repo}/${ticket.number}`),
         commits: [],
-        output: LIMIT_REFUSAL,
+        words: LIMIT_REFUSAL,
         tokensUsed: tokenCount(0),
-        limitRefusal: LIMIT_REFUSAL,
       });
 
       await morningLoop(ports);
@@ -1095,10 +1094,15 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       let savedWhenRunStarted: State | undefined;
-      const run = ports.sandbox.run.bind(ports.sandbox);
+      // Reimplements `FakeSandbox.run` rather than delegating to the bound
+      // original: `Sandbox.run` is overloaded on whether `model` is present,
+      // and neither `.bind` nor a mock replacement keeps that shape, so a
+      // request typed as the general `RunRequest` has no original overload
+      // left to call through to.
       t.mock.method(ports.sandbox, "run", async (request: RunRequest) => {
         savedWhenRunStarted = await ports.store.loadState();
-        return run(request);
+        ports.sandbox.runs.push(request);
+        return ports.sandbox.result(request.ticket);
       });
 
       await morningLoop(ports);
@@ -1162,8 +1166,9 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1", "c0ffee2"],
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
       });
@@ -1171,8 +1176,9 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.deepEqual(finished(report.iterations[0])?.run, {
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1", "c0ffee2"],
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
       });
@@ -1195,8 +1201,9 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -1231,6 +1238,7 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "",
@@ -1289,20 +1297,30 @@ describe("morningLoop", () => {
      */
     function ran(
       ports: FakePorts,
-      run: { commits?: string[]; failure?: string } = {},
+      run: { commits?: CommitSha[]; failure?: string } = {},
     ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
         number: 7,
         title: "Add the thing",
       });
-      ports.sandbox.result = () => ({
-        branch: BRANCH,
-        commits: run.commits ?? ["c0ffee1"],
-        output: "",
-        tokensUsed: tokenCount(42_000),
-        ...(run.failure !== undefined && { failure: run.failure }),
-      });
+      ports.sandbox.result = () =>
+        run.failure === undefined
+          ? {
+              kind: "finished",
+              branch: BRANCH,
+              commits: run.commits ?? [commitSha("c0ffee1")],
+              output: "",
+              tokensUsed: tokenCount(42_000),
+            }
+          : {
+              kind: "gave-up",
+              branch: BRANCH,
+              commits: run.commits ?? [commitSha("c0ffee1")],
+              output: "",
+              reason: run.failure,
+              tokensUsed: tokenCount(42_000),
+            };
       return ticket;
     }
 
@@ -1423,6 +1441,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ran(ports);
       ports.sandbox.reviewResult = () => ({
+        kind: "finished",
         output: "",
         tokensUsed: tokenCount(3_000),
       });
@@ -1548,8 +1567,9 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -1649,6 +1669,7 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "the agent gave up",
@@ -1779,9 +1800,10 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       const ticket = queued(ports);
       ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
         output: "I could not read the diff",
         tokensUsed: tokenCount(1_000),
-        failure: "the review skill exited 1",
+        reason: "the review skill exited 1",
       });
 
       const report = await morningLoop(ports);
@@ -1822,9 +1844,10 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       queued(ports);
       ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
         output: "",
         tokensUsed: tokenCount(3_000),
-        failure: "the review skill exited 1",
+        reason: "the review skill exited 1",
       });
 
       await morningLoop(ports);
@@ -1855,6 +1878,7 @@ describe("morningLoop", () => {
       const ticket = queued(ports);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.reviewResult = () => ({
+        kind: "finished",
         output: "posted findings",
         tokensUsed: tokenCount(9_000),
       });
@@ -1962,9 +1986,10 @@ describe("morningLoop", () => {
       const gaveUp = fakePorts();
       const ticket = queued(gaveUp);
       gaveUp.sandbox.reviewResult = () => ({
+        kind: "gave-up",
         output: "",
         tokensUsed: tokenCount(1_000),
-        failure: "the review skill exited 1",
+        reason: "the review skill exited 1",
       });
       const broke = fakePorts();
       queued(broke);
@@ -2025,6 +2050,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       queued(ports);
       ports.sandbox.reviewResult = () => ({
+        kind: "finished",
         output: "posted findings",
         tokensUsed: tokenCount(9_000),
       });
@@ -2052,9 +2078,10 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       const ticket = queued(ports);
       ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
         output: "the agent gave up",
         tokensUsed: tokenCount(1_000),
-        failure: "the agent gave up",
+        reason: "the agent gave up",
       });
 
       const report = await morningLoop(ports);
@@ -2086,11 +2113,12 @@ describe("morningLoop", () => {
     /** The agent ran, committed something, and then gave up. */
     function agentGivesUp(ports: FakePorts): void {
       ports.sandbox.result = () => ({
+        kind: "gave-up",
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: SAID,
         tokensUsed: tokenCount(42_000),
-        failure: GAVE_UP,
+        reason: GAVE_UP,
       });
     }
 
@@ -2117,8 +2145,8 @@ describe("morningLoop", () => {
 
       assert.equal(
         saveState.mock.callCount(),
-        2,
-        "once before the run, and again after it broke",
+        3,
+        "once before the run, again after it broke, and again once the summary published and recorded today as announced",
       );
     });
 
@@ -2246,6 +2274,7 @@ describe("morningLoop", () => {
             throw new Error(BROKE);
           }
           return {
+            kind: "finished",
             branch: branch("issue-8-add-another-thing"),
             commits: [],
             output: "",
@@ -2355,11 +2384,12 @@ describe("morningLoop", () => {
     it("does not claim a branch was discarded when the agent committed nothing", async () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
+        kind: "gave-up",
         branch: FAILED_BRANCH,
         commits: [],
         output: SAID,
         tokensUsed: tokenCount(42_000),
-        failure: GAVE_UP,
+        reason: GAVE_UP,
       });
 
       await morningLoop(ports);
@@ -2371,12 +2401,13 @@ describe("morningLoop", () => {
     it("keeps the comment small enough for a tracker to accept it", async () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
+        kind: "gave-up",
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "x".repeat(200_000),
         tokensUsed: tokenCount(42_000),
         // A failed `execFile` carries every byte the command wrote to stderr.
-        failure: "y".repeat(200_000),
+        reason: "y".repeat(200_000),
       });
 
       await morningLoop(ports);
@@ -2389,11 +2420,12 @@ describe("morningLoop", () => {
     it("quotes output that contains code fences without breaking out of the quote", async () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
+        kind: "gave-up",
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "I tried:\n```ts\nconst x = 1;\n```\nand it broke",
         tokensUsed: tokenCount(42_000),
-        failure: GAVE_UP,
+        reason: GAVE_UP,
       });
 
       await morningLoop(ports);
@@ -2409,7 +2441,7 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.deepEqual(ranWith(report.iterations[0])?.commits, ["c0ffee1"]);
+      assert.deepEqual(ranWith(report.iterations[0])?.commits, [commitSha("c0ffee1")]);
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
     });
   });
@@ -2634,7 +2666,10 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.equal(saveState.mock.callCount(), 1);
+      // Once for the invocation's own bookkeeping, and again once the
+      // stand-down's summary — today's first — has published, to record
+      // today as announced.
+      assert.equal(saveState.mock.callCount(), 2);
     });
 
     describe("what the developer is told", () => {
@@ -2927,17 +2962,29 @@ describe("morningLoop", () => {
       return { repo: PILOT, number, title: `Ticket ${number}` } satisfies Ticket;
     }
 
-    /** A costless, empty run on `ticket`, but for what `overrides` sets. */
+    /** A costless, empty, finished run on `ticket`, but for what `overrides` sets. */
     function resultOf(
       ticket: Ticket,
-      overrides: Partial<SandboxRunResult>,
-    ): SandboxRunResult {
+      overrides: Partial<Omit<RunFinished, "kind">> = {},
+    ): RunOutcome {
       return {
+        kind: "finished",
         branch: branch(`issue-${ticket.number}`),
         commits: [],
         output: "",
         tokensUsed: tokenCount(0),
         ...overrides,
+      };
+    }
+
+    /** A costless, empty run on `ticket` the provider limit refused. */
+    function limitRefusedOn(ticket: Ticket): RunOutcome {
+      return {
+        kind: "limit-refused",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
       };
     }
 
@@ -3034,7 +3081,7 @@ describe("morningLoop", () => {
     it("stands down on a limit refusal, letting the others in progress finish", HANGS, async () => {
       const ports = backlogOf(4, 3);
       ports.sandbox.result = (ticket) =>
-        resultOf(ticket, ticket.number === 2 ? { limitRefusal: LIMIT_REFUSAL } : {});
+        ticket.number === 2 ? limitRefusedOn(ticket) : resultOf(ticket);
       ports.sandbox.hold();
 
       const invocation = morningLoop(ports);
@@ -3060,7 +3107,7 @@ describe("morningLoop", () => {
     it("stands down on the first limit refusal, not a later one", HANGS, async () => {
       const ports = backlogOf(4, 3);
       ports.sandbox.result = (ticket) =>
-        resultOf(ticket, ticket.number >= 2 ? { limitRefusal: LIMIT_REFUSAL } : {});
+        ticket.number >= 2 ? limitRefusedOn(ticket) : resultOf(ticket);
       ports.sandbox.hold();
 
       const invocation = morningLoop(ports);
@@ -3113,11 +3160,14 @@ describe("morningLoop", () => {
       ports.sandbox.result = (ticket) =>
         resultOf(ticket, {
           tokensUsed: tokenCount(ticket.number * 100),
-          // A refusal for a run given no model is a sandbox breaking its contract.
-          ...(ticket.number === 2 && {
-            modelRefusal: { model: modelName("opus"), words: "refused model opus" },
-          }),
+          // Only #2 commits, so only #2 reaches the repo host below.
+          ...(ticket.number === 2 && { commits: [commitSha("c0ffee2")] }),
         });
+      // A repo host that throws rather than reporting how the opening went is
+      // a port breaking its own contract.
+      ports.repoHost.draftPullRequest = async () => {
+        throw new Error("the repo host broke its contract");
+      };
       ports.sandbox.hold();
 
       const invocation = morningLoop(ports);
@@ -3127,7 +3177,7 @@ describe("morningLoop", () => {
       const report = await invocation;
 
       assert.equal(report.outcome, "invocation-failed");
-      assert.match(report.message, /refused for a run given no model/);
+      assert.match(report.message, /the repo host broke its contract/);
       assert.deepEqual(
         report.iterations.map((i) => [i.ticket.number, i.kind]),
         [[1, "finished"]],
@@ -3156,13 +3206,22 @@ describe("morningLoop", () => {
 
     /** Ticket 1 finishes; every run after it is refused by the limit. */
     function limitAfterTheFirstRun(ports: FakePorts): void {
-      ports.sandbox.result = (ticket) => ({
-        branch: branch(`issue-${ticket.number}`),
-        commits: [],
-        output: ticket.number === 1 ? "done" : LIMIT_REFUSAL,
-        tokensUsed: tokenCount(ticket.number === 1 ? 5_000 : 0),
-        ...(ticket.number !== 1 && { limitRefusal: LIMIT_REFUSAL }),
-      });
+      ports.sandbox.result = (ticket) =>
+        ticket.number === 1
+          ? {
+              kind: "finished",
+              branch: branch(`issue-${ticket.number}`),
+              commits: [],
+              output: "done",
+              tokensUsed: tokenCount(5_000),
+            }
+          : {
+              kind: "limit-refused",
+              branch: branch(`issue-${ticket.number}`),
+              commits: [],
+              words: LIMIT_REFUSAL,
+              tokensUsed: tokenCount(0),
+            };
     }
 
     it("leaves the refused ticket exactly as it was, and runs nothing after it", async () => {
@@ -3213,11 +3272,11 @@ describe("morningLoop", () => {
     it("discards any branch the refused run left, without handing the ticket back", async () => {
       const ports = threeTickets();
       ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
         branch: branch(`issue-${ticket.number}`),
-        commits: ["c0ffee1"],
-        output: LIMIT_REFUSAL,
+        commits: [commitSha("c0ffee1")],
+        words: LIMIT_REFUSAL,
         tokensUsed: tokenCount(0),
-        limitRefusal: LIMIT_REFUSAL,
       });
 
       await morningLoop(ports);
@@ -3240,9 +3299,9 @@ describe("morningLoop", () => {
         pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
       });
       ports.sandbox.reviewResult = () => ({
-        output: LIMIT_REFUSAL,
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
         tokensUsed: tokenCount(0),
-        limitRefusal: LIMIT_REFUSAL,
       });
 
       const report = await morningLoop(ports);
@@ -3336,8 +3395,9 @@ describe("morningLoop", () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:opus");
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(1_000),
       });
@@ -3426,7 +3486,13 @@ describe("morningLoop", () => {
       it("hands the ticket back naming the model, its model label, and the CLI's words", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
-        ports.sandbox.refusedModel = OPUS;
+        ports.sandbox.result = () => ({
+          kind: "model-refused",
+          branch: branch(`fake/${PILOT}/7`),
+          commits: [],
+          tokensUsed: tokenCount(0),
+          refusal: { model: OPUS, words: "refused model opus" },
+        });
 
         const report = await morningLoop(ports);
 
@@ -3443,7 +3509,13 @@ describe("morningLoop", () => {
       it("says the model came from the model defaults when it did", async () => {
         const { ports } = oneTicket();
         ports.store.modelDefaults = { implementation: OPUS };
-        ports.sandbox.refusedModel = OPUS;
+        ports.sandbox.result = () => ({
+          kind: "model-refused",
+          branch: branch(`fake/${PILOT}/7`),
+          commits: [],
+          tokensUsed: tokenCount(0),
+          refusal: { model: OPUS, words: "refused model opus" },
+        });
 
         await morningLoop(ports);
 
@@ -3461,7 +3533,11 @@ describe("morningLoop", () => {
           pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
         });
         ports.store.modelDefaults = { review: HAIKU };
-        ports.sandbox.refusedModel = HAIKU;
+        ports.sandbox.reviewResult = () => ({
+          kind: "model-refused",
+          tokensUsed: tokenCount(0),
+          refusal: { model: HAIKU, words: "refused model haiku" },
+        });
 
         const report = await morningLoop(ports);
 
@@ -3476,11 +3552,11 @@ describe("morningLoop", () => {
         ports.tracker.addLabel(ticket, "model:opus");
         const left = branch("issue-7-add-the-thing");
         ports.sandbox.result = () => ({
+          kind: "model-refused",
           branch: left,
-          commits: ["c0ffee1"],
-          output: "",
+          commits: [commitSha("c0ffee1")],
           tokensUsed: tokenCount(0),
-          modelRefusal: { model: OPUS, words: "refused model opus" },
+          refusal: { model: OPUS, words: "refused model opus" },
         });
 
         await morningLoop(ports);
@@ -3495,48 +3571,16 @@ describe("morningLoop", () => {
         );
       });
 
-      it("fails the invocation when the sandbox reports a refusal for a run given no model", async () => {
-        const { ports } = oneTicket();
-        ports.sandbox.result = (ticket) => ({
-          branch: branch(`fake/${ticket.repo}/${ticket.number}`),
-          commits: [],
-          output: "",
-          tokensUsed: tokenCount(0),
-          modelRefusal: { model: OPUS, words: "refused model opus" },
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "invocation-failed");
-        assert.match(report.message, /refused for a run given no model/);
-        assert.deepEqual(ports.tracker.handbacks, []);
-      });
-
-      it("fails the invocation when the sandbox reports a refusal for a review given no model", async () => {
-        const ports = fakePorts();
-        ports.store.register(PILOT);
-        ports.tracker.addEligibleTicket(PILOT, {
-          number: 42,
-          title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
-          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
-        });
-        ports.sandbox.reviewResult = () => ({
-          output: "",
-          tokensUsed: tokenCount(0),
-          modelRefusal: { model: HAIKU, words: "refused model haiku" },
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "invocation-failed");
-        assert.deepEqual(ports.tracker.handbacks, []);
-        assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      });
-
       it("reports it apart from an agent that gave up and from an infrastructure failure", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
-        ports.sandbox.refusedModel = OPUS;
+        ports.sandbox.result = () => ({
+          kind: "model-refused",
+          branch: branch(`fake/${PILOT}/7`),
+          commits: [],
+          tokensUsed: tokenCount(0),
+          refusal: { model: OPUS, words: "refused model opus" },
+        });
 
         const report = await morningLoop(ports);
 
@@ -3606,12 +3650,14 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
       ports.sandbox.reviewResult = () => ({
+        kind: "finished",
         output: "",
         tokensUsed: tokenCount(3_000),
       });
@@ -3626,12 +3672,14 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
       ports.sandbox.reviewResult = () => ({
+        kind: "finished",
         output: "",
         tokensUsed: tokenCount(3_000),
       });
@@ -3648,8 +3696,9 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
+        kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -3677,11 +3726,12 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
+        kind: "gave-up",
         branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "the tests are red",
         tokensUsed: tokenCount(1_000),
-        failure: "the tests are red",
+        reason: "the tests are red",
       });
 
       await morningLoop(ports);
@@ -3697,11 +3747,12 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       ports.sandbox.result = () => ({
+        kind: "gave-up",
         branch: branch("issue-7-add-the-thing"),
         commits: [],
         output: "the tests are red",
         tokensUsed: tokenCount(1_000),
-        failure: "the tests are red",
+        reason: "the tests are red",
       });
       t.mock.method(ports.tracker, "handBack", async () => {
         throw new Error("gh is not logged in");
@@ -3757,6 +3808,147 @@ describe("morningLoop", () => {
         ports.tracker.summaries[0]?.body ?? "",
         /registry\.json.*repo slug/,
       );
+    });
+
+    describe("announcing once a day", () => {
+      const TODAY = localDay(FROZEN_NOW);
+
+      it("publishes a run that worked something even when today is already announced", async () => {
+        const ports = fakePorts();
+        ports.store.markAnnouncedOn(TODAY);
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+        ports.sandbox.result = () => ({
+          kind: "finished",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [commitSha("c0ffee1")],
+          output: "",
+          tokensUsed: tokenCount(42_000),
+        });
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(3_000),
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.outcome, "work-selected");
+        assert.equal(ports.tracker.summaries.length, 1);
+      });
+
+      it("publishes a dry queue only when today is not yet announced", async () => {
+        const notYetAnnounced = fakePorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "dry-queue");
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = fakePorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "dry-queue");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+      });
+
+      it("publishes a stand-down only when today is not yet announced", async () => {
+        function stoodDownPorts(): FakePorts {
+          const ports = fakePorts();
+          ports.store.register(PILOT);
+          ports.tracker.addEligibleTicket(PILOT, {
+            number: 7,
+            title: "Add the thing",
+          });
+          ports.ledger.reports(
+            spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }),
+          );
+          return ports;
+        }
+
+        const notYetAnnounced = stoodDownPorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "stood-down");
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = stoodDownPorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "stood-down");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+      });
+
+      it("publishes an invocation failure only when today is not yet announced", async (t) => {
+        function brokenPorts(): FakePorts {
+          const ports = fakePorts();
+          t.mock.method(ports.store, "loadRegistry", async () => {
+            throw new Error("registry.json is not valid JSON");
+          });
+          return ports;
+        }
+
+        const notYetAnnounced = brokenPorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "invocation-failed");
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = brokenPorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "invocation-failed");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+      });
+
+      it("returns its one-line message even on an invocation that did not publish", async () => {
+        const ports = fakePorts();
+        ports.store.markAnnouncedOn(TODAY);
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.summaries.length, 0);
+        assert.match(report.message, /nothing to do/i);
+      });
+
+      it("records today as announced only once a publish succeeds", async () => {
+        const ports = fakePorts();
+
+        await morningLoop(ports);
+
+        assert.equal((await ports.store.loadState()).announcedOn, TODAY);
+      });
+
+      it("leaves the day unannounced when the publish itself fails", async (t) => {
+        const ports = fakePorts();
+        t.mock.method(ports.tracker, "publishSummary", async () => {
+          throw new Error("rate limited");
+        });
+
+        await morningLoop(ports);
+
+        assert.equal((await ports.store.loadState()).announcedOn, undefined);
+      });
+
+      it("carries the local time to the minute in the summary title", async () => {
+        const ports = fakePorts();
+        ports.clock = new FakeClock(new Date("2026-03-05T14:37:00.000Z"));
+
+        await morningLoop(ports);
+
+        assert.equal(
+          ports.tracker.summaries[0]?.title,
+          "Morning loop summary — 2026-03-05 14:37",
+        );
+      });
     });
   });
 });

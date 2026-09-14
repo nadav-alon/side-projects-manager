@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  branch,
   checkout,
   modelName,
   pullRequestUrl,
   repoSlug,
+  tokenCount,
   usd,
 } from "../ports/index.ts";
 import type { ReviewTicket, Ticket } from "../ports/index.ts";
@@ -55,47 +57,55 @@ describe("FakeSandbox", () => {
     );
   });
 
-  it("refuses the model it was told to, for runs and reviews alike", async () => {
+  it("returns a run's configured result verbatim, detecting nothing itself", async () => {
     const sandbox = new FakeSandbox();
-    sandbox.refusedModel = modelName("bogus");
+    const bogus = modelName("bogus");
+    const refused = branch("issue-7-do-the-thing");
+    sandbox.result = () => ({
+      kind: "model-refused",
+      refusal: { model: bogus, words: "refused model bogus" },
+      tokensUsed: tokenCount(0),
+      branch: refused,
+      commits: [],
+    });
 
     const run = await sandbox.run({
       ticket: TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
-      model: modelName("bogus"),
+      model: bogus,
     });
+
+    assert.deepEqual(run, {
+      kind: "model-refused",
+      refusal: { model: bogus, words: "refused model bogus" },
+      tokensUsed: tokenCount(0),
+      branch: refused,
+      commits: [],
+    });
+  });
+
+  it("returns a review's configured result verbatim, detecting nothing itself", async () => {
+    const sandbox = new FakeSandbox();
+    sandbox.reviewResult = () => ({
+      kind: "gave-up",
+      output: "could not review",
+      reason: "no diff to review",
+      tokensUsed: tokenCount(0),
+    });
+
     const review = await sandbox.review({
       ticket: REVIEW_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
-      model: modelName("bogus"),
     });
 
-    assert.equal(run.modelRefusal?.model, "bogus");
-    assert.equal(run.failure, undefined);
-    assert.equal(review.modelRefusal?.model, "bogus");
-    assert.equal(review.failure, undefined);
-  });
-
-  it("runs any other model, and a run naming none, as usual", async () => {
-    const sandbox = new FakeSandbox();
-    sandbox.refusedModel = modelName("bogus");
-
-    const named = await sandbox.run({
-      ticket: TICKET,
-      checkout: CHECKOUT,
-      spendCeiling: CEILING,
-      model: modelName("opus"),
+    assert.deepEqual(review, {
+      kind: "gave-up",
+      output: "could not review",
+      reason: "no diff to review",
+      tokensUsed: tokenCount(0),
     });
-    const unnamed = await sandbox.run({
-      ticket: TICKET,
-      checkout: CHECKOUT,
-      spendCeiling: CEILING,
-    });
-
-    assert.equal(named.modelRefusal, undefined);
-    assert.equal(unnamed.modelRefusal, undefined);
   });
 
   it("holds runs and reviews until released, in any order, counting how many were in progress", HANGS, async () => {

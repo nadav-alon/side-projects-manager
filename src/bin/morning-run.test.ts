@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { localDay } from "../ports/index.ts";
 import { callWith, emptyBacklogGh } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -69,7 +70,12 @@ describe("the morning-run command", () => {
     await run(directory);
 
     const state = await readFile(path.join(directory, "state.json"), "utf8");
-    assert.deepEqual(JSON.parse(state), { projects: {} });
+    // A dry queue, and today not yet announced, so the summary published and
+    // recorded today's local day.
+    assert.deepEqual(JSON.parse(state), {
+      projects: {},
+      announcedOn: localDay(new Date()),
+    });
   });
 
   it("reports a broken registry in one line, and still publishes a summary", async (t) => {

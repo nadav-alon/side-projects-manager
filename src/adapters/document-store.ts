@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type {
   Budget,
+  Day,
   ModelDefaults,
   ModelName,
   ProjectState,
@@ -10,6 +11,7 @@ import type {
   RegisteredProject,
   RepoSlug,
   RunCost,
+  Size,
   State,
   Store,
   TicketKind,
@@ -19,12 +21,14 @@ import type {
 import {
   DEFAULT_BUDGET,
   MODEL_NAME_SHAPE,
+  SIZES,
   TICKET_KINDS,
   isDay,
   isIterationLimit,
   isModelName,
   isPriority,
   isRepoSlug,
+  isSize,
   workedTicket,
   isReserveFraction,
   isTokenCount,
@@ -182,7 +186,8 @@ function parseRegistry(
 
 /**
  * `{ "fiveHourAllowance": 50000000, "weeklyAllowance": 500000000,
- *    "reserveFraction": 0.5, "spendCeiling": 5 }`
+ *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 5,
+ *    "sizes": { "S": 500000 }, "unsizedCountsAs": "M" }`
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
  * `observedResetAt`, which has no default because a boundary nobody has seen
@@ -218,6 +223,12 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "reserveFraction" must be at least 0 and less than 1`,
       DEFAULT_BUDGET.reserveFraction,
     ),
+    fiveHourReserveFraction: numberField(
+      fieldOf(document, "fiveHourReserveFraction", file),
+      isReserveFraction,
+      `${file}: "fiveHourReserveFraction" must be at least 0 and less than 1`,
+      DEFAULT_BUDGET.fiveHourReserveFraction,
+    ),
     spendCeiling: numberField(
       fieldOf(document, "spendCeiling", file),
       isUsd,
@@ -230,8 +241,40 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "maxConcurrentIterations" must be a whole number of 1 or more`,
       DEFAULT_BUDGET.maxConcurrentIterations,
     ),
+    sizes: sizesField(fieldOf(document, "sizes", file), file),
+    unsizedCountsAs: stringField(
+      fieldOf(document, "unsizedCountsAs", file),
+      isSize,
+      `${file}: "unsizedCountsAs" must be one of ${SIZES.join(", ")}`,
+      DEFAULT_BUDGET.unsizedCountsAs,
+    ),
     ...observedResetField(fieldOf(document, "observedResetAt", file), file),
   };
+}
+
+/**
+ * `{ "S": 500000, "M": 2000000 }`
+ *
+ * Every size is optional and falls back to the default for that size alone,
+ * so a document raising just `L` leaves the other three where they were.
+ */
+function sizesField(value: unknown, file: string): Record<Size, TokenCount> {
+  if (value === undefined) {
+    return DEFAULT_BUDGET.sizes;
+  }
+  rejectUnknownFields(value, SIZES, "size", `${file}: "sizes"`);
+
+  return Object.fromEntries(
+    SIZES.map((size) => [
+      size,
+      numberField(
+        fieldOf(value, size, `${file}: "sizes"`),
+        isTokenCount,
+        `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
+        DEFAULT_BUDGET.sizes[size],
+      ),
+    ]),
+  ) as Record<Size, TokenCount>;
 }
 
 /**
@@ -286,8 +329,11 @@ const BUDGET_FIELDS = [
   "fiveHourAllowance",
   "weeklyAllowance",
   "reserveFraction",
+  "fiveHourReserveFraction",
   "spendCeiling",
   "maxConcurrentIterations",
+  "sizes",
+  "unsizedCountsAs",
   "observedResetAt",
 ] as const;
 
@@ -336,6 +382,22 @@ function numberField<T extends number>(
   return value;
 }
 
+/** `value` narrowed by `is`, `fallback` when absent, an error when neither. */
+function stringField<T extends string>(
+  value: unknown,
+  is: (candidate: string) => candidate is T,
+  message: string,
+  fallback: T,
+): T {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (typeof value !== "string" || !is(value)) {
+    throw new Error(`${message}: ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
 /**
  * `{ "implementation": "sonnet", "review": "opus" }`
  *
@@ -377,12 +439,25 @@ function parseState(document: unknown, file: string): State {
     return { projects: new Map() };
   }
   const workedToday = fieldOf(document, "workedToday", file);
+  const announcedOn = fieldOf(document, "announcedOn", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
       workedToday: parseWorkedToday(workedToday, `${file}: "workedToday"`),
     }),
+    ...(announcedOn !== undefined && {
+      announcedOn: parseDayField(announcedOn, `${file}: "announcedOn"`),
+    }),
   };
+}
+
+function parseDayField(value: unknown, where: string): Day {
+  if (typeof value !== "string" || !isDay(value)) {
+    throw new Error(
+      `${where} must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -392,12 +467,7 @@ function parseState(document: unknown, file: string): State {
  * loop's to judge, since only the loop has a clock.
  */
 function parseWorkedToday(value: unknown, where: string): WorkedToday {
-  const recorded = fieldOf(value, "day", where);
-  if (typeof recorded !== "string" || !isDay(recorded)) {
-    throw new Error(
-      `${where}: "day" must be a calendar day, as YYYY-MM-DD: ${JSON.stringify(recorded)}`,
-    );
-  }
+  const recorded = parseDayField(fieldOf(value, "day", where), `${where}: "day"`);
   const tickets = fieldOf(value, "tickets", where);
   if (!Array.isArray(tickets)) {
     throw new Error(`${where}: "tickets" must be a list of tickets.`);
@@ -538,5 +608,9 @@ function formatState(state: State): string {
     tickets: state.workedToday.tickets.map(workedTicket),
   };
 
-  return `${JSON.stringify({ projects, workedToday }, undefined, 2)}\n`;
+  return `${JSON.stringify(
+    { projects, workedToday, announcedOn: state.announcedOn },
+    undefined,
+    2,
+  )}\n`;
 }

@@ -32,6 +32,7 @@ export class FakeStore implements Store {
   #registry: RegisteredProject[] = [];
   #state = new Map<RepoSlug, ProjectState>();
   #workedToday: WorkedToday | undefined = undefined;
+  #announcedOn: Day | undefined = undefined;
   /** What the developer declared they are willing to spend. */
   budget: Budget = DEFAULT_BUDGET;
   /** The model the developer named for each kind of ticket; none by default. */
@@ -65,6 +66,11 @@ export class FakeStore implements Store {
     this.#workedToday = { day, tickets: [...tickets] };
   }
 
+  /** Records `day` as announced, as an earlier invocation's successful publish would have. */
+  markAnnouncedOn(day: Day): void {
+    this.#announcedOn = day;
+  }
+
   async loadRegistry(): Promise<RegisteredProject[]> {
     return this.#registry.map((project) => ({ ...project }));
   }
@@ -92,6 +98,9 @@ export class FakeStore implements Store {
       ...(this.#workedToday !== undefined && {
         workedToday: copyWorkedToday(this.#workedToday),
       }),
+      ...(this.#announcedOn !== undefined && {
+        announcedOn: this.#announcedOn,
+      }),
     };
   }
 
@@ -106,6 +115,7 @@ export class FakeStore implements Store {
       state.workedToday === undefined
         ? undefined
         : copyWorkedToday(state.workedToday);
+    this.#announcedOn = state.announcedOn;
   }
 }
 

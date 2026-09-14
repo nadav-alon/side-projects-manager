@@ -7,20 +7,24 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  CommitSha,
   ModelName,
   ModelRefusal,
+  ReviewModelRefused,
+  ReviewOutcome,
   ReviewRequest,
-  ReviewRunResult,
   ReviewTicket,
+  RunModelRefused,
+  RunOutcome,
   RunRequest,
   Sandbox,
-  SandboxRunResult,
   Ticket,
   Usd,
 } from "../ports/index.ts";
 import {
   branch,
   checkout,
+  commitSha,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -79,7 +83,8 @@ export interface AgentRun {
  * Thrown rather than reported, because nothing ran — there are no commits, no
  * output and no spend to keep — and because it is the setup that needs fixing,
  * not the ticket. Every other way a container ends badly is an agent that ran
- * and stopped short, and comes back as a result carrying `failure`.
+ * and stopped short, and comes back as the `"gave-up"` variant of a
+ * `RunOutcome`/`ReviewOutcome`.
  */
 export class AgentNeverRan extends Error {
   override name = "AgentNeverRan";
@@ -156,16 +161,44 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
 export function containerSandbox(
   container: Container = dockerContainer,
 ): Sandbox {
-  return {
-    run: (request: RunRequest) => runOnClone(container, request),
-    review: (request: ReviewRequest) => reviewOnClone(container, request),
-  };
+  return new ContainerSandbox(container);
+}
+
+/**
+ * `Sandbox`'s implementation, as a class rather than an object literal of
+ * arrow functions: `run` and `review` are each overloaded on whether
+ * `request.model` is present, and only a method (or a standalone function
+ * declaration) can carry more than one call signature — an arrow assigned to
+ * an object property cannot.
+ */
+class ContainerSandbox implements Sandbox {
+  private readonly container: Container;
+
+  constructor(container: Container) {
+    this.container = container;
+  }
+
+  run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
+  run(
+    request: RunRequest & { model?: undefined },
+  ): Promise<Exclude<RunOutcome, RunModelRefused>>;
+  run(request: RunRequest): Promise<RunOutcome> {
+    return runOnClone(this.container, request);
+  }
+
+  review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
+  review(
+    request: ReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
+  review(request: ReviewRequest): Promise<ReviewOutcome> {
+    return reviewOnClone(this.container, request);
+  }
 }
 
 async function runOnClone(
   container: Container,
   request: RunRequest,
-): Promise<SandboxRunResult> {
+): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
@@ -184,7 +217,9 @@ async function runOnClone(
       reserveBranch(project, free);
       return free;
     });
-    const base = await revision(clone, "HEAD");
+    // Branded before the agent starts: a clone whose hashes this cannot read
+    // fails the sandbox's set-up, not a run whose work is already done.
+    const base = commitSha(await revision(clone, "HEAD"));
     await run("git", ["-C", clone, "switch", "--create", onto]);
 
     const agent = await attempt(container, {
@@ -213,13 +248,7 @@ async function runOnClone(
       );
     }
 
-    return {
-      branch: onto,
-      commits,
-      output: agent.output,
-      tokensUsed: agent.tokensUsed,
-      ...howItStopped(agent, model),
-    };
+    return runOutcomeOf(agent, model, onto, commits);
   } finally {
     // If fetched back, the checkout now records the name; otherwise the name
     // is free again.
@@ -299,30 +328,57 @@ const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
 
 /**
- * Whether `agent` was refused by the model it was asked to run on, refused by
- * the provider limit, stopped for a ticket reason, or finished.
+ * What `agent` carries once told apart from a finished agent: refused by the
+ * model it was asked to run on, refused by the provider limit, or stopped for
+ * a ticket reason. `RunOutcome` and `ReviewOutcome` differ only in whether a
+ * branch and its commits ride alongside this, which `runOutcomeOf` and
+ * `reviewOutcomeOf` each add for their own port.
  *
  * The model check comes first and only applies when `model` was actually
  * asked for and the CLI exited non-zero: a refused model is the ticket's
  * problem, not the agent's or the setup's, so it must not read as either, and
  * naming the model needs the request, not just the CLI's own words.
  */
-function howItStopped(
+function endingOf(
   agent: AgentRun,
   model: ModelName | undefined,
-): { failure?: string; limitRefusal?: string; modelRefusal?: ModelRefusal } {
+):
+  | { kind: "finished"; output: string }
+  | { kind: "gave-up"; output: string; reason: string }
+  | { kind: "limit-refused"; words: string }
+  | { kind: "model-refused"; refusal: ModelRefusal } {
   if (
     model !== undefined &&
     agent.failure !== undefined &&
     agent.modelRefused !== undefined
   ) {
-    return { modelRefusal: { model, words: agent.modelRefused } };
+    return { kind: "model-refused", refusal: { model, words: agent.modelRefused } };
   }
   const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
   if (refusal !== undefined) {
-    return { limitRefusal: refusal.trim() };
+    return { kind: "limit-refused", words: refusal.trim() };
   }
-  return agent.failure === undefined ? {} : { failure: agent.failure };
+  return agent.failure === undefined
+    ? { kind: "finished", output: agent.output }
+    : { kind: "gave-up", output: agent.output, reason: agent.failure };
+}
+
+/** `endingOf`, with the branch an implementation run worked on and its commits. */
+function runOutcomeOf(
+  agent: AgentRun,
+  model: ModelName | undefined,
+  branch: Branch,
+  commits: CommitSha[],
+): RunOutcome {
+  return { ...endingOf(agent, model), tokensUsed: agent.tokensUsed, branch, commits };
+}
+
+/** `endingOf`, as a review ends it: no branch or commits to carry. */
+function reviewOutcomeOf(
+  agent: AgentRun,
+  model: ModelName | undefined,
+): ReviewOutcome {
+  return { ...endingOf(agent, model), tokensUsed: agent.tokensUsed };
 }
 
 /**
@@ -337,7 +393,7 @@ function howItStopped(
 async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
-): Promise<ReviewRunResult> {
+): Promise<ReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const clone = checkout(
     await mkdtemp(path.join(tmpdir(), "side-projects-review-")),
@@ -355,11 +411,7 @@ async function reviewOnClone(
       ...(model === undefined ? {} : { model }),
     });
 
-    return {
-      output: agent.output,
-      tokensUsed: agent.tokensUsed,
-      ...howItStopped(agent, model),
-    };
+    return reviewOutcomeOf(agent, model);
   } finally {
     await rm(clone, { recursive: true, force: true }).catch(
       (error: unknown) => {
@@ -493,13 +545,19 @@ async function revision(directory: Checkout, of: string): Promise<string> {
 }
 
 /** The commits the agent made, oldest first. Empty when it committed none. */
-async function commitsSince(clone: Checkout, base: string): Promise<string[]> {
+async function commitsSince(
+  clone: Checkout,
+  base: CommitSha,
+): Promise<CommitSha[]> {
   const { stdout } = await run(
     "git",
     ["-C", clone, "rev-list", "--reverse", `${base}..HEAD`],
     { maxBuffer: OUTPUT_LIMIT },
   );
-  return stdout.split("\n").filter((line) => line !== "");
+  return stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => commitSha(line));
 }
 
 /**
