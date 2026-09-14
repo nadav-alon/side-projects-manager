@@ -807,9 +807,7 @@ async function work(
   }
 
   // A variant is exactly one kind, so nothing here turns on the order the
-  // three failing kinds are checked in — unlike the field-presence checks
-  // this replaced, which had to run limit refusal before model refusal
-  // before a bare failure to read a run the same way every time.
+  // three failing kinds are checked in.
   const { run, checkout } = returned;
   if (run.kind === "limit-refused") {
     return {
