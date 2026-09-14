@@ -108,8 +108,8 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
  * reads. Absent means the ticket names no model. A review ticket reads its
  * own labels, never its parent's.
  *
- * `priority` is the ticket priority it carries, from that same listing.
- * Absent means it carries none.
+ * `priority` is the level its own priority label names, from that same
+ * listing. Absent means it carries none.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -145,13 +145,57 @@ export function isBrokenOut(ticket: Ticket): boolean {
 }
 
 /**
+ * One open issue in a project, eligible or not, with every fact a ticket
+ * carries and the facts ticket priority is worked out from.
+ *
+ * `eligible` is whether it carries ready-for-agent: only an eligible issue is
+ * a ticket selection may choose, but any open issue passes on its priority
+ * label.
+ *
+ * `parent` is the number of the issue it is a sub-issue of, only where that
+ * parent is in the same repo. Absent for an issue that is no one's sub-issue
+ * and for one whose parent lives elsewhere, since neither passes anything on.
+ *
+ * `openBlockerNumbers` are the numbers of the still-open issues blocking it in
+ * the same repo, in the order the tracker lists them. Closed blockers and
+ * blockers in other repos are left out; `openBlockers` still counts an open
+ * one elsewhere, since it blocks the work all the same.
+ */
+export interface OpenIssue extends Ticket {
+  eligible: boolean;
+  parent?: number;
+  openBlockerNumbers: readonly number[];
+}
+
+/**
+ * Every open issue one morning reads in a project, newest first, and whether
+ * it is a truncated backlog — more open issues than the loop reads in one
+ * morning, so `issues` holds only the newest of them.
+ */
+export interface OpenIssues {
+  issues: OpenIssue[];
+  truncated: boolean;
+}
+
+/**
  * One project's backlog as one morning reads it: its eligible tickets, and
- * whether it is a truncated backlog — longer than the loop reads in one
- * morning, so `tickets` holds only the newest of it.
+ * whether it is a truncated backlog, so `tickets` holds only the eligible
+ * among the newest open issues.
  */
 export interface Backlog {
   tickets: Ticket[];
   truncated: boolean;
+}
+
+/**
+ * The backlog `open` holds: its eligible issues, each as the ticket it is,
+ * without the facts only ticket priority reads.
+ */
+export function backlogIn(open: OpenIssues): Backlog {
+  const tickets = open.issues
+    .filter((issue) => issue.eligible)
+    .map(({ eligible, parent, openBlockerNumbers, ...ticket }) => ticket);
+  return { tickets, truncated: open.truncated };
 }
 
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
@@ -180,12 +224,14 @@ export function ticketKind(ticket: Ticket): TicketKind {
  */
 export interface IssueTracker {
   /**
-   * The project's backlog: its open issues carrying the ready-for-agent
-   * label, which are the only tickets the loop may select. A project with an
-   * empty backlog returns an empty list; that is a normal morning, not an
+   * The project's open issues, whatever their labels, newest first and no
+   * more than one morning reads. Eligible or not, since ticket priority can
+   * reach a ticket through issues that are not themselves eligible; the
+   * tracker reports facts, and selection is what judges them. A project with
+   * no open issues returns an empty list; that is a normal morning, not an
    * error.
    */
-  listEligibleTickets(repo: RepoSlug): Promise<Backlog>;
+  listOpenIssues(repo: RepoSlug): Promise<OpenIssues>;
   /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.

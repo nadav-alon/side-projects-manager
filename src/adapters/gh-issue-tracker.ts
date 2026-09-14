@@ -2,8 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type {
-  Backlog,
   IssueTracker,
+  OpenIssues,
   PullRequestUrl,
   RepoSlug,
   ReviewTicket,
@@ -24,8 +24,8 @@ import { MANAGER_HOME } from "./manager-home.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** How many of a project's eligible tickets one morning reads. */
-const BACKLOG_READ_LIMIT = 100;
+/** How many of a project's open issues one morning reads. */
+const BACKLOG_READ_LIMIT = 300;
 
 /**
  * The tracker port backed by the `gh` CLI, per `docs/agents/issue-tracker.md`.
@@ -53,7 +53,7 @@ export function ghIssueTracker(
       );
     },
 
-    async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
+    async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
       const { stdout } = await execFileAsync("gh", [
         "issue",
         "list",
@@ -61,32 +61,36 @@ export function ghIssueTracker(
         repo,
         "--state",
         "open",
-        "--label",
-        READY_FOR_AGENT_LABEL,
         // One past what is read, so a backlog of exactly that many is told
         // apart from a longer one. `gh` answers newest first, so the one
         // dropped is the oldest.
         "--limit",
         String(BACKLOG_READ_LIMIT + 1),
         "--json",
-        "number,title,body,subIssuesSummary,blockedBy,labels",
+        "number,title,body,subIssuesSummary,blockedBy,parent,labels",
       ]);
 
-      const issues = parseIssues(stdout, repo);
-      const truncated = issues.length > BACKLOG_READ_LIMIT;
-      const tickets = issues.slice(0, BACKLOG_READ_LIMIT).map(
-        ({ body, subIssuesSummary, blockedBy, labels, ...issue }) => {
+      const raw = parseIssues(stdout, repo);
+      const truncated = raw.length > BACKLOG_READ_LIMIT;
+      const issues = raw.slice(0, BACKLOG_READ_LIMIT).map(
+        ({ body, subIssuesSummary, blockedBy, parent, labels, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
           const openSubIssues =
             subIssuesSummary.total - subIssuesSummary.completed;
-          const openBlockers = blockedBy.filter(
-            (blocker) => blocker.state === "OPEN",
-          ).length;
+          const open = blockedBy.filter((blocker) => blocker.state === "OPEN");
+          const openBlockers = open.length;
+          const openBlockerNumbers = open
+            .filter((blocker) => isInRepo(blocker.url, repo))
+            .map((blocker) => blocker.number);
           const modelLabel = modelLabelOf(labels);
           const priority = ticketPriorityIn(labels);
           return {
             repo,
             ...issue,
+            eligible: labels.some(isReadyForAgent),
+            openBlockerNumbers,
+            ...(parent !== null &&
+              isInRepo(parent.url, repo) && { parent: parent.number }),
             ...(openSubIssues > 0 && { openSubIssues }),
             ...(openBlockers > 0 && { openBlockers }),
             ...(pullRequest !== undefined && { pullRequest }),
@@ -95,7 +99,7 @@ export function ghIssueTracker(
           };
         },
       );
-      return { tickets, truncated };
+      return { issues, truncated };
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
@@ -263,7 +267,7 @@ const REVIEW_BODY = /^Review (\S+), the draft pull request opened for #\d+\.$/m;
 
 /**
  * The pull request a review ticket's body names, or undefined where `body`
- * isn't one this adapter wrote — which is what makes a fresh `listEligibleTickets`
+ * isn't one this adapter wrote — which is what makes a fresh `listOpenIssues`
  * able to tell a review ticket from an implementation ticket at all: the
  * association `createReviewTicket` returned in the same process is gone by the
  * next morning, and the body is the only place it survives.
@@ -412,6 +416,24 @@ function ticketPriorityIn(labels: string[]): TicketPriority | undefined {
     : undefined;
 }
 
+/**
+ * Whether `label` is ready-for-agent. Matched without regard to case, as
+ * GitHub matches label names.
+ */
+function isReadyForAgent(label: string): boolean {
+  return label.toLowerCase() === READY_FOR_AGENT_LABEL;
+}
+
+/**
+ * Whether the issue at `url` lives in `repo`. Read from the URL, since that is
+ * the one place `gh` names a linked issue's repo; owner and repo names are
+ * matched without regard to case, as GitHub matches them.
+ */
+function isInRepo(url: string, repo: RepoSlug): boolean {
+  const [owner, name] = new URL(url).pathname.split("/").filter(Boolean);
+  return `${owner}/${name}`.toLowerCase() === repo.toLowerCase();
+}
+
 /** How many of an issue's sub-issues are open, as `subIssuesSummary` reports it. */
 interface RawSubIssuesSummary {
   total: number;
@@ -419,7 +441,7 @@ interface RawSubIssuesSummary {
 }
 
 /**
- * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy,labels`
+ * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy,parent,labels`
  * reports it, with each label reduced to its name.
  */
 interface RawIssue {
@@ -428,17 +450,28 @@ interface RawIssue {
   body: string;
   subIssuesSummary: RawSubIssuesSummary;
   blockedBy: RawBlocker[];
+  parent: RawLinkedIssue | null;
   labels: string[];
 }
 
-/** One ticket blocking an issue, as `blockedBy.nodes` reports it. */
-interface RawBlocker {
+/**
+ * Another issue one is linked to — its parent, or one blocking it — as `gh`
+ * reports it: `{ id, number, state, title, url }`, of which the number, the
+ * URL naming its repo, and whether it is open are kept.
+ */
+interface RawLinkedIssue {
+  number: number;
+  url: string;
+}
+
+/** One issue blocking another, as `blockedBy.nodes` reports it. */
+interface RawBlocker extends RawLinkedIssue {
   state: string;
 }
 
 /**
- * `gh --json number,title,body,subIssuesSummary,blockedBy,labels`: a JSON
- * array of `{ number, title, body, subIssuesSummary, blockedBy, labels }`.
+ * `gh --json number,title,body,subIssuesSummary,blockedBy,parent,labels`: a
+ * JSON array of `{ number, title, body, subIssuesSummary, blockedBy, parent, labels }`.
  */
 function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
@@ -458,7 +491,7 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, subIssuesSummary, blockedBy, labels } =
+    const { number, title, body, subIssuesSummary, blockedBy, parent, labels } =
       issue as Record<string, unknown>;
     return {
       number: expectField(number, "number", "number", at),
@@ -466,9 +499,25 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
       body: expectField(body, "string", "body", at),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
       blockedBy: parseBlockedBy(blockedBy, at),
+      parent: parseParent(parent, at),
       labels: parseLabels(labels, at),
     };
   });
+}
+
+/** `parent` as `gh` reports it: the linked issue, or `null` for none. */
+function parseParent(value: unknown, at: string): RawLinkedIssue | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "object") {
+    throw new Error(`${at}: "parent" must be an object or null.`);
+  }
+  const { number, url } = value as Record<string, unknown>;
+  return {
+    number: expectField(number, "number", "parent.number", at),
+    url: expectField(url, "string", "parent.url", at),
+  };
 }
 
 /**
@@ -489,9 +538,9 @@ function parseLabels(value: unknown, at: string): string[] {
 }
 
 /**
- * `blockedBy` as `gh` reports it: `{ nodes: [{ number, state, … }], totalCount }`.
- * Only each blocker's state is kept, since whether it is still open is all
- * selection asks of it.
+ * `blockedBy` as `gh` reports it: `{ nodes: [{ number, state, url, … }], totalCount }`.
+ * Each blocker's number, state and URL are kept: whether it is still open,
+ * and which issue in which repo it is.
  */
 function parseBlockedBy(value: unknown, at: string): RawBlocker[] {
   if (typeof value !== "object" || value === null) {
@@ -505,8 +554,12 @@ function parseBlockedBy(value: unknown, at: string): RawBlocker[] {
     if (typeof node !== "object" || node === null) {
       throw new Error(`${at}: "blockedBy.nodes" must hold objects.`);
     }
-    const { state } = node as Record<string, unknown>;
-    return { state: expectField(state, "string", "blockedBy.nodes.state", at) };
+    const { number, state, url } = node as Record<string, unknown>;
+    return {
+      number: expectField(number, "number", "blockedBy.nodes.number", at),
+      state: expectField(state, "string", "blockedBy.nodes.state", at),
+      url: expectField(url, "string", "blockedBy.nodes.url", at),
+    };
   });
 }
 

@@ -29,6 +29,7 @@ import type {
   Usd,
 } from "./ports/index.ts";
 import {
+  backlogIn,
   isBlocked,
   isBrokenOut,
   isReviewTicket,
@@ -627,8 +628,9 @@ async function considerProjects(
       continue;
     }
 
-    const { tickets, truncated: backlogTruncated } =
-      await ports.tracker.listEligibleTickets(project.repo);
+    const { tickets, truncated: backlogTruncated } = backlogIn(
+      await ports.tracker.listOpenIssues(project.repo),
+    );
     const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so

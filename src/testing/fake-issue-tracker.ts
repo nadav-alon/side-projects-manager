@@ -1,6 +1,7 @@
 import type {
-  Backlog,
   IssueTracker,
+  OpenIssue,
+  OpenIssues,
   PullRequestUrl,
   RepoSlug,
   ReviewTicket,
@@ -37,25 +38,33 @@ export interface FakeHandback {
 }
 
 /**
+ * An open issue as the fake holds it, without what the fake works out on
+ * each listing: no `eligible` or `modelLabel`, which come from the labels it
+ * carries, and `openBlockerNumbers` optional, since most tests give none.
+ */
+type StoredIssue = Omit<OpenIssue, "eligible" | "modelLabel" | "openBlockerNumbers"> & {
+  openBlockerNumbers?: readonly number[];
+};
+
+/**
  * A ticket as a test hands it to the fake. No `modelLabel`, not even on a
  * wider `Ticket`: the fake reads that from the labels a ticket holds, the way
  * the real tracker does.
  */
-type TicketInput = Omit<Ticket, "repo" | "modelLabel"> & { modelLabel?: never };
+type TicketInput = Omit<StoredIssue, "repo"> & { modelLabel?: never };
 
-/** A ticket as the fake holds it: the ticket itself, and the labels it carries. */
+/** An issue as the fake holds it: the issue itself, and the labels it carries. */
 interface Stored {
-  ticket: Ticket;
+  ticket: StoredIssue;
   labels: Set<string>;
 }
 
 /**
- * An in-memory backlog per project, modelling the real tracker's own notion
- * of eligibility: a ticket is listed only while it carries
- * `READY_FOR_AGENT_LABEL`, the way `gh issue list --label` filters for the
- * real one.
+ * An in-memory set of open issues per project, modelling the real tracker's
+ * own notion of eligibility: every open issue is listed, and an issue is
+ * eligible only while it carries `READY_FOR_AGENT_LABEL`.
  *
- * Tests that care which repos were asked about spy on `listEligibleTickets`
+ * Tests that care which repos were asked about spy on `listOpenIssues`
  * with `t.mock.method`; the fake does not record calls itself.
  */
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
@@ -124,7 +133,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * Puts `label` on `ticket`, the way the developer labels a ticket by hand —
-   * a model label, say. Read on the next `listEligibleTickets`, not before.
+   * a model label, say. Read on the next `listOpenIssues`, not before.
    */
   addLabel(ticket: Ticket, label: string): void {
     this.#find(ticket)?.labels.add(label);
@@ -142,7 +151,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
-    const stored: Ticket = { repo, ...ticket };
+    const stored: StoredIssue = { repo, ...ticket };
     const backlog = this.#backlogs.get(repo) ?? [];
     backlog.push({ ticket: stored, labels: new Set([label]) });
     this.#backlogs.set(repo, backlog);
@@ -150,29 +159,31 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Marks `repo`'s backlog as a truncated backlog: longer than the loop reads
-   * in one morning. The tickets listed stay exactly those added, so a test
-   * arranges the ones read and says there were more.
+   * Marks `repo`'s backlog as a truncated backlog: more open issues than the
+   * loop reads in one morning. The issues listed stay exactly those added, so
+   * a test arranges the ones read and says there were more.
    */
   truncateBacklog(repo: RepoSlug): void {
     this.#truncated.add(repo);
   }
 
   /**
-   * A ticket's model label is read from the labels it holds at the time of
-   * the call, through the same `modelLabelOf` the real tracker uses, so a
-   * label changed between calls changes what the next call returns.
+   * An issue's eligibility and model label are read from the labels it holds
+   * at the time of the call, through the same `modelLabelOf` the real tracker
+   * uses, so a label changed between calls changes what the next call
+   * returns. Issues are listed in the order they were added.
    */
-  async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
-    const tickets = (this.#backlogs.get(repo) ?? [])
-      .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
-      .map((entry) => {
-        const modelLabel = modelLabelOf(entry.labels);
-        return modelLabel === undefined
-          ? entry.ticket
-          : { ...entry.ticket, modelLabel };
-      });
-    return { tickets, truncated: this.#truncated.has(repo) };
+  async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
+    const issues = (this.#backlogs.get(repo) ?? []).map((entry) => {
+      const modelLabel = modelLabelOf(entry.labels);
+      return {
+        ...entry.ticket,
+        eligible: entry.labels.has(READY_FOR_AGENT_LABEL),
+        openBlockerNumbers: entry.ticket.openBlockerNumbers ?? [],
+        ...(modelLabel !== undefined && { modelLabel }),
+      };
+    });
+    return { issues, truncated: this.#truncated.has(repo) };
   }
 
   /**
