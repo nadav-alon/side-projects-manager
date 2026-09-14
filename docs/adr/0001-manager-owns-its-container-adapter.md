@@ -8,8 +8,7 @@ The spec said agent runs are delegated to sandcastle. They are not: the sandbox 
 `containerSandbox`, which makes a throwaway clone of the project checkout, runs the image
 from #6 against it with `docker run`, and fetches back any branch that gained commits. This records
 that as the decision it is, because nothing else in the repo does — it arrived as an implementation
-detail of #7 rather than as a choice anyone made. The adapter itself lands with #28; this ADR is
-written against its shape, and needs revisiting if that shape changes in review.
+detail of #7 rather than as a choice anyone made.
 
 ## Why it went this way
 
@@ -40,5 +39,11 @@ back owned by the developer, and that the CLI will run unattended at all — it 
 `containerSandbox` takes its container as a parameter (`container: Container = dockerContainer`),
 which exists so the git half can be tested without docker but also bounds this decision: swapping
 in a different runner is one function, not a rewrite. Whether sandcastle is worth that swap was
-never actually evaluated — #29 is the research that answers it, and this ADR should be revisited
-when it lands.
+never actually evaluated — #29 is the research that answers it.
+
+It answers: don't swap. Sandcastle solves the dot-git-pointer problem this ADR describes above, more
+cleanly than a clone, but it has no equivalent of a spend ceiling at all, and throws away a failed
+run's commits, output and spent tokens by default — the two failures next to it in "what this costs"
+that a swap would need to fix rather than inherit. Full findings, each against a primary source, are
+in [`docs/research/sandcastle.md`](../research/sandcastle.md), including what would have to change
+for the recommendation to flip. This decision stands as accepted until that changes.

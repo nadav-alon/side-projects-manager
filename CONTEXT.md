@@ -41,7 +41,7 @@ What the loop does when the budget gate refuses, or when the provider limit refu
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
-The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer.
+The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer. An invocation that worked something always publishes one; a quiet or broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none has been published yet that local calendar day, recorded in the state document with that day once the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather than up to twenty-four. The title carries the local time to the minute beside the date, since more than one summary can land on one day.
 _Avoid_: report, digest, changelog
 
 ### Triggers
@@ -254,6 +254,31 @@ _Avoid_: bad model, model error, invalid model
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.
 _Avoid_: budget, limit, cap
+
+### Observability
+
+**Journal**:
+The machine-written account of every invocation: when it started, when it ended, and what it came
+to. A document in the manager home alongside the state document — but a separate one: the state
+document is keyed by project and rewritten wholesale, while the journal is append-only and keyed by
+time, one record per invocation. Distinct from `trigger.log` too: that file is the raw output of
+whatever a trigger ran, gitignored and local to this machine, where the journal is committed and
+records outcomes rather than capturing output.
+_Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
+
+**Invocation record**:
+One journal entry. Opened before the loop runs, closed with the report.
+_Avoid_: entry, row, event
+
+**In flight**:
+An invocation record that was opened and never closed. The invocation is either still running or
+died before it could close.
+_Avoid_: open, pending, stuck, orphaned
+
+**Armed**:
+A trigger that is registered on this machine and still points at this manager home. Registration
+alone is not armed: a cron line naming a path that no longer exists is registered and not armed.
+_Avoid_: installed, enabled, active, live
 
 ### The seam
 

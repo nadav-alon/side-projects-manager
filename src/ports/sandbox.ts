@@ -1,5 +1,6 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
+import type { CommitSha } from "./commit-sha.ts";
 import type { ReviewTicket, Ticket } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -71,7 +72,7 @@ interface Ended {
 interface Worked {
   /** Branch the agent worked on. */
   branch: Branch;
-  commits: string[];
+  commits: CommitSha[];
 }
 
 /** The agent ran to completion. */
@@ -166,7 +167,9 @@ export interface Sandbox {
    * branch it leaves behind is the one named in the result.
    *
    * Rejects only when the sandbox itself could not be set up or taken down,
-   * which includes a container that could not start the agent at all. An
+   * which includes a container that could not start the agent at all, a clone
+   * whose commit hashes are not ones a `CommitSha` can hold, and git failing
+   * to read the agent's commits back or fetch them into the checkout. An
    * agent that ran and failed comes back as a result carrying `"gave-up"`,
    * because its commits, its output and its spend are all still the morning's.
    *

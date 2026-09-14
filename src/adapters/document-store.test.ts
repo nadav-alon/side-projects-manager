@@ -190,8 +190,11 @@ describe("the budget document", () => {
           fiveHourAllowance: 10_000_000,
           weeklyAllowance: 100_000_000,
           reserveFraction: 0.75,
+          fiveHourReserveFraction: 0.25,
           spendCeiling: 2.5,
           maxConcurrentIterations: 2,
+          sizes: { S: 100_000, M: 400_000, L: 1_000_000, XL: 2_000_000 },
+          unsizedCountsAs: "L",
         }),
       }),
     );
@@ -200,8 +203,11 @@ describe("the budget document", () => {
       fiveHourAllowance: 10_000_000,
       weeklyAllowance: 100_000_000,
       reserveFraction: 0.75,
+      fiveHourReserveFraction: 0.25,
       spendCeiling: 2.5,
       maxConcurrentIterations: 2,
+      sizes: { S: 100_000, M: 400_000, L: 1_000_000, XL: 2_000_000 },
+      unsizedCountsAs: "L",
     });
   });
 
@@ -316,6 +322,98 @@ describe("the budget document", () => {
       await assert.rejects(store.loadBudget(), /maxConcurrentIterations/);
     });
   }
+
+  it("defaults the 5-hour reserve to nothing, so a machine that sets nothing behaves as today", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ reserveFraction: 0.75 }) }),
+    );
+
+    assert.equal((await store.loadBudget()).fiveHourReserveFraction, 0);
+  });
+
+  it("reads a declared 5-hour reserve", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({ fiveHourReserveFraction: 0.2 }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      ...DEFAULT_BUDGET,
+      fiveHourReserveFraction: 0.2,
+    });
+  });
+
+  it("refuses a 5-hour reserve that is not one, the same as the weekly reserve", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ fiveHourReserveFraction: 1 }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /fiveHourReserveFraction/);
+  });
+
+  it("defaults every size to the values the README documents", async () => {
+    const store = documentStore(await home());
+
+    assert.deepEqual((await store.loadBudget()).sizes, {
+      S: 500_000,
+      M: 2_000_000,
+      L: 5_000_000,
+      XL: 10_000_000,
+    });
+  });
+
+  it("completes a partial sizes map from the defaults", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ sizes: { L: 6_000_000 } }) }),
+    );
+
+    assert.deepEqual((await store.loadBudget()).sizes, {
+      ...DEFAULT_BUDGET.sizes,
+      L: 6_000_000,
+    });
+  });
+
+  it("refuses a size worth something other than a token count", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ sizes: { S: -1 } }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /sizes\.S/);
+  });
+
+  it("refuses a size the four labels do not name", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ sizes: { XS: 100_000 } }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /no such size: XS/);
+  });
+
+  it("defaults an unsized ticket to M", async () => {
+    const store = documentStore(await home());
+
+    assert.equal((await store.loadBudget()).unsizedCountsAs, "M");
+  });
+
+  it("reads a declared size for unsized tickets", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ unsizedCountsAs: "S" }) }),
+    );
+
+    assert.deepEqual(await store.loadBudget(), {
+      ...DEFAULT_BUDGET,
+      unsizedCountsAs: "S",
+    });
+  });
+
+  it("refuses an unsizedCountsAs naming no size", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ unsizedCountsAs: "XS" }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /unsizedCountsAs/);
+  });
 
   it("reads an observed reset as an instant", async () => {
     const store = documentStore(
@@ -671,5 +769,34 @@ describe("the state document", () => {
     );
 
     await assert.rejects(store.loadState(), /workedToday/);
+  });
+
+  it("reads a document with no announcedOn as not announced", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {} }),
+      }),
+    );
+
+    assert.equal((await store.loadState()).announcedOn, undefined);
+  });
+
+  it("survives a round trip with the day last announced", async () => {
+    const store = documentStore(await home());
+    const state = { projects: new Map(), announcedOn: day("2026-01-01") };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects a day last announced that is not a calendar day", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {}, announcedOn: "today" }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /announcedOn/);
   });
 });

@@ -23,6 +23,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  localDay,
 } from "./ports/index.ts";
 
 /** How a verdict reads to the developer. A selected project was not skipped. */
@@ -137,9 +138,20 @@ function whyStoodDown(
   return `${standDownReason(standDown)}. ${standDown.refused} ${ready}; the window resets ${standDown.resetsAt.toISOString()}.`;
 }
 
-/** The summary issue's title: dated, so a string of mornings reads in order. */
+/**
+ * The summary issue's title: dated to the local day, with the local time to
+ * the minute beside it, so a firing every hour still reads in order rather
+ * than several summaries sharing one indistinguishable title.
+ */
 export function summaryTitle(startedAt: Date): string {
-  return `Morning loop summary — ${startedAt.toISOString().slice(0, 10)}`;
+  return `Morning loop summary — ${localDay(startedAt)} ${localTimeOfMinute(startedAt)}`;
+}
+
+/** `startedAt`'s local time, as `HH:MM`. */
+function localTimeOfMinute(at: Date): string {
+  const hours = `${at.getHours()}`.padStart(2, "0");
+  const minutes = `${at.getMinutes()}`.padStart(2, "0");
+  return `${hours}:${minutes}`;
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   checkout,
+  commitSha,
   localDay,
   modelName,
   priority,
@@ -21,6 +22,7 @@ import {
   ticketPriority,
   tokenCount,
   usd,
+  type CommitSha,
   type ReviewTicket,
   type RunRequest,
   type State,
@@ -896,7 +898,9 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.equal(saveState.mock.callCount(), 1);
+      // Once for the invocation's own bookkeeping, and again once the quiet
+      // summary — today's first — has published, to record today as announced.
+      assert.equal(saveState.mock.callCount(), 2);
     });
 
     it("keeps what earlier invocations recorded", async () => {
@@ -1159,7 +1163,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1", "c0ffee2"],
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
       });
@@ -1169,7 +1173,7 @@ describe("morningLoop", () => {
       assert.deepEqual(finished(report.iterations[0])?.run, {
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1", "c0ffee2"],
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
         output: "implemented the thing",
         tokensUsed: tokenCount(42_000),
       });
@@ -1194,7 +1198,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -1288,7 +1292,7 @@ describe("morningLoop", () => {
      */
     function ran(
       ports: FakePorts,
-      run: { commits?: string[]; failure?: string } = {},
+      run: { commits?: CommitSha[]; failure?: string } = {},
     ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
@@ -1300,14 +1304,14 @@ describe("morningLoop", () => {
           ? {
               kind: "finished",
               branch: BRANCH,
-              commits: run.commits ?? ["c0ffee1"],
+              commits: run.commits ?? [commitSha("c0ffee1")],
               output: "",
               tokensUsed: tokenCount(42_000),
             }
           : {
               kind: "gave-up",
               branch: BRANCH,
-              commits: run.commits ?? ["c0ffee1"],
+              commits: run.commits ?? [commitSha("c0ffee1")],
               output: "",
               reason: run.failure,
               tokensUsed: tokenCount(42_000),
@@ -1560,7 +1564,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -2106,7 +2110,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "gave-up",
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: SAID,
         tokensUsed: tokenCount(42_000),
         reason: GAVE_UP,
@@ -2136,8 +2140,8 @@ describe("morningLoop", () => {
 
       assert.equal(
         saveState.mock.callCount(),
-        2,
-        "once before the run, and again after it broke",
+        3,
+        "once before the run, again after it broke, and again once the summary published and recorded today as announced",
       );
     });
 
@@ -2394,7 +2398,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "gave-up",
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "x".repeat(200_000),
         tokensUsed: tokenCount(42_000),
         // A failed `execFile` carries every byte the command wrote to stderr.
@@ -2413,7 +2417,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "gave-up",
         branch: FAILED_BRANCH,
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "I tried:\n```ts\nconst x = 1;\n```\nand it broke",
         tokensUsed: tokenCount(42_000),
         reason: GAVE_UP,
@@ -2432,7 +2436,7 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.deepEqual(ranWith(report.iterations[0])?.commits, ["c0ffee1"]);
+      assert.deepEqual(ranWith(report.iterations[0])?.commits, [commitSha("c0ffee1")]);
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
     });
   });
@@ -2657,7 +2661,10 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.equal(saveState.mock.callCount(), 1);
+      // Once for the invocation's own bookkeeping, and again once the
+      // stand-down's summary — today's first — has published, to record
+      // today as announced.
+      assert.equal(saveState.mock.callCount(), 2);
     });
 
     describe("what the developer is told", () => {
@@ -3011,7 +3018,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = (ticket) => ({
         kind: "limit-refused",
         branch: branch(`issue-${ticket.number}`),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         words: LIMIT_REFUSAL,
         tokensUsed: tokenCount(0),
       });
@@ -3134,7 +3141,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(1_000),
       });
@@ -3291,7 +3298,7 @@ describe("morningLoop", () => {
         ports.sandbox.result = () => ({
           kind: "model-refused",
           branch: left,
-          commits: ["c0ffee1"],
+          commits: [commitSha("c0ffee1")],
           tokensUsed: tokenCount(0),
           refusal: { model: OPUS, words: "refused model opus" },
         });
@@ -3389,7 +3396,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -3411,7 +3418,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -3435,7 +3442,7 @@ describe("morningLoop", () => {
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
-        commits: ["c0ffee1"],
+        commits: [commitSha("c0ffee1")],
         output: "",
         tokensUsed: tokenCount(42_000),
       });
@@ -3545,6 +3552,147 @@ describe("morningLoop", () => {
         ports.tracker.summaries[0]?.body ?? "",
         /registry\.json.*repo slug/,
       );
+    });
+
+    describe("announcing once a day", () => {
+      const TODAY = localDay(FROZEN_NOW);
+
+      it("publishes a run that worked something even when today is already announced", async () => {
+        const ports = fakePorts();
+        ports.store.markAnnouncedOn(TODAY);
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+        ports.sandbox.result = () => ({
+          kind: "finished",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [commitSha("c0ffee1")],
+          output: "",
+          tokensUsed: tokenCount(42_000),
+        });
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(3_000),
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.outcome, "work-selected");
+        assert.equal(ports.tracker.summaries.length, 1);
+      });
+
+      it("publishes a dry queue only when today is not yet announced", async () => {
+        const notYetAnnounced = fakePorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "dry-queue");
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = fakePorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "dry-queue");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+      });
+
+      it("publishes a stand-down only when today is not yet announced", async () => {
+        function stoodDownPorts(): FakePorts {
+          const ports = fakePorts();
+          ports.store.register(PILOT);
+          ports.tracker.addEligibleTicket(PILOT, {
+            number: 7,
+            title: "Add the thing",
+          });
+          ports.ledger.reports(
+            spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }),
+          );
+          return ports;
+        }
+
+        const notYetAnnounced = stoodDownPorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "stood-down");
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = stoodDownPorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "stood-down");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+      });
+
+      it("publishes an invocation failure only when today is not yet announced", async (t) => {
+        function brokenPorts(): FakePorts {
+          const ports = fakePorts();
+          t.mock.method(ports.store, "loadRegistry", async () => {
+            throw new Error("registry.json is not valid JSON");
+          });
+          return ports;
+        }
+
+        const notYetAnnounced = brokenPorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "invocation-failed");
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = brokenPorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "invocation-failed");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+      });
+
+      it("returns its one-line message even on an invocation that did not publish", async () => {
+        const ports = fakePorts();
+        ports.store.markAnnouncedOn(TODAY);
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.summaries.length, 0);
+        assert.match(report.message, /nothing to do/i);
+      });
+
+      it("records today as announced only once a publish succeeds", async () => {
+        const ports = fakePorts();
+
+        await morningLoop(ports);
+
+        assert.equal((await ports.store.loadState()).announcedOn, TODAY);
+      });
+
+      it("leaves the day unannounced when the publish itself fails", async (t) => {
+        const ports = fakePorts();
+        t.mock.method(ports.tracker, "publishSummary", async () => {
+          throw new Error("rate limited");
+        });
+
+        await morningLoop(ports);
+
+        assert.equal((await ports.store.loadState()).announcedOn, undefined);
+      });
+
+      it("carries the local time to the minute in the summary title", async () => {
+        const ports = fakePorts();
+        ports.clock = new FakeClock(new Date("2026-03-05T14:37:00.000Z"));
+
+        await morningLoop(ports);
+
+        assert.equal(
+          ports.tracker.summaries[0]?.title,
+          "Morning loop summary — 2026-03-05 14:37",
+        );
+      });
     });
   });
 });

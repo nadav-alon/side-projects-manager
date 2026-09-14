@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type {
   Branch,
   Checkout,
+  CommitSha,
   ModelName,
   ModelRefusal,
   ReviewModelRefused,
@@ -23,6 +24,7 @@ import type {
 import {
   branch,
   checkout,
+  commitSha,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -215,7 +217,9 @@ async function runOnClone(
       reserveBranch(project, free);
       return free;
     });
-    const base = await revision(clone, "HEAD");
+    // Branded before the agent starts: a clone whose hashes this cannot read
+    // fails the sandbox's set-up, not a run whose work is already done.
+    const base = commitSha(await revision(clone, "HEAD"));
     await run("git", ["-C", clone, "switch", "--create", onto]);
 
     const agent = await attempt(container, {
@@ -364,7 +368,7 @@ function runOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
   branch: Branch,
-  commits: string[],
+  commits: CommitSha[],
 ): RunOutcome {
   return { ...endingOf(agent, model), tokensUsed: agent.tokensUsed, branch, commits };
 }
@@ -541,13 +545,19 @@ async function revision(directory: Checkout, of: string): Promise<string> {
 }
 
 /** The commits the agent made, oldest first. Empty when it committed none. */
-async function commitsSince(clone: Checkout, base: string): Promise<string[]> {
+async function commitsSince(
+  clone: Checkout,
+  base: CommitSha,
+): Promise<CommitSha[]> {
   const { stdout } = await run(
     "git",
     ["-C", clone, "rev-list", "--reverse", `${base}..HEAD`],
     { maxBuffer: OUTPUT_LIMIT },
   );
-  return stdout.split("\n").filter((line) => line !== "");
+  return stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => commitSha(line));
 }
 
 /**
