@@ -84,18 +84,18 @@ async function pushedFiles(
 describe("proposing a scaffold to a project that predates the manager", () => {
   const propose = (directory: string, paths: string[]) =>
     githubRepoHost().commitAndPropose(
-      directory,
+      toCheckout(directory),
       "Install the agent harness",
       "body",
       paths,
-      "harness",
+      toBranch("harness"),
     );
 
   /** A checkout with history behind it, which is what "predates" means. */
   async function existing(): Promise<string> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
-    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Seed", ["seed.md"]);
     return directory;
   }
 
@@ -178,6 +178,24 @@ describe("proposing a scaffold to a project that predates the manager", () => {
     assert.equal(proposal.kind === "pushed" && proposal.branch, "harness");
     assert.ok(proposal.kind === "pushed" && proposal.failure !== "");
   });
+
+  it("says a pull request may exist, rather than that the branch was not pushed, when gh answers with something that is not one", async (t) => {
+    await recordingGh(t, "echo 'something went sideways'");
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    assert.match(
+      proposal.kind === "pushed" ? proposal.failure : "",
+      /something went sideways.*may have been opened/,
+    );
+    assert.deepEqual(await pushedFiles(directory, "origin/harness"), [
+      "AGENTS.md",
+      "seed.md",
+    ]);
+  });
 });
 
 describe("publishing a scaffold", () => {
@@ -185,7 +203,7 @@ describe("publishing a scaffold", () => {
     const directory = await checkout();
     await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
 
-    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Install", ["AGENTS.md"]);
 
     assert.deepEqual(await committedFiles(directory), ["AGENTS.md"]);
     assert.deepEqual(await pushedFiles(directory), ["AGENTS.md"]);
@@ -197,7 +215,7 @@ describe("publishing a scaffold", () => {
     await writeFile(path.join(directory, "half-finished.ts"), "// mine\n");
     await run("git", ["-C", directory, "add", "half-finished.ts"]);
 
-    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Install", ["AGENTS.md"]);
 
     assert.deepEqual(await committedFiles(directory), ["AGENTS.md"]);
     const { stdout } = await run("git", [
@@ -213,9 +231,9 @@ describe("publishing a scaffold", () => {
   it("commits nothing when the scaffold is already what is there", async () => {
     const directory = await checkout();
     await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
-    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Install", ["AGENTS.md"]);
 
-    await githubRepoHost().commitAndPush(directory, "Install again", [
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Install again", [
       "AGENTS.md",
     ]);
 
@@ -233,12 +251,12 @@ describe("publishing to a checkout the developer already had", () => {
   it("pushes to the branch it is on without re-pointing its upstream", async () => {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
-    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Seed", ["seed.md"]);
     await run("git", ["-C", directory, "checkout", "-b", "feature/x"]);
     await run("git", ["-C", directory, "push", "--set-upstream", "origin", "feature/x"]);
     await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
 
-    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Install", ["AGENTS.md"]);
 
     const { stdout } = await run("git", [
       "-C",
@@ -258,12 +276,12 @@ describe("publishing to a checkout the developer already had", () => {
   it("refuses a detached HEAD before committing anything to it", async () => {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
-    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Seed", ["seed.md"]);
     await run("git", ["-C", directory, "checkout", "--detach"]);
     await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
 
     await assert.rejects(
-      githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]),
+      githubRepoHost().commitAndPush(toCheckout(directory), "Install", ["AGENTS.md"]),
       /not on a branch/,
     );
     assert.deepEqual(await committedFiles(directory), ["seed.md"]);
@@ -307,7 +325,7 @@ describe("finding the checkout", () => {
   async function seeded(): Promise<string> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
-    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Seed", ["seed.md"]);
     return directory;
   }
 
@@ -458,7 +476,7 @@ describe("opening a draft pull request for a completed run", () => {
   async function ran(branch: string): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
-    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Seed", ["seed.md"]);
 
     await run("git", ["-C", directory, "switch", "--create", BASE]);
     await run("git", ["-C", directory, "push", "origin", BASE]);
@@ -771,7 +789,7 @@ describe("discarding a failed run's branch", () => {
   async function seeded(): Promise<string> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
-    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await githubRepoHost().commitAndPush(toCheckout(directory), "Seed", ["seed.md"]);
     return directory;
   }
 

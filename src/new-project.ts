@@ -10,6 +10,7 @@ import type {
   Scaffold,
   Store,
 } from "./ports/index.ts";
+import { branch } from "./ports/index.ts";
 
 /**
  * What the new-project command reaches the outside world through. Four ports,
@@ -164,7 +165,7 @@ export async function newProject(
 const SCAFFOLD_MESSAGE = "Install the agent harness";
 
 /** Where a proposed harness waits for the developer. */
-const HARNESS_BRANCH = "harness";
+const HARNESS_BRANCH = branch("harness");
 
 /**
  * What the pull request says the scaffold did.

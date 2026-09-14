@@ -97,7 +97,7 @@ export function githubRepoHost(
     },
 
     async commitAndPush(
-      directory: string,
+      directory: Checkout,
       message: string,
       paths: string[],
     ): Promise<void> {
@@ -153,11 +153,11 @@ export function githubRepoHost(
     },
 
     async commitAndPropose(
-      directory: string,
+      directory: Checkout,
       message: string,
       body: string,
       paths: string[],
-      branch: string,
+      branch: Branch,
     ): Promise<Proposal> {
       if (paths.length === 0 || !(await hasChanges(directory, paths))) {
         return { kind: "unchanged" };
@@ -199,6 +199,7 @@ export function githubRepoHost(
         await returnTo(directory, found);
       }
 
+      let opened: string;
       try {
         const { stdout } = await run(
           "gh",
@@ -215,13 +216,27 @@ export function githubRepoHost(
           ],
           { cwd: directory },
         );
-        return { kind: "proposed", branch, url: stdout.trim() };
+        opened = stdout;
       } catch (error) {
         // The branch is on the host by now. A repo with pull requests turned
         // off, or a base branch nobody can open against, is a reason to say so
         // rather than to lose the push that already happened.
         return { kind: "pushed", branch, failure: errorMessage(error) };
       }
+
+      // Outside the catch, for the same reason as in `openDraftPullRequest`:
+      // `gh` answering with something that is not a pull request is a
+      // different failure from `gh` refusing, and reporting it as the second
+      // would say a pull request was refused that may well exist.
+      const answer = opened.trim();
+      if (!isPullRequestUrl(answer)) {
+        return {
+          kind: "pushed",
+          branch,
+          failure: `gh answered "${answer}" rather than a pull request URL, so a pull request may have been opened all the same`,
+        };
+      }
+      return { kind: "proposed", branch, url: answer };
     },
 
     async openDraftPullRequest(
