@@ -108,7 +108,7 @@ export interface ReviewRunResult {
  * queue rather than overlap. Sequential runs are what keeps a morning's spend
  * predictable and what lets the budget gate mean anything, so the guarantee
  * lives here rather than in each caller. Two invocations of the manager are a
- * separate problem, and the once-per-day trigger lock is what answers it.
+ * separate problem, and the once-per-day lock is what answers it.
  */
 export interface Sandbox {
   /**
