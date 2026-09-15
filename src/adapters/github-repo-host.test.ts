@@ -990,11 +990,27 @@ describe("marking a pull request ready for review", () => {
     "https://github.com/nadav-alon/pilot/pull/7",
   );
 
-  it("marks the pull request named by its own URL ready", async (t) => {
-    const gh = await recordingGh(t, ": ");
+  /** A `gh` that reports the pull request as a draft, or not. */
+  const reportingDraft = (isDraft: boolean) =>
+    `if [ "$2" = view ]; then echo ${isDraft}; fi`;
+
+  it("marks the draft pull request named by its own URL ready", async (t) => {
+    const gh = await recordingGh(t, reportingDraft(true));
 
     await githubRepoHost().markPullRequestReady(PULL_REQUEST);
 
-    assert.deepEqual(await gh.calls(), [["pr", "ready", PULL_REQUEST]]);
+    assert.deepEqual(callWith(await gh.calls(), "ready"), [
+      "pr",
+      "ready",
+      PULL_REQUEST,
+    ]);
+  });
+
+  it("leaves a pull request that is not a draft as it was, without an error", async (t) => {
+    const gh = await recordingGh(t, reportingDraft(false));
+
+    await githubRepoHost().markPullRequestReady(PULL_REQUEST);
+
+    assert.equal(callWith(await gh.calls(), "ready"), undefined);
   });
 });

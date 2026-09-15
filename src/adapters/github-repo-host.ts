@@ -368,6 +368,20 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
+      // Asked first, so a pull request already out of draft is left alone by
+      // this check rather than by however `gh pr ready` chooses to answer it.
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "isDraft",
+        "--jq",
+        ".isDraft",
+      ]);
+      if (stdout.trim() !== "true") {
+        return;
+      }
       await run("gh", ["pr", "ready", pullRequest]);
     },
   };
