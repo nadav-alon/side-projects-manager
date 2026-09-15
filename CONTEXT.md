@@ -51,7 +51,7 @@ Whatever calls `morningLoop`: the daily schedule, the logon guard, or any future
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
-The trigger that fires on every new interactive shell, relying on the once-per-day lock to act only the first time that happens each day — so a machine left off overnight doesn't silently skip a day.
+The trigger that fires on every new interactive shell, invoking the loop through the invocation lease. A machine left off overnight doesn't silently skip a day because every new shell fires it; a machine left on all day doesn't re-work tickets or over-publish because worked today and the once-a-day summary rule hold regardless of how many times it fires.
 _Avoid_: startup hook, login script
 
 **Invocation lease**:
