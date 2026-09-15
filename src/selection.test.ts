@@ -148,6 +148,26 @@ describe("invocationSelection", () => {
     );
   });
 
+  it("sees a project registered after the invocation began", async () => {
+    const store = new FakeStore();
+    const tracker = new FakeIssueTracker();
+    store.register(PILOT);
+    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const { selection, worked } = await open(store, tracker);
+
+    const first = await selection.next();
+    worked.record(first!.ticket, TODAY);
+    // Registered only after the first scan, as the developer hand-editing
+    // the registry mid-morning would leave it.
+    store.register(MANAGER);
+    await selection.next();
+
+    assert.deepEqual(verdicts(selection.verdicts()), [
+      [PILOT, "selected"],
+      [MANAGER, "no-eligible-tickets"],
+    ]);
+  });
+
   it("selects one project and one ticket per scan, working through a backlog one at a time", async () => {
     const store = new FakeStore();
     const tracker = new FakeIssueTracker();
@@ -168,6 +188,23 @@ describe("invocationSelection", () => {
       selections.map((selected) => selected.ticket.number),
       [7, 8],
     );
+  });
+
+  it("keeps a project's selected verdict once a later scan finds nothing left of its backlog", async () => {
+    const store = new FakeStore();
+    const tracker = new FakeIssueTracker();
+    store.register(PILOT);
+    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const { selection, worked } = await open(store, tracker);
+
+    const first = await selection.next();
+    worked.record(first!.ticket, TODAY);
+    // A second scan of the same backlog finds nothing left to select — the
+    // sticky verdict from the first scan is what must survive it.
+    const second = await selection.next();
+
+    assert.equal(second, undefined);
+    assert.deepEqual(verdicts(selection.verdicts()), [[PILOT, "selected"]]);
   });
 
   describe("a paused project", () => {
