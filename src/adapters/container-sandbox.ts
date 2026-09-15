@@ -543,6 +543,9 @@ async function applyReviewOnClone(
  */
 const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 
+/** A full commit hash, SHA-1 or SHA-256, rather than an abbreviation of one. */
+const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
 /**
  * `endingOf`, as an apply-review run ends it: no branch or commits to carry,
  * and an agent that reports the branch moved under its push has given up,
@@ -559,11 +562,13 @@ function applyReviewOutcomeOf(
     moved !== undefined &&
     isCommitSha(moved)
   ) {
+    // Only a full hash is carried: an abbreviation cannot be compared with
+    // the head the repo host reports. The push was rejected all the same.
     return {
       kind: "gave-up",
       output: agent.output,
       reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
-      movedHead: moved,
+      ...(FULL_HASH.test(moved) ? { movedHead: moved } : {}),
       tokensUsed: agent.tokensUsed,
     };
   }

@@ -173,7 +173,9 @@ export type ReviewOutcome =
 export interface ApplyReviewGaveUp extends ReviewGaveUp {
   /**
    * The head the branch had moved to, as the agent reported it, present only
-   * when a rejected push is why the run gave up.
+   * when a rejected push is why the run gave up and the agent named the head
+   * by its full hash — an abbreviation cannot be compared with the head the
+   * repo host reports, so a run reporting one gave up without it.
    */
   movedHead?: CommitSha;
 }

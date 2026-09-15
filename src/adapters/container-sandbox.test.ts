@@ -1374,7 +1374,7 @@ describe("containerSandbox.applyReview", () => {
   it("reads a moved head the agent followed with more words on the same line", async () => {
     const { directory } = await hostedProject();
     const sandbox = containerSandbox(async () => ({
-      output: "Branch moved: abc1234 (was def5678)",
+      output: `Branch moved: ${MOVED_HEAD} (was def5678)`,
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -1384,7 +1384,24 @@ describe("containerSandbox.applyReview", () => {
       spendCeiling: CEILING,
     });
 
-    assert.equal(variant(result, "gave-up")?.movedHead, commitSha("abc1234"));
+    assert.equal(variant(result, "gave-up")?.movedHead, commitSha(MOVED_HEAD));
+  });
+
+  it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: "Branch moved: abc1234",
+      tokensUsed: tokenCount(0),
+    }), headIsBranch);
+
+    const result = await sandbox.applyReview({
+      ticket: APPLY_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.kind, "gave-up");
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
   });
 
   it("lands on the repo host's head even when the clone already has a branch of that name", async () => {
