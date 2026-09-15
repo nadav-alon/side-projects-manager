@@ -8,7 +8,7 @@ import {
   pullRequestUrl,
   repoSlug,
   tokenCount,
-  type RepoSlug,
+  type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, type SummaryFacts } from "./summary.ts";
@@ -20,16 +20,12 @@ function implementationTicket(number: number): Ticket {
   return { repo: REPO, number, title: `Ticket ${number}` };
 }
 
-function reviewTicket(number: number) {
-  return { repo: REPO, number, title: `Review ${number}`, pullRequest: { kind: "review" as const, url: PULL_REQUEST } };
+function reviewTicket(number: number): ReviewTicket {
+  return { repo: REPO, number, title: `Review ${number}`, pullRequest: { kind: "review", url: PULL_REQUEST } };
 }
 
 /** A finished run that opened a pull request and queued `reviewNumber` to review it. */
-function finishedWithHandover(
-  repo: RepoSlug,
-  ticket: Ticket,
-  reviewNumber: number,
-): IterationOutcome {
+function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOutcome {
   const finished: Finished = {
     kind: "finished",
     run: {
@@ -45,23 +41,23 @@ function finishedWithHandover(
       reviewTicket: reviewTicket(reviewNumber),
     },
   };
-  return { repo, ticket, ...finished };
+  return { repo: REPO, ticket, ...finished };
 }
 
 /** A review ticket's own run that finished and closed its ticket cleanly. */
-function reviewedCleanly(repo: RepoSlug, number: number): IterationOutcome {
+function reviewedCleanly(number: number): IterationOutcome {
   const reviewed: Reviewed = {
     kind: "reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
   };
-  return { repo, ticket: reviewTicket(number), ...reviewed };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
 /** A review ticket's own run that gave up and was handed back. */
-function reviewFailed(repo: RepoSlug, number: number): IterationOutcome {
+function reviewFailed(number: number): IterationOutcome {
   return {
-    repo,
+    repo: REPO,
     ticket: reviewTicket(number),
     kind: "failed",
     failure: { kind: "gave-up", reason: "left the tests red", handedBack: true },
@@ -93,8 +89,8 @@ function waitingLines(iterations: IterationOutcome[]): string[] {
 describe("waitingSection", () => {
   it("renders one line naming the pull request as reviewed, when the review ticket was reviewed this invocation", () => {
     const lines = waitingLines([
-      finishedWithHandover(REPO, implementationTicket(171), 172),
-      reviewedCleanly(REPO, 172),
+      finishedWithHandover(implementationTicket(171), 172),
+      reviewedCleanly(172),
     ]);
 
     assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`]);
@@ -102,15 +98,15 @@ describe("waitingSection", () => {
 
   it("renders one line when the review ticket failed this invocation, not a queue line and a hand-back line", () => {
     const lines = waitingLines([
-      finishedWithHandover(REPO, implementationTicket(173), 174),
-      reviewFailed(REPO, 174),
+      finishedWithHandover(implementationTicket(173), 174),
+      reviewFailed(174),
     ]);
 
     assert.deepEqual(lines, [`- ${REPO} #174: relabelled ready-for-human`]);
   });
 
   it("still renders the review as queued when it was not worked this invocation", () => {
-    const lines = waitingLines([finishedWithHandover(REPO, implementationTicket(175), 176)]);
+    const lines = waitingLines([finishedWithHandover(implementationTicket(175), 176)]);
 
     assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as #176`]);
   });
