@@ -195,8 +195,6 @@ async function closeJournalRecord(
 main().catch((error: unknown) => {
   // A failed morning reports what happened; it never greets the developer
   // with a stack trace.
-  console.error(
-    `morning-run failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`morning-run failed: ${errorMessage(error)}`);
   process.exitCode = 1;
 });
