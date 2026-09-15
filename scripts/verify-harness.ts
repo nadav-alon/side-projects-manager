@@ -158,11 +158,7 @@ for (const directory of [HOME, path.join(HOME, ".claude")]) {
   }
 }
 
-// The skill file itself, at the personal-skill path the Dockerfile's COPY
-// writes it to. Checked by existence rather than through `claude`, the way
-// the harness plugin's skills are below: there is no CLI command that
-// enumerates personal skills, and the run that needs this one invokes it by
-// name directly, so a file that is there is a file `/apply-pr-review` finds.
+// Checked by existence rather than through `claude`; APPLY_REVIEW_SKILL says why.
 const applyReviewSkillPath = path.join(HOME, ".claude", "skills", APPLY_REVIEW_SKILL, "SKILL.md");
 
 if (!existsSync(applyReviewSkillPath)) {
