@@ -931,7 +931,8 @@ describe("containerSandbox.review", () => {
    * The reviewer posts with the developer's own `GH_TOKEN`, so an
    * apply-review workflow watching for that comment cannot tell the
    * reviewer's from the developer's by author. Acting on the review is the
-   * developer's call, not the reviewer's.
+   * developer's call, not the reviewer's — and no other line of the prompt
+   * may say otherwise, so `/apply-review` appears in it exactly once.
    */
   it("forbids the reviewer from ever posting /apply-review", async () => {
     const directory = await project();
@@ -947,7 +948,9 @@ describe("containerSandbox.review", () => {
       spendCeiling: CEILING,
     });
 
-    assert.match(asked, /Never post a comment whose whole body is `\/apply-review`/);
+    assert.match(asked, /developer's own GitHub credential, so nothing marks a comment of yours\s+apart from one the developer wrote\./);
+    assert.match(asked, /Never post a comment whose whole body is\s+`\/apply-review`\s+— acting on this review is the developer's call, not yours\./);
+    assert.equal(asked.match(/\/apply-review/g)?.length, 1);
   });
 
   /**
