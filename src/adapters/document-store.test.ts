@@ -521,12 +521,14 @@ describe("the model defaults document", () => {
         models: JSON.stringify({
           implementation: "sonnet",
           review: "claude-opus-5",
+          "apply-review": "sonnet",
         }),
       }),
     );
 
     assert.deepEqual(await store.loadModelDefaults(), {
       implementation: modelName("sonnet"),
+      "apply-review": modelName("sonnet"),
       review: modelName("claude-opus-5"),
     });
   });

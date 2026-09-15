@@ -3845,6 +3845,31 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs[0]?.model, undefined);
     });
 
+    it("runs an apply-review ticket on the apply-review default, and an implementation ticket not", async () => {
+      const { ports } = oneTicket();
+      const pullRequest = pullRequestUrl(
+        "https://github.com/nadav-alon/pilot/pull/12",
+      );
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 42,
+        title: `Apply the review on ${pullRequest}`,
+        pullRequest: { kind: "apply-review", url: pullRequest },
+      });
+      ports.store.modelDefaults = { "apply-review": HAIKU };
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs.length, 2);
+      const applyReviewRun = ports.sandbox.runs.find(
+        (run) => run.ticket.number === 42,
+      );
+      const implementationRun = ports.sandbox.runs.find(
+        (run) => run.ticket.number === 7,
+      );
+      assert.equal(applyReviewRun?.model, HAIKU);
+      assert.equal(implementationRun?.model, undefined);
+    });
+
     it("runs a ticket on its model label rather than the default for its kind", async () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:opus");
@@ -4011,6 +4036,36 @@ describe("morningLoop", () => {
         assert.equal(ports.tracker.handbacks.length, 1);
         assert.match(ports.tracker.handbacks[0]?.comment ?? "", /haiku/);
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
+        assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+      });
+
+      it("hands back an apply-review ticket whose model is refused, naming the apply-review model defaults", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const pullRequest = pullRequestUrl(
+          "https://github.com/nadav-alon/pilot/pull/12",
+        );
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 42,
+          title: `Apply the review on ${pullRequest}`,
+          pullRequest: { kind: "apply-review", url: pullRequest },
+        });
+        ports.store.modelDefaults = { "apply-review": HAIKU };
+        ports.sandbox.result = () => ({
+          kind: "model-refused",
+          branch: branch(`fake/${PILOT}/42`),
+          commits: [],
+          tokensUsed: tokenCount(0),
+          refusal: { model: HAIKU, words: "refused model haiku" },
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.handbacks.length, 1);
+        const comment = ports.tracker.handbacks[0]?.comment ?? "";
+        assert.match(comment, /haiku/);
+        assert.match(comment, /model defaults for apply-review tickets/);
+        assert.match(comment, /fix the apply-review model in `models\.json`/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
       });
 
