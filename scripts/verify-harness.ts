@@ -10,7 +10,7 @@
 // same thing and would need a real token, which CI has none of.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -52,6 +52,19 @@ const PERMISSION_MODE = "bypassPermissions";
  * or an upstream rename, never as the first alone.
  */
 const REQUIRED_SKILL = "implement";
+
+/**
+ * The skill for a run that applies a pull request's review, not part of the
+ * harness plugin above — the Dockerfile copies the manager repo's own
+ * `.claude/skills/apply-pr-review/SKILL.md` into the CLI's personal-skill
+ * directory so it is found whichever project a run's clone happens to be.
+ * `disable-model-invocation: true` on the skill means a run invokes it
+ * explicitly (`/apply-pr-review <url>`) rather than the model discovering it,
+ * so this only has to prove the file is there, not that `claude` enumerates
+ * it — there is no CLI command that lists personal skills the way `plugin
+ * details` lists a plugin's.
+ */
+const APPLY_REVIEW_SKILL = "apply-pr-review";
 
 /**
  * Skill names as `claude plugin details` prints them: `Skills (25)  a, b, c`.
@@ -143,6 +156,16 @@ for (const directory of [HOME, path.join(HOME, ".claude")]) {
       refusal,
     );
   }
+}
+
+// Checked by existence rather than through `claude`; APPLY_REVIEW_SKILL says why.
+const applyReviewSkillPath = path.join(HOME, ".claude", "skills", APPLY_REVIEW_SKILL, "SKILL.md");
+
+if (!existsSync(applyReviewSkillPath)) {
+  fail(
+    `${applyReviewSkillPath} is missing, so a run applying a pull request's review has no ${APPLY_REVIEW_SKILL} skill to invoke`,
+    "the Dockerfile's COPY of .claude/skills/apply-pr-review/SKILL.md is what puts it there",
+  );
 }
 
 // Read off the image rather than restated here: the Dockerfile declares
@@ -247,5 +270,5 @@ if (!usage.includes(PERMISSION_MODE)) {
 }
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${APPLY_REVIEW_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
 );
