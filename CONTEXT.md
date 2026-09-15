@@ -191,7 +191,7 @@ A ticket asking for something to be built.
 _Avoid_: feature ticket, build ticket
 
 **Draft pull request**:
-How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. The manager opens one, never merges it, and marks it ready for review only when an apply-review ticket on it finishes.
+How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. The manager opens one and never merges it; it promotes one — marks it ready for review — only when an apply-review ticket on it finishes.
 _Avoid_: PR (say pull request), submission, patch
 
 **Ticket gist**:
@@ -211,7 +211,7 @@ A sub-issue of an implementation ticket asking for that ticket's draft pull requ
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`. Selected before review tickets. Finished, it closes and marks the pull request ready for review.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished, it closes and promotes the pull request.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
