@@ -1,6 +1,7 @@
 # Turns a developer's `/apply-review` comment into an apply-review ticket: an
 # issue asking an agent to work every open review thread on a pull request,
-# linked as a sub-issue of the ticket the pull request closes.
+# linked as a sub-issue of the ticket the pull request closes (CONTEXT.md:
+# Draft pull request, Review ticket, Implementation ticket).
 name: Apply review
 
 on:
@@ -13,6 +14,7 @@ permissions:
 
 jobs:
   apply-review:
+    name: Open an apply-review ticket for the pull request
     # Narrowed to the repo owner and a comment mentioning the command here, at
     # the job level, so an unrelated comment costs nothing beyond this one
     # check. The exact trimmed-body check can't live here too — Actions
@@ -31,7 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Resolve the pull request and act on it
-        id: apply
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
