@@ -8,6 +8,8 @@ Works one pull request's review to the end: every open **thread** gets a reply, 
 
 The argument is the pull request (number or URL). With none, use the current branch's: `gh pr view --json number,url`. Name the repo explicitly (`--repo <owner>/<repo>`, or `repos/<owner>/<repo>` in `gh api`) whenever `origin` is not a GitHub remote.
 
+Naming a pull request is the go-ahead for the whole pass, not just the first step: decide every thread, make every applied change, push, and post every reply in one run. Nothing past this point is provisional — do not stop partway to confirm a verdict, the push, or a reply before posting it.
+
 ## 1. Check out the branch
 
 `gh pr checkout <pr>`, then `git pull --ff-only`. Done when the working tree is clean and `HEAD` matches the pull request's head commit (`gh pr view <pr> --json headRefOid`).
