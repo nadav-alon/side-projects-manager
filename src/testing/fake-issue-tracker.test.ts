@@ -5,6 +5,7 @@ import {
   backlogIn,
   isApplyReviewTicket,
   isRebaseTicket,
+  isReviewTicket,
   issueNumber,
   modelName,
   pullRequestUrl,
@@ -45,6 +46,24 @@ describe("FakeIssueTracker", () => {
     await tracker.handBack(ticket, "gave up");
 
     assert.deepEqual(backlogIn(await tracker.listOpenIssues(PILOT)).tickets, []);
+  });
+
+  it("no longer lists a review ticket, nor carries ready-for-agent on it, once closed", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    assert.ok(isReviewTicket(review));
+
+    await tracker.closeReviewTicket(review);
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    assert.ok(!issues.some((issue) => issue.ticket.number === review.number));
   });
 
   it("lists a blocked ticket alongside its open blocker count", async () => {

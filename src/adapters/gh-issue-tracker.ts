@@ -120,12 +120,19 @@ export function ghIssueTracker(
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
+      const issue = [String(ticket.number), "--repo", ticket.repo];
+
+      await execFileAsync("gh", ["issue", "close", ...issue]);
+      // Closing the ticket is what stops it being reviewed twice; removing
+      // the label comes after so a closed-but-still-labelled ticket, the
+      // failure this leaves behind, is the one a query for closed reviews
+      // finds and a reopen would otherwise carry back into the queue.
       await execFileAsync("gh", [
         "issue",
-        "close",
-        "--repo",
-        ticket.repo,
-        String(ticket.number),
+        "edit",
+        ...issue,
+        "--remove-label",
+        READY_FOR_AGENT_LABEL,
       ]);
     },
 
