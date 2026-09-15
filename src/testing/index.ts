@@ -28,6 +28,7 @@ export {
   valueOf,
   type RecordedGh,
 } from "./recording-gh.ts";
+export { recordingDocker, type RecordedDocker } from "./recording-docker.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { FakeInvocationLease } from "./fake-invocation-lease.ts";
 export { cronLine, crontabStubBin } from "./crontab-stub-bin.ts";

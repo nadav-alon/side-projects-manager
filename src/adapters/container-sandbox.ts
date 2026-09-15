@@ -225,60 +225,49 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  */
 export function containerSandbox(
   container: Container = dockerContainer,
-  pullRequestHead: PullRequestHead = ghPullRequestHead,
+  pullRequestHead: (pullRequest: PullRequestUrl) => Promise<Branch> = ghPullRequestHead,
 ): Sandbox {
-  return new ContainerSandbox(container, pullRequestHead);
-}
-
-/**
- * `Sandbox`'s implementation, as a class rather than an object literal of
- * arrow functions: `run`, `review`, `applyReview` and `rebase` are each
- * overloaded on whether `request.model` is present, and only a method (or a
- * standalone function declaration) can carry more than one call signature —
- * an arrow assigned to an object property cannot.
- */
-class ContainerSandbox implements Sandbox {
-  private readonly container: Container;
-  private readonly pullRequestHead: PullRequestHead;
-
-  constructor(container: Container, pullRequestHead: PullRequestHead) {
-    this.container = container;
-    this.pullRequestHead = pullRequestHead;
-  }
-
-  applyReview(
-    request: ApplyReviewRequest & { model: ModelName },
-  ): Promise<ApplyReviewOutcome>;
-  applyReview(
-    request: ApplyReviewRequest & { model?: undefined },
-  ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
-  applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(this.container, this.pullRequestHead, request);
-  }
-
-  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
-  rebase(
-    request: RebaseRequest & { model?: undefined },
-  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
-  rebase(request: RebaseRequest): Promise<RebaseOutcome> {
-    return rebaseOnClone(this.container, this.pullRequestHead, request);
-  }
-
-  run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
-  run(
+  function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
+  function run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
-  run(request: RunRequest): Promise<RunOutcome> {
-    return runOnClone(this.container, request);
+  function run(request: RunRequest): Promise<RunOutcome> {
+    return runOnClone(container, request);
   }
 
-  review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
-  review(
+  function review(
+    request: ReviewRequest & { model: ModelName },
+  ): Promise<ReviewOutcome>;
+  function review(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
-  review(request: ReviewRequest): Promise<ReviewOutcome> {
-    return reviewOnClone(this.container, request);
+  function review(request: ReviewRequest): Promise<ReviewOutcome> {
+    return reviewOnClone(container, request);
   }
+
+  function applyReview(
+    request: ApplyReviewRequest & { model: ModelName },
+  ): Promise<ApplyReviewOutcome>;
+  function applyReview(
+    request: ApplyReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
+  function applyReview(
+    request: ApplyReviewRequest,
+  ): Promise<ApplyReviewOutcome> {
+    return applyReviewOnClone(container, pullRequestHead, request);
+  }
+
+  function rebase(
+    request: RebaseRequest & { model: ModelName },
+  ): Promise<RebaseOutcome>;
+  function rebase(
+    request: RebaseRequest & { model?: undefined },
+  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
+  function rebase(request: RebaseRequest): Promise<RebaseOutcome> {
+    return rebaseOnClone(container, pullRequestHead, request);
+  }
+
+  return { run, review, applyReview, rebase };
 }
 
 /** The four shapes a sandboxed run comes in — named for `withThrowawayClone` and `attempt` alike. */
@@ -1005,10 +994,8 @@ function pushRejectedOutcomeOf(
  * `remote` as the container can push to it: an SSH GitHub remote becomes its
  * HTTPS address, since the container holds a token and no SSH key. Anything
  * else — HTTPS already, or a local path — is left as it is.
- *
- * Exported so the rewrite can be asserted without an SSH remote to push to.
  */
-export function pushableRemote(remote: RemoteUrl): RemoteUrl {
+function pushableRemote(remote: RemoteUrl): RemoteUrl {
   const ssh =
     /^(?:ssh:\/\/)?git@([^:/]+)[:/](.+?)(?:\.git)?\/?$/.exec(remote);
   return ssh === null ? remote : remoteUrl(`https://${ssh[1]}/${ssh[2]}.git`);
@@ -1021,7 +1008,7 @@ export function pushableRemote(remote: RemoteUrl): RemoteUrl {
  * of an apply-review run can be exercised against a stand-in repo host without
  * `gh`, a credential, or a network.
  */
-export type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
+type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
 
 /** The real lookup: `gh pr view`, read by `pullRequestHeadFrom`. */
 const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
@@ -1042,10 +1029,8 @@ const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
  * A pull request opened from a fork is refused, as is one `gh` does not say
  * is not: its head branch is not on the checkout's remote, which is where the
  * agent pushes, so the push would never reach the pull request.
- *
- * Exported so the answer's reading can be asserted without `gh`.
  */
-export function pullRequestHeadFrom(
+function pullRequestHeadFrom(
   stdout: string,
   pullRequest: PullRequestUrl,
 ): Branch {
@@ -1490,11 +1475,8 @@ export function dockerNeverRanMessage(error: unknown): string {
  * leaves alone is the agent's own, and it may have committed first. `execFile`
  * hangs the output it did capture off the error, so the run still comes back
  * with what it said and what it spent.
- *
- * Exported so a captured CLI exit can be read the way `dockerContainer` reads
- * it, without docker installed.
  */
-export function readExitedRun(error: unknown): AgentRun {
+function readExitedRun(error: unknown): AgentRun {
   const { stdout, stderr } = captured(error);
   return { ...readAgentRun(stdout, stderr), failure: commandFailure(error, stderr) };
 }
@@ -1585,11 +1567,8 @@ function envFor(mount: Mount): NodeJS.ProcessEnv {
  * not running, the image is not there), 126 when the entrypoint could not be
  * invoked, and 127 when it could not be found. And `ENOENT` is docker not being
  * installed at all. Every other exit code is the agent's.
- *
- * Exported so the line can be asserted without docker installed: it is what
- * decides whether a ticket is told its agent gave up.
  */
-export function dockerNeverRan(error: unknown): boolean {
+function dockerNeverRan(error: unknown): boolean {
   const code = errorProperty(error, "code");
   return code === "ENOENT" || code === 125 || code === 126 || code === 127;
 }
@@ -1598,7 +1577,6 @@ export function dockerNeverRan(error: unknown): boolean {
  * What the manager asks docker to run: the image, the clone bound at the
  * workdir it declares, and the agent invocation itself.
  *
- * Exported so the argument list can be asserted without docker installed.
  * Three of the flags in particular have to be visible to a test, because all
  * three fail quietly: the spend ceiling is the only thing bounding a run once
  * the run has started, and one that stopped being passed would cost a week
@@ -1607,7 +1585,8 @@ export function dockerNeverRan(error: unknown): boolean {
  * ticket as work the agent chose not to do; and the user pin is what makes the
  * agent's commits and files the developer's own — dropped, it fails on every
  * host whose developer is not the image's own uid, and looks like an agent
- * declining the work.
+ * declining the work. A test sees them the way any caller does: in the
+ * argument list a recorded `docker` on `PATH` was actually invoked with.
  *
  * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `mount` —
  * see `Mount` and `envFor` for which credential answers to that name.
@@ -1619,7 +1598,7 @@ export function dockerNeverRan(error: unknown): boolean {
  * Throws `AgentNeverRan` for a manager running as root, which is a setup no
  * unattended run can happen in — see `hostUser`.
  */
-export function dockerCommand({
+function dockerCommand({
   directory,
   prompt,
   spendCeiling,
@@ -1756,7 +1735,7 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * denied-tools note are appended to it: once appended, the tag is no longer
  * on the last line, and `gistFrom` would find nothing.
  */
-export function readAgentRun(stdout: string, stderr = ""): AgentRun {
+function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
