@@ -172,6 +172,39 @@ describe("the morning-run command", () => {
     assert.match(stderr, /journal/i);
   });
 
+  it("keeps running, leaves the record open, and says nothing but stderr, when the journal cannot be closed", async (t) => {
+    const directory = await home();
+
+    // The journal writes through `journal.json.pending`, renamed over
+    // `journal.json` once written. Opening the record uses and frees that
+    // path before the loop ever calls `gh`, so blocking it there — the
+    // first moment this test controls after the open has already
+    // succeeded — fails only the close.
+    const pending = path.join(directory, "journal.json.pending");
+    await recordingGh(
+      t,
+      [
+        `mkdir -p "${pending}"`,
+        `case "$1 $2" in`,
+        `  "issue list") echo "[]" ;;`,
+        `  "issue create") echo "https://github.com/nadav-alon/side-projects-manager/issues/0" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const { stdout, stderr } = await run(directory);
+
+    assert.match(stdout, /nothing to do/i);
+    assert.match(stderr, /journal/i);
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    assert.equal(journal.records.length, 1);
+    assert.equal(journal.records[0].closedAt, undefined);
+  });
+
   describe("interrupted", () => {
     /**
      * A `gh` whose backlog listing takes two seconds, touching `marker` as it
