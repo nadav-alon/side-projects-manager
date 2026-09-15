@@ -836,7 +836,7 @@ const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
 };
 
 /** Ascending by each kind's `SELECTION_RANK`. */
-function byKind(a: TicketKind, b: TicketKind): number {
+function compareKinds(a: TicketKind, b: TicketKind): number {
   return SELECTION_RANK[a] - SELECTION_RANK[b];
 }
 
@@ -845,7 +845,7 @@ function compareTickets(
   b: Ticket,
   ticketPriorities: ReadonlyMap<number, TicketPriority>,
 ): number {
-  const kindOrder = byKind(ticketKind(a), ticketKind(b));
+  const kindOrder = compareKinds(ticketKind(a), ticketKind(b));
   if (kindOrder !== 0) {
     return kindOrder;
   }
@@ -879,7 +879,7 @@ function bestCandidate(candidates: Candidate[]): Candidate | undefined {
 }
 
 function compareCandidates(a: Candidate, b: Candidate): number {
-  const kindOrder = byKind(a.kind, b.kind);
+  const kindOrder = compareKinds(a.kind, b.kind);
   if (kindOrder !== 0) {
     return kindOrder;
   }
