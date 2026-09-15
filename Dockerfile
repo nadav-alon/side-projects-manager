@@ -65,7 +65,7 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
 
 # The apply-review run's skill: it invokes `/apply-pr-review <pull request
 # url>` explicitly rather than the model discovering it (the skill's own
-# `disable-model-invocation: true`), so it only has to be discoverable, not
+# `disable-model-invocation: true`), so it only has to be present on disk, not
 # enabled like the plugin above. Copied here rather than left for a project
 # clone to carry one: the clone mounted at /repo is the *target* project being
 # reviewed, which has no reason to ship a skill about this manager's own
