@@ -33,10 +33,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Read by the failure step below, naming the command that broke —
-          # anything not already handled by name further down.
-          ERROR_LOG="${RUNNER_TEMP}/apply-review-error.txt"
-          trap 'echo "gh/jq call failed (line $LINENO): $BASH_COMMAND" > "$ERROR_LOG"' ERR
+          # Both read by the failure step below: the command that broke, and
+          # what it said. Stderr is teed so it still reaches the run log.
+          exec 2> >(tee "${RUNNER_TEMP}/apply-review-stderr.txt" >&2)
+          trap 'printf "%s\n" "$BASH_COMMAND" > "${RUNNER_TEMP}/apply-review-command.txt"' ERR
 
           trimmed="$(printf '%s' "$COMMENT_BODY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           if [[ "$trimmed" != "/apply-review" ]]; then
@@ -154,16 +154,9 @@ jobs:
           gh label create ready-for-agent --repo "$REPO" \
             --description "Fully specified, ready for an AFK agent" >/dev/null 2>&1 || true
 
-          create_err="${RUNNER_TEMP}/apply-review-create-err.txt"
-          if ! create_out="$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label ready-for-agent 2>"$create_err")"; then
-            err="$(cat "$create_err")"
-            if grep -qiE '403|Resource not accessible|not accessible by' <<<"$err"; then
-              reply "Can't open an apply-review ticket: the workflow's \`GITHUB_TOKEN\` is missing \`issues: write\`. Add it under \`permissions:\` in .github/workflows/apply-review.yml, then comment /apply-review again."
-            else
-              reply "Couldn't create the apply-review ticket: $err"$'\n\n'"Comment /apply-review again to retry."
-            fi
-            exit 0
-          fi
+          # A refusal here is the failure step's to report, which knows to say
+          # nothing was created.
+          create_out="$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label ready-for-agent)"
 
           new_url="$(printf '%s' "$create_out" | tail -n1 | tr -d '[:space:]')"
           new_number="$(grep -oE '[0-9]+$' <<<"$new_url")"
@@ -185,11 +178,24 @@ jobs:
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          detail="$(cat "${RUNNER_TEMP}/apply-review-error.txt" 2>/dev/null || echo "no detail captured")"
-          if grep -qiE '403|Resource not accessible|not accessible by' <<<"$detail"; then
-            body="Can't open an apply-review ticket: the workflow's \`GITHUB_TOKEN\` is missing a needed permission. It needs both \`issues: write\` and \`pull-requests: write\` under \`permissions:\` in .github/workflows/apply-review.yml."$'\n\n'"$detail"
+          command="$(cat "${RUNNER_TEMP}/apply-review-command.txt" 2>/dev/null || echo "an unrecorded command")"
+          stderr="$(tail -n 20 "${RUNNER_TEMP}/apply-review-stderr.txt" 2>/dev/null || true)"
+
+          if grep -qiE '403|Resource not accessible' <<<"$stderr"; then
+            # The permissions: entry the refused call is covered by.
+            case "$command" in
+              *"gh pr "*) entry="pull-requests: write" ;;
+              *) entry="issues: write" ;;
+            esac
+            body="Can't open an apply-review ticket: the workflow's \`GITHUB_TOKEN\` was refused \`$entry\`. The workflow asks for it under \`permissions:\`, so the repository's or organization's Actions settings are withholding it (Settings → Actions → General → Workflow permissions)."
           else
-            body="Can't open an apply-review ticket: $detail"
+            body="Can't open an apply-review ticket: \`$command\` failed."
+          fi
+          if [[ -n "$stderr" ]]; then
+            body+=$'\n\n```\n'"$stderr"$'\n```'
+          fi
+          if [[ "$command" == *"gh issue create"* ]]; then
+            body+=$'\n\n'"Nothing was created: comment /apply-review again to retry."
           fi
           # REST for the same reason as reply() above.
           gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$body" >/dev/null
