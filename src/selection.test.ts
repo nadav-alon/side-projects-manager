@@ -56,7 +56,7 @@ async function open(
 }
 
 /**
- * Calls `next` until nothing is left to select, recording each pick as
+ * Calls `next` until nothing is left to select, recording each selection as
  * worked before asking again — exactly what an invocation whose every
  * iteration finishes cleanly does between one scan and the next.
  */
@@ -65,13 +65,13 @@ async function drain(
   worked: WorkedTickets,
   today: Day = TODAY,
 ): Promise<Selection[]> {
-  const picks: Selection[] = [];
+  const selections: Selection[] = [];
   for (;;) {
     const chosen = await selection.next();
     if (chosen === undefined) {
-      return picks;
+      return selections;
     }
-    picks.push(chosen);
+    selections.push(chosen);
     worked.record(chosen.ticket, today);
   }
 }
@@ -163,13 +163,13 @@ describe("invocationSelection", () => {
     });
     const { selection, worked } = await open(store, tracker);
 
-    const picks = await drain(selection, worked);
+    const selections = await drain(selection, worked);
 
     // Two distinct tickets, one per scan: the second scan picked up what the
     // first left, since ticket #7 is excluded once worked rather than
     // re-offered.
     assert.deepEqual(
-      picks.map((pick) => pick.ticket.number),
+      selections.map((selected) => selected.ticket.number),
       [7, 8],
     );
   });
@@ -198,10 +198,10 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
       const { selection, worked } = await open(store, tracker);
 
-      const picks = await drain(selection, worked);
+      const selections = await drain(selection, worked);
 
       assert.deepEqual(
-        picks.map((pick) => pick.project.repo),
+        selections.map((selected) => selected.project.repo),
         [PILOT],
       );
       assert.deepEqual(verdicts(selection.verdicts()), [
