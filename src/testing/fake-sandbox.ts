@@ -60,18 +60,18 @@ export class FakeSandbox implements Sandbox {
     tokensUsed: tokenCount(0),
   });
 
-  /** The most runs and reviews that were in progress at once. */
+  /** The most runs, reviews and apply-review runs that were in progress at once. */
   mostInProgress = 0;
 
   #running = 0;
   #holding = false;
-  /** Held runs and reviews, in the order they started, with what releases each. */
+  /** Held runs, reviews and apply-review runs, in the order they started, with what releases each. */
   readonly #held: { ticket: Ticket; release: () => void }[] = [];
   /** The one `whenHeld` still pending, if any. */
   #waiter: { count: number; resolve: () => void } | undefined;
 
   /**
-   * Holds every run and review from now on until `release` names its ticket,
+   * Holds every run, review and apply-review run from now on until `release` names its ticket,
    * so a test can see several in progress at once and finish them in any
    * order it likes.
    */
@@ -79,12 +79,12 @@ export class FakeSandbox implements Sandbox {
     this.#holding = true;
   }
 
-  /** The tickets whose runs or reviews are held, in the order they started. */
+  /** The tickets whose runs, reviews or apply-review runs are held, in the order they started. */
   held(): Ticket[] {
     return this.#held.map((entry) => entry.ticket);
   }
 
-  /** Lets the held run or review on `ticket` finish. Throws if none is held. */
+  /** Lets the held run, review or apply-review run on `ticket` finish. Throws if none is held. */
   release(ticket: Ticket): void {
     const index = this.#held.findIndex(
       (entry) => ticketKey(entry.ticket) === ticketKey(ticket),
@@ -96,7 +96,7 @@ export class FakeSandbox implements Sandbox {
     entry.release();
   }
 
-  /** Settles once at least `count` runs or reviews are held. Throws while another is pending. */
+  /** Settles once at least `count` runs, reviews or apply-review runs are held. Throws while another is pending. */
   whenHeld(count: number): Promise<void> {
     if (this.#waiter !== undefined) {
       throw new Error("already waiting on held runs");
@@ -140,7 +140,7 @@ export class FakeSandbox implements Sandbox {
     );
   }
 
-  /** Counts `ticket`'s run or review as in progress until `finish`, holding it first if told to. */
+  /** Counts `ticket`'s run, review or apply-review run as in progress until `finish`, holding it first if told to. */
   async #inProgress<T>(ticket: Ticket, finish: () => T): Promise<T> {
     this.#running++;
     this.mostInProgress = Math.max(this.mostInProgress, this.#running);
