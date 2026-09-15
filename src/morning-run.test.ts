@@ -855,7 +855,10 @@ describe("morningLoop", () => {
         await morningLoop(ports);
 
         const body = ports.tracker.summaries[0]?.body ?? "";
-        assert.ok(body.indexOf(MANAGER) < body.indexOf(PILOT));
+        const waiting = body.slice(body.indexOf("## Waiting on you"));
+        assert.notEqual(waiting.indexOf(MANAGER), -1);
+        assert.notEqual(waiting.indexOf(PILOT), -1);
+        assert.ok(waiting.indexOf(MANAGER) < waiting.indexOf(PILOT));
       });
 
       it("never mentions truncation in the one-line message", async () => {
