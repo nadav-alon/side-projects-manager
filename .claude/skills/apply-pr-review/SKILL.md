@@ -31,7 +31,7 @@ A **thread** is either:
 - an unresolved review thread, or
 - a review with a non-empty top-level `body` (it has no thread of its own; its reply goes on the pull request).
 
-Drop any thread whose last comment carries the marker `<!-- apply-pr-review -->`: it was answered by an earlier pass and nobody has spoken since. Done when you hold a numbered list of every remaining thread: id, file and line (if any), and the full comment text.
+Drop any thread whose last comment carries the marker `<!-- apply-pr-review -->`: it was answered by an earlier run of this skill and nobody has spoken since. Done when you hold a numbered list of every remaining thread: id, file and line (if any), and the full comment text.
 
 If the list is empty, report that and stop.
 
