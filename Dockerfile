@@ -63,13 +63,13 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
     && claude plugin marketplace update claude-plugins-official \
     && claude plugin install "$HARNESS_PLUGIN" -y
 
-# The apply-review run's skill: it invokes `/apply-pr-review <pull request
-# url>` explicitly rather than the model discovering it (the skill's own
-# `disable-model-invocation: true`), so it only has to be present on disk, not
-# enabled like the plugin above. Copied here rather than left for a project
-# clone to carry one: the clone mounted at /repo is the *target* project being
-# reviewed, which has no reason to ship a skill about this manager's own
-# workflow. The CLI's personal-skill directory is where it lands instead, so
+# The skill for a run that applies a pull request's review. It is invoked as
+# `/apply-pr-review <pull request url>` rather than discovered by the model
+# (the skill's own `disable-model-invocation: true`), so it only has to be
+# present on disk, not enabled like the plugin above. Copied here rather than
+# left for a project clone to carry one: the clone mounted at /repo is the
+# *target* project being reviewed, which has no reason to ship a skill about
+# this manager's own workflow. The CLI's personal-skill directory is where it lands instead, so
 # it is found whichever project is mounted — scripts/verify-harness.ts asserts
 # the file survived the build.
 COPY --chown=node:node .claude/skills/apply-pr-review/SKILL.md $HOME/.claude/skills/apply-pr-review/SKILL.md

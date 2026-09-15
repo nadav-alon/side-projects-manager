@@ -54,8 +54,8 @@ const PERMISSION_MODE = "bypassPermissions";
 const REQUIRED_SKILL = "implement";
 
 /**
- * The apply-review run's skill, not part of the harness plugin above — the
- * Dockerfile copies the manager repo's own
+ * The skill for a run that applies a pull request's review, not part of the
+ * harness plugin above — the Dockerfile copies the manager repo's own
  * `.claude/skills/apply-pr-review/SKILL.md` into the CLI's personal-skill
  * directory so it is found whichever project a run's clone happens to be.
  * `disable-model-invocation: true` on the skill means a run invokes it
@@ -163,7 +163,7 @@ const applyReviewSkillPath = path.join(HOME, ".claude", "skills", APPLY_REVIEW_S
 
 if (!existsSync(applyReviewSkillPath)) {
   fail(
-    `${applyReviewSkillPath} is missing, so an apply-review run has no ${APPLY_REVIEW_SKILL} skill to invoke`,
+    `${applyReviewSkillPath} is missing, so a run applying a pull request's review has no ${APPLY_REVIEW_SKILL} skill to invoke`,
     "the Dockerfile's COPY of .claude/skills/apply-pr-review/SKILL.md is what puts it there",
   );
 }
