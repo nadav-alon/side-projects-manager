@@ -92,6 +92,25 @@ describe("invocationClosing", () => {
     assert.deepEqual(invocationClosing(report, CLOSED_AT).projects, []);
   });
 
+  it("records a project an iteration attempted even when the sandbox itself broke, with nothing spent", async (t) => {
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    ports.tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "First",
+    });
+    t.mock.method(ports.sandbox, "run", async () => {
+      throw new Error("docker is not running");
+    });
+
+    const report = await morningLoop(ports);
+
+    assert.equal(report.outcome, "work-selected");
+    assert.deepEqual(invocationClosing(report, CLOSED_AT).projects, [
+      { repo: PILOT, tokensUsed: tokenCount(0) },
+    ]);
+  });
+
   it("records why the invocation stood down before any run started", async () => {
     const SPENDABLE_THIS_WEEK = 250_000_000;
     const ports = fakePorts();

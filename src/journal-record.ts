@@ -1,4 +1,5 @@
 import type { InvocationReport, InvocationStandDown } from "./morning-run.ts";
+import { handedBackForModelLabels } from "./iteration-outcome.ts";
 import type {
   InvocationClosing,
   JournaledProject,
@@ -29,14 +30,22 @@ export function invocationClosing(
   };
 }
 
-/** Every project an iteration actually ran against, and the tokens all its iterations together spent. */
+/**
+ * Every project an iteration actually ran against, and the tokens all its
+ * iterations together spent.
+ *
+ * A ticket handed back for its model labels is left out: nothing was cloned,
+ * run, or spent. Every other iteration names its project, even one that
+ * failed before the sandbox spent anything — with `tokensUsed: 0` — since
+ * the project was still worked.
+ */
 function projectsWorked(report: InvocationReport): JournaledProject[] {
   const totals = new Map<RepoSlug, number>();
   for (const iteration of report.iterations) {
-    const cost = iteration.tokensUsed;
-    if (cost === undefined) {
+    if (handedBackForModelLabels(iteration)) {
       continue;
     }
+    const cost = iteration.tokensUsed ?? 0;
     totals.set(iteration.repo, (totals.get(iteration.repo) ?? 0) + cost);
   }
   return [...totals].map(([repo, tokensUsed]) => ({
