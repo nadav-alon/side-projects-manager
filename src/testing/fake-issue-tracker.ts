@@ -54,9 +54,9 @@ type StoredIssue = Omit<Ticket, "modelLabel"> &
  */
 type TicketInput = Omit<StoredIssue, "repo"> & { modelLabel?: never };
 
-/** An issue as the fake holds it: the issue itself, and the labels it carries. */
+/** One entry the fake holds: the open issue, and the labels it carries. */
 interface Stored {
-  ticket: StoredIssue;
+  issue: StoredIssue;
   labels: Set<string>;
 }
 
@@ -69,7 +69,7 @@ interface Stored {
  * with `t.mock.method`; the fake does not record calls itself.
  */
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
-  readonly #backlogs = new Map<RepoSlug, Stored[]>();
+  readonly #issues = new Map<RepoSlug, Stored[]>();
   readonly #truncated = new Set<RepoSlug>();
 
   /** The review tickets opened, in the order they were opened. */
@@ -95,7 +95,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * Puts a ticket carrying `READY_FOR_HUMAN_LABEL` — never `READY_FOR_AGENT_LABEL`
-   * — in `repo`'s backlog and returns it: a ticket the developer has not
+   * — among `repo`'s open issues and returns it: a ticket the developer has not
    * triaged onto the loop, or has already handed back. Exists so a test can
    * prove such a ticket is never selected, even as its project's only ticket.
    */
@@ -146,16 +146,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   #find(ticket: Ticket): Stored | undefined {
-    return (this.#backlogs.get(ticket.repo) ?? []).find(
-      (candidate) => candidate.ticket.number === ticket.number,
+    return (this.#issues.get(ticket.repo) ?? []).find(
+      (candidate) => candidate.issue.number === ticket.number,
     );
   }
 
   #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
     const stored: StoredIssue = { repo, ...ticket };
-    const backlog = this.#backlogs.get(repo) ?? [];
-    backlog.push({ ticket: stored, labels: new Set([label]) });
-    this.#backlogs.set(repo, backlog);
+    const issues = this.#issues.get(repo) ?? [];
+    issues.push({ issue: stored, labels: new Set([label]) });
+    this.#issues.set(repo, issues);
     return stored;
   }
 
@@ -175,8 +175,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
-    const issues = (this.#backlogs.get(repo) ?? []).map((entry) => {
-      const { parent, openBlockerNumbers = [], ...ticket } = entry.ticket;
+    const issues = (this.#issues.get(repo) ?? []).map((entry) => {
+      const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
       const modelLabel = modelLabelOf(entry.labels);
       return {
         ticket: { ...ticket, ...(modelLabel !== undefined && { modelLabel }) },
@@ -200,8 +200,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     pullRequest: PullRequestUrl,
   ): Promise<Ticket> {
-    const backlog = this.#backlogs.get(ticket.repo) ?? [];
-    const numbers = backlog.map((entry) => entry.ticket.number);
+    const issues = this.#issues.get(ticket.repo) ?? [];
+    const numbers = issues.map((entry) => entry.issue.number);
     const review = this.addEligibleTicket(ticket.repo, {
       number: Math.max(ticket.number, ...numbers) + 1,
       title: reviewTitle(ticket),
@@ -215,7 +215,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   async handBack(ticket: Ticket, comment: string): Promise<void> {
     this.handbacks.push({ ticket, comment });
     // Loses ready-for-agent and gains ready-for-human, exactly the relabel the
-    // real tracker makes — not removed from the backlog, since the ticket is
+    // real tracker makes — not removed from the open issues, since the ticket is
     // still there for the developer to find. Tests assert no retry by
     // invoking the loop again and finding nothing to select.
     const entry = this.#find(ticket);
@@ -224,15 +224,15 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Closes `ticket`, the way a real close removes it from the backlog: a
+   * Closes `ticket`, the way a real close removes it from the open issues: a
    * ticket a later iteration must not see again.
    */
   async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
     this.closedReviewTickets.push(ticket);
-    const backlog = this.#backlogs.get(ticket.repo) ?? [];
-    this.#backlogs.set(
+    const issues = this.#issues.get(ticket.repo) ?? [];
+    this.#issues.set(
       ticket.repo,
-      backlog.filter((entry) => entry.ticket.number !== ticket.number),
+      issues.filter((entry) => entry.issue.number !== ticket.number),
     );
   }
 }
