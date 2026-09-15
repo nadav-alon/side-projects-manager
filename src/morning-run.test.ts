@@ -396,6 +396,60 @@ describe("morningLoop", () => {
 
       assert.match(report.message, /#66 broken out into sub-issues/);
     });
+
+    it("selects a ticket whose only open sub-issue is a review ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const implementation = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+        openSubIssues: 1,
+      });
+      // Handed back, so the review itself is not what gets selected.
+      ports.tracker.addIneligibleTicket(PILOT, {
+        number: 42,
+        title: reviewTitle(implementation),
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: 7,
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7],
+      );
+    });
+
+    it("selects a ticket whose only open sub-issue is an apply-review ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+        openSubIssues: 1,
+      });
+      // Handed back, so the apply-review itself is not what gets selected.
+      ports.tracker.addIneligibleTicket(PILOT, {
+        number: 43,
+        title: "Apply the review on #1",
+        pullRequest: {
+          kind: "apply-review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: 7,
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7],
+      );
+    });
   });
 
   describe("blocked tickets", () => {
@@ -876,6 +930,7 @@ describe("morningLoop", () => {
         const implementation = ports.tracker.addEligibleTicket(PILOT, {
           number: 7,
           title: "Add the thing",
+          openSubIssues: 1,
         });
         ports.tracker.addEligibleTicket(PILOT, {
           number: 9,
@@ -992,11 +1047,13 @@ describe("morningLoop", () => {
         const first = ports.tracker.addEligibleTicket(PILOT, {
           number: 5,
           title: "Add the thing",
+          openSubIssues: 1,
         });
         const urgent = ports.tracker.addEligibleTicket(PILOT, {
           number: 6,
           title: "Add the urgent thing",
           priority: ticketPriority(1),
+          openSubIssues: 1,
         });
         ports.tracker.addEligibleTicket(PILOT, {
           number: 8,
