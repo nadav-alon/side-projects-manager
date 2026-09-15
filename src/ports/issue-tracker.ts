@@ -129,7 +129,11 @@ export type SizeLabel =
  * Beside the port rather than in an adapter, so the real tracker and the fake
  * read labels identically. The prefix is matched without regard to case, the
  * way `modelLabelOf` matches `MODEL_LABEL_PREFIX`, and so is the size itself:
- * `size:s` and `size:S` declare the same size.
+ * `size:s` and `size:S` declare the same size. Unlike a model name, which is
+ * open-ended and so passed through as written, a size is one of four known
+ * spellings with no meaning in its case — folding it here, before `isSize`
+ * ever sees it, is what lets `isSize` stay the strict, exact check the rest
+ * of the codebase can rely on.
  */
 export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
   const declared: Size[] = [];
