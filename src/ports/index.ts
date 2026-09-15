@@ -52,8 +52,6 @@ export {
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
   isInvocationOutcome,
-  isProcessId,
-  processId,
 } from "./journal.ts";
 export type {
   InvocationClosing,
@@ -62,7 +60,6 @@ export type {
   Journal,
   JournaledProject,
   OpenInvocation,
-  ProcessId,
 } from "./journal.ts";
 export { isMilliseconds, milliseconds } from "./milliseconds.ts";
 export type { Milliseconds } from "./milliseconds.ts";
@@ -71,6 +68,8 @@ export { MODEL_NAME_SHAPE, isModelName, modelName } from "./model-name.ts";
 export type { ModelName } from "./model-name.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
+export { isProcessId, processId } from "./process-id.ts";
+export type { ProcessId } from "./process-id.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
 export { isRemoteUrl, remoteUrl } from "./remote-url.ts";

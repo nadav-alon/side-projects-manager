@@ -1,29 +1,6 @@
+import type { ProcessId } from "./process-id.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
-
-declare const processIdBrand: unique symbol;
-
-/**
- * The OS process carrying out one invocation. Branded so it is never
- * confused with a token count or any other number the loop passes around;
- * its only use is asking, later, whether that process is still alive.
- */
-export type ProcessId = number & { readonly [processIdBrand]: true };
-
-/** Whether `value` is a usable process id: a whole number above 0. */
-export function isProcessId(value: number): value is ProcessId {
-  return Number.isSafeInteger(value) && value > 0;
-}
-
-/** Narrows `value` to a `ProcessId`, throwing if it is not one. */
-export function processId(value: number): ProcessId {
-  if (!isProcessId(value)) {
-    throw new TypeError(
-      `Not a process id, expected a whole number above 0: ${value}`,
-    );
-  }
-  return value;
-}
 
 /**
  * What became of an invocation, once it is known.
