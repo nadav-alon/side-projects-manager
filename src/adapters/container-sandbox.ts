@@ -460,6 +460,11 @@ function promptFor(ticket: Ticket): string {
  * so a reviewer that finishes and then asks whether to submit posts nothing;
  * the loop hands the ticket back and the findings survive only in its
  * hand-back comment.
+ *
+ * The reviewer posts with the developer's own `GH_TOKEN`, so an apply-review
+ * workflow watching for that comment cannot tell the reviewer's from the
+ * developer's by author. Acting on the review is the developer's call, never
+ * the reviewer's.
  */
 function reviewPromptFor(ticket: ReviewTicket): string {
   return [
@@ -483,6 +488,9 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "\"shall I submit?\" has posted nothing.",
     "You are reviewing, not implementing: do not commit or push anything — this checkout is",
     "read-only, so neither would work anyway.",
+    "You post with the developer's own GitHub credential, so nothing marks a comment of yours",
+    "apart from one the developer wrote. Never post a comment whose whole body is",
+    "`/apply-review` — acting on this review is the developer's call, not yours.",
   ].join(" ");
 }
 
