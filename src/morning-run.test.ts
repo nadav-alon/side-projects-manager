@@ -825,11 +825,13 @@ describe("morningLoop", () => {
         const waiting = body.slice(body.indexOf("## Waiting on you"));
         const bullets = waiting
           .split("\n")
-          .filter((line) => line.includes("pilot"));
+          .filter((line) => line.includes(PILOT));
         assert.equal(bullets.length, 1);
         assert.match(
           bullets[0] ?? "",
-          /- nadav-alon\/pilot: holds more than 100 ready-for-agent tickets — only the newest 100 were considered/,
+          new RegExp(
+            `- ${PILOT}: holds more than 100 ready-for-agent tickets — only the newest 100 were considered`,
+          ),
         );
       });
 
