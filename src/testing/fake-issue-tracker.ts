@@ -1,4 +1,5 @@
 import type {
+  ApplyReviewTicket,
   IssueTracker,
   OpenIssue,
   OpenIssues,
@@ -107,6 +108,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /** The review tickets closed, in the order they were closed. */
   readonly closedReviewTickets: ReviewTicket[] = [];
+
+  /** The apply-review tickets closed, in the order closed, with what each was told. */
+  readonly closedApplyReviewTickets: {
+    ticket: ApplyReviewTicket;
+    comment: string;
+  }[] = [];
 
   /** The summary issues published, in the order they were published. */
   readonly summaries: FakeSummary[] = [];
@@ -261,6 +268,19 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
     this.closedReviewTickets.push(ticket);
+    this.#close(ticket);
+  }
+
+  /** As `closeReviewTicket`, keeping the comment it closed with. */
+  async closeApplyReviewTicket(
+    ticket: ApplyReviewTicket,
+    comment: string,
+  ): Promise<void> {
+    this.closedApplyReviewTickets.push({ ticket, comment });
+    this.#close(ticket);
+  }
+
+  #close(ticket: Ticket): void {
     const issues = this.#issues.get(ticket.repo) ?? [];
     this.#issues.set(
       ticket.repo,

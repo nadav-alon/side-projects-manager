@@ -423,11 +423,23 @@ export interface IssueTracker {
   handBack(ticket: Ticket, comment: string): Promise<void>;
 
   /**
-   * Closes `ticket`, once its review has been posted. The one ticket the loop
-   * ever closes itself: a review that finished needs nobody to close it by
-   * hand, and the ticket it reviews stays the developer's either way.
+   * Closes `ticket`, once its review has been posted. One of the two tickets
+   * the loop ever closes itself, both pull request tickets: a review that
+   * finished needs nobody to close it by hand, and the ticket it reviews stays
+   * the developer's either way.
    */
   closeReviewTicket(ticket: ReviewTicket): Promise<void>;
+
+  /**
+   * Closes `ticket` with `comment`, once every thread on its pull request is
+   * answered — or none was open to answer — and the pull request is marked
+   * ready for review. The comment says which, since an apply-review ticket
+   * that closed with nothing applied reads, without one, like work lost.
+   */
+  closeApplyReviewTicket(
+    ticket: ApplyReviewTicket,
+    comment: string,
+  ): Promise<void>;
 }
 
 /**
