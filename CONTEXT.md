@@ -25,7 +25,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: reviews before implementations, then explicit priority, then least recently worked. Within the chosen project: reviews first, then ticket priority, then the oldest ticket.
+Choosing which project and ticket an iteration works: apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: apply-review tickets first, then review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -139,7 +139,7 @@ The hand-edited document naming the model each kind of ticket runs on when it ca
 _Avoid_: model config, model settings, tiers
 
 **Size label**:
-The label a ticket may carry, as `size:<size>`, saying how much of the budget its run is expected to spend: one of S, M, L or XL, each worth the tokens the budget document gives it. What sets the ticket's run estimate; a ticket without one counts as the size the budget document names for unsized tickets, and so does every review ticket, which never inherits its parent's size. Recommended by triage when a ticket is made ready-for-agent. A ticket carrying two sizes counts as the larger. Says nothing about the ticket's model: a ticket expected to run on a costlier model is sized larger.
+The label a ticket may carry, as `size:<size>`, saying how much of the budget its run is expected to spend: one of S, M, L or XL, each worth the tokens the budget document gives it. What sets the ticket's run estimate; a ticket without one counts as the size the budget document names for unsized tickets, and so does every pull request ticket, which never inherits its parent's size. Recommended by triage when a ticket is made ready-for-agent. A ticket carrying two sizes counts as the larger. Says nothing about the ticket's model: a ticket expected to run on a costlier model is sized larger.
 _Avoid_: estimate label, cost label, points, effort
 
 **ready-for-human**:
@@ -167,7 +167,7 @@ One project's eligible tickets.
 _Avoid_: queue (the queue spans all projects), todo list
 
 **Ticket priority**:
-The rank selection orders an implementation ticket by: one of three levels, smaller worked first; a ticket without one sorts after every ticket with one, and ties go to the oldest ticket. The smallest of the ticket's own priority label and the priority label of every open issue in the same project that reaches it by following, any number of times and in any mix, two steps: from an issue to its sub-issues, and from a ticket to the tickets blocking it. So a spec's priority label carries into its sub-issues, and what an urgent ticket waits on is worked as urgently. Never the other way: a sub-issue lends nothing to the issue it belongs to, nor a blocker to what it blocks. Any open issue passes it on, whatever its triage label; a closed issue, one in another repo, or one the loop did not read passes on nothing. Orders tickets within one project only — it never decides which project an iteration works, and never outranks a review ticket. Selection is what works it out, from what the tracker reports.
+The rank selection orders an implementation ticket by: one of three levels, smaller worked first; a ticket without one sorts after every ticket with one, and ties go to the oldest ticket. The smallest of the ticket's own priority label and the priority label of every open issue in the same project that reaches it by following, any number of times and in any mix, two steps: from an issue to its sub-issues, and from a ticket to the tickets blocking it. So a spec's priority label carries into its sub-issues, and what an urgent ticket waits on is worked as urgently. Never the other way: a sub-issue lends nothing to the issue it belongs to, nor a blocker to what it blocks. Any open issue passes it on, whatever its triage label; a closed issue, one in another repo, or one the loop did not read passes on nothing. Orders tickets within one project only — it never decides which project an iteration works, and never outranks a pull request ticket. Selection is what works it out, from what the tracker reports.
 _Avoid_: priority (unqualified, which is the project's), inherited priority, effective priority, urgency, severity, rank
 
 **Priority label**:
@@ -179,7 +179,7 @@ A project with more open issues than the loop reads in one morning. Every open i
 _Avoid_: overflow, capped backlog, full queue
 
 **Broken-out ticket**:
-A ticket whose work has moved into one or more open sub-issues: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any sub-issue is open — the tracker reports the open count, and selection is what reads it. Selectable again, like any other ticket, once every sub-issue has closed. Its ticket priority carries into its sub-issues.
+A ticket with one or more open sub-issues that are not pull request tickets: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any such sub-issue is open — the tracker reports how many of those are open, and selection is what reads it. A handed-back ticket with an open review ticket is not broken out. Selectable again, like any other ticket, once every such sub-issue has closed. Its ticket priority carries into its sub-issues.
 _Avoid_: parent ticket, container ticket, epic, spec ticket
 
 **Blocked ticket**:
@@ -191,7 +191,7 @@ A ticket asking for something to be built.
 _Avoid_: feature ticket, build ticket
 
 **Draft pull request**:
-How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. It stays a draft — the manager opens one and never promotes or merges it.
+How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. The manager opens one and never merges it; it promotes one — marks it ready for review — only when an apply-review ticket on it finishes.
 _Avoid_: PR (say pull request), submission, patch
 
 **Ticket gist**:
@@ -202,9 +202,17 @@ _Avoid_: summary (the summary is the invocation's issue), description, synopsis
 What a finished run comes to for the developer: the run itself, and the draft pull request its commits are waiting in. A run that committed nothing, and one the agent did not finish, are runs without a handover. A handover that fails part way — the branch would not push, no draft pull request would open, or its review ticket could not be created — is a failed iteration: the ticket is handed back naming the branch and any pull request, the branch is kept, and the invocation carries on.
 _Avoid_: work, result, outcome
 
+**Pull request ticket**:
+A review ticket or an apply-review ticket: a sub-issue bound to one draft pull request.
+_Avoid_: PR ticket, review sub-issue (unqualified)
+
 **Review ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected before any implementation ticket.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
 _Avoid_: review task, review job, QA ticket
+
+**Apply-review ticket**:
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished, it closes and promotes the pull request.
+_Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
 
@@ -252,11 +260,11 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation or review, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review or apply-review, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
-A run, implementation or review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
+A run, implementation, review or apply-review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
 _Avoid_: bad model, model error, invalid model
 
 **Spend ceiling**:
