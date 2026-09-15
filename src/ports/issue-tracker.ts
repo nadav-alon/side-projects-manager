@@ -249,12 +249,13 @@ export function ticketPrioritiesIn(
   }
 
   const labelled = open.issues
-    .map((issue) => issue.ticket)
-    .filter((issue) => issue.priority !== undefined)
-    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    .flatMap(({ ticket: { number, priority } }) =>
+      priority === undefined ? [] : [{ number, priority }],
+    )
+    .sort((a, b) => a.priority - b.priority);
   const priorities = new Map<number, TicketPriority>();
   for (const { number, priority } of labelled) {
-    if (priority === undefined || priorities.has(number)) {
+    if (priorities.has(number)) {
       continue;
     }
     const reached = [number];
