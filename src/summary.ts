@@ -250,7 +250,7 @@ function waitingSection(
         return [
           ...(handover === undefined
             ? []
-            : handoverLine(
+            : handoverLines(
                 iteration.repo,
                 handover,
                 reviewOutcomes.get(reviewKey(iteration.repo, handover)),
@@ -320,15 +320,15 @@ function workedReviewOutcomes(
 }
 
 /**
- * The Waiting-on-you line for a finished run's handover. A review not yet
- * worked this invocation is still queued; one that ran and closed its ticket
- * cleanly needs a line here naming the pull request as reviewed, since the
- * `reviewed` case has none to add for that outcome; one that failed, or ran
- * but could not close its ticket, already has its own line from that
- * iteration's own case, so nothing is added here — a second line would only
- * repeat it.
+ * The Waiting-on-you lines for a finished run's handover: zero or one. A
+ * review not yet worked this invocation is still queued; one that ran and
+ * closed its ticket cleanly needs a line here naming the pull request as
+ * reviewed, since the `reviewed` case has none to add for that outcome; one
+ * that failed, or ran but could not close its ticket, already has its own
+ * line from that iteration's own case, so nothing is added here — a second
+ * line would only repeat it.
  */
-function handoverLine(
+function handoverLines(
   repo: RepoSlug,
   handover: Handover,
   reviewOutcome: IterationOutcome | undefined,
