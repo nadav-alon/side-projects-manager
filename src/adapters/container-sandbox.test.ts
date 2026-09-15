@@ -928,6 +928,29 @@ describe("containerSandbox.review", () => {
   });
 
   /**
+   * The reviewer posts with the developer's own `GH_TOKEN`, so an
+   * apply-review workflow watching for that comment cannot tell the
+   * reviewer's from the developer's by author. Acting on the review is the
+   * developer's call, not the reviewer's.
+   */
+  it("forbids the reviewer from ever posting /apply-review", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /Never post a comment whose whole body is `\/apply-review`/);
+  });
+
+  /**
    * A reviewer has nothing to commit, and nothing here ever fetches a branch
    * back — unlike a run, whose whole product is the branch it leaves.
    */
