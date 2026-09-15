@@ -42,17 +42,33 @@ export function spent(consumed: {
   };
 }
 
+/** What `FakeUsageLedger.read` was called with, in the order it was called. */
+export interface FakeRead {
+  now: Date;
+  observedReset?: Date;
+}
+
 /**
  * Reports whatever windows the test told it to. No usage until told.
  *
  * Sealed behind `reports`, so a test says what the ledger sees in one place
  * and the fake keeps one answer to the question rather than a settable field
  * beside a constructor saying the same thing twice.
+ *
+ * `read` takes the same arguments the port declares, `now` and
+ * `observedReset` included, rather than the fixed windows a caller with no
+ * arguments could only ever hand back one way — so a test against the loop
+ * can see whether a reset it wrote into the budget document actually reached
+ * the ledger, not just that the port's own type allows it to.
  */
 export class FakeUsageLedger implements UsageLedger {
   #windows: UsageWindows = NO_USAGE;
+  #windowsForReset = new Map<number, UsageWindows>();
 
-  /** What the ledger reports from here on. */
+  /** Every call `read` answered, in the order they arrived. */
+  readonly reads: FakeRead[] = [];
+
+  /** What the ledger reports from here on, for a read with no observed reset. */
   reports(windows: UsageWindows): void {
     this.#windows = windows;
   }
@@ -62,10 +78,28 @@ export class FakeUsageLedger implements UsageLedger {
     return this.#windows;
   }
 
-  async read(): Promise<UsageWindows> {
+  /**
+   * What the ledger reports from here on for a read carrying `observedReset`,
+   * in place of what `reports` set — so a test can tell a consultation that
+   * named a reset apart from one that did not.
+   */
+  reportsForReset(observedReset: Date, windows: UsageWindows): void {
+    this.#windowsForReset.set(observedReset.getTime(), windows);
+  }
+
+  async read(now: Date, observedReset?: Date): Promise<UsageWindows> {
+    this.reads.push({
+      now,
+      ...(observedReset !== undefined && { observedReset }),
+    });
+    const windows =
+      observedReset === undefined
+        ? this.#windows
+        : (this.#windowsForReset.get(observedReset.getTime()) ??
+          this.#windows);
     return {
-      fiveHour: { ...this.#windows.fiveHour },
-      weekly: { ...this.#windows.weekly },
+      fiveHour: { ...windows.fiveHour },
+      weekly: { ...windows.weekly },
     };
   }
 }

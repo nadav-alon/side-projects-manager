@@ -26,7 +26,12 @@ export {
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { FakeTriggerLock } from "./fake-trigger-lock.ts";
 export { tempHome } from "./temp-home.ts";
-export { NO_USAGE, FakeUsageLedger, spent } from "./fake-usage-ledger.ts";
+export {
+  NO_USAGE,
+  FakeUsageLedger,
+  spent,
+  type FakeRead,
+} from "./fake-usage-ledger.ts";
 export {
   fakeNewProjectPorts,
   type FakeNewProjectPorts,
