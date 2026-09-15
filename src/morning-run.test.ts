@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 
 import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
-import type { ProjectOutcome } from "./selection.ts";
 import {
   DEFAULT_BUDGET,
   backlogIn,
@@ -14,7 +13,6 @@ import {
   localDay,
   modelName,
   pullRequestUrl,
-  repoSlug,
   reserveFraction,
   reviewTitle,
   tokenCount,
@@ -30,6 +28,10 @@ import {
 } from "./ports/index.ts";
 import {
   FROZEN_NOW,
+  LAST_WEEK,
+  MANAGER,
+  PILOT,
+  YESTERDAY,
   FakeClock,
   FakeRepoHost,
   HANGS,
@@ -38,19 +40,8 @@ import {
   type FakePorts,
   fakePorts,
   spent,
+  verdicts,
 } from "./testing/index.ts";
-
-const MANAGER = repoSlug("nadav-alon/side-projects-manager");
-const PILOT = repoSlug("nadav-alon/pilot");
-
-const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");
-/** Before the weekly window the fakes are anchored in opened. */
-const LAST_WEEK = new Date("2025-12-20T06:00:00.000Z");
-
-/** What the report says happened, without the timestamps a test didn't set. */
-function verdicts(projects: ProjectOutcome[]): [string, string][] {
-  return projects.map((project) => [project.repo, project.verdict]);
-}
 
 /** The finished half of an iteration outcome — undefined if it ended any other way. */
 function finished(iteration: IterationOutcome | undefined) {

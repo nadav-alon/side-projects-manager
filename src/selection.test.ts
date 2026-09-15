@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import {
   invocationSelection,
   type InvocationSelection,
-  type ProjectOutcome,
   type Selection,
 } from "./selection.ts";
 import { workedTickets, type WorkedTickets } from "./worked-today.ts";
@@ -12,26 +11,23 @@ import {
   localDay,
   priority,
   pullRequestUrl,
-  repoSlug,
   reviewTitle,
   ticketPriority,
   type Day,
   type Ticket,
 } from "./ports/index.ts";
-import { FROZEN_NOW, FakeIssueTracker, FakeStore } from "./testing/index.ts";
-
-const MANAGER = repoSlug("nadav-alon/side-projects-manager");
-const PILOT = repoSlug("nadav-alon/pilot");
+import {
+  FROZEN_NOW,
+  LAST_WEEK,
+  MANAGER,
+  PILOT,
+  YESTERDAY,
+  FakeIssueTracker,
+  FakeStore,
+  verdicts,
+} from "./testing/index.ts";
 
 const TODAY = localDay(FROZEN_NOW);
-const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");
-/** Earlier still than `YESTERDAY`. */
-const LAST_WEEK = new Date("2025-12-20T06:00:00.000Z");
-
-/** What the verdicts say happened, without the timestamps a test didn't set. */
-function verdicts(projects: ProjectOutcome[]): [string, string][] {
-  return projects.map((project) => [project.repo, project.verdict]);
-}
 
 /**
  * One invocation's selection, built the way `morningLoop` builds it: from the
