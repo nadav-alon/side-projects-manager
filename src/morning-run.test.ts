@@ -867,6 +867,40 @@ describe("morningLoop", () => {
         assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
       });
 
+      it("with two review tickets, the oldest wins even where ticket priority reaches only the newer one's parent", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const first = ports.tracker.addEligibleTicket(PILOT, {
+          number: 5,
+          title: "Add the thing",
+        });
+        const urgent = ports.tracker.addEligibleTicket(PILOT, {
+          number: 6,
+          title: "Add the urgent thing",
+          priority: ticketPriority(1),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: reviewTitle(first),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/1",
+          ),
+          parent: 5,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: reviewTitle(urgent),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/2",
+          ),
+          parent: 6,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
+      });
+
       it("never lets a ticket's priority make its project outrank one with explicit registry priority", async () => {
         const ports = fakePorts();
         ports.store.register(MANAGER, { priority: priority(1) });

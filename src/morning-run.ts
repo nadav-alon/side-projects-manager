@@ -774,8 +774,9 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
  * label — with a ticket absent from it sorting after every ticket present;
  * and, ties still standing, the oldest ticket — the lowest issue number — so
  * the order the tracker happened to return them in never matters. Two review
- * tickets, open on two different implementation tickets, fall to the oldest
- * ticket the same way, whatever ticket priority reached either.
+ * tickets, open on two different implementation tickets, go straight to the
+ * oldest ticket: ticket priority orders implementation tickets only, and a
+ * review inherits its parent's as a sub-issue, not as a rank of its own.
  */
 function bestTicket(
   backlog: Ticket[],
@@ -793,6 +794,9 @@ function compareTickets(
 ): number {
   if (isReviewTicket(a) !== isReviewTicket(b)) {
     return isReviewTicket(a) ? -1 : 1;
+  }
+  if (isReviewTicket(a)) {
+    return a.number - b.number;
   }
   const byPriority = absentLast(
     ticketPriorities.get(a.number),
