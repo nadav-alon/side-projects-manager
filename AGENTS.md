@@ -4,8 +4,9 @@ Shared files for coding side projects: workflow, harnesses, agentic principles.
 
 ## Agent skills
 
-The five files under `docs/agents/` are also the uniform half of the harness: `new-project` copies
-them byte for byte into every project it scaffolds. Editing one changes what every project reads, so
+The files under `docs/agents/`, with `.github/workflows/apply-review.yml`, are also the uniform half
+of the harness (`UNIFORM_FILES`): `new-project` copies them byte for byte into every project it
+scaffolds. Editing one changes what every project reads, so
 keep them true of any repo — nothing in them may name this one.
 
 ### Coding standards
@@ -29,3 +30,8 @@ The five canonical triage roles, used verbatim as label strings. See `docs/agent
 ### Domain docs
 
 Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Apply review
+
+Commenting `/apply-review` on a draft pull request opens a ticket asking an agent to work every open
+review thread on it. See `.github/workflows/apply-review.yml`.
