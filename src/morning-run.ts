@@ -1392,7 +1392,7 @@ async function runReview(
 
   let posted: boolean;
   try {
-    posted = await ports.repoHost.hasNewComment(
+    posted = await ports.repoHost.hasReviewFindings(
       ticket.pullRequest.url,
       startedAt,
     );

@@ -8,6 +8,7 @@ import type {
   PullRequestUrl,
   RepoHost,
   RepoSlug,
+  ReviewFinding,
   Ticket,
 } from "../ports/index.ts";
 import {
@@ -51,6 +52,12 @@ export interface FakeDiscard {
   branch: Branch;
 }
 
+/** One {@link ReviewFinding} recorded against a pull request, and when. */
+export interface FakeReviewFinding {
+  finding: ReviewFinding;
+  postedAt: Date;
+}
+
 /**
  * GitHub and git in memory: a set of repos that exist, and a managed location
  * that is a path shape rather than a real directory.
@@ -85,16 +92,14 @@ export class FakeRepoHost implements RepoHost {
   readonly pullRequests: FakePullRequest[] = [];
   /** Branches discarded, in order. */
   readonly discarded: FakeDiscard[] = [];
-  /** Every `hasNewComment` check made, in order. */
-  readonly commentChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
-
-  /** What the next `hasNewComment` check finds. A comment posted, unless set. */
-  newCommentPosted = true;
+  /** Every `hasReviewFindings` check made, in order. */
+  readonly findingChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
 
   /** Every pull request `markPullRequestReady` was called on, in order. */
   readonly readyMarked: PullRequestUrl[] = [];
 
   readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
+  readonly #reviewFindings = new Map<PullRequestUrl, FakeReviewFinding[]>();
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: string) => Proposal = (branch) => ({
@@ -166,12 +171,36 @@ export class FakeRepoHost implements RepoHost {
     this.discarded.push({ directory, branch });
   }
 
-  async hasNewComment(
+  /**
+   * Records `finding` as posted to `pullRequest` at `postedAt`, as a
+   * reviewing agent's inline review comment would land — what
+   * `hasReviewFindings` answers from.
+   */
+  postReviewFinding(
+    pullRequest: PullRequestUrl,
+    finding: ReviewFinding,
+    postedAt = new Date(),
+  ): void {
+    this.#findingsOn(pullRequest).push({ finding, postedAt });
+  }
+
+  async hasReviewFindings(
     pullRequest: PullRequestUrl,
     since: Date,
   ): Promise<boolean> {
-    this.commentChecks.push({ pullRequest, since });
-    return this.newCommentPosted;
+    this.findingChecks.push({ pullRequest, since });
+    return this.#findingsOn(pullRequest).some(
+      (recorded) => recorded.postedAt > since,
+    );
+  }
+
+  #findingsOn(pullRequest: PullRequestUrl): FakeReviewFinding[] {
+    let findings = this.#reviewFindings.get(pullRequest);
+    if (findings === undefined) {
+      findings = [];
+      this.#reviewFindings.set(pullRequest, findings);
+    }
+    return findings;
   }
 
   /**

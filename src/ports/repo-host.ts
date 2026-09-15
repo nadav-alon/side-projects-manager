@@ -23,6 +23,20 @@ export const APPLIED_REPLY_PREFIX = "Applied in ";
 /** What a declined reply's verdict line starts with, before the reason. */
 export const DECLINED_REPLY_PREFIX = "Declined: ";
 
+/**
+ * One finding a review posts, in the shape the reviewer is told to post it
+ * (`reviewPromptFor` in `container-sandbox.ts`) and {@link RepoHost.hasReviewFindings}
+ * checks a pull request for: an inline comment on the file and line it is
+ * actually about, not the pull request's own issue-level comments. Declared
+ * once, beside the port, so the reviewer's instructions and this check agree
+ * on what a finding looks like rather than by coincidence.
+ */
+export interface ReviewFinding {
+  path: string;
+  line: number;
+  body: string;
+}
+
 /** One comment in an {@link ApplyReviewThread}: what it says, and when. */
 export interface ApplyReviewComment {
   body: string;
@@ -248,15 +262,20 @@ export interface RepoHost {
    */
   discardBranch(directory: Checkout, branch: Branch): Promise<void>;
   /**
-   * Whether `pullRequest` has a comment posted after `since`.
+   * Whether `pullRequest` carries a {@link ReviewFinding} posted after
+   * `since`.
    *
    * What backs closing a review ticket: a reviewing agent that ran without
    * error still may have failed its own last step — posting the aggregated
    * report — and a ticket closed on process success alone would tell the
    * developer a review happened when nothing was ever written down. This is
-   * the one check that confirms the finding actually reached the pull request.
+   * the one check that confirms a finding, in the shape the reviewer is told
+   * to post it, actually reached the pull request.
    */
-  hasNewComment(pullRequest: PullRequestUrl, since: Date): Promise<boolean>;
+  hasReviewFindings(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<boolean>;
   /**
    * Reads `pullRequest`'s apply-review pass since `since`: see
    * {@link ApplyReviewAnswers}.

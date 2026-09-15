@@ -2136,6 +2136,15 @@ describe("morningLoop", () => {
       }) as ReviewTicket;
     }
 
+    /** Records a finding on the queued pull request, as a reviewing agent would post it. */
+    function postedAFinding(ports: FakePorts): void {
+      ports.repoHost.postReviewFinding(PULL_REQUEST, {
+        path: "src/thing.ts",
+        line: 3,
+        body: "Missing a null check here.",
+      });
+    }
+
     it("runs a reviewing agent rather than an implementing one", async (t) => {
       const ports = fakePorts();
       queued(ports);
@@ -2166,6 +2175,7 @@ describe("morningLoop", () => {
     it("closes the review ticket once it finished", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
+      postedAFinding(ports);
 
       await morningLoop(ports);
 
@@ -2203,8 +2213,8 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       const ticket = queued(ports);
       // The sandbox process exited clean, but its own last step — posting the
-      // aggregated report — never landed on the pull request.
-      ports.repoHost.newCommentPosted = false;
+      // aggregated report — never landed on the pull request, so the fake
+      // has no finding recorded for it.
 
       const report = await morningLoop(ports);
 
@@ -2239,7 +2249,6 @@ describe("morningLoop", () => {
     it("says a review's hand-back itself failed, leaving the ticket for the developer to relabel", async (t) => {
       const ports = fakePorts();
       queued(ports);
-      ports.repoHost.newCommentPosted = false;
       t.mock.method(ports.tracker, "handBack", async () => {
         throw new Error("gh is not logged in");
       });
@@ -2251,7 +2260,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /relabel it yourself/);
     });
 
-    it("reports a review whose pull request cannot be checked for the comment, rather than raising it", async (t) => {
+    it("reports a review whose pull request cannot be checked for its findings, rather than raising it", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
       ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
@@ -2260,7 +2269,7 @@ describe("morningLoop", () => {
         output: "posted findings",
         tokensUsed: tokenCount(9_000),
       });
-      t.mock.method(ports.repoHost, "hasNewComment", async () => {
+      t.mock.method(ports.repoHost, "hasReviewFindings", async () => {
         throw new Error("gh api rate limited");
       });
 
@@ -2290,6 +2299,7 @@ describe("morningLoop", () => {
     it("reports a review ticket that cannot be closed, rather than raising it", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
+      postedAFinding(ports);
       t.mock.method(ports.tracker, "closeReviewTicket", async () => {
         throw new Error("issue is locked");
       });
@@ -2391,21 +2401,20 @@ describe("morningLoop", () => {
       assert.doesNotMatch(brokeBody, /gave up/);
     });
 
-    it("checks the pull request for a comment made no earlier than when the review started", async () => {
+    it("checks the pull request for findings posted no earlier than when the review started", async () => {
       const ports = fakePorts();
       queued(ports);
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.repoHost.commentChecks, [
+      assert.deepEqual(ports.repoHost.findingChecks, [
         { pullRequest: PULL_REQUEST, since: FROZEN_NOW },
       ]);
     });
 
-    it("is reported with nothing posted, when the agent ran but the comment never landed", async () => {
+    it("is reported with nothing posted, when the agent ran but no finding ever landed", async () => {
       const ports = fakePorts();
       queued(ports);
-      ports.repoHost.newCommentPosted = false;
 
       const report = await morningLoop(ports);
 
@@ -2444,6 +2453,7 @@ describe("morningLoop", () => {
     it("is reported as reviewed, naming the pull request findings were posted to", async () => {
       const ports = fakePorts();
       queued(ports);
+      postedAFinding(ports);
 
       const report = await morningLoop(ports);
 

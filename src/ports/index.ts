@@ -68,6 +68,7 @@ export type {
   DraftPullRequestOpening,
   Proposal,
   RepoHost,
+  ReviewFinding,
 } from "./repo-host.ts";
 export { isRepoSlug, repoName, repoSlug } from "./repo-slug.ts";
 export type { RepoSlug } from "./repo-slug.ts";
