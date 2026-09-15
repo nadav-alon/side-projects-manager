@@ -439,10 +439,18 @@ export interface IssueTracker {
   handBack(ticket: Ticket, comment: string): Promise<void>;
 
   /**
-   * Closes `ticket`, once its review has been posted. One of the two tickets
-   * the loop ever closes itself, both pull request tickets: a review that
-   * finished needs nobody to close it by hand, and the ticket it reviews stays
-   * the developer's either way.
+   * Closes `ticket`, once its review has been posted, and takes
+   * ready-for-agent off it. One of the two tickets the loop ever closes
+   * itself, both pull request tickets: a review that finished needs nobody
+   * to close it by hand, and the ticket it reviews stays the developer's
+   * either way.
+   *
+   * The label matters even though a closed ticket is already ineligible:
+   * without it, reopening the ticket would silently put it back in the
+   * queue, and a label query would find a closed review still marked ready
+   * for an agent. Best effort on the label alone — the close is what makes
+   * the ticket un-selectable, so a caller told this failed still finds it
+   * closed and just missing the label.
    */
   closeReviewTicket(ticket: ReviewTicket): Promise<void>;
 
