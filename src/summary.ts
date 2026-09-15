@@ -23,6 +23,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isReviewTicket,
   localDay,
 } from "./ports/index.ts";
 
@@ -283,24 +284,36 @@ function backlogTruncatedLine(repo: RepoSlug): string {
   return `- ${repo}: holds more than 100 ${READY_FOR_AGENT_LABEL} tickets — only the newest 100 were considered`;
 }
 
+/** Keys a ticket by its repo and number, to correlate it across iterations. */
+function ticketKey(repo: RepoSlug, number: number): string {
+  return `${repo}#${number}`;
+}
+
 /** Keys a review ticket by its repo and number, to look it up across iterations. */
 function reviewKey(repo: RepoSlug, handover: Handover): string {
-  return `${repo}#${handover.reviewTicket.number}`;
+  return ticketKey(repo, handover.reviewTicket.number);
 }
 
 /**
  * Every iteration this invocation itself worked a review ticket's own run,
  * keyed by repo and ticket number, so a finished run's handover line can tell
- * whether its queued review already ran — a limit refusal leaves the review
- * ticket untouched, so it is not counted here.
+ * whether its queued review already ran. Excludes every outcome that leaves
+ * the review ticket untouched: a limit refusal, and an infrastructure
+ * failure, which never starts a run and is never handed back.
  */
 function workedReviewOutcomes(
   iterations: IterationOutcome[],
 ): Map<string, IterationOutcome> {
   const outcomes = new Map<string, IterationOutcome>();
   for (const iteration of iterations) {
-    if (iteration.kind === "reviewed" || iteration.kind === "failed") {
-      outcomes.set(`${iteration.repo}#${iteration.ticket.number}`, iteration);
+    if (!isReviewTicket(iteration.ticket)) {
+      continue;
+    }
+    if (
+      iteration.kind === "reviewed" ||
+      (iteration.kind === "failed" && iteration.failure.kind !== "infrastructure")
+    ) {
+      outcomes.set(ticketKey(iteration.repo, iteration.ticket.number), iteration);
     }
   }
   return outcomes;
