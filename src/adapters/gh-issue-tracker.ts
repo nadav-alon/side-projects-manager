@@ -120,9 +120,9 @@ export function ghIssueTracker(
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
-      const issue = [String(ticket.number), "--repo", ticket.repo];
+      const args = issueArgs(ticket);
 
-      await execFileAsync("gh", ["issue", "close", ...issue]);
+      await execFileAsync("gh", ["issue", "close", ...args]);
       // Closing the ticket is what stops it being reviewed twice; removing
       // the label comes after so a closed-but-still-labelled ticket, the
       // failure this leaves behind, is the one a query for closed reviews
@@ -130,7 +130,7 @@ export function ghIssueTracker(
       await execFileAsync("gh", [
         "issue",
         "edit",
-        ...issue,
+        ...args,
         "--remove-label",
         READY_FOR_AGENT_LABEL,
       ]);
@@ -196,7 +196,7 @@ export function ghIssueTracker(
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<void> {
-      const issue = [String(ticket.number), "--repo", ticket.repo];
+      const args = issueArgs(ticket);
 
       // Three calls in the order they degrade best, because `gh` gives no way
       // to do them as one and any of them can be the one that fails.
@@ -211,14 +211,14 @@ export function ghIssueTracker(
       await execFileAsync("gh", [
         "issue",
         "comment",
-        ...issue,
+        ...args,
         "--body",
         comment,
       ]);
       await execFileAsync("gh", [
         "issue",
         "edit",
-        ...issue,
+        ...args,
         "--remove-label",
         READY_FOR_AGENT_LABEL,
       ]);
@@ -231,7 +231,7 @@ export function ghIssueTracker(
         await execFileAsync("gh", [
           "issue",
           "edit",
-          ...issue,
+          ...args,
           "--add-label",
           READY_FOR_HUMAN_LABEL,
         ]);
@@ -279,6 +279,15 @@ const LABEL_DESCRIPTIONS = {
   [READY_FOR_AGENT_LABEL]: "Fully specified, ready for an AFK agent",
   [READY_FOR_HUMAN_LABEL]: "Requires human implementation",
 } as const;
+
+/**
+ * The `gh` argv fragment that names `ticket` to a subcommand: the number and
+ * the repo it lives in, both of which every per-ticket call needs since `gh`
+ * does not infer a repo from a bare number.
+ */
+function issueArgs(ticket: Ticket): string[] {
+  return [String(ticket.number), "--repo", ticket.repo];
+}
 
 /**
  * Creates `label` where the project has none, because `gh issue create
@@ -419,9 +428,7 @@ async function linkToParent(
     await execFileAsync("gh", [
       "issue",
       "edit",
-      String(review.number),
-      "--repo",
-      review.repo,
+      ...issueArgs(review),
       "--body",
       `Part of #${parent.number}.\n\n${reviewBody(parent, pullRequest)}`,
     ]);
