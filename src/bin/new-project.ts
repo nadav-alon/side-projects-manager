@@ -5,6 +5,7 @@ import { agentGrilling } from "../adapters/agent-grilling.ts";
 import { directoryHarness } from "../adapters/directory-harness.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
+import { errorMessage } from "../error-message.ts";
 import { newProject, type NewProjectRequest } from "../new-project.ts";
 import { repoSlug } from "../ports/index.ts";
 
@@ -49,8 +50,7 @@ function readRequest(argv: string[]): NewProjectRequest {
   try {
     return parseRequest(argv);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`${reason}\n\n${USAGE}`);
+    throw new Error(`${errorMessage(error)}\n\n${USAGE}`);
   }
 }
 
@@ -77,8 +77,6 @@ function parseRequest(argv: string[]): NewProjectRequest {
 main().catch((error: unknown) => {
   // A command that could not start a project says why; it never greets the
   // developer with a stack trace.
-  console.error(
-    `new-project failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`new-project failed: ${errorMessage(error)}`);
   process.exitCode = 1;
 });

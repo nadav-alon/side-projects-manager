@@ -9,6 +9,7 @@ on:
       - Dockerfile
       - .dockerignore
       - scripts/verify-harness.ts
+      - src/error-message.ts
       # The docker invocations themselves live here, both of them.
       - package.json
       - .github/workflows/sandbox-image.yml
@@ -21,6 +22,7 @@ on:
       - Dockerfile
       - .dockerignore
       - scripts/verify-harness.ts
+      - src/error-message.ts
       # The docker invocations themselves live here, both of them.
       - package.json
       - .github/workflows/sandbox-image.yml

@@ -10,6 +10,7 @@ import {
 } from "../adapters/sandbox-image.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
+import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { morningLoop } from "../morning-run.ts";
 import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
@@ -137,8 +138,6 @@ function stopOnInterrupt(): AbortSignal {
 main().catch((error: unknown) => {
   // A failed morning reports what happened; it never greets the developer
   // with a stack trace.
-  console.error(
-    `morning-run failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`morning-run failed: ${errorMessage(error)}`);
   process.exitCode = 1;
 });

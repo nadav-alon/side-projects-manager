@@ -1,4 +1,5 @@
 import { agentInstructions } from "./agent-instructions.ts";
+import { errorMessage } from "./error-message.ts";
 import type {
   Grilling,
   GrillingSubject,
@@ -219,7 +220,7 @@ async function startGrilling(
     await grilling.start(subject);
     return undefined;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }
 }
 
