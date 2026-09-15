@@ -670,20 +670,20 @@ describe("opening a draft pull request for a completed run", () => {
     assert.match(valueOf(call, "--body") ?? "", /#7\b/);
   });
 
-  const TODAYS_BODY = [
+  const BODY_WITHOUT_GIST = [
     "Closes #7.",
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It stays a draft: promoting and merging it are yours.",
   ].join("\n");
 
-  it("opens with today's body, unchanged, when the run carried no gist", async (t) => {
+  it("opens with the closing body alone when the run carried no gist", async (t) => {
     const { call } = await openedFor(t);
 
-    assert.equal(valueOf(call, "--body"), TODAYS_BODY);
+    assert.equal(valueOf(call, "--body"), BODY_WITHOUT_GIST);
   });
 
-  it("opens with the gist, a blank line, then today's body, when the run carried one", async (t) => {
+  it("opens with the gist, a blank line, then the closing body, when the run carried one", async (t) => {
     const gh = await recordingGh(t, `echo ${OPENED}`);
     const directory = await ran(RAN);
     const gist = ticketGist("Adds a retry to the flaky upload step.");
@@ -698,7 +698,7 @@ describe("opening a draft pull request for a completed run", () => {
     const [call] = await gh.calls();
     assert.equal(
       valueOf(call, "--body"),
-      [gist, "", TODAYS_BODY].join("\n"),
+      [gist, "", BODY_WITHOUT_GIST].join("\n"),
     );
   });
 
