@@ -251,7 +251,7 @@ export async function morningLoop(
   // One slot per iteration, in the order they started. A slot is left empty
   // only by an iteration that threw.
   const outcomeSlots: (IterationOutcome | undefined)[] = [];
-  // Populated from `selection.verdicts()` once a selection exists to ask;
+  // Populated from `selecting.verdicts()` once selecting exists to ask;
   // stays empty if the invocation never gets that far, the same as an
   // invocation that got that far but found an empty registry.
   let outcomes: ProjectOutcome[] = [];
@@ -281,7 +281,7 @@ export async function morningLoop(
     // Built once and kept for the whole invocation, not once per iteration:
     // it is what remembers a project's "selected" verdict across scans and
     // where each registered project first landed in registry order.
-    const selection = invocationSelection(ports, projects, worked);
+    const selecting = invocationSelection(ports, projects, worked);
     const inProgress = new Set<Promise<void>>();
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
@@ -309,7 +309,7 @@ export async function morningLoop(
           break;
         }
 
-        const chosen = await selection.next();
+        const chosen = await selecting.next();
         if (chosen === undefined) {
           // An iteration in progress can still queue work — a finished run's
           // review ticket — so nothing left means nothing left once none is.
@@ -416,7 +416,7 @@ export async function morningLoop(
       // that throws still reports every verdict scanned before that — the
       // same partial account `iterations` already carries for the runs made
       // before it.
-      outcomes = selection.verdicts();
+      outcomes = selecting.verdicts();
       // State is written back at the end of every invocation, including one that
       // worked nothing and one whose run failed part way, so that a machine
       // which has run the loop always has a state document to read next morning.
