@@ -379,6 +379,90 @@ describe("containerSandbox", () => {
     assert.equal(result.tokensUsed, tokenCount(42_000));
   });
 
+  it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /TICKET GIST:/);
+  });
+
+  it("carries a well-formed ticket gist off the last line of a finished run", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        "Implemented the thing.\nTICKET GIST: Add retries to the flaky upload step.",
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries no gist when the agent gave none", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(agentCommitting([], 0, "implemented the thing"));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the tagged line is empty", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting([], 0, "Implemented the thing.\nTICKET GIST:   "),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the agent gave more than one line", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        "TICKET GIST: Add retries to the flaky upload step.\nOne more line after it.",
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist on a run that gave up, even one tagged like a finished run's", async () => {
+    const directory = await project();
+    const commit = agentCommitting(
+      ["one.txt"],
+      0,
+      "TICKET GIST: Add retries to the flaky upload step.",
+    );
+    const sandbox = containerSandbox(async (options) => {
+      await commit(options);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "gave-up");
+    assert.equal((result as { gist?: unknown }).gist, undefined);
+  });
+
   it("takes the clone away and leaves the branch behind", async () => {
     const directory = await project();
     let clone = "";

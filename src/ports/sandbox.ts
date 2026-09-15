@@ -8,6 +8,7 @@ import type {
   Ticket,
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
+import type { TicketGist } from "./ticket-gist.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
 
@@ -116,6 +117,12 @@ export interface RunFinished extends Ended, Worked {
   kind: "finished";
   /** The agent's own output, for the ticket comment when it committed nothing. */
   output: string;
+  /**
+   * The ticket gist the agent gave, absent when it gave none, an empty one,
+   * or more than one line. Its absence never changes `kind`: a run missing
+   * one is `"finished"` exactly as one that has it.
+   */
+  gist?: TicketGist;
 }
 
 /** As `RunFinished`, for a review: there is no branch or commits to carry. */

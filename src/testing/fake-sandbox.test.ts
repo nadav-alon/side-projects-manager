@@ -9,6 +9,7 @@ import {
   modelName,
   pullRequestUrl,
   repoSlug,
+  ticketGist,
   tokenCount,
   usd,
 } from "../ports/index.ts";
@@ -113,6 +114,36 @@ describe("FakeSandbox", () => {
       branch: refused,
       commits: [],
     });
+  });
+
+  it("returns a finished run's configured gist verbatim, and none when unset", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
+    const gist = ticketGist("Add retries to the flaky upload step.");
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      gist,
+    });
+
+    const withGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.equal((withGist as { gist?: unknown }).gist, gist);
+
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+    });
+
+    const withoutGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.equal((withoutGist as { gist?: unknown }).gist, undefined);
   });
 
   it("returns a review's configured result verbatim, detecting nothing itself", async () => {

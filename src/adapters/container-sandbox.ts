@@ -36,9 +36,12 @@ import {
   isBranch,
   isCommitSha,
   isRemoteUrl,
+  isTicketGist,
   remoteUrl,
   reviewFindingTemplate,
+  ticketGist,
   tokenCount,
+  type TicketGist,
   type TokenCount,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
@@ -429,14 +432,25 @@ function endingOf(
     : { kind: "gave-up", output: agent.output, reason: agent.failure };
 }
 
-/** `endingOf`, with the branch an implementation run worked on and its commits. */
+/**
+ * `endingOf`, with the branch an implementation run worked on and its
+ * commits, and — for a finished run — the ticket gist off its last line.
+ */
 function runOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
   branch: Branch,
   commits: CommitSha[],
 ): RunOutcome {
-  return { ...endingOf(agent, model), tokensUsed: agent.tokensUsed, branch, commits };
+  const ending = endingOf(agent, model);
+  const gist = ending.kind === "finished" ? gistFrom(ending.output) : undefined;
+  return {
+    ...ending,
+    ...(gist !== undefined && { gist }),
+    tokensUsed: agent.tokensUsed,
+    branch,
+    commits,
+  };
 }
 
 /** `endingOf`, as a review ends it: no branch or commits to carry. */
@@ -777,6 +791,13 @@ function rebasePromptFor(ticket: RebaseTicket): string {
 }
 
 /**
+ * The tag `promptFor` asks the agent to close its output with, and `gistFrom`
+ * reads back off the last line — the one place its wording is spelled out, so
+ * the prompt and the parser cannot drift apart from each other.
+ */
+const TICKET_GIST_TAG = "TICKET GIST:";
+
+/**
  * What the agent is asked to do. The repo's own instructions say how.
  *
  * `--repo` is spelled out because the clone's `origin` is a path on the host
@@ -791,7 +812,30 @@ function promptFor(ticket: Ticket): string {
     "— and follow this repo's own agent instructions and coding standards.",
     "Commit your work to the branch you are on; do not push, and do not open a",
     "pull request.",
+    `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
+    "followed by one sentence saying what the ticket asked for — not what",
+    "your diff did. Leave that line out if there is nothing worth one line;",
+    "the run is complete either way.",
   ].join(" ");
+}
+
+/**
+ * The ticket gist off the last line of a finished run's output, absent when
+ * the agent gave none.
+ *
+ * Only the last line is read, trailing blank lines aside: an agent that wrote
+ * more after the tag has made the gist span more than one line, which is
+ * indistinguishable here from an agent that tagged nothing at all, and both
+ * come back absent rather than guessed at.
+ */
+function gistFrom(output: string): TicketGist | undefined {
+  const lines = output.trimEnd().split("\n");
+  const last = lines[lines.length - 1] ?? "";
+  if (!last.startsWith(TICKET_GIST_TAG)) {
+    return undefined;
+  }
+  const text = last.slice(TICKET_GIST_TAG.length).trim();
+  return isTicketGist(text) ? ticketGist(text) : undefined;
 }
 
 /**
