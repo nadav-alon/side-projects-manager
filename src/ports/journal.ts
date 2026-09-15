@@ -12,7 +12,7 @@ export type ProcessId = number & { readonly [processIdBrand]: true };
 
 /** Whether `value` is a usable process id: a whole number above 0. */
 export function isProcessId(value: number): value is ProcessId {
-  return Number.isInteger(value) && value > 0;
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 /** Narrows `value` to a `ProcessId`, throwing if it is not one. */
