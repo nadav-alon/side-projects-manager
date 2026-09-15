@@ -184,8 +184,9 @@ on two axes: conformance to the repo's documented standards, and fidelity to wha
 ticket asked for. A reviewer that could push would become a second implementer and reintroduce
 exactly the context bias the separation exists to remove.
 
-**PR lifecycle is manual.** Draft PRs stay drafts. Nothing is auto-promoted and nothing is
-auto-merged; promotion and merge are the developer's.
+**Merge is manual.** Draft PRs stay drafts until the developer asks for their review to be applied:
+an apply-review ticket that finishes promotes its PR. Nothing else is auto-promoted and nothing is
+auto-merged; merge is always the developer's.
 
 **Failure policy.** A run that fails — agent gives up, tests stay red, sandbox errors — discards its
 branch, comments on the ticket, and relabels it for human attention. It is not retried automatically,
@@ -254,7 +255,8 @@ project rather than following one.
 - Running the loop anywhere but the developer's own machine. A cloud trigger is anticipated by keeping
   the loop callable from any trigger, but is not built.
 - Parallel runs. Sequential only.
-- Automatic promotion or merging of PRs.
+- Automatic merging of pull requests, and automatic promotion other than when an apply-review ticket
+  finishes.
 - Automatic triage. Applying ready-for-agent to implementation tickets stays a human act; the review
   sub-issue is the sole exception.
 - Any automatic retry, escalation, or fix-ticket generation arising from review findings, other than
