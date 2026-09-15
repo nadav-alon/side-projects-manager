@@ -12,6 +12,7 @@ import {
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
   discountPullRequestTickets,
+  isPullRequestTicket,
   modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
@@ -59,6 +60,32 @@ type TicketInput = Omit<StoredIssue, "repo"> & { modelLabel?: never };
 interface Stored {
   issue: StoredIssue;
   labels: Set<string>;
+}
+
+/**
+ * Throws where an issue in `stored` has more pull request tickets among
+ * `stored` than its `openSubIssues` counts. The real tracker counts every open
+ * sub-issue, pull request tickets included, so such a fixture describes a
+ * tracker that cannot exist; `discountPullRequestTickets` would clamp it to
+ * none open and hide the mistake.
+ */
+function throwOnUncountedPullRequestTickets(stored: readonly Stored[]): void {
+  const pullRequestTickets = new Map<number, number>();
+  for (const { issue } of stored) {
+    const { parent } = issue;
+    if (parent !== undefined && isPullRequestTicket(issue)) {
+      pullRequestTickets.set(parent, (pullRequestTickets.get(parent) ?? 0) + 1);
+    }
+  }
+  for (const { issue } of stored) {
+    const held = pullRequestTickets.get(issue.number) ?? 0;
+    const counted = issue.openSubIssues ?? 0;
+    if (held > counted) {
+      throw new Error(
+        `#${issue.number} has ${held} open pull request tickets but counts ${counted} open sub-issues; count them in its openSubIssues`,
+      );
+    }
+  }
 }
 
 /**
@@ -176,6 +203,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
+    throwOnUncountedPullRequestTickets(this.#issues.get(repo) ?? []);
     const issues = (this.#issues.get(repo) ?? []).map((entry) => {
       const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
       const modelLabel = modelLabelOf(entry.labels);

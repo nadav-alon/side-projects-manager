@@ -789,6 +789,7 @@ describe("morningLoop", () => {
         const implementation = ports.tracker.addEligibleTicket(PILOT, {
           number: 7,
           title: "Add the thing",
+          openSubIssues: 1,
         });
         ports.tracker.addEligibleTicket(PILOT, {
           number: 9,
@@ -905,11 +906,13 @@ describe("morningLoop", () => {
         const first = ports.tracker.addEligibleTicket(PILOT, {
           number: 5,
           title: "Add the thing",
+          openSubIssues: 1,
         });
         const urgent = ports.tracker.addEligibleTicket(PILOT, {
           number: 6,
           title: "Add the urgent thing",
           priority: ticketPriority(1),
+          openSubIssues: 1,
         });
         ports.tracker.addEligibleTicket(PILOT, {
           number: 8,

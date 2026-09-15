@@ -209,6 +209,22 @@ describe("FakeIssueTracker", () => {
 
       assert.equal(ticket?.openSubIssues, 1);
     });
+
+    it("refuses a ticket whose open sub-issues leave out its pull request tickets", async () => {
+      const tracker = new FakeIssueTracker();
+      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, {
+        number: 42,
+        title: "Review the draft pull request for #7",
+        pullRequest: { kind: "review", url: pullRequest },
+        parent: 7,
+      });
+
+      await assert.rejects(
+        tracker.listOpenIssues(PILOT),
+        /#7 has 1 open pull request tickets but counts 0 open sub-issues/,
+      );
+    });
   });
 
   it("holds an apply-review ticket, bound to the pull request it names", async () => {
