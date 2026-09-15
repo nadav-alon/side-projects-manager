@@ -220,9 +220,12 @@ export interface RepoHost {
    * resolve rather than reject, so a caller has one thing to read: which end
    * it came to, and so where the work is.
    *
-   * Draft, and only ever draft: there is no verb here that promotes a pull
-   * request or merges one, because promoting and merging are the developer's
-   * and a port that could do them is a port an unattended morning could use.
+   * Opened as a draft, and never merged: there is no verb here that merges a
+   * pull request, because merging is the developer's and a port that could do
+   * it is a port an unattended morning could use. The one promotion is
+   * {@link markPullRequestReady}, which an apply-review ticket's run uses: the
+   * developer asked for that review to be acted on, and marking the pull
+   * request ready hands the result back to them for review, merging nothing.
    *
    * The branch is the agent's work, already committed and fetched back into
    * the checkout by the sandbox, so nothing is committed here.
