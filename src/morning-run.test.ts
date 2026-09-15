@@ -648,6 +648,171 @@ describe("morningLoop", () => {
         assert.equal(ports.sandbox.runs[0]?.ticket.number, 7);
       });
 
+      it("an unlabelled sub-issue of a ready-for-human priority:1 spec is selected over an older priority:2 ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 9);
+      });
+
+      it("an unlabelled blocker of a priority:1 ticket is selected over an older priority:2 ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent thing",
+          priority: ticketPriority(1),
+          openBlockers: 1,
+          openBlockerNumbers: [9],
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "What the urgent thing waits on",
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 9);
+        assert.deepEqual(
+          report.projects[0]?.blocked?.map((ticket) => ticket.number),
+          [5],
+        );
+      });
+
+      it("never selects a ready-for-human issue, even carrying priority:1", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7],
+        );
+      });
+
+      it("never lets a priority label carried into a sub-issue make its project outrank one with explicit registry priority", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER, { priority: priority(1) });
+        ports.tracker.addEligibleTicket(MANAGER, {
+          number: 3,
+          title: "Add another thing",
+        });
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.repo, MANAGER);
+      });
+
+      it("a review ticket is selected over an implementation ticket a priority:1 spec's label carries into", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        const implementation = ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 10,
+          title: reviewTitle(implementation),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/1",
+          ),
+          parent: 7,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.reviews[0]?.ticket.number, 10);
+      });
+
+      it("passes over a ticket worked today however high the ticket priority carried into it", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+        ports.store.markWorkedOn(localDay(FROZEN_NOW), {
+          repo: PILOT,
+          number: 9,
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7],
+        );
+      });
+
       it("a review ticket is selected over a priority:1 implementation ticket", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);

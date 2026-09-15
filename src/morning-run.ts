@@ -36,6 +36,7 @@ import {
   localDay,
   recordRun,
   ticketKind,
+  ticketPrioritiesIn,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
 import { workedTickets, type WorkedTickets } from "./worked-today.ts";
@@ -628,9 +629,12 @@ async function considerProjects(
       continue;
     }
 
-    const { tickets, truncated: backlogTruncated } = backlogIn(
-      await ports.tracker.listOpenIssues(project.repo),
-    );
+    // Worked out over every open issue read, before `backlogIn` keeps only the
+    // eligible ones: a spec left ready-for-human, or a ticket passed over as
+    // blocked, still passes its priority label on.
+    const open = await ports.tracker.listOpenIssues(project.repo);
+    const ticketPriorities = ticketPrioritiesIn(open);
+    const { tickets, truncated: backlogTruncated } = backlogIn(open);
     const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
     // A ticket whose work has moved into open sub-issues is a container, not
     // work of its own — set aside here rather than in the tracker's query, so
@@ -651,7 +655,7 @@ async function considerProjects(
     }
     const findings: ScanFindings = { brokenOut, blocked, backlogTruncated };
     // A review in the same backlog as its parent ticket is worked before it.
-    const ticket = bestTicket(selectable);
+    const ticket = bestTicket(selectable, ticketPriorities);
 
     if (ticket === undefined) {
       outcomes.push(
@@ -765,22 +769,35 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 /**
  * The one ticket `backlog` offers selection, within a single project: a
  * review ticket before any implementation ticket, since finishing beats
- * starting; among implementation tickets, `Ticket.priority` ascending, with
- * an absent priority sorting after every ticket that has one; and, ties still
- * standing, the oldest ticket — the lowest issue number — so the order the
- * tracker happened to return them in never matters. Two review tickets, open
- * on two different implementation tickets, fall to the oldest ticket the same
- * way.
+ * starting; among implementation tickets, ticket priority ascending — as
+ * `ticketPriorities` holds it by issue number, never a ticket's own priority
+ * label — with a ticket absent from it sorting after every ticket present;
+ * and, ties still standing, the oldest ticket — the lowest issue number — so
+ * the order the tracker happened to return them in never matters. Two review
+ * tickets, open on two different implementation tickets, fall to the oldest
+ * ticket the same way, whatever ticket priority reached either.
  */
-function bestTicket(backlog: Ticket[]): Ticket | undefined {
-  return [...backlog].sort(compareTickets)[0];
+function bestTicket(
+  backlog: Ticket[],
+  ticketPriorities: ReadonlyMap<number, TicketPriority>,
+): Ticket | undefined {
+  return [...backlog].sort((a, b) =>
+    compareTickets(a, b, ticketPriorities),
+  )[0];
 }
 
-function compareTickets(a: Ticket, b: Ticket): number {
+function compareTickets(
+  a: Ticket,
+  b: Ticket,
+  ticketPriorities: ReadonlyMap<number, TicketPriority>,
+): number {
   if (isReviewTicket(a) !== isReviewTicket(b)) {
     return isReviewTicket(a) ? -1 : 1;
   }
-  const byPriority = absentLast(a.priority, b.priority);
+  const byPriority = absentLast(
+    ticketPriorities.get(a.number),
+    ticketPriorities.get(b.number),
+  );
   if (byPriority !== 0) {
     return byPriority;
   }
