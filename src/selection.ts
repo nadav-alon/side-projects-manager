@@ -143,14 +143,16 @@ export function invocationSelection(
 
 /**
  * One project with an eligible ticket, as far as selection is concerned: the
- * project itself, the ticket selection would work on its behalf, and that
- * ticket's kind — everything the ordering rule needs and nothing it has to
- * ask the tracker twice for.
+ * project itself, the ticket selection would work on its behalf, that
+ * ticket's kind, and this scan's findings — everything the ordering rule
+ * needs and everything the winner's outcome is rebuilt from, nothing asked
+ * of the tracker twice for.
  */
 interface Candidate {
   project: RegisteredProject;
   ticket: Ticket;
   kind: TicketKind;
+  findings: ScanFindings;
   priority?: Priority;
   lastWorkedAt?: Date;
 }
@@ -182,17 +184,14 @@ async function scan(
   worked: WorkedTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
 ): Promise<Selection | undefined> {
-  const outcomes: ProjectOutcome[] = [];
+  const outcomes = new Map<RepoSlug, ProjectOutcome>();
   const candidates: Candidate[] = [];
-  // Where each candidate's placeholder verdict lives in `outcomes`, so the
-  // winner's can be swapped for "selected" once every project has been seen.
-  const outcomeIndexByRepo = new Map<RepoSlug, number>();
 
   for (const project of await ports.store.loadRegistry()) {
     const projectState = projectStates.get(project.repo);
 
     if (project.paused) {
-      outcomes.push(outcome(project.repo, "paused", projectState));
+      outcomes.set(project.repo, outcome(project.repo, "paused", projectState));
       continue;
     }
 
@@ -225,7 +224,8 @@ async function scan(
     const ticket = bestTicket(selectable, ticketPriorities);
 
     if (ticket === undefined) {
-      outcomes.push(
+      outcomes.set(
+        project.repo,
         outcome(project.repo, "no-eligible-tickets", projectState, findings),
       );
       continue;
@@ -235,24 +235,32 @@ async function scan(
       project,
       ticket,
       kind: ticketKind(ticket),
+      findings,
       ...(project.priority !== undefined && { priority: project.priority }),
       ...(projectState?.lastWorkedAt !== undefined && {
         lastWorkedAt: projectState.lastWorkedAt,
       }),
     });
-    outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(outcome(project.repo, "deferred", projectState, findings));
+    outcomes.set(
+      project.repo,
+      outcome(project.repo, "deferred", projectState, findings),
+    );
   }
 
   const winner = bestCandidate(candidates);
   if (winner !== undefined) {
-    // Set by the loop above for every candidate, this one included.
-    const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
-    const scanned = outcomes[winnerIndex] as ProjectOutcome;
-    // Only the verdict changes: what the scan found, passed-over tickets and
-    // a truncated backlog included, is as true of the winner as of any
-    // project it outranked.
-    outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
+    // Rebuilt from the candidate itself, not looked up: what the scan found,
+    // passed-over tickets and a truncated backlog included, is as true of the
+    // winner as of any project it outranked.
+    outcomes.set(
+      winner.project.repo,
+      outcome(
+        winner.project.repo,
+        "selected",
+        projectStates.get(winner.project.repo),
+        winner.findings,
+      ),
+    );
   }
 
   // A project keeps its "selected" verdict once it has one: a later scan run
@@ -261,7 +269,7 @@ async function scan(
   // here, rather than in `outcome`, is what makes a repo already marked
   // "selected" immune to this scan even when it wins again — its first
   // "selected" outcome is the one the invocation reports.
-  for (const found of outcomes) {
+  for (const found of outcomes.values()) {
     if (outcomesByRepo.get(found.repo)?.verdict !== "selected") {
       outcomesByRepo.set(found.repo, found);
     }
