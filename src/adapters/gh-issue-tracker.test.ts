@@ -169,6 +169,61 @@ describe("ghIssueTracker", () => {
     const wholeIssue = issues.find((i) => i.ticket.number === whole.number);
     assert.equal(wholeIssue?.ticket.openSubIssues, undefined);
   });
+
+  it("carries an open issue's same-repo parent and the numbers of its open blockers", async () => {
+    const { stdout } = await execFileAsync("gh", [
+      "issue",
+      "list",
+      "--repo",
+      MANAGER,
+      "--state",
+      "open",
+      "--limit",
+      "300",
+      "--json",
+      "number,parent,blockedBy",
+    ]);
+    const all = JSON.parse(stdout) as {
+      number: number;
+      parent: { number: number; url: string } | null;
+      blockedBy: { nodes: { number: number; state: string; url: string }[] };
+    }[];
+    const inManager = (url: string) =>
+      url.toLowerCase().startsWith(`https://github.com/${MANAGER}/issues/`.toLowerCase());
+
+    const subIssue = all.find(
+      (issue) => issue.parent !== null && inManager(issue.parent.url),
+    );
+    const mixedBlockers = all.find((issue) => {
+      const states = new Set(issue.blockedBy.nodes.map((blocker) => blocker.state));
+      return states.has("OPEN") && states.has("CLOSED");
+    });
+    // The fixture repo must exercise both, or the assertions below would pass
+    // whether or not the adapter reads `parent` and each blocker's state.
+    assert.ok(
+      subIssue,
+      "fixture repo needs an open sub-issue of an issue in the same repo",
+    );
+    assert.ok(
+      mixedBlockers,
+      "fixture repo needs an open issue blocked by both an open and a closed issue",
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
+
+    const listedSubIssue = issues.find((i) => i.ticket.number === subIssue.number);
+    assert.equal(listedSubIssue?.parent, subIssue.parent?.number);
+
+    const listedBlocked = issues.find(
+      (i) => i.ticket.number === mixedBlockers.number,
+    );
+    assert.deepEqual(
+      listedBlocked?.openBlockerNumbers,
+      mixedBlockers.blockedBy.nodes
+        .filter((blocker) => blocker.state === "OPEN" && inManager(blocker.url))
+        .map((blocker) => blocker.number),
+    );
+  });
 });
 
 /**
