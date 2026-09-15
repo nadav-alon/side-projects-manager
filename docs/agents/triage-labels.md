@@ -36,16 +36,18 @@ Optional, on top of the state role. Orders `ready-for-agent` tickets within this
 How large a ticket's run is expected to be, as `size:<size>`. Triage recommends one when moving a
 ticket to `ready-for-agent`; the budget document is what sets the tokens each one is worth.
 
-| Label     | Meaning        |
-| --------- | -------------- |
-| `size:S`  | Smallest       |
-| `size:M`  |                |
-| `size:L`  |                |
-| `size:XL` | Largest        |
+| Label     | Meaning                             |
+| --------- | ------------------------------------ |
+| `size:S`  | Smallest                             |
+| `size:M`  | Larger than S, smaller than L        |
+| `size:L`  | Larger than M, smaller than XL       |
+| `size:XL` | Largest                              |
 
 - Apply at most one recognised size. If several are present, the largest counts — overestimating is
   the safe direction.
 - A ticket carrying no size label, and every review ticket regardless of its parent's size, runs as
   whatever size the budget document names for unsized tickets.
+- A `size:` label naming anything other than the four above is unusable — the ticket carries it as
+  written rather than any of the four sizes.
 - Says nothing about which model a ticket runs on: a ticket expected to run on a costlier model is
   sized larger instead.
