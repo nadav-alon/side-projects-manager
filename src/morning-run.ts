@@ -689,7 +689,7 @@ async function work(
 
   // A variant is exactly one kind, so nothing here turns on the order the
   // three failing kinds are checked in.
-  const { run, checkout } = returned;
+  const { outcome: run, checkout } = returned;
   if (run.kind === "limit-refused") {
     return {
       kind: "limit-refused",
@@ -946,13 +946,6 @@ async function discardBranch(
   }
 }
 
-/** A run the sandbox carried out, whatever the agent made of it. */
-interface Ran {
-  kind: "ran";
-  run: RunOutcome;
-  checkout: Checkout;
-}
-
 /** What `runInSandbox` came back with, before its caller reads what kind of outcome it was. */
 interface SandboxResult<Outcome> {
   kind: "ran";
@@ -1021,11 +1014,11 @@ async function attemptRun(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Ran | Failed> {
+): Promise<SandboxResult<RunOutcome> | Failed> {
   const { ticket } = selection;
   const repo = selection.project.repo;
 
-  const result = await runInSandbox(ports, repo, state, (checkout) =>
+  return runInSandbox(ports, repo, state, (checkout) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1035,11 +1028,6 @@ async function attemptRun(
       ? ports.sandbox.run({ ticket, checkout, spendCeiling })
       : ports.sandbox.run({ ticket, checkout, spendCeiling, model: model.name }),
   );
-  if (result.kind === "failed") {
-    return result;
-  }
-
-  return { kind: "ran", run: result.outcome, checkout: result.checkout };
 }
 
 /**
