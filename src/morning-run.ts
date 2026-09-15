@@ -824,16 +824,20 @@ function bestTicket(
   )[0];
 }
 
-/** Ticket kinds in the order selection works them, first to last. */
-const SELECTION_ORDER: readonly TicketKind[] = [
-  "apply-review",
-  "review",
-  "implementation",
-];
+/**
+ * Where each ticket kind stands in the order selection works them, lowest
+ * first. A record rather than a list, so a kind added to `TicketKind` fails
+ * to compile until it is given a place here.
+ */
+const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
+  "apply-review": 0,
+  review: 1,
+  implementation: 2,
+};
 
-/** Ascending by where each kind stands in `SELECTION_ORDER`. */
+/** Ascending by each kind's `SELECTION_RANK`. */
 function byKind(a: TicketKind, b: TicketKind): number {
-  return SELECTION_ORDER.indexOf(a) - SELECTION_ORDER.indexOf(b);
+  return SELECTION_RANK[a] - SELECTION_RANK[b];
 }
 
 function compareTickets(
