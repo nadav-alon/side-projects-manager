@@ -643,15 +643,20 @@ function parseSubIssuesSummary(
 }
 
 /**
- * `value`, as the issue number `field` names it at `at`: a positive integer,
- * per `docs/agents/coding-standards.md`'s "Brand your primitives" — `gh`
- * itself would never return anything else, but a tracker that did must be
- * refused loudly rather than handed on as a `Ticket`.
+ * `value`, as the issue number `field` names it at `at`: a positive integer.
+ * `gh` itself would never return anything else, but a tracker that did must
+ * be refused loudly rather than handed on as a `Ticket`.
  */
-function expectIssueNumber(value: unknown, field: string, at: string): IssueNumber {
+function expectIssueNumber(
+  value: unknown,
+  field: string,
+  at: string,
+): IssueNumber {
   const number = expectField(value, "number", field, at);
   if (!isIssueNumber(number)) {
-    throw new Error(`${at}: "${field}" must be a positive integer, got ${number}.`);
+    throw new Error(
+      `${at}: "${field}" must be a positive integer, got ${number}.`,
+    );
   }
   return number;
 }
