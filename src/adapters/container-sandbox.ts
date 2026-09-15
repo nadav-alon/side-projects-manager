@@ -14,6 +14,7 @@ import type {
   ModelName,
   ModelRefusal,
   PullRequestUrl,
+  RemoteUrl,
   ReviewModelRefused,
   ReviewOutcome,
   ReviewRequest,
@@ -31,6 +32,8 @@ import {
   commitSha,
   isBranch,
   isCommitSha,
+  isRemoteUrl,
+  remoteUrl,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -473,7 +476,13 @@ async function applyReviewOnClone(
         "get-url",
         "origin",
       ]);
-      return stdout.trim();
+      const origin = stdout.trim();
+      if (!isRemoteUrl(origin)) {
+        throw new Error(
+          `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
+        );
+      }
+      return origin;
     });
     await run("git", [
       "-C",
@@ -582,10 +591,10 @@ function applyReviewOutcomeOf(
  *
  * Exported so the rewrite can be asserted without an SSH remote to push to.
  */
-export function pushableRemote(remote: string): string {
+export function pushableRemote(remote: RemoteUrl): RemoteUrl {
   const ssh =
     /^(?:ssh:\/\/)?git@([^:/]+)[:/](.+?)(?:\.git)?\/?$/.exec(remote);
-  return ssh === null ? remote : `https://${ssh[1]}/${ssh[2]}.git`;
+  return ssh === null ? remote : remoteUrl(`https://${ssh[1]}/${ssh[2]}.git`);
 }
 
 /**

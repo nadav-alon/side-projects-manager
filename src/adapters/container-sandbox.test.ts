@@ -25,6 +25,7 @@ import {
   commitSha,
   modelName,
   pullRequestUrl,
+  remoteUrl,
   repoSlug,
   tokenCount,
   usd,
@@ -1530,6 +1531,26 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(started, false);
   });
 
+  it("rejects, starting no agent, when the checkout's origin is no address a clone can push to", async () => {
+    const { directory } = await hostedProject();
+    await run("git", ["-C", directory, "remote", "set-url", "origin", "../pilot"]);
+    let started = false;
+    const sandbox = containerSandbox(async () => {
+      started = true;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await assert.rejects(
+      sandbox.applyReview({
+        ticket: APPLY_REVIEW_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+      /not an address a clone can push to/,
+    );
+    assert.equal(started, false);
+  });
+
   it("rejects as an infrastructure failure when the agent never ran", async () => {
     const { directory } = await hostedProject();
     const sandbox = containerSandbox(async () => {
@@ -1571,16 +1592,16 @@ describe("pushableRemote", () => {
     ["ssh://git@github.com/nadav-alon/pilot.git", "https://github.com/nadav-alon/pilot.git"],
   ] as const) {
     it(`reaches ${ssh} over HTTPS, which the container's token can push to`, () => {
-      assert.equal(pushableRemote(ssh), https);
+      assert.equal(pushableRemote(remoteUrl(ssh)), https);
     });
   }
 
   it("leaves an HTTPS remote and a local path as they are", () => {
     assert.equal(
-      pushableRemote("https://github.com/nadav-alon/pilot.git"),
+      pushableRemote(remoteUrl("https://github.com/nadav-alon/pilot.git")),
       "https://github.com/nadav-alon/pilot.git",
     );
-    assert.equal(pushableRemote("/srv/git/pilot"), "/srv/git/pilot");
+    assert.equal(pushableRemote(remoteUrl("/srv/git/pilot")), "/srv/git/pilot");
   });
 });
 
