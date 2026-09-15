@@ -442,7 +442,7 @@ async function reviewOnClone(
 
 /**
  * The apply-review run: a throwaway clone of its own, like any other, but
- * checked out on the pull request's head branch as the host has it now, and
+ * checked out on the pull request's head branch as the repo host has it now, and
  * mounted read-write — the agent commits there, pushes, and replies on the
  * pull request itself.
  *
@@ -450,7 +450,7 @@ async function reviewOnClone(
  * `origin` is pointed at the checkout's own remote, and the branch tracks it:
  * a plain `git push` from the agent lands on the pull request. Nothing is
  * fetched back and no branch is created in the checkout — what the run did
- * lives on the host, and is read back from there.
+ * lives on the repo host, and is read back from there.
  */
 async function applyReviewOnClone(
   container: Container,
@@ -502,7 +502,7 @@ async function applyReviewOnClone(
       `+refs/heads/${head}:refs/remotes/origin/${head}`,
     ]);
     // `--force-create`: the clone already has a local branch of that name when
-    // the checkout was on it, and that copy may be stale; the host's is the one.
+    // the checkout was on it, and that copy may be stale; the repo host's is the one.
     await run("git", [
       "-C",
       clone,
@@ -533,7 +533,7 @@ async function applyReviewOnClone(
 }
 
 /**
- * The line an apply-review agent ends its report with when the host rejected
+ * The line an apply-review agent ends its report with when the repo host rejected
  * its push because the branch moved, naming the head it moved to — as
  * `applyReviewPromptFor` asks for it. Anchored to the start of a line (`m`),
  * and matched only with a commit hash after it, so prose that merely mentions
@@ -584,10 +584,10 @@ export function pushableRemote(remote: string): string {
 }
 
 /**
- * Looks up the head branch of a pull request on the host.
+ * Looks up the head branch of a pull request on the repo host.
  *
  * A parameter of the sandbox rather than a call made inline, so the git half
- * of an apply-review run can be exercised against a stand-in host without
+ * of an apply-review run can be exercised against a stand-in repo host without
  * `gh`, a credential, or a network.
  */
 export type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
@@ -630,7 +630,7 @@ const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
  *
  * The run is unattended, as a review's is, so a pass that stops to ask has
  * answered nothing. A rejected push is asked for as one fixed line naming the
- * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the host
+ * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
  * refused from one that finished.
  */
 function applyReviewPromptFor(ticket: ApplyReviewTicket): string {

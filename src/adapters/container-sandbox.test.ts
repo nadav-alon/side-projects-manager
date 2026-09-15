@@ -1151,7 +1151,7 @@ const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
  * A project checkout whose `origin` is a bare repository standing in for
  * GitHub, holding the pull request's head branch one commit ahead of what the
  * checkout has — so a clone on the right branch can only have come from the
- * host, never from the checkout.
+ * repo host, never from the checkout.
  */
 async function hostedProject(): Promise<{
   directory: Checkout;
@@ -1182,7 +1182,7 @@ const headIsBranch = async () => branch(BRANCH);
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
 describe("containerSandbox.applyReview", () => {
-  it("mounts a clone of its own, read-write, on the pull request's head branch as the host has it", async () => {
+  it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
     const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];
     const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
@@ -1230,10 +1230,10 @@ describe("containerSandbox.applyReview", () => {
 
   /**
    * The agent pushes from inside the container, where the checkout's path
-   * means nothing: the clone's own remote has to be the host, with the branch
+   * means nothing: the clone's own remote has to be the repo host, with the branch
    * tracking it, or a plain `git push` goes nowhere.
    */
-  it("leaves the branch tracking the host, so the agent's plain push lands on the pull request", async () => {
+  it("leaves the branch tracking the repo host, so the agent's plain push lands on the pull request", async () => {
     const { directory, hosted } = await hostedProject();
     let pushed = "";
     const sandbox = containerSandbox(async ({ directory: mounted }) => {
@@ -1387,7 +1387,7 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(variant(result, "gave-up")?.movedHead, commitSha("abc1234"));
   });
 
-  it("lands on the host's head even when the clone already has a branch of that name", async () => {
+  it("lands on the repo host's head even when the clone already has a branch of that name", async () => {
     const { directory, headCommit } = await hostedProject();
     // The checkout sits on a stale copy of the head branch, which the clone inherits.
     await run("git", ["-C", directory, "switch", "--quiet", "--create", BRANCH]);
@@ -1491,7 +1491,7 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(started, false);
   });
 
-  it("rejects, starting no agent, when the host has no such branch", async () => {
+  it("rejects, starting no agent, when the repo host has no such branch", async () => {
     const { directory } = await hostedProject();
     let started = false;
     const sandbox = containerSandbox(

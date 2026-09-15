@@ -168,7 +168,7 @@ export type ReviewOutcome =
 
 /**
  * As `ReviewGaveUp`, for an apply-review run — which also gives up when the
- * host rejects its push because the pull request's branch moved under it.
+ * repo host rejects its push because the pull request's branch moved under it.
  */
 export interface ApplyReviewGaveUp extends ReviewGaveUp {
   /**
