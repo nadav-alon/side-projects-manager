@@ -7,7 +7,7 @@ import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { morningLoop } from "../morning-run.ts";
-import { STOP_SIGNALS, runShielded } from "./shielded-child.ts";
+import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
 
 /**
  * Set on the process that actually runs the loop, so the command knows it is
@@ -36,6 +36,13 @@ async function main(): Promise<void> {
     });
     process.exitCode = code ?? 1;
     return;
+  }
+
+  // Printing is for whoever is watching, and a closed terminal is nobody: a
+  // failed write must not crash a morning that still has runs to finish and a
+  // summary to publish.
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on("error", () => {});
   }
 
   const report = await morningLoop(
@@ -102,6 +109,13 @@ function stopOnInterrupt(): AbortSignal {
   for (const signal of STOP_SIGNALS) {
     process.on(signal, onStop);
   }
+  // Its shield killed outright, nobody is left to interrupt a second time:
+  // stop as the first interrupt would, and let what is in progress finish.
+  onShieldGone(() => {
+    if (!controller.signal.aborted) {
+      onStop();
+    }
+  });
   return controller.signal;
 }
 

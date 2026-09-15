@@ -158,8 +158,11 @@ describe("the morning-run command", () => {
       const closed = new Promise<number | null>((resolve) => {
         child.on("close", (code) => resolve(code));
       });
+      const signal = (name: NodeJS.Signals) =>
+        process.kill(-(child.pid as number), name);
       return {
-        interrupt: () => process.kill(-(child.pid as number), "SIGINT"),
+        interrupt: () => signal("SIGINT"),
+        signal,
         stdout: () => stdout,
         closed,
       };
@@ -173,6 +176,7 @@ describe("the morning-run command", () => {
 
     async function interruptedMidListing(
       t: { after: (fn: () => void) => void },
+      signal: NodeJS.Signals = "SIGINT",
     ) {
       const marker = path.join(await home(), "listing");
       const gh = await slowListingGh(t, marker);
@@ -180,7 +184,7 @@ describe("the morning-run command", () => {
         await home({ projects: [{ repo: "octocat/Hello-World" }] }),
       );
       await until(() => access(marker).then(() => true, () => false));
-      morning.interrupt();
+      morning.signal(signal);
       return { gh, morning };
     }
 
@@ -212,6 +216,33 @@ describe("the morning-run command", () => {
         (call) => call[0] === "issue" && call[1] === "create",
       );
       assert.equal(creates.length, 0);
+    });
+
+    it("stops as a first interrupt does when its terminal hangs up", async (t) => {
+      const { gh, morning } = await interruptedMidListing(t, "SIGHUP");
+
+      const code = await morning.closed;
+
+      assert.equal(code, 0);
+      assert.match(morning.stdout(), /Stopping/);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 1, "the summary is still published");
+    });
+
+    it("stops as a first interrupt does when the process shielding it is killed", async (t) => {
+      const { gh, morning } = await interruptedMidListing(t, "SIGKILL");
+
+      // Closed only once the loop, which shares the output pipe, has ended too.
+      await morning.closed;
+
+      assert.match(morning.stdout(), /Stopping/);
+      assert.match(morning.stdout(), /no ready-for-agent tickets/);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 1, "the summary is still published");
     });
   });
 });
