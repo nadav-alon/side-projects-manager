@@ -63,6 +63,14 @@ type TicketInput = Omit<StoredIssue, "repo"> & { modelLabel?: never };
 interface Stored {
   issue: StoredIssue;
   labels: Set<string>;
+  /**
+   * Set once one of the close calls has closed this issue. Kept, rather than
+   * dropped from `#issues` outright, so a closed ticket's labels stay
+   * inspectable through `carriesLabel` — a real close leaves the label state
+   * behind for a reopen or a label query to find, and a fake that discarded
+   * the entry could never get that wrong.
+   */
+  closed?: boolean;
 }
 
 /**
@@ -188,6 +196,15 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     this.#find(ticket)?.labels.delete(label);
   }
 
+  /**
+   * Whether `ticket` currently carries `label`, closed or not — the way a
+   * label query against the real tracker would find it, even once
+   * `listOpenIssues` has stopped listing the ticket at all.
+   */
+  carriesLabel(ticket: Ticket, label: string): boolean {
+    return this.#find(ticket)?.labels.has(label) ?? false;
+  }
+
   #find(ticket: Ticket): Stored | undefined {
     return (this.#issues.get(ticket.repo) ?? []).find(
       (candidate) => candidate.issue.number === ticket.number,
@@ -218,8 +235,9 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
-    throwOnUncountedPullRequestTickets(this.#issues.get(repo) ?? []);
-    const issues = (this.#issues.get(repo) ?? []).map((entry) => {
+    const open = (this.#issues.get(repo) ?? []).filter((entry) => !entry.closed);
+    throwOnUncountedPullRequestTickets(open);
+    const issues = open.map((entry) => {
       const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
       const modelLabel = modelLabelOf(entry.labels);
       return {
@@ -271,12 +289,17 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Closes `ticket`, the way a real close removes it from the open issues: a
-   * ticket a later iteration must not see again.
+   * Closes `ticket`, the way a real close drops it from the open issues — a
+   * ticket a later iteration must not see again — and takes ready-for-agent
+   * off it, the way the real tracker's own close does. The entry itself
+   * stays, marked closed, rather than being discarded: `carriesLabel` can
+   * still find it, the way a label query against the real tracker would
+   * find a closed issue's labels.
    */
   async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
     this.closedReviewTickets.push(ticket);
     this.#close(ticket);
+    this.#find(ticket)?.labels.delete(READY_FOR_AGENT_LABEL);
   }
 
   /** As `closeReviewTicket`, keeping the comment it closed with. */
@@ -298,10 +321,9 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   #close(ticket: Ticket): void {
-    const issues = this.#issues.get(ticket.repo) ?? [];
-    this.#issues.set(
-      ticket.repo,
-      issues.filter((entry) => entry.issue.number !== ticket.number),
-    );
+    const entry = this.#find(ticket);
+    if (entry !== undefined) {
+      entry.closed = true;
+    }
   }
 }

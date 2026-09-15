@@ -9,6 +9,7 @@ import {
   issueNumber,
   modelName,
   pullRequestUrl,
+  READY_FOR_AGENT_LABEL,
   repoSlug,
   ticketPriority,
   type ApplyReviewTicket,
@@ -64,6 +65,7 @@ describe("FakeIssueTracker", () => {
 
     const { issues } = await tracker.listOpenIssues(PILOT);
     assert.ok(!issues.some((issue) => issue.ticket.number === review.number));
+    assert.equal(tracker.carriesLabel(review, READY_FOR_AGENT_LABEL), false);
   });
 
   it("lists a blocked ticket alongside its open blocker count", async () => {
