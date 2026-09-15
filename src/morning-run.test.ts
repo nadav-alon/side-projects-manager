@@ -539,6 +539,46 @@ describe("morningLoop", () => {
       assert.equal(report.iterations[0]?.repo, PILOT);
     });
 
+    it("selects a project holding both pull request kinds before a review-only project with explicit registry priority, and its apply-review ticket first", async () => {
+      const ports = fakePorts();
+      ports.store.register(MANAGER, { priority: priority(1) });
+      const managerImplementation = ports.tracker.addEligibleTicket(MANAGER, {
+        number: 3,
+        title: "Add another thing",
+      });
+      ports.tracker.addEligibleTicket(
+        MANAGER,
+        reviewOf(managerImplementation, 4),
+      );
+      ports.store.register(PILOT);
+      const pilotImplementation = ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+      });
+      ports.tracker.addEligibleTicket(PILOT, reviewOf(pilotImplementation, 8));
+      ports.tracker.addEligibleTicket(PILOT, applyReviewTicket(9));
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.repo, PILOT);
+      assert.equal(report.iterations[0]?.ticket.number, 9);
+    });
+
+    it("selects an apply-review ticket over an older implementation ticket with explicit ticket priority", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+        priority: ticketPriority(1),
+      });
+      ports.tracker.addEligibleTicket(PILOT, applyReviewTicket(9));
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.ticket.number, 9);
+    });
+
     it("selects a review ticket before an implementation ticket in the same backlog", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
