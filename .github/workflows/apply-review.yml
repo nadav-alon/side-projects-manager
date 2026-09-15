@@ -49,10 +49,14 @@ jobs:
             gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$1" >/dev/null
           }
 
-          # The first Closes/Fixes/Resolves #N in $1, GitHub's own closing
-          # keywords, matched the way it matches them.
+          # GitHub's nine closing keywords up to the `#`, starting at a word
+          # boundary. Matched case-insensitively. Written in the ERE subset
+          # both grep and jq's regex engine read alike, so one copy serves both.
+          CLOSING_KEYWORD='(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#'
+
+          # The first Closes/Fixes/Resolves #N in $1.
           closing_number() {
-            grep -ioE '(close[sd]?|fixe?[sd]?|resolve[sd]?)[[:space:]]*:?[[:space:]]*#[0-9]+' <<<"$1" \
+            grep -ioE "${CLOSING_KEYWORD}[0-9]+" <<<"$1" \
               | head -n1 \
               | grep -oE '[0-9]+' \
               || true
@@ -116,7 +120,7 @@ jobs:
             # pull request closes it.
             N="$ISSUE_NUMBER"
             matches="$(gh pr list --repo "$REPO" --state open --json number,url,body,isDraft --limit 500 \
-              | jq -c --arg n "$N" '[.[] | select(.isDraft) | select(.body | test("(?i)(close[sd]?|fixe?[sd]?|resolve[sd]?)[ \t]*:?[ \t]*#" + $n + "(\\D|$)"))]')"
+              | jq -c --arg keyword "$CLOSING_KEYWORD" --arg n "$N" '[.[] | select(.isDraft) | select(.body | test($keyword + $n + "([^0-9]|$)"; "i"))]')"
             count="$(jq 'length' <<<"$matches")"
             if [[ "$count" == "0" ]]; then
               FAIL_REASON="no open draft pull request closes #$N, so there is nothing to apply a review to."
