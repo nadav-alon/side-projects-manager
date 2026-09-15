@@ -825,6 +825,7 @@ function compareTickets(
   b: Ticket,
   ticketPriorities: ReadonlyMap<number, TicketPriority>,
 ): number {
+  // TODO[#231]: order apply-review tickets before review tickets.
   if (isReviewTicket(a) !== isReviewTicket(b)) {
     return isReviewTicket(a) ? -1 : 1;
   }
@@ -934,6 +935,7 @@ async function work(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<Iteration> {
+  // TODO[#228]: run an apply-review ticket on its pull request's branch.
   if (isReviewTicket(selection.ticket)) {
     return await runReview(
       ports,
