@@ -58,6 +58,10 @@ jobs:
               || true
           }
 
+          # Bodies saved from the web UI end their lines in \r\n, which would
+          # keep every `$`-anchored line match below from ever matching.
+          issue_body="${ISSUE_BODY//$'\r'/}"
+
           PR_NUMBER=""
           PR_URL=""
           N=""
@@ -79,11 +83,13 @@ jobs:
                 N="$n"
               fi
             fi
-          else
+          elif grep -qE '^Review https?://' <<<"$issue_body"; then
             # On a review ticket (open or closed): the URL and #N from its
             # fixed body line, read back the way it was written.
-            review_line="$(grep -m1 -E '^Review (\S+), the draft pull request opened for #[0-9]+\.$' <<<"$ISSUE_BODY" || true)"
-            if [[ -n "$review_line" ]]; then
+            review_line="$(grep -m1 -E '^Review (\S+), the draft pull request opened for #[0-9]+\.$' <<<"$issue_body" || true)"
+            if [[ -z "$review_line" ]]; then
+              FAIL_REASON="this looks like a review ticket, but no line of its body reads \`Review <url>, the draft pull request opened for #N.\`, so I can't tell which pull request it is for."
+            else
               candidate_url="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\1@' <<<"$review_line")"
               candidate_n="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\2@' <<<"$review_line")"
               candidate_repo="$(sed -E 's@^https://github.com/([^/]+/[^/]+)/pull/[0-9]+$@\1@' <<<"$candidate_url")"
@@ -97,21 +103,21 @@ jobs:
                 PR_URL="$(jq -r .url <<<"$pr_json")"
                 N="$candidate_n"
               fi
+            fi
+          else
+            # On an implementation ticket: only if exactly one open draft
+            # pull request closes it.
+            N="$ISSUE_NUMBER"
+            matches="$(gh pr list --repo "$REPO" --state open --json number,url,body,isDraft --limit 500 \
+              | jq -c --arg n "$N" '[.[] | select(.isDraft) | select(.body | test("(?i)(close[sd]?|fixe?[sd]?|resolve[sd]?)[ \t]*:?[ \t]*#" + $n + "(\\D|$)"))]')"
+            count="$(jq 'length' <<<"$matches")"
+            if [[ "$count" == "0" ]]; then
+              FAIL_REASON="no open draft pull request closes #$N, so there is nothing to apply a review to."
+            elif [[ "$count" -gt 1 ]]; then
+              FAIL_REASON="$count open draft pull requests close #$N, so I can't tell which one to apply a review to."
             else
-              # On an implementation ticket: only if exactly one open draft
-              # pull request closes it.
-              N="$ISSUE_NUMBER"
-              matches="$(gh pr list --repo "$REPO" --state open --json number,url,body,isDraft --limit 500 \
-                | jq -c --arg n "$N" '[.[] | select(.isDraft) | select(.body | test("(?i)(close[sd]?|fixe?[sd]?|resolve[sd]?)[ \t]*:?[ \t]*#" + $n + "(\\D|$)"))]')"
-              count="$(jq 'length' <<<"$matches")"
-              if [[ "$count" == "0" ]]; then
-                FAIL_REASON="no open draft pull request closes #$N, so there is nothing to apply a review to."
-              elif [[ "$count" -gt 1 ]]; then
-                FAIL_REASON="$count open draft pull requests close #$N, so I can't tell which one to apply a review to."
-              else
-                PR_NUMBER="$(jq -r '.[0].number' <<<"$matches")"
-                PR_URL="$(jq -r '.[0].url' <<<"$matches")"
-              fi
+              PR_NUMBER="$(jq -r '.[0].number' <<<"$matches")"
+              PR_URL="$(jq -r '.[0].url' <<<"$matches")"
             fi
           fi
 
