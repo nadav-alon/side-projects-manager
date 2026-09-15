@@ -875,18 +875,18 @@ describe("morningLoop", () => {
         assert.doesNotMatch(report.message, /truncat|100 ready-for-agent/i);
       });
 
-      it("leaves the summary body unchanged when no project is truncated", async () => {
-        const untruncated = fakePorts();
-        untruncated.store.register(PILOT);
-        untruncated.tracker.addBrokenOutTicket(
+      it("adds no waiting section when no project is truncated", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addBrokenOutTicket(
           PILOT,
           { number: 66, title: "Too big for one run" },
           7,
         );
 
-        await morningLoop(untruncated);
+        await morningLoop(ports);
 
-        const body = untruncated.tracker.summaries[0]?.body ?? "";
+        const body = ports.tracker.summaries[0]?.body ?? "";
         assert.doesNotMatch(body, /## Waiting on you/);
       });
     });
