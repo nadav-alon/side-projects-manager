@@ -52,7 +52,7 @@ async function fetchIssue(repo: string, number: number): Promise<RawIssue> {
 }
 
 describe("ghIssueTracker", () => {
-  it("returns exactly the repo's open issues carrying the ready-for-agent label", async () => {
+  it("returns the repo's open issues, eligible exactly where they carry ready-for-agent", async () => {
     const { stdout } = await execFileAsync("gh", [
       "issue",
       "list",
@@ -75,50 +75,57 @@ describe("ghIssueTracker", () => {
         issue.state === "OPEN" &&
         !issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
     );
-    // The fixture repo must actually exercise both exclusion cases, or the
-    // assertions below would pass whether or not the adapter filters
-    // anything.
+    // The fixture repo must actually exercise both cases, or the assertions
+    // below would pass whether or not the adapter reads state and labels at
+    // all.
     assert.ok(
       closedButLabelled,
       "fixture repo needs a closed, labelled issue to prove state is filtered",
     );
     assert.ok(
       openButUnlabelled,
-      "fixture repo needs an open, unlabelled issue to prove the label is filtered",
+      "fixture repo needs an open, unlabelled issue to prove it is listed as ineligible",
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(MANAGER);
-    const numbers = tickets.map((ticket) => ticket.number);
+    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
+    const numbers = issues.map((issue) => issue.ticket.number);
 
-    // Excluded by state, excluded by label: neither belongs in the result,
-    // checked against the fixtures found above rather than a JS
-    // reimplementation of the adapter's own filter.
+    // Excluded by state, included whatever its labels: checked against the
+    // fixtures found above rather than a JS reimplementation of the adapter's
+    // own filter.
     assert.ok(!numbers.includes(closedButLabelled.number));
-    assert.ok(!numbers.includes(openButUnlabelled.number));
+    const unlabelled = issues.find(
+      (issue) => issue.ticket.number === openButUnlabelled.number,
+    );
+    assert.equal(unlabelled?.eligible, false);
 
-    assert.ok(tickets.length > 0, "fixture repo needs at least one eligible issue");
-    for (const ticket of tickets) {
+    const eligible = issues.filter((issue) => issue.eligible);
+    assert.ok(eligible.length > 0, "fixture repo needs at least one eligible issue");
+    for (const listed of eligible) {
       // Verified independently via `gh issue view`, not `gh issue list`'s own
-      // filtering flags, so a bug in those flags can't make this pass anyway.
-      const issue = await fetchIssue(MANAGER, ticket.number);
+      // answer, so a bug in how the listing is read can't make this pass anyway.
+      const issue = await fetchIssue(MANAGER, listed.ticket.number);
       assert.equal(issue.state, "OPEN");
       assert.ok(issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL));
-      assert.equal(ticket.title, issue.title);
-      assert.equal(ticket.repo, MANAGER);
+      assert.equal(listed.ticket.title, issue.title);
+      assert.equal(listed.ticket.repo, MANAGER);
       assert.deepEqual(
-        ticket.modelLabel,
+        listed.ticket.modelLabel,
         modelLabelOf(issue.labels.map((label) => label.name)),
       );
     }
   });
 
-  it("returns an empty backlog for a project with no eligible tickets, without an error", async () => {
-    const { tickets } = await ghIssueTracker().listEligibleTickets(EMPTY);
+  it("finds nothing eligible in a project with no ready-for-agent issues, without an error", async () => {
+    const { issues } = await ghIssueTracker().listOpenIssues(EMPTY);
 
-    assert.deepEqual(tickets, []);
+    assert.deepEqual(
+      issues.filter((issue) => issue.eligible),
+      [],
+    );
   });
 
-  it("carries how many of an eligible ticket's sub-issues are still open", async () => {
+  it("carries how many of an open issue's sub-issues are still open", async () => {
     const { stdout } = await execFileAsync("gh", [
       "issue",
       "list",
@@ -126,8 +133,6 @@ describe("ghIssueTracker", () => {
       MANAGER,
       "--state",
       "open",
-      "--label",
-      READY_FOR_AGENT_LABEL,
       "--json",
       "number,subIssuesSummary",
     ]);
@@ -146,23 +151,78 @@ describe("ghIssueTracker", () => {
     // whether or not the adapter reads `subIssuesSummary` at all.
     assert.ok(
       brokenOut,
-      "fixture repo needs an eligible issue with an open sub-issue",
+      "fixture repo needs an open issue with an open sub-issue",
     );
     assert.ok(
       whole,
-      "fixture repo needs an eligible issue with no open sub-issues",
+      "fixture repo needs an open issue with no open sub-issues",
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(MANAGER);
+    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
 
-    const brokenOutTicket = tickets.find((t) => t.number === brokenOut.number);
+    const brokenOutIssue = issues.find((i) => i.ticket.number === brokenOut.number);
     assert.equal(
-      brokenOutTicket?.openSubIssues,
+      brokenOutIssue?.ticket.openSubIssues,
       brokenOut.subIssuesSummary.total - brokenOut.subIssuesSummary.completed,
     );
 
-    const wholeTicket = tickets.find((t) => t.number === whole.number);
-    assert.equal(wholeTicket?.openSubIssues, undefined);
+    const wholeIssue = issues.find((i) => i.ticket.number === whole.number);
+    assert.equal(wholeIssue?.ticket.openSubIssues, undefined);
+  });
+
+  it("carries an open issue's same-repo parent and the numbers of its open blockers", async () => {
+    const { stdout } = await execFileAsync("gh", [
+      "issue",
+      "list",
+      "--repo",
+      MANAGER,
+      "--state",
+      "open",
+      "--limit",
+      "300",
+      "--json",
+      "number,parent,blockedBy",
+    ]);
+    const all = JSON.parse(stdout) as {
+      number: number;
+      parent: { number: number; url: string } | null;
+      blockedBy: { nodes: { number: number; state: string; url: string }[] };
+    }[];
+    const inManager = (url: string) =>
+      url.toLowerCase().startsWith(`https://github.com/${MANAGER}/issues/`.toLowerCase());
+
+    const subIssue = all.find(
+      (issue) => issue.parent !== null && inManager(issue.parent.url),
+    );
+    const mixedBlockers = all.find((issue) => {
+      const states = new Set(issue.blockedBy.nodes.map((blocker) => blocker.state));
+      return states.has("OPEN") && states.has("CLOSED");
+    });
+    // The fixture repo must exercise both, or the assertions below would pass
+    // whether or not the adapter reads `parent` and each blocker's state.
+    assert.ok(
+      subIssue,
+      "fixture repo needs an open sub-issue of an issue in the same repo",
+    );
+    assert.ok(
+      mixedBlockers,
+      "fixture repo needs an open issue blocked by both an open and a closed issue",
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
+
+    const listedSubIssue = issues.find((i) => i.ticket.number === subIssue.number);
+    assert.equal(listedSubIssue?.parent, subIssue.parent?.number);
+
+    const listedBlocked = issues.find(
+      (i) => i.ticket.number === mixedBlockers.number,
+    );
+    assert.deepEqual(
+      listedBlocked?.openBlockerNumbers,
+      mixedBlockers.blockedBy.nodes
+        .filter((blocker) => blocker.state === "OPEN" && inManager(blocker.url))
+        .map((blocker) => blocker.number),
+    );
   });
 });
 
@@ -630,6 +690,7 @@ function rawIssue(fields: Record<string, unknown>): Record<string, unknown> {
     body: "",
     subIssuesSummary: { total: 0, completed: 0 },
     blockedBy: { nodes: [], totalCount: 0 },
+      parent: null,
     labels: [],
     ...fields,
   };
@@ -639,9 +700,119 @@ function rawIssue(fields: Record<string, unknown>): Record<string, unknown> {
 // `\n` in its argument on some shells (dash's is XSI-conformant), turning
 // the `\n` a body with a blank line in it serializes to back into a raw
 // newline and breaking the JSON `gh` is meant to answer with.
-function issues(rawIssues: Record<string, unknown>[]): string {
+function listing(rawIssues: Record<string, unknown>[]): string {
   return `printf '%s' '${JSON.stringify(rawIssues.map(rawIssue))}'`;
 }
+
+/** A blocker or parent as `blockedBy.nodes` and `parent` report one. */
+function linkedIssue(
+  repo: string,
+  number: number,
+  state: "OPEN" | "CLOSED" = "OPEN",
+): Record<string, unknown> {
+  return {
+    id: `I_${repo}_${number}`,
+    number,
+    state,
+    title: `Issue ${number}`,
+    url: `https://github.com/${repo}/issues/${number}`,
+  };
+}
+
+describe("ghIssueTracker.listOpenIssues — every open issue", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("asks for every open issue, whatever its labels, with its parent", async (t) => {
+    const gh = await recordingGh(t, listing([]));
+
+    await ghIssueTracker().listOpenIssues(PILOT);
+
+    const list = callWith(await gh.calls(), "issue", "list");
+    assert.ok(list);
+    assert.equal(valueOf(list, "--state"), "open");
+    assert.equal(valueOf(list, "--label"), undefined);
+    assert.ok(valueOf(list, "--json")?.split(",").includes("parent"));
+  });
+
+  it("returns an open issue without ready-for-agent, with its priority label", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 205,
+          title: "Spec: the thing",
+          labels: [{ name: READY_FOR_HUMAN_LABEL }, { name: "priority:1" }],
+        },
+      ]),
+    );
+
+    const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0]?.ticket.number, 205);
+    assert.equal(listed[0]?.eligible, false);
+    assert.equal(listed[0]?.ticket.priority, 1);
+  });
+
+  it("marks an issue carrying ready-for-agent as eligible", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        { number: 7, title: "Add the thing", labels: [{ name: READY_FOR_AGENT_LABEL }] },
+      ]),
+    );
+
+    const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(listed[0]?.eligible, true);
+  });
+});
+
+describe("ghIssueTracker.listOpenIssues — parent", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("reports a sub-issue's parent number where the parent is in the same repo", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 208,
+          title: "Part of the spec",
+          parent: linkedIssue("nadav-alon/pilot", 205),
+        },
+      ]),
+    );
+
+    const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(listed[0]?.parent, 205);
+  });
+
+  it("reports no parent where the parent is in another repo", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 208,
+          title: "Part of a spec elsewhere",
+          parent: linkedIssue("nadav-alon/elsewhere", 205),
+        },
+      ]),
+    );
+
+    const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(listed[0]?.parent, undefined);
+  });
+
+  it("reports no parent for an issue that is no one's sub-issue", async (t) => {
+    await recordingGh(t, listing([{ number: 7, title: "Add the thing" }]));
+
+    const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(listed[0]?.parent, undefined);
+  });
+});
 
 /**
  * Telling a review ticket from an implementation ticket on a fresh process,
@@ -649,7 +820,7 @@ function issues(rawIssues: Record<string, unknown>[]): string {
  * survives is what got written to GitHub, so this is read back from the body
  * rather than asserted against anything the adapter remembers.
  */
-describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
+describe("ghIssueTracker.listOpenIssues — review tickets", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/12",
@@ -658,7 +829,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
   it("carries the pull request a review ticket's body names", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 42,
           title: "Review the draft pull request for #7",
@@ -667,28 +838,28 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets.length, 1);
-    assert.equal(tickets[0]?.pullRequest, PULL_REQUEST);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]?.ticket.pullRequest, PULL_REQUEST);
   });
 
   it("leaves an implementation ticket's pull request unset", async (t) => {
     await recordingGh(
       t,
-      issues([{ number: 7, title: "Add the thing", body: "Do the thing." }]),
+      listing([{ number: 7, title: "Add the thing", body: "Do the thing." }]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets.length, 1);
-    assert.equal(tickets[0]?.pullRequest, undefined);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
   });
 
   it("does not mistake an unrelated body for a review's", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 9,
           title: "Review the draft pull request for #7",
@@ -697,9 +868,9 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.pullRequest, undefined);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
   });
 
   /**
@@ -711,7 +882,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
   it("still carries the pull request when the body also names its parent", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 42,
           title: "Review the draft pull request for #7",
@@ -720,21 +891,21 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.pullRequest, PULL_REQUEST);
+    assert.equal(issues[0]?.ticket.pullRequest, PULL_REQUEST);
   });
 
   it("asks for the body, since it is the only place the association survives", async (t) => {
-    const gh = await recordingGh(t, issues([]));
+    const gh = await recordingGh(t, listing([]));
 
-    await ghIssueTracker().listEligibleTickets(PILOT);
+    await ghIssueTracker().listOpenIssues(PILOT);
 
     const list = callWith(await gh.calls(), "issue", "list");
     assert.ok(list);
     assert.equal(
       valueOf(list, "--json"),
-      "number,title,body,subIssuesSummary,blockedBy,labels",
+      "number,title,body,subIssuesSummary,blockedBy,parent,labels",
     );
   });
 });
@@ -744,7 +915,7 @@ describe("ghIssueTracker.listEligibleTickets — review tickets", () => {
  * What a label says is `modelLabelOf`'s to decide; these check that the
  * adapter hands it every label a ticket has, and only that ticket's.
  */
-describe("ghIssueTracker.listEligibleTickets — model labels", () => {
+describe("ghIssueTracker.listOpenIssues — model labels", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
   function issue(
@@ -761,42 +932,42 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   }
 
   it("names no model for a ticket without a model label", async (t) => {
-    await recordingGh(t, issues([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.modelLabel, undefined);
+    assert.equal(issues[0]?.ticket.modelLabel, undefined);
   });
 
   it("names the model a ticket labelled model:opus asks for", async (t) => {
-    await recordingGh(t, issues([issue(7, [READY_FOR_AGENT_LABEL, "model:opus"])]));
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "model:opus"])]));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.deepEqual(tickets[0]?.modelLabel, {
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "named",
       name: modelName("opus"),
     });
   });
 
   it("passes a name no Claude model uses through unchanged", async (t) => {
-    await recordingGh(t, issues([issue(7, ["model:GPT-9-Turbo"])]));
+    await recordingGh(t, listing([issue(7, ["model:GPT-9-Turbo"])]));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.deepEqual(tickets[0]?.modelLabel, {
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "named",
       name: modelName("GPT-9-Turbo"),
     });
   });
 
   it("marks a ticket with two model labels as conflicting, with both names", async (t) => {
-    await recordingGh(t, issues([issue(7, ["model:opus", "model:haiku"])]));
+    await recordingGh(t, listing([issue(7, ["model:opus", "model:haiku"])]));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets.length, 1, "a conflicting ticket is still returned");
-    assert.deepEqual(tickets[0]?.modelLabel, {
+    assert.equal(issues.length, 1, "a conflicting ticket is still returned");
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "conflicting",
       names: [modelName("opus"), modelName("haiku")],
       labels: ["model:opus", "model:haiku"],
@@ -804,12 +975,12 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
   });
 
   it("marks a ticket whose model label names no usable model as unusable", async (t) => {
-    await recordingGh(t, issues([issue(7, ["model:claude opus"])]));
+    await recordingGh(t, listing([issue(7, ["model:claude opus"])]));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets.length, 1, "an unusable ticket is still returned");
-    assert.deepEqual(tickets[0]?.modelLabel, {
+    assert.equal(issues.length, 1, "an unusable ticket is still returned");
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "unusable",
       labels: ["model:claude opus"],
     });
@@ -819,7 +990,7 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
     const pullRequest = "https://github.com/nadav-alon/pilot/pull/12";
     await recordingGh(
       t,
-      issues([
+      listing([
         issue(7, ["model:opus"]),
         issue(
           42,
@@ -829,9 +1000,9 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    const review = tickets.find((ticket) => ticket.number === 42);
+    const review = issues.find((issue) => issue.ticket.number === 42)?.ticket;
     assert.equal(review?.pullRequest, pullRequest);
     assert.equal(review?.modelLabel, undefined);
   });
@@ -842,22 +1013,22 @@ describe("ghIssueTracker.listEligibleTickets — model labels", () => {
     const tracker = ghIssueTracker();
 
     await writeFile(listing, JSON.stringify([issue(7, ["model:opus"])]));
-    const { tickets: before } = await tracker.listEligibleTickets(PILOT);
+    const { issues: before } = await tracker.listOpenIssues(PILOT);
     await writeFile(listing, JSON.stringify([issue(7, ["model:sonnet"])]));
-    const { tickets: after } = await tracker.listEligibleTickets(PILOT);
+    const { issues: after } = await tracker.listOpenIssues(PILOT);
 
-    assert.deepEqual(before[0]?.modelLabel, { kind: "named", name: modelName("opus") });
-    assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });
+    assert.deepEqual(before[0]?.ticket.modelLabel, { kind: "named", name: modelName("opus") });
+    assert.deepEqual(after[0]?.ticket.modelLabel, { kind: "named", name: modelName("sonnet") });
   });
 });
 
-describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
+describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
   it("carries the count still open, not the total", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 66,
           title: "Too big for one run",
@@ -866,15 +1037,15 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.openSubIssues, 4);
+    assert.equal(issues[0]?.ticket.openSubIssues, 4);
   });
 
   it("leaves openSubIssues unset once every sub-issue has closed", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 66,
           title: "Too big for one run",
@@ -883,15 +1054,15 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.openSubIssues, undefined);
+    assert.equal(issues[0]?.ticket.openSubIssues, undefined);
   });
 
   it("leaves openSubIssues unset for a ticket with no sub-issues at all", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 7,
           title: "Add the thing",
@@ -900,27 +1071,27 @@ describe("ghIssueTracker.listEligibleTickets — sub-issues", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.openSubIssues, undefined);
+    assert.equal(issues[0]?.ticket.openSubIssues, undefined);
   });
 });
 
-describe("ghIssueTracker.listEligibleTickets — blockers", () => {
+describe("ghIssueTracker.listOpenIssues — blockers", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
   it("carries how many of a ticket's blockers are still open, not how many it has", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 56,
           title: "Waits on others",
           blockedBy: {
             nodes: [
-              { number: 55, state: "OPEN" },
-              { number: 54, state: "OPEN" },
-              { number: 53, state: "CLOSED" },
+              linkedIssue("nadav-alon/pilot", 55),
+              linkedIssue("nadav-alon/pilot", 54),
+              linkedIssue("nadav-alon/pilot", 53, "CLOSED"),
             ],
             totalCount: 3,
           },
@@ -928,50 +1099,104 @@ describe("ghIssueTracker.listEligibleTickets — blockers", () => {
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.openBlockers, 2);
+    assert.equal(issues[0]?.ticket.openBlockers, 2);
   });
 
-  it("leaves openBlockers unset once every blocker has closed", async (t) => {
+  it("counts an open blocker in another repo as blocking", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
-          number: 54,
-          title: "Was waiting",
+          number: 56,
+          title: "Waits on another project",
           blockedBy: {
-            nodes: [{ number: 47, state: "CLOSED" }],
+            nodes: [linkedIssue("nadav-alon/elsewhere", 12)],
             totalCount: 1,
           },
         },
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.openBlockers, undefined);
+    assert.equal(issues[0]?.ticket.openBlockers, 1);
+  });
+
+  it("reports the numbers of its open blockers in the same repo, not closed or cross-repo ones", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 56,
+          title: "Waits on others",
+          blockedBy: {
+            nodes: [
+              linkedIssue("nadav-alon/pilot", 55),
+              linkedIssue("nadav-alon/pilot", 53, "CLOSED"),
+              linkedIssue("nadav-alon/elsewhere", 54),
+              linkedIssue("nadav-alon/pilot", 52),
+            ],
+            totalCount: 4,
+          },
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.openBlockerNumbers, [55, 52]);
+  });
+
+  it("reports no blocker numbers for an issue nothing open blocks", async (t) => {
+    await recordingGh(t, listing([{ number: 7, title: "Add the thing" }]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.openBlockerNumbers, []);
+  });
+
+  it("leaves openBlockers unset once every blocker has closed", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 54,
+          title: "Was waiting",
+          blockedBy: {
+            nodes: [linkedIssue("nadav-alon/pilot", 47, "CLOSED")],
+            totalCount: 1,
+          },
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues[0]?.ticket.openBlockers, undefined);
   });
 
   it("leaves openBlockers unset for a ticket nothing blocks", async (t) => {
     await recordingGh(
       t,
-      issues([
+      listing([
         {
           number: 7,
           title: "Add the thing",
           blockedBy: { nodes: [], totalCount: 0 },
+      parent: null,
         },
       ]),
     );
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.openBlockers, undefined);
+    assert.equal(issues[0]?.ticket.openBlockers, undefined);
   });
 });
 
-describe("ghIssueTracker.listEligibleTickets — ticket priority", () => {
+describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
   function labelled(...names: string[]): string {
@@ -981,6 +1206,7 @@ describe("ghIssueTracker.listEligibleTickets — ticket priority", () => {
       body: "",
       subIssuesSummary: { total: 0, completed: 0 },
       blockedBy: { nodes: [], totalCount: 0 },
+      parent: null,
       labels: names.map((name) => ({ name })),
     };
     return `printf '%s' '${JSON.stringify([issue])}'`;
@@ -989,47 +1215,47 @@ describe("ghIssueTracker.listEligibleTickets — ticket priority", () => {
   it("carries the level a priority label names", async (t) => {
     await recordingGh(t, labelled(READY_FOR_AGENT_LABEL, "priority:2"));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.priority, 2);
+    assert.equal(issues[0]?.ticket.priority, 2);
   });
 
   it("reads a priority label whatever its case, as GitHub matches labels", async (t) => {
     await recordingGh(t, labelled("Priority:2"));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.priority, 2);
+    assert.equal(issues[0]?.ticket.priority, 2);
   });
 
   it("counts a ticket carrying several levels as its smallest", async (t) => {
     await recordingGh(t, labelled("priority:3", "priority:1"));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.priority, 1);
+    assert.equal(issues[0]?.ticket.priority, 1);
   });
 
   for (const label of ["priority:7", "priority:high", "priority:"]) {
     it(`ignores ${label}, which names none of the three levels`, async (t) => {
       await recordingGh(t, labelled(label));
 
-      const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+      const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-      assert.equal(tickets[0]?.priority, undefined);
+      assert.equal(issues[0]?.ticket.priority, undefined);
     });
   }
 
   it("leaves priority unset for a ticket carrying no priority label", async (t) => {
     await recordingGh(t, labelled(READY_FOR_AGENT_LABEL, "enhancement"));
 
-    const { tickets } = await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(tickets[0]?.priority, undefined);
+    assert.equal(issues[0]?.ticket.priority, undefined);
   });
 });
 
-describe("ghIssueTracker.listEligibleTickets — truncated backlog", () => {
+describe("ghIssueTracker.listOpenIssues — truncated backlog", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
   /** `count` eligible issues, newest first, the order `gh issue list` answers in. */
@@ -1040,6 +1266,7 @@ describe("ghIssueTracker.listEligibleTickets — truncated backlog", () => {
       body: "",
       subIssuesSummary: { total: 0, completed: 0 },
       blockedBy: { nodes: [], totalCount: 0 },
+      parent: null,
       labels: [],
     }));
     return `printf '%s' '${JSON.stringify(all)}'`;
@@ -1048,34 +1275,34 @@ describe("ghIssueTracker.listEligibleTickets — truncated backlog", () => {
   it("asks for one more issue than it reads, so it can tell a full backlog from a longer one", async (t) => {
     const gh = await recordingGh(t, newestFirst(0));
 
-    await ghIssueTracker().listEligibleTickets(PILOT);
+    await ghIssueTracker().listOpenIssues(PILOT);
 
     const list = callWith(await gh.calls(), "issue", "list");
     assert.ok(list);
-    assert.equal(valueOf(list, "--limit"), "101");
+    assert.equal(valueOf(list, "--limit"), "301");
   });
 
-  it("reads the newest 100 of a longer backlog and says it was truncated", async (t) => {
-    await recordingGh(t, newestFirst(101));
+  it("reads the newest 300 of 301 open issues and says it was truncated", async (t) => {
+    await recordingGh(t, newestFirst(301));
 
-    const { tickets, truncated } =
-      await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues, truncated } =
+      await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(truncated, true);
-    assert.equal(tickets.length, 100);
-    assert.equal(tickets[0]?.number, 101);
-    assert.ok(!tickets.some((ticket) => ticket.number === 1));
+    assert.equal(issues.length, 300);
+    assert.equal(issues[0]?.ticket.number, 301);
+    assert.ok(!issues.some((issue) => issue.ticket.number === 1));
   });
 
-  it("reads all of a backlog of 100 and says it was not truncated", async (t) => {
-    await recordingGh(t, newestFirst(100));
+  it("reads all of 300 open issues and says it was not truncated", async (t) => {
+    await recordingGh(t, newestFirst(300));
 
-    const { tickets, truncated } =
-      await ghIssueTracker().listEligibleTickets(PILOT);
+    const { issues, truncated } =
+      await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(truncated, false);
-    assert.equal(tickets.length, 100);
-    assert.ok(tickets.some((ticket) => ticket.number === 1));
+    assert.equal(issues.length, 300);
+    assert.ok(issues.some((issue) => issue.ticket.number === 1));
   });
 });
 

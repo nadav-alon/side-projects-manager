@@ -1,6 +1,7 @@
 import type {
-  Backlog,
   IssueTracker,
+  OpenIssue,
+  OpenIssues,
   PullRequestUrl,
   RepoSlug,
   ReviewTicket,
@@ -9,6 +10,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  carriesReadyForAgent,
   modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
@@ -37,29 +39,37 @@ export interface FakeHandback {
 }
 
 /**
+ * An open issue as the fake holds it: its ticket facts and its links, flat,
+ * without what the fake works out on each listing — no `eligible` or
+ * `modelLabel`, which come from the labels it carries — and
+ * `openBlockerNumbers` optional, since most tests give none.
+ */
+type StoredIssue = Omit<Ticket, "modelLabel"> &
+  Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
+
+/**
  * A ticket as a test hands it to the fake. No `modelLabel`, not even on a
  * wider `Ticket`: the fake reads that from the labels a ticket holds, the way
  * the real tracker does.
  */
-type TicketInput = Omit<Ticket, "repo" | "modelLabel"> & { modelLabel?: never };
+type TicketInput = Omit<StoredIssue, "repo"> & { modelLabel?: never };
 
-/** A ticket as the fake holds it: the ticket itself, and the labels it carries. */
+/** One entry the fake holds: the open issue, and the labels it carries. */
 interface Stored {
-  ticket: Ticket;
+  issue: StoredIssue;
   labels: Set<string>;
 }
 
 /**
- * An in-memory backlog per project, modelling the real tracker's own notion
- * of eligibility: a ticket is listed only while it carries
- * `READY_FOR_AGENT_LABEL`, the way `gh issue list --label` filters for the
- * real one.
+ * An in-memory set of open issues per project, modelling the real tracker's
+ * own notion of eligibility: every open issue is listed, and an issue is
+ * eligible only while it carries `READY_FOR_AGENT_LABEL`.
  *
- * Tests that care which repos were asked about spy on `listEligibleTickets`
+ * Tests that care which repos were asked about spy on `listOpenIssues`
  * with `t.mock.method`; the fake does not record calls itself.
  */
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
-  readonly #backlogs = new Map<RepoSlug, Stored[]>();
+  readonly #issues = new Map<RepoSlug, Stored[]>();
   readonly #truncated = new Set<RepoSlug>();
 
   /** The review tickets opened, in the order they were opened. */
@@ -85,7 +95,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * Puts a ticket carrying `READY_FOR_HUMAN_LABEL` — never `READY_FOR_AGENT_LABEL`
-   * — in `repo`'s backlog and returns it: a ticket the developer has not
+   * — among `repo`'s open issues and returns it: a ticket the developer has not
    * triaged onto the loop, or has already handed back. Exists so a test can
    * prove such a ticket is never selected, even as its project's only ticket.
    */
@@ -124,7 +134,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * Puts `label` on `ticket`, the way the developer labels a ticket by hand —
-   * a model label, say. Read on the next `listEligibleTickets`, not before.
+   * a model label, say. Read on the next `listOpenIssues`, not before.
    */
   addLabel(ticket: Ticket, label: string): void {
     this.#find(ticket)?.labels.add(label);
@@ -136,43 +146,46 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   #find(ticket: Ticket): Stored | undefined {
-    return (this.#backlogs.get(ticket.repo) ?? []).find(
-      (candidate) => candidate.ticket.number === ticket.number,
+    return (this.#issues.get(ticket.repo) ?? []).find(
+      (candidate) => candidate.issue.number === ticket.number,
     );
   }
 
   #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
-    const stored: Ticket = { repo, ...ticket };
-    const backlog = this.#backlogs.get(repo) ?? [];
-    backlog.push({ ticket: stored, labels: new Set([label]) });
-    this.#backlogs.set(repo, backlog);
+    const stored: StoredIssue = { repo, ...ticket };
+    const issues = this.#issues.get(repo) ?? [];
+    issues.push({ issue: stored, labels: new Set([label]) });
+    this.#issues.set(repo, issues);
     return stored;
   }
 
   /**
-   * Marks `repo`'s backlog as a truncated backlog: longer than the loop reads
-   * in one morning. The tickets listed stay exactly those added, so a test
-   * arranges the ones read and says there were more.
+   * Marks `repo`'s backlog as a truncated backlog: more open issues than the
+   * loop reads in one morning. The issues listed stay exactly those added, so
+   * a test arranges the ones read and says there were more.
    */
   truncateBacklog(repo: RepoSlug): void {
     this.#truncated.add(repo);
   }
 
   /**
-   * A ticket's model label is read from the labels it holds at the time of
-   * the call, through the same `modelLabelOf` the real tracker uses, so a
-   * label changed between calls changes what the next call returns.
+   * An issue's eligibility and model label are read from the labels it holds
+   * at the time of the call, through the same `modelLabelOf` the real tracker
+   * uses, so a label changed between calls changes what the next call
+   * returns. Issues are listed in the order they were added.
    */
-  async listEligibleTickets(repo: RepoSlug): Promise<Backlog> {
-    const tickets = (this.#backlogs.get(repo) ?? [])
-      .filter((entry) => entry.labels.has(READY_FOR_AGENT_LABEL))
-      .map((entry) => {
-        const modelLabel = modelLabelOf(entry.labels);
-        return modelLabel === undefined
-          ? entry.ticket
-          : { ...entry.ticket, modelLabel };
-      });
-    return { tickets, truncated: this.#truncated.has(repo) };
+  async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
+    const issues = (this.#issues.get(repo) ?? []).map((entry) => {
+      const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
+      const modelLabel = modelLabelOf(entry.labels);
+      return {
+        ticket: { ...ticket, ...(modelLabel !== undefined && { modelLabel }) },
+        eligible: carriesReadyForAgent(entry.labels),
+        openBlockerNumbers,
+        ...(parent !== undefined && { parent }),
+      };
+    });
+    return { issues, truncated: this.#truncated.has(repo) };
   }
 
   /**
@@ -187,8 +200,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     pullRequest: PullRequestUrl,
   ): Promise<Ticket> {
-    const backlog = this.#backlogs.get(ticket.repo) ?? [];
-    const numbers = backlog.map((entry) => entry.ticket.number);
+    const issues = this.#issues.get(ticket.repo) ?? [];
+    const numbers = issues.map((entry) => entry.issue.number);
     const review = this.addEligibleTicket(ticket.repo, {
       number: Math.max(ticket.number, ...numbers) + 1,
       title: reviewTitle(ticket),
@@ -202,7 +215,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   async handBack(ticket: Ticket, comment: string): Promise<void> {
     this.handbacks.push({ ticket, comment });
     // Loses ready-for-agent and gains ready-for-human, exactly the relabel the
-    // real tracker makes — not removed from the backlog, since the ticket is
+    // real tracker makes — not removed from the open issues, since the ticket is
     // still there for the developer to find. Tests assert no retry by
     // invoking the loop again and finding nothing to select.
     const entry = this.#find(ticket);
@@ -211,15 +224,15 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Closes `ticket`, the way a real close removes it from the backlog: a
+   * Closes `ticket`, the way a real close removes it from the open issues: a
    * ticket a later iteration must not see again.
    */
   async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
     this.closedReviewTickets.push(ticket);
-    const backlog = this.#backlogs.get(ticket.repo) ?? [];
-    this.#backlogs.set(
+    const issues = this.#issues.get(ticket.repo) ?? [];
+    this.#issues.set(
       ticket.repo,
-      backlog.filter((entry) => entry.ticket.number !== ticket.number),
+      issues.filter((entry) => entry.issue.number !== ticket.number),
     );
   }
 }

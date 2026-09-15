@@ -9,6 +9,7 @@ import {
 } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
+  backlogIn,
   branch,
   checkout,
   commitSha,
@@ -118,16 +119,16 @@ describe("morningLoop", () => {
     const ports = fakePorts();
     ports.store.register(MANAGER);
     ports.store.register(PILOT);
-    const listEligibleTickets = t.mock.method(
+    const listOpenIssues = t.mock.method(
       ports.tracker,
-      "listEligibleTickets",
+      "listOpenIssues",
     );
 
     await morningLoop(ports);
 
-    assert.equal(listEligibleTickets.mock.callCount(), 2);
+    assert.equal(listOpenIssues.mock.callCount(), 2);
     assert.deepEqual(
-      listEligibleTickets.mock.calls.map((call) => call.arguments[0]),
+      listOpenIssues.mock.calls.map((call) => call.arguments[0]),
       [MANAGER, PILOT],
     );
   });
@@ -165,9 +166,9 @@ describe("morningLoop", () => {
       number: 7,
       title: "Add the thing",
     });
-    const listEligibleTickets = t.mock.method(
+    const listOpenIssues = t.mock.method(
       ports.tracker,
-      "listEligibleTickets",
+      "listOpenIssues",
     );
 
     await morningLoop(ports);
@@ -175,7 +176,7 @@ describe("morningLoop", () => {
     // Twice each: once to select PILOT's one ticket, and again once it is
     // worked, to confirm nothing else — MANAGER included — was left waiting.
     assert.deepEqual(
-      listEligibleTickets.mock.calls.map((call) => call.arguments[0]),
+      listOpenIssues.mock.calls.map((call) => call.arguments[0]),
       [PILOT, MANAGER, PILOT, MANAGER],
     );
   });
@@ -221,14 +222,14 @@ describe("morningLoop", () => {
         number: 7,
         title: "Add the thing",
       });
-      const listEligibleTickets = t.mock.method(
+      const listOpenIssues = t.mock.method(
         ports.tracker,
-        "listEligibleTickets",
+        "listOpenIssues",
       );
 
       const report = await morningLoop(ports);
 
-      assert.equal(listEligibleTickets.mock.callCount(), 0);
+      assert.equal(listOpenIssues.mock.callCount(), 0);
       assert.equal(report.outcome, "dry-queue");
     });
 
@@ -647,6 +648,171 @@ describe("morningLoop", () => {
         assert.equal(ports.sandbox.runs[0]?.ticket.number, 7);
       });
 
+      it("an unlabelled sub-issue of a ready-for-human priority:1 spec is selected over an older priority:2 ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 9);
+      });
+
+      it("an unlabelled blocker of a priority:1 ticket is selected over an older priority:2 ticket", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent thing",
+          priority: ticketPriority(1),
+          openBlockers: 1,
+          openBlockerNumbers: [9],
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "What the urgent thing waits on",
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.number, 9);
+        assert.deepEqual(
+          report.projects[0]?.blocked?.map((ticket) => ticket.number),
+          [5],
+        );
+      });
+
+      it("never selects a ready-for-human issue, even carrying priority:1", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7],
+        );
+      });
+
+      it("never lets a priority label carried into a sub-issue make its project outrank one with explicit registry priority", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER, { priority: priority(1) });
+        ports.tracker.addEligibleTicket(MANAGER, {
+          number: 3,
+          title: "Add another thing",
+        });
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.ticket.repo, MANAGER);
+      });
+
+      it("a review ticket is selected over an implementation ticket a priority:1 spec's label carries into", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        const implementation = ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 10,
+          title: reviewTitle(implementation),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/1",
+          ),
+          parent: 7,
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.reviews[0]?.ticket.number, 10);
+      });
+
+      it("passes over a ticket worked today however high the ticket priority carried into it", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: 5,
+          title: "The urgent spec",
+          priority: ticketPriority(1),
+          openSubIssues: 1,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+          priority: ticketPriority(2),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: "Build part of the urgent spec",
+          parent: 5,
+        });
+        ports.store.markWorkedOn(localDay(FROZEN_NOW), {
+          repo: PILOT,
+          number: 9,
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7],
+        );
+      });
+
       it("a review ticket is selected over a priority:1 implementation ticket", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
@@ -694,6 +860,40 @@ describe("morningLoop", () => {
           pullRequest: pullRequestUrl(
             "https://github.com/nadav-alon/pilot/pull/1",
           ),
+        });
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.reviews[0]?.ticket.number, 8);
+      });
+
+      it("with two review tickets, the oldest wins even where ticket priority reaches only the newer one's parent", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const first = ports.tracker.addEligibleTicket(PILOT, {
+          number: 5,
+          title: "Add the thing",
+        });
+        const urgent = ports.tracker.addEligibleTicket(PILOT, {
+          number: 6,
+          title: "Add the urgent thing",
+          priority: ticketPriority(1),
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 8,
+          title: reviewTitle(first),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/1",
+          ),
+          parent: 5,
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 9,
+          title: reviewTitle(urgent),
+          pullRequest: pullRequestUrl(
+            "https://github.com/nadav-alon/pilot/pull/2",
+          ),
+          parent: 6,
         });
 
         await morningLoop(ports);
@@ -1642,7 +1842,7 @@ describe("morningLoop", () => {
       // ticket that earned it, and the ticket itself goes to the developer,
       // so a later morning does not select it again — closing the review
       // ticket stays the developer's, separately.
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.ok(!backlog.some((eligible) => eligible.number === ticket.number));
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
     });
@@ -1738,7 +1938,7 @@ describe("morningLoop", () => {
         handback.comment,
         new RegExp(FakeRepoHost.RUN_PULL_REQUEST),
       );
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
     });
   });
@@ -1792,7 +1992,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
     });
 
@@ -1836,7 +2036,7 @@ describe("morningLoop", () => {
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback.comment, /posted nothing/);
       assert.ok(handback.comment.includes(PULL_REQUEST));
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
     });
 
@@ -2201,7 +2401,7 @@ describe("morningLoop", () => {
         await morningLoop(ports);
 
         assert.deepEqual(ports.tracker.handbacks, []);
-        const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+        const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
         assert.deepEqual(
           backlog.map((ticket) => ticket.number),
           [7],
@@ -2259,7 +2459,7 @@ describe("morningLoop", () => {
         );
         assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
-        const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+        const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
         assert.ok(backlog.some((ticket) => ticket.number === review.number));
       });
 
@@ -2477,7 +2677,7 @@ describe("morningLoop", () => {
         ports.tracker.handbacks[0]?.comment ?? "",
         /committed nothing/,
       );
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
     });
 
@@ -3031,10 +3231,10 @@ describe("morningLoop", () => {
       const ports = backlogOf(1, 2);
       ports.tracker.addBlockedTicket(PILOT, { number: 2, title: "Ticket 2" }, 1);
       ports.sandbox.hold();
-      const list = ports.tracker.listEligibleTickets.bind(ports.tracker);
+      const list = ports.tracker.listOpenIssues.bind(ports.tracker);
       const rescanned = gate();
       let scans = 0;
-      t.mock.method(ports.tracker, "listEligibleTickets", async (repo: typeof PILOT) => {
+      t.mock.method(ports.tracker, "listOpenIssues", async (repo: typeof PILOT) => {
         const backlog = await list(repo);
         if (++scans === 2) {
           rescanned.open();
@@ -3238,7 +3438,7 @@ describe("morningLoop", () => {
         ports.tracker.handbacks.map((handback) => handback.ticket.number),
         [1],
       );
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(
         backlog.map((ticket) => ticket.number),
         [2, 3],
@@ -3308,7 +3508,7 @@ describe("morningLoop", () => {
 
       assert.equal(ports.sandbox.runs.length, 0);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
-      const { tickets: backlog } = await ports.tracker.listEligibleTickets(PILOT);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.ok(backlog.some((ticket) => ticket.number === review.number));
       assert.equal(report.standDown?.reason, "provider-limit");
     });
@@ -3425,7 +3625,7 @@ describe("morningLoop", () => {
         assert.match(comment, /model:opus/);
         assert.match(comment, /model:haiku/);
         assert.match(comment, /keep one/i);
-        assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
+        assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "conflicting-model-labels");
       });
 
@@ -3503,7 +3703,7 @@ describe("morningLoop", () => {
         assert.match(comment, /refused model opus/);
         assert.doesNotMatch(comment, /gave up/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
-        assert.deepEqual((await ports.tracker.listEligibleTickets(PILOT)).tickets, []);
+        assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
       });
 
       it("says the model came from the model defaults when it did", async () => {

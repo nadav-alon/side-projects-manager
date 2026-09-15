@@ -10,6 +10,20 @@ import type { TicketPriority } from "./ticket-priority.ts";
 export const READY_FOR_AGENT_LABEL = "ready-for-agent";
 
 /**
+ * Whether `labels` include ready-for-agent — what makes an issue eligible.
+ * Beside the port so the real tracker and the fake read eligibility alike;
+ * matched without regard to case, as GitHub matches label names.
+ */
+export function carriesReadyForAgent(labels: Iterable<string>): boolean {
+  for (const label of labels) {
+    if (label.toLowerCase() === READY_FOR_AGENT_LABEL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The triage label a ticket carries once it is the developer's again, as
  * `docs/agents/triage-labels.md` spells it.
  */
@@ -108,8 +122,8 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
  * reads. Absent means the ticket names no model. A review ticket reads its
  * own labels, never its parent's.
  *
- * `priority` is the ticket priority it carries, from that same listing.
- * Absent means it carries none.
+ * `priority` is the level its own priority label names, from that same
+ * listing. Absent means it carries none.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -145,13 +159,117 @@ export function isBrokenOut(ticket: Ticket): boolean {
 }
 
 /**
+ * One open issue in a project, eligible or not, and the facts ticket priority
+ * is worked out from.
+ *
+ * `ticket` is every fact the issue would carry as a ticket. Held rather than
+ * inherited, so an issue that is not eligible cannot be handed anywhere a
+ * ticket is asked for.
+ *
+ * `eligible` is whether it carries ready-for-agent: only an eligible issue is
+ * a ticket selection may choose, but any open issue passes on its priority
+ * label.
+ *
+ * `parent` is the number of the issue it is a sub-issue of, only where that
+ * parent is in the same repo. Absent for an issue that is no one's sub-issue
+ * and for one whose parent lives elsewhere, since neither passes anything on.
+ *
+ * `openBlockerNumbers` are the numbers of the still-open issues blocking it in
+ * the same repo, in the order the tracker lists them. Closed blockers and
+ * blockers in other repos are left out; `openBlockers` still counts an open
+ * one elsewhere, since it blocks the work all the same.
+ */
+export interface OpenIssue {
+  ticket: Ticket;
+  eligible: boolean;
+  parent?: number;
+  openBlockerNumbers: readonly number[];
+}
+
+/**
+ * Every open issue one morning reads in a project, newest first, and whether
+ * it is a truncated backlog — more open issues than the loop reads in one
+ * morning, so `issues` holds only the newest of them.
+ */
+export interface OpenIssues {
+  issues: OpenIssue[];
+  truncated: boolean;
+}
+
+/**
  * One project's backlog as one morning reads it: its eligible tickets, and
- * whether it is a truncated backlog — longer than the loop reads in one
- * morning, so `tickets` holds only the newest of it.
+ * whether it is a truncated backlog, so `tickets` holds only the eligible
+ * among the newest open issues.
  */
 export interface Backlog {
   tickets: Ticket[];
   truncated: boolean;
+}
+
+/** The backlog `open` holds: its eligible issues, each as the ticket it is. */
+export function backlogIn(open: OpenIssues): Backlog {
+  const tickets = open.issues
+    .filter((issue) => issue.eligible)
+    .map((issue) => issue.ticket);
+  return { tickets, truncated: open.truncated };
+}
+
+/**
+ * The ticket priority of each issue in `open` that has one, by issue number,
+ * per `CONTEXT.md`'s "Ticket priority": the smallest of its own priority
+ * label and that of every issue reaching it by stepping, in any mix, from a
+ * parent to its sub-issues and from a blocked issue to its open blockers.
+ * Never the other way. An issue absent from the map has no ticket priority.
+ *
+ * Only issues in `open` pass anything on: a parent or blocker number not
+ * among them — closed, in another repo, or not read — contributes nothing.
+ *
+ * Labels are spread smallest level first, and an issue keeps the first level
+ * that reaches it, so each issue is visited once and cycles end.
+ */
+export function ticketPrioritiesIn(
+  open: OpenIssues,
+): ReadonlyMap<number, TicketPriority> {
+  const passesTo = new Map<number, number[]>();
+  const read = new Set(open.issues.map((issue) => issue.ticket.number));
+  const edge = (from: number, to: number) => {
+    if (read.has(from) && read.has(to)) {
+      const tos = passesTo.get(from) ?? [];
+      tos.push(to);
+      passesTo.set(from, tos);
+    }
+  };
+  for (const issue of open.issues) {
+    if (issue.parent !== undefined) {
+      edge(issue.parent, issue.ticket.number);
+    }
+    for (const blocker of issue.openBlockerNumbers) {
+      edge(issue.ticket.number, blocker);
+    }
+  }
+
+  const labelled = open.issues
+    .flatMap(({ ticket: { number, priority } }) =>
+      priority === undefined ? [] : [{ number, priority }],
+    )
+    .sort((a, b) => a.priority - b.priority);
+  const priorities = new Map<number, TicketPriority>();
+  for (const { number, priority } of labelled) {
+    if (priorities.has(number)) {
+      continue;
+    }
+    const reached = [number];
+    priorities.set(number, priority);
+    for (let next = reached.pop(); next !== undefined; next = reached.pop()) {
+      for (const to of passesTo.get(next) ?? []) {
+        if (!priorities.has(to)) {
+          priorities.set(to, priority);
+          reached.push(to);
+        }
+      }
+    }
+  }
+  return priorities;
 }
 
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
@@ -180,12 +298,14 @@ export function ticketKind(ticket: Ticket): TicketKind {
  */
 export interface IssueTracker {
   /**
-   * The project's backlog: its open issues carrying the ready-for-agent
-   * label, which are the only tickets the loop may select. A project with an
-   * empty backlog returns an empty list; that is a normal morning, not an
+   * The project's open issues, whatever their labels, newest first and no
+   * more than one morning reads. Eligible or not, since ticket priority can
+   * reach a ticket through issues that are not themselves eligible; the
+   * tracker reports facts, and selection is what judges them. A project with
+   * no open issues returns an empty list; that is a normal morning, not an
    * error.
    */
-  listEligibleTickets(repo: RepoSlug): Promise<Backlog>;
+  listOpenIssues(repo: RepoSlug): Promise<OpenIssues>;
   /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.

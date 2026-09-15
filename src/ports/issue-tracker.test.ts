@@ -4,14 +4,151 @@ import { describe, it } from "node:test";
 import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
+  carriesReadyForAgent,
   modelLabelOf,
   ticketKind,
+  ticketPrioritiesIn,
+  type OpenIssue,
 } from "./issue-tracker.ts";
 import { modelName } from "./model-name.ts";
 import { pullRequestUrl } from "./pull-request-url.ts";
 import { repoSlug } from "./repo-slug.ts";
+import { ticketPriority } from "./ticket-priority.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
+
+function openIssue(
+  number: number,
+  facts: { priority?: 1 | 2 | 3; parent?: number; blockers?: number[] } = {},
+): OpenIssue {
+  return {
+    ticket: {
+      repo: PILOT,
+      number,
+      title: `Issue ${number}`,
+      ...(facts.priority === undefined
+        ? {}
+        : { priority: ticketPriority(facts.priority) }),
+    },
+    eligible: true,
+    openBlockerNumbers: facts.blockers ?? [],
+    ...(facts.parent === undefined ? {} : { parent: facts.parent }),
+  };
+}
+
+/** Each issue's ticket priority as a plain object, for readable assertions. */
+function prioritiesOf(...issues: OpenIssue[]): Record<number, number> {
+  return Object.fromEntries(
+    ticketPrioritiesIn({ issues, truncated: false }),
+  );
+}
+
+describe("ticketPrioritiesIn", () => {
+  it("carries a spec's priority label into its sub-issues and theirs", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1, { priority: 1 }),
+        openIssue(2, { parent: 1 }),
+        openIssue(3, { parent: 2 }),
+      ),
+      { 1: 1, 2: 1, 3: 1 },
+    );
+  });
+
+  it("carries a ticket's priority label into its blockers and theirs", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1, { priority: 1, blockers: [2] }),
+        openIssue(2, { blockers: [3] }),
+        openIssue(3),
+      ),
+      { 1: 1, 2: 1, 3: 1 },
+    );
+  });
+
+  it("carries a priority label along sub-issue and blocker steps in any mix", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(4, { parent: 3 }),
+        openIssue(3),
+        openIssue(2, { parent: 1, blockers: [3] }),
+        openIssue(1, { priority: 1 }),
+      ),
+      { 1: 1, 2: 1, 3: 1, 4: 1 },
+    );
+  });
+
+  it("gives an issue the smallest of its own label and every label reaching it", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(2, { priority: 3, parent: 1 }),
+        openIssue(1, { priority: 1 }),
+      ),
+      { 1: 1, 2: 1 },
+    );
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1, { priority: 3 }),
+        openIssue(2, { priority: 1, parent: 1 }),
+      ),
+      { 1: 3, 2: 1 },
+    );
+  });
+
+  it("lends nothing from a sub-issue to its parent or siblings", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1),
+        openIssue(2, { priority: 1, parent: 1 }),
+        openIssue(3, { parent: 1 }),
+      ),
+      { 2: 1 },
+    );
+  });
+
+  it("lends nothing from a blocker to what it blocks", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1, { priority: 3, blockers: [2] }),
+        openIssue(2, { priority: 1 }),
+      ),
+      { 1: 3, 2: 1 },
+    );
+  });
+
+  it("takes nothing from a parent or blocker number it did not read", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1, { parent: 99, blockers: [98] }),
+        openIssue(2, { priority: 2, blockers: [97] }),
+      ),
+      { 2: 2 },
+    );
+  });
+
+  it("gives every issue in a blocked-by cycle the smallest label in it", () => {
+    assert.deepEqual(
+      prioritiesOf(
+        openIssue(1, { priority: 3, blockers: [2] }),
+        openIssue(2, { blockers: [3] }),
+        openIssue(3, { priority: 2, blockers: [1] }),
+      ),
+      { 1: 2, 2: 2, 3: 2 },
+    );
+  });
+});
+
+describe("carriesReadyForAgent", () => {
+  it("finds ready-for-agent among other labels, whatever its case", () => {
+    assert.equal(carriesReadyForAgent(["bug", READY_FOR_AGENT_LABEL]), true);
+    assert.equal(carriesReadyForAgent(["Ready-For-Agent"]), true);
+  });
+
+  it("finds nothing in labels without it", () => {
+    assert.equal(carriesReadyForAgent(["ready-for-human", "ready"]), false);
+    assert.equal(carriesReadyForAgent([]), false);
+  });
+});
 
 describe("ticketKind", () => {
   it("reads a ticket naming a pull request as a review", () => {
