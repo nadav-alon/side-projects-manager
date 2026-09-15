@@ -447,10 +447,16 @@ async function issueIdOf(ticket: Ticket): Promise<IssueId> {
 /** `gh issue create` answers with the new issue's URL, and nothing else. */
 function issueNumberIn(stdout: string, repo: RepoSlug): IssueNumber {
   const url = stdout.trim();
-  const number = Number(/\/issues\/(\d+)$/.exec(url)?.[1]);
-  if (!isIssueNumber(number)) {
+  const match = /\/issues\/(\d+)$/.exec(url);
+  if (match === null) {
     throw new Error(
       `gh issue create --repo ${repo}: expected the new issue's URL, got: ${url}`,
+    );
+  }
+  const number = Number(match[1]);
+  if (!isIssueNumber(number)) {
+    throw new Error(
+      `gh issue create --repo ${repo}: the new issue's URL named a number that is not a positive integer: ${url}`,
     );
   }
   return number;
