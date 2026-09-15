@@ -83,7 +83,7 @@ jobs:
           FAIL_REASON=""
 
           if [[ "$IS_PULL_REQUEST" == "true" ]]; then
-            # On a pull request (primary): that pull request, open.
+            # On a pull request: that pull request, open.
             pull_request_json="$(gh pr view "$ISSUE_NUMBER" --repo "$REPO" --json number,state,body,url)"
             pull_request_state="$(jq -r .state <<<"$pull_request_json")"
             if [[ "$pull_request_state" != "OPEN" ]]; then
@@ -160,8 +160,8 @@ jobs:
           title="Apply the review on #$PULL_REQUEST_NUMBER"
           body="$expected_line"
 
-          # Best effort: refused only where the label already exists, which is
-          # every project triaged by hand before this workflow ever ran.
+          # Best effort: refused where the label already exists, which is the
+          # usual case.
           gh label create ready-for-agent --repo "$REPO" \
             --description "Fully specified, ready for an AFK agent" >/dev/null 2>&1 || true
 
