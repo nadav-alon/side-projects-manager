@@ -466,7 +466,9 @@ describe("morningLoop", () => {
     }
 
     /** A ticket asking for the review on `SOME_PULL_REQUEST` to be applied. */
-    function applyReview(number: number): Omit<Ticket, "repo" | "modelLabel"> {
+    function applyReviewTicket(
+      number: number,
+    ): Omit<Ticket, "repo" | "modelLabel"> {
       return {
         number,
         title: `Apply the review on ${SOME_PULL_REQUEST}`,
@@ -482,7 +484,7 @@ describe("morningLoop", () => {
         title: "Add the thing",
       });
       ports.tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
-      ports.tracker.addEligibleTicket(PILOT, applyReview(9));
+      ports.tracker.addEligibleTicket(PILOT, applyReviewTicket(9));
 
       const report = await morningLoop(ports);
 
@@ -493,11 +495,11 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        ...applyReview(9),
+        ...applyReviewTicket(9),
         priority: ticketPriority(1),
       });
       ports.tracker.addEligibleTicket(PILOT, {
-        ...applyReview(8),
+        ...applyReviewTicket(8),
         priority: ticketPriority(3),
       });
 
@@ -514,7 +516,7 @@ describe("morningLoop", () => {
         title: "Add another thing",
       });
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, applyReview(8));
+      ports.tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
 
       const report = await morningLoop(ports);
 
@@ -530,7 +532,7 @@ describe("morningLoop", () => {
       });
       ports.tracker.addEligibleTicket(MANAGER, reviewOf(implementation, 4));
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, applyReview(8));
+      ports.tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
 
       const report = await morningLoop(ports);
 
