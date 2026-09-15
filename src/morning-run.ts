@@ -1,4 +1,8 @@
 import type {
+  ApplyReviewAnswers,
+  ApplyReviewGaveUp,
+  ApplyReviewOutcome,
+  ApplyReviewTicket,
   Budget,
   Checkout,
   Clock,
@@ -31,6 +35,7 @@ import type {
 } from "./ports/index.ts";
 import {
   backlogIn,
+  isApplyReviewTicket,
   isBlocked,
   isBrokenOut,
   isReviewTicket,
@@ -42,6 +47,8 @@ import {
 import { budgetGate, type StandDown } from "./budget-gate.ts";
 import { workedTickets, type WorkedTickets } from "./worked-today.ts";
 import {
+  appliedReviewComment,
+  applyReviewHandbackComment,
   committedNothingComment,
   handbackComment,
   handoverComment,
@@ -55,6 +62,7 @@ import { errorMessage } from "./error-message.ts";
 import {
   failedOnInfrastructure,
   handedBackForModelLabels,
+  type AppliedReview,
   type Failed,
   type Finished,
   type GaveUp,
@@ -945,7 +953,9 @@ function leavesTicketUntouched(iteration: Iteration): boolean {
  * review queued against it, or — when the agent gave up — puts the ticket back
  * in the developer's hands. An infrastructure failure or a limit refusal
  * leaves the ticket untouched. A review ticket's own run posts its findings
- * itself and is closed once it has.
+ * itself and is closed once it has; an apply-review ticket's pushes and
+ * replies itself, and is closed once the repo host shows every thread
+ * answered.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -957,7 +967,16 @@ async function work(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<Iteration> {
-  // TODO[#228]: run an apply-review ticket on its pull request's branch.
+  if (isApplyReviewTicket(selection.ticket)) {
+    return await runApplyReview(
+      ports,
+      selection.project.repo,
+      selection.ticket,
+      state,
+      spendCeiling,
+      model,
+    );
+  }
   if (isReviewTicket(selection.ticket)) {
     return await runReview(
       ports,
@@ -1440,6 +1459,178 @@ async function handReviewBack(
       reviewHandbackComment(failure, review),
     )),
     tokensUsed: review.tokensUsed,
+  };
+}
+
+/**
+ * An apply-review ticket's own run: the agent answers every open thread on the
+ * pull request the ticket names, pushing and replying itself from a clone on
+ * that pull request's branch. What it did is read back from the repo host,
+ * never taken from the agent's say-so: the ticket closes, and the pull request
+ * is marked ready for review, only once no thread is left unanswered.
+ *
+ * A pull request with no open thread when the iteration starts has nothing to
+ * apply, so no run is started: the ticket closes and the pull request is
+ * marked ready all the same. The pull request is marked ready before the
+ * ticket closes, so a ticket left open by a pull request that would not be
+ * marked comes round again and finds nothing to apply.
+ *
+ * An agent that gave up — a push the repo host rejected included — or a run
+ * that left a thread unanswered is handed back, the pull request left a
+ * draft. A repo host or sandbox that could not do its part before the agent
+ * started is an infrastructure failure, and a limit or model refusal reads as
+ * for a review. A read, mark or close that fails after the run is reported on
+ * the iteration, never raised.
+ */
+async function runApplyReview(
+  ports: MorningLoopPorts,
+  repo: RepoSlug,
+  ticket: ApplyReviewTicket,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<AppliedReview | LimitRefused | Failed> {
+  const pullRequest = ticket.pullRequest.url;
+  const startedAt = ports.clock.now();
+  let run: ApplyReviewOutcome;
+  try {
+    const before = await ports.repoHost.readApplyReviewAnswers(
+      pullRequest,
+      startedAt,
+    );
+    if (before.unanswered === 0) {
+      return await finishApplyReview(ports, ticket, {
+        kind: "applied-review",
+      });
+    }
+    const checkout = await ports.repoHost.clone(repo);
+    // As `attemptRun`: two distinct calls so each resolves the overload that
+    // actually matches.
+    run =
+      model === undefined
+        ? await ports.sandbox.applyReview({ ticket, checkout, spendCeiling })
+        : await ports.sandbox.applyReview({
+            ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          });
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+
+  state.set(
+    repo,
+    recordRun(state.get(repo), {
+      at: ports.clock.now(),
+      tokensUsed: run.tokensUsed,
+    }),
+  );
+
+  if (run.kind === "limit-refused") {
+    return {
+      kind: "limit-refused",
+      limitRefusal: run.words,
+      tokensUsed: run.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+  if (run.kind === "model-refused") {
+    const failure = modelRefused(ticket, run.refusal);
+    return {
+      ...(await handTicketBack(
+        ports,
+        ticket,
+        failure,
+        modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      )),
+      tokensUsed: run.tokensUsed,
+    };
+  }
+  if (run.kind === "gave-up") {
+    return handApplyReviewBack(ports, ticket, run, run.reason);
+  }
+
+  let answers: ApplyReviewAnswers;
+  try {
+    answers = await ports.repoHost.readApplyReviewAnswers(
+      pullRequest,
+      startedAt,
+    );
+  } catch (error: unknown) {
+    return {
+      kind: "applied-review",
+      review: run,
+      notClosed: { kind: "check-failed", error: errorMessage(error) },
+    };
+  }
+  if (answers.unanswered > 0) {
+    const threads =
+      answers.unanswered === 1 ? "1 thread" : `${answers.unanswered} threads`;
+    return handApplyReviewBack(
+      ports,
+      ticket,
+      run,
+      `the agent finished with ${threads} left unanswered on ${pullRequest}`,
+    );
+  }
+
+  return finishApplyReview(ports, ticket, {
+    kind: "applied-review",
+    review: run,
+    answers: { applied: answers.appliedSince, declined: answers.declinedSince },
+  });
+}
+
+/**
+ * Marks `ticket`'s pull request ready for review, then closes the ticket with
+ * a comment saying what `applied` came to. Never throws: whichever step fails
+ * is reported on the iteration, and the ticket is left open.
+ */
+async function finishApplyReview(
+  ports: MorningLoopPorts,
+  ticket: ApplyReviewTicket,
+  applied: AppliedReview,
+): Promise<AppliedReview> {
+  const pullRequest = ticket.pullRequest.url;
+  try {
+    await ports.repoHost.markPullRequestReady(pullRequest);
+  } catch (error: unknown) {
+    return {
+      ...applied,
+      notClosed: { kind: "ready-failed", error: errorMessage(error) },
+    };
+  }
+  try {
+    await ports.tracker.closeApplyReviewTicket(
+      ticket,
+      appliedReviewComment(pullRequest, applied.answers),
+    );
+  } catch (error: unknown) {
+    return {
+      ...applied,
+      notClosed: { kind: "close-failed", error: errorMessage(error) },
+    };
+  }
+  return applied;
+}
+
+/** Hands back an apply-review run that gave up or left a thread unanswered. */
+async function handApplyReviewBack(
+  ports: MorningLoopPorts,
+  ticket: ApplyReviewTicket,
+  run: ReviewFinished | ApplyReviewGaveUp,
+  reason: string,
+): Promise<Failed> {
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  return {
+    ...(await handTicketBack(
+      ports,
+      ticket,
+      failure,
+      applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
+    )),
+    tokensUsed: run.tokensUsed,
   };
 }
 

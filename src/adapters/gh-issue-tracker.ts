@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type {
+  ApplyReviewTicket,
   IssueTracker,
   OpenIssues,
   PullRequestBinding,
@@ -122,6 +123,21 @@ export function ghIssueTracker(
         "--repo",
         ticket.repo,
         String(ticket.number),
+      ]);
+    },
+
+    async closeApplyReviewTicket(
+      ticket: ApplyReviewTicket,
+      comment: string,
+    ): Promise<void> {
+      await execFileAsync("gh", [
+        "issue",
+        "close",
+        "--repo",
+        ticket.repo,
+        String(ticket.number),
+        "--comment",
+        comment,
       ]);
     },
 

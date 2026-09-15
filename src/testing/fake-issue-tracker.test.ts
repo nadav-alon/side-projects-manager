@@ -8,6 +8,7 @@ import {
   pullRequestUrl,
   repoSlug,
   ticketPriority,
+  type ApplyReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
@@ -245,6 +246,26 @@ describe("FakeIssueTracker", () => {
       kind: "apply-review",
       url: pullRequest,
     });
+  });
+
+  it("closes an apply-review ticket, recording its comment and taking it off the open issues", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: 9,
+      title: "Apply the review",
+      pullRequest: {
+        kind: "apply-review",
+        url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+      },
+    }) as ApplyReviewTicket;
+
+    await tracker.closeApplyReviewTicket(ticket, "Nothing to apply.");
+
+    assert.deepEqual(tracker.closedApplyReviewTickets, [
+      { ticket, comment: "Nothing to apply." },
+    ]);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    assert.deepEqual(issues, []);
   });
 });
 

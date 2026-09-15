@@ -2,6 +2,7 @@ import type { StandDown } from "./budget-gate.ts";
 import { workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
+  type AppliedReview,
   type Finished,
   type IterationOutcome,
   type NotClosed,
@@ -14,6 +15,7 @@ import type {
   ProjectVerdict,
 } from "./morning-run.ts";
 import type {
+  ApplyReviewTicket,
   RepoSlug,
   ReviewTicket,
   RunFinished,
@@ -186,7 +188,10 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
  */
 function attemptsSection(iterations: IterationOutcome[]): string {
   const lines = iterations.map((iteration) => {
-    if (handedBackForModelLabels(iteration)) {
+    if (
+      handedBackForModelLabels(iteration) ||
+      (iteration.kind === "applied-review" && iteration.review === undefined)
+    ) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
     const spent = costOf(iteration);
@@ -221,6 +226,8 @@ function waitingSection(iterations: IterationOutcome[]): string | undefined {
         return iteration.notClosed === undefined
           ? []
           : [notClosedLine(iteration, iteration.notClosed)];
+      case "applied-review":
+        return [appliedReviewWaitingLine(iteration)];
       // A limit refusal's ticket waits on the provider, not the developer.
       case "limit-refused":
         return [];
@@ -294,6 +301,8 @@ function costOf(iteration: IterationOutcome): TokenCount | undefined {
   switch (iteration.kind) {
     case "reviewed":
       return iteration.review.tokensUsed;
+    case "applied-review":
+      return iteration.review?.tokensUsed;
     case "limit-refused":
       return iteration.tokensUsed;
     case "failed":
@@ -317,6 +326,8 @@ function describeIteration(iteration: IterationOutcome): string {
       return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
     case "reviewed":
       return reviewSummary(iteration);
+    case "applied-review":
+      return appliedReviewSummary(iteration);
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
   }
@@ -364,6 +375,58 @@ function notClosedLine(
       return `${still} — ${ticket.pullRequest.url} could not be checked for its findings: ${notClosed.error}; check it and close the ticket yourself`;
     case "close-failed":
       return `${still} — its findings are on ${ticket.pullRequest.url}, but it could not be closed: ${notClosed.error}; close it yourself`;
+  }
+}
+
+/** An apply-review iteration, with the ticket it worked. */
+type AppliedReviewIteration = {
+  repo: RepoSlug;
+  ticket: ApplyReviewTicket;
+} & AppliedReview;
+
+/** What the replies came to on the pull request, or that there were none to post. */
+function answered({ ticket, answers }: AppliedReviewIteration): string {
+  const pullRequest = ticket.pullRequest.url;
+  return answers === undefined
+    ? `nothing left to apply on ${pullRequest}`
+    : `${answers.applied} applied, ${answers.declined} declined on ${pullRequest}`;
+}
+
+/**
+ * How an apply-review ticket's iteration reads to the developer: what it
+ * applied and declined and that the pull request is ready for review, or why
+ * the loop could not finish the ticket off.
+ */
+function appliedReviewSummary(iteration: AppliedReviewIteration): string {
+  const { repo, ticket, notClosed } = iteration;
+  const pullRequest = ticket.pullRequest.url;
+  const applied = `Applied review on ${repo} #${ticket.number}`;
+  switch (notClosed?.kind) {
+    case undefined:
+      return `${applied}: ${answered(iteration)}, now ready for review.`;
+    case "check-failed":
+      return `${applied}, but ${pullRequest} could not be checked for its answers: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
+    case "ready-failed":
+      return `${applied}: ${answered(iteration)}, but it could not be marked ready for review: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: mark ${pullRequest} ready and close the ticket yourself.`;
+    case "close-failed":
+      return `${applied}: ${answered(iteration)}, now ready for review, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+  }
+}
+
+/** The Waiting-on-you line for an apply-review iteration: its pull request to review, or the ticket left open. */
+function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string {
+  const { repo, ticket, notClosed } = iteration;
+  const pullRequest = ticket.pullRequest.url;
+  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
+  switch (notClosed?.kind) {
+    case undefined:
+      return `- ${repo}: ${pullRequest} — ready for review`;
+    case "check-failed":
+      return `${still} — ${pullRequest} could not be checked for its answers: ${notClosed.error}; check it, mark it ready and close the ticket yourself`;
+    case "ready-failed":
+      return `${still} — ${pullRequest} could not be marked ready for review: ${notClosed.error}; mark it ready and close the ticket yourself`;
+    case "close-failed":
+      return `${still} — ${pullRequest} is ready for review, but the ticket could not be closed: ${notClosed.error}; close it yourself`;
   }
 }
 

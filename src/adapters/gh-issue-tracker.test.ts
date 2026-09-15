@@ -14,6 +14,7 @@ import {
   modelName,
   pullRequestUrl,
   repoSlug,
+  type ApplyReviewTicket,
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
@@ -1620,5 +1621,36 @@ describe("ghIssueTracker.closeReviewTicket", () => {
     assert.ok(close, "the review should be closed with `gh issue close`");
     assert.equal(valueOf(close, "--repo"), PILOT);
     assert.ok(close.includes("42"));
+  });
+});
+
+describe("ghIssueTracker.closeApplyReviewTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const APPLY_REVIEW: ApplyReviewTicket = {
+    repo: PILOT,
+    number: 43,
+    title: "Apply the review on the draft pull request for #7",
+    pullRequest: {
+      kind: "apply-review",
+      url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    },
+  };
+
+  it("closes the apply-review ticket in its own repo, with the comment", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeApplyReviewTicket(
+      APPLY_REVIEW,
+      "Nothing to apply.\n\nThe pull request is ready for review.",
+    );
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close, "the ticket should be closed with `gh issue close`");
+    assert.equal(valueOf(close, "--repo"), PILOT);
+    assert.ok(close.includes("43"));
+    assert.equal(
+      valueOf(close, "--comment"),
+      "Nothing to apply.\n\nThe pull request is ready for review.",
+    );
   });
 });
