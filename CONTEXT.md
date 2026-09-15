@@ -1,8 +1,9 @@
 # Side Projects Manager
 
-The manager owns a morning loop that moves side projects forward by working their eligible
-tickets, several at once, and a command that starts new projects. Projects stay independent: the
-manager holds the registry and the harness, each project repo holds its own backlog.
+The manager owns a morning loop that moves side projects forward each day by working their
+eligible tickets, several at once, and a command that starts new projects. Projects stay
+independent: the manager holds the registry and the harness, each project repo holds its own
+backlog.
 
 ## Language
 
