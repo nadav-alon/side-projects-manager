@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isIssueNumber, issueNumber } from "./issue-number.ts";
+import {
+  isIssueNumber,
+  issueNumber,
+  type IssueNumber,
+} from "./issue-number.ts";
+import { ticketPriority } from "./ticket-priority.ts";
 
 describe("isIssueNumber", () => {
   it("accepts a positive integer", () => {
@@ -24,5 +29,12 @@ describe("issueNumber", () => {
 
   it("throws naming the offending value", () => {
     assert.throws(() => issueNumber(0), { name: "TypeError", message: /0/ });
+  });
+
+  /** Checked by the type check: a ticket priority is not an issue number. */
+  it("does not accept a ticket priority in its place", () => {
+    // @ts-expect-error: a ticket priority is not an issue number.
+    const n: IssueNumber = ticketPriority(1);
+    assert.equal(n, 1);
   });
 });
