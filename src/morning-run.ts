@@ -24,6 +24,7 @@ import type {
   State,
   Store,
   Ticket,
+  TicketKind,
   TicketPriority,
   UsageLedger,
   Usd,
@@ -32,6 +33,7 @@ import {
   backlogIn,
   isBlocked,
   isBrokenOut,
+  isPullRequestTicket,
   isReviewTicket,
   localDay,
   recordRun,
@@ -259,14 +261,14 @@ interface Selection {
 
 /**
  * One project with an eligible ticket, as far as selection is concerned: the
- * project itself, the ticket selection would work on its behalf, and whether
- * that ticket is a review — everything the ordering rule needs and nothing
- * it has to ask the tracker twice for.
+ * project itself, the ticket selection would work on its behalf, and that
+ * ticket's kind — everything the ordering rule needs and nothing it has to
+ * ask the tracker twice for.
  */
 interface Candidate {
   project: RegisteredProject;
   ticket: Ticket;
-  isReview: boolean;
+  kind: TicketKind;
   priority?: Priority;
   lastWorkedAt?: Date;
 }
@@ -700,7 +702,7 @@ async function considerProjects(
     candidates.push({
       project,
       ticket,
-      isReview: isReviewTicket(ticket),
+      kind: ticketKind(ticket),
       ...(project.priority !== undefined && { priority: project.priority }),
       ...(projectState?.lastWorkedAt !== undefined && {
         lastWorkedAt: projectState.lastWorkedAt,
@@ -800,16 +802,18 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 }
 
 /**
- * The one ticket `backlog` offers selection, within a single project: a
- * review ticket before any implementation ticket, since finishing beats
- * starting; among implementation tickets, ticket priority ascending — as
- * `ticketPriorities` holds it by issue number, never a ticket's own priority
- * label — with a ticket absent from it sorting after every ticket present;
- * and, ties still standing, the oldest ticket — the lowest issue number — so
- * the order the tracker happened to return them in never matters. Two review
- * tickets, open on two different implementation tickets, go straight to the
- * oldest ticket: ticket priority orders implementation tickets only, and a
- * review inherits its parent's as a sub-issue, not as a rank of its own.
+ * The one ticket `backlog` offers selection, within a single project: an
+ * apply-review ticket before a review ticket before any implementation
+ * ticket, since finishing beats starting and a review already written is
+ * nearer finished than one not yet written; among implementation tickets,
+ * ticket priority ascending — as `ticketPriorities` holds it by issue number,
+ * never a ticket's own priority label — with a ticket absent from it sorting
+ * after every ticket present; and, ties still standing, the oldest ticket —
+ * the lowest issue number — so the order the tracker happened to return them
+ * in never matters. Two pull request tickets of the same kind go straight to
+ * the oldest ticket: ticket priority orders implementation tickets only, and
+ * a pull request ticket inherits its parent's as a sub-issue, not as a rank
+ * of its own.
  */
 function bestTicket(
   backlog: Ticket[],
@@ -820,16 +824,28 @@ function bestTicket(
   )[0];
 }
 
+/** Ticket kinds in the order selection works them, first to last. */
+const SELECTION_ORDER: readonly TicketKind[] = [
+  "apply-review",
+  "review",
+  "implementation",
+];
+
+/** Ascending by where each kind stands in `SELECTION_ORDER`. */
+function byKind(a: TicketKind, b: TicketKind): number {
+  return SELECTION_ORDER.indexOf(a) - SELECTION_ORDER.indexOf(b);
+}
+
 function compareTickets(
   a: Ticket,
   b: Ticket,
   ticketPriorities: ReadonlyMap<number, TicketPriority>,
 ): number {
-  // TODO[#231]: order apply-review tickets before review tickets.
-  if (isReviewTicket(a) !== isReviewTicket(b)) {
-    return isReviewTicket(a) ? -1 : 1;
+  const kindOrder = byKind(ticketKind(a), ticketKind(b));
+  if (kindOrder !== 0) {
+    return kindOrder;
   }
-  if (isReviewTicket(a)) {
+  if (isPullRequestTicket(a)) {
     return a.number - b.number;
   }
   const byPriority = absentLast(
@@ -844,10 +860,11 @@ function compareTickets(
 
 /**
  * Selection's ordering rule, applied as one comparison rather than as
- * separate passes: reviews before implementations, then explicit priority,
- * then least recently worked. Each level only breaks ties the level before it
- * left standing, so a review is never outranked by priority and priority is
- * never outranked by how long a project has waited.
+ * separate passes: apply-reviews before reviews before implementations, then
+ * explicit priority, then least recently worked. Each level only breaks ties
+ * the level before it left standing, so a pull request ticket is never
+ * outranked by priority and priority is never outranked by how long a project
+ * has waited.
  *
  * A project without a priority sorts after every project that has one, and a
  * project never worked sorts before every project that has been — it is, by
@@ -858,8 +875,9 @@ function bestCandidate(candidates: Candidate[]): Candidate | undefined {
 }
 
 function compareCandidates(a: Candidate, b: Candidate): number {
-  if (a.isReview !== b.isReview) {
-    return a.isReview ? -1 : 1;
+  const kindOrder = byKind(a.kind, b.kind);
+  if (kindOrder !== 0) {
+    return kindOrder;
   }
   const byPriority = absentLast(a.priority, b.priority);
   if (byPriority !== 0) {
