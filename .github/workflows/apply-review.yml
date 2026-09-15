@@ -13,11 +13,21 @@ permissions:
 
 jobs:
   apply-review:
-    # Narrowed to the repo owner here, at the job level, so an unrelated
-    # comment costs nothing beyond this one check. The trimmed-body check
-    # can't live here too — Actions expressions have no trim() — so it runs
-    # first inside the script below, and anything that fails it exits silently.
-    if: github.event.comment.user.login == github.repository_owner
+    # Narrowed to the repo owner and a comment mentioning the command here, at
+    # the job level, so an unrelated comment costs nothing beyond this one
+    # check. The exact trimmed-body check can't live here too — Actions
+    # expressions have no trim() — so it runs first inside the script below,
+    # and anything that fails it exits silently.
+    if: >-
+      github.event.comment.user.login == github.repository_owner
+      && contains(github.event.comment.body, '/apply-review')
+    # The "already open" check and the create are a read then a write: two
+    # comments on one thread must not both pass the read. A run in progress
+    # is never cancelled; of several waiting, GitHub keeps the newest, which
+    # asks for the same thing.
+    concurrency:
+      group: apply-review-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Resolve the pull request and act on it
