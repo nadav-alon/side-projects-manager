@@ -388,7 +388,7 @@ type AppliedReviewIteration = {
 function answered({ ticket, answers }: AppliedReviewIteration): string {
   const pullRequest = ticket.pullRequest.url;
   return answers === undefined
-    ? `nothing to apply on ${pullRequest}`
+    ? `nothing left to apply on ${pullRequest}`
     : `${answers.applied} applied, ${answers.declined} declined on ${pullRequest}`;
 }
 

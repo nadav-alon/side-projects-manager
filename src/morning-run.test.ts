@@ -2624,12 +2624,12 @@ describe("morningLoop", () => {
       assert.equal(report.iterations[0]?.kind, "applied-review");
       const [closed] = ports.tracker.closedApplyReviewTickets;
       assert.deepEqual(closed?.ticket, ticket);
-      assert.match(closed?.comment ?? "", /nothing to apply/i);
+      assert.match(closed?.comment ?? "", /nothing left to apply/i);
       assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
       assert.equal(ports.repoHost.clones.length, 0);
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
-      assert.match(report.message, /nothing to apply/i);
+      assert.match(report.message, /nothing left to apply/i);
     });
 
     it("hands back a finished run that left a thread unanswered, leaving the pull request a draft", async () => {

@@ -109,8 +109,9 @@ export function applyReviewHandbackComment(
 
 /**
  * What an apply-review ticket is told as it closes: how many threads the run
- * applied and declined, or that none was open to answer, and that the pull
- * request is now ready for review.
+ * applied and declined, or that none was left unanswered, and that the pull
+ * request is now ready for review. Without counts it never claims no run
+ * happened: an earlier run whose ticket was left open may have answered them.
  */
 export function appliedReviewComment(
   pullRequest: PullRequestUrl,
@@ -118,7 +119,7 @@ export function appliedReviewComment(
 ): string {
   const what =
     answers === undefined
-      ? `The morning loop found no open review thread on ${pullRequest}, so there was nothing to apply.`
+      ? `The morning loop found no review thread on ${pullRequest} left unanswered, so there was nothing left to apply.`
       : `The morning loop applied the review on ${pullRequest}: ${answers.applied} applied, ${answers.declined} declined. Every thread has a reply saying which, and why.`;
   return [what, `${pullRequest} is marked ready for review.`].join("\n\n");
 }
