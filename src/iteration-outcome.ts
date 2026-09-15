@@ -151,7 +151,7 @@ export interface LimitRefused {
   kind: "limit-refused";
   /** What the provider said. */
   limitRefusal: string;
-  /** As `Failed.tokensUsed`: always set, whatever the sandbox spent before the provider refused. */
+  /** What ran spent before the provider refused. Always set — a limit refusal has spent. */
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
@@ -163,7 +163,10 @@ export interface LimitRefused {
 export interface Finished {
   kind: "finished";
   run: RunFinished;
-  /** As `Failed.tokensUsed`: always set, a run having finished. */
+  /**
+   * What the run spent. Always equal to `run.tokensUsed` — duplicated here so
+   * `costOf` reads one field without telling a run and a review apart.
+   */
   tokensUsed: TokenCount;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
@@ -198,8 +201,9 @@ export interface Failed {
   /**
    * What ran spent, carried the same way whether it was a run's failure or a
    * review's — so the summary reads it without telling the two apart. Absent
-   * only when the ticket was handed back before a sandbox call was ever made:
-   * an infrastructure failure, or model labels naming no run to start.
+   * when model labels named no run to start, and for an infrastructure
+   * failure — including one where the sandbox rejected after the agent had
+   * already spent something, a gap `TODO[#35]` still owns.
    */
   tokensUsed?: TokenCount;
 }
@@ -232,7 +236,10 @@ export type IterationOutcome =
 export interface Reviewed {
   kind: "reviewed";
   review: ReviewFinished;
-  /** As `Failed.tokensUsed`: always set, a review having finished. */
+  /**
+   * What the review spent. Always equal to `review.tokensUsed` — duplicated
+   * here for the same reason as `Finished.tokensUsed`.
+   */
   tokensUsed: TokenCount;
   /**
    * Set when the loop could not finish the ticket off: the pull request could

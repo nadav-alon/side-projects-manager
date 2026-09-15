@@ -311,8 +311,10 @@ function waitingOnFailure(
 /**
  * What one iteration's run or review cost — one field every kind carries the
  * same way, so this needs nothing to tell a run and a review apart. Absent
- * only for a run that never started — an infrastructure failure before the
- * sandbox spent anything.
+ * for an infrastructure failure, including one where the sandbox rejected
+ * after already spending something (`TODO[#35]`). A ticket handed back on
+ * unusable model labels leaves this absent too, but `attemptsSection` never
+ * reaches here for that case — it prints "nothing run" instead.
  */
 function costOf(iteration: IterationOutcome): TokenCount | undefined {
   return iteration.tokensUsed;
