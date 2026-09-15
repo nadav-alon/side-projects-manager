@@ -187,18 +187,18 @@ export function isBrokenOut(ticket: Ticket): boolean {
  *
  * Beside the port so the real tracker and the fake discount alike.
  */
-export function discountPullRequestSubIssues(
+export function discountPullRequestTickets(
   issues: readonly OpenIssue[],
 ): OpenIssue[] {
-  const pullRequestSubIssues = new Map<number, number>();
+  const pullRequestTicketsByParent = new Map<number, number>();
   for (const { parent, ticket } of issues) {
     if (parent !== undefined && isPullRequestTicket(ticket)) {
-      pullRequestSubIssues.set(parent, (pullRequestSubIssues.get(parent) ?? 0) + 1);
+      pullRequestTicketsByParent.set(parent, (pullRequestTicketsByParent.get(parent) ?? 0) + 1);
     }
   }
 
   return issues.map((issue) => {
-    const discount = pullRequestSubIssues.get(issue.ticket.number);
+    const discount = pullRequestTicketsByParent.get(issue.ticket.number);
     if (discount === undefined) {
       return issue;
     }

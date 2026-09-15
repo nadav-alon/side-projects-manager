@@ -1268,7 +1268,7 @@ describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
  * ticket re-labelled ready-for-agent while its review is open would never be
  * selected again.
  */
-describe("ghIssueTracker.listOpenIssues — pull request sub-issues", () => {
+describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/12",

@@ -141,7 +141,7 @@ describe("FakeIssueTracker", () => {
     assert.equal(backlog[0]?.openSubIssues, 7);
   });
 
-  describe("pull request sub-issues", () => {
+  describe("pull request tickets", () => {
     const pullRequest = pullRequestUrl(
       "https://github.com/nadav-alon/pilot/pull/12",
     );

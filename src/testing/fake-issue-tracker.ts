@@ -11,7 +11,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
-  discountPullRequestSubIssues,
+  discountPullRequestTickets,
   modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
@@ -187,7 +187,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       };
     });
     return {
-      issues: discountPullRequestSubIssues(issues),
+      issues: discountPullRequestTickets(issues),
       truncated: this.#truncated.has(repo),
     };
   }
