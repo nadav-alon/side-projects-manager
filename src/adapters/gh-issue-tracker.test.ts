@@ -561,6 +561,18 @@ describe("ghIssueTracker.createReviewTicket", () => {
     );
   });
 
+  it("rejects a new issue's URL naming a number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      `echo https://github.com/nadav-alon/pilot/issues/0`,
+    );
+
+    await assert.rejects(
+      ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
+      /named a number that is not a positive integer/,
+    );
+  });
+
   it("says so when linking fails after the review was opened", async (t) => {
     const gh = await recordingGh(
       t,
@@ -857,6 +869,23 @@ describe("ghIssueTracker.listOpenIssues — parent", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed[0]?.parent, undefined);
+  });
+
+  it("rejects a parent number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 208,
+          title: "Part of the spec",
+          parent: linkedIssue("nadav-alon/pilot", 0),
+        },
+      ]),
+    );
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"parent.number" must be a positive integer, got 0/,
+    });
   });
 });
 
@@ -1496,6 +1525,26 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(issues[0]?.ticket.openBlockers, undefined);
+  });
+
+  it("rejects a blocker number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 56,
+          title: "Waits on others",
+          blockedBy: {
+            nodes: [linkedIssue("nadav-alon/pilot", 0)],
+            totalCount: 1,
+          },
+        },
+      ]),
+    );
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"blockedBy.nodes.number" must be a positive integer, got 0/,
+    });
   });
 });
 
