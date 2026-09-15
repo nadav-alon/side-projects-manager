@@ -205,7 +205,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const review = this.addEligibleTicket(ticket.repo, {
       number: Math.max(ticket.number, ...numbers) + 1,
       title: reviewTitle(ticket),
-      pullRequest,
+      pullRequest: { kind: "review", url: pullRequest },
     });
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });

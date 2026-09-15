@@ -23,7 +23,10 @@ const TICKET: Ticket = {
 const REVIEW_TICKET: ReviewTicket = {
   ...TICKET,
   number: 8,
-  pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
+  pullRequest: {
+    kind: "review",
+    url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
+  },
 };
 
 const CHECKOUT = checkout("/tmp/pilot");

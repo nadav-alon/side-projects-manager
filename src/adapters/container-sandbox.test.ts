@@ -54,7 +54,10 @@ const REVIEW_TICKET: ReviewTicket = {
   repo: repoSlug("nadav-alon/pilot"),
   number: 42,
   title: "Review the draft pull request for #7",
-  pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+  pullRequest: {
+    kind: "review",
+    url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+  },
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
@@ -876,7 +879,10 @@ describe("containerSandbox.review", () => {
       spendCeiling: CEILING,
     });
 
-    assert.match(asked, new RegExp(REVIEW_TICKET.pullRequest.replace(/\//g, "\\/")));
+    assert.match(
+      asked,
+      new RegExp(REVIEW_TICKET.pullRequest.url.replace(/\//g, "\\/")),
+    );
     assert.match(asked, /mattpocock-skills:code-review/);
   });
 

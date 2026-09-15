@@ -461,7 +461,7 @@ describe("morningLoop", () => {
       return {
         number,
         title: reviewTitle(parent),
-        pullRequest: SOME_PULL_REQUEST,
+        pullRequest: { kind: "review", url: SOME_PULL_REQUEST },
       };
     }
 
@@ -771,9 +771,10 @@ describe("morningLoop", () => {
         ports.tracker.addEligibleTicket(PILOT, {
           number: 10,
           title: reviewTitle(implementation),
-          pullRequest: pullRequestUrl(
-            "https://github.com/nadav-alon/pilot/pull/1",
-          ),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
           parent: 7,
         });
 
@@ -825,9 +826,10 @@ describe("morningLoop", () => {
         ports.tracker.addEligibleTicket(PILOT, {
           number: 8,
           title: reviewTitle(implementation),
-          pullRequest: pullRequestUrl(
-            "https://github.com/nadav-alon/pilot/pull/1",
-          ),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
         });
 
         await morningLoop(ports);
@@ -851,16 +853,18 @@ describe("morningLoop", () => {
         ports.tracker.addEligibleTicket(PILOT, {
           number: 9,
           title: reviewTitle(second),
-          pullRequest: pullRequestUrl(
-            "https://github.com/nadav-alon/pilot/pull/2",
-          ),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/2"),
+          },
         });
         ports.tracker.addEligibleTicket(PILOT, {
           number: 8,
           title: reviewTitle(first),
-          pullRequest: pullRequestUrl(
-            "https://github.com/nadav-alon/pilot/pull/1",
-          ),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
         });
 
         await morningLoop(ports);
@@ -883,17 +887,19 @@ describe("morningLoop", () => {
         ports.tracker.addEligibleTicket(PILOT, {
           number: 8,
           title: reviewTitle(first),
-          pullRequest: pullRequestUrl(
-            "https://github.com/nadav-alon/pilot/pull/1",
-          ),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
           parent: 5,
         });
         ports.tracker.addEligibleTicket(PILOT, {
           number: 9,
           title: reviewTitle(urgent),
-          pullRequest: pullRequestUrl(
-            "https://github.com/nadav-alon/pilot/pull/2",
-          ),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/2"),
+          },
           parent: 6,
         });
 
@@ -1955,7 +1961,7 @@ describe("morningLoop", () => {
       return ports.tracker.addEligibleTicket(PILOT, {
         number: 42,
         title: "Review the draft pull request for #7",
-        pullRequest: PULL_REQUEST,
+        pullRequest: { kind: "review", url: PULL_REQUEST },
       }) as ReviewTicket;
     }
 
@@ -2437,7 +2443,10 @@ describe("morningLoop", () => {
         const review = ports.tracker.addEligibleTicket(PILOT, {
           number: 42,
           title: "Review the draft pull request for #7",
-          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+          },
         });
         const clone = ports.repoHost.clone.bind(ports.repoHost);
         let clones = 0;
@@ -3574,7 +3583,10 @@ describe("morningLoop", () => {
       const review = ports.tracker.addEligibleTicket(PILOT, {
         number: 42,
         title: "Review the draft pull request for #7",
-        pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        },
       });
       ports.sandbox.reviewResult = () => ({
         kind: "limit-refused",
@@ -3648,7 +3660,10 @@ describe("morningLoop", () => {
       ports.tracker.addEligibleTicket(PILOT, {
         number: 42,
         title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
-        pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        },
       });
       ports.store.modelDefaults = { review: HAIKU };
 
@@ -3808,7 +3823,10 @@ describe("morningLoop", () => {
         ports.tracker.addEligibleTicket(PILOT, {
           number: 42,
           title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
-          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+          },
         });
         ports.store.modelDefaults = { review: HAIKU };
         ports.sandbox.reviewResult = () => ({
