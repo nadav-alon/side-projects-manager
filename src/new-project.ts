@@ -1,4 +1,5 @@
 import { agentInstructions } from "./agent-instructions.ts";
+import { branch } from "./ports/index.ts";
 import type {
   Grilling,
   GrillingSubject,
@@ -149,7 +150,7 @@ export async function newProject(
     ...(proposal !== undefined && { proposal }),
     registered,
     grilled: grillingFailure === undefined,
-    message: summaryLine({
+    message: recapLine({
       repo,
       directory,
       registered,
@@ -164,7 +165,7 @@ export async function newProject(
 const SCAFFOLD_MESSAGE = "Install the agent harness";
 
 /** Where a proposed harness waits for the developer. */
-const HARNESS_BRANCH = "harness";
+const HARNESS_BRANCH = branch("harness");
 
 /**
  * What the pull request says the scaffold did.
@@ -244,7 +245,7 @@ async function register(
 }
 
 /** Everything the one printed line has to account for. */
-interface Summary {
+interface Recap {
   repo: RepoSlug;
   directory: string;
   registered: boolean;
@@ -259,18 +260,18 @@ interface Summary {
  * opened. Each clause is there because it names something the developer might
  * have to do next.
  */
-function summaryLine(summary: Summary): string {
+function recapLine(recap: Recap): string {
   const sentences = [
-    `${summary.repo} is at ${summary.directory} and ${registryClause(summary)}.`,
+    `${recap.repo} is at ${recap.directory} and ${registryClause(recap)}.`,
   ];
 
-  const harness = harnessSentence(summary.proposal);
+  const harness = harnessSentence(recap.proposal);
   if (harness !== undefined) {
     sentences.push(harness);
   }
-  if (summary.grillingFailure !== undefined) {
+  if (recap.grillingFailure !== undefined) {
     sentences.push(
-      `Its grilling could not start (${summary.grillingFailure}); start one in the checkout yourself.`,
+      `Its grilling could not start (${recap.grillingFailure}); start one in the checkout yourself.`,
     );
   }
 
@@ -278,11 +279,11 @@ function summaryLine(summary: Summary): string {
 }
 
 /** What the registry now says, and why, when the command did not write it. */
-function registryClause(summary: Summary): string {
-  if (!summary.registered) {
+function registryClause(recap: Recap): string {
+  if (!recap.registered) {
     return "already registered, so the registry is untouched";
   }
-  return summary.paused
+  return recap.paused
     ? "registered paused, so the loop leaves it alone until its harness is merged"
     : "registered";
 }

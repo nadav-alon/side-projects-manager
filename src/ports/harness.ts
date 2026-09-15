@@ -1,3 +1,5 @@
+import type { Checkout } from "./checkout.ts";
+
 /** What one scaffolding put into a checkout. */
 export interface Scaffold {
   /** Every path written, relative to the checkout, in the order written. */
@@ -29,5 +31,5 @@ export interface Harness {
    * Installs the uniform files into the checkout at `directory` and writes
    * `instructions` as the project's own agent instructions.
    */
-  install(directory: string, instructions: string): Promise<Scaffold>;
+  install(directory: Checkout, instructions: string): Promise<Scaffold>;
 }

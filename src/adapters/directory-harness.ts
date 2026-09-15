@@ -1,7 +1,7 @@
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Harness, Scaffold } from "../ports/index.ts";
+import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 /**
@@ -37,7 +37,7 @@ const INSTRUCTIONS_FILE = "AGENTS.md";
  */
 export function directoryHarness(source: string = MANAGER_HOME): Harness {
   return {
-    async install(directory: string, instructions: string): Promise<Scaffold> {
+    async install(directory: Checkout, instructions: string): Promise<Scaffold> {
       const paths: string[] = [];
       const overwritten: string[] = [];
 

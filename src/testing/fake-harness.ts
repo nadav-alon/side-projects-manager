@@ -1,8 +1,8 @@
-import type { Harness, Scaffold } from "../ports/index.ts";
+import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
 
 /** One scaffolding, as the command asked for it. */
 export interface FakeInstall {
-  directory: string;
+  directory: Checkout;
   instructions: string;
 }
 
@@ -28,7 +28,7 @@ export class FakeHarness implements Harness {
    */
   overwrites: string[] = [];
 
-  async install(directory: string, instructions: string): Promise<Scaffold> {
+  async install(directory: Checkout, instructions: string): Promise<Scaffold> {
     this.installs.push({ directory, instructions });
     return {
       paths: [...FakeHarness.UNIFORM_FILES, FakeHarness.INSTRUCTIONS_FILE],
