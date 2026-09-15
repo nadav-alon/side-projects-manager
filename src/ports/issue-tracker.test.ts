@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { issueNumber } from "./issue-number.ts";
 import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
@@ -27,15 +28,17 @@ function openIssue(
   return {
     ticket: {
       repo: PILOT,
-      number,
+      number: issueNumber(number),
       title: `Issue ${number}`,
       ...(facts.priority === undefined
         ? {}
         : { priority: ticketPriority(facts.priority) }),
     },
     eligible: true,
-    openBlockerNumbers: facts.blockers ?? [],
-    ...(facts.parent === undefined ? {} : { parent: facts.parent }),
+    openBlockerNumbers: (facts.blockers ?? []).map(issueNumber),
+    ...(facts.parent === undefined
+      ? {}
+      : { parent: issueNumber(facts.parent) }),
   };
 }
 
@@ -161,7 +164,7 @@ describe("ticketKind", () => {
   it("reads a ticket bound to a review as a review", () => {
     const ticket = {
       repo: PILOT,
-      number: 13,
+      number: issueNumber(13),
       title: "Review #12",
       pullRequest: { kind: "review" as const, url: PULL_REQUEST },
     };
@@ -172,7 +175,7 @@ describe("ticketKind", () => {
   it("reads a ticket bound to an apply-review as an apply-review", () => {
     const ticket = {
       repo: PILOT,
-      number: 13,
+      number: issueNumber(13),
       title: "Apply the review",
       pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
     };
@@ -182,7 +185,7 @@ describe("ticketKind", () => {
 
   it("reads a ticket naming no pull request as an implementation", () => {
     assert.equal(
-      ticketKind({ repo: PILOT, number: 12, title: "Add a thing" }),
+      ticketKind({ repo: PILOT, number: issueNumber(12), title: "Add a thing" }),
       "implementation",
     );
   });
@@ -191,17 +194,17 @@ describe("ticketKind", () => {
 describe("isReviewTicket, isApplyReviewTicket and isPullRequestTicket", () => {
   const review = {
     repo: PILOT,
-    number: 13,
+    number: issueNumber(13),
     title: "Review #12",
     pullRequest: { kind: "review" as const, url: PULL_REQUEST },
   };
   const applyReview = {
     repo: PILOT,
-    number: 14,
+    number: issueNumber(14),
     title: "Apply the review",
     pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
   };
-  const implementation = { repo: PILOT, number: 12, title: "Add a thing" };
+  const implementation = { repo: PILOT, number: issueNumber(12), title: "Add a thing" };
 
   it("tells a review ticket from the other two kinds", () => {
     assert.equal(isReviewTicket(review), true);

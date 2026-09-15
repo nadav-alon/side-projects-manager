@@ -10,6 +10,7 @@ import {
   checkout,
   commitSha,
   iterationLimit,
+  issueNumber,
   localDay,
   modelName,
   pullRequestUrl,
@@ -119,7 +120,7 @@ describe("morningLoop", () => {
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addEligibleTicket(PILOT, {
-      number: 7,
+      number: issueNumber(7),
       title: "Add the thing",
     });
 
@@ -134,11 +135,11 @@ describe("morningLoop", () => {
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addEligibleTicket(PILOT, {
-      number: 7,
+      number: issueNumber(7),
       title: "Add the thing",
     });
     ports.tracker.addEligibleTicket(PILOT, {
-      number: 8,
+      number: issueNumber(8),
       title: "Add the other thing",
     });
 
@@ -185,11 +186,11 @@ describe("morningLoop", () => {
     ports.store.register(PILOT);
     ports.tracker.addBrokenOutTicket(
       PILOT,
-      { number: 66, title: "Too big for one run" },
+      { number: issueNumber(66), title: "Too big for one run" },
       7,
     );
     ports.tracker.addEligibleTicket(PILOT, {
-      number: 67,
+      number: issueNumber(67),
       title: "One of the slices",
     });
 
@@ -209,11 +210,11 @@ describe("morningLoop", () => {
     ports.store.register(PILOT);
     ports.tracker.addBlockedTicket(
       PILOT,
-      { number: 56, title: "Waits on #55" },
+      { number: issueNumber(56), title: "Waits on #55" },
       2,
     );
     ports.tracker.addEligibleTicket(PILOT, {
-      number: 55,
+      number: issueNumber(55),
       title: "The blocker",
     });
 
@@ -233,7 +234,7 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addBrokenOutTicket(
         PILOT,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       ports.tracker.truncateBacklog(PILOT);
@@ -261,14 +262,14 @@ describe("morningLoop", () => {
       ports.store.register(MANAGER);
       ports.tracker.addBrokenOutTicket(
         MANAGER,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       ports.tracker.truncateBacklog(MANAGER);
       ports.store.register(PILOT);
       ports.tracker.addBrokenOutTicket(
         PILOT,
-        { number: 67, title: "Also too big" },
+        { number: issueNumber(67), title: "Also too big" },
         8,
       );
       ports.tracker.truncateBacklog(PILOT);
@@ -286,7 +287,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.tracker.truncateBacklog(PILOT);
@@ -301,7 +302,7 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       ports.tracker.addBrokenOutTicket(
         PILOT,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
 
@@ -347,19 +348,19 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.store.markWorkedOn(localDay(YESTERDAY), {
         repo: MANAGER,
-        number: 3,
+        number: issueNumber(3),
       });
 
       await morningLoop(ports);
 
       assert.deepEqual((await ports.store.loadState()).workedToday, {
         day: TODAY,
-        tickets: [{ repo: PILOT, number: 7 }],
+        tickets: [{ repo: PILOT, number: issueNumber(7) }],
       });
     });
 
@@ -367,18 +368,18 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
-      ports.store.markWorkedOn(TODAY, { repo: MANAGER, number: 3 });
+      ports.store.markWorkedOn(TODAY, { repo: MANAGER, number: issueNumber(3) });
 
       await morningLoop(ports);
 
       assert.deepEqual((await ports.store.loadState()).workedToday, {
         day: TODAY,
         tickets: [
-          { repo: MANAGER, number: 3 },
-          { repo: PILOT, number: 7 },
+          { repo: MANAGER, number: issueNumber(3) },
+          { repo: PILOT, number: issueNumber(7) },
         ],
       });
     });
@@ -387,7 +388,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       t.mock.method(ports.sandbox, "run", async () => {
@@ -406,7 +407,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = (ticket) => ({
@@ -429,7 +430,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       let savedWhenRunStarted: State | undefined;
@@ -448,7 +449,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(savedWhenRunStarted?.workedToday, {
         day: TODAY,
-        tickets: [{ repo: PILOT, number: 7 }],
+        tickets: [{ repo: PILOT, number: issueNumber(7) }],
       });
     });
   });
@@ -458,7 +459,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -478,7 +479,7 @@ describe("morningLoop", () => {
       ports.store.register(MANAGER, { paused: true });
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -501,7 +502,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
@@ -536,7 +537,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
@@ -559,7 +560,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -573,7 +574,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
@@ -600,7 +601,7 @@ describe("morningLoop", () => {
         tokensUsed: tokenCount(120_000),
       });
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -640,7 +641,7 @@ describe("morningLoop", () => {
     ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = () =>
@@ -804,7 +805,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ran(ports);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 8,
+        number: issueNumber(8),
         title: "Add the other thing",
       });
       ports.repoHost.draftPullRequest = async () => ({
@@ -902,7 +903,7 @@ describe("morningLoop", () => {
     function ranSuccessfully(ports: FakePorts): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
@@ -963,7 +964,7 @@ describe("morningLoop", () => {
       });
       t.mock.method(ports.tracker, "createReviewTicket", async () => {
         order.push("review ticket");
-        return { repo: PILOT, number: 8, title: "Review" };
+        return { repo: PILOT, number: issueNumber(8), title: "Review" };
       });
 
       await morningLoop(ports);
@@ -1004,7 +1005,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       ports.sandbox.result = () => ({
@@ -1036,7 +1037,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ranSuccessfully(ports);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 8,
+        number: issueNumber(8),
         title: "Add the other thing",
       });
       t.mock.method(ports.tracker, "createReviewTicket", async () => {
@@ -1091,7 +1092,7 @@ describe("morningLoop", () => {
     function queued(ports: FakePorts): ReviewTicket {
       ports.store.register(PILOT);
       return ports.tracker.addEligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: "Review the draft pull request for #7",
         pullRequest: { kind: "review", url: PULL_REQUEST },
       }) as ReviewTicket;
@@ -1224,7 +1225,7 @@ describe("morningLoop", () => {
     it("reports a review whose pull request cannot be checked for its findings, rather than raising it", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.sandbox.reviewResult = () => ({
         kind: "finished",
         output: "posted findings",
@@ -1281,7 +1282,7 @@ describe("morningLoop", () => {
     it("carries on past a review whose sandbox breaks, as an infrastructure failure that leaves the review open", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       t.mock.method(ports.sandbox, "review", async () => {
         throw new Error("docker is not running");
       });
@@ -1304,7 +1305,7 @@ describe("morningLoop", () => {
     it("carries on past a review whose checkout cannot be made, as an infrastructure failure that leaves the review open", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const clone = ports.repoHost.clone.bind(ports.repoHost);
       let clones = 0;
       t.mock.method(ports.repoHost, "clone", async (repo: typeof PILOT) => {
@@ -1459,7 +1460,7 @@ describe("morningLoop", () => {
         ports.repoHost.openApplyReviewThread(PULL_REQUEST);
       }
       return ports.tracker.addEligibleTicket(PILOT, {
-        number: 43,
+        number: issueNumber(43),
         title: "Apply the review on the draft pull request for #7",
         pullRequest: { kind: "apply-review", url: PULL_REQUEST },
       }) as ApplyReviewTicket;
@@ -1816,7 +1817,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       return ports;
@@ -1946,7 +1947,7 @@ describe("morningLoop", () => {
       it("carries on past a review whose checkout cannot be made, leaving the review open", async (t) => {
         const ports = readyToWork();
         const review = ports.tracker.addEligibleTicket(PILOT, {
-          number: 42,
+          number: issueNumber(42),
           title: "Review the draft pull request for #7",
           pullRequest: {
             kind: "review",
@@ -1981,7 +1982,7 @@ describe("morningLoop", () => {
       it("carries on to the next ticket", async (t) => {
         const ports = readyToWork();
         ports.tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: "Add another thing",
         });
         t.mock.method(ports.sandbox, "run", async (request: { ticket: Ticket }) => {
@@ -2166,7 +2167,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -2180,7 +2181,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -2200,7 +2201,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -2215,7 +2216,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       t.mock.method(ports.tracker, "handBack", async () => {
@@ -2245,7 +2246,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       return ports;
@@ -2620,7 +2621,7 @@ describe("morningLoop", () => {
           order.push("run");
           return ports.sandbox.result({
             repo: PILOT,
-            number: 7,
+            number: issueNumber(7),
             title: "Add the thing",
           });
         });
@@ -2674,7 +2675,11 @@ describe("morningLoop", () => {
     }
 
     function ticketOf(number: number) {
-      return { repo: PILOT, number, title: `Ticket ${number}` } satisfies Ticket;
+      return {
+        repo: PILOT,
+        number: issueNumber(number),
+        title: `Ticket ${number}`,
+      } satisfies Ticket;
     }
 
     /** A costless, empty, finished run on `ticket`, but for what `overrides` sets. */
@@ -2744,7 +2749,7 @@ describe("morningLoop", () => {
 
     it("starts no ticket its in-progress blocker still blocks", HANGS, async (t) => {
       const ports = backlogOf(1, 2);
-      ports.tracker.addBlockedTicket(PILOT, { number: 2, title: "Ticket 2" }, 1);
+      ports.tracker.addBlockedTicket(PILOT, { number: issueNumber(2), title: "Ticket 2" }, 1);
       ports.sandbox.hold();
       const list = ports.tracker.listOpenIssues.bind(ports.tracker);
       const rescanned = gate();
@@ -2916,7 +2921,7 @@ describe("morningLoop", () => {
       };
       for (const number of [1, 2, 3]) {
         ports.tracker.addEligibleTicket(PILOT, {
-          number,
+          number: issueNumber(number),
           title: `Ticket ${number}`,
         });
       }
@@ -2989,7 +2994,7 @@ describe("morningLoop", () => {
       ports.store.register(PILOT);
       for (const number of [1, 2, 3]) {
         ports.tracker.addEligibleTicket(PILOT, {
-          number,
+          number: issueNumber(number),
           title: `Ticket ${number}`,
         });
       }
@@ -3086,7 +3091,7 @@ describe("morningLoop", () => {
     it("stands down just the same when it refuses a review, leaving the review open", async () => {
       const ports = threeTickets();
       const review = ports.tracker.addEligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: "Review the draft pull request for #7",
         pullRequest: {
           kind: "review",
@@ -3118,7 +3123,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       return { ports, ticket };
@@ -3135,8 +3140,8 @@ describe("morningLoop", () => {
 
     it("reads the model defaults once per invocation, however many tickets it works", async () => {
       const { ports } = oneTicket();
-      ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
-      ports.tracker.addEligibleTicket(PILOT, { number: 9, title: "After" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(9), title: "After" });
       ports.store.modelDefaults = { implementation: OPUS };
       let reads = 0;
       const load = ports.store.loadModelDefaults.bind(ports.store);
@@ -3163,8 +3168,8 @@ describe("morningLoop", () => {
     it("runs a review on the review default, and an implementation ticket not", async () => {
       const { ports } = oneTicket();
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 42,
-        title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
+        number: issueNumber(42),
+        title: reviewTitle({ repo: PILOT, number: issueNumber(6), title: "Earlier" }),
         pullRequest: {
           kind: "review",
           url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
@@ -3185,7 +3190,7 @@ describe("morningLoop", () => {
         "https://github.com/nadav-alon/pilot/pull/12",
       );
       ports.tracker.addEligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: `Apply the review on ${pullRequest}`,
         pullRequest: { kind: "apply-review", url: pullRequest },
       });
@@ -3264,7 +3269,7 @@ describe("morningLoop", () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
         ports.tracker.addLabel(ticket, "model:haiku");
-        ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
 
         await morningLoop(ports);
 
@@ -3280,7 +3285,7 @@ describe("morningLoop", () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
         ports.tracker.addLabel(ticket, "model:haiku");
-        ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
         ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
 
         const report = await morningLoop(ports);
@@ -3347,8 +3352,8 @@ describe("morningLoop", () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
         ports.tracker.addEligibleTicket(PILOT, {
-          number: 42,
-          title: reviewTitle({ repo: PILOT, number: 6, title: "Earlier" }),
+          number: issueNumber(42),
+          title: reviewTitle({ repo: PILOT, number: issueNumber(6), title: "Earlier" }),
           pullRequest: {
             kind: "review",
             url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
@@ -3376,7 +3381,7 @@ describe("morningLoop", () => {
           "https://github.com/nadav-alon/pilot/pull/12",
         );
         ports.tracker.addEligibleTicket(PILOT, {
-          number: 42,
+          number: issueNumber(42),
           title: `Apply the review on ${pullRequest}`,
           pullRequest: { kind: "apply-review", url: pullRequest },
         });
@@ -3450,7 +3455,7 @@ describe("morningLoop", () => {
     it("names the model each run used in the summary", async () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:opus");
-      ports.tracker.addEligibleTicket(PILOT, { number: 8, title: "Next" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
 
       await morningLoop(ports);
 
@@ -3483,7 +3488,7 @@ describe("morningLoop", () => {
     it("is published exactly once when the gate stands down", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
 
       const report = await morningLoop(ports);
@@ -3499,7 +3504,7 @@ describe("morningLoop", () => {
     it("is published exactly once after a morning that worked something", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
@@ -3521,7 +3526,7 @@ describe("morningLoop", () => {
     it("lists each run attempted, its outcome, and what it cost", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
@@ -3545,7 +3550,7 @@ describe("morningLoop", () => {
     it("lists a queued review as waiting on the developer", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.sandbox.result = () => ({
         kind: "finished",
         branch: branch("issue-7-add-the-thing"),
@@ -3575,7 +3580,7 @@ describe("morningLoop", () => {
     it("lists a handed-back ticket as waiting on the developer", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.sandbox.result = () => ({
         kind: "gave-up",
         branch: branch("issue-7-add-the-thing"),
@@ -3596,7 +3601,7 @@ describe("morningLoop", () => {
     it("lists a ticket the hand-back itself failed on, still eligible", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       ports.sandbox.result = () => ({
         kind: "gave-up",
         branch: branch("issue-7-add-the-thing"),
@@ -3668,7 +3673,7 @@ describe("morningLoop", () => {
         const ports = fakePorts();
         ports.store.markAnnouncedOn(TODAY);
         ports.store.register(PILOT);
-        ports.tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
         ports.sandbox.result = () => ({
           kind: "finished",
           branch: branch("issue-7-add-the-thing"),
@@ -3710,7 +3715,7 @@ describe("morningLoop", () => {
           const ports = fakePorts();
           ports.store.register(PILOT);
           ports.tracker.addEligibleTicket(PILOT, {
-            number: 7,
+            number: issueNumber(7),
             title: "Add the thing",
           });
           ports.ledger.reports(

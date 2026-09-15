@@ -10,6 +10,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isBrokenOut,
+  issueNumber,
   modelLabelOf,
   modelName,
   pullRequestUrl,
@@ -95,7 +96,7 @@ describe("ghIssueTracker", () => {
     // Excluded by state, included whatever its labels: checked against the
     // fixtures found above rather than a JS reimplementation of the adapter's
     // own filter.
-    assert.ok(!numbers.includes(closedButLabelled.number));
+    assert.ok(!numbers.includes(issueNumber(closedButLabelled.number)));
     const unlabelled = issues.find(
       (issue) => issue.ticket.number === openButUnlabelled.number,
     );
@@ -324,7 +325,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
 
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -596,7 +597,7 @@ describe("ghIssueTracker.handBack", () => {
 
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -802,6 +803,14 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed[0]?.eligible, true);
+  });
+
+  it("rejects an issue number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(t, listing([{ number: 0, title: "Add the thing" }]));
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"number" must be a positive integer, got 0/,
+    });
   });
 });
 
@@ -1604,7 +1613,7 @@ describe("ghIssueTracker.closeReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const REVIEW: ReviewTicket = {
     repo: PILOT,
-    number: 42,
+    number: issueNumber(42),
     title: "Review the draft pull request for #7",
     pullRequest: {
       kind: "review",
@@ -1628,7 +1637,7 @@ describe("ghIssueTracker.closeApplyReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const APPLY_REVIEW: ApplyReviewTicket = {
     repo: PILOT,
-    number: 43,
+    number: issueNumber(43),
     title: "Apply the review on the draft pull request for #7",
     pullRequest: {
       kind: "apply-review",

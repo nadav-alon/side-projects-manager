@@ -8,6 +8,7 @@ import {
 } from "./selection.ts";
 import { workedTickets, type WorkedTickets } from "./worked-today.ts";
 import {
+  issueNumber,
   localDay,
   priority,
   pullRequestUrl,
@@ -117,7 +118,7 @@ describe("invocationSelection", () => {
     const store = new FakeStore();
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const { selection } = await open(store, tracker);
 
     const chosen = await selection.next();
@@ -132,7 +133,7 @@ describe("invocationSelection", () => {
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
     store.register(MANAGER);
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
     const { selection, worked } = await open(store, tracker);
 
@@ -152,7 +153,7 @@ describe("invocationSelection", () => {
     const store = new FakeStore();
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const { selection, worked } = await open(store, tracker);
 
     const first = await selection.next();
@@ -172,9 +173,9 @@ describe("invocationSelection", () => {
     const store = new FakeStore();
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addEligibleTicket(PILOT, {
-      number: 8,
+      number: issueNumber(8),
       title: "Add the other thing",
     });
     const { selection, worked } = await open(store, tracker);
@@ -194,7 +195,7 @@ describe("invocationSelection", () => {
     const store = new FakeStore();
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const { selection, worked } = await open(store, tracker);
 
     const first = await selection.next();
@@ -212,7 +213,7 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT, { paused: true });
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
       const { selection } = await open(store, tracker);
 
@@ -228,7 +229,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER, { paused: true });
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection, worked } = await open(store, tracker);
 
       const selections = await drain(selection, worked);
@@ -248,11 +249,11 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER, { paused: true, priority: priority(1) });
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -271,7 +272,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       tracker.addIneligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Not triaged yet",
       });
       const { selection } = await open(store, tracker);
@@ -289,7 +290,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       const ticket = tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
 
@@ -312,7 +313,7 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       tracker.addBrokenOutTicket(
         PILOT,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       const { selection } = await open(store, tracker);
@@ -330,7 +331,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       tracker.addEligibleTicket(PILOT, {
-        number: 66,
+        number: issueNumber(66),
         title: "Too big for one run",
       });
       const { selection } = await open(store, tracker);
@@ -346,11 +347,11 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       tracker.addBrokenOutTicket(
         PILOT,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       tracker.addEligibleTicket(PILOT, {
-        number: 67,
+        number: issueNumber(67),
         title: "One of the slices",
       });
       const { selection } = await open(store, tracker);
@@ -372,7 +373,7 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       tracker.addBrokenOutTicket(
         MANAGER,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       const { selection } = await open(store, tracker);
@@ -391,19 +392,19 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       const implementation = tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
         openSubIssues: 1,
       });
       // Handed back, so the review itself is not what gets selected.
       tracker.addIneligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: reviewTitle(implementation),
         pullRequest: {
           kind: "review",
           url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
         },
-        parent: 7,
+        parent: issueNumber(7),
       });
       const { selection } = await open(store, tracker);
 
@@ -417,19 +418,19 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
         openSubIssues: 1,
       });
       // Handed back, so the apply-review itself is not what gets selected.
       tracker.addIneligibleTicket(PILOT, {
-        number: 43,
+        number: issueNumber(43),
         title: "Apply the review on #1",
         pullRequest: {
           kind: "apply-review",
           url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
         },
-        parent: 7,
+        parent: issueNumber(7),
       });
       const { selection } = await open(store, tracker);
 
@@ -444,7 +445,7 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       tracker.addBrokenOutTicket(
         PILOT,
-        { number: 66, title: "Too big for one run" },
+        { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       const { selection } = await open(store, tracker);
@@ -463,7 +464,7 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addBlockedTicket(PILOT, { number: 56, title: "Waits on #55" }, 1);
+      tracker.addBlockedTicket(PILOT, { number: issueNumber(56), title: "Waits on #55" }, 1);
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -478,9 +479,9 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addBlockedTicket(PILOT, { number: 56, title: "Waits on #55" }, 2);
+      tracker.addBlockedTicket(PILOT, { number: issueNumber(56), title: "Waits on #55" }, 2);
       tracker.addEligibleTicket(PILOT, {
-        number: 55,
+        number: issueNumber(55),
         title: "The blocker",
       });
       const { selection } = await open(store, tracker);
@@ -512,7 +513,7 @@ describe("invocationSelection", () => {
       number: number,
     ): Omit<Ticket, "repo" | "modelLabel"> {
       return {
-        number,
+        number: issueNumber(number),
         title: reviewTitle(parent),
         pullRequest: { kind: "review", url: SOME_PULL_REQUEST },
       };
@@ -523,7 +524,7 @@ describe("invocationSelection", () => {
       number: number,
     ): Omit<Ticket, "repo" | "modelLabel"> {
       return {
-        number,
+        number: issueNumber(number),
         title: `Apply the review on ${SOME_PULL_REQUEST}`,
         pullRequest: { kind: "apply-review", url: SOME_PULL_REQUEST },
       };
@@ -534,7 +535,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       const implementation = tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
@@ -570,7 +571,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER);
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       store.register(PILOT);
@@ -587,7 +588,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER, { priority: priority(1) });
       const implementation = tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       tracker.addEligibleTicket(MANAGER, reviewOf(implementation, 4));
@@ -605,13 +606,13 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER, { priority: priority(1) });
       const managerImplementation = tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       tracker.addEligibleTicket(MANAGER, reviewOf(managerImplementation, 4));
       store.register(PILOT);
       const pilotImplementation = tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       tracker.addEligibleTicket(PILOT, reviewOf(pilotImplementation, 8));
@@ -629,7 +630,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
         priority: ticketPriority(1),
       });
@@ -646,7 +647,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       const implementation = tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       // Added after the implementation ticket, so winning proves the rule
@@ -664,12 +665,12 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER);
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       store.register(PILOT);
       const implementation = tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
       });
       tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
@@ -688,11 +689,11 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER);
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       store.register(PILOT, { priority: priority(1) });
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -705,11 +706,11 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER, { priority: priority(2) });
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       store.register(PILOT, { priority: priority(1) });
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -723,12 +724,12 @@ describe("invocationSelection", () => {
       store.register(MANAGER);
       store.markWorked(MANAGER, YESTERDAY);
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       store.register(PILOT);
       store.markWorked(PILOT, LAST_WEEK);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -742,12 +743,12 @@ describe("invocationSelection", () => {
       store.register(MANAGER);
       store.markWorked(MANAGER, YESTERDAY);
       tracker.addEligibleTicket(MANAGER, {
-        number: 3,
+        number: issueNumber(3),
         title: "Add another thing",
       });
       // Never worked: no state entry at all, not even an old one.
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -761,12 +762,12 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
         });
         // Added after #7, so winning proves priority rather than backlog order.
         tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
         });
@@ -782,12 +783,12 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           priority: ticketPriority(2),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
         });
@@ -805,11 +806,11 @@ describe("invocationSelection", () => {
         // Added in descending order, so winning proves the tie-break rather
         // than reflecting backlog order.
         tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: "Add the other thing",
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
         });
         const { selection } = await open(store, tracker);
@@ -824,20 +825,20 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addIneligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
           openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           priority: ticketPriority(2),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: "Build part of the urgent spec",
-          parent: 5,
+          parent: issueNumber(5),
         });
         const { selection } = await open(store, tracker);
 
@@ -851,19 +852,19 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addEligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "The urgent thing",
           priority: ticketPriority(1),
           openBlockers: 1,
-          openBlockerNumbers: [9],
+          openBlockerNumbers: [issueNumber(9)],
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           priority: ticketPriority(2),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: "What the urgent thing waits on",
         });
         const { selection } = await open(store, tracker);
@@ -882,12 +883,12 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addIneligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           priority: ticketPriority(2),
         });
@@ -906,20 +907,20 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(MANAGER, { priority: priority(1) });
         tracker.addEligibleTicket(MANAGER, {
-          number: 3,
+          number: issueNumber(3),
           title: "Add another thing",
         });
         store.register(PILOT);
         tracker.addIneligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
           openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: "Build part of the urgent spec",
-          parent: 5,
+          parent: issueNumber(5),
         });
         const { selection } = await open(store, tracker);
 
@@ -933,26 +934,26 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addIneligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
           openSubIssues: 1,
         });
         const implementation = tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: "Build part of the urgent spec",
-          parent: 5,
+          parent: issueNumber(5),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 10,
+          number: issueNumber(10),
           title: reviewTitle(implementation),
           pullRequest: { kind: "review", url: SOME_PULL_REQUEST },
-          parent: 7,
+          parent: issueNumber(7),
         });
         const { selection } = await open(store, tracker);
 
@@ -966,22 +967,22 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         tracker.addIneligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
           openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           priority: ticketPriority(2),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: "Build part of the urgent spec",
-          parent: 5,
+          parent: issueNumber(5),
         });
-        store.markWorkedOn(TODAY, { repo: PILOT, number: 9 });
+        store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(9) });
         const { selection, worked } = await open(store, tracker);
 
         const selections = await drain(selection, worked);
@@ -997,12 +998,12 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         const implementation = tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the thing",
           priority: ticketPriority(1),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: reviewTitle(implementation),
           pullRequest: { kind: "review", url: SOME_PULL_REQUEST },
         });
@@ -1018,17 +1019,17 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         const first = tracker.addEligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "Add the thing",
         });
         const second = tracker.addEligibleTicket(PILOT, {
-          number: 6,
+          number: issueNumber(6),
           title: "Add the other thing",
         });
         // Added in descending order, so winning proves the tie-break rather
         // than reflecting backlog order.
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: reviewTitle(second),
           pullRequest: {
             kind: "review",
@@ -1036,7 +1037,7 @@ describe("invocationSelection", () => {
           },
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: reviewTitle(first),
           pullRequest: { kind: "review", url: SOME_PULL_REQUEST },
         });
@@ -1052,30 +1053,30 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
         const first = tracker.addEligibleTicket(PILOT, {
-          number: 5,
+          number: issueNumber(5),
           title: "Add the thing",
           openSubIssues: 1,
         });
         const urgent = tracker.addEligibleTicket(PILOT, {
-          number: 6,
+          number: issueNumber(6),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
           openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 8,
+          number: issueNumber(8),
           title: reviewTitle(first),
           pullRequest: { kind: "review", url: SOME_PULL_REQUEST },
-          parent: 5,
+          parent: issueNumber(5),
         });
         tracker.addEligibleTicket(PILOT, {
-          number: 9,
+          number: issueNumber(9),
           title: reviewTitle(urgent),
           pullRequest: {
             kind: "review",
             url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/2"),
           },
-          parent: 6,
+          parent: issueNumber(6),
         });
         const { selection } = await open(store, tracker);
 
@@ -1089,12 +1090,12 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(MANAGER, { priority: priority(1) });
         tracker.addEligibleTicket(MANAGER, {
-          number: 3,
+          number: issueNumber(3),
           title: "Add another thing",
         });
         store.register(PILOT);
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
         });
@@ -1110,7 +1111,7 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(MANAGER);
         tracker.addEligibleTicket(MANAGER, {
-          number: 3,
+          number: issueNumber(3),
           title: "Add another thing",
         });
         // MANAGER was never worked, so it waits longest; the ticket priority on
@@ -1118,7 +1119,7 @@ describe("invocationSelection", () => {
         store.register(PILOT);
         store.markWorked(PILOT, YESTERDAY);
         tracker.addEligibleTicket(PILOT, {
-          number: 7,
+          number: issueNumber(7),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
         });
@@ -1135,7 +1136,7 @@ describe("invocationSelection", () => {
         const store = new FakeStore();
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
-        tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+        tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
         tracker.truncateBacklog(PILOT);
         const { selection } = await open(store, tracker);
 
@@ -1149,11 +1150,11 @@ describe("invocationSelection", () => {
         const tracker = new FakeIssueTracker();
         store.register(MANAGER, { priority: priority(1) });
         tracker.addEligibleTicket(MANAGER, {
-          number: 3,
+          number: issueNumber(3),
           title: "Add another thing",
         });
         store.register(PILOT);
-        tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+        tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
         tracker.truncateBacklog(PILOT);
         const { selection } = await open(store, tracker);
 
@@ -1174,7 +1175,7 @@ describe("invocationSelection", () => {
         store.register(PILOT);
         tracker.addBrokenOutTicket(
           PILOT,
-          { number: 66, title: "Too big for one run" },
+          { number: issueNumber(66), title: "Too big for one run" },
           7,
         );
         tracker.truncateBacklog(PILOT);
@@ -1190,7 +1191,7 @@ describe("invocationSelection", () => {
         const store = new FakeStore();
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
-        tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+        tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
         const { selection } = await open(store, tracker);
 
         await selection.next();
@@ -1230,12 +1231,12 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       tracker.addEligibleTicket(PILOT, {
-        number: 8,
+        number: issueNumber(8),
         title: "Add the other thing",
       });
-      store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+      store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -1248,12 +1249,12 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       store.register(MANAGER);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       tracker.addEligibleTicket(MANAGER, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the other thing",
       });
-      store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+      store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -1266,8 +1267,8 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
-      store.markWorkedOn(TODAY, { repo: PILOT, number: 7 });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
@@ -1282,8 +1283,8 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
-      store.markWorkedOn(localDay(YESTERDAY), { repo: PILOT, number: 7 });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      store.markWorkedOn(localDay(YESTERDAY), { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
