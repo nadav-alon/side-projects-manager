@@ -180,7 +180,7 @@ describe("FakeIssueTracker", () => {
       withSubIssues(tracker, 1);
       tracker.addEligibleTicket(PILOT, {
         number: 43,
-        title: "Apply the review",
+        title: "Apply the review on #12",
         pullRequest: { kind: "apply-review", url: pullRequest },
         parent: 7,
       });
