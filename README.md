@@ -309,7 +309,7 @@ when the ticket carries no `model:<name>` label — the same for every project:
 { "implementation": "sonnet", "review": "opus" }
 ```
 
-Both kinds are optional, and so is the file. A kind you leave out, and every kind on a machine with
+The kinds are `implementation`, `review` and `apply-review`. Every kind is optional, and so is the file. A kind you leave out, and every kind on a machine with
 no `models.json`, runs on the model the sandbox image is pinned to. A name is passed to the agent
 CLI as written — an alias or a full model id — and never checked against a list of models, so a new
 model needs no change here; the only shape asked of it is a non-empty name without spaces that does
@@ -320,8 +320,8 @@ its own labels, never the ticket it reviews. A ticket carrying two model labels 
 without being run, and so is one whose model the agent CLI refuses — the comment names the model
 and whether the label or `models.json` named it. The summary says which model each run used.
 
-A key that is not `implementation` or `review` fails the invocation, and so does a name that is not
-a usable string. Both kinds are optional, so `"reveiw"` would otherwise read as no review default at
+A key that is not one of those three kinds fails the invocation, and so does a name that is not a
+usable string. Every kind is optional, so `"reveiw"` would otherwise read as no review default at
 all, and your reviews would quietly run on the image's model.
 
 All four documents, your three and the loop's `state.json`, live in the manager home: this
