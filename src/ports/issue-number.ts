@@ -14,7 +14,7 @@ export type IssueNumber = number & { readonly [issueNumberBrand]: true };
 
 /** Whether `value` is shaped like an issue number: a positive integer. */
 export function isIssueNumber(value: number): value is IssueNumber {
-  return Number.isInteger(value) && value > 0;
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 /** Narrows `value` to an `IssueNumber`, throwing if it is not one. */
