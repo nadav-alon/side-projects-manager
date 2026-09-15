@@ -517,7 +517,7 @@ function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
  * A review's own thread has no comments of its own on GitHub — its reply is
  * posted as one of the pull request's comments (`gh pr comment`, per the
  * skill) — so its thread is built from the review's body followed by every
- * pull request comment posted after it.
+ * later pull request comment that opens quoting it.
  */
 function applyReviewThreadsFrom(
   pullRequest: RawApplyReviewPullRequest,
@@ -527,10 +527,10 @@ function applyReviewThreadsFrom(
   const threads: ApplyReviewThread[] = [];
 
   for (const thread of pullRequest.reviewThreads) {
-    if (thread.isResolved) {
-      continue;
-    }
-    threads.push({ comments: commentsFrom(thread.comments) });
+    threads.push({
+      resolved: thread.isResolved,
+      comments: commentsFrom(thread.comments),
+    });
   }
 
   for (const review of pullRequest.reviews) {
@@ -538,15 +538,40 @@ function applyReviewThreadsFrom(
       continue;
     }
     const submittedAt = new Date(review.submittedAt);
+    const body = review.body;
     threads.push({
+      resolved: false,
       comments: [
-        { body: review.body, postedAt: submittedAt },
-        ...pullRequestComments.filter((comment) => comment.postedAt > submittedAt),
+        { body, postedAt: submittedAt },
+        ...pullRequestComments.filter(
+          (comment) =>
+            comment.postedAt > submittedAt && opensQuoting(comment.body, body),
+        ),
       ],
     });
   }
 
   return threads;
+}
+
+/**
+ * Whether `comment` opens with a quote of a passage from `review`: the one
+ * link the skill leaves from a pull request comment back to the review body it
+ * answers. A comment quoting nothing — a status comment, someone chiming in —
+ * belongs to no review's thread.
+ */
+function opensQuoting(comment: string, review: string): boolean {
+  const quoted: string[] = [];
+  for (const line of comment.split("\n")) {
+    if (!line.startsWith(">")) {
+      break;
+    }
+    const text = line.replace(/^>\s?/, "").trim();
+    if (text !== "") {
+      quoted.push(text);
+    }
+  }
+  return quoted.length > 0 && quoted.every((text) => review.includes(text));
 }
 
 /**

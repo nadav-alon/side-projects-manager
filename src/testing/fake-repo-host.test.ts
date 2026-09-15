@@ -47,7 +47,7 @@ describe("FakeRepoHost apply-review answers", () => {
 
     const answers = await host.readApplyReviewAnswers(PULL_REQUEST, SINCE);
 
-    assert.deepEqual(answers, { applied: 0, declined: 0, unanswered: 1 });
+    assert.deepEqual(answers, { applied: 1, declined: 0, unanswered: 1 });
   });
 
   it("marks a pull request ready and records it", async () => {

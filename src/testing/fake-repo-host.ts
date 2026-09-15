@@ -180,8 +180,16 @@ export class FakeRepoHost implements RepoHost {
    */
   openApplyReviewThread(pullRequest: PullRequestUrl): number {
     const threads = this.#threadsOn(pullRequest);
-    threads.push({ comments: [] });
+    threads.push({ resolved: false, comments: [] });
     return threads.length - 1;
+  }
+
+  /**
+   * Resolves thread `index` of `pullRequest`, as the skill does to a review
+   * thread once it has applied it.
+   */
+  resolveApplyReviewThread(pullRequest: PullRequestUrl, index: number): void {
+    this.#threadAt(pullRequest, index).resolved = true;
   }
 
   /**
@@ -215,11 +223,15 @@ export class FakeRepoHost implements RepoHost {
     body: string,
     postedAt = new Date(),
   ): void {
+    this.#threadAt(pullRequest, index).comments.push({ body, postedAt });
+  }
+
+  #threadAt(pullRequest: PullRequestUrl, index: number): ApplyReviewThread {
     const thread = this.#threadsOn(pullRequest)[index];
     if (thread === undefined) {
       throw new Error(`No apply-review thread ${index} open on ${pullRequest}.`);
     }
-    thread.comments.push({ body, postedAt });
+    return thread;
   }
 
   async readApplyReviewAnswers(

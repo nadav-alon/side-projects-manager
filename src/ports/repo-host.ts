@@ -13,10 +13,14 @@ import type { RepoSlug } from "./repo-slug.ts";
  */
 export const APPLY_REVIEW_MARKER = "<!-- apply-pr-review -->";
 
-/** What an applied reply's body starts with, before the commit it landed in. */
+/**
+ * What an applied reply's verdict line starts with, before the commit it
+ * landed in. A line, not the body: a reply to a review's body opens with a
+ * quote of the passage it answers, and its verdict follows the quote.
+ */
 export const APPLIED_REPLY_PREFIX = "Applied in ";
 
-/** What a declined reply's body starts with, before the reason. */
+/** What a declined reply's verdict line starts with, before the reason. */
 export const DECLINED_REPLY_PREFIX = "Declined: ";
 
 /** One comment in an {@link ApplyReviewThread}: what it says, and when. */
@@ -26,12 +30,16 @@ export interface ApplyReviewComment {
 }
 
 /**
- * One thread's comments, oldest first: an unresolved review thread's, or a
- * review's non-empty body followed by whatever the pull request's own
- * comments said after it — the two kinds of thread the apply-pr-review skill
- * answers.
+ * One thread's comments, oldest first: a review thread's, or a review's
+ * non-empty body followed by the pull request comments that quote it — the
+ * two kinds of thread the apply-pr-review skill answers.
+ *
+ * `resolved` threads are no longer open, so none of them is unanswered; but
+ * the skill resolves a review thread as soon as it applies it, so their
+ * marked replies still count.
  */
 export interface ApplyReviewThread {
+  resolved: boolean;
   comments: ApplyReviewComment[];
 }
 
@@ -66,22 +74,45 @@ export function summarizeApplyReviewThreads(
   let unanswered = 0;
 
   for (const thread of threads) {
+    for (const comment of thread.comments) {
+      if (comment.postedAt <= since) {
+        continue;
+      }
+      const verdict = verdictOf(comment.body);
+      if (verdict === "applied") {
+        applied++;
+      } else if (verdict === "declined") {
+        declined++;
+      }
+    }
+
     const last = thread.comments.at(-1);
-    if (last === undefined || !last.body.endsWith(APPLY_REVIEW_MARKER)) {
+    if (!thread.resolved && (last === undefined || !isMarked(last.body))) {
       unanswered++;
-      continue;
-    }
-    if (last.postedAt <= since) {
-      continue;
-    }
-    if (last.body.startsWith(APPLIED_REPLY_PREFIX)) {
-      applied++;
-    } else if (last.body.startsWith(DECLINED_REPLY_PREFIX)) {
-      declined++;
     }
   }
 
   return { applied, declined, unanswered };
+}
+
+function isMarked(body: string): boolean {
+  return body.trimEnd().endsWith(APPLY_REVIEW_MARKER);
+}
+
+/** What a marked reply decided, read from its first verdict line. */
+function verdictOf(body: string): "applied" | "declined" | undefined {
+  if (!isMarked(body)) {
+    return undefined;
+  }
+  for (const line of body.split("\n")) {
+    if (line.startsWith(APPLIED_REPLY_PREFIX)) {
+      return "applied";
+    }
+    if (line.startsWith(DECLINED_REPLY_PREFIX)) {
+      return "declined";
+    }
+  }
+  return undefined;
 }
 
 /**
