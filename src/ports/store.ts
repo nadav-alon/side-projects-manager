@@ -1,5 +1,6 @@
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
+import type { IssueNumber } from "./issue-number.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -97,7 +98,7 @@ export function workedTicket({ repo, number }: WorkedTicket): WorkedTicket {
 /** A ticket as the state document names it: its project, and its number there. */
 export interface WorkedTicket {
   repo: RepoSlug;
-  number: number;
+  number: IssueNumber;
 }
 
 /**

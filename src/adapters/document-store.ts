@@ -24,6 +24,7 @@ import {
   SIZES,
   TICKET_KINDS,
   isDay,
+  isIssueNumber,
   isIterationLimit,
   isModelName,
   isPriority,
@@ -483,7 +484,7 @@ function parseWorkedToday(value: unknown, where: string): WorkedToday {
 function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
   const repo = repoSlugField(ticket, where);
   const number = fieldOf(ticket, "number", where);
-  if (typeof number !== "number" || !Number.isInteger(number) || number < 1) {
+  if (typeof number !== "number" || !isIssueNumber(number)) {
     throw new Error(
       `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
     );
