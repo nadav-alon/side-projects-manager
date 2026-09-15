@@ -22,6 +22,7 @@ import {
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -361,7 +362,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       ]);
 
       return summarizeApplyReviewThreads(
-        applyReviewThreadsFrom(JSON.parse(stdout)),
+        applyReviewThreadsFrom(parseApplyReviewAnswers(stdout, pullRequest)),
         since,
       );
     },
@@ -390,19 +391,116 @@ interface RawComment {
   createdAt: string;
 }
 
-interface ApplyReviewAnswersResponse {
-  repository: {
-    pullRequest: {
-      reviewThreads: {
-        nodes: {
-          isResolved: boolean;
-          comments: { nodes: RawComment[] };
-        }[];
+/** One review thread as {@link APPLY_REVIEW_ANSWERS_QUERY} asks for it. */
+interface RawReviewThread {
+  isResolved: boolean;
+  comments: RawComment[];
+}
+
+/** One review as {@link APPLY_REVIEW_ANSWERS_QUERY} asks for it. */
+interface RawReview {
+  body: string;
+  submittedAt: string | null;
+}
+
+/** The pull request {@link APPLY_REVIEW_ANSWERS_QUERY} answers with, unwrapped from its connections. */
+interface RawApplyReviewPullRequest {
+  reviewThreads: RawReviewThread[];
+  reviews: RawReview[];
+  comments: RawComment[];
+}
+
+/**
+ * `gh api graphql` with {@link APPLY_REVIEW_ANSWERS_QUERY}:
+ * `{ data: { repository: { pullRequest: { reviewThreads, reviews, comments } } } }`,
+ * each a `{ nodes }` connection. Checked here, so a `gh` error payload or a
+ * schema that drifted says which field went missing.
+ */
+function parseApplyReviewAnswers(
+  stdout: string,
+  pullRequest: PullRequestUrl,
+): RawApplyReviewPullRequest {
+  const where = `gh api graphql for ${pullRequest}`;
+
+  let response: unknown;
+  try {
+    response = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+
+  const data = objectField(response, "data", where);
+  const repository = objectField(data, "repository", where);
+  const found = objectField(repository, "pullRequest", where);
+
+  return {
+    reviewThreads: nodesField(found, "reviewThreads", where).map(
+      (thread, index) => {
+        const at = `${where}: review thread ${index + 1}`;
+        return {
+          isResolved: expectField(
+            objectAt(thread, at).isResolved,
+            "boolean",
+            "isResolved",
+            at,
+          ),
+          comments: nodesField(thread, "comments", at).map((comment, i) =>
+            parseComment(comment, `${at}: comment ${i + 1}`),
+          ),
+        };
+      },
+    ),
+    reviews: nodesField(found, "reviews", where).map((review, index) => {
+      const at = `${where}: review ${index + 1}`;
+      const { body, submittedAt } = objectAt(review, at);
+      return {
+        body: expectField(body, "string", "body", at),
+        submittedAt:
+          submittedAt === null
+            ? null
+            : expectField(submittedAt, "string", "submittedAt", at),
       };
-      reviews: { nodes: { body: string; submittedAt: string | null }[] };
-      comments: { nodes: RawComment[] };
-    };
+    }),
+    comments: nodesField(found, "comments", where).map((comment, index) =>
+      parseComment(comment, `${where}: comment ${index + 1}`),
+    ),
   };
+}
+
+function parseComment(value: unknown, at: string): RawComment {
+  const { body, createdAt } = objectAt(value, at);
+  return {
+    body: expectField(body, "string", "body", at),
+    createdAt: expectField(createdAt, "string", "createdAt", at),
+  };
+}
+
+function objectAt(value: unknown, at: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${at}: expected an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function objectField(
+  value: unknown,
+  field: string,
+  at: string,
+): Record<string, unknown> {
+  const inner = objectAt(value, at)[field];
+  if (typeof inner !== "object" || inner === null) {
+    throw new Error(`${at}: "${field}" must be an object.`);
+  }
+  return inner as Record<string, unknown>;
+}
+
+/** The `nodes` of the `{ nodes }` connection at `field`. */
+function nodesField(value: unknown, field: string, at: string): unknown[] {
+  const nodes = objectField(value, field, at).nodes;
+  if (!Array.isArray(nodes)) {
+    throw new Error(`${at}: "${field}.nodes" must be an array.`);
+  }
+  return nodes;
 }
 
 function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
@@ -422,21 +520,20 @@ function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
  * pull request comment posted after it.
  */
 function applyReviewThreadsFrom(
-  response: ApplyReviewAnswersResponse,
+  pullRequest: RawApplyReviewPullRequest,
 ): ApplyReviewThread[] {
-  const pullRequest = response.repository.pullRequest;
-  const pullRequestComments = commentsFrom(pullRequest.comments.nodes);
+  const pullRequestComments = commentsFrom(pullRequest.comments);
 
   const threads: ApplyReviewThread[] = [];
 
-  for (const thread of pullRequest.reviewThreads.nodes) {
+  for (const thread of pullRequest.reviewThreads) {
     if (thread.isResolved) {
       continue;
     }
-    threads.push({ comments: commentsFrom(thread.comments.nodes) });
+    threads.push({ comments: commentsFrom(thread.comments) });
   }
 
-  for (const review of pullRequest.reviews.nodes) {
+  for (const review of pullRequest.reviews) {
     if (review.body.trim() === "" || review.submittedAt === null) {
       continue;
     }

@@ -21,6 +21,7 @@ import {
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
+import { expectField } from "./expect-field.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 const execFileAsync = promisify(execFile);
@@ -582,22 +583,4 @@ function parseSubIssuesSummary(
       at,
     ),
   };
-}
-
-interface FieldTypes {
-  number: number;
-  string: string;
-}
-
-/** `value`, if it is of `type`; otherwise an error naming `field` at `at`. */
-function expectField<T extends keyof FieldTypes>(
-  value: unknown,
-  type: T,
-  field: string,
-  at: string,
-): FieldTypes[T] {
-  if (typeof value !== type) {
-    throw new Error(`${at}: "${field}" must be a ${type}.`);
-  }
-  return value as FieldTypes[T];
 }

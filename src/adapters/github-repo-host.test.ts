@@ -869,7 +869,7 @@ describe("reading a pull request's apply-review answers", () => {
    * `applyReviewThreadsFrom` reads apart.
    */
   const RESPONSE = JSON.stringify({
-    repository: {
+    data: { repository: {
       pullRequest: {
         reviewThreads: {
           nodes: [
@@ -921,7 +921,19 @@ describe("reading a pull request's apply-review answers", () => {
           ],
         },
       },
-    },
+    } },
+  });
+
+  it("names the field a response it cannot read is missing", async (t) => {
+    await recordingGh(
+      t,
+      `echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]},"reviews":{"nodes":[]}}}}}'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().readApplyReviewAnswers(PULL_REQUEST, SINCE),
+      /"comments" must be an object/,
+    );
   });
 
   it("counts a marked reply's thread applied or declined, and a thread with no marked reply as unanswered", async (t) => {
