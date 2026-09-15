@@ -291,15 +291,24 @@ const APPLY_REVIEW_BODY =
  * from an implementation ticket, and the two apart from each other: the
  * association `createReviewTicket` returned in the same process is gone by
  * the next morning, and the body is the only place it survives.
+ *
+ * A well-formed review line wins: a body carrying both lines reads as a
+ * review. A review line with a malformed URL binds nothing, so a well-formed
+ * apply-review line beside it still binds the body as an apply-review.
  */
 function pullRequestBoundIn(body: string): PullRequestBinding | undefined {
   return (
-    bindingIn(REVIEW_BODY, "review", body) ??
-    bindingIn(APPLY_REVIEW_BODY, "apply-review", body)
+    bindingMatching(REVIEW_BODY, "review", body) ??
+    bindingMatching(APPLY_REVIEW_BODY, "apply-review", body)
   );
 }
 
-function bindingIn(
+/**
+ * A `kind` binding to the pull request `pattern` captures in `body`, only
+ * where the capture is a well-formed pull request URL: a line that matches
+ * with a malformed URL is undefined, the same as no line at all.
+ */
+function bindingMatching(
   pattern: RegExp,
   kind: PullRequestBinding["kind"],
   body: string,

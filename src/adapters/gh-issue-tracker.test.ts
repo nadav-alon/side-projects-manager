@@ -876,26 +876,6 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
     assert.equal(issues[0]?.ticket.pullRequest, undefined);
   });
 
-  it("does not mistake an apply-review body for a review's", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        {
-          number: 9,
-          title: "Apply the review",
-          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
-        },
-      ]),
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    assert.deepEqual(issues[0]?.ticket.pullRequest, {
-      kind: "apply-review",
-      url: PULL_REQUEST,
-    });
-  });
-
   /**
    * `linkToParent`'s fallback, for a tracker without sub-issues, prepends
    * `Part of #N.` ahead of the review sentence — so the sentence is no
@@ -969,26 +949,56 @@ describe("ghIssueTracker.listOpenIssues — apply-review tickets", () => {
     });
   });
 
-  it("leaves an implementation ticket's pull request unset", async (t) => {
+  it("never mistakes a review body and an apply-review body for each other", async (t) => {
     await recordingGh(
       t,
-      listing([{ number: 7, title: "Add the thing", body: "Do the thing." }]),
+      listing([
+        {
+          number: 8,
+          title: "Review the draft pull request for #7",
+          body: `Review ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+        {
+          number: 9,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
     );
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues.length, 1);
-    assert.equal(issues[0]?.ticket.pullRequest, undefined);
+    assert.deepEqual(
+      issues.map(({ ticket }) => ticket.pullRequest?.kind),
+      ["review", "apply-review"],
+    );
   });
 
-  it("does not mistake a review body for an apply-review's", async (t) => {
+  it("reads a body carrying both lines as a review", async (t) => {
     await recordingGh(
       t,
       listing([
         {
           number: 9,
-          title: "Review the draft pull request for #7",
-          body: `Review ${PULL_REQUEST}, the draft pull request opened for #7.`,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.\n\nReview ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues[0]?.ticket.pullRequest?.kind, "review");
+  });
+
+  it("reads past a malformed review line to a well-formed apply-review line", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Apply the review",
+          body: `Review not-a-url, the draft pull request opened for #7.\n\nApply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
         },
       ]),
     );
@@ -996,7 +1006,7 @@ describe("ghIssueTracker.listOpenIssues — apply-review tickets", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.deepEqual(issues[0]?.ticket.pullRequest, {
-      kind: "review",
+      kind: "apply-review",
       url: PULL_REQUEST,
     });
   });
