@@ -92,16 +92,23 @@ jobs:
             else
               candidate_url="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\1@' <<<"$review_line")"
               candidate_n="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\2@' <<<"$review_line")"
-              candidate_repo="$(sed -E 's@^https://github.com/([^/]+/[^/]+)/pull/[0-9]+$@\1@' <<<"$candidate_url")"
-              candidate_number="$(grep -oE '[0-9]+$' <<<"$candidate_url")"
-              pr_json="$(gh pr view "$candidate_number" --repo "$candidate_repo" --json number,state,url 2>/dev/null || echo '{}')"
-              pr_state="$(jq -r '.state // empty' <<<"$pr_json")"
-              if [[ "$pr_state" != "OPEN" ]]; then
-                FAIL_REASON="its pull request ($candidate_url) is not open, so there is nothing to apply a review to."
+              if [[ ! "$candidate_url" =~ ^https://github\.com/([^/]+/[^/]+)/pull/([0-9]+)$ ]]; then
+                FAIL_REASON="its Review line names $candidate_url, which is not a pull request URL."
               else
-                PR_NUMBER="$candidate_number"
-                PR_URL="$(jq -r .url <<<"$pr_json")"
-                N="$candidate_n"
+                candidate_repo="${BASH_REMATCH[1]}"
+                candidate_number="${BASH_REMATCH[2]}"
+                # Not guarded: a pull request that can't be read is an error
+                # for the failure step to report, not a pull request that is
+                # closed.
+                pr_json="$(gh pr view "$candidate_number" --repo "$candidate_repo" --json number,state,url)"
+                pr_state="$(jq -r .state <<<"$pr_json")"
+                if [[ "$pr_state" != "OPEN" ]]; then
+                  FAIL_REASON="its pull request ($candidate_url) is not open (state: $pr_state), so there is nothing to apply a review to."
+                else
+                  PR_NUMBER="$candidate_number"
+                  PR_URL="$(jq -r .url <<<"$pr_json")"
+                  N="$candidate_n"
+                fi
               fi
             fi
           else
