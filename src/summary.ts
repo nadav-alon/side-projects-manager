@@ -120,15 +120,20 @@ export function summaryLine(facts: SummaryFacts): string {
  * Why the invocation stood down, and what that left waiting. The gate names
  * the project it turned away and when the window resets; a limit refusal
  * names the ticket it refused, which is still eligible, and quotes the reset
- * the provider gave.
+ * the provider gave. A developer's stop names nothing: they already know why.
  *
  * `when` is whether any run came before the stand-down, which only changes
- * how the gate's refused project is introduced.
+ * how the gate's refused project, or a developer's stop, is introduced.
  */
 function whyStoodDown(
   standDown: InvocationStandDown,
   when: "first" | "next",
 ): string {
+  if (standDown.reason === "stopped") {
+    return when === "next"
+      ? "stopped by hand, so nothing further started."
+      : "stopped by hand before any run started.";
+  }
   if (standDown.reason === "provider-limit") {
     const { ticket, limitRefusal } = standDown;
     return `${limitRefusal}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
