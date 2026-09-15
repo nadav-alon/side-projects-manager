@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewAnswers,
+  ApplyReviewComment,
   ApplyReviewThread,
   Branch,
   Checkout,
@@ -383,19 +384,32 @@ query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo)
   comments(first:100){nodes{body createdAt}}
 }}}`;
 
+/** One comment as {@link APPLY_REVIEW_ANSWERS_QUERY} asks for it. */
+interface RawComment {
+  body: string;
+  createdAt: string;
+}
+
 interface ApplyReviewAnswersResponse {
   repository: {
     pullRequest: {
       reviewThreads: {
         nodes: {
           isResolved: boolean;
-          comments: { nodes: { body: string; createdAt: string }[] };
+          comments: { nodes: RawComment[] };
         }[];
       };
       reviews: { nodes: { body: string; submittedAt: string | null }[] };
-      comments: { nodes: { body: string; createdAt: string }[] };
+      comments: { nodes: RawComment[] };
     };
   };
+}
+
+function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
+  return nodes.map((comment) => ({
+    body: comment.body,
+    postedAt: new Date(comment.createdAt),
+  }));
 }
 
 /**
@@ -410,27 +424,19 @@ interface ApplyReviewAnswersResponse {
 function applyReviewThreadsFrom(
   response: ApplyReviewAnswersResponse,
 ): ApplyReviewThread[] {
-  const pr = response.repository.pullRequest;
-  const prComments = pr.comments.nodes.map((comment) => ({
-    body: comment.body,
-    postedAt: new Date(comment.createdAt),
-  }));
+  const pullRequest = response.repository.pullRequest;
+  const pullRequestComments = commentsFrom(pullRequest.comments.nodes);
 
   const threads: ApplyReviewThread[] = [];
 
-  for (const thread of pr.reviewThreads.nodes) {
+  for (const thread of pullRequest.reviewThreads.nodes) {
     if (thread.isResolved) {
       continue;
     }
-    threads.push({
-      comments: thread.comments.nodes.map((comment) => ({
-        body: comment.body,
-        postedAt: new Date(comment.createdAt),
-      })),
-    });
+    threads.push({ comments: commentsFrom(thread.comments.nodes) });
   }
 
-  for (const review of pr.reviews.nodes) {
+  for (const review of pullRequest.reviews.nodes) {
     if (review.body.trim() === "" || review.submittedAt === null) {
       continue;
     }
@@ -438,7 +444,7 @@ function applyReviewThreadsFrom(
     threads.push({
       comments: [
         { body: review.body, postedAt: submittedAt },
-        ...prComments.filter((comment) => comment.postedAt > submittedAt),
+        ...pullRequestComments.filter((comment) => comment.postedAt > submittedAt),
       ],
     });
   }

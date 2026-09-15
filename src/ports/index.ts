@@ -55,6 +55,7 @@ export {
 } from "./repo-host.ts";
 export type {
   ApplyReviewAnswers,
+  ApplyReviewComment,
   ApplyReviewThread,
   DraftPullRequestOpening,
   Proposal,

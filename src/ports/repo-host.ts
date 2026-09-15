@@ -19,6 +19,12 @@ export const APPLIED_REPLY_PREFIX = "Applied in ";
 /** What a declined reply's body starts with, before the reason. */
 export const DECLINED_REPLY_PREFIX = "Declined: ";
 
+/** One comment in an {@link ApplyReviewThread}: what it says, and when. */
+export interface ApplyReviewComment {
+  body: string;
+  postedAt: Date;
+}
+
 /**
  * One thread's comments, oldest first: an unresolved review thread's, or a
  * review's non-empty body followed by whatever the pull request's own
@@ -26,7 +32,7 @@ export const DECLINED_REPLY_PREFIX = "Declined: ";
  * answers.
  */
 export interface ApplyReviewThread {
-  comments: { body: string; postedAt: Date }[];
+  comments: ApplyReviewComment[];
 }
 
 /**
