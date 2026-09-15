@@ -18,6 +18,7 @@ export {
   TICKET_KINDS,
   backlogIn,
   carriesReadyForAgent,
+  discountPullRequestSubIssues,
   isApplyReviewTicket,
   isBlocked,
   isBrokenOut,

@@ -15,6 +15,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
+  discountPullRequestSubIssues,
   isPullRequestUrl,
   isTicketPriority,
   modelLabelOf,
@@ -111,7 +112,7 @@ export function ghIssueTracker(
           };
         },
       );
-      return { issues, truncated };
+      return { issues: discountPullRequestSubIssues(issues), truncated };
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {

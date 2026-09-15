@@ -122,8 +122,9 @@ export interface PullRequestBinding {
  * start.
  *
  * `openSubIssues` is the fact `isBrokenOut` reads: how many of the ticket's
- * sub-issues are still open, straight from the same listing that already
- * carries the labels selection filters on, so it costs no extra tracker call.
+ * sub-issues are still open and are not pull request tickets, straight from
+ * the same listing that already carries the labels selection filters on, so
+ * it costs no extra tracker call.
  * Absent or zero means the ticket has none open — indistinguishable from a
  * ticket with no sub-issues at all, since neither is workable any
  * differently from the other.
@@ -171,6 +172,43 @@ export function isBlocked(ticket: Ticket): boolean {
  */
 export function isBrokenOut(ticket: Ticket): boolean {
   return (ticket.openSubIssues ?? 0) > 0;
+}
+
+/**
+ * `issues`, each ticket's `openSubIssues` taken from counting every open
+ * sub-issue the tracker knows of to counting only those that are not pull
+ * request tickets — the ones `CONTEXT.md`'s "Broken-out ticket" counts. A
+ * pull request ticket is recognised among `issues` themselves, by its
+ * `parent`, so the bodies that say what it is come from the same read.
+ *
+ * Complete for any listing read newest first: a pull request ticket is opened
+ * only once its parent has a draft pull request, so it is always newer than
+ * the parent, and a read that holds the parent holds it too.
+ *
+ * Beside the port so the real tracker and the fake discount alike.
+ */
+export function discountPullRequestSubIssues(
+  issues: readonly OpenIssue[],
+): OpenIssue[] {
+  const pullRequestSubIssues = new Map<number, number>();
+  for (const { parent, ticket } of issues) {
+    if (parent !== undefined && isPullRequestTicket(ticket)) {
+      pullRequestSubIssues.set(parent, (pullRequestSubIssues.get(parent) ?? 0) + 1);
+    }
+  }
+
+  return issues.map((issue) => {
+    const discount = pullRequestSubIssues.get(issue.ticket.number);
+    if (discount === undefined) {
+      return issue;
+    }
+    const { openSubIssues = 0, ...ticket } = issue.ticket;
+    const counted = openSubIssues - discount;
+    return {
+      ...issue,
+      ticket: { ...ticket, ...(counted > 0 && { openSubIssues: counted }) },
+    };
+  });
 }
 
 /**
