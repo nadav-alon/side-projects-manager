@@ -5,7 +5,6 @@ import type {
   Budget,
   Day,
   InvocationClosing,
-  InvocationHandle,
   InvocationOutcome,
   InvocationRecord,
   Journal,
@@ -111,7 +110,7 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       await writeDocument(home, stateFile, formatState(state));
     },
 
-    async openInvocation(opened: OpenInvocation): Promise<InvocationHandle> {
+    async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {
       const journal = await loadJournalDocument(journalFile);
       journal.records.push({ openedAt: opened.openedAt, process: opened.process });
       await writeJournal(home, journalFile, journal);
@@ -119,7 +118,7 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     },
 
     async closeInvocation(
-      opened: InvocationHandle,
+      opened: OpenInvocation,
       closing: InvocationClosing,
     ): Promise<void> {
       const journal = await loadJournalDocument(journalFile);

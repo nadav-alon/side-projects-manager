@@ -14,11 +14,7 @@ import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing } from "../journal-record.ts";
 import { morningLoop, type InvocationReport } from "../morning-run.ts";
-import {
-  processId,
-  type InvocationHandle,
-  type Store,
-} from "../ports/index.ts";
+import { processId, type OpenInvocation, type Store } from "../ports/index.ts";
 import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
 
 /**
@@ -157,7 +153,7 @@ function stopOnInterrupt(): AbortSignal {
  */
 async function openJournalRecord(
   store: Store,
-): Promise<InvocationHandle | undefined> {
+): Promise<OpenInvocation | undefined> {
   try {
     return await store.openInvocation({
       openedAt: systemClock.now(),
@@ -174,7 +170,7 @@ async function openJournalRecord(
 /** Closes `opened` with what `report` came to, the same silent-on-stderr policy as opening. */
 async function closeJournalRecord(
   store: Store,
-  opened: InvocationHandle | undefined,
+  opened: OpenInvocation | undefined,
   report: InvocationReport,
 ): Promise<void> {
   if (opened === undefined) {

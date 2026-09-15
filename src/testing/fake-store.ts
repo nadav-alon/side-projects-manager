@@ -2,7 +2,6 @@ import type {
   Budget,
   Day,
   InvocationClosing,
-  InvocationHandle,
   InvocationRecord,
   Journal,
   ModelDefaults,
@@ -124,14 +123,14 @@ export class FakeStore implements Store {
     this.#announcedOn = state.announcedOn;
   }
 
-  async openInvocation(opened: OpenInvocation): Promise<InvocationHandle> {
+  async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {
     this.#journal.push({ openedAt: opened.openedAt, process: opened.process });
     this.#journal = this.#journal.slice(-JOURNAL_LIMIT);
     return { ...opened };
   }
 
   async closeInvocation(
-    opened: InvocationHandle,
+    opened: OpenInvocation,
     closing: InvocationClosing,
   ): Promise<void> {
     const record = this.#findRecord(opened);

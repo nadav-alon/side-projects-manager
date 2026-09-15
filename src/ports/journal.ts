@@ -65,12 +65,6 @@ export interface OpenInvocation {
   process: ProcessId;
 }
 
-/**
- * What the store hands back from opening a record: `OpenInvocation` today,
- * though nothing stops an adapter from carrying more in it.
- */
-export type InvocationHandle = OpenInvocation;
-
 /** What closing a record adds to it: what the invocation came to. */
 export interface InvocationClosing {
   /** When the invocation ended. */

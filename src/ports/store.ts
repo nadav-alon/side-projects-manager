@@ -1,12 +1,7 @@
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
-import type {
-  InvocationClosing,
-  InvocationHandle,
-  Journal,
-  OpenInvocation,
-} from "./journal.ts";
+import type { InvocationClosing, Journal, OpenInvocation } from "./journal.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -177,7 +172,7 @@ export interface Store {
    * dies before closing it leaves an in-flight record rather than no trace at
    * all. Returns whatever closing the record later needs to find it again.
    */
-  openInvocation(opened: OpenInvocation): Promise<InvocationHandle>;
+  openInvocation(opened: OpenInvocation): Promise<OpenInvocation>;
   /**
    * Closes the record `opened` identifies with what the invocation came to.
    *
@@ -186,7 +181,7 @@ export interface Store {
    * lose an invocation's account of itself without saying so.
    */
   closeInvocation(
-    opened: InvocationHandle,
+    opened: OpenInvocation,
     closing: InvocationClosing,
   ): Promise<void>;
   /**

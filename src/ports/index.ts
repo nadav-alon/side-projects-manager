@@ -57,7 +57,6 @@ export {
 } from "./journal.ts";
 export type {
   InvocationClosing,
-  InvocationHandle,
   InvocationOutcome,
   InvocationRecord,
   Journal,
