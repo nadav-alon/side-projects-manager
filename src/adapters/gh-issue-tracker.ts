@@ -122,18 +122,31 @@ export function ghIssueTracker(
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
       const args = issueArgs(ticket);
 
+      // Close first, because closed is what makes a review un-selectable —
+      // unlike `handBack`, where losing the label is what stops reselection.
+      // The label removal comes after for what it alone protects: a query for
+      // closed reviews, and a reopen, which would otherwise carry the ticket
+      // back into the queue.
       await execFileAsync("gh", ["issue", "close", ...args]);
-      // Closing the ticket is what stops it being reviewed twice; removing
-      // the label comes after so a closed-but-still-labelled ticket, the
-      // failure this leaves behind, is the one a query for closed reviews
-      // finds and a reopen would otherwise carry back into the queue.
-      await execFileAsync("gh", [
-        "issue",
-        "edit",
-        ...args,
-        "--remove-label",
-        READY_FOR_AGENT_LABEL,
-      ]);
+      try {
+        await execFileAsync("gh", [
+          "issue",
+          "edit",
+          ...args,
+          "--remove-label",
+          READY_FOR_AGENT_LABEL,
+        ]);
+      } catch (error) {
+        // Warned about rather than raised, the way handBack's own trailing
+        // label edit is (below): the close already succeeded, so a caller
+        // told this failed would report the ticket as not closed, sending the
+        // developer to close a review that is already done — and never
+        // naming the actual fault, a closed ticket still carrying
+        // ready-for-agent.
+        console.warn(
+          `${ticket.repo}#${ticket.number} is closed but still labelled ${READY_FOR_AGENT_LABEL}: ${errorMessage(error)}`,
+        );
+      }
     },
 
     async closeApplyReviewTicket(

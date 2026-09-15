@@ -1851,6 +1851,24 @@ describe("ghIssueTracker.closeReviewTicket", () => {
     assert.ok(close && removed, "both calls should happen");
     assert.ok(calls.indexOf(close) < calls.indexOf(removed));
   });
+
+  it("still closes the review when only the label removal is refused", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$*" in`,
+        `  *--remove-label*) echo "HTTP 403" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+    t.mock.method(console, "warn", () => undefined);
+
+    // The review is closed either way — a caller told this failed would
+    // report a review that is not closed, sending the developer to close one
+    // that already is.
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+  });
 });
 
 describe("ghIssueTracker.closeApplyReviewTicket", () => {
