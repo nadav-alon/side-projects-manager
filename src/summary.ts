@@ -204,7 +204,7 @@ function waitingSection(
   iterations: IterationOutcome[],
   projects: ProjectOutcome[],
 ): string | undefined {
-  const lines = iterations.flatMap((iteration): string[] => {
+  const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed":
         return iteration.notClosed === undefined
@@ -241,19 +241,19 @@ function waitingSection(
     }
   });
 
-  const truncated = projects.flatMap((project) =>
+  const backlogLines = projects.flatMap((project) =>
     project.backlogTruncated === undefined
       ? []
       : [backlogTruncatedLine(project.repo)],
   );
 
-  const all = [...lines, ...truncated];
-  return all.length === 0
+  const bullets = [...iterationLines, ...backlogLines];
+  return bullets.length === 0
     ? undefined
-    : ["## Waiting on you", ...all].join("\n");
+    : ["## Waiting on you", ...bullets].join("\n");
 }
 
-/** A backlog the loop could not read in full: too many to name, so the project stands in for its own. */
+/** A backlog too long to read in full: the bullet names the project, since the tickets it left unread are too many to name. */
 function backlogTruncatedLine(repo: RepoSlug): string {
   return `- ${repo}: holds more than 100 ${READY_FOR_AGENT_LABEL} tickets — only the newest 100 were considered`;
 }
