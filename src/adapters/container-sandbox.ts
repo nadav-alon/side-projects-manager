@@ -5,11 +5,16 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  ApplyReviewOutcome,
+  ApplyReviewRequest,
+  ApplyReviewTicket,
   Branch,
   Checkout,
   CommitSha,
   ModelName,
   ModelRefusal,
+  PullRequestUrl,
+  RemoteUrl,
   ReviewModelRefused,
   ReviewOutcome,
   ReviewRequest,
@@ -25,6 +30,10 @@ import {
   branch,
   checkout,
   commitSha,
+  isBranch,
+  isCommitSha,
+  isRemoteUrl,
+  remoteUrl,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -160,22 +169,35 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  */
 export function containerSandbox(
   container: Container = dockerContainer,
+  pullRequestHead: PullRequestHead = ghPullRequestHead,
 ): Sandbox {
-  return new ContainerSandbox(container);
+  return new ContainerSandbox(container, pullRequestHead);
 }
 
 /**
  * `Sandbox`'s implementation, as a class rather than an object literal of
- * arrow functions: `run` and `review` are each overloaded on whether
- * `request.model` is present, and only a method (or a standalone function
- * declaration) can carry more than one call signature — an arrow assigned to
- * an object property cannot.
+ * arrow functions: `run`, `review` and `applyReview` are each overloaded on
+ * whether `request.model` is present, and only a method (or a standalone
+ * function declaration) can carry more than one call signature — an arrow
+ * assigned to an object property cannot.
  */
 class ContainerSandbox implements Sandbox {
   private readonly container: Container;
+  private readonly pullRequestHead: PullRequestHead;
 
-  constructor(container: Container) {
+  constructor(container: Container, pullRequestHead: PullRequestHead) {
     this.container = container;
+    this.pullRequestHead = pullRequestHead;
+  }
+
+  applyReview(
+    request: ApplyReviewRequest & { model: ModelName },
+  ): Promise<ApplyReviewOutcome>;
+  applyReview(
+    request: ApplyReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
+  applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
+    return applyReviewOnClone(this.container, this.pullRequestHead, request);
   }
 
   run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
@@ -195,77 +217,95 @@ class ContainerSandbox implements Sandbox {
   }
 }
 
-async function runOnClone(
-  container: Container,
-  request: RunRequest,
-): Promise<RunOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+/**
+ * Runs `body` on a throwaway clone's directory, named for the `kind` of run
+ * it holds, and deletes it once `body` ends. Filling the directory is
+ * `body`'s, since each kind clones under the checkout lock with steps of its
+ * own.
+ *
+ * Whatever became of the run, the clone does not outlive it — and a clone
+ * that will not delete never costs the caller its result. A run this process
+ * could not pin to a uid of its own (`hostUser`) can still leave files it does
+ * not own behind; that is worth a warning, not the loss of a branch that was
+ * pushed successfully.
+ */
+async function withThrowawayClone<T>(
+  kind: "run" | "review" | "apply-review",
+  body: (clone: Checkout) => Promise<T>,
+): Promise<T> {
   const clone = checkout(
-    await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
+    await mkdtemp(path.join(tmpdir(), `side-projects-${kind}-`)),
   );
-  let onto: Branch | undefined;
-
   try {
-    onto = await withCheckoutLock(project, async () => {
-      const free = await freeBranch(project, branchFor(ticket));
-      // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
-      // and nothing it does should be able to reach an object file the
-      // developer's own checkout is still using. The container runs as the
-      // developer's own uid (`dockerCommand`), so the filesystem would not
-      // stop it — the copy is what does.
-      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
-      reserveBranch(project, free);
-      return free;
-    });
-    // Branded before the agent starts: a clone whose hashes this cannot read
-    // fails the sandbox's set-up, not a run whose work is already done.
-    const base = commitSha(await revision(clone, "HEAD"));
-    await run("git", ["-C", clone, "switch", "--create", onto]);
-
-    const agent = await attempt(container, {
-      directory: clone,
-      prompt: promptFor(ticket),
-      spendCeiling,
-      mount: "rw",
-      ...(model === undefined ? {} : { model }),
-    });
-    const commits = await commitsSince(clone, base);
-
-    // Only when the agent actually committed: a branch pointing at the commit
-    // it started from is not work, and the checkout should not collect one
-    // for every morning that came to nothing.
-    if (commits.length > 0) {
-      const branch = onto;
-      await withCheckoutLock(project, () =>
-        run("git", [
-          "-C",
-          project,
-          "fetch",
-          "--no-tags",
-          clone,
-          `${branch}:${branch}`,
-        ]),
-      );
-    }
-
-    return runOutcomeOf(agent, model, onto, commits);
+    return await body(clone);
   } finally {
-    // If fetched back, the checkout now records the name; otherwise the name
-    // is free again.
-    if (onto !== undefined) {
-      unreserveBranch(project, onto);
-    }
-    // Whatever became of the run, the clone does not outlive it — and a clone
-    // that will not delete never costs the caller its result. A run this
-    // process could not pin to a uid of its own (`hostUser`) can still leave
-    // files it does not own behind; that is worth a warning, not the loss of a
-    // branch that was pushed successfully.
     await rm(clone, { recursive: true, force: true }).catch(
       (error: unknown) => {
         console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
       },
     );
   }
+}
+
+async function runOnClone(
+  container: Container,
+  request: RunRequest,
+): Promise<RunOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+
+  return withThrowawayClone("run", async (clone) => {
+    let onto: Branch | undefined;
+
+    try {
+      onto = await withCheckoutLock(project, async () => {
+        const free = await freeBranch(project, branchFor(ticket));
+        // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
+        // and nothing it does should be able to reach an object file the
+        // developer's own checkout is still using. The container runs as the
+        // developer's own uid (`dockerCommand`), so the filesystem would not
+        // stop it — the copy is what does.
+        await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+        reserveBranch(project, free);
+        return free;
+      });
+      // Branded before the agent starts: a clone whose hashes this cannot read
+      // fails the sandbox's set-up, not a run whose work is already done.
+      const base = commitSha(await revision(clone, "HEAD"));
+      await run("git", ["-C", clone, "switch", "--create", onto]);
+
+      const agent = await attempt(
+        container,
+        { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+        model,
+      );
+      const commits = await commitsSince(clone, base);
+
+      // Only when the agent actually committed: a branch pointing at the commit
+      // it started from is not work, and the checkout should not collect one
+      // for every morning that came to nothing.
+      if (commits.length > 0) {
+        const branch = onto;
+        await withCheckoutLock(project, () =>
+          run("git", [
+            "-C",
+            project,
+            "fetch",
+            "--no-tags",
+            clone,
+            `${branch}:${branch}`,
+          ]),
+        );
+      }
+
+      return runOutcomeOf(agent, model, onto, commits);
+    } finally {
+      // If fetched back, the checkout now records the name; otherwise the name
+      // is free again.
+      if (onto !== undefined) {
+        unreserveBranch(project, onto);
+      }
+    }
+  });
 }
 
 /**
@@ -283,10 +323,14 @@ async function runOnClone(
  */
 async function attempt(
   container: Container,
-  options: RunOptions,
+  options: Omit<RunOptions, "model">,
+  model: ModelName | undefined,
 ): Promise<AgentRun> {
   try {
-    return await container(options);
+    return await container({
+      ...options,
+      ...(model === undefined ? {} : { model }),
+    });
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
       throw error;
@@ -395,30 +439,239 @@ async function reviewOnClone(
   request: ReviewRequest,
 ): Promise<ReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
-  const clone = checkout(
-    await mkdtemp(path.join(tmpdir(), "side-projects-review-")),
-  );
 
-  try {
+  return withThrowawayClone("review", async (clone) => {
     await withCheckoutLock(project, () =>
       run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
     );
-    const agent = await attempt(container, {
-      directory: clone,
-      prompt: reviewPromptFor(ticket),
-      spendCeiling,
-      mount: "ro",
-      ...(model === undefined ? {} : { model }),
-    });
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: reviewPromptFor(ticket), spendCeiling, mount: "ro" },
+      model,
+    );
 
     return reviewOutcomeOf(agent, model);
-  } finally {
-    await rm(clone, { recursive: true, force: true }).catch(
-      (error: unknown) => {
-        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
-      },
+  });
+}
+
+/**
+ * The apply-review run: a throwaway clone of its own, like any other, but
+ * checked out on the pull request's head branch as the repo host has it now, and
+ * mounted read-write — the agent commits there, pushes, and replies on the
+ * pull request itself.
+ *
+ * Inside the container the checkout's path means nothing, so the clone's
+ * `origin` is pointed at the checkout's own remote, and the branch tracks it:
+ * a plain `git push` from the agent lands on the pull request. Nothing is
+ * fetched back and no branch is created in the checkout — what the run did
+ * lives on the repo host, and is read back from there.
+ */
+async function applyReviewOnClone(
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: ApplyReviewRequest,
+): Promise<ApplyReviewOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+  const head = await pullRequestHead(ticket.pullRequest.url);
+
+  return withThrowawayClone("apply-review", async (clone) => {
+    const remote = await withCheckoutLock(project, async () => {
+      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+      const { stdout } = await run("git", [
+        "-C",
+        project,
+        "remote",
+        "get-url",
+        "origin",
+      ]);
+      const origin = stdout.trim();
+      if (!isRemoteUrl(origin)) {
+        throw new Error(
+          `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
+        );
+      }
+      return origin;
+    });
+    await run("git", [
+      "-C",
+      clone,
+      "remote",
+      "set-url",
+      "origin",
+      pushableRemote(remote),
+    ]);
+    // `gh` answers git's credential requests from the `GH_TOKEN` the container
+    // is handed, which is how the agent's push authenticates against GitHub.
+    await run("git", [
+      "-C",
+      clone,
+      "config",
+      "credential.helper",
+      "!gh auth git-credential",
+    ]);
+    await run("git", [
+      "-C",
+      clone,
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "origin",
+      `+refs/heads/${head}:refs/remotes/origin/${head}`,
+    ]);
+    // `--force-create`: the clone already has a local branch of that name when
+    // the checkout was on it, and that copy may be stale; the repo host's is the one.
+    await run("git", [
+      "-C",
+      clone,
+      "switch",
+      "--quiet",
+      "--track",
+      "--force-create",
+      head,
+      `origin/${head}`,
+    ]);
+
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: applyReviewPromptFor(ticket), spendCeiling, mount: "rw" },
+      model,
+    );
+
+    return applyReviewOutcomeOf(agent, model);
+  });
+}
+
+/**
+ * The line an apply-review agent ends its report with when the repo host rejected
+ * its push because the branch moved, naming the head it moved to — as
+ * `applyReviewPromptFor` asks for it. Anchored to the start of a line (`m`),
+ * and matched only with a commit hash after it, so prose that merely mentions
+ * a moved branch is not read as one; whatever the agent adds after the hash is
+ * ignored, since a rejected push must not read as finished over a stray word.
+ * The only place the line's shape is known.
+ */
+const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
+
+/** A full commit hash, SHA-1 or SHA-256, rather than an abbreviation of one. */
+const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * `endingOf`, as an apply-review run ends it: no branch or commits to carry,
+ * and an agent that reports the branch moved under its push has given up,
+ * whatever its exit code — its commits never reached the pull request.
+ */
+function applyReviewOutcomeOf(
+  agent: AgentRun,
+  model: ModelName | undefined,
+): ApplyReviewOutcome {
+  const ending = endingOf(agent, model);
+  const moved = BRANCH_MOVED.exec(agent.output)?.[1];
+  if (
+    (ending.kind === "finished" || ending.kind === "gave-up") &&
+    moved !== undefined &&
+    isCommitSha(moved)
+  ) {
+    // Only a full hash is carried: an abbreviation cannot be compared with
+    // the head the repo host reports. The push was rejected all the same.
+    return {
+      kind: "gave-up",
+      output: agent.output,
+      reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
+      ...(FULL_HASH.test(moved) ? { movedHead: moved } : {}),
+      tokensUsed: agent.tokensUsed,
+    };
+  }
+  return { ...ending, tokensUsed: agent.tokensUsed };
+}
+
+/**
+ * `remote` as the container can push to it: an SSH GitHub remote becomes its
+ * HTTPS address, since the container holds a token and no SSH key. Anything
+ * else — HTTPS already, or a local path — is left as it is.
+ *
+ * Exported so the rewrite can be asserted without an SSH remote to push to.
+ */
+export function pushableRemote(remote: RemoteUrl): RemoteUrl {
+  const ssh =
+    /^(?:ssh:\/\/)?git@([^:/]+)[:/](.+?)(?:\.git)?\/?$/.exec(remote);
+  return ssh === null ? remote : remoteUrl(`https://${ssh[1]}/${ssh[2]}.git`);
+}
+
+/**
+ * Looks up the head branch of a pull request on the repo host.
+ *
+ * A parameter of the sandbox rather than a call made inline, so the git half
+ * of an apply-review run can be exercised against a stand-in repo host without
+ * `gh`, a credential, or a network.
+ */
+export type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
+
+/** The real lookup: `gh pr view`, read by `pullRequestHeadFrom`. */
+const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
+  const { stdout } = await run("gh", [
+    "pr",
+    "view",
+    pullRequest,
+    "--json",
+    "headRefName,isCrossRepository",
+  ]);
+  return pullRequestHeadFrom(stdout, pullRequest);
+};
+
+/**
+ * The head branch in `gh pr view --json headRefName,isCrossRepository`'s
+ * answer for `pullRequest`, checked before use.
+ *
+ * A pull request opened from a fork is refused, as is one `gh` does not say
+ * is not: its head branch is not on the checkout's remote, which is where the
+ * agent pushes, so the push would never reach the pull request.
+ *
+ * Exported so the answer's reading can be asserted without `gh`.
+ */
+export function pullRequestHeadFrom(
+  stdout: string,
+  pullRequest: PullRequestUrl,
+): Branch {
+  const { headRefName: name, isCrossRepository } = JSON.parse(stdout) as {
+    headRefName?: unknown;
+    isCrossRepository?: unknown;
+  };
+  if (isCrossRepository !== false) {
+    throw new Error(
+      `${pullRequest} is not known to come from a branch of its own repo, so its head cannot be pushed to from the checkout's remote.`,
     );
   }
+  if (typeof name !== "string" || !isBranch(name)) {
+    throw new Error(
+      `gh named no usable head branch for ${pullRequest}: ${JSON.stringify(name)}`,
+    );
+  }
+  return name;
+}
+
+/**
+ * What the apply-review agent is asked to do: invoke the skill on the pull
+ * request, named explicitly since nothing in the prompt otherwise says which.
+ * The skill says how.
+ *
+ * The run is unattended, as a review's is, so a pass that stops to ask has
+ * answered nothing. A rejected push is asked for as one fixed line naming the
+ * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
+ * refused from one that finished.
+ */
+function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
+  const url = ticket.pullRequest.url;
+  return [
+    `/apply-pr-review ${url}`,
+    "",
+    `This clone is already checked out on ${url}'s head branch, tracking it on GitHub, so a plain`,
+    "`git push` lands on the pull request. Name the repo explicitly wherever gh needs one.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "work every thread, push and reply without asking for confirmation.",
+    "If the push is rejected because the branch moved, stop, and end your report with the line",
+    "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
+    `(\`gh pr view ${url} --json headRefOid\`).`,
+  ].join("\n");
 }
 
 /**

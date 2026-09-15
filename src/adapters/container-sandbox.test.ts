@@ -12,22 +12,30 @@ import {
   containerSandbox,
   dockerCommand,
   dockerNeverRan,
+  pullRequestHeadFrom,
+  pushableRemote,
   readAgentRun,
   readExitedRun,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
 import {
+  branch,
   checkout,
+  commitSha,
   modelName,
   pullRequestUrl,
+  remoteUrl,
   repoSlug,
   tokenCount,
   usd,
+  type ApplyReviewOutcome,
+  type ApplyReviewTicket,
   type Checkout,
   type ReviewOutcome,
   type ReviewTicket,
   type RunOutcome,
+  type Sandbox,
   type Ticket,
 } from "../ports/index.ts";
 import { gate, HANGS, LIMIT_REFUSAL } from "../testing/index.ts";
@@ -36,7 +44,7 @@ const run = promisify(execFile);
 
 /** The `kind` variant of `result`, absent if it ended any other way. */
 function variant<
-  Outcome extends RunOutcome | ReviewOutcome,
+  Outcome extends RunOutcome | ReviewOutcome | ApplyReviewOutcome,
   Kind extends Outcome["kind"],
 >(result: Outcome, kind: Kind): Extract<Outcome, { kind: Kind }> | undefined {
   return result.kind === kind
@@ -1130,6 +1138,439 @@ describe("containerSandbox.review", () => {
     held.release();
     await both;
   });
+});
+
+const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
+  repo: repoSlug("nadav-alon/pilot"),
+  number: 43,
+  title: "Apply the review on the draft pull request for #7",
+  pullRequest: {
+    kind: "apply-review",
+    url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+  },
+};
+
+/**
+ * A project checkout whose `origin` is a bare repository standing in for
+ * GitHub, holding the pull request's head branch one commit ahead of what the
+ * checkout has — so a clone on the right branch can only have come from the
+ * repo host, never from the checkout.
+ */
+async function hostedProject(): Promise<{
+  directory: Checkout;
+  hosted: string;
+  headCommit: string;
+}> {
+  const directory = await project();
+  const hosted = await mkdtemp(path.join(tmpdir(), "sandbox-hosted-"));
+  await run("git", ["init", "--bare", "--initial-branch=main", hosted]);
+  await run("git", ["-C", directory, "remote", "add", "origin", hosted]);
+  await run("git", ["-C", directory, "push", "--quiet", "origin", "main"]);
+
+  const elsewhere = await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-"));
+  await run("git", ["clone", "--quiet", hosted, elsewhere]);
+  await identify(elsewhere);
+  await run("git", ["-C", elsewhere, "switch", "--create", BRANCH]);
+  await writeFile(path.join(elsewhere, "work.md"), "work\n");
+  await run("git", ["-C", elsewhere, "add", "."]);
+  await run("git", ["-C", elsewhere, "commit", "--message", "Work"]);
+  await run("git", ["-C", elsewhere, "push", "--quiet", "origin", BRANCH]);
+
+  return { directory, hosted, headCommit: await headOf(elsewhere) };
+}
+
+/** The head lookup a hosted project's pull request answers with. */
+const headIsBranch = async () => branch(BRANCH);
+
+const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
+
+/** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
+function applyReviewOn(sandbox: Sandbox, directory: Checkout) {
+  return sandbox.applyReview({
+    ticket: APPLY_REVIEW_TICKET,
+    checkout: directory,
+    spendCeiling: CEILING,
+  });
+}
+
+describe("containerSandbox.applyReview", () => {
+  it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
+    const { directory, headCommit } = await hostedProject();
+    const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];
+    const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
+      seen.push({
+        mounted,
+        mount,
+        on: (await run("git", ["-C", mounted, "branch", "--show-current"])).stdout.trim(),
+        at: await headOf(mounted),
+      });
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(seen.length, 1);
+    assert.notEqual(seen[0]?.mounted, directory);
+    assert.equal(seen[0]?.mount, "rw");
+    assert.equal(seen[0]?.on, BRANCH);
+    assert.equal(seen[0]?.at, headCommit);
+  });
+
+  it("looks the head branch up from the ticket's own pull request", async () => {
+    const { directory } = await hostedProject();
+    const asked: string[] = [];
+    const sandbox = containerSandbox(
+      async () => ({ output: "", tokensUsed: tokenCount(0) }),
+      async (pullRequest) => {
+        asked.push(pullRequest);
+        return branch(BRANCH);
+      },
+    );
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.deepEqual(asked, [APPLY_REVIEW_TICKET.pullRequest.url]);
+  });
+
+  /**
+   * The agent pushes from inside the container, where the checkout's path
+   * means nothing: the clone's own remote has to be the repo host, with the branch
+   * tracking it, or a plain `git push` goes nowhere.
+   */
+  it("leaves the branch tracking the repo host, so the agent's plain push lands on the pull request", async () => {
+    const { directory, hosted } = await hostedProject();
+    let pushed = "";
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      await identify(mounted);
+      await writeFile(path.join(mounted, "applied.md"), "applied\n");
+      await run("git", ["-C", mounted, "add", "."]);
+      await run("git", ["-C", mounted, "commit", "--message", "Apply"]);
+      await run("git", ["-C", mounted, "push", "--quiet"]);
+      pushed = await headOf(mounted);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(await headOf(hosted, BRANCH), pushed);
+  });
+
+  it("fetches no branch back and creates none in the checkout, whatever the agent does", async () => {
+    const { directory } = await hostedProject();
+    const before = await headOf(directory);
+    const sandbox = containerSandbox(agentCommitting(["applied.md"]), headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+    assert.equal(await headOf(directory), before);
+  });
+
+  it("names the pull request and invokes the apply-pr-review skill on it", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.ok(
+      asked.includes(`/apply-pr-review ${APPLY_REVIEW_TICKET.pullRequest.url}`),
+      asked,
+    );
+    assert.match(asked, /unattended/);
+  });
+
+  it("passes the model to the agent CLI", async () => {
+    const { directory } = await hostedProject();
+    let seen: string | undefined;
+    const sandbox = containerSandbox(async ({ model }) => {
+      seen = model;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await sandbox.applyReview({
+      ticket: APPLY_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("sonnet"),
+    });
+
+    assert.equal(seen, "sonnet");
+  });
+
+  it("returns the agent's own output and what the run cost", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: "answered 3 threads",
+      tokensUsed: tokenCount(9_000),
+    }), headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.deepEqual(result, {
+      kind: "finished",
+      output: "answered 3 threads",
+      tokensUsed: tokenCount(9_000),
+    });
+  });
+
+  it("reports a failed agent rather than throwing", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => {
+      throw new Error("the agent gave up");
+    }, headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.equal(result.kind, "gave-up");
+    assert.match(variant(result, "gave-up")?.reason ?? "", /gave up/);
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
+  });
+
+  it("reports a push rejected because the branch moved as gave-up, carrying the moved head", async () => {
+    const { directory } = await hostedProject();
+    const report = [
+      "Push rejected: the branch moved under me.",
+      `Branch moved: ${MOVED_HEAD}`,
+    ].join("\n");
+    const sandbox = containerSandbox(async () => ({
+      output: report,
+      tokensUsed: tokenCount(500),
+    }), headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.equal(result.kind, "gave-up");
+    const gaveUp = variant(result, "gave-up");
+    assert.equal(gaveUp?.movedHead, commitSha(MOVED_HEAD));
+    assert.match(gaveUp?.reason ?? "", new RegExp(MOVED_HEAD));
+    assert.equal(gaveUp?.output, report);
+    assert.equal(result.tokensUsed, tokenCount(500));
+  });
+
+  it("reads a moved head the agent followed with more words on the same line", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: `Branch moved: ${MOVED_HEAD} (was def5678)`,
+      tokensUsed: tokenCount(0),
+    }), headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.equal(variant(result, "gave-up")?.movedHead, commitSha(MOVED_HEAD));
+  });
+
+  it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: "Branch moved: abc1234",
+      tokensUsed: tokenCount(0),
+    }), headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.equal(result.kind, "gave-up");
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
+  });
+
+  it("lands on the repo host's head even when the clone already has a branch of that name", async () => {
+    const { directory, headCommit } = await hostedProject();
+    // The checkout sits on a stale copy of the head branch, which the clone inherits.
+    await run("git", ["-C", directory, "switch", "--quiet", "--create", BRANCH]);
+    let at = "";
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      at = await headOf(mounted);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(at, headCommit);
+  });
+
+  it("reads no moved head from a line that names no commit", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: "Branch moved: somewhere",
+      tokensUsed: tokenCount(0),
+    }), headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.equal(result.kind, "finished");
+  });
+
+  it("reports a limit refusal as a review run does", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+    }), headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.deepEqual(result, {
+      kind: "limit-refused",
+      words: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+    });
+  });
+
+  it("reports a model refusal as a review run does, naming the model and the CLI's words", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(
+      async () => readExitedRun(MODEL_REFUSAL_EXIT),
+      headIsBranch,
+    );
+
+    const result = await sandbox.applyReview({
+      ticket: APPLY_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("this-model-does-not-exist-xyz"),
+    });
+
+    assert.deepEqual(result, {
+      kind: "model-refused",
+      refusal: {
+        model: modelName("this-model-does-not-exist-xyz"),
+        words: MODEL_REFUSAL_WORDS,
+      },
+      tokensUsed: tokenCount(0),
+    });
+  });
+
+  it("rejects, starting no agent, when the head branch cannot be looked up", async () => {
+    const { directory } = await hostedProject();
+    let started = false;
+    const sandbox = containerSandbox(
+      async () => {
+        started = true;
+        return { output: "", tokensUsed: tokenCount(0) };
+      },
+      async () => {
+        throw new Error("gh: no pull request found");
+      },
+    );
+
+    await assert.rejects(
+      applyReviewOn(sandbox, directory),
+      /no pull request found/,
+    );
+    assert.equal(started, false);
+  });
+
+  it("rejects, starting no agent, when the repo host has no such branch", async () => {
+    const { directory } = await hostedProject();
+    let started = false;
+    const sandbox = containerSandbox(
+      async () => {
+        started = true;
+        return { output: "", tokensUsed: tokenCount(0) };
+      },
+      async () => branch("no-such-branch"),
+    );
+
+    await assert.rejects(
+      applyReviewOn(sandbox, directory),
+    );
+    assert.equal(started, false);
+  });
+
+  it("rejects, starting no agent, when the checkout's origin is no address a clone can push to", async () => {
+    const { directory } = await hostedProject();
+    await run("git", ["-C", directory, "remote", "set-url", "origin", "../pilot"]);
+    let started = false;
+    const sandbox = containerSandbox(async () => {
+      started = true;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await assert.rejects(
+      applyReviewOn(sandbox, directory),
+      /not an address a clone can push to/,
+    );
+    assert.equal(started, false);
+  });
+
+  it("rejects as an infrastructure failure when the agent never ran", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => {
+      throw new AgentNeverRan("docker is not running");
+    }, headIsBranch);
+
+    await assert.rejects(
+      applyReviewOn(sandbox, directory),
+      AgentNeverRan,
+    );
+  });
+
+  it("takes the clone away once the run ends", async () => {
+    const { directory } = await hostedProject();
+    let clone = "";
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      clone = mounted;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(await exists(clone), false);
+  });
+});
+
+describe("pushableRemote", () => {
+  for (const [ssh, https] of [
+    ["git@github.com:nadav-alon/pilot.git", "https://github.com/nadav-alon/pilot.git"],
+    ["git@github.com:nadav-alon/pilot", "https://github.com/nadav-alon/pilot.git"],
+    ["ssh://git@github.com/nadav-alon/pilot.git", "https://github.com/nadav-alon/pilot.git"],
+  ] as const) {
+    it(`reaches ${ssh} over HTTPS, which the container's token can push to`, () => {
+      assert.equal(pushableRemote(remoteUrl(ssh)), https);
+    });
+  }
+
+  it("leaves an HTTPS remote and a local path as they are", () => {
+    assert.equal(
+      pushableRemote(remoteUrl("https://github.com/nadav-alon/pilot.git")),
+      "https://github.com/nadav-alon/pilot.git",
+    );
+    assert.equal(pushableRemote(remoteUrl("/srv/git/pilot")), "/srv/git/pilot");
+  });
+});
+
+describe("pullRequestHeadFrom", () => {
+  const url = APPLY_REVIEW_TICKET.pullRequest.url;
+
+  it("reads the head branch of a pull request from its own repo", () => {
+    const answer = JSON.stringify({ headRefName: BRANCH, isCrossRepository: false });
+
+    assert.equal(pullRequestHeadFrom(answer, url), branch(BRANCH));
+  });
+
+  it("refuses a pull request opened from a fork, whose head the checkout's remote does not have", () => {
+    const answer = JSON.stringify({ headRefName: BRANCH, isCrossRepository: true });
+
+    assert.throws(() => pullRequestHeadFrom(answer, url), /its own repo/);
+  });
+
+  it("refuses an answer that does not say whether the pull request is from a fork", () => {
+    const answer = JSON.stringify({ headRefName: BRANCH });
+
+    assert.throws(() => pullRequestHeadFrom(answer, url), /its own repo/);
+  });
+
+  for (const headRefName of [undefined, 7, "not a branch.."]) {
+    it(`refuses a head branch of ${JSON.stringify(headRefName)}`, () => {
+      const answer = JSON.stringify({ headRefName, isCrossRepository: false });
+
+      assert.throws(() => pullRequestHeadFrom(answer, url), /no usable head branch/);
+    });
+  }
 });
 
 describe("readAgentRun", () => {

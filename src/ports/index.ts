@@ -52,6 +52,8 @@ export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
+export { isRemoteUrl, remoteUrl } from "./remote-url.ts";
+export type { RemoteUrl } from "./remote-url.ts";
 export {
   APPLIED_REPLY_PREFIX,
   APPLY_REVIEW_MARKER,
@@ -73,6 +75,9 @@ export type { ReserveFraction } from "./reserve-fraction.ts";
 export { isSize, SIZES } from "./size.ts";
 export type { Size } from "./size.ts";
 export type {
+  ApplyReviewGaveUp,
+  ApplyReviewOutcome,
+  ApplyReviewRequest,
   ModelRefusal,
   ReviewFinished,
   ReviewGaveUp,

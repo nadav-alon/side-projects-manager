@@ -151,7 +151,7 @@ What the loop does with a ticket whose run gave up or finished, or whose model i
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
-A run whose agent ran and stopped short — it said it could not, left the tests red, or, for a review, posted no findings to the pull request. The ticket is the problem.
+A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, had its push rejected because the pull request's branch moved on the repo host. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
@@ -311,7 +311,7 @@ A working in-memory implementation of a port, used to exercise the loop in tests
 _Avoid_: mock, double, spy
 
 **Sandbox**:
-The container an unattended agent runs in, on a throwaway clone of one project. The branch it leaves behind is fetched back into the project's checkout; the clone is not kept.
+The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. The clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:

@@ -190,6 +190,12 @@ Issues and Pull requests only, with no Contents access, so a push or a merge att
 refused by GitHub itself. Without it a review will not start — it does not fall back to the
 implementation's own, push-capable token.
 
+An apply-review ticket's run is the opposite: its clone is checked out on the pull request's head
+branch, mounted read-write, with `origin` pointed at GitHub, and the agent pushes and replies itself
+with `GH_TOKEN` — so that token needs Contents write access. The head branch is looked up with
+`gh pr view` on this machine before the container starts. Nothing is fetched back into the checkout;
+what the run pushed and answered is read back from GitHub.
+
 `state.json` beside it is the machine's half: when each project was last worked, and what its runs
 cost. The loop writes it after every invocation and you never have to edit it; it is committed for
 the audit trail. It does not exist until the loop has run, and no state for a project means the
