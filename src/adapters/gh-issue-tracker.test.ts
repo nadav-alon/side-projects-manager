@@ -126,7 +126,7 @@ describe("ghIssueTracker", () => {
     );
   });
 
-  it("carries how many of an open issue's sub-issues are still open, leaving out review tickets", async () => {
+  it("carries how many of an open issue's sub-issues are still open, leaving out pull request tickets", async () => {
     const { stdout } = await execFileAsync("gh", [
       "issue",
       "list",
@@ -146,11 +146,13 @@ describe("ghIssueTracker", () => {
     }[];
     // Told apart by title rather than by the body line the adapter reads, so
     // a bug in reading bodies can't make this pass anyway. The titles in this
-    // repo are the ones `reviewTitle` gives.
+    // repo are the ones `reviewTitle` and the apply-review workflow give.
     const openSubIssues = (issue: (typeof all)[number]) =>
       issue.subIssues.nodes.filter((sub) => sub.state === "OPEN");
-    const isReview = (sub: { title: string }) =>
-      /^Review the draft pull request for #\d+$/.test(sub.title);
+    const isPullRequestTicketTitle = (sub: { title: string }) =>
+      /^(?:Review the draft pull request for|Apply the review on) #\d+$/.test(
+        sub.title,
+      );
     // Every sub-issue listed, so the titles account for every open one.
     const complete = (issue: (typeof all)[number]) =>
       openSubIssues(issue).length ===
@@ -159,13 +161,13 @@ describe("ghIssueTracker", () => {
     const brokenOut = all.find(
       (issue) =>
         complete(issue) &&
-        openSubIssues(issue).some((sub) => !isReview(sub)),
+        openSubIssues(issue).some((sub) => !isPullRequestTicketTitle(sub)),
     );
     const reviewedOnly = all.find(
       (issue) =>
         complete(issue) &&
         openSubIssues(issue).length > 0 &&
-        openSubIssues(issue).every(isReview),
+        openSubIssues(issue).every(isPullRequestTicketTitle),
     );
     const whole = all.find(
       (issue) => issue.subIssuesSummary.total <= issue.subIssuesSummary.completed,
@@ -174,11 +176,11 @@ describe("ghIssueTracker", () => {
     // pass whether or not the adapter reads sub-issues at all.
     assert.ok(
       brokenOut,
-      "fixture repo needs an open issue with an open sub-issue that is not a review ticket",
+      "fixture repo needs an open issue with an open sub-issue that is not a pull request ticket",
     );
     assert.ok(
       reviewedOnly,
-      "fixture repo needs an open issue whose only open sub-issues are review tickets",
+      "fixture repo needs an open issue whose only open sub-issues are pull request tickets",
     );
     assert.ok(
       whole,
@@ -190,7 +192,7 @@ describe("ghIssueTracker", () => {
     const brokenOutIssue = issues.find((i) => i.ticket.number === brokenOut.number);
     assert.equal(
       brokenOutIssue?.ticket.openSubIssues,
-      openSubIssues(brokenOut).filter((sub) => !isReview(sub)).length,
+      openSubIssues(brokenOut).filter((sub) => !isPullRequestTicketTitle(sub)).length,
     );
 
     const reviewedOnlyIssue = issues.find(
