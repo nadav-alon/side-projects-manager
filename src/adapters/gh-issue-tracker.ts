@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type {
   IssueTracker,
   OpenIssues,
+  PullRequestBinding,
   PullRequestUrl,
   RepoSlug,
   ReviewTicket,
@@ -80,7 +81,7 @@ export function ghIssueTracker(
       const truncated = listed.length > OPEN_ISSUE_READ_LIMIT;
       const issues = listed.slice(0, OPEN_ISSUE_READ_LIMIT).map(
         ({ body, subIssuesSummary, blockedBy, parent, labels, ...issue }) => {
-          const pullRequest = pullRequestReviewed(body);
+          const pullRequest = pullRequestBoundIn(body);
           const openSubIssues =
             subIssuesSummary.total - subIssuesSummary.completed;
           const stillBlocking = blockedBy.filter(
@@ -149,7 +150,7 @@ export function ghIssueTracker(
         repo: ticket.repo,
         number: issueNumberIn(stdout, ticket.repo),
         title,
-        pullRequest,
+        pullRequest: { kind: "review", url: pullRequest },
       };
 
       try {
@@ -276,15 +277,37 @@ function reviewBody(ticket: Ticket, pullRequest: PullRequestUrl): string {
 const REVIEW_BODY = /^Review (\S+), the draft pull request opened for #\d+\.$/m;
 
 /**
- * The pull request a review ticket's body names, or undefined where `body`
- * isn't one this adapter wrote — which is what makes a fresh `listOpenIssues`
- * able to tell a review ticket from an implementation ticket at all: the
- * association `createReviewTicket` returned in the same process is gone by the
- * next morning, and the body is the only place it survives.
+ * The line the apply-review workflow writes — never this adapter, and never
+ * by hand — read back the same way `REVIEW_BODY` is: matched per line, so it
+ * survives beside a `Part of #N.` line or any other the body carries.
  */
-function pullRequestReviewed(body: string): PullRequestUrl | undefined {
-  const url = REVIEW_BODY.exec(body)?.[1];
-  return url !== undefined && isPullRequestUrl(url) ? url : undefined;
+const APPLY_REVIEW_BODY =
+  /^Apply the review on (\S+), the draft pull request opened for #\d+\.$/m;
+
+/**
+ * The pull request an issue's body binds it to, and which of the two bound
+ * kinds, or undefined where `body` carries neither line — which is what makes
+ * a fresh `listOpenIssues` able to tell a review or an apply-review ticket
+ * from an implementation ticket, and the two apart from each other: the
+ * association `createReviewTicket` returned in the same process is gone by
+ * the next morning, and the body is the only place it survives.
+ */
+function pullRequestBoundIn(body: string): PullRequestBinding | undefined {
+  return (
+    bindingIn(REVIEW_BODY, "review", body) ??
+    bindingIn(APPLY_REVIEW_BODY, "apply-review", body)
+  );
+}
+
+function bindingIn(
+  pattern: RegExp,
+  kind: PullRequestBinding["kind"],
+  body: string,
+): PullRequestBinding | undefined {
+  const url = pattern.exec(body)?.[1];
+  return url !== undefined && isPullRequestUrl(url)
+    ? { kind, url }
+    : undefined;
 }
 
 /**

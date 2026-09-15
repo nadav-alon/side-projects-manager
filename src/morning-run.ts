@@ -1368,7 +1368,10 @@ async function runReview(
 
   let posted: boolean;
   try {
-    posted = await ports.repoHost.hasNewComment(ticket.pullRequest, startedAt);
+    posted = await ports.repoHost.hasNewComment(
+      ticket.pullRequest.url,
+      startedAt,
+    );
   } catch (error: unknown) {
     return {
       kind: "reviewed",
@@ -1381,7 +1384,7 @@ async function runReview(
       ports,
       ticket,
       review,
-      `the agent ran but posted nothing to ${ticket.pullRequest}`,
+      `the agent ran but posted nothing to ${ticket.pullRequest.url}`,
     );
   }
 

@@ -463,8 +463,8 @@ function promptFor(ticket: Ticket): string {
  */
 function reviewPromptFor(ticket: ReviewTicket): string {
   return [
-    `Review ${ticket.pullRequest}, a draft pull request in this repository. Find the ticket it`,
-    `closes from its own body (\`gh pr view ${ticket.pullRequest} --json body,files\`) and read that`,
+    `Review ${ticket.pullRequest.url}, a draft pull request in this repository. Find the ticket it`,
+    `closes from its own body (\`gh pr view ${ticket.pullRequest.url} --json body,files\`) and read that`,
     `ticket with \`gh issue view\`; name the repo explicitly wherever gh needs one, since this`,
     "clone's origin is a local path and gh cannot infer it. Run the two-axis review from the",
     "mattpocock-skills plugin explicitly as `/mattpocock-skills:code-review` — never the built-in",
@@ -474,7 +474,7 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "two reports; posting is yours to do, and not as that aggregate dropped in one comment. Post each",
     "finding inline, on the file and line it is actually about, by submitting a single review —",
     "`gh api repos/<owner>/<repo>/pulls/<number>/reviews --input -`, with `<owner>/<repo>` and",
-    `\`<number>\` read off ${ticket.pullRequest} — piped a JSON object shaped`,
+    `\`<number>\` read off ${ticket.pullRequest.url} — piped a JSON object shaped`,
     '`{"event": "COMMENT", "comments": [{"path": <file>, "line": <line>, "body": <finding>}, ...]}`,',
     "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
     "sit on — a one-line summary, or a finding that spans the whole change.",

@@ -5,6 +5,9 @@ import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   carriesReadyForAgent,
+  isApplyReviewTicket,
+  isPullRequestTicket,
+  isReviewTicket,
   modelLabelOf,
   ticketKind,
   ticketPrioritiesIn,
@@ -150,16 +153,31 @@ describe("carriesReadyForAgent", () => {
   });
 });
 
+const PULL_REQUEST = pullRequestUrl(
+  "https://github.com/nadav-alon/pilot/pull/12",
+);
+
 describe("ticketKind", () => {
-  it("reads a ticket naming a pull request as a review", () => {
+  it("reads a ticket bound to a review as a review", () => {
     const ticket = {
       repo: PILOT,
       number: 13,
       title: "Review #12",
-      pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+      pullRequest: { kind: "review" as const, url: PULL_REQUEST },
     };
 
     assert.equal(ticketKind(ticket), "review");
+  });
+
+  it("reads a ticket bound to an apply-review as an apply-review", () => {
+    const ticket = {
+      repo: PILOT,
+      number: 13,
+      title: "Apply the review",
+      pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
+    };
+
+    assert.equal(ticketKind(ticket), "apply-review");
   });
 
   it("reads a ticket naming no pull request as an implementation", () => {
@@ -167,6 +185,40 @@ describe("ticketKind", () => {
       ticketKind({ repo: PILOT, number: 12, title: "Add a thing" }),
       "implementation",
     );
+  });
+});
+
+describe("isReviewTicket, isApplyReviewTicket and isPullRequestTicket", () => {
+  const review = {
+    repo: PILOT,
+    number: 13,
+    title: "Review #12",
+    pullRequest: { kind: "review" as const, url: PULL_REQUEST },
+  };
+  const applyReview = {
+    repo: PILOT,
+    number: 14,
+    title: "Apply the review",
+    pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
+  };
+  const implementation = { repo: PILOT, number: 12, title: "Add a thing" };
+
+  it("tells a review ticket from the other two kinds", () => {
+    assert.equal(isReviewTicket(review), true);
+    assert.equal(isReviewTicket(applyReview), false);
+    assert.equal(isReviewTicket(implementation), false);
+  });
+
+  it("tells an apply-review ticket from the other two kinds", () => {
+    assert.equal(isApplyReviewTicket(applyReview), true);
+    assert.equal(isApplyReviewTicket(review), false);
+    assert.equal(isApplyReviewTicket(implementation), false);
+  });
+
+  it("tells a pull-request-bound ticket, of either kind, from an implementation", () => {
+    assert.equal(isPullRequestTicket(review), true);
+    assert.equal(isPullRequestTicket(applyReview), true);
+    assert.equal(isPullRequestTicket(implementation), false);
   });
 });
 

@@ -345,11 +345,11 @@ function reviewSummary(
   const { repo, ticket, notClosed } = iteration;
   switch (notClosed?.kind) {
     case undefined:
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}.`;
+      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
     case "check-failed":
-      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest} could not be checked for its findings: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest} and close it yourself.`;
+      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
     case "close-failed":
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
 }
 
@@ -361,9 +361,9 @@ function notClosedLine(
   const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed.kind) {
     case "check-failed":
-      return `${still} — ${ticket.pullRequest} could not be checked for its findings: ${notClosed.error}; check it and close the ticket yourself`;
+      return `${still} — ${ticket.pullRequest.url} could not be checked for its findings: ${notClosed.error}; check it and close the ticket yourself`;
     case "close-failed":
-      return `${still} — its findings are on ${ticket.pullRequest}, but it could not be closed: ${notClosed.error}; close it yourself`;
+      return `${still} — its findings are on ${ticket.pullRequest.url}, but it could not be closed: ${notClosed.error}; close it yourself`;
   }
 }
 

@@ -841,7 +841,10 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(issues.length, 1);
-    assert.equal(issues[0]?.ticket.pullRequest, PULL_REQUEST);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "review",
+      url: PULL_REQUEST,
+    });
   });
 
   it("leaves an implementation ticket's pull request unset", async (t) => {
@@ -873,6 +876,26 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
     assert.equal(issues[0]?.ticket.pullRequest, undefined);
   });
 
+  it("does not mistake an apply-review body for a review's", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "apply-review",
+      url: PULL_REQUEST,
+    });
+  });
+
   /**
    * `linkToParent`'s fallback, for a tracker without sub-issues, prepends
    * `Part of #N.` ahead of the review sentence — so the sentence is no
@@ -893,7 +916,10 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.ticket.pullRequest, PULL_REQUEST);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "review",
+      url: PULL_REQUEST,
+    });
   });
 
   it("asks for the body, since it is the only place the association survives", async (t) => {
@@ -907,6 +933,121 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
       valueOf(list, "--json"),
       "number,title,body,subIssuesSummary,blockedBy,parent,labels",
     );
+  });
+});
+
+/**
+ * Telling an apply-review ticket from a review and from an implementation
+ * ticket, the same way `REVIEW_BODY` is told apart: the apply-review line is
+ * written by the apply-review workflow, never by this adapter, so it is read
+ * back from the body exactly as a review's association is.
+ */
+describe("ghIssueTracker.listOpenIssues — apply-review tickets", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/12",
+  );
+
+  it("carries the pull request an apply-review ticket's body names", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 1);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "apply-review",
+      url: PULL_REQUEST,
+    });
+  });
+
+  it("leaves an implementation ticket's pull request unset", async (t) => {
+    await recordingGh(
+      t,
+      listing([{ number: 7, title: "Add the thing", body: "Do the thing." }]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
+  });
+
+  it("does not mistake a review body for an apply-review's", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Review the draft pull request for #7",
+          body: `Review ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "review",
+      url: PULL_REQUEST,
+    });
+  });
+
+  it("treats a malformed apply-review line as an implementation ticket", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Apply the review",
+          body: "Apply the review on not-a-url, the draft pull request opened for #7.",
+        },
+        {
+          number: 10,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for it.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 2);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
+    assert.equal(issues[1]?.ticket.pullRequest, undefined);
+  });
+
+  /**
+   * `linkToParent`'s fallback, for a tracker without sub-issues, prepends
+   * `Part of #N.` ahead of the review sentence — the apply-review workflow's
+   * own body writes the same shape, so the association survives it too.
+   */
+  it("still carries the pull request when the body also names its parent", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Apply the review",
+          body: `Part of #7.\n\nApply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "apply-review",
+      url: PULL_REQUEST,
+    });
   });
 });
 
@@ -1003,7 +1144,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     const review = issues.find((issue) => issue.ticket.number === 42)?.ticket;
-    assert.equal(review?.pullRequest, pullRequest);
+    assert.deepEqual(review?.pullRequest, { kind: "review", url: pullRequest });
     assert.equal(review?.modelLabel, undefined);
   });
 
@@ -1312,7 +1453,10 @@ describe("ghIssueTracker.closeReviewTicket", () => {
     repo: PILOT,
     number: 42,
     title: "Review the draft pull request for #7",
-    pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    pullRequest: {
+      kind: "review",
+      url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    },
   };
 
   it("closes the review ticket in its own repo", async (t) => {

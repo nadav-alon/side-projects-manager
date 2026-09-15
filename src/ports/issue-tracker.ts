@@ -97,14 +97,25 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
 }
 
 /**
+ * The pull request a ticket is bound to, and why: `review` binds a review
+ * ticket to the draft it was opened to review; `apply-review` binds an
+ * apply-review ticket to the draft the apply-review workflow asks the loop to
+ * revise. Both name the one thing a run cannot work out for itself, since the
+ * sandbox's clone has no GitHub remote to infer it from.
+ */
+export type PullRequestBinding =
+  | { kind: "review"; url: PullRequestUrl }
+  | { kind: "apply-review"; url: PullRequestUrl };
+
+/**
  * An issue in a project's own repo that the loop may work on.
  *
- * `pullRequest` is what tells a review ticket from an implementation ticket:
- * present only on a review, it names the draft pull request the review asks
- * about — the one thing a reviewing run cannot work out for itself, since the
- * sandbox's clone has no GitHub remote to infer it from. Absent on every
- * implementation ticket, which is what selection reads to choose which kind
- * of run to start.
+ * `pullRequest` is what tells a review or an apply-review ticket from an
+ * implementation ticket, and the two apart from each other: present only on
+ * one of those two kinds, its `kind` names which, and its `url` names the
+ * draft pull request the ticket is bound to. Absent on every implementation
+ * ticket, which is what selection reads to choose which kind of run to
+ * start.
  *
  * `openSubIssues` is the fact `isBrokenOut` reads: how many of the ticket's
  * sub-issues are still open, straight from the same listing that already
@@ -130,7 +141,7 @@ export interface Ticket {
   repo: RepoSlug;
   number: number;
   title: string;
-  pullRequest?: PullRequestUrl;
+  pullRequest?: PullRequestBinding;
   openSubIssues?: number;
   openBlockers?: number;
   modelLabel?: ModelLabel;
@@ -273,21 +284,49 @@ export function ticketPrioritiesIn(
 }
 
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
-export type ReviewTicket = Ticket & { pullRequest: PullRequestUrl };
+export type ReviewTicket = Ticket & {
+  pullRequest: Extract<PullRequestBinding, { kind: "review" }>;
+};
 
-/** Whether `ticket` is a review ticket rather than an implementation ticket. */
+/** A ticket narrowed to the apply-review kind, once `isApplyReviewTicket` has said so. */
+export type ApplyReviewTicket = Ticket & {
+  pullRequest: Extract<PullRequestBinding, { kind: "apply-review" }>;
+};
+
+/** A ticket narrowed to either pull-request-bound kind, once `isPullRequestTicket` has said so. */
+export type PullRequestTicket = Ticket & { pullRequest: PullRequestBinding };
+
+/** Whether `ticket` is a review ticket rather than an implementation or apply-review ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
+  return ticket.pullRequest?.kind === "review";
+}
+
+/** Whether `ticket` is an apply-review ticket rather than an implementation or review ticket. */
+export function isApplyReviewTicket(
+  ticket: Ticket,
+): ticket is ApplyReviewTicket {
+  return ticket.pullRequest?.kind === "apply-review";
+}
+
+/** Whether `ticket` is bound to a pull request at all — a review or an apply-review ticket. */
+export function isPullRequestTicket(
+  ticket: Ticket,
+): ticket is PullRequestTicket {
   return ticket.pullRequest !== undefined;
 }
 
 /** The kinds of ticket the loop runs, each of which may have its own model. */
-export const TICKET_KINDS = ["implementation", "review"] as const;
+export const TICKET_KINDS = [
+  "implementation",
+  "review",
+  "apply-review",
+] as const;
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
-/** Which kind `ticket` is, read the way `isReviewTicket` reads it. */
+/** Which kind `ticket` is, read the way `isReviewTicket` and `isApplyReviewTicket` read it. */
 export function ticketKind(ticket: Ticket): TicketKind {
-  return isReviewTicket(ticket) ? "review" : "implementation";
+  return ticket.pullRequest?.kind ?? "implementation";
 }
 
 /**

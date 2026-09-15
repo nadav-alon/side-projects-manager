@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   backlogIn,
+  isApplyReviewTicket,
   modelName,
   pullRequestUrl,
   repoSlug,
@@ -138,6 +139,26 @@ describe("FakeIssueTracker", () => {
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
 
     assert.equal(backlog[0]?.openSubIssues, 7);
+  });
+
+  it("holds an apply-review ticket, bound to the pull request it names", async () => {
+    const tracker = new FakeIssueTracker();
+    const pullRequest = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/12",
+    );
+    tracker.addEligibleTicket(PILOT, {
+      number: 9,
+      title: "Apply the review",
+      pullRequest: { kind: "apply-review", url: pullRequest },
+    });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(isApplyReviewTicket(backlog[0] as Ticket), true);
+    assert.deepEqual((backlog[0] as Ticket).pullRequest, {
+      kind: "apply-review",
+      url: pullRequest,
+    });
   });
 });
 
