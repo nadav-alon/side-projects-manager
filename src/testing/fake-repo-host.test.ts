@@ -21,7 +21,7 @@ describe("FakeRepoHost apply-review answers", () => {
 
     const answers = await host.readApplyReviewAnswers(PULL_REQUEST, SINCE);
 
-    assert.deepEqual(answers, { applied: 2, declined: 1, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 2, declinedSince: 1, unanswered: 0 });
   });
 
   it("reads a thread with no marked reply as unanswered", async () => {
@@ -30,7 +30,7 @@ describe("FakeRepoHost apply-review answers", () => {
 
     const answers = await host.readApplyReviewAnswers(PULL_REQUEST, SINCE);
 
-    assert.deepEqual(answers, { applied: 0, declined: 0, unanswered: 1 });
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 1 });
   });
 
   it("reads a thread whose last comment came after the marked reply as unanswered", async () => {
@@ -47,7 +47,7 @@ describe("FakeRepoHost apply-review answers", () => {
 
     const answers = await host.readApplyReviewAnswers(PULL_REQUEST, SINCE);
 
-    assert.deepEqual(answers, { applied: 1, declined: 0, unanswered: 1 });
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 1 });
   });
 
   it("marks a pull request ready and records it", async () => {

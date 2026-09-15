@@ -46,13 +46,13 @@ describe("summarizeApplyReviewThreads", () => {
       SINCE,
     );
 
-    assert.deepEqual(answers, { applied: 2, declined: 1, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 2, declinedSince: 1, unanswered: 0 });
   });
 
   it("reads a thread with no marked reply as unanswered", () => {
     const answers = summarizeApplyReviewThreads([opened()], SINCE);
 
-    assert.deepEqual(answers, { applied: 0, declined: 0, unanswered: 1 });
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 1 });
   });
 
   it("reads a thread whose last comment came after the marked reply as unanswered, still counting the reply", () => {
@@ -66,7 +66,7 @@ describe("summarizeApplyReviewThreads", () => {
 
     const answers = summarizeApplyReviewThreads([reopened], SINCE);
 
-    assert.deepEqual(answers, { applied: 1, declined: 0, unanswered: 1 });
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 1 });
   });
 
   it("counts the applied reply on a thread resolved after it, which is not unanswered", () => {
@@ -75,13 +75,13 @@ describe("summarizeApplyReviewThreads", () => {
       SINCE,
     );
 
-    assert.deepEqual(answers, { applied: 1, declined: 0, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
   });
 
   it("does not read a resolved thread nobody answered as unanswered", () => {
     const answers = summarizeApplyReviewThreads([{ ...opened(), resolved: true }], SINCE);
 
-    assert.deepEqual(answers, { applied: 0, declined: 0, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 0 });
   });
 
   it("counts every marked reply since the instant, not only a thread's last", () => {
@@ -97,7 +97,7 @@ describe("summarizeApplyReviewThreads", () => {
 
     const answers = summarizeApplyReviewThreads([answeredTwice], SINCE);
 
-    assert.deepEqual(answers, { applied: 1, declined: 1, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 0 });
   });
 
   it("reads a reply that opens with a quote by the verdict line after it", () => {
@@ -111,12 +111,12 @@ describe("summarizeApplyReviewThreads", () => {
 
     const answers = summarizeApplyReviewThreads([quoted], SINCE);
 
-    assert.deepEqual(answers, { applied: 0, declined: 1, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 0 });
   });
 
   it("does not count a marked reply posted before the read's instant as applied or declined", () => {
     const answers = summarizeApplyReviewThreads([applied("abc123: old pass", BEFORE)], SINCE);
 
-    assert.deepEqual(answers, { applied: 0, declined: 0, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 0 });
   });
 });

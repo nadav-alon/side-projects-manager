@@ -46,16 +46,18 @@ export interface ApplyReviewThread {
 /**
  * What reading a pull request's apply-review pass comes to.
  *
- * `applied` and `declined` count the marked replies posted since the read's
- * instant, so a caller asking what one run did is not handed counts an
- * earlier pass already reported. `unanswered` is not scoped to that instant:
- * a thread a marked reply answered days ago is still answered today, and a
- * thread a later, unmarked comment spoke in after the marked reply is
- * unanswered again, whatever instant the caller reads from.
+ * The `…Since` counts are scoped to the read's instant, so a caller asking
+ * what one run did is not handed counts an earlier pass already reported.
+ * `unanswered` is the thread's standing state, whatever instant the caller
+ * reads from: a thread a marked reply answered days ago is still answered,
+ * and one a later, unmarked comment spoke in is unanswered again.
  */
 export interface ApplyReviewAnswers {
-  applied: number;
-  declined: number;
+  /** Applied replies posted since the read's instant. */
+  appliedSince: number;
+  /** Declined replies posted since the read's instant. */
+  declinedSince: number;
+  /** Open threads whose last comment is not a marked reply. */
   unanswered: number;
 }
 
@@ -92,7 +94,7 @@ export function summarizeApplyReviewThreads(
     }
   }
 
-  return { applied, declined, unanswered };
+  return { appliedSince: applied, declinedSince: declined, unanswered };
 }
 
 function isMarked(body: string): boolean {

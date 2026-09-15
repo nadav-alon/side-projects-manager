@@ -927,7 +927,7 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { applied: 1, declined: 1, unanswered: 1 });
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 1 });
   });
 
   it("ties a reply to the review body it quotes, not to every review", async (t) => {
@@ -943,7 +943,7 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { applied: 0, declined: 1, unanswered: 1 });
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 1 });
   });
 
   it("reads a comment quoting no review as neither answering nor reopening one", async (t) => {
@@ -958,7 +958,7 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { applied: 1, declined: 0, unanswered: 0 });
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
   });
 
   it("names the field a response it cannot read is missing", async (t) => {
