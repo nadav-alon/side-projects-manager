@@ -43,8 +43,10 @@ jobs:
             exit 0
           fi
 
+          # The REST issue-comments endpoint, not `gh issue comment`: the
+          # comment may be on a pull request, whose number `gh issue` refuses.
           reply() {
-            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$1"
+            gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$1" >/dev/null
           }
 
           # The first Closes/Fixes/Resolves #N in $1, GitHub's own closing
@@ -172,4 +174,5 @@ jobs:
           else
             body="Can't open an apply-review ticket: $detail"
           fi
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$body"
+          # REST for the same reason as reply() above.
+          gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$body" >/dev/null
