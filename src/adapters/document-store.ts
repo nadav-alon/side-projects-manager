@@ -28,11 +28,13 @@ import type {
 } from "../ports/index.ts";
 import {
   DEFAULT_BUDGET,
+  INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
   MODEL_NAME_SHAPE,
   SIZES,
   TICKET_KINDS,
   isDay,
+  isInvocationOutcome,
   isIssueNumber,
   isIterationLimit,
   isModelName,
@@ -701,13 +703,6 @@ const RECORD_FIELDS = [
   "standDownReason",
 ] as const;
 
-const INVOCATION_OUTCOMES = [
-  "dry-queue",
-  "stood-down",
-  "work-selected",
-  "invocation-failed",
-] as const;
-
 /**
  * `{ "records": [{ "openedAt": "…", "process": 123, "closedAt": "…",
  *    "outcome": "work-selected", "projects": [{ "repo": "owner/repo",
@@ -771,15 +766,12 @@ function processField(value: unknown, where: string): ProcessId {
 }
 
 function outcomeField(value: unknown, where: string): InvocationOutcome {
-  if (
-    typeof value !== "string" ||
-    !(INVOCATION_OUTCOMES as readonly string[]).includes(value)
-  ) {
+  if (typeof value !== "string" || !isInvocationOutcome(value)) {
     throw new Error(
       `${where}: "outcome" must be one of ${INVOCATION_OUTCOMES.join(", ")}: ${JSON.stringify(value)}`,
     );
   }
-  return value as InvocationOutcome;
+  return value;
 }
 
 function journaledProjectsField(

@@ -32,11 +32,21 @@ export function processId(value: number): ProcessId {
  * rather than an import from it: the store port must not depend on the loop's
  * own module, and a string union costs nothing to duplicate.
  */
-export type InvocationOutcome =
-  | "dry-queue"
-  | "stood-down"
-  | "work-selected"
-  | "invocation-failed";
+export const INVOCATION_OUTCOMES = [
+  "dry-queue",
+  "stood-down",
+  "work-selected",
+  "invocation-failed",
+] as const;
+
+export type InvocationOutcome = (typeof INVOCATION_OUTCOMES)[number];
+
+/** Whether `value` is one of the four invocation outcomes. */
+export function isInvocationOutcome(
+  value: string,
+): value is InvocationOutcome {
+  return (INVOCATION_OUTCOMES as readonly string[]).includes(value);
+}
 
 /** One project an invocation worked, and what it cost across every run made against it. */
 export interface JournaledProject {

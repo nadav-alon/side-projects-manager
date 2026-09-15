@@ -48,7 +48,13 @@ export type {
 } from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
-export { JOURNAL_LIMIT, isProcessId, processId } from "./journal.ts";
+export {
+  INVOCATION_OUTCOMES,
+  JOURNAL_LIMIT,
+  isInvocationOutcome,
+  isProcessId,
+  processId,
+} from "./journal.ts";
 export type {
   InvocationClosing,
   InvocationHandle,
