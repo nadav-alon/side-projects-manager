@@ -33,7 +33,6 @@ import {
   backlogIn,
   isBlocked,
   isBrokenOut,
-  isPullRequestTicket,
   isReviewTicket,
   localDay,
   recordRun,
@@ -845,11 +844,12 @@ function compareTickets(
   b: Ticket,
   ticketPriorities: ReadonlyMap<number, TicketPriority>,
 ): number {
-  const kindOrder = compareKinds(ticketKind(a), ticketKind(b));
+  const kind = ticketKind(a);
+  const kindOrder = compareKinds(kind, ticketKind(b));
   if (kindOrder !== 0) {
     return kindOrder;
   }
-  if (isPullRequestTicket(a)) {
+  if (kind !== "implementation") {
     return a.number - b.number;
   }
   const byPriority = absentLast(
