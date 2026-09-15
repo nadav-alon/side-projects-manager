@@ -102,10 +102,14 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
  * apply-review ticket to the draft the apply-review workflow asks the loop to
  * revise. Both name the one thing a run cannot work out for itself, since the
  * sandbox's clone has no GitHub remote to infer it from.
+ *
+ * `kind` is the ticket's kind itself, which is why it is spelled from
+ * `TicketKind`: every kind but an implementation is bound to a pull request.
  */
-export type PullRequestBinding =
-  | { kind: "review"; url: PullRequestUrl }
-  | { kind: "apply-review"; url: PullRequestUrl };
+export interface PullRequestBinding {
+  kind: Exclude<TicketKind, "implementation">;
+  url: PullRequestUrl;
+}
 
 /**
  * An issue in a project's own repo that the loop may work on.
@@ -285,12 +289,12 @@ export function ticketPrioritiesIn(
 
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
 export type ReviewTicket = Ticket & {
-  pullRequest: Extract<PullRequestBinding, { kind: "review" }>;
+  pullRequest: PullRequestBinding & { kind: "review" };
 };
 
 /** A ticket narrowed to the apply-review kind, once `isApplyReviewTicket` has said so. */
 export type ApplyReviewTicket = Ticket & {
-  pullRequest: Extract<PullRequestBinding, { kind: "apply-review" }>;
+  pullRequest: PullRequestBinding & { kind: "apply-review" };
 };
 
 /** A ticket narrowed to either pull-request-bound kind, once `isPullRequestTicket` has said so. */
@@ -324,7 +328,10 @@ export const TICKET_KINDS = [
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
-/** Which kind `ticket` is, read the way `isReviewTicket` and `isApplyReviewTicket` read it. */
+/**
+ * Which kind `ticket` is: its pull request binding's kind, or an
+ * implementation where it is bound to none.
+ */
 export function ticketKind(ticket: Ticket): TicketKind {
   return ticket.pullRequest?.kind ?? "implementation";
 }
