@@ -191,7 +191,7 @@ function attemptsSection(iterations: IterationOutcome[]): string {
     ) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
-    const spent = costOf(iteration);
+    const spent = iteration.tokensUsed;
     const cost =
       spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
     return `- ${describeIteration(iteration)}${cost} on ${iteration.model ?? "the image's model"}`;
@@ -306,18 +306,6 @@ function waitingOnFailure(
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
         : stillEligibleLine({ repo, ticket });
   }
-}
-
-/**
- * What one iteration's run or review cost — one field every kind carries the
- * same way, so this needs nothing to tell a run and a review apart. Absent
- * for an infrastructure failure, including one where the sandbox rejected
- * after already spending something (`TODO[#35]`). A ticket handed back on
- * unusable model labels leaves this absent too, but `attemptsSection` never
- * reaches here for that case — it prints "nothing run" instead.
- */
-function costOf(iteration: IterationOutcome): TokenCount | undefined {
-  return iteration.tokensUsed;
 }
 
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */
