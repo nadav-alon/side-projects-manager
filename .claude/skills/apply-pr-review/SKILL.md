@@ -4,7 +4,7 @@ description: Act on a pull request's review — answer every open thread, apply 
 disable-model-invocation: true
 ---
 
-Works one pull request's review to the end: every open **thread** gets a reply, and every reply says either **applied** (with the commit) or **declined** (with the reason). The branch is pushed; the pull request is otherwise left as it was.
+Works one pull request's review to the end: every open **thread** gets a reply, and every reply says either **applied** (with the commit) or **declined** (with the reason). The branch is pushed; the pull request is otherwise left as it was. The pull request argument is the go-ahead for every step below. A run may be unattended, with nobody to answer a question, so each step carries straight into the next, ending only at a stop a step names or at the report.
 
 The argument is the pull request (number or URL). With none, use the current branch's: `gh pr view --json number,url`. Name the repo explicitly (`--repo <owner>/<repo>`, or `repos/<owner>/<repo>` in `gh api`) whenever `origin` is not a GitHub remote.
 
@@ -29,7 +29,7 @@ A **thread** is either:
 - an unresolved review thread, or
 - a review with a non-empty top-level `body` (it has no thread of its own; its reply goes on the pull request).
 
-Drop any thread whose last comment carries the marker `<!-- apply-pr-review -->`: it was answered by an earlier pass and nobody has spoken since. Done when you hold a numbered list of every remaining thread: id, file and line (if any), and the full comment text.
+Drop any thread whose last comment carries the marker `<!-- apply-pr-review -->`: it was answered by an earlier run of this skill and nobody has spoken since. Done when you hold a numbered list of every remaining thread: id, file and line (if any), and the full comment text.
 
 If the list is empty, report that and stop.
 
