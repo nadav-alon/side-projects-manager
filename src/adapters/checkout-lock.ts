@@ -21,7 +21,7 @@ const lastInLine = new Map<Checkout, Promise<void>>();
  *
  * Process-wide, because the adapters that share a checkout are separate
  * objects. Two separate invocations of the manager are not covered — the
- * once-per-day lock is what stops those overlapping. Serializes callers per
+ * invocation lease is what stops those overlapping. Serializes callers per
  * checkout and does nothing else: work on different checkouts never waits on
  * each other.
  */
