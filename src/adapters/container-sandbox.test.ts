@@ -35,6 +35,7 @@ import {
   type ReviewOutcome,
   type ReviewTicket,
   type RunOutcome,
+  type Sandbox,
   type Ticket,
 } from "../ports/index.ts";
 import { gate, HANGS, LIMIT_REFUSAL } from "../testing/index.ts";
@@ -1183,6 +1184,15 @@ const headIsBranch = async () => branch(BRANCH);
 
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
+/** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
+function applyReviewOn(sandbox: Sandbox, directory: Checkout) {
+  return sandbox.applyReview({
+    ticket: APPLY_REVIEW_TICKET,
+    checkout: directory,
+    spendCeiling: CEILING,
+  });
+}
+
 describe("containerSandbox.applyReview", () => {
   it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
@@ -1197,11 +1207,7 @@ describe("containerSandbox.applyReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.equal(seen.length, 1);
     assert.notEqual(seen[0]?.mounted, directory);
@@ -1221,11 +1227,7 @@ describe("containerSandbox.applyReview", () => {
       },
     );
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.deepEqual(asked, [APPLY_REVIEW_TICKET.pullRequest.url]);
   });
@@ -1248,11 +1250,7 @@ describe("containerSandbox.applyReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.equal(await headOf(hosted, BRANCH), pushed);
   });
@@ -1262,11 +1260,7 @@ describe("containerSandbox.applyReview", () => {
     const before = await headOf(directory);
     const sandbox = containerSandbox(agentCommitting(["applied.md"]), headIsBranch);
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.deepEqual(await branchesIn(directory), ["main"]);
     assert.equal(await headOf(directory), before);
@@ -1280,11 +1274,7 @@ describe("containerSandbox.applyReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.ok(
       asked.includes(`/apply-pr-review ${APPLY_REVIEW_TICKET.pullRequest.url}`),
@@ -1318,11 +1308,7 @@ describe("containerSandbox.applyReview", () => {
       tokensUsed: tokenCount(9_000),
     }), headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.deepEqual(result, {
       kind: "finished",
@@ -1337,11 +1323,7 @@ describe("containerSandbox.applyReview", () => {
       throw new Error("the agent gave up");
     }, headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.equal(result.kind, "gave-up");
     assert.match(variant(result, "gave-up")?.reason ?? "", /gave up/);
@@ -1359,11 +1341,7 @@ describe("containerSandbox.applyReview", () => {
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.equal(result.kind, "gave-up");
     const gaveUp = variant(result, "gave-up");
@@ -1380,11 +1358,7 @@ describe("containerSandbox.applyReview", () => {
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.equal(variant(result, "gave-up")?.movedHead, commitSha(MOVED_HEAD));
   });
@@ -1396,11 +1370,7 @@ describe("containerSandbox.applyReview", () => {
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.equal(result.kind, "gave-up");
     assert.equal(variant(result, "gave-up")?.movedHead, undefined);
@@ -1416,11 +1386,7 @@ describe("containerSandbox.applyReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.equal(at, headCommit);
   });
@@ -1432,11 +1398,7 @@ describe("containerSandbox.applyReview", () => {
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.equal(result.kind, "finished");
   });
@@ -1449,11 +1411,7 @@ describe("containerSandbox.applyReview", () => {
       failure: "Command failed: docker run",
     }), headIsBranch);
 
-    const result = await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    const result = await applyReviewOn(sandbox, directory);
 
     assert.deepEqual(result, {
       kind: "limit-refused",
@@ -1500,11 +1458,7 @@ describe("containerSandbox.applyReview", () => {
     );
 
     await assert.rejects(
-      sandbox.applyReview({
-        ticket: APPLY_REVIEW_TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      }),
+      applyReviewOn(sandbox, directory),
       /no pull request found/,
     );
     assert.equal(started, false);
@@ -1522,11 +1476,7 @@ describe("containerSandbox.applyReview", () => {
     );
 
     await assert.rejects(
-      sandbox.applyReview({
-        ticket: APPLY_REVIEW_TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      }),
+      applyReviewOn(sandbox, directory),
     );
     assert.equal(started, false);
   });
@@ -1541,11 +1491,7 @@ describe("containerSandbox.applyReview", () => {
     }, headIsBranch);
 
     await assert.rejects(
-      sandbox.applyReview({
-        ticket: APPLY_REVIEW_TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      }),
+      applyReviewOn(sandbox, directory),
       /not an address a clone can push to/,
     );
     assert.equal(started, false);
@@ -1558,11 +1504,7 @@ describe("containerSandbox.applyReview", () => {
     }, headIsBranch);
 
     await assert.rejects(
-      sandbox.applyReview({
-        ticket: APPLY_REVIEW_TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      }),
+      applyReviewOn(sandbox, directory),
       AgentNeverRan,
     );
   });
@@ -1575,11 +1517,7 @@ describe("containerSandbox.applyReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.applyReview({
-      ticket: APPLY_REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
+    await applyReviewOn(sandbox, directory);
 
     assert.equal(await exists(clone), false);
   });
