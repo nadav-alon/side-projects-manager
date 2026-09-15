@@ -5,11 +5,15 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  ApplyReviewOutcome,
+  ApplyReviewRequest,
+  ApplyReviewTicket,
   Branch,
   Checkout,
   CommitSha,
   ModelName,
   ModelRefusal,
+  PullRequestUrl,
   ReviewModelRefused,
   ReviewOutcome,
   ReviewRequest,
@@ -25,6 +29,8 @@ import {
   branch,
   checkout,
   commitSha,
+  isBranch,
+  isCommitSha,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -160,22 +166,35 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  */
 export function containerSandbox(
   container: Container = dockerContainer,
+  pullRequestHead: PullRequestHead = ghPullRequestHead,
 ): Sandbox {
-  return new ContainerSandbox(container);
+  return new ContainerSandbox(container, pullRequestHead);
 }
 
 /**
  * `Sandbox`'s implementation, as a class rather than an object literal of
- * arrow functions: `run` and `review` are each overloaded on whether
- * `request.model` is present, and only a method (or a standalone function
- * declaration) can carry more than one call signature — an arrow assigned to
- * an object property cannot.
+ * arrow functions: `run`, `review` and `applyReview` are each overloaded on
+ * whether `request.model` is present, and only a method (or a standalone
+ * function declaration) can carry more than one call signature — an arrow
+ * assigned to an object property cannot.
  */
 class ContainerSandbox implements Sandbox {
   private readonly container: Container;
+  private readonly pullRequestHead: PullRequestHead;
 
-  constructor(container: Container) {
+  constructor(container: Container, pullRequestHead: PullRequestHead) {
     this.container = container;
+    this.pullRequestHead = pullRequestHead;
+  }
+
+  applyReview(
+    request: ApplyReviewRequest & { model: ModelName },
+  ): Promise<ApplyReviewOutcome>;
+  applyReview(
+    request: ApplyReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
+  applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
+    return applyReviewOnClone(this.container, this.pullRequestHead, request);
   }
 
   run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
@@ -419,6 +438,214 @@ async function reviewOnClone(
       },
     );
   }
+}
+
+/**
+ * The apply-review run: a throwaway clone of its own, like any other, but
+ * checked out on the pull request's head branch as the host has it now, and
+ * mounted read-write — the agent commits there, pushes, and replies on the
+ * pull request itself.
+ *
+ * Inside the container the checkout's path means nothing, so the clone's
+ * `origin` is pointed at the checkout's own remote, and the branch tracks it:
+ * a plain `git push` from the agent lands on the pull request. Nothing is
+ * fetched back and no branch is created in the checkout — what the run did
+ * lives on the host, and is read back from there.
+ */
+async function applyReviewOnClone(
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: ApplyReviewRequest,
+): Promise<ApplyReviewOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+  const head = await pullRequestHead(ticket.pullRequest.url);
+  const clone = checkout(
+    await mkdtemp(path.join(tmpdir(), "side-projects-apply-review-")),
+  );
+
+  try {
+    const remote = await withCheckoutLock(project, async () => {
+      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+      const { stdout } = await run("git", [
+        "-C",
+        project,
+        "remote",
+        "get-url",
+        "origin",
+      ]);
+      return stdout.trim();
+    });
+    await run("git", [
+      "-C",
+      clone,
+      "remote",
+      "set-url",
+      "origin",
+      pushableRemote(remote),
+    ]);
+    // `gh` answers git's credential requests from the `GH_TOKEN` the container
+    // is handed, which is how the agent's push authenticates against GitHub.
+    await run("git", [
+      "-C",
+      clone,
+      "config",
+      "credential.helper",
+      "!gh auth git-credential",
+    ]);
+    await run("git", [
+      "-C",
+      clone,
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "origin",
+      `+refs/heads/${head}:refs/remotes/origin/${head}`,
+    ]);
+    // `--force-create`: the clone already has a local branch of that name when
+    // the checkout was on it, and that copy may be stale; the host's is the one.
+    await run("git", [
+      "-C",
+      clone,
+      "switch",
+      "--quiet",
+      "--track",
+      "--force-create",
+      head,
+      `origin/${head}`,
+    ]);
+
+    const agent = await attempt(container, {
+      directory: clone,
+      prompt: applyReviewPromptFor(ticket),
+      spendCeiling,
+      mount: "rw",
+      ...(model === undefined ? {} : { model }),
+    });
+
+    return applyReviewOutcomeOf(agent, model);
+  } finally {
+    await rm(clone, { recursive: true, force: true }).catch(
+      (error: unknown) => {
+        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
+      },
+    );
+  }
+}
+
+/**
+ * The line an apply-review agent ends its report with when the host rejected
+ * its push because the branch moved, naming the head it moved to — as
+ * `applyReviewPromptFor` asks for it. Anchored to the start of a line (`m`),
+ * and matched only with a commit hash after it, so prose that merely mentions
+ * a moved branch is not read as one; whatever the agent adds after the hash is
+ * ignored, since a rejected push must not read as finished over a stray word.
+ * The only place the line's shape is known.
+ */
+const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
+
+/**
+ * `endingOf`, as an apply-review run ends it: no branch or commits to carry,
+ * and an agent that reports the branch moved under its push has given up,
+ * whatever its exit code — its commits never reached the pull request.
+ */
+function applyReviewOutcomeOf(
+  agent: AgentRun,
+  model: ModelName | undefined,
+): ApplyReviewOutcome {
+  const ending = endingOf(agent, model);
+  const moved = BRANCH_MOVED.exec(agent.output)?.[1];
+  if (
+    (ending.kind === "finished" || ending.kind === "gave-up") &&
+    moved !== undefined &&
+    isCommitSha(moved)
+  ) {
+    return {
+      kind: "gave-up",
+      output: agent.output,
+      reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
+      movedHead: moved,
+      tokensUsed: agent.tokensUsed,
+    };
+  }
+  return { ...ending, tokensUsed: agent.tokensUsed };
+}
+
+/**
+ * `remote` as the container can push to it: an SSH GitHub remote becomes its
+ * HTTPS address, since the container holds a token and no SSH key. Anything
+ * else — HTTPS already, or a local path — is left as it is.
+ *
+ * Exported so the rewrite can be asserted without an SSH remote to push to.
+ */
+export function pushableRemote(remote: string): string {
+  const ssh =
+    /^(?:ssh:\/\/)?git@([^:/]+)[:/](.+?)(?:\.git)?\/?$/.exec(remote);
+  return ssh === null ? remote : `https://${ssh[1]}/${ssh[2]}.git`;
+}
+
+/**
+ * Looks up the head branch of a pull request on the host.
+ *
+ * A parameter of the sandbox rather than a call made inline, so the git half
+ * of an apply-review run can be exercised against a stand-in host without
+ * `gh`, a credential, or a network.
+ */
+export type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
+
+/**
+ * The real lookup: `gh pr view`, with its answer checked before use.
+ *
+ * A pull request opened from a fork is refused: its head branch is not on the
+ * checkout's remote, and a push there would not reach the pull request.
+ */
+const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
+  const { stdout } = await run("gh", [
+    "pr",
+    "view",
+    pullRequest,
+    "--json",
+    "headRefName,isCrossRepository",
+  ]);
+  const { headRefName: name, isCrossRepository } = JSON.parse(stdout) as {
+    headRefName?: unknown;
+    isCrossRepository?: unknown;
+  };
+  if (isCrossRepository !== false) {
+    throw new Error(
+      `${pullRequest} is not known to come from a branch of its own repo, so its head cannot be pushed to from the checkout's remote.`,
+    );
+  }
+  if (typeof name !== "string" || !isBranch(name)) {
+    throw new Error(
+      `gh named no usable head branch for ${pullRequest}: ${JSON.stringify(name)}`,
+    );
+  }
+  return name;
+};
+
+/**
+ * What the apply-review agent is asked to do: invoke the skill on the pull
+ * request, named explicitly since nothing in the prompt otherwise says which.
+ * The skill says how.
+ *
+ * The run is unattended, as a review's is, so a pass that stops to ask has
+ * answered nothing. A rejected push is asked for as one fixed line naming the
+ * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the host
+ * refused from one that finished.
+ */
+function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
+  const url = ticket.pullRequest.url;
+  return [
+    `/apply-pr-review ${url}`,
+    "",
+    `This clone is already checked out on ${url}'s head branch, tracking it on GitHub, so a plain`,
+    "`git push` lands on the pull request. Name the repo explicitly wherever gh needs one.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "work every thread, push and reply without asking for confirmation.",
+    "If the push is rejected because the branch moved, stop, and end your report with the line",
+    "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
+    `(\`gh pr view ${url} --json headRefOid\`).`,
+  ].join("\n");
 }
 
 /**

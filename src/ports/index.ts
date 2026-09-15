@@ -73,6 +73,9 @@ export type { ReserveFraction } from "./reserve-fraction.ts";
 export { isSize, SIZES } from "./size.ts";
 export type { Size } from "./size.ts";
 export type {
+  ApplyReviewGaveUp,
+  ApplyReviewOutcome,
+  ApplyReviewRequest,
   ModelRefusal,
   ReviewFinished,
   ReviewGaveUp,

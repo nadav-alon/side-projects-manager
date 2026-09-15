@@ -1,7 +1,11 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { CommitSha } from "./commit-sha.ts";
-import type { ReviewTicket, Ticket } from "./issue-tracker.ts";
+import type {
+  ApplyReviewTicket,
+  ReviewTicket,
+  Ticket,
+} from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
@@ -34,6 +38,20 @@ export interface RunRequest {
 export interface ReviewRequest {
   ticket: ReviewTicket;
   /** The project's managed clone, read from but never written to. */
+  checkout: Checkout;
+  spendCeiling: Usd;
+  /** As `RunRequest.model`. */
+  model?: ModelName;
+}
+
+/** One apply-review ticket, and the project checkout it is to be worked against. */
+export interface ApplyReviewRequest {
+  ticket: ApplyReviewTicket;
+  /**
+   * The project's managed clone: what the run's own clone comes from, and
+   * where its GitHub remote is read. Never written to — the agent pushes to
+   * the pull request's branch itself, so nothing comes back here.
+   */
   checkout: Checkout;
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
@@ -149,6 +167,29 @@ export type ReviewOutcome =
   | ReviewModelRefused;
 
 /**
+ * As `ReviewGaveUp`, for an apply-review run — which also gives up when the
+ * host rejects its push because the pull request's branch moved under it.
+ */
+export interface ApplyReviewGaveUp extends ReviewGaveUp {
+  /**
+   * The head the branch had moved to, as the agent reported it, present only
+   * when a rejected push is why the run gave up.
+   */
+  movedHead?: CommitSha;
+}
+
+/**
+ * As `ReviewOutcome`, for an apply-review run. No branch or commits on any
+ * variant: the agent pushes to the pull request's branch itself, and what it
+ * pushed and answered is read back from the repo host, never from here.
+ */
+export type ApplyReviewOutcome =
+  | ReviewFinished
+  | ApplyReviewGaveUp
+  | ReviewLimitRefused
+  | ReviewModelRefused;
+
+/**
  * Runs a coding agent against one ticket, in a container, on a checkout of its
  * own. The loop never runs an agent on the host.
  *
@@ -198,4 +239,22 @@ export interface Sandbox {
   review(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
+
+  /**
+   * Runs the `apply-pr-review` skill against `request.ticket.pullRequest`, on
+   * a clone checked out on that pull request's head branch and mounted
+   * read-write. The agent commits, pushes and replies itself, with the
+   * implementation's own credential; no branch is created, and nothing is
+   * fetched back into the checkout.
+   *
+   * Rejects as `run` does, and also when the pull request's head branch
+   * cannot be looked up or fetched. As `run`, a request naming no model can
+   * never come back refused for one.
+   */
+  applyReview(
+    request: ApplyReviewRequest & { model: ModelName },
+  ): Promise<ApplyReviewOutcome>;
+  applyReview(
+    request: ApplyReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
 }

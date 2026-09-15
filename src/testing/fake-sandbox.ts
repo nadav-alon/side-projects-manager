@@ -1,4 +1,7 @@
 import type {
+  ApplyReviewOutcome,
+  ApplyReviewRequest,
+  ApplyReviewTicket,
   ModelName,
   ReviewModelRefused,
   ReviewOutcome,
@@ -16,9 +19,10 @@ import { gate } from "./gate.ts";
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
  *
- * Tests arrange what a run or a review comes to through `result` and
- * `reviewResult`, and inspect `runs` and `reviews` to see which tickets the
- * loop ran and against which checkouts. Whatever those return is what comes
+ * Tests arrange what a run, a review or an apply-review run comes to through
+ * `result`, `reviewResult` and `applyReviewResult`, and inspect `runs`,
+ * `reviews` and `applyReviews` to see which tickets the loop ran and against
+ * which checkouts. Whatever those return is what comes
  * back, verbatim: this fake detects no refusal and words none of its own, so
  * a test after a limit refusal or a model refusal writes the exact variant it
  * wants.
@@ -41,6 +45,16 @@ export class FakeSandbox implements Sandbox {
 
   /** What the next review comes to. A costless, finished review unless set. */
   reviewResult: (ticket: ReviewTicket) => ReviewOutcome = () => ({
+    kind: "finished",
+    output: "",
+    tokensUsed: tokenCount(0),
+  });
+
+  /** Every apply-review run asked for, in order. */
+  readonly applyReviews: ApplyReviewRequest[] = [];
+
+  /** What the next apply-review run comes to. A costless, finished one unless set. */
+  applyReviewResult: (ticket: ApplyReviewTicket) => ApplyReviewOutcome = () => ({
     kind: "finished",
     output: "",
     tokensUsed: tokenCount(0),
@@ -110,6 +124,19 @@ export class FakeSandbox implements Sandbox {
     this.reviews.push(request);
     return this.#inProgress(request.ticket, () =>
       this.reviewResult(request.ticket),
+    );
+  }
+
+  applyReview(
+    request: ApplyReviewRequest & { model: ModelName },
+  ): Promise<ApplyReviewOutcome>;
+  applyReview(
+    request: ApplyReviewRequest & { model?: undefined },
+  ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
+  async applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
+    this.applyReviews.push(request);
+    return this.#inProgress(request.ticket, () =>
+      this.applyReviewResult(request.ticket),
     );
   }
 
