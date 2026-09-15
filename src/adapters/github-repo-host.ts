@@ -592,7 +592,8 @@ function opensQuoting(comment: string, review: string): boolean {
 /**
  * What the pull request says. With a gist, it opens with that sentence — what
  * the ticket asked for, in the implementing agent's own words — followed by a
- * blank line and the body below; without one, it is just the body below.
+ * blank line and the closing reference and draft note; without one, it is
+ * just the closing reference and draft note.
  *
  * The closing reference is what links the two in GitHub's own UI. It closes
  * nothing by itself — the pull request is a draft, and only a merge the
