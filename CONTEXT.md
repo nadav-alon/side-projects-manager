@@ -151,7 +151,7 @@ What the loop does with a ticket whose run gave up or finished, or whose model i
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
-A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, had its push rejected because the pull request's branch moved on the repo host. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
+A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
@@ -211,7 +211,7 @@ A sub-issue of an implementation ticket asking for that ticket's draft pull requ
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished, it closes and promotes the pull request.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
