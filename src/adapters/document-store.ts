@@ -32,6 +32,7 @@ import {
   MODEL_NAME_SHAPE,
   SIZES,
   TICKET_KINDS,
+  findInvocationRecord,
   isDay,
   isInvocationOutcome,
   isIssueNumber,
@@ -122,7 +123,7 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       closing: InvocationClosing,
     ): Promise<void> {
       const journal = await loadJournalDocument(journalFile);
-      const record = findRecord(journal, opened);
+      const record = findInvocationRecord(journal.records, opened);
       if (record === undefined) {
         throw new Error(
           `${journalFile}: no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}.`,
@@ -141,18 +142,6 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       return loadJournalDocument(journalFile);
     },
   };
-}
-
-/** The record in `journal` opened at `opened`'s instant by `opened`'s process, whatever its closed state. */
-function findRecord(
-  journal: Journal,
-  opened: OpenInvocation,
-): InvocationRecord | undefined {
-  return journal.records.find(
-    (record) =>
-      record.openedAt.getTime() === opened.openedAt.getTime() &&
-      record.process === opened.process,
-  );
 }
 
 async function loadJournalDocument(journalFile: string): Promise<Journal> {

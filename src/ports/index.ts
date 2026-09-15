@@ -51,6 +51,7 @@ export type { IterationLimit } from "./iteration-limit.ts";
 export {
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
+  findInvocationRecord,
   isInvocationOutcome,
 } from "./journal.ts";
 export type {

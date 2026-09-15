@@ -68,6 +68,23 @@ export interface Journal {
 }
 
 /**
+ * The record in `records` opened at `opened`'s instant by `opened`'s
+ * process, whatever its closed state. Same `openedAt` instant, same process
+ * is what identifies a record — a domain rule every store implementation
+ * shares, not an adapter detail either is free to redecide.
+ */
+export function findInvocationRecord(
+  records: readonly InvocationRecord[],
+  opened: OpenInvocation,
+): InvocationRecord | undefined {
+  return records.find(
+    (record) =>
+      record.openedAt.getTime() === opened.openedAt.getTime() &&
+      record.process === opened.process,
+  );
+}
+
+/**
  * How many records the journal keeps. Trimmed to this many, oldest dropped
  * first, every time it is written — a record is a few dozen bytes, so being
  * generous here costs nothing but keeps the document from growing forever.

@@ -16,7 +16,12 @@ import type {
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
-import { DEFAULT_BUDGET, JOURNAL_LIMIT, workedTicket } from "../ports/index.ts";
+import {
+  DEFAULT_BUDGET,
+  JOURNAL_LIMIT,
+  findInvocationRecord,
+  workedTicket,
+} from "../ports/index.ts";
 
 /** What the developer may say about a project when registering it. */
 export interface Registration {
@@ -133,7 +138,7 @@ export class FakeStore implements Store {
     opened: OpenInvocation,
     closing: InvocationClosing,
   ): Promise<void> {
-    const record = this.#findRecord(opened);
+    const record = findInvocationRecord(this.#journal, opened);
     if (record === undefined) {
       throw new Error(
         `no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}`,
@@ -163,14 +168,6 @@ export class FakeStore implements Store {
         }),
       })),
     };
-  }
-
-  #findRecord(opened: OpenInvocation): InvocationRecord | undefined {
-    return this.#journal.find(
-      (record) =>
-        record.openedAt.getTime() === opened.openedAt.getTime() &&
-        record.process === opened.process,
-    );
   }
 }
 
