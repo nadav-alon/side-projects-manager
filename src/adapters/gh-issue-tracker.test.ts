@@ -134,6 +134,8 @@ describe("ghIssueTracker", () => {
       MANAGER,
       "--state",
       "open",
+      // The same newest 300 the adapter reads (OPEN_ISSUE_READ_LIMIT), so every
+      // issue found here is one the adapter lists too.
       "--limit",
       "300",
       "--json",
@@ -154,18 +156,18 @@ describe("ghIssueTracker", () => {
         sub.title,
       );
     // Every sub-issue listed, so the titles account for every open one.
-    const complete = (issue: (typeof all)[number]) =>
+    const listsEveryOpenSubIssue = (issue: (typeof all)[number]) =>
       openSubIssues(issue).length ===
       issue.subIssuesSummary.total - issue.subIssuesSummary.completed;
 
     const brokenOut = all.find(
       (issue) =>
-        complete(issue) &&
+        listsEveryOpenSubIssue(issue) &&
         openSubIssues(issue).some((sub) => !isPullRequestTicketTitle(sub)),
     );
     const reviewedOnly = all.find(
       (issue) =>
-        complete(issue) &&
+        listsEveryOpenSubIssue(issue) &&
         openSubIssues(issue).length > 0 &&
         openSubIssues(issue).every(isPullRequestTicketTitle),
     );
