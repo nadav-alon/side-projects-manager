@@ -770,6 +770,20 @@ function linkedIssue(
   };
 }
 
+/** A raw issue carrying `labels` by name, the way label-reading tests need. */
+function issue(
+  number: number,
+  labels: string[],
+  body = "",
+): Record<string, unknown> {
+  return rawIssue({
+    number,
+    title: `Ticket ${number}`,
+    body,
+    labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
+  });
+}
+
 describe("ghIssueTracker.listOpenIssues — every open issue", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -1280,19 +1294,6 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
 describe("ghIssueTracker.listOpenIssues — model labels", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
-  function issue(
-    number: number,
-    labels: string[],
-    body = "",
-  ): Record<string, unknown> {
-    return rawIssue({
-      number,
-      title: `Ticket ${number}`,
-      body,
-      labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
-    });
-  }
-
   it("names no model for a ticket without a model label", async (t) => {
     await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
 
@@ -1391,19 +1392,6 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
  */
 describe("ghIssueTracker.listOpenIssues — size labels", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
-
-  function issue(
-    number: number,
-    labels: string[],
-    body = "",
-  ): Record<string, unknown> {
-    return rawIssue({
-      number,
-      title: `Ticket ${number}`,
-      body,
-      labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
-    });
-  }
 
   it("declares no size for a ticket without a size label", async (t) => {
     await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
