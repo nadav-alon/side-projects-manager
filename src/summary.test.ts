@@ -54,6 +54,16 @@ function reviewedCleanly(number: number): IterationOutcome {
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
+/** A review ticket's own run that closed cleanly but the tracker could not close the ticket. */
+function reviewedButNotClosed(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    notClosed: { kind: "close-failed", error: "the tracker was unreachable" },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
 /** A review ticket's own run that gave up and was handed back. */
 function reviewFailed(number: number): IterationOutcome {
   return {
@@ -61,6 +71,26 @@ function reviewFailed(number: number): IterationOutcome {
     ticket: reviewTicket(number),
     kind: "failed",
     failure: { kind: "gave-up", reason: "left the tests red", handedBack: true },
+  };
+}
+
+/** A review ticket's own run that gave up and could not be handed back. */
+function reviewFailedNotHandedBack(number: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: reviewTicket(number),
+    kind: "failed",
+    failure: { kind: "gave-up", reason: "left the tests red", handedBack: false },
+  };
+}
+
+/** A review ticket's own run that never started: the sandbox or checkout failed. */
+function reviewInfrastructureFailure(number: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: reviewTicket(number),
+    kind: "failed",
+    failure: { kind: "infrastructure", reason: "docker died" },
   };
 }
 
@@ -109,5 +139,39 @@ describe("waitingSection", () => {
     const lines = waitingLines([finishedWithHandover(implementationTicket(175), 176)]);
 
     assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as #176`]);
+  });
+
+  it("still renders the review as queued when it never started this invocation: an infrastructure failure leaves it untouched", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(177), 178),
+      reviewInfrastructureFailure(178),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — review queued as #178`,
+      `- ${REPO} #178: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
+    ]);
+  });
+
+  it("drops the pull request when a worked review could not be handed back, keeping only its own still-eligible line", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(179), 180),
+      reviewFailedNotHandedBack(180),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #180: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+    ]);
+  });
+
+  it("renders the review's own still-open line, not a second line from its handover, when it ran but could not close its ticket", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(181), 182),
+      reviewedButNotClosed(182),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #182: still ready-for-agent — its findings are on ${PULL_REQUEST}, but it could not be closed: the tracker was unreachable; close it yourself`,
+    ]);
   });
 });
