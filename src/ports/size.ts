@@ -12,3 +12,12 @@ export type Size = (typeof SIZES)[number];
 export function isSize(value: string): value is Size {
   return (SIZES as readonly string[]).includes(value);
 }
+
+/**
+ * Which of two sizes is larger, per `SIZES`' order. What `sizeLabelOf` folds
+ * a ticket's declared sizes with, kept here so the ordering contract is
+ * tested beside the type it belongs to.
+ */
+export function largerSize(a: Size, b: Size): Size {
+  return SIZES.indexOf(b) > SIZES.indexOf(a) ? b : a;
+}

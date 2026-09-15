@@ -2,7 +2,7 @@ import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
-import { SIZES, isSize, type Size } from "./size.ts";
+import { isSize, largerSize, type Size } from "./size.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -153,12 +153,7 @@ export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
   if (first === undefined) {
     return undefined;
   }
-  const largest = rest.reduce(
-    (largest, candidate) =>
-      SIZES.indexOf(candidate) > SIZES.indexOf(largest) ? candidate : largest,
-    first,
-  );
-  return { kind: "declared", size: largest };
+  return { kind: "declared", size: rest.reduce(largerSize, first) };
 }
 
 /**
