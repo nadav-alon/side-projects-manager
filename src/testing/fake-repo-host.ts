@@ -10,6 +10,7 @@ import type {
   RepoSlug,
   ReviewFinding,
   Ticket,
+  TicketGist,
 } from "../ports/index.ts";
 import {
   APPLIED_REPLY_PREFIX,
@@ -44,6 +45,8 @@ export interface FakePullRequest {
   branch: Branch;
   /** The ticket the pull request is opened against. */
   ticket: Ticket;
+  /** The run's ticket gist, when it carried one. */
+  gist?: TicketGist;
 }
 
 /** One branch thrown away, and the checkout it was thrown away from. */
@@ -162,8 +165,14 @@ export class FakeRepoHost implements RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
+    gist?: TicketGist,
   ): Promise<DraftPullRequestOpening> {
-    this.pullRequests.push({ directory, branch, ticket });
+    this.pullRequests.push({
+      directory,
+      branch,
+      ticket,
+      ...(gist !== undefined && { gist }),
+    });
     return this.draftPullRequest();
   }
 

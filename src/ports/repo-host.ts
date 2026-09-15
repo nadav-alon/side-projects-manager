@@ -3,6 +3,7 @@ import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { TicketGist } from "./ticket-gist.ts";
 
 /**
  * The marker every apply-review reply ends with (`.claude/skills/apply-pr-review/SKILL.md`),
@@ -243,11 +244,17 @@ export interface RepoHost {
    *
    * The branch is the agent's work, already committed and fetched back into
    * the checkout by the sandbox, so nothing is committed here.
+   *
+   * `gist`, when the run produced one, opens the body with it — one sentence
+   * saying what the ticket asked for, so the developer knows what they are
+   * looking at without opening the ticket. Absent, the body is what it was
+   * before there was a gist to carry.
    */
   openDraftPullRequest(
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
+    gist?: TicketGist,
   ): Promise<DraftPullRequestOpening>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.

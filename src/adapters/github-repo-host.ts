@@ -16,6 +16,7 @@ import type {
   RepoSlug,
   ReviewFinding,
   Ticket,
+  TicketGist,
 } from "../ports/index.ts";
 import {
   checkout,
@@ -216,6 +217,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       directory: Checkout,
       branch: Branch,
       ticket: Ticket,
+      gist?: TicketGist,
     ): Promise<DraftPullRequestOpening> {
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
@@ -280,7 +282,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
             "--title",
             ticket.title,
             "--body",
-            pullRequestBody(ticket),
+            pullRequestBody(ticket, gist),
           ],
           { cwd: directory },
         );
@@ -588,20 +590,23 @@ function opensQuoting(comment: string, review: string): boolean {
 }
 
 /**
- * What the pull request says. Short on purpose: the ticket says what was
- * wanted and the diff says what was done, and neither is worth restating.
+ * What the pull request says. With a gist, it opens with that sentence — what
+ * the ticket asked for, in the implementing agent's own words — followed by a
+ * blank line and the body below; without one, it is just the body below.
  *
  * The closing reference is what links the two in GitHub's own UI. It closes
  * nothing by itself — the pull request is a draft, and only a merge the
- * developer makes acts on it.
+ * developer makes acts on it. It stays on its own line either way: a
+ * reviewing agent finds the ticket by reading for it.
  */
-function pullRequestBody(ticket: Ticket): string {
-  return [
+function pullRequestBody(ticket: Ticket, gist?: TicketGist): string {
+  const body = [
     `Closes #${ticket.number}.`,
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It stays a draft: promoting and merging it are yours.",
   ].join("\n");
+  return gist === undefined ? body : [gist, "", body].join("\n");
 }
 
 /** Whether `directory` has a local branch named `of`. */

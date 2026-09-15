@@ -97,6 +97,8 @@ export type {
   RunRequest,
   Sandbox,
 } from "./sandbox.ts";
+export { isTicketGist, ticketGist } from "./ticket-gist.ts";
+export type { TicketGist } from "./ticket-gist.ts";
 export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
 export type { TicketPriority } from "./ticket-priority.ts";
 export { isTokenCount, tokenCount } from "./token-count.ts";
