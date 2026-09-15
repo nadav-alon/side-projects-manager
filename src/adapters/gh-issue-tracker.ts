@@ -24,8 +24,13 @@ import { MANAGER_HOME } from "./manager-home.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** How many of a project's open issues one morning reads. */
-const BACKLOG_READ_LIMIT = 300;
+/**
+ * How many of a project's open issues one morning reads. Counts every open
+ * issue, not only eligible tickets, since ticket priority reaches a ticket
+ * through issues that are not themselves eligible — so it is larger than a
+ * cap on eligible tickets alone would need to be.
+ */
+const OPEN_ISSUE_READ_LIMIT = 300;
 
 /**
  * The tracker port backed by the `gh` CLI, per `docs/agents/issue-tracker.md`.
@@ -61,29 +66,31 @@ export function ghIssueTracker(
         repo,
         "--state",
         "open",
-        // One past what is read, so a backlog of exactly that many is told
-        // apart from a longer one. `gh` answers newest first, so the one
-        // dropped is the oldest.
+        // One past what is read, so exactly that many open issues is told
+        // apart from more. `gh` answers newest first, so the one dropped is
+        // the oldest.
         "--limit",
-        String(BACKLOG_READ_LIMIT + 1),
+        String(OPEN_ISSUE_READ_LIMIT + 1),
         "--json",
         "number,title,body,subIssuesSummary,blockedBy,parent,labels",
       ]);
 
-      const raw = parseIssues(stdout, repo);
-      const truncated = raw.length > BACKLOG_READ_LIMIT;
-      const issues = raw.slice(0, BACKLOG_READ_LIMIT).map(
+      const listed = parseIssues(stdout, repo);
+      const truncated = listed.length > OPEN_ISSUE_READ_LIMIT;
+      const issues = listed.slice(0, OPEN_ISSUE_READ_LIMIT).map(
         ({ body, subIssuesSummary, blockedBy, parent, labels, ...issue }) => {
           const pullRequest = pullRequestReviewed(body);
           const openSubIssues =
             subIssuesSummary.total - subIssuesSummary.completed;
-          const open = blockedBy.filter((blocker) => blocker.state === "OPEN");
-          const openBlockers = open.length;
-          const openBlockerNumbers = open
+          const stillBlocking = blockedBy.filter(
+            (blocker) => blocker.state === "OPEN",
+          );
+          const openBlockers = stillBlocking.length;
+          const openBlockerNumbers = stillBlocking
             .filter((blocker) => isInRepo(blocker.url, repo))
             .map((blocker) => blocker.number);
           const modelLabel = modelLabelOf(labels);
-          const priority = ticketPriorityIn(labels);
+          const priority = priorityLabelIn(labels);
           return {
             ticket: {
               repo,
@@ -404,12 +411,12 @@ function issueNumberIn(stdout: string, repo: RepoSlug): number {
 const TICKET_PRIORITY_LABEL = /^priority:([123])$/i;
 
 /**
- * The ticket priority `labels` carry: the smallest level named, since a ticket
- * labelled with several counts as its most urgent. Any other `priority:` label
- * is ignored rather than refused — it is the developer's typo, and a ticket
- * that fails to list would cost the whole project its morning.
+ * The level the priority labels among `labels` name: the smallest, since an
+ * issue labelled with several counts as its most urgent. Any other `priority:`
+ * label is ignored rather than refused — it is the developer's typo, and an
+ * issue that fails to list would cost the whole project its morning.
  */
-function ticketPriorityIn(labels: string[]): TicketPriority | undefined {
+function priorityLabelIn(labels: string[]): TicketPriority | undefined {
   const levels = labels
     .map((label) => Number(TICKET_PRIORITY_LABEL.exec(label)?.[1]))
     .filter(isTicketPriority);
@@ -458,8 +465,8 @@ interface RawIssue {
 
 /**
  * Another issue one is linked to — its parent, or one blocking it — as `gh`
- * reports it: `{ id, number, state, title, url }`, of which the number, the
- * URL naming its repo, and whether it is open are kept.
+ * reports it: `{ id, number, state, title, url }`, of which the number and
+ * the URL naming its repo are kept.
  */
 interface RawLinkedIssue {
   number: number;
