@@ -99,8 +99,8 @@ function fail(message: string, evidence: string): never {
 
 /** Whatever a thrown value can offer as evidence, in the order worth printing. */
 function describe(error: unknown): string {
-  const thrown = error as { stdout?: string };
-  return thrown?.stdout || errorMessage(error);
+  const thrown = error as { stderr?: string; stdout?: string };
+  return thrown?.stderr || thrown?.stdout || errorMessage(error);
 }
 
 /**
