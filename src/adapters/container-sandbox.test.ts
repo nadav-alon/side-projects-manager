@@ -12,6 +12,7 @@ import {
   containerSandbox,
   dockerCommand,
   dockerNeverRan,
+  pullRequestHeadFrom,
   pushableRemote,
   readAgentRun,
   readExitedRun,
@@ -1581,6 +1582,36 @@ describe("pushableRemote", () => {
     );
     assert.equal(pushableRemote("/srv/git/pilot"), "/srv/git/pilot");
   });
+});
+
+describe("pullRequestHeadFrom", () => {
+  const url = APPLY_REVIEW_TICKET.pullRequest.url;
+
+  it("reads the head branch of a pull request from its own repo", () => {
+    const answer = JSON.stringify({ headRefName: BRANCH, isCrossRepository: false });
+
+    assert.equal(pullRequestHeadFrom(answer, url), branch(BRANCH));
+  });
+
+  it("refuses a pull request opened from a fork, whose head the checkout's remote does not have", () => {
+    const answer = JSON.stringify({ headRefName: BRANCH, isCrossRepository: true });
+
+    assert.throws(() => pullRequestHeadFrom(answer, url), /its own repo/);
+  });
+
+  it("refuses an answer that does not say whether the pull request is from a fork", () => {
+    const answer = JSON.stringify({ headRefName: BRANCH });
+
+    assert.throws(() => pullRequestHeadFrom(answer, url), /its own repo/);
+  });
+
+  for (const headRefName of [undefined, 7, "not a branch.."]) {
+    it(`refuses a head branch of ${JSON.stringify(headRefName)}`, () => {
+      const answer = JSON.stringify({ headRefName, isCrossRepository: false });
+
+      assert.throws(() => pullRequestHeadFrom(answer, url), /no usable head branch/);
+    });
+  }
 });
 
 describe("readAgentRun", () => {

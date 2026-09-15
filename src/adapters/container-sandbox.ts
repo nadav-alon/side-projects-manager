@@ -597,12 +597,7 @@ export function pushableRemote(remote: string): string {
  */
 export type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
 
-/**
- * The real lookup: `gh pr view`, with its answer checked before use.
- *
- * A pull request opened from a fork is refused: its head branch is not on the
- * checkout's remote, and a push there would not reach the pull request.
- */
+/** The real lookup: `gh pr view`, read by `pullRequestHeadFrom`. */
 const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
   const { stdout } = await run("gh", [
     "pr",
@@ -611,6 +606,23 @@ const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
     "--json",
     "headRefName,isCrossRepository",
   ]);
+  return pullRequestHeadFrom(stdout, pullRequest);
+};
+
+/**
+ * The head branch in `gh pr view --json headRefName,isCrossRepository`'s
+ * answer for `pullRequest`, checked before use.
+ *
+ * A pull request opened from a fork is refused, as is one `gh` does not say
+ * is not: its head branch is not on the checkout's remote, which is where the
+ * agent pushes, so the push would never reach the pull request.
+ *
+ * Exported so the answer's reading can be asserted without `gh`.
+ */
+export function pullRequestHeadFrom(
+  stdout: string,
+  pullRequest: PullRequestUrl,
+): Branch {
   const { headRefName: name, isCrossRepository } = JSON.parse(stdout) as {
     headRefName?: unknown;
     isCrossRepository?: unknown;
@@ -626,7 +638,7 @@ const ghPullRequestHead: PullRequestHead = async (pullRequest) => {
     );
   }
   return name;
-};
+}
 
 /**
  * What the apply-review agent is asked to do: invoke the skill on the pull
