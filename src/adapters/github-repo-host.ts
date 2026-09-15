@@ -4,6 +4,9 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  ApplyReviewAnswers,
+  ApplyReviewComment,
+  ApplyReviewThread,
   Branch,
   Checkout,
   DraftPullRequestOpening,
@@ -13,8 +16,13 @@ import type {
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { checkout, isPullRequestUrl } from "../ports/index.ts";
+import {
+  checkout,
+  isPullRequestUrl,
+  summarizeApplyReviewThreads,
+} from "../ports/index.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
 const run = promisify(execFile);
@@ -334,7 +342,250 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       const latest = stdout.trim();
       return latest !== "" && latest !== "null" && new Date(latest) > since;
     },
+
+    async readApplyReviewAnswers(
+      pullRequest: PullRequestUrl,
+      since: Date,
+    ): Promise<ApplyReviewAnswers> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        "graphql",
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `repo=${repo}`,
+        "-F",
+        `pr=${number}`,
+        "-f",
+        `query=${APPLY_REVIEW_ANSWERS_QUERY}`,
+      ]);
+
+      return summarizeApplyReviewThreads(
+        applyReviewThreadsFrom(parseApplyReviewAnswers(stdout, pullRequest)),
+        since,
+      );
+    },
+
+    async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
+      // Asked first, so a pull request already out of draft is left alone by
+      // this check rather than by however `gh pr ready` chooses to answer it.
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "isDraft",
+        "--jq",
+        ".isDraft",
+      ]);
+      if (stdout.trim() !== "true") {
+        return;
+      }
+      await run("gh", ["pr", "ready", pullRequest]);
+    },
   };
+}
+
+/**
+ * Every open thread the apply-pr-review skill answers: an unresolved review
+ * thread's own comments, a review's non-empty body, and the pull request's
+ * own comments — where a review body's reply lands, per the skill.
+ */
+const APPLY_REVIEW_ANSWERS_QUERY = `
+query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){
+  reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{body createdAt}}}}
+  reviews(first:100){nodes{body submittedAt}}
+  comments(first:100){nodes{body createdAt}}
+}}}`;
+
+/** One comment as {@link APPLY_REVIEW_ANSWERS_QUERY} asks for it. */
+interface RawComment {
+  body: string;
+  createdAt: string;
+}
+
+/** One review thread as {@link APPLY_REVIEW_ANSWERS_QUERY} asks for it. */
+interface RawReviewThread {
+  isResolved: boolean;
+  comments: RawComment[];
+}
+
+/** One review as {@link APPLY_REVIEW_ANSWERS_QUERY} asks for it. */
+interface RawReview {
+  body: string;
+  submittedAt: string | null;
+}
+
+/** The pull request {@link APPLY_REVIEW_ANSWERS_QUERY} answers with, unwrapped from its connections. */
+interface RawApplyReviewPullRequest {
+  reviewThreads: RawReviewThread[];
+  reviews: RawReview[];
+  comments: RawComment[];
+}
+
+/**
+ * `gh api graphql` with {@link APPLY_REVIEW_ANSWERS_QUERY}:
+ * `{ data: { repository: { pullRequest: { reviewThreads, reviews, comments } } } }`,
+ * each a `{ nodes }` connection. Checked here, so a `gh` error payload or a
+ * schema that drifted says which field went missing.
+ */
+function parseApplyReviewAnswers(
+  stdout: string,
+  pullRequest: PullRequestUrl,
+): RawApplyReviewPullRequest {
+  const where = `gh api graphql for ${pullRequest}`;
+
+  let response: unknown;
+  try {
+    response = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+
+  const data = objectField(response, "data", where);
+  const repository = objectField(data, "repository", where);
+  const found = objectField(repository, "pullRequest", where);
+
+  return {
+    reviewThreads: nodesField(found, "reviewThreads", where).map(
+      (thread, index) => {
+        const at = `${where}: review thread ${index + 1}`;
+        return {
+          isResolved: expectField(
+            objectAt(thread, at).isResolved,
+            "boolean",
+            "isResolved",
+            at,
+          ),
+          comments: nodesField(thread, "comments", at).map((comment, i) =>
+            parseComment(comment, `${at}: comment ${i + 1}`),
+          ),
+        };
+      },
+    ),
+    reviews: nodesField(found, "reviews", where).map((review, index) => {
+      const at = `${where}: review ${index + 1}`;
+      const { body, submittedAt } = objectAt(review, at);
+      return {
+        body: expectField(body, "string", "body", at),
+        submittedAt:
+          submittedAt === null
+            ? null
+            : expectField(submittedAt, "string", "submittedAt", at),
+      };
+    }),
+    comments: nodesField(found, "comments", where).map((comment, index) =>
+      parseComment(comment, `${where}: comment ${index + 1}`),
+    ),
+  };
+}
+
+function parseComment(value: unknown, at: string): RawComment {
+  const { body, createdAt } = objectAt(value, at);
+  return {
+    body: expectField(body, "string", "body", at),
+    createdAt: expectField(createdAt, "string", "createdAt", at),
+  };
+}
+
+function objectAt(value: unknown, at: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${at}: expected an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function objectField(
+  value: unknown,
+  field: string,
+  at: string,
+): Record<string, unknown> {
+  const inner = objectAt(value, at)[field];
+  if (typeof inner !== "object" || inner === null) {
+    throw new Error(`${at}: "${field}" must be an object.`);
+  }
+  return inner as Record<string, unknown>;
+}
+
+/** The `nodes` of the `{ nodes }` connection at `field`. */
+function nodesField(value: unknown, field: string, at: string): unknown[] {
+  const nodes = objectField(value, field, at).nodes;
+  if (!Array.isArray(nodes)) {
+    throw new Error(`${at}: "${field}.nodes" must be an array.`);
+  }
+  return nodes;
+}
+
+function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
+  return nodes.map((comment) => ({
+    body: comment.body,
+    postedAt: new Date(comment.createdAt),
+  }));
+}
+
+/**
+ * The threads {@link APPLY_REVIEW_ANSWERS_QUERY} found, in the shape
+ * {@link summarizeApplyReviewThreads} reads.
+ *
+ * A review's own thread has no comments of its own on GitHub — its reply is
+ * posted as one of the pull request's comments (`gh pr comment`, per the
+ * skill) — so its thread is built from the review's body followed by every
+ * later pull request comment that opens quoting it.
+ */
+function applyReviewThreadsFrom(
+  pullRequest: RawApplyReviewPullRequest,
+): ApplyReviewThread[] {
+  const pullRequestComments = commentsFrom(pullRequest.comments);
+
+  const threads: ApplyReviewThread[] = [];
+
+  for (const thread of pullRequest.reviewThreads) {
+    threads.push({
+      resolved: thread.isResolved,
+      comments: commentsFrom(thread.comments),
+    });
+  }
+
+  for (const review of pullRequest.reviews) {
+    if (review.body.trim() === "" || review.submittedAt === null) {
+      continue;
+    }
+    const submittedAt = new Date(review.submittedAt);
+    const body = review.body;
+    threads.push({
+      resolved: false,
+      comments: [
+        { body, postedAt: submittedAt },
+        ...pullRequestComments.filter(
+          (comment) =>
+            comment.postedAt > submittedAt && opensQuoting(comment.body, body),
+        ),
+      ],
+    });
+  }
+
+  return threads;
+}
+
+/**
+ * Whether `comment` opens with a quote of a passage from `review`: the one
+ * link the skill leaves from a pull request comment back to the review body it
+ * answers. A comment quoting nothing — a status comment, someone chiming in —
+ * belongs to no review's thread.
+ */
+function opensQuoting(comment: string, review: string): boolean {
+  const quoted: string[] = [];
+  for (const line of comment.split("\n")) {
+    if (!line.startsWith(">")) {
+      break;
+    }
+    const text = line.replace(/^>\s?/, "").trim();
+    if (text !== "") {
+      quoted.push(text);
+    }
+  }
+  return quoted.length > 0 && quoted.every((text) => review.includes(text));
 }
 
 /**

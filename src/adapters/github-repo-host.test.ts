@@ -9,13 +9,15 @@ import { promisify } from "node:util";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { githubRepoHost } from "./github-repo-host.ts";
 import {
+  APPLY_REVIEW_MARKER,
   branch as toBranch,
   checkout as toCheckout,
+  pullRequestUrl,
   repoSlug,
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
-import { gate, HANGS, recordingGh, valueOf } from "../testing/index.ts";
+import { callWith, gate, HANGS, recordingGh, valueOf } from "../testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -852,5 +854,163 @@ describe("discarding a failed run's branch", () => {
       "issue-9-something-else",
       "main",
     ]);
+  });
+});
+
+describe("reading a pull request's apply-review answers", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+  const SINCE = new Date("2026-09-15T00:00:00Z");
+
+  const BEFORE = "2026-09-14T00:00:00Z";
+  const AFTER = "2026-09-15T01:00:00Z";
+  const LATER = "2026-09-15T02:00:00Z";
+
+  interface Comment {
+    body: string;
+    createdAt: string;
+  }
+
+  /** What `gh api graphql` answers with for a pull request carrying these. */
+  function response({
+    reviewThreads = [],
+    reviews = [],
+    comments = [],
+  }: {
+    reviewThreads?: { isResolved: boolean; comments: Comment[] }[];
+    reviews?: { body: string; submittedAt: string | null }[];
+    comments?: Comment[];
+  }): string {
+    return JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: reviewThreads.map((thread) => ({
+                isResolved: thread.isResolved,
+                comments: { nodes: thread.comments },
+              })),
+            },
+            reviews: { nodes: reviews },
+            comments: { nodes: comments },
+          },
+        },
+      },
+    });
+  }
+
+  const ASKED: Comment = { body: "Please fix this.", createdAt: BEFORE };
+
+  function marked(body: string, createdAt = AFTER): Comment {
+    return { body: `${body}\n${APPLY_REVIEW_MARKER}`, createdAt };
+  }
+
+  async function answersTo(t: TestContext, answer: string) {
+    await recordingGh(t, `cat <<'JSON'\n${answer}\nJSON`);
+    return githubRepoHost().readApplyReviewAnswers(PULL_REQUEST, SINCE);
+  }
+
+  const RESPONSE = response({
+    reviewThreads: [{ isResolved: false, comments: [ASKED] }],
+  });
+
+  it("counts the applied reply on a review thread the skill resolved, without reading that thread as unanswered", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviewThreads: [
+          { isResolved: true, comments: [ASKED, marked("Applied in abc123: brand the id")] },
+          { isResolved: false, comments: [ASKED, marked("Declined: out of scope")] },
+          { isResolved: false, comments: [ASKED] },
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 1 });
+  });
+
+  it("ties a reply to the review body it quotes, not to every review", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [
+          { body: "", submittedAt: BEFORE },
+          { body: "Rename the helper.", submittedAt: BEFORE },
+          { body: "Add a test for the draft case.", submittedAt: BEFORE },
+        ],
+        comments: [marked("> Rename the helper.\n\nDeclined: out of scope")],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 1 });
+  });
+
+  it("reads a comment quoting no review as neither answering nor reopening one", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("> Rename the helper.\n\nApplied in abc123: renamed it"),
+          { body: "The morning loop finished this ticket.", createdAt: LATER },
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("names the field a response it cannot read is missing", async (t) => {
+    await recordingGh(
+      t,
+      `echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]},"reviews":{"nodes":[]}}}}}'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().readApplyReviewAnswers(PULL_REQUEST, SINCE),
+      /"comments" must be an object/,
+    );
+  });
+
+  it("asks the pull request named by its own URL, not a repo it has to guess", async (t) => {
+    const gh = await recordingGh(t, `cat <<'JSON'\n${RESPONSE}\nJSON`);
+
+    await githubRepoHost().readApplyReviewAnswers(PULL_REQUEST, SINCE);
+
+    const call = callWith(await gh.calls(), "graphql");
+    assert.ok(call?.includes("owner=nadav-alon"));
+    assert.ok(call?.includes("repo=pilot"));
+    assert.ok(call?.includes("pr=7"));
+  });
+});
+
+describe("marking a pull request ready for review", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  /** A `gh` that reports the pull request as a draft, or not. */
+  const reportingDraft = (isDraft: boolean) =>
+    `if [ "$2" = view ]; then echo ${isDraft}; fi`;
+
+  it("marks the draft pull request named by its own URL ready", async (t) => {
+    const gh = await recordingGh(t, reportingDraft(true));
+
+    await githubRepoHost().markPullRequestReady(PULL_REQUEST);
+
+    assert.deepEqual(callWith(await gh.calls(), "ready"), [
+      "pr",
+      "ready",
+      PULL_REQUEST,
+    ]);
+  });
+
+  it("leaves a pull request that is not a draft as it was, without an error", async (t) => {
+    const gh = await recordingGh(t, reportingDraft(false));
+
+    await githubRepoHost().markPullRequestReady(PULL_REQUEST);
+
+    assert.equal(callWith(await gh.calls(), "ready"), undefined);
   });
 });

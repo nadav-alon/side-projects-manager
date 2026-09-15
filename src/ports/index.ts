@@ -52,7 +52,20 @@ export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
-export type { DraftPullRequestOpening, Proposal, RepoHost } from "./repo-host.ts";
+export {
+  APPLIED_REPLY_PREFIX,
+  APPLY_REVIEW_MARKER,
+  DECLINED_REPLY_PREFIX,
+  summarizeApplyReviewThreads,
+} from "./repo-host.ts";
+export type {
+  ApplyReviewAnswers,
+  ApplyReviewComment,
+  ApplyReviewThread,
+  DraftPullRequestOpening,
+  Proposal,
+  RepoHost,
+} from "./repo-host.ts";
 export { isRepoSlug, repoName, repoSlug } from "./repo-slug.ts";
 export type { RepoSlug } from "./repo-slug.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";

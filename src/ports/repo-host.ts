@@ -5,6 +5,119 @@ import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
 /**
+ * The marker every apply-review reply ends with (`.claude/skills/apply-pr-review/SKILL.md`),
+ * so a later read can tell a reply came from that skill's pass rather than
+ * from anyone else answering in the thread. Declared here, beside the port,
+ * so the skill's instructions and this port's read agree on it rather than by
+ * coincidence.
+ */
+export const APPLY_REVIEW_MARKER = "<!-- apply-pr-review -->";
+
+/**
+ * What an applied reply's verdict line starts with, before the commit it
+ * landed in. A line, not the body: a reply to a review's body opens with a
+ * quote of the passage it answers, and its verdict follows the quote.
+ */
+export const APPLIED_REPLY_PREFIX = "Applied in ";
+
+/** What a declined reply's verdict line starts with, before the reason. */
+export const DECLINED_REPLY_PREFIX = "Declined: ";
+
+/** One comment in an {@link ApplyReviewThread}: what it says, and when. */
+export interface ApplyReviewComment {
+  body: string;
+  postedAt: Date;
+}
+
+/**
+ * One thread's comments, oldest first: a review thread's, or a review's
+ * non-empty body followed by the pull request comments that quote it — the
+ * two kinds of thread the apply-pr-review skill answers.
+ *
+ * `resolved` threads are no longer open, so none of them is unanswered; but
+ * the skill resolves a review thread as soon as it applies it, so their
+ * marked replies still count.
+ */
+export interface ApplyReviewThread {
+  resolved: boolean;
+  comments: ApplyReviewComment[];
+}
+
+/**
+ * What reading a pull request's apply-review pass comes to.
+ *
+ * The `…Since` counts are scoped to the read's instant, so a caller asking
+ * what one run did is not handed counts an earlier pass already reported.
+ * `unanswered` is the thread's standing state, whatever instant the caller
+ * reads from: a thread a marked reply answered days ago is still answered,
+ * and one a later, unmarked comment spoke in is unanswered again.
+ */
+export interface ApplyReviewAnswers {
+  /** Applied replies posted since the read's instant. */
+  appliedSince: number;
+  /** Declined replies posted since the read's instant. */
+  declinedSince: number;
+  /** Open threads whose last comment is not a marked reply. */
+  unanswered: number;
+}
+
+/**
+ * Reads `threads` down to {@link ApplyReviewAnswers}, the one place that
+ * interprets the marker and the two reply prefixes. Both the GitHub adapter
+ * and the fake call this rather than each deciding for itself what a marked
+ * reply says.
+ */
+export function summarizeApplyReviewThreads(
+  threads: ApplyReviewThread[],
+  since: Date,
+): ApplyReviewAnswers {
+  let applied = 0;
+  let declined = 0;
+  let unanswered = 0;
+
+  for (const thread of threads) {
+    for (const comment of thread.comments) {
+      if (comment.postedAt <= since) {
+        continue;
+      }
+      const verdict = verdictOf(comment.body);
+      if (verdict === "applied") {
+        applied++;
+      } else if (verdict === "declined") {
+        declined++;
+      }
+    }
+
+    const last = thread.comments.at(-1);
+    if (!thread.resolved && (last === undefined || !isMarked(last.body))) {
+      unanswered++;
+    }
+  }
+
+  return { appliedSince: applied, declinedSince: declined, unanswered };
+}
+
+function isMarked(body: string): boolean {
+  return body.trimEnd().endsWith(APPLY_REVIEW_MARKER);
+}
+
+/** What a marked reply decided, read from its first verdict line. */
+function verdictOf(body: string): "applied" | "declined" | undefined {
+  if (!isMarked(body)) {
+    return undefined;
+  }
+  for (const line of body.split("\n")) {
+    if (line.startsWith(APPLIED_REPLY_PREFIX)) {
+      return "applied";
+    }
+    if (line.startsWith(DECLINED_REPLY_PREFIX)) {
+      return "declined";
+    }
+  }
+  return undefined;
+}
+
+/**
  * What proposing the scaffold to a project that predates the manager came to.
  *
  * A proposal has three ends and the command reports all of them, because the
@@ -107,9 +220,12 @@ export interface RepoHost {
    * resolve rather than reject, so a caller has one thing to read: which end
    * it came to, and so where the work is.
    *
-   * Draft, and only ever draft: there is no verb here that promotes a pull
-   * request or merges one, because promoting and merging are the developer's
-   * and a port that could do them is a port an unattended morning could use.
+   * Opened as a draft, and never merged: there is no verb here that merges a
+   * pull request, because merging is the developer's and a port that could do
+   * it is a port an unattended morning could use. The one promotion is
+   * {@link markPullRequestReady}, which an apply-review ticket's run uses: the
+   * developer asked for that review to be acted on, and marking the pull
+   * request ready hands the result back to them for review, merging nothing.
    *
    * The branch is the agent's work, already committed and fetched back into
    * the checkout by the sandbox, so nothing is committed here.
@@ -141,4 +257,20 @@ export interface RepoHost {
    * the one check that confirms the finding actually reached the pull request.
    */
   hasNewComment(pullRequest: PullRequestUrl, since: Date): Promise<boolean>;
+  /**
+   * Reads `pullRequest`'s apply-review pass since `since`: see
+   * {@link ApplyReviewAnswers}.
+   */
+  readApplyReviewAnswers(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<ApplyReviewAnswers>;
+  /**
+   * Marks `pullRequest` ready for review.
+   *
+   * A pull request that is not a draft is left exactly as it was, not an
+   * error: apply-review calls this once a run finishes, whether or not the
+   * pull request was still a draft by then.
+   */
+  markPullRequestReady(pullRequest: PullRequestUrl): Promise<void>;
 }
