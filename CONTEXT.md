@@ -37,7 +37,7 @@ The tickets the loop has worked on the current local calendar day, recorded in t
 _Avoid_: seen, attempted, cooldown
 
 **Stand down**:
-What the loop does when the budget gate refuses, or when the provider limit refuses a run already started: it declines to start or to continue, and says so.
+What the loop does when the budget gate refuses, when the provider limit refuses a run already started, or when the developer stops an invocation by hand: it starts nothing further, lets the runs already in progress finish, and says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:

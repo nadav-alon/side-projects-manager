@@ -197,8 +197,8 @@ export interface InvocationReport {
   /**
    * Why the invocation stood down, absent when it never did: the gate
    * refusing, before the first run of the morning or between two later ones,
-   * or the provider limit refusing a run that had already started.
-   * Either way it is why the invocation stopped rather than having simply run
+   * the provider limit refusing a run that had already started, or the
+   * developer stopping it by hand. Whichever, it is why the invocation stopped rather than having simply run
    * out of work.
    */
   standDown?: InvocationStandDown;
@@ -226,8 +226,30 @@ export interface ProviderLimitStandDown {
   ticket: Ticket;
 }
 
-/** Why an invocation stood down: the gate refused, or the provider did. */
-export type InvocationStandDown = GateStandDown | ProviderLimitStandDown;
+/**
+ * A stand-down the developer asked for, by stopping the invocation by hand.
+ * Nothing about the budget or any ticket: every ticket not yet started is left
+ * exactly as it was.
+ */
+export interface DeveloperStandDown {
+  reason: "stopped";
+}
+
+/** Why an invocation stood down: the gate refused, the provider did, or the developer stopped it. */
+export type InvocationStandDown =
+  | GateStandDown
+  | ProviderLimitStandDown
+  | DeveloperStandDown;
+
+/** What a trigger may hand the loop beyond its ports. */
+export interface MorningLoopOptions {
+  /**
+   * Aborted to stop the invocation by hand: nothing further starts, and the
+   * invocation finishes as any stand-down does — iterations in progress finish
+   * and are reported, and the summary publishes.
+   */
+  stop?: AbortSignal;
+}
 
 /** The project an iteration works, and the ticket it works there. */
 interface Selection {
@@ -283,9 +305,14 @@ interface RegistryScan {
  * or broken invocation publishes only if none has been announced yet today,
  * so a loop firing every hour reports one quiet or broken morning rather than
  * up to twenty-four.
+ *
+ * A developer's stop is a stand-down like the other two: noticed wherever the
+ * loop would otherwise start something, never by cutting short what is already
+ * in progress, whose work is the very thing stopping by hand should keep.
  */
 export async function morningLoop(
   ports: MorningLoopPorts,
+  { stop }: MorningLoopOptions = {},
 ): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
   const today = localDay(startedAt);
@@ -328,8 +355,14 @@ export async function morningLoop(
     // Read from the budget before every start. Nothing is in progress before
     // the first, so there is no limit to wait on until then.
     let concurrencyLimit: IterationLimit | undefined;
-    const stopped = (): boolean =>
-      standDown !== undefined || thrown.length > 0;
+    const stopped = (): boolean => {
+      // Read here rather than from an abort listener, so a stop landing after
+      // the loop has already finished never changes a report built without it.
+      if (stop?.aborted === true) {
+        standDown ??= { reason: "stopped" };
+      }
+      return standDown !== undefined || thrown.length > 0;
+    };
     try {
       for (;;) {
         while (

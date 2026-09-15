@@ -382,3 +382,9 @@ npm run build   # tsc -> dist/
 
 Run the loop from a clone with `npm run morning-run`, or after `npm run build` as `morning-run`
 (the `bin` entry, available once the package is installed or linked).
+
+To stop a morning early, interrupt it once (Ctrl+C, or `SIGTERM`): nothing further starts, runs
+already in progress finish and are handed over, and the summary publishes as usual. Interrupt a
+second time to stop at once — whatever is in progress is lost. Closing the terminal, or killing the
+`morning-run` process outright, counts as the first interrupt: the morning stops the same way rather
+than running on with nothing left to stop it.

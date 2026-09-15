@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { fileTriggerLock } from "../adapters/file-trigger-lock.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { invokeOncePerDay } from "../trigger-guard.ts";
+import { runShielded } from "./shielded-child.ts";
 
 // `morning-run.ts` in this checkout, `morning-run.js` once built — matching
 // this file's own extension rather than hardcoding one means the build's
@@ -36,19 +36,14 @@ async function main(): Promise<void> {
   }
 }
 
-function invokeLoop(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [LOOP_ENTRY_POINT], {
-      stdio: "inherit",
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      // The child already reported its own failure; passing its exit code
-      // through is all this wrapper owes whoever is watching it run.
-      process.exitCode = code ?? 1;
-      resolve();
-    });
-  });
+async function invokeLoop(): Promise<void> {
+  // Shielded, so a Ctrl+C reaches the loop once, passed on from here, rather
+  // than once from the terminal and again from this wrapper — which it would
+  // read as the second interrupt that stops a morning at once.
+  const code = await runShielded([LOOP_ENTRY_POINT]);
+  // The child already reported its own failure; passing its exit code
+  // through is all this wrapper owes whoever is watching it run.
+  process.exitCode = code ?? 1;
 }
 
 main().catch((error: unknown) => {

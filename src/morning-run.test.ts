@@ -61,11 +61,12 @@ function finished(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "finished" ? iteration : undefined;
 }
 
-/** Why the gate refused — undefined if it never did, or the provider's limit stood the morning down instead. */
+/** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
 function gateRefusal(report: InvocationReport) {
-  return report.standDown?.reason === "provider-limit"
+  const standDown = report.standDown;
+  return standDown === undefined || !("refused" in standDown)
     ? undefined
-    : report.standDown;
+    : standDown;
 }
 
 /** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
@@ -3387,6 +3388,83 @@ describe("morningLoop", () => {
         runs.map((run) => run.tokensUsed).sort((a, b) => a - b),
         [100, 200],
       );
+    });
+  });
+
+  describe("a developer's stop", () => {
+    /** PILOT with three eligible tickets, run up to two at once. */
+    function threeTicketsTwoAtOnce(): FakePorts {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.store.budget = {
+        ...DEFAULT_BUDGET,
+        maxConcurrentIterations: iterationLimit(2),
+      };
+      for (const number of [1, 2, 3]) {
+        ports.tracker.addEligibleTicket(PILOT, {
+          number,
+          title: `Ticket ${number}`,
+        });
+      }
+      return ports;
+    }
+
+    /** Stops the invocation with two runs held in progress, then lets both finish. */
+    async function stoppedWithTwoInProgress(
+      ports: FakePorts,
+    ): Promise<InvocationReport> {
+      ports.sandbox.hold();
+      const stop = new AbortController();
+
+      const invocation = morningLoop(ports, { stop: stop.signal });
+      await ports.sandbox.whenHeld(2);
+      stop.abort();
+      for (const ticket of ports.sandbox.held()) {
+        ports.sandbox.release(ticket);
+      }
+      return invocation;
+    }
+
+    it("starts nothing further, and lets the runs in progress finish and be reported", HANGS, async () => {
+      const ports = threeTicketsTwoAtOnce();
+
+      const report = await stoppedWithTwoInProgress(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [1, 2],
+      );
+      assert.deepEqual(
+        report.iterations.map((i) => [i.ticket.number, i.kind]),
+        [
+          [1, "finished"],
+          [2, "finished"],
+        ],
+      );
+      assert.equal(report.standDown?.reason, "stopped");
+      assert.equal(report.outcome, "work-selected");
+    });
+
+    it("still publishes the summary, saying it was stopped by hand", HANGS, async () => {
+      const ports = threeTicketsTwoAtOnce();
+
+      const report = await stoppedWithTwoInProgress(ports);
+
+      assert.match(report.message, /stood down after that: stopped by hand/i);
+      assert.equal(ports.tracker.summaries.length, 1);
+      assert.match(ports.tracker.summaries[0]?.body ?? "", /stopped by hand/);
+    });
+
+    it("runs nothing when stopped before it starts", async () => {
+      const ports = threeTicketsTwoAtOnce();
+      const stop = new AbortController();
+      stop.abort();
+
+      const report = await morningLoop(ports, { stop: stop.signal });
+
+      assert.equal(ports.sandbox.runs.length, 0);
+      assert.equal(report.outcome, "stood-down");
+      assert.match(report.message, /stood down: stopped by hand before any run started/i);
     });
   });
 
