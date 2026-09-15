@@ -38,13 +38,13 @@ export interface FakeHandback {
 }
 
 /**
- * An open issue as the fake holds it, without what the fake works out on
- * each listing: no `eligible` or `modelLabel`, which come from the labels it
- * carries, and `openBlockerNumbers` optional, since most tests give none.
+ * An open issue as the fake holds it: its ticket facts and its links, flat,
+ * without what the fake works out on each listing — no `eligible` or
+ * `modelLabel`, which come from the labels it carries — and
+ * `openBlockerNumbers` optional, since most tests give none.
  */
-type StoredIssue = Omit<OpenIssue, "eligible" | "modelLabel" | "openBlockerNumbers"> & {
-  openBlockerNumbers?: readonly number[];
-};
+type StoredIssue = Omit<Ticket, "modelLabel"> &
+  Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
 
 /**
  * A ticket as a test hands it to the fake. No `modelLabel`, not even on a
@@ -175,12 +175,13 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
     const issues = (this.#backlogs.get(repo) ?? []).map((entry) => {
+      const { parent, openBlockerNumbers = [], ...ticket } = entry.ticket;
       const modelLabel = modelLabelOf(entry.labels);
       return {
-        ...entry.ticket,
+        ticket: { ...ticket, ...(modelLabel !== undefined && { modelLabel }) },
         eligible: entry.labels.has(READY_FOR_AGENT_LABEL),
-        openBlockerNumbers: entry.ticket.openBlockerNumbers ?? [],
-        ...(modelLabel !== undefined && { modelLabel }),
+        openBlockerNumbers,
+        ...(parent !== undefined && { parent }),
       };
     });
     return { issues, truncated: this.#truncated.has(repo) };

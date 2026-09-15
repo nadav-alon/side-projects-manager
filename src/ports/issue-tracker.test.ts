@@ -21,14 +21,16 @@ function openIssue(
   facts: { priority?: 1 | 2 | 3; parent?: number; blockers?: number[] } = {},
 ): OpenIssue {
   return {
-    repo: PILOT,
-    number,
-    title: `Issue ${number}`,
+    ticket: {
+      repo: PILOT,
+      number,
+      title: `Issue ${number}`,
+      ...(facts.priority === undefined
+        ? {}
+        : { priority: ticketPriority(facts.priority) }),
+    },
     eligible: true,
     openBlockerNumbers: facts.blockers ?? [],
-    ...(facts.priority === undefined
-      ? {}
-      : { priority: ticketPriority(facts.priority) }),
     ...(facts.parent === undefined ? {} : { parent: facts.parent }),
   };
 }

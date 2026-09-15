@@ -88,14 +88,14 @@ describe("ghIssueTracker", () => {
     );
 
     const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
-    const numbers = issues.map((issue) => issue.number);
+    const numbers = issues.map((issue) => issue.ticket.number);
 
     // Excluded by state, included whatever its labels: checked against the
     // fixtures found above rather than a JS reimplementation of the adapter's
     // own filter.
     assert.ok(!numbers.includes(closedButLabelled.number));
     const unlabelled = issues.find(
-      (issue) => issue.number === openButUnlabelled.number,
+      (issue) => issue.ticket.number === openButUnlabelled.number,
     );
     assert.equal(unlabelled?.eligible, false);
 
@@ -104,13 +104,13 @@ describe("ghIssueTracker", () => {
     for (const listed of eligible) {
       // Verified independently via `gh issue view`, not `gh issue list`'s own
       // answer, so a bug in how the listing is read can't make this pass anyway.
-      const issue = await fetchIssue(MANAGER, listed.number);
+      const issue = await fetchIssue(MANAGER, listed.ticket.number);
       assert.equal(issue.state, "OPEN");
       assert.ok(issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL));
-      assert.equal(listed.title, issue.title);
-      assert.equal(listed.repo, MANAGER);
+      assert.equal(listed.ticket.title, issue.title);
+      assert.equal(listed.ticket.repo, MANAGER);
       assert.deepEqual(
-        listed.modelLabel,
+        listed.ticket.modelLabel,
         modelLabelOf(issue.labels.map((label) => label.name)),
       );
     }
@@ -160,14 +160,14 @@ describe("ghIssueTracker", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
 
-    const brokenOutIssue = issues.find((i) => i.number === brokenOut.number);
+    const brokenOutIssue = issues.find((i) => i.ticket.number === brokenOut.number);
     assert.equal(
-      brokenOutIssue?.openSubIssues,
+      brokenOutIssue?.ticket.openSubIssues,
       brokenOut.subIssuesSummary.total - brokenOut.subIssuesSummary.completed,
     );
 
-    const wholeIssue = issues.find((i) => i.number === whole.number);
-    assert.equal(wholeIssue?.openSubIssues, undefined);
+    const wholeIssue = issues.find((i) => i.ticket.number === whole.number);
+    assert.equal(wholeIssue?.ticket.openSubIssues, undefined);
   });
 });
 
@@ -694,9 +694,9 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed.length, 1);
-    assert.equal(listed[0]?.number, 205);
+    assert.equal(listed[0]?.ticket.number, 205);
     assert.equal(listed[0]?.eligible, false);
-    assert.equal(listed[0]?.priority, 1);
+    assert.equal(listed[0]?.ticket.priority, 1);
   });
 
   it("marks an issue carrying ready-for-agent as eligible", async (t) => {
@@ -786,7 +786,7 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(issues.length, 1);
-    assert.equal(issues[0]?.pullRequest, PULL_REQUEST);
+    assert.equal(issues[0]?.ticket.pullRequest, PULL_REQUEST);
   });
 
   it("leaves an implementation ticket's pull request unset", async (t) => {
@@ -798,7 +798,7 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(issues.length, 1);
-    assert.equal(issues[0]?.pullRequest, undefined);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
   });
 
   it("does not mistake an unrelated body for a review's", async (t) => {
@@ -815,7 +815,7 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.pullRequest, undefined);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
   });
 
   /**
@@ -838,7 +838,7 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.pullRequest, PULL_REQUEST);
+    assert.equal(issues[0]?.ticket.pullRequest, PULL_REQUEST);
   });
 
   it("asks for the body, since it is the only place the association survives", async (t) => {
@@ -881,7 +881,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.modelLabel, undefined);
+    assert.equal(issues[0]?.ticket.modelLabel, undefined);
   });
 
   it("names the model a ticket labelled model:opus asks for", async (t) => {
@@ -889,7 +889,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.deepEqual(issues[0]?.modelLabel, {
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "named",
       name: modelName("opus"),
     });
@@ -900,7 +900,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.deepEqual(issues[0]?.modelLabel, {
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "named",
       name: modelName("GPT-9-Turbo"),
     });
@@ -912,7 +912,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(issues.length, 1, "a conflicting ticket is still returned");
-    assert.deepEqual(issues[0]?.modelLabel, {
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "conflicting",
       names: [modelName("opus"), modelName("haiku")],
       labels: ["model:opus", "model:haiku"],
@@ -925,7 +925,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(issues.length, 1, "an unusable ticket is still returned");
-    assert.deepEqual(issues[0]?.modelLabel, {
+    assert.deepEqual(issues[0]?.ticket.modelLabel, {
       kind: "unusable",
       labels: ["model:claude opus"],
     });
@@ -947,7 +947,7 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    const review = issues.find((ticket) => ticket.number === 42);
+    const review = issues.find((issue) => issue.ticket.number === 42)?.ticket;
     assert.equal(review?.pullRequest, pullRequest);
     assert.equal(review?.modelLabel, undefined);
   });
@@ -962,8 +962,8 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
     await writeFile(listing, JSON.stringify([issue(7, ["model:sonnet"])]));
     const { issues: after } = await tracker.listOpenIssues(PILOT);
 
-    assert.deepEqual(before[0]?.modelLabel, { kind: "named", name: modelName("opus") });
-    assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });
+    assert.deepEqual(before[0]?.ticket.modelLabel, { kind: "named", name: modelName("opus") });
+    assert.deepEqual(after[0]?.ticket.modelLabel, { kind: "named", name: modelName("sonnet") });
   });
 });
 
@@ -984,7 +984,7 @@ describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openSubIssues, 4);
+    assert.equal(issues[0]?.ticket.openSubIssues, 4);
   });
 
   it("leaves openSubIssues unset once every sub-issue has closed", async (t) => {
@@ -1001,7 +1001,7 @@ describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openSubIssues, undefined);
+    assert.equal(issues[0]?.ticket.openSubIssues, undefined);
   });
 
   it("leaves openSubIssues unset for a ticket with no sub-issues at all", async (t) => {
@@ -1018,7 +1018,7 @@ describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openSubIssues, undefined);
+    assert.equal(issues[0]?.ticket.openSubIssues, undefined);
   });
 });
 
@@ -1046,7 +1046,7 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openBlockers, 2);
+    assert.equal(issues[0]?.ticket.openBlockers, 2);
   });
 
   it("counts an open blocker in another repo as blocking", async (t) => {
@@ -1066,7 +1066,7 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openBlockers, 1);
+    assert.equal(issues[0]?.ticket.openBlockers, 1);
   });
 
   it("reports the numbers of its open blockers in the same repo, not closed or cross-repo ones", async (t) => {
@@ -1119,7 +1119,7 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openBlockers, undefined);
+    assert.equal(issues[0]?.ticket.openBlockers, undefined);
   });
 
   it("leaves openBlockers unset for a ticket nothing blocks", async (t) => {
@@ -1137,7 +1137,7 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.openBlockers, undefined);
+    assert.equal(issues[0]?.ticket.openBlockers, undefined);
   });
 });
 
@@ -1162,7 +1162,7 @@ describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.priority, 2);
+    assert.equal(issues[0]?.ticket.priority, 2);
   });
 
   it("reads a priority label whatever its case, as GitHub matches labels", async (t) => {
@@ -1170,7 +1170,7 @@ describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.priority, 2);
+    assert.equal(issues[0]?.ticket.priority, 2);
   });
 
   it("counts a ticket carrying several levels as its smallest", async (t) => {
@@ -1178,7 +1178,7 @@ describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.priority, 1);
+    assert.equal(issues[0]?.ticket.priority, 1);
   });
 
   for (const label of ["priority:7", "priority:high", "priority:"]) {
@@ -1187,7 +1187,7 @@ describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
 
       const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-      assert.equal(issues[0]?.priority, undefined);
+      assert.equal(issues[0]?.ticket.priority, undefined);
     });
   }
 
@@ -1196,7 +1196,7 @@ describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues[0]?.priority, undefined);
+    assert.equal(issues[0]?.ticket.priority, undefined);
   });
 });
 
@@ -1235,8 +1235,8 @@ describe("ghIssueTracker.listOpenIssues — truncated backlog", () => {
 
     assert.equal(truncated, true);
     assert.equal(issues.length, 300);
-    assert.equal(issues[0]?.number, 301);
-    assert.ok(!issues.some((issue) => issue.number === 1));
+    assert.equal(issues[0]?.ticket.number, 301);
+    assert.ok(!issues.some((issue) => issue.ticket.number === 1));
   });
 
   it("reads all of 300 open issues and says it was not truncated", async (t) => {
@@ -1247,7 +1247,7 @@ describe("ghIssueTracker.listOpenIssues — truncated backlog", () => {
 
     assert.equal(truncated, false);
     assert.equal(issues.length, 300);
-    assert.ok(issues.some((ticket) => ticket.number === 1));
+    assert.ok(issues.some((issue) => issue.ticket.number === 1));
   });
 });
 

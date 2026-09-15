@@ -145,8 +145,12 @@ export function isBrokenOut(ticket: Ticket): boolean {
 }
 
 /**
- * One open issue in a project, eligible or not, with every fact a ticket
- * carries and the facts ticket priority is worked out from.
+ * One open issue in a project, eligible or not, and the facts ticket priority
+ * is worked out from.
+ *
+ * `ticket` is every fact the issue would carry as a ticket. Held rather than
+ * inherited, so an issue that is not eligible cannot be handed anywhere a
+ * ticket is asked for.
  *
  * `eligible` is whether it carries ready-for-agent: only an eligible issue is
  * a ticket selection may choose, but any open issue passes on its priority
@@ -161,7 +165,8 @@ export function isBrokenOut(ticket: Ticket): boolean {
  * blockers in other repos are left out; `openBlockers` still counts an open
  * one elsewhere, since it blocks the work all the same.
  */
-export interface OpenIssue extends Ticket {
+export interface OpenIssue {
+  ticket: Ticket;
   eligible: boolean;
   parent?: number;
   openBlockerNumbers: readonly number[];
@@ -187,14 +192,11 @@ export interface Backlog {
   truncated: boolean;
 }
 
-/**
- * The backlog `open` holds: its eligible issues, each as the ticket it is,
- * without the facts only ticket priority reads.
- */
+/** The backlog `open` holds: its eligible issues, each as the ticket it is. */
 export function backlogIn(open: OpenIssues): Backlog {
   const tickets = open.issues
     .filter((issue) => issue.eligible)
-    .map(({ eligible, parent, openBlockerNumbers, ...ticket }) => ticket);
+    .map((issue) => issue.ticket);
   return { tickets, truncated: open.truncated };
 }
 
@@ -215,7 +217,7 @@ export function ticketPrioritiesIn(
   open: OpenIssues,
 ): ReadonlyMap<number, TicketPriority> {
   const passesTo = new Map<number, number[]>();
-  const read = new Set(open.issues.map((issue) => issue.number));
+  const read = new Set(open.issues.map((issue) => issue.ticket.number));
   const edge = (from: number, to: number) => {
     if (read.has(from) && read.has(to)) {
       const tos = passesTo.get(from) ?? [];
@@ -225,14 +227,15 @@ export function ticketPrioritiesIn(
   };
   for (const issue of open.issues) {
     if (issue.parent !== undefined) {
-      edge(issue.parent, issue.number);
+      edge(issue.parent, issue.ticket.number);
     }
     for (const blocker of issue.openBlockerNumbers) {
-      edge(issue.number, blocker);
+      edge(issue.ticket.number, blocker);
     }
   }
 
   const labelled = open.issues
+    .map((issue) => issue.ticket)
     .filter((issue) => issue.priority !== undefined)
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   const priorities = new Map<number, TicketPriority>();

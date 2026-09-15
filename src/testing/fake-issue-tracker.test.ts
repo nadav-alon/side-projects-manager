@@ -94,7 +94,7 @@ describe("FakeIssueTracker", () => {
     const { issues } = await tracker.listOpenIssues(PILOT);
 
     assert.deepEqual(
-      issues.map(({ number, eligible, priority }) => ({ number, eligible, priority })),
+      issues.map(({ ticket: { number, priority }, eligible }) => ({ number, eligible, priority })),
       [
         { number: 7, eligible: true, priority: undefined },
         { number: 5, eligible: false, priority: 1 },

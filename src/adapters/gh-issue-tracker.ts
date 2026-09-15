@@ -85,17 +85,19 @@ export function ghIssueTracker(
           const modelLabel = modelLabelOf(labels);
           const priority = ticketPriorityIn(labels);
           return {
-            repo,
-            ...issue,
+            ticket: {
+              repo,
+              ...issue,
+              ...(openSubIssues > 0 && { openSubIssues }),
+              ...(openBlockers > 0 && { openBlockers }),
+              ...(pullRequest !== undefined && { pullRequest }),
+              ...(modelLabel !== undefined && { modelLabel }),
+              ...(priority !== undefined && { priority }),
+            },
             eligible: labels.some(isReadyForAgent),
             openBlockerNumbers,
             ...(parent !== null &&
               isInRepo(parent.url, repo) && { parent: parent.number }),
-            ...(openSubIssues > 0 && { openSubIssues }),
-            ...(openBlockers > 0 && { openBlockers }),
-            ...(pullRequest !== undefined && { pullRequest }),
-            ...(modelLabel !== undefined && { modelLabel }),
-            ...(priority !== undefined && { priority }),
           };
         },
       );
