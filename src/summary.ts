@@ -229,9 +229,9 @@ function waitingSection(
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed":
-        return iteration.notClosed === undefined
-          ? []
-          : [notClosedLine(iteration, iteration.notClosed)];
+        return reviewLeftOpen(iteration)
+          ? [notClosedLine(iteration, iteration.notClosed)]
+          : [];
       case "applied-review":
         return [appliedReviewWaitingLine(iteration)];
       // A limit refusal's ticket waits on the provider, not the developer.
@@ -338,10 +338,23 @@ function handoverLines(
       `- ${repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
     ];
   }
-  if (reviewOutcome.kind === "reviewed" && reviewOutcome.notClosed === undefined) {
+  if (reviewOutcome.kind === "reviewed" && !reviewLeftOpen(reviewOutcome)) {
     return [`- ${repo}: ${handover.pullRequest} — reviewed, findings posted`];
   }
   return [];
+}
+
+/**
+ * Whether a review ticket's own run left its ticket open, with something
+ * still left for the developer to do. Read both at the review's own case in
+ * `waitingSection` and at `handoverLines`'s lookup of that same outcome by
+ * the run that queued it — the two describe the same fact and must stay
+ * exact inverses of each other.
+ */
+function reviewLeftOpen(
+  outcome: Reviewed,
+): outcome is Reviewed & { notClosed: NotClosed } {
+  return outcome.notClosed !== undefined;
 }
 
 /** What a failed run leaves waiting on the developer. */
