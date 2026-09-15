@@ -257,8 +257,8 @@ project rather than following one.
 - Parallel runs. Sequential only.
 - Automatic merging of pull requests, and automatic promotion other than when an apply-review ticket
   finishes.
-- Automatic triage. Applying ready-for-agent to implementation tickets stays a human act; the review
-  sub-issue is the sole exception.
+- Automatic triage. Applying ready-for-agent to implementation tickets stays a human act; pull request
+  tickets are the exceptions.
 - Any automatic retry, escalation, or fix-ticket generation arising from review findings, other than
   the developer-triggered apply-review ticket.
 - Reading usage from Claude chat, other machines, or any provider API. The ledger is local-only and
