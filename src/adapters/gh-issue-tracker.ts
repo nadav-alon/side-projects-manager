@@ -13,6 +13,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  carriesReadyForAgent,
   isPullRequestUrl,
   isTicketPriority,
   modelLabelOf,
@@ -101,7 +102,7 @@ export function ghIssueTracker(
               ...(modelLabel !== undefined && { modelLabel }),
               ...(priority !== undefined && { priority }),
             },
-            eligible: labels.some(isReadyForAgent),
+            eligible: carriesReadyForAgent(labels),
             openBlockerNumbers,
             ...(parent !== null &&
               isInRepo(parent.url, repo) && { parent: parent.number }),
@@ -423,14 +424,6 @@ function priorityLabelIn(labels: string[]): TicketPriority | undefined {
   return levels.length > 0
     ? levels.reduce((smallest, level) => (level < smallest ? level : smallest))
     : undefined;
-}
-
-/**
- * Whether `label` is ready-for-agent. Matched without regard to case, as
- * GitHub matches label names.
- */
-function isReadyForAgent(label: string): boolean {
-  return label.toLowerCase() === READY_FOR_AGENT_LABEL;
 }
 
 /**

@@ -10,6 +10,20 @@ import type { TicketPriority } from "./ticket-priority.ts";
 export const READY_FOR_AGENT_LABEL = "ready-for-agent";
 
 /**
+ * Whether `labels` include ready-for-agent — what makes an issue eligible.
+ * Beside the port so the real tracker and the fake read eligibility alike;
+ * matched without regard to case, as GitHub matches label names.
+ */
+export function carriesReadyForAgent(labels: Iterable<string>): boolean {
+  for (const label of labels) {
+    if (label.toLowerCase() === READY_FOR_AGENT_LABEL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The triage label a ticket carries once it is the developer's again, as
  * `docs/agents/triage-labels.md` spells it.
  */

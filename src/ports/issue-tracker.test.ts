@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
+  carriesReadyForAgent,
   modelLabelOf,
   ticketKind,
   ticketPrioritiesIn,
@@ -134,6 +135,18 @@ describe("ticketPrioritiesIn", () => {
       ),
       { 1: 2, 2: 2, 3: 2 },
     );
+  });
+});
+
+describe("carriesReadyForAgent", () => {
+  it("finds ready-for-agent among other labels, whatever its case", () => {
+    assert.equal(carriesReadyForAgent(["bug", READY_FOR_AGENT_LABEL]), true);
+    assert.equal(carriesReadyForAgent(["Ready-For-Agent"]), true);
+  });
+
+  it("finds nothing in labels without it", () => {
+    assert.equal(carriesReadyForAgent(["ready-for-human", "ready"]), false);
+    assert.equal(carriesReadyForAgent([]), false);
   });
 });
 

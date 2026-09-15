@@ -17,6 +17,7 @@ export {
   READY_FOR_HUMAN_LABEL,
   TICKET_KINDS,
   backlogIn,
+  carriesReadyForAgent,
   isBlocked,
   isBrokenOut,
   isReviewTicket,

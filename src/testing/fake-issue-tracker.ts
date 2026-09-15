@@ -10,6 +10,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  carriesReadyForAgent,
   modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
@@ -179,7 +180,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       const modelLabel = modelLabelOf(entry.labels);
       return {
         ticket: { ...ticket, ...(modelLabel !== undefined && { modelLabel }) },
-        eligible: entry.labels.has(READY_FOR_AGENT_LABEL),
+        eligible: carriesReadyForAgent(entry.labels),
         openBlockerNumbers,
         ...(parent !== undefined && { parent }),
       };
