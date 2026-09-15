@@ -707,7 +707,7 @@ async function work(
       selection.ticket,
       failure,
       modelRefusalComment(selection.ticket, failure, run, discard),
-      run,
+      { run },
     );
   }
   if (run.kind === "finished") {
@@ -729,7 +729,7 @@ async function work(
     selection.ticket,
     failure,
     handbackComment(failure, run, discard),
-    run,
+    { run },
   );
 }
 
@@ -849,7 +849,7 @@ async function handoverFailed(
     ticket,
     failure,
     handoverFailureComment(failure),
-    run,
+    { run },
   );
 }
 
@@ -877,13 +877,16 @@ async function handFinishedTicketBack(
 }
 
 /**
+ * What a failed ticket's hand-back carries into `Failed`: an implementation
+ * run's own outcome, whose `tokensUsed` is taken as the spend too, or — for a
+ * review, which has no `RunOutcome` of its own — the spend directly.
+ */
+type Spend = { run: RunOutcome } | { tokensUsed: TokenCount };
+
+/**
  * Puts the ticket of a run that failed on the ticket's account — an agent
  * that gave up, or a model it could not use — back in the developer's hands
  * with `comment`, and says whether it got there.
- *
- * `tokensUsed` defaults to `run`'s own, so an implementation run's failure
- * needs only pass `run` — a review has none, so its caller passes its spend
- * directly. Either way `Failed.tokensUsed` ends up set the same way.
  *
  * Never throws. A tracker that could not be reached leaves the ticket eligible,
  * and saying so is the one thing still worth doing.
@@ -893,9 +896,15 @@ async function handTicketBack(
   ticket: Ticket,
   failure: HandedBackFailure,
   comment: string,
-  run?: RunOutcome,
-  tokensUsed: TokenCount | undefined = run?.tokensUsed,
+  spend?: Spend,
 ): Promise<Failed> {
+  const run = spend !== undefined && "run" in spend ? spend.run : undefined;
+  const tokensUsed =
+    spend === undefined
+      ? undefined
+      : "run" in spend
+        ? spend.run.tokensUsed
+        : spend.tokensUsed;
   try {
     await ports.tracker.handBack(ticket, comment);
     return {
@@ -1089,8 +1098,7 @@ async function runReview(
       ticket,
       failure,
       modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      undefined,
-      review.tokensUsed,
+      { tokensUsed: review.tokensUsed },
     );
   }
 
@@ -1147,8 +1155,7 @@ async function handReviewBack(
     ticket,
     failure,
     reviewHandbackComment(failure, review),
-    undefined,
-    review.tokensUsed,
+    { tokensUsed: review.tokensUsed },
   );
 }
 
