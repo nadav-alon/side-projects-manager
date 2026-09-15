@@ -1299,15 +1299,19 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
     };
   }
 
+  /** Ticket #7 as the adapter lists it from the recorded listing. */
+  async function ticket7(): Promise<Ticket | undefined> {
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+    return issues.find((issue) => issue.ticket.number === 7)?.ticket;
+  }
+
   it("does not count a review ticket among a ticket's open sub-issues", async (t) => {
     await recordingGh(
       t,
       listing([subIssueOf7(42, REVIEW_BODY), implementation(1)]),
     );
 
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    const ticket = issues.find((issue) => issue.ticket.number === 7)?.ticket;
+    const ticket = await ticket7();
     assert.ok(ticket);
     assert.equal(ticket.openSubIssues, undefined);
     assert.equal(isBrokenOut(ticket), false);
@@ -1319,9 +1323,7 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
       listing([subIssueOf7(43, APPLY_REVIEW_BODY), implementation(1)]),
     );
 
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    const ticket = issues.find((issue) => issue.ticket.number === 7)?.ticket;
+    const ticket = await ticket7();
     assert.equal(ticket?.openSubIssues, undefined);
   });
 
@@ -1335,9 +1337,7 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
       ]),
     );
 
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    const ticket = issues.find((issue) => issue.ticket.number === 7)?.ticket;
+    const ticket = await ticket7();
     assert.equal(ticket?.openSubIssues, 1);
   });
 
@@ -1350,9 +1350,7 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
       ]),
     );
 
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    const ticket = issues.find((issue) => issue.ticket.number === 7)?.ticket;
+    const ticket = await ticket7();
     assert.equal(ticket?.openSubIssues, 1);
   });
 
