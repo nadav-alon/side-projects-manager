@@ -247,8 +247,8 @@ export interface RepoHost {
    *
    * `gist`, when the run produced one, opens the body with it — one sentence
    * saying what the ticket asked for, so the developer knows what they are
-   * looking at without opening the ticket. Absent, the body is what it was
-   * before there was a gist to carry.
+   * looking at without opening the ticket. Absent, the body is the closing
+   * reference and the draft note alone.
    */
   openDraftPullRequest(
     directory: Checkout,
