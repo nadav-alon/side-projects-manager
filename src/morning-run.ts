@@ -1016,7 +1016,11 @@ function infrastructureFailure(error: unknown): Failed {
   };
 }
 
-/** An implementation run, as `runInSandbox` against `Sandbox.run`. */
+/**
+ * An implementation run: works `selection`'s ticket in the sandbox, held to
+ * `spendCeiling` and started on `model` — or, given none, on whatever model
+ * the sandbox image itself is pinned to, which can never come back refused.
+ */
 async function attemptRun(
   ports: MorningLoopPorts,
   selection: Selection,
