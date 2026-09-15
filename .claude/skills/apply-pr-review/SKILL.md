@@ -4,11 +4,9 @@ description: Act on a pull request's review — answer every open thread, apply 
 disable-model-invocation: true
 ---
 
-Works one pull request's review to the end: every open **thread** gets a reply, and every reply says either **applied** (with the commit) or **declined** (with the reason). The branch is pushed; the pull request is otherwise left as it was.
+Works one pull request's review to the end: every open **thread** gets a reply, and every reply says either **applied** (with the commit) or **declined** (with the reason). The branch is pushed; the pull request is otherwise left as it was. The pull request argument is the go-ahead for every step below. A run may be unattended, with nobody to answer a question, so each step carries straight into the next, ending only at a stop a step names or at the report.
 
 The argument is the pull request (number or URL). With none, use the current branch's: `gh pr view --json number,url`. Name the repo explicitly (`--repo <owner>/<repo>`, or `repos/<owner>/<repo>` in `gh api`) whenever `origin` is not a GitHub remote.
-
-Naming a pull request is the go-ahead for the whole pass, not just the first step: decide every thread, make every applied change, push, and post every reply in one run. Nothing past this point is provisional — do not stop partway to confirm a verdict, the push, or a reply before posting it.
 
 ## 1. Check out the branch
 
