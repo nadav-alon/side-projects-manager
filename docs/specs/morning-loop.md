@@ -257,7 +257,8 @@ project rather than following one.
 - Automatic promotion or merging of PRs.
 - Automatic triage. Applying ready-for-agent to implementation tickets stays a human act; the review
   sub-issue is the sole exception.
-- Any automatic retry, escalation, or fix-ticket generation arising from review findings.
+- Any automatic retry, escalation, or fix-ticket generation arising from review findings, other than
+  the developer-triggered apply-review ticket.
 - Reading usage from Claude chat, other machines, or any provider API. The ledger is local-only and
   knowingly under-counts.
 - Issue trackers other than GitHub.

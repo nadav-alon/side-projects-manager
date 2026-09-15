@@ -25,7 +25,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: reviews before implementations, then explicit priority, then least recently worked. Within the chosen project: reviews first, then ticket priority, then the oldest ticket.
+Choosing which project and ticket an iteration works: apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: apply-review tickets first, then review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -179,7 +179,7 @@ A project with more open issues than the loop reads in one morning. Every open i
 _Avoid_: overflow, capped backlog, full queue
 
 **Broken-out ticket**:
-A ticket whose work has moved into one or more open sub-issues: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any sub-issue is open — the tracker reports the open count, and selection is what reads it. Selectable again, like any other ticket, once every sub-issue has closed. Its ticket priority carries into its sub-issues.
+A ticket whose open sub-issues are ones that are not pull request tickets: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any such sub-issue is open — the tracker reports the open count, and selection is what reads it. A handed-back ticket with an open review sub-issue is not broken out. Selectable again, like any other ticket, once every such sub-issue has closed. Its ticket priority carries into its sub-issues.
 _Avoid_: parent ticket, container ticket, epic, spec ticket
 
 **Blocked ticket**:
@@ -191,7 +191,7 @@ A ticket asking for something to be built.
 _Avoid_: feature ticket, build ticket
 
 **Draft pull request**:
-How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. It stays a draft — the manager opens one and never promotes or merges it.
+How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull request open against the ticket it implemented. The manager opens one, never merges it, and marks it ready for review only when an apply-review ticket on it finishes.
 _Avoid_: PR (say pull request), submission, patch
 
 **Ticket gist**:
@@ -202,9 +202,17 @@ _Avoid_: summary (the summary is the invocation's issue), description, synopsis
 What a finished run comes to for the developer: the run itself, and the draft pull request its commits are waiting in. A run that committed nothing, and one the agent did not finish, are runs without a handover. A handover that fails part way — the branch would not push, no draft pull request would open, or its review ticket could not be created — is a failed iteration: the ticket is handed back naming the branch and any pull request, the branch is kept, and the invocation carries on.
 _Avoid_: work, result, outcome
 
+**Pull request ticket**:
+A review ticket or an apply-review ticket: a sub-issue bound to one draft pull request.
+_Avoid_: PR ticket, review sub-issue (unqualified)
+
 **Review ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected before any implementation ticket.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
 _Avoid_: review task, review job, QA ticket
+
+**Apply-review ticket**:
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`. Selected before review tickets. Finished, it closes and marks the pull request ready for review.
+_Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
 
