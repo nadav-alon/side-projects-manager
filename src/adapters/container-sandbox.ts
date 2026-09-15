@@ -217,77 +217,95 @@ class ContainerSandbox implements Sandbox {
   }
 }
 
-async function runOnClone(
-  container: Container,
-  request: RunRequest,
-): Promise<RunOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+/**
+ * Runs `body` on a throwaway clone's directory, named for the `kind` of run
+ * it holds, and deletes it once `body` ends. Filling the directory is
+ * `body`'s, since each kind clones under the checkout lock with steps of its
+ * own.
+ *
+ * Whatever became of the run, the clone does not outlive it — and a clone
+ * that will not delete never costs the caller its result. A run this process
+ * could not pin to a uid of its own (`hostUser`) can still leave files it does
+ * not own behind; that is worth a warning, not the loss of a branch that was
+ * pushed successfully.
+ */
+async function withThrowawayClone<T>(
+  kind: "run" | "review" | "apply-review",
+  body: (clone: Checkout) => Promise<T>,
+): Promise<T> {
   const clone = checkout(
-    await mkdtemp(path.join(tmpdir(), "side-projects-run-")),
+    await mkdtemp(path.join(tmpdir(), `side-projects-${kind}-`)),
   );
-  let onto: Branch | undefined;
-
   try {
-    onto = await withCheckoutLock(project, async () => {
-      const free = await freeBranch(project, branchFor(ticket));
-      // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
-      // and nothing it does should be able to reach an object file the
-      // developer's own checkout is still using. The container runs as the
-      // developer's own uid (`dockerCommand`), so the filesystem would not
-      // stop it — the copy is what does.
-      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
-      reserveBranch(project, free);
-      return free;
-    });
-    // Branded before the agent starts: a clone whose hashes this cannot read
-    // fails the sandbox's set-up, not a run whose work is already done.
-    const base = commitSha(await revision(clone, "HEAD"));
-    await run("git", ["-C", clone, "switch", "--create", onto]);
-
-    const agent = await attempt(container, {
-      directory: clone,
-      prompt: promptFor(ticket),
-      spendCeiling,
-      mount: "rw",
-      ...(model === undefined ? {} : { model }),
-    });
-    const commits = await commitsSince(clone, base);
-
-    // Only when the agent actually committed: a branch pointing at the commit
-    // it started from is not work, and the checkout should not collect one
-    // for every morning that came to nothing.
-    if (commits.length > 0) {
-      const branch = onto;
-      await withCheckoutLock(project, () =>
-        run("git", [
-          "-C",
-          project,
-          "fetch",
-          "--no-tags",
-          clone,
-          `${branch}:${branch}`,
-        ]),
-      );
-    }
-
-    return runOutcomeOf(agent, model, onto, commits);
+    return await body(clone);
   } finally {
-    // If fetched back, the checkout now records the name; otherwise the name
-    // is free again.
-    if (onto !== undefined) {
-      unreserveBranch(project, onto);
-    }
-    // Whatever became of the run, the clone does not outlive it — and a clone
-    // that will not delete never costs the caller its result. A run this
-    // process could not pin to a uid of its own (`hostUser`) can still leave
-    // files it does not own behind; that is worth a warning, not the loss of a
-    // branch that was pushed successfully.
     await rm(clone, { recursive: true, force: true }).catch(
       (error: unknown) => {
         console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
       },
     );
   }
+}
+
+async function runOnClone(
+  container: Container,
+  request: RunRequest,
+): Promise<RunOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+
+  return withThrowawayClone("run", async (clone) => {
+    let onto: Branch | undefined;
+
+    try {
+      onto = await withCheckoutLock(project, async () => {
+        const free = await freeBranch(project, branchFor(ticket));
+        // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
+        // and nothing it does should be able to reach an object file the
+        // developer's own checkout is still using. The container runs as the
+        // developer's own uid (`dockerCommand`), so the filesystem would not
+        // stop it — the copy is what does.
+        await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+        reserveBranch(project, free);
+        return free;
+      });
+      // Branded before the agent starts: a clone whose hashes this cannot read
+      // fails the sandbox's set-up, not a run whose work is already done.
+      const base = commitSha(await revision(clone, "HEAD"));
+      await run("git", ["-C", clone, "switch", "--create", onto]);
+
+      const agent = await attempt(
+        container,
+        { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+        model,
+      );
+      const commits = await commitsSince(clone, base);
+
+      // Only when the agent actually committed: a branch pointing at the commit
+      // it started from is not work, and the checkout should not collect one
+      // for every morning that came to nothing.
+      if (commits.length > 0) {
+        const branch = onto;
+        await withCheckoutLock(project, () =>
+          run("git", [
+            "-C",
+            project,
+            "fetch",
+            "--no-tags",
+            clone,
+            `${branch}:${branch}`,
+          ]),
+        );
+      }
+
+      return runOutcomeOf(agent, model, onto, commits);
+    } finally {
+      // If fetched back, the checkout now records the name; otherwise the name
+      // is free again.
+      if (onto !== undefined) {
+        unreserveBranch(project, onto);
+      }
+    }
+  });
 }
 
 /**
@@ -305,10 +323,14 @@ async function runOnClone(
  */
 async function attempt(
   container: Container,
-  options: RunOptions,
+  options: Omit<RunOptions, "model">,
+  model: ModelName | undefined,
 ): Promise<AgentRun> {
   try {
-    return await container(options);
+    return await container({
+      ...options,
+      ...(model === undefined ? {} : { model }),
+    });
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
       throw error;
@@ -417,30 +439,19 @@ async function reviewOnClone(
   request: ReviewRequest,
 ): Promise<ReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
-  const clone = checkout(
-    await mkdtemp(path.join(tmpdir(), "side-projects-review-")),
-  );
 
-  try {
+  return withThrowawayClone("review", async (clone) => {
     await withCheckoutLock(project, () =>
       run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
     );
-    const agent = await attempt(container, {
-      directory: clone,
-      prompt: reviewPromptFor(ticket),
-      spendCeiling,
-      mount: "ro",
-      ...(model === undefined ? {} : { model }),
-    });
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: reviewPromptFor(ticket), spendCeiling, mount: "ro" },
+      model,
+    );
 
     return reviewOutcomeOf(agent, model);
-  } finally {
-    await rm(clone, { recursive: true, force: true }).catch(
-      (error: unknown) => {
-        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
-      },
-    );
-  }
+  });
 }
 
 /**
@@ -462,11 +473,8 @@ async function applyReviewOnClone(
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
-  const clone = checkout(
-    await mkdtemp(path.join(tmpdir(), "side-projects-apply-review-")),
-  );
 
-  try {
+  return withThrowawayClone("apply-review", async (clone) => {
     const remote = await withCheckoutLock(project, async () => {
       await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
       const { stdout } = await run("git", [
@@ -523,22 +531,14 @@ async function applyReviewOnClone(
       `origin/${head}`,
     ]);
 
-    const agent = await attempt(container, {
-      directory: clone,
-      prompt: applyReviewPromptFor(ticket),
-      spendCeiling,
-      mount: "rw",
-      ...(model === undefined ? {} : { model }),
-    });
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: applyReviewPromptFor(ticket), spendCeiling, mount: "rw" },
+      model,
+    );
 
     return applyReviewOutcomeOf(agent, model);
-  } finally {
-    await rm(clone, { recursive: true, force: true }).catch(
-      (error: unknown) => {
-        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
-      },
-    );
-  }
+  });
 }
 
 /**
