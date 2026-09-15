@@ -5,6 +5,7 @@ import type {
   UnusableModelLabel,
 } from "./iteration-outcome.ts";
 import type {
+  ApplyReviewGaveUp,
   PullRequestUrl,
   ReviewFinished,
   ReviewGaveUp,
@@ -81,6 +82,45 @@ export function reviewHandbackComment(
   review: ReviewFinished | ReviewGaveUp,
 ): string {
   return gaveUpComment(failure, review.output, []);
+}
+
+/**
+ * What an apply-review ticket is told when its run gave up or left a thread
+ * unanswered: as a review's, plus the moved head where a rejected push is why,
+ * and that the pull request is still a draft — it is marked ready only once
+ * every thread is answered.
+ */
+export function applyReviewHandbackComment(
+  failure: GaveUp,
+  run: ReviewFinished | ApplyReviewGaveUp,
+  pullRequest: PullRequestUrl,
+): string {
+  const moved =
+    run.kind === "gave-up" && run.movedHead !== undefined
+      ? [
+          `Its push was rejected: the pull request's branch had moved to \`${run.movedHead}\` on the repo host, so what it committed never reached the pull request.`,
+        ]
+      : [];
+  return gaveUpComment(failure, run.output, [
+    ...moved,
+    `${pullRequest} is still a draft.`,
+  ]);
+}
+
+/**
+ * What an apply-review ticket is told as it closes: how many threads the run
+ * applied and declined, or that none was open to answer, and that the pull
+ * request is now ready for review.
+ */
+export function appliedReviewComment(
+  pullRequest: PullRequestUrl,
+  answers: { applied: number; declined: number } | undefined,
+): string {
+  const what =
+    answers === undefined
+      ? `The morning loop found no open review thread on ${pullRequest}, so there was nothing to apply.`
+      : `The morning loop applied the review on ${pullRequest}: ${answers.applied} applied, ${answers.declined} declined. Every thread has a reply saying which, and why.`;
+  return [what, `${pullRequest} is marked ready for review.`].join("\n\n");
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */

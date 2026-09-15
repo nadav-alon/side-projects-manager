@@ -24,6 +24,7 @@ import {
   ticketPriority,
   tokenCount,
   usd,
+  type ApplyReviewTicket,
   type CommitSha,
   type ReviewTicket,
   type RunFinished,
@@ -85,7 +86,9 @@ function reviewTicketOf(iteration: IterationOutcome | undefined) {
 
 /** The sandbox run an iteration made — absent for a review, or a run that never started. */
 function ranWith(iteration: IterationOutcome | undefined) {
-  return iteration === undefined || iteration.kind === "reviewed"
+  return iteration === undefined ||
+    iteration.kind === "reviewed" ||
+    iteration.kind === "applied-review"
     ? undefined
     : iteration.run;
 }
@@ -2471,6 +2474,369 @@ describe("morningLoop", () => {
     });
   });
 
+  describe("an apply-review ticket, selected", () => {
+    const PULL_REQUEST = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/12",
+    );
+    /** When the run's replies land: after it started, as every real one does. */
+    const DURING_THE_RUN = new Date(FROZEN_NOW.getTime() + 60_000);
+
+    /**
+     * An apply-review ticket, eligible like any other, on a pull request with
+     * `threads` open threads.
+     */
+    function queued(ports: FakePorts, threads = 1): ApplyReviewTicket {
+      ports.store.register(PILOT);
+      for (let opened = 0; opened < threads; opened++) {
+        ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+      }
+      return ports.tracker.addEligibleTicket(PILOT, {
+        number: 43,
+        title: "Apply the review on the draft pull request for #7",
+        pullRequest: { kind: "apply-review", url: PULL_REQUEST },
+      }) as ApplyReviewTicket;
+    }
+
+    /** A run that answers thread 0, 1, … with `verdicts` in turn, as the skill does, and finishes. */
+    function answering(
+      ports: FakePorts,
+      verdicts: ("applied" | "declined")[],
+      tokensUsed = tokenCount(0),
+    ): void {
+      ports.sandbox.applyReviewResult = () => {
+        verdicts.forEach((verdict, index) => {
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            index,
+            verdict,
+            "the reason",
+            DURING_THE_RUN,
+          );
+        });
+        return { kind: "finished", output: "answered", tokensUsed };
+      };
+    }
+
+    function waitingOn(ports: FakePorts): string {
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      const at = body.indexOf("## Waiting on you");
+      return at === -1 ? "" : body.slice(at);
+    }
+
+    it("runs the apply-review agent on the ticket and the project checkout, rather than an implementing or reviewing one", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      answering(ports, ["applied"]);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.applyReviews, [
+        {
+          ticket,
+          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          spendCeiling: DEFAULT_BUDGET.spendCeiling,
+        },
+      ]);
+      assert.equal(ports.sandbox.runs.length, 0);
+      assert.equal(ports.sandbox.reviews.length, 0);
+    });
+
+    it("closes a finished run's ticket and marks its pull request ready, opening nothing and queueing no review", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports, 2);
+      answering(ports, ["applied", "declined"]);
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "applied-review");
+      assert.deepEqual(
+        ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket),
+        [ticket],
+      );
+      assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(ports.repoHost.pullRequests.length, 0);
+      assert.equal(ports.repoHost.discarded.length, 0);
+      assert.equal(ports.tracker.reviewTickets.length, 0);
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog, []);
+    });
+
+    it("marks the pull request ready even when every thread was declined", async () => {
+      const ports = fakePorts();
+      queued(ports, 1);
+      answering(ports, ["declined"]);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+      assert.equal(ports.tracker.closedApplyReviewTickets.length, 1);
+    });
+
+    it("closes the ticket with a comment naming the pull request and what was applied and declined", async () => {
+      const ports = fakePorts();
+      queued(ports, 2);
+      answering(ports, ["applied", "declined"]);
+
+      await morningLoop(ports);
+
+      const comment = ports.tracker.closedApplyReviewTickets[0]?.comment ?? "";
+      assert.ok(comment.includes(PULL_REQUEST));
+      assert.match(comment, /1 applied, 1 declined/);
+      assert.match(comment, /ready for review/);
+    });
+
+    it("counts only the replies the run posted, not an earlier pass's", async () => {
+      const ports = fakePorts();
+      queued(ports, 2);
+      ports.repoHost.answerApplyReviewThread(
+        PULL_REQUEST,
+        0,
+        "applied",
+        "an earlier pass",
+        new Date(FROZEN_NOW.getTime() - 60_000),
+      );
+      ports.sandbox.applyReviewResult = () => {
+        ports.repoHost.answerApplyReviewThread(
+          PULL_REQUEST,
+          1,
+          "declined",
+          "the reason",
+          DURING_THE_RUN,
+        );
+        return { kind: "finished", output: "", tokensUsed: tokenCount(0) };
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.match(report.message, /0 applied, 1 declined/);
+    });
+
+    it("closes a ticket whose pull request has no open thread without running anything, saying so, and marks it ready", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports, 0);
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.applyReviews.length, 0);
+      assert.equal(report.iterations[0]?.kind, "applied-review");
+      const [closed] = ports.tracker.closedApplyReviewTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /nothing to apply/i);
+      assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+      assert.equal(ports.repoHost.clones.length, 0);
+      const state = await ports.store.loadState();
+      assert.equal(state.projects.get(PILOT), undefined);
+      assert.match(report.message, /nothing to apply/i);
+    });
+
+    it("hands back a finished run that left a thread unanswered, leaving the pull request a draft", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports, 2);
+      answering(ports, ["applied"]);
+
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), true);
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", /1 thread left unanswered/);
+      assert.ok(handback?.comment.includes(PULL_REQUEST));
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("hands back a run whose push was rejected because the branch moved, naming the moved head", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      const moved = commitSha("a1".repeat(20));
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "gave-up",
+        output: `Branch moved: ${moved}`,
+        reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
+        movedHead: moved,
+        tokensUsed: tokenCount(2_000),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", new RegExp(`moved to \`${moved}\``));
+      assert.match(handback?.comment ?? "", /will not be retried/);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+    });
+
+    it("leaves the ticket eligible when the sandbox breaks, naming it under what is waiting on the developer", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      t.mock.method(ports.sandbox, "applyReview", async () => {
+        throw new Error("docker is not running");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent — the sandbox or checkout failed`),
+      );
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
+    it("leaves the ticket eligible, running nothing, when the pull request's threads cannot be read before the run", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      t.mock.method(ports.repoHost, "readApplyReviewAnswers", async () => {
+        throw new Error("gh api rate limited");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.equal(ports.sandbox.applyReviews.length, 0);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.match(report.message, /gh api rate limited/);
+    });
+
+    it("stands down on a limit refusal, leaving the ticket exactly as it was", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "limit-refused");
+      assert.equal(report.standDown?.reason, "provider-limit");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
+    it("names the pull request and the applied and declined counts in the summary line", async () => {
+      const ports = fakePorts();
+      queued(ports, 3);
+      answering(ports, ["applied", "applied", "declined"]);
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.ok(
+        report.message.includes(
+          `Applied review on ${PILOT} #43: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+        ),
+        report.message,
+      );
+      assert.ok(
+        waitingOn(ports).includes(`- ${PILOT}: ${PULL_REQUEST} — ready for review`),
+      );
+    });
+
+    it("records what the run cost", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      answering(ports, ["applied"], tokenCount(9_000));
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(9_000) },
+      ]);
+    });
+
+    it("reports a pull request whose answers cannot be read after the run, leaving the ticket open and the pull request a draft", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      answering(ports, ["applied"]);
+      const read = ports.repoHost.readApplyReviewAnswers.bind(ports.repoHost);
+      let reads = 0;
+      t.mock.method(
+        ports.repoHost,
+        "readApplyReviewAnswers",
+        async (...args: Parameters<typeof read>) => {
+          reads += 1;
+          if (reads > 1) {
+            throw new Error("gh api rate limited");
+          }
+          return read(...args);
+        },
+      );
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "applied-review");
+      assert.notEqual(report.outcome, "invocation-failed");
+      assert.match(report.message, /gh api rate limited/);
+      assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+    });
+
+    it("leaves the ticket open when the pull request cannot be marked ready, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      answering(ports, ["applied"]);
+      t.mock.method(ports.repoHost, "markPullRequestReady", async () => {
+        throw new Error("pull request is closed");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "applied-review");
+      assert.match(report.message, /pull request is closed/);
+      assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+    });
+
+    it("reports a ticket that cannot be closed, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      answering(ports, ["applied"]);
+      t.mock.method(ports.tracker, "closeApplyReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "applied-review");
+      assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+      assert.match(report.message, /issue is locked/);
+      assert.match(report.message, /close it yourself/);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+    });
+  });
+
   describe("a run that falls over", () => {
     const GAVE_UP = "the tests would not go green";
     const SAID = "I could not make the tests pass";
@@ -3855,19 +4221,15 @@ describe("morningLoop", () => {
         title: `Apply the review on ${pullRequest}`,
         pullRequest: { kind: "apply-review", url: pullRequest },
       });
+      // A pull request with nothing open to apply runs nothing at all.
+      ports.repoHost.openApplyReviewThread(pullRequest);
       ports.store.modelDefaults = { "apply-review": HAIKU };
 
       await morningLoop(ports);
 
-      assert.equal(ports.sandbox.runs.length, 2);
-      const applyReviewRun = ports.sandbox.runs.find(
-        (run) => run.ticket.number === 42,
-      );
-      const implementationRun = ports.sandbox.runs.find(
-        (run) => run.ticket.number === 7,
-      );
-      assert.equal(applyReviewRun?.model, HAIKU);
-      assert.equal(implementationRun?.model, undefined);
+      assert.equal(ports.sandbox.applyReviews[0]?.model, HAIKU);
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(ports.sandbox.runs[0]?.model, undefined);
     });
 
     it("runs a ticket on its model label rather than the default for its kind", async () => {
@@ -4050,11 +4412,10 @@ describe("morningLoop", () => {
           title: `Apply the review on ${pullRequest}`,
           pullRequest: { kind: "apply-review", url: pullRequest },
         });
+        ports.repoHost.openApplyReviewThread(pullRequest);
         ports.store.modelDefaults = { "apply-review": HAIKU };
-        ports.sandbox.result = () => ({
+        ports.sandbox.applyReviewResult = () => ({
           kind: "model-refused",
-          branch: branch(`fake/${PILOT}/42`),
-          commits: [],
           tokensUsed: tokenCount(0),
           refusal: { model: HAIKU, words: "refused model haiku" },
         });
