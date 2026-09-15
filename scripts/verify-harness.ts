@@ -15,8 +15,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 // `sandbox:verify` (package.json) mounts this one file from `src/` alongside
-// `scripts/` for exactly this import, so the base error-to-text conversion
-// below stays the repo's one implementation instead of a local rewrite of it.
+// `scripts/` for exactly this import.
 import { errorMessage } from "../src/error-message.ts";
 
 /** What `claude plugin list --json` prints per installed plugin. */
