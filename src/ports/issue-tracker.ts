@@ -45,6 +45,26 @@ export const MODEL_LABEL_PREFIX = "model:";
 export const SIZE_LABEL_PREFIX = "size:";
 
 /**
+ * Every label in `labels` starting with `prefix`, matched without regard to
+ * case the way GitHub matches label names, paired with what follows the
+ * prefix — kept in the case it was written, since folding that further is
+ * each prefix's own rule to apply. What `modelLabelOf` and `sizeLabelOf`
+ * both filter their labels down to before applying their own.
+ */
+function labelsWithPrefix(
+  labels: Iterable<string>,
+  prefix: string,
+): Array<{ label: string; value: string }> {
+  const matches: Array<{ label: string; value: string }> = [];
+  for (const label of labels) {
+    if (label.toLowerCase().startsWith(prefix)) {
+      matches.push({ label, value: label.slice(prefix.length) });
+    }
+  }
+  return matches;
+}
+
+/**
  * What a ticket's model labels say, where it carries any: one model by name,
  * several that disagree, or a label whose name no run could be handed. Absent
  * from a ticket that names no model.
@@ -80,13 +100,9 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   const names: ModelName[] = [];
   const named: string[] = [];
   const unusable: string[] = [];
-  for (const label of labels) {
-    if (!label.toLowerCase().startsWith(MODEL_LABEL_PREFIX)) {
-      continue;
-    }
-    const name = label.slice(MODEL_LABEL_PREFIX.length);
-    if (isModelName(name)) {
-      names.push(name);
+  for (const { label, value } of labelsWithPrefix(labels, MODEL_LABEL_PREFIX)) {
+    if (isModelName(value)) {
+      names.push(value);
       named.push(label);
     } else {
       unusable.push(label);
@@ -138,13 +154,10 @@ export type SizeLabel =
 export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
   const declared: Size[] = [];
   const unusable: string[] = [];
-  for (const label of labels) {
-    if (!label.toLowerCase().startsWith(SIZE_LABEL_PREFIX)) {
-      continue;
-    }
-    const value = label.slice(SIZE_LABEL_PREFIX.length).toUpperCase();
-    if (isSize(value)) {
-      declared.push(value);
+  for (const { label, value } of labelsWithPrefix(labels, SIZE_LABEL_PREFIX)) {
+    const candidate = value.toUpperCase();
+    if (isSize(candidate)) {
+      declared.push(candidate);
     } else {
       unusable.push(label);
     }
