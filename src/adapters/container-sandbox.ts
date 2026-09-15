@@ -463,9 +463,8 @@ function promptFor(ticket: Ticket): string {
  *
  * The reviewer posts with the developer's own `GH_TOKEN`, so an apply-review
  * workflow watching for that comment cannot tell the reviewer's from the
- * developer's by author. Acting on the review is the developer's call, so
- * the prompt forbids the reviewer from ever posting a comment whose whole
- * body is `/apply-review`.
+ * developer's by author. Acting on the review is the developer's call, never
+ * the reviewer's.
  */
 function reviewPromptFor(ticket: ReviewTicket): string {
   return [
