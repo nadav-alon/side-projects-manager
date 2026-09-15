@@ -280,8 +280,7 @@ export async function morningLoop(
     const modelDefaults = await ports.store.loadModelDefaults();
     // Built once and kept for the whole invocation, not once per iteration:
     // it is what remembers a project's "selected" verdict across scans and
-    // where each registered project first landed in registry order — the
-    // loop itself holds none of that any longer.
+    // where each registered project first landed in registry order.
     const selection = invocationSelection(ports, projects, worked);
     const inProgress = new Set<Promise<void>>();
     // What an iteration in progress threw, rethrown once the others finish:
