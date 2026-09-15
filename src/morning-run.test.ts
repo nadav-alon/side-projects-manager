@@ -423,6 +423,33 @@ describe("morningLoop", () => {
         [7],
       );
     });
+
+    it("selects a ticket whose only open sub-issue is an apply-review ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: 7,
+        title: "Add the thing",
+        openSubIssues: 1,
+      });
+      // Handed back, so the apply-review itself is not what gets selected.
+      ports.tracker.addIneligibleTicket(PILOT, {
+        number: 43,
+        title: "Apply the review on #1",
+        pullRequest: {
+          kind: "apply-review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: 7,
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [7],
+      );
+    });
   });
 
   describe("blocked tickets", () => {
