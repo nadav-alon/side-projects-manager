@@ -47,5 +47,9 @@ export function agentInstructions(project: ProjectDescription): string {
     "## Domain docs",
     "Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See" +
       " `docs/agents/domain.md`.",
+    "## Apply review",
+    "Commenting `/apply-review` on a draft pull request opens a ticket asking" +
+      " an agent to work every open review thread on it. See" +
+      " `.github/workflows/apply-review.yml`.",
   ].join("\n\n")}\n`;
 }

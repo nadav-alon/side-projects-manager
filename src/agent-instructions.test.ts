@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { UNIFORM_FILES } from "./adapters/directory-harness.ts";
 import { agentInstructions } from "./agent-instructions.ts";
 import { repoSlug } from "./ports/index.ts";
 
@@ -22,13 +23,7 @@ describe("the agent instructions a new project gets", () => {
   it("points at the project's own copies of the uniform files", () => {
     const instructions = pilot();
 
-    for (const file of [
-      "docs/agents/coding-standards.md",
-      "docs/agents/issue-tracker.md",
-      "docs/agents/ticket-scope.md",
-      "docs/agents/triage-labels.md",
-      "docs/agents/domain.md",
-    ]) {
+    for (const file of UNIFORM_FILES) {
       assert.match(instructions, new RegExp(file.replaceAll(".", "\\.")));
     }
   });
