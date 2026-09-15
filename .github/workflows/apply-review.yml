@@ -76,25 +76,25 @@ jobs:
           # keep every `$`-anchored line match below from ever matching.
           issue_body="${ISSUE_BODY//$'\r'/}"
 
-          PR_NUMBER=""
-          PR_URL=""
-          N=""
+          PULL_REQUEST_NUMBER=""
+          PULL_REQUEST_URL=""
+          TICKET_NUMBER=""
           FAIL_REASON=""
 
           if [[ "$IS_PULL_REQUEST" == "true" ]]; then
             # On a pull request (primary): that pull request, open.
-            pr_json="$(gh pr view "$ISSUE_NUMBER" --repo "$REPO" --json number,state,body,url)"
-            pr_state="$(jq -r .state <<<"$pr_json")"
-            if [[ "$pr_state" != "OPEN" ]]; then
-              FAIL_REASON="that pull request is not open (state: $pr_state), so there is nothing to apply a review to."
+            pull_request_json="$(gh pr view "$ISSUE_NUMBER" --repo "$REPO" --json number,state,body,url)"
+            pull_request_state="$(jq -r .state <<<"$pull_request_json")"
+            if [[ "$pull_request_state" != "OPEN" ]]; then
+              FAIL_REASON="that pull request is not open (state: $pull_request_state), so there is nothing to apply a review to."
             else
-              n="$(closing_number "$(jq -r .body <<<"$pr_json")")"
-              if [[ -z "$n" ]]; then
+              candidate_ticket_number="$(closing_number "$(jq -r .body <<<"$pull_request_json")")"
+              if [[ -z "$candidate_ticket_number" ]]; then
                 FAIL_REASON="its body names no Closes/Fixes/Resolves #N, so I can't tell which ticket it is for."
               else
-                PR_NUMBER="$ISSUE_NUMBER"
-                PR_URL="$(jq -r .url <<<"$pr_json")"
-                N="$n"
+                PULL_REQUEST_NUMBER="$ISSUE_NUMBER"
+                PULL_REQUEST_URL="$(jq -r .url <<<"$pull_request_json")"
+                TICKET_NUMBER="$candidate_ticket_number"
               fi
             fi
           elif grep -qE '^Review https?://' <<<"$issue_body"; then
@@ -105,7 +105,7 @@ jobs:
               FAIL_REASON="this looks like a review ticket, but no line of its body reads \`Review <url>, the draft pull request opened for #N.\`, so I can't tell which pull request it is for."
             else
               candidate_url="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\1@' <<<"$review_line")"
-              candidate_n="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\2@' <<<"$review_line")"
+              candidate_ticket_number="$(sed -E 's@^Review (\S+), the draft pull request opened for #([0-9]+)\.$@\2@' <<<"$review_line")"
               if [[ ! "$candidate_url" =~ ^https://github\.com/([^/]+/[^/]+)/pull/([0-9]+)$ ]]; then
                 FAIL_REASON="its Review line names $candidate_url, which is not a pull request URL."
               else
@@ -114,31 +114,31 @@ jobs:
                 # Not guarded: a pull request that can't be read is an error
                 # for the failure step to report, not a pull request that is
                 # closed.
-                pr_json="$(gh pr view "$candidate_number" --repo "$candidate_repo" --json number,state,url)"
-                pr_state="$(jq -r .state <<<"$pr_json")"
-                if [[ "$pr_state" != "OPEN" ]]; then
-                  FAIL_REASON="its pull request ($candidate_url) is not open (state: $pr_state), so there is nothing to apply a review to."
+                pull_request_json="$(gh pr view "$candidate_number" --repo "$candidate_repo" --json number,state,url)"
+                pull_request_state="$(jq -r .state <<<"$pull_request_json")"
+                if [[ "$pull_request_state" != "OPEN" ]]; then
+                  FAIL_REASON="its pull request ($candidate_url) is not open (state: $pull_request_state), so there is nothing to apply a review to."
                 else
-                  PR_NUMBER="$candidate_number"
-                  PR_URL="$(jq -r .url <<<"$pr_json")"
-                  N="$candidate_n"
+                  PULL_REQUEST_NUMBER="$candidate_number"
+                  PULL_REQUEST_URL="$(jq -r .url <<<"$pull_request_json")"
+                  TICKET_NUMBER="$candidate_ticket_number"
                 fi
               fi
             fi
           else
             # On an implementation ticket: only if exactly one open draft
             # pull request closes it.
-            N="$ISSUE_NUMBER"
+            TICKET_NUMBER="$ISSUE_NUMBER"
             matches="$(gh pr list --repo "$REPO" --state open --json number,url,body,isDraft --limit 500 \
-              | jq -c --arg keyword "$CLOSING_KEYWORD" --arg n "$N" '[.[] | select(.isDraft) | select(.body | test($keyword + $n + "([^0-9]|$)"; "i"))]')"
+              | jq -c --arg keyword "$CLOSING_KEYWORD" --arg ticket_number "$TICKET_NUMBER" '[.[] | select(.isDraft) | select(.body | test($keyword + $ticket_number +"([^0-9]|$)"; "i"))]')"
             count="$(jq 'length' <<<"$matches")"
             if [[ "$count" == "0" ]]; then
-              FAIL_REASON="no open draft pull request closes #$N, so there is nothing to apply a review to."
+              FAIL_REASON="no open draft pull request closes #$TICKET_NUMBER, so there is nothing to apply a review to."
             elif [[ "$count" -gt 1 ]]; then
-              FAIL_REASON="$count open draft pull requests close #$N, so I can't tell which one to apply a review to."
+              FAIL_REASON="$count open draft pull requests close #$TICKET_NUMBER, so I can't tell which one to apply a review to."
             else
-              PR_NUMBER="$(jq -r '.[0].number' <<<"$matches")"
-              PR_URL="$(jq -r '.[0].url' <<<"$matches")"
+              PULL_REQUEST_NUMBER="$(jq -r '.[0].number' <<<"$matches")"
+              PULL_REQUEST_URL="$(jq -r '.[0].url' <<<"$matches")"
             fi
           fi
 
@@ -147,7 +147,7 @@ jobs:
             exit 0
           fi
 
-          expected_line="Apply the review on $PR_URL, the draft pull request opened for #$N."
+          expected_line="Apply the review on $PULL_REQUEST_URL, the draft pull request opened for #$TICKET_NUMBER."
           existing_number="$(gh issue list --repo "$REPO" --state open --json number,body --limit 500 \
             | jq -r --arg line "$expected_line" '[.[] | select(.body | contains($line))][0].number // empty')"
 
@@ -156,7 +156,7 @@ jobs:
             exit 0
           fi
 
-          title="Apply the review on #$PR_NUMBER"
+          title="Apply the review on #$PULL_REQUEST_NUMBER"
           body="$expected_line"
 
           # Best effort: refused only where the label already exists, which is
@@ -176,15 +176,15 @@ jobs:
           link_note=""
           link_err="${RUNNER_TEMP}/apply-review-link-err.txt"
           if ! issue_id="$(gh api "repos/$REPO/issues/$new_number" --jq .id 2>"$link_err")" \
-            || ! gh api --method POST "repos/$REPO/issues/$N/sub_issues" -F "sub_issue_id=$issue_id" >/dev/null 2>"$link_err"; then
+            || ! gh api --method POST "repos/$REPO/issues/$TICKET_NUMBER/sub_issues" -F "sub_issue_id=$issue_id" >/dev/null 2>"$link_err"; then
             link_why="$(<"$link_err")"
             link_why="${link_why//$'\n'/ }"
-            if gh issue edit "$new_number" --repo "$REPO" --body "Part of #$N."$'\n\n'"$body" >/dev/null 2>"$link_err"; then
-              link_note=" It isn't linked as a sub-issue of #$N (${link_why}), so its body opens with \`Part of #$N.\` instead."
+            if gh issue edit "$new_number" --repo "$REPO" --body "Part of #$TICKET_NUMBER."$'\n\n'"$body" >/dev/null 2>"$link_err"; then
+              link_note=" It isn't linked as a sub-issue of #$TICKET_NUMBER (${link_why}), so its body opens with \`Part of #$TICKET_NUMBER.\` instead."
             else
               edit_why="$(<"$link_err")"
               edit_why="${edit_why//$'\n'/ }"
-              link_note=" It isn't linked to #$N at all: the sub-issue link was refused (${link_why}), and so was adding \`Part of #$N.\` to its body (${edit_why}). Link it by hand."
+              link_note=" It isn't linked to #$TICKET_NUMBER at all: the sub-issue link was refused (${link_why}), and so was adding \`Part of #$TICKET_NUMBER.\` to its body (${edit_why}). Link it by hand."
             fi
           fi
 
