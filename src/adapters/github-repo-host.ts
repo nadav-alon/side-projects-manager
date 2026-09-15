@@ -20,7 +20,6 @@ import type {
   Ticket,
   TicketGist,
 } from "../ports/index.ts";
-import { errorMessage } from "../error-message.ts";
 import {
   checkout,
   isBranch,
@@ -29,6 +28,7 @@ import {
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
+import { errorMessage } from "../error-message.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
