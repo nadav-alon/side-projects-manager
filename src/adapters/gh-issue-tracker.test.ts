@@ -1833,22 +1833,16 @@ describe("ghIssueTracker.closeReviewTicket", () => {
 
     await ghIssueTracker().closeReviewTicket(REVIEW);
 
-    const removed = callWith(await gh.calls(), "--remove-label");
+    const calls = await gh.calls();
+    const close = callWith(calls, "issue", "close");
+    const removed = callWith(calls, "--remove-label");
     assert.ok(removed, "ready-for-agent should be removed");
     assert.equal(valueOf(removed, "--remove-label"), READY_FOR_AGENT_LABEL);
     assert.equal(valueOf(removed, "--repo"), PILOT);
     assert.ok(removed.includes("42"));
-  });
-
-  it("closes, then unlabels — the order that leaves a closed, mislabelled review rather than an open one", async (t) => {
-    const gh = await recordingGh(t, ": ");
-
-    await ghIssueTracker().closeReviewTicket(REVIEW);
-
-    const calls = await gh.calls();
-    const close = callWith(calls, "issue", "close");
-    const removed = callWith(calls, "--remove-label");
-    assert.ok(close && removed, "both calls should happen");
+    // Closed before unlabelled, so a caller who never learns whether the
+    // label removal succeeded still finds a closed review, never an open one.
+    assert.ok(close, "the ticket should be closed first");
     assert.ok(calls.indexOf(close) < calls.indexOf(removed));
   });
 
