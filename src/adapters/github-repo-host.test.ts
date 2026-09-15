@@ -11,11 +11,12 @@ import { githubRepoHost } from "./github-repo-host.ts";
 import {
   branch as toBranch,
   checkout as toCheckout,
+  pullRequestUrl,
   repoSlug,
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
-import { gate, HANGS, recordingGh, valueOf } from "../testing/index.ts";
+import { callWith, gate, HANGS, recordingGh, valueOf } from "../testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -852,5 +853,110 @@ describe("discarding a failed run's branch", () => {
       "issue-9-something-else",
       "main",
     ]);
+  });
+});
+
+describe("reading a pull request's apply-review answers", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+  const SINCE = new Date("2026-09-15T00:00:00Z");
+
+  /**
+   * A resolved thread (dropped entirely), an unresolved thread a marked reply
+   * answered, an unresolved thread nobody has answered, and a review whose
+   * non-empty body a pull request comment answers — the shapes
+   * `applyReviewThreadsFrom` reads apart.
+   */
+  const RESPONSE = JSON.stringify({
+    repository: {
+      pullRequest: {
+        reviewThreads: {
+          nodes: [
+            {
+              isResolved: false,
+              comments: {
+                nodes: [
+                  { body: "Please fix this.", createdAt: "2026-09-14T00:00:00Z" },
+                  {
+                    body: "Applied in abc123: brand the id\n<!-- apply-pr-review -->",
+                    createdAt: "2026-09-15T01:00:00Z",
+                  },
+                ],
+              },
+            },
+            {
+              isResolved: true,
+              comments: {
+                nodes: [
+                  { body: "Already resolved.", createdAt: "2026-09-13T00:00:00Z" },
+                ],
+              },
+            },
+            {
+              isResolved: false,
+              comments: {
+                nodes: [
+                  { body: "Another point.", createdAt: "2026-09-14T00:00:00Z" },
+                ],
+              },
+            },
+          ],
+        },
+        reviews: {
+          nodes: [
+            { body: "", submittedAt: "2026-09-14T00:00:00Z" },
+            {
+              body: "Overall looks fine but see below.",
+              submittedAt: "2026-09-14T00:00:00Z",
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              body: "Declined: out of scope\n<!-- apply-pr-review -->",
+              createdAt: "2026-09-15T01:00:00Z",
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  it("counts a marked reply's thread applied or declined, and a thread with no marked reply as unanswered", async (t) => {
+    await recordingGh(t, `cat <<'JSON'\n${RESPONSE}\nJSON`);
+
+    const answers = await githubRepoHost().readApplyReviewAnswers(
+      PULL_REQUEST,
+      SINCE,
+    );
+
+    assert.deepEqual(answers, { applied: 1, declined: 1, unanswered: 1 });
+  });
+
+  it("asks the pull request named by its own URL, not a repo it has to guess", async (t) => {
+    const gh = await recordingGh(t, `cat <<'JSON'\n${RESPONSE}\nJSON`);
+
+    await githubRepoHost().readApplyReviewAnswers(PULL_REQUEST, SINCE);
+
+    const call = callWith(await gh.calls(), "graphql");
+    assert.ok(call?.includes("owner=nadav-alon"));
+    assert.ok(call?.includes("repo=pilot"));
+    assert.ok(call?.includes("pr=7"));
+  });
+});
+
+describe("marking a pull request ready for review", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("marks the pull request named by its own URL ready", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await githubRepoHost().markPullRequestReady(PULL_REQUEST);
+
+    assert.deepEqual(await gh.calls(), [["pr", "ready", PULL_REQUEST]]);
   });
 });

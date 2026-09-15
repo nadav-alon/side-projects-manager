@@ -1,4 +1,6 @@
 import type {
+  ApplyReviewAnswers,
+  ApplyReviewThread,
   Branch,
   Checkout,
   DraftPullRequestOpening,
@@ -8,7 +10,14 @@ import type {
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { checkout, pullRequestUrl } from "../ports/index.ts";
+import {
+  APPLIED_REPLY_PREFIX,
+  APPLY_REVIEW_MARKER,
+  DECLINED_REPLY_PREFIX,
+  checkout,
+  pullRequestUrl,
+  summarizeApplyReviewThreads,
+} from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
@@ -81,6 +90,11 @@ export class FakeRepoHost implements RepoHost {
 
   /** What the next `hasNewComment` check finds. A comment posted, unless set. */
   newCommentPosted = true;
+
+  /** Every pull request `markPullRequestReady` was called on, in order. */
+  readonly readyMarked: PullRequestUrl[] = [];
+
+  readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: string) => Proposal = (branch) => ({
@@ -158,5 +172,73 @@ export class FakeRepoHost implements RepoHost {
   ): Promise<boolean> {
     this.commentChecks.push({ pullRequest, since });
     return this.newCommentPosted;
+  }
+
+  /**
+   * Opens a new, unanswered apply-review thread on `pullRequest`, returning
+   * the index a test answers or comments on it by.
+   */
+  openApplyReviewThread(pullRequest: PullRequestUrl): number {
+    const threads = this.#threadsOn(pullRequest);
+    threads.push({ comments: [] });
+    return threads.length - 1;
+  }
+
+  /**
+   * Posts the marked reply an apply-review pass leaves on thread `index` of
+   * `pullRequest`, deciding it applied or declined.
+   */
+  answerApplyReviewThread(
+    pullRequest: PullRequestUrl,
+    index: number,
+    verdict: "applied" | "declined",
+    detail: string,
+    postedAt = new Date(),
+  ): void {
+    const prefix =
+      verdict === "applied" ? APPLIED_REPLY_PREFIX : DECLINED_REPLY_PREFIX;
+    this.commentOnApplyReviewThread(
+      pullRequest,
+      index,
+      `${prefix}${detail}\n${APPLY_REVIEW_MARKER}`,
+      postedAt,
+    );
+  }
+
+  /**
+   * Posts a plain, unmarked comment on thread `index` of `pullRequest` —
+   * what reopens a thread an earlier marked reply had answered.
+   */
+  commentOnApplyReviewThread(
+    pullRequest: PullRequestUrl,
+    index: number,
+    body: string,
+    postedAt = new Date(),
+  ): void {
+    const thread = this.#threadsOn(pullRequest)[index];
+    if (thread === undefined) {
+      throw new Error(`No apply-review thread ${index} open on ${pullRequest}.`);
+    }
+    thread.comments.push({ body, postedAt });
+  }
+
+  async readApplyReviewAnswers(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<ApplyReviewAnswers> {
+    return summarizeApplyReviewThreads(this.#threadsOn(pullRequest), since);
+  }
+
+  async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
+    this.readyMarked.push(pullRequest);
+  }
+
+  #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {
+    let threads = this.#applyReviewThreads.get(pullRequest);
+    if (threads === undefined) {
+      threads = [];
+      this.#applyReviewThreads.set(pullRequest, threads);
+    }
+    return threads;
   }
 }

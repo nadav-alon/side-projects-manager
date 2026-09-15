@@ -4,6 +4,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  ApplyReviewAnswers,
+  ApplyReviewThread,
   Branch,
   Checkout,
   DraftPullRequestOpening,
@@ -13,7 +15,11 @@ import type {
   RepoSlug,
   Ticket,
 } from "../ports/index.ts";
-import { checkout, isPullRequestUrl } from "../ports/index.ts";
+import {
+  checkout,
+  isPullRequestUrl,
+  summarizeApplyReviewThreads,
+} from "../ports/index.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
 
@@ -334,7 +340,110 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       const latest = stdout.trim();
       return latest !== "" && latest !== "null" && new Date(latest) > since;
     },
+
+    async readApplyReviewAnswers(
+      pullRequest: PullRequestUrl,
+      since: Date,
+    ): Promise<ApplyReviewAnswers> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        "graphql",
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `repo=${repo}`,
+        "-F",
+        `pr=${number}`,
+        "-f",
+        `query=${APPLY_REVIEW_ANSWERS_QUERY}`,
+      ]);
+
+      return summarizeApplyReviewThreads(
+        applyReviewThreadsFrom(JSON.parse(stdout)),
+        since,
+      );
+    },
+
+    async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
+      await run("gh", ["pr", "ready", pullRequest]);
+    },
   };
+}
+
+/**
+ * Every open thread the apply-pr-review skill answers: an unresolved review
+ * thread's own comments, a review's non-empty body, and the pull request's
+ * own comments — where a review body's reply lands, per the skill.
+ */
+const APPLY_REVIEW_ANSWERS_QUERY = `
+query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){
+  reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{body createdAt}}}}
+  reviews(first:100){nodes{body submittedAt}}
+  comments(first:100){nodes{body createdAt}}
+}}}`;
+
+interface ApplyReviewAnswersResponse {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        nodes: {
+          isResolved: boolean;
+          comments: { nodes: { body: string; createdAt: string }[] };
+        }[];
+      };
+      reviews: { nodes: { body: string; submittedAt: string | null }[] };
+      comments: { nodes: { body: string; createdAt: string }[] };
+    };
+  };
+}
+
+/**
+ * The threads {@link APPLY_REVIEW_ANSWERS_QUERY} found, in the shape
+ * {@link summarizeApplyReviewThreads} reads.
+ *
+ * A review's own thread has no comments of its own on GitHub — its reply is
+ * posted as one of the pull request's comments (`gh pr comment`, per the
+ * skill) — so its thread is built from the review's body followed by every
+ * pull request comment posted after it.
+ */
+function applyReviewThreadsFrom(
+  response: ApplyReviewAnswersResponse,
+): ApplyReviewThread[] {
+  const pr = response.repository.pullRequest;
+  const prComments = pr.comments.nodes.map((comment) => ({
+    body: comment.body,
+    postedAt: new Date(comment.createdAt),
+  }));
+
+  const threads: ApplyReviewThread[] = [];
+
+  for (const thread of pr.reviewThreads.nodes) {
+    if (thread.isResolved) {
+      continue;
+    }
+    threads.push({
+      comments: thread.comments.nodes.map((comment) => ({
+        body: comment.body,
+        postedAt: new Date(comment.createdAt),
+      })),
+    });
+  }
+
+  for (const review of pr.reviews.nodes) {
+    if (review.body.trim() === "" || review.submittedAt === null) {
+      continue;
+    }
+    const submittedAt = new Date(review.submittedAt);
+    threads.push({
+      comments: [
+        { body: review.body, postedAt: submittedAt },
+        ...prComments.filter((comment) => comment.postedAt > submittedAt),
+      ],
+    });
+  }
+
+  return threads;
 }
 
 /**
