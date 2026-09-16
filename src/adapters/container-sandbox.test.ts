@@ -1584,15 +1584,17 @@ describe("containerSandbox.rebase", () => {
     assert.deepEqual(asked, [REBASE_TICKET.pullRequest.url]);
   });
 
-  it("leaves the branch tracking the repo host, so the agent's plain push lands on the pull request", async () => {
+  it("leaves the branch tracking the repo host, so the agent's force-push lands on the pull request", async () => {
     const { directory, hosted } = await hostedProject();
     let pushed = "";
     const sandbox = containerSandbox(async ({ directory: mounted }) => {
       await identify(mounted);
       await writeFile(path.join(mounted, "rebased.md"), "rebased\n");
       await run("git", ["-C", mounted, "add", "."]);
-      await run("git", ["-C", mounted, "commit", "--message", "Rebase"]);
-      await run("git", ["-C", mounted, "push", "--quiet"]);
+      // A rebase rewrites history, so a plain push would be non-fast-forward
+      // and rejected; only a force-push with `--force-with-lease` lands.
+      await run("git", ["-C", mounted, "commit", "--amend", "--message", "Rebase"]);
+      await run("git", ["-C", mounted, "push", "--quiet", "--force-with-lease"]);
       pushed = await headOf(mounted);
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
