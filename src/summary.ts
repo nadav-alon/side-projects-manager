@@ -9,11 +9,8 @@ import {
   type Reviewed,
   type RunFailure,
 } from "./iteration-outcome.ts";
-import type {
-  InvocationStandDown,
-  ProjectOutcome,
-  ProjectVerdict,
-} from "./morning-run.ts";
+import type { InvocationStandDown } from "./morning-run.ts";
+import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type {
   ApplyReviewTicket,
   RepoSlug,

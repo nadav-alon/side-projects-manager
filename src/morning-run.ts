@@ -12,9 +12,7 @@ import type {
   ModelDefaults,
   ModelName,
   ModelRefusal,
-  Priority,
   ProjectState,
-  RegisteredProject,
   RepoHost,
   RepoSlug,
   ReviewFinished,
@@ -28,24 +26,23 @@ import type {
   State,
   Store,
   Ticket,
-  TicketKind,
-  TicketPriority,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
 import {
-  backlogIn,
   isApplyReviewTicket,
-  isBlocked,
-  isBrokenOut,
   isReviewTicket,
   localDay,
   recordRun,
   ticketKind,
-  ticketPrioritiesIn,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
-import { workedTickets, type WorkedTickets } from "./worked-today.ts";
+import {
+  invocationSelection,
+  type ProjectOutcome,
+  type Selection,
+} from "./selection.ts";
+import { workedTickets } from "./worked-today.ts";
 import {
   appliedReviewComment,
   applyReviewHandbackComment,
@@ -130,57 +127,10 @@ export type InvocationOutcome =
    */
   | "invocation-failed";
 
-/** What became of one registered project. */
-export type ProjectVerdict =
-  /** Paused in the registry, so not considered at all. */
-  | "paused"
-  /** Considered, and its backlog held nothing eligible. */
-  | "no-eligible-tickets"
-  /**
-   * Had an eligible ticket, but another project outranked it this iteration —
-   * a review elsewhere, an explicit priority, or simply having waited longer.
-   * Not skipped for good: a later iteration in the same invocation, or
-   * tomorrow's, may still pick it.
-   */
-  | "deferred"
-  /** Considered and selected: the project this iteration works. */
-  | "selected";
-
 /** The model a ticket's run is started on, and what named it. */
 export interface ResolvedModel {
   name: ModelName;
   source: ModelSource;
-}
-
-/** One registered project, and what the invocation made of it. */
-export interface ProjectOutcome {
-  repo: RepoSlug;
-  verdict: ProjectVerdict;
-  /**
-   * When an iteration last worked it, as the invocation found it. A project
-   * this invocation went on to work still reads as it did beforehand, so the
-   * report says what was true when the decision was made.
-   */
-  lastWorkedAt?: Date;
-  /**
-   * Tickets this scan found carrying ready-for-agent but passed over for
-   * being broken out, in backlog order. What makes a backlog that looked
-   * full but yielded nothing explicable, rather than indistinguishable from
-   * one that was simply empty.
-   */
-  brokenOut?: Ticket[];
-  /**
-   * Tickets this scan found carrying ready-for-agent but passed over because
-   * an open ticket blocks them, in backlog order — for the same reason as
-   * `brokenOut`.
-   */
-  blocked?: Ticket[];
-  /**
-   * Set when this project's backlog held more eligible tickets than the read
-   * kept — regardless of verdict, since a project outranked this morning can
-   * still be the one whose backlog needs thinning.
-   */
-  backlogTruncated?: true;
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -260,33 +210,6 @@ export interface MorningLoopOptions {
   stop?: AbortSignal;
 }
 
-/** The project an iteration works, and the ticket it works there. */
-interface Selection {
-  project: RegisteredProject;
-  ticket: Ticket;
-}
-
-/**
- * One project with an eligible ticket, as far as selection is concerned: the
- * project itself, the ticket selection would work on its behalf, and that
- * ticket's kind — everything the ordering rule needs and nothing it has to
- * ask the tracker twice for.
- */
-interface Candidate {
-  project: RegisteredProject;
-  ticket: Ticket;
-  kind: TicketKind;
-  priority?: Priority;
-  lastWorkedAt?: Date;
-}
-
-/** What walking the registry came to: the verdicts, and any work found. */
-interface RegistryScan {
-  outcomes: ProjectOutcome[];
-  /** Absent when no project had an eligible, not-yet-worked ticket. */
-  selection?: Selection;
-}
-
 /**
  * One invocation of the morning loop: as many iterations as the registry has
  * eligible work for and the budget allows, each one project and one ticket.
@@ -328,12 +251,10 @@ export async function morningLoop(
   // One slot per iteration, in the order they started. A slot is left empty
   // only by an iteration that threw.
   const outcomeSlots: (IterationOutcome | undefined)[] = [];
-  const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
-  // Registry order as each repo is first seen. Read fresh every iteration
-  // rather than snapshotted from the first scan, so a project the developer
-  // adds mid-invocation still lands in the report instead of being silently
-  // dropped from it.
-  const registryOrder: RepoSlug[] = [];
+  // Populated from `selecting.verdicts()` once selecting exists to ask;
+  // stays empty if the invocation never gets that far, the same as an
+  // invocation that got that far but found an empty registry.
+  let outcomes: ProjectOutcome[] = [];
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -357,6 +278,10 @@ export async function morningLoop(
       };
     };
     const modelDefaults = await ports.store.loadModelDefaults();
+    // Built once and kept for the whole invocation, not once per iteration:
+    // it is what remembers a project's "selected" verdict across scans and
+    // where each registered project first landed in registry order.
+    const selecting = invocationSelection(ports, projects, worked);
     const inProgress = new Set<Promise<void>>();
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
@@ -384,21 +309,8 @@ export async function morningLoop(
           break;
         }
 
-        const scan = await considerProjects(ports, projects, worked);
-        // A project keeps its "selected" verdict once it has one: a later scan
-        // in the same invocation, run after its ticket is excluded, would
-        // otherwise read it right back to "no eligible tickets" and hide that
-        // its turn already came.
-        for (const project of scan.outcomes) {
-          if (!registryOrder.includes(project.repo)) {
-            registryOrder.push(project.repo);
-          }
-          if (outcomesByRepo.get(project.repo)?.verdict !== "selected") {
-            outcomesByRepo.set(project.repo, project);
-          }
-        }
-
-        if (scan.selection === undefined) {
+        const chosen = await selecting.next();
+        if (chosen === undefined) {
           // An iteration in progress can still queue work — a finished run's
           // review ticket — so nothing left means nothing left once none is.
           if (inProgress.size === 0) {
@@ -411,7 +323,7 @@ export async function morningLoop(
         if (stopped()) {
           break;
         }
-        const { ticket } = scan.selection;
+        const { ticket } = chosen;
 
         // Ahead of the gate as well as of the run: handing a ticket back
         // spends nothing, so a morning the gate refuses still gives the
@@ -420,7 +332,7 @@ export async function morningLoop(
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
           outcomeSlots.push({
-            repo: scan.selection.project.repo,
+            repo: chosen.project.repo,
             ticket,
             ...(await handTicketBack(
               ports,
@@ -437,7 +349,7 @@ export async function morningLoop(
         const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
-          standDown ??= { ...refusal, refused: scan.selection.project.repo };
+          standDown ??= { ...refusal, refused: chosen.project.repo };
           break;
         }
 
@@ -452,13 +364,13 @@ export async function morningLoop(
           break;
         }
 
-        const { repo } = scan.selection.project;
+        const { repo } = chosen.project;
         const model = resolveModel(ticket, modelDefaults);
         // Reported where it started, however long it then takes to finish.
         const slot = outcomeSlots.push(undefined) - 1;
         const completion: Promise<void> = work(
           ports,
-          scan.selection,
+          chosen,
           projects,
           budget.spendCeiling,
           model,
@@ -500,6 +412,11 @@ export async function morningLoop(
     } finally {
       // Never rejects: each iteration's own settling catches what it threw.
       await Promise.all(inProgress);
+      // Read back out here rather than only on the happy path, so a for loop
+      // that throws still reports every verdict scanned before that — the
+      // same partial account `iterations` already carries for the runs made
+      // before it.
+      outcomes = selecting.verdicts();
       // State is written back at the end of every invocation, including one that
       // worked nothing and one whose run failed part way, so that a machine
       // which has run the loop always has a state document to read next morning.
@@ -526,11 +443,6 @@ export async function morningLoop(
 
   const iterations = outcomeSlots.filter(
     (iteration): iteration is IterationOutcome => iteration !== undefined,
-  );
-  const outcomes = registryOrder.map(
-    // Set for every repo named in `registryOrder`, which is read from the
-    // very outcomes this populates.
-    (repo) => outcomesByRepo.get(repo) as ProjectOutcome,
   );
   const facts: SummaryFacts = {
     projects: outcomes,
@@ -642,103 +554,6 @@ function runsRecorded(projects: ProjectStates): RunCost[] {
 }
 
 /**
- * The first step of an iteration: ask every non-paused project's backlog for
- * a candidate ticket, then hand the best one to `bestCandidate`. A paused
- * project is passed over without asking the tracker anything, because paused
- * means never considered; a project this invocation has exhausted — every
- * eligible ticket already in `worked` — reads the same as an empty backlog.
- *
- * Every non-paused project is asked, never just enough to find one: priority
- * can make a project registered last outrank one registered first, so the
- * only way to know which project wins is to have looked at all of them.
- */
-async function considerProjects(
-  ports: MorningLoopPorts,
-  projects: ProjectStates,
-  worked: WorkedTickets,
-): Promise<RegistryScan> {
-  const outcomes: ProjectOutcome[] = [];
-  const candidates: Candidate[] = [];
-  // Where each candidate's placeholder verdict lives in `outcomes`, so the
-  // winner's can be swapped for "selected" once every project has been seen.
-  const outcomeIndexByRepo = new Map<RepoSlug, number>();
-
-  for (const project of await ports.store.loadRegistry()) {
-    const projectState = projects.get(project.repo);
-
-    if (project.paused) {
-      outcomes.push(outcome(project.repo, "paused", projectState));
-      continue;
-    }
-
-    // Worked out over every open issue read, before `backlogIn` keeps only the
-    // eligible ones: a spec left ready-for-human, or a ticket passed over as
-    // blocked, still passes its priority label on.
-    const open = await ports.tracker.listOpenIssues(project.repo);
-    const ticketPriorities = ticketPrioritiesIn(open);
-    const { tickets, truncated: backlogTruncated } = backlogIn(open);
-    const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
-    // A ticket whose work has moved into open sub-issues is a container, not
-    // work of its own — set aside here rather than in the tracker's query, so
-    // the rule can be exercised against the fake and the summary can still
-    // name what it passed over. A ticket an open ticket blocks is set aside
-    // the same way: its work builds on work not yet done.
-    const brokenOut: Ticket[] = [];
-    const blocked: Ticket[] = [];
-    const selectable: Ticket[] = [];
-    for (const ticket of backlog) {
-      if (isBrokenOut(ticket)) {
-        brokenOut.push(ticket);
-      } else if (isBlocked(ticket)) {
-        blocked.push(ticket);
-      } else {
-        selectable.push(ticket);
-      }
-    }
-    const findings: ScanFindings = { brokenOut, blocked, backlogTruncated };
-    // A review in the same backlog as its parent ticket is worked before it.
-    const ticket = bestTicket(selectable, ticketPriorities);
-
-    if (ticket === undefined) {
-      outcomes.push(
-        outcome(project.repo, "no-eligible-tickets", projectState, findings),
-      );
-      continue;
-    }
-
-    candidates.push({
-      project,
-      ticket,
-      kind: ticketKind(ticket),
-      ...(project.priority !== undefined && { priority: project.priority }),
-      ...(projectState?.lastWorkedAt !== undefined && {
-        lastWorkedAt: projectState.lastWorkedAt,
-      }),
-    });
-    outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(outcome(project.repo, "deferred", projectState, findings));
-  }
-
-  const winner = bestCandidate(candidates);
-  if (winner === undefined) {
-    return { outcomes };
-  }
-
-  // Set by the loop above for every candidate, this one included.
-  const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
-  const scanned = outcomes[winnerIndex] as ProjectOutcome;
-  // Only the verdict changes: what the scan found, passed-over tickets and a
-  // truncated backlog included, is as true of the winner as of any project it
-  // outranked.
-  outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
-
-  return {
-    outcomes,
-    selection: { project: winner.project, ticket: winner.ticket },
-  };
-}
-
-/**
  * The model `ticket`'s run is started on: the one its own model label names,
  * else the model defaults' entry for its kind, else none, which leaves the
  * sandbox image's pin in force.
@@ -806,134 +621,6 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
     source,
     handedBack: false,
   };
-}
-
-/**
- * The one ticket `backlog` offers selection, within a single project: an
- * apply-review ticket before a review ticket before any implementation
- * ticket, since finishing beats starting and a review already written is
- * nearer finished than one not yet written; among implementation tickets,
- * ticket priority ascending — as `ticketPriorities` holds it by issue number,
- * never a ticket's own priority label — with a ticket absent from it sorting
- * after every ticket present; and, ties still standing, the oldest ticket —
- * the lowest issue number — so the order the tracker happened to return them
- * in never matters. Two pull request tickets of the same kind go straight to
- * the oldest ticket: ticket priority orders implementation tickets only, and
- * a pull request ticket inherits its parent's as a sub-issue, not as a rank
- * of its own.
- */
-function bestTicket(
-  backlog: Ticket[],
-  ticketPriorities: ReadonlyMap<number, TicketPriority>,
-): Ticket | undefined {
-  return [...backlog].sort((a, b) =>
-    compareTickets(a, b, ticketPriorities),
-  )[0];
-}
-
-/**
- * Where each ticket kind stands in the order selection works them, lowest
- * first. A record rather than a list, so a kind added to `TicketKind` fails
- * to compile until it is given a place here.
- */
-const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
-  "apply-review": 0,
-  review: 1,
-  implementation: 2,
-};
-
-/** Ascending by each kind's `SELECTION_RANK`. */
-function compareKinds(a: TicketKind, b: TicketKind): number {
-  return SELECTION_RANK[a] - SELECTION_RANK[b];
-}
-
-function compareTickets(
-  a: Ticket,
-  b: Ticket,
-  ticketPriorities: ReadonlyMap<number, TicketPriority>,
-): number {
-  const kind = ticketKind(a);
-  const kindOrder = compareKinds(kind, ticketKind(b));
-  if (kindOrder !== 0) {
-    return kindOrder;
-  }
-  if (kind !== "implementation") {
-    return a.number - b.number;
-  }
-  const byPriority = absentLast(
-    ticketPriorities.get(a.number),
-    ticketPriorities.get(b.number),
-  );
-  if (byPriority !== 0) {
-    return byPriority;
-  }
-  return a.number - b.number;
-}
-
-/**
- * Selection's ordering rule, applied as one comparison rather than as
- * separate passes: apply-reviews before reviews before implementations, then
- * explicit priority, then least recently worked. Each level only breaks ties
- * the level before it left standing, so a pull request ticket is never
- * outranked by priority and priority is never outranked by how long a project
- * has waited.
- *
- * A project without a priority sorts after every project that has one, and a
- * project never worked sorts before every project that has been — it is, by
- * definition, the one that has waited longest.
- */
-function bestCandidate(candidates: Candidate[]): Candidate | undefined {
-  return [...candidates].sort(compareCandidates)[0];
-}
-
-function compareCandidates(a: Candidate, b: Candidate): number {
-  const kindOrder = compareKinds(a.kind, b.kind);
-  if (kindOrder !== 0) {
-    return kindOrder;
-  }
-  const byPriority = absentLast(a.priority, b.priority);
-  if (byPriority !== 0) {
-    return byPriority;
-  }
-  return leastRecentlyWorkedFirst(a.lastWorkedAt, b.lastWorkedAt);
-}
-
-/**
- * Ascending by a project's `Priority` or by a ticket's `TicketPriority`, never
- * one against the other, with an absent value sorting after every present
- * one. Not via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`,
- * and a comparator that can return `NaN` leaves `Array.prototype.sort` free to
- * return either order.
- */
-function absentLast(a: Priority | undefined, b: Priority | undefined): number;
-function absentLast(
-  a: TicketPriority | undefined,
-  b: TicketPriority | undefined,
-): number;
-function absentLast(
-  a: Priority | TicketPriority | undefined,
-  b: Priority | TicketPriority | undefined,
-): number {
-  if (a === undefined) {
-    return b === undefined ? 0 : 1;
-  }
-  if (b === undefined) {
-    return -1;
-  }
-  return a - b;
-}
-
-function leastRecentlyWorkedFirst(
-  a: Date | undefined,
-  b: Date | undefined,
-): number {
-  if (a === undefined) {
-    return b === undefined ? 0 : -1;
-  }
-  if (b === undefined) {
-    return 1;
-  }
-  return a.getTime() - b.getTime();
 }
 
 /**
@@ -1631,36 +1318,5 @@ async function handApplyReviewBack(
       applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
     )),
     tokensUsed: run.tokensUsed,
-  };
-}
-
-/**
- * What scanning one project's backlog found, whatever its verdict: the tickets
- * passed over, and whether the listing was truncated.
- */
-interface ScanFindings {
-  brokenOut: Ticket[];
-  blocked: Ticket[];
-  backlogTruncated: boolean;
-}
-
-function outcome(
-  repo: RepoSlug,
-  verdict: ProjectVerdict,
-  state: ProjectState | undefined,
-  {
-    brokenOut = [],
-    blocked = [],
-    backlogTruncated = false,
-  }: Partial<ScanFindings> = {},
-): ProjectOutcome {
-  const lastWorkedAt = state?.lastWorkedAt;
-  return {
-    repo,
-    verdict,
-    ...(lastWorkedAt !== undefined && { lastWorkedAt }),
-    ...(brokenOut.length > 0 && { brokenOut }),
-    ...(blocked.length > 0 && { blocked }),
-    ...(backlogTruncated && { backlogTruncated: true }),
   };
 }
