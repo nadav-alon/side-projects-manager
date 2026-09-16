@@ -286,8 +286,8 @@ async function scan(
  * rebase ticket before an apply-review ticket before a review ticket before
  * any implementation ticket, since finishing beats starting and a review
  * already written is nearer finished than one not yet written — and a review
- * applied to a branch that cannot merge has to be rebased afterwards anyway; among implementation tickets,
- * ticket priority ascending — as `ticketPriorities` holds it by issue number,
+ * applied to a branch that cannot merge has to be rebased afterwards anyway;
+ * among implementation tickets, ticket priority ascending — as `ticketPriorities` holds it by issue number,
  * never a ticket's own priority label — with a ticket absent from it sorting
  * after every ticket present; and, ties still standing, the oldest ticket —
  * the lowest issue number — so the order the tracker happened to return them
