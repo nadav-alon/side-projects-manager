@@ -208,7 +208,7 @@ _Avoid_: PR ticket, review sub-issue (unqualified)
 
 **Rebase ticket**:
 A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving its draft state alone. The run owes tests green along the way; closing itself turns only on what the repo host reports. A pull request the repo host already reports mergeable when the iteration starts has nothing to rebase: no run starts, and the ticket closes all the same.
-_Avoid_: rebase task, merge ticket, conflict ticket
+_Avoid_: rebase task, merge ticket, conflict ticket, sync ticket, update-branch ticket
 
 **Review ticket**:
 A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
@@ -217,10 +217,6 @@ _Avoid_: review task, review job, QA ticket
 **Apply-review ticket**:
 A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
 _Avoid_: apply ticket, fix-review ticket, action ticket
-
-**Rebase ticket**:
-A sub-issue of the ticket a draft pull request closes, asking for that pull request to be rebased. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent. Where it sits in selection is not yet decided.
-_Avoid_: rebase task, sync ticket, update-branch ticket
 
 ### Budget
 

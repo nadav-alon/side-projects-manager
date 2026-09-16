@@ -12,6 +12,7 @@ import type {
   ModelName,
   ModelRefusal,
   ProjectState,
+  RebaseTicket,
   RepoHost,
   RepoSlug,
   ReviewFinished,
@@ -30,6 +31,7 @@ import type {
 } from "./ports/index.ts";
 import {
   isApplyReviewTicket,
+  isRebaseTicket,
   isReviewTicket,
   localDay,
   recordRun,
@@ -50,6 +52,7 @@ import {
   handoverComment,
   handoverFailureComment,
   modelRefusalComment,
+  rebasedComment,
   reviewHandbackComment,
   unusableModelLabelComment,
   type Discard,
@@ -70,6 +73,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type Rebased,
   type Reviewed,
   type UnusableModelLabel,
 } from "./iteration-outcome.ts";
@@ -641,7 +645,8 @@ function leavesTicketUntouched(iteration: Iteration): boolean {
  * leaves the ticket untouched. A review ticket's own run posts its findings
  * itself and is closed once it has; an apply-review ticket's pushes and
  * replies itself, and is closed once the repo host shows every thread
- * answered.
+ * answered; a rebase ticket's force-pushes itself, and is closed once the repo
+ * host no longer reports its pull request conflicting.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -653,6 +658,16 @@ async function work(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<Iteration> {
+  if (isRebaseTicket(selection.ticket)) {
+    return await runRebase(
+      ports,
+      selection.project.repo,
+      selection.ticket,
+      state,
+      spendCeiling,
+      model,
+    );
+  }
   if (isApplyReviewTicket(selection.ticket)) {
     return await runApplyReview(
       ports,
@@ -1315,6 +1330,151 @@ async function finishApplyReview(
 async function handApplyReviewBack(
   ports: MorningLoopPorts,
   ticket: ApplyReviewTicket,
+  run: ReviewFinished | ApplyReviewGaveUp,
+  reason: string,
+): Promise<Failed> {
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
+    { tokensUsed: run.tokensUsed },
+  );
+}
+
+/**
+ * A rebase ticket's own run: the agent replays the pull request the ticket
+ * names onto its base branch and force-pushes it itself, from a clone on that
+ * pull request's branch. Whether it worked is read back from the repo host,
+ * never taken from the agent's say-so: the ticket closes only once the pull
+ * request no longer conflicts. Its draft state is never touched — a rebase
+ * promotes nothing.
+ *
+ * A pull request that needs no rebase when the iteration starts has nothing to
+ * rebase, so no run is started: the ticket closes all the same.
+ *
+ * An agent that gave up — a force-push the repo host rejected included — or a
+ * run that left the pull request still conflicting is handed back. A repo host
+ * or sandbox that could not do its part before the agent started is an
+ * infrastructure failure, and a limit or model refusal reads as for an
+ * apply-review ticket. A read or close that fails after the run is reported on
+ * the iteration, never raised.
+ */
+async function runRebase(
+  ports: MorningLoopPorts,
+  repo: RepoSlug,
+  ticket: RebaseTicket,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<Rebased | LimitRefused | Failed> {
+  const pullRequest = ticket.pullRequest.url;
+  let conflicting: boolean;
+  try {
+    conflicting = await ports.repoHost.needsRebase(pullRequest);
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+  if (!conflicting) {
+    return finishRebase(ports, ticket, { kind: "rebased" });
+  }
+
+  const result = await runInSandbox(ports, repo, state, (checkout) =>
+    // As `attemptRun`: two distinct calls so each resolves the overload that
+    // actually matches.
+    model === undefined
+      ? ports.sandbox.rebase({ ticket, checkout, spendCeiling })
+      : ports.sandbox.rebase({
+          ticket,
+          checkout,
+          spendCeiling,
+          model: model.name,
+        }),
+  );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: run } = result;
+
+  if (run.kind === "limit-refused") {
+    return {
+      kind: "limit-refused",
+      limitRefusal: run.words,
+      tokensUsed: run.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+  if (run.kind === "model-refused") {
+    const failure = modelRefused(ticket, run.refusal);
+    return handTicketBack(
+      ports,
+      ticket,
+      failure,
+      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      { tokensUsed: run.tokensUsed },
+    );
+  }
+  if (run.kind === "gave-up") {
+    return handRebaseBack(ports, ticket, run, run.reason);
+  }
+
+  try {
+    conflicting = await ports.repoHost.needsRebase(pullRequest);
+  } catch (error: unknown) {
+    return {
+      kind: "rebased",
+      rebase: run,
+      tokensUsed: run.tokensUsed,
+      notClosed: { kind: "check-failed", error: errorMessage(error) },
+    };
+  }
+  if (conflicting) {
+    return handRebaseBack(
+      ports,
+      ticket,
+      run,
+      `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+    );
+  }
+
+  return finishRebase(ports, ticket, {
+    kind: "rebased",
+    rebase: run,
+    tokensUsed: run.tokensUsed,
+  });
+}
+
+/**
+ * Closes `ticket` with a comment saying what `rebased` came to. Never throws:
+ * a close that fails is reported on the iteration, and the ticket left open.
+ */
+async function finishRebase(
+  ports: MorningLoopPorts,
+  ticket: RebaseTicket,
+  rebased: Rebased,
+): Promise<Rebased> {
+  try {
+    await ports.tracker.closeRebaseTicket(
+      ticket,
+      rebasedComment(ticket.pullRequest.url, rebased.rebase !== undefined),
+    );
+  } catch (error: unknown) {
+    return {
+      ...rebased,
+      notClosed: { kind: "close-failed", error: errorMessage(error) },
+    };
+  }
+  return rebased;
+}
+
+/**
+ * Hands back a rebase run that gave up or left its pull request conflicting,
+ * told as an apply-review run's hand-back is.
+ */
+async function handRebaseBack(
+  ports: MorningLoopPorts,
+  ticket: RebaseTicket,
   run: ReviewFinished | ApplyReviewGaveUp,
   reason: string,
 ): Promise<Failed> {

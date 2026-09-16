@@ -6,6 +6,7 @@ import type {
   ModelName,
   ModelRefusal,
   PullRequestUrl,
+  RebaseTicket,
   RepoSlug,
   ReviewFinished,
   ReviewTicket,
@@ -127,8 +128,8 @@ export interface InfrastructureFailure {
 
 /**
  * What one iteration did with the ticket it selected: finished a run, failed
- * one, worked a review or an apply-review ticket's own run, or had any kind of
- * run refused by the provider limit. Told apart by `kind`, and nothing else.
+ * one, worked a review, an apply-review or a rebase ticket's own run, or had
+ * any kind of run refused by the provider limit. Told apart by `kind`, and nothing else.
  *
  * Nothing here is thrown. A run that gave up, and one that never happened, are
  * described rather than raised, so the invocation still reports on the
@@ -139,13 +140,14 @@ export type Iteration =
   | Failed
   | Reviewed
   | AppliedReview
+  | Rebased
   | LimitRefused;
 
 /**
- * A limit refusal: an implementation, review or apply-review run the provider
- * limit refused. Not a failure: the ticket is nobody's problem, so it is
- * neither commented on nor relabelled, and stays eligible for a morning with
- * limit left to spend.
+ * A limit refusal: an implementation, review, apply-review or rebase run the
+ * provider limit refused. Not a failure: the ticket is nobody's problem, so it
+ * is neither commented on nor relabelled, and stays eligible for a morning
+ * with limit left to spend.
  */
 export interface LimitRefused {
   kind: "limit-refused";
@@ -225,6 +227,7 @@ export type IterationOutcome =
   | (Attempt & Failed)
   | (Attempt<ReviewTicket> & Reviewed)
   | (Attempt<ApplyReviewTicket> & AppliedReview)
+  | (Attempt<RebaseTicket> & Rebased)
   | (Attempt & LimitRefused);
 
 /**
@@ -250,7 +253,10 @@ export interface Reviewed {
   notClosed?: NotClosed;
 }
 
-/** Why a review that ran left its ticket open, and the error that stopped it. */
+/**
+ * Why a review or a rebase that ran left its ticket open, and the error that
+ * stopped it.
+ */
 export interface NotClosed {
   kind: "check-failed" | "close-failed";
   error: string;
@@ -287,6 +293,28 @@ export interface AppliedReview {
 export interface ApplyReviewNotClosed {
   kind: "check-failed" | "ready-failed" | "close-failed";
   error: string;
+}
+
+/**
+ * A rebase ticket's own iteration whose pull request no longer needs a
+ * rebase: its run finished and the repo host no longer reports the pull
+ * request conflicting, or it needed none when the iteration started, so no
+ * run was needed. Either way the ticket is closed and the pull request's
+ * draft state left alone. A run that gave up, or left the pull request still
+ * conflicting, is `Failed` instead.
+ */
+export interface Rebased {
+  kind: "rebased";
+  /** The run. Absent when there was nothing to rebase, so nothing ran. */
+  rebase?: ReviewFinished;
+  /** As `Failed.tokensUsed`: absent exactly when `rebase` is, nothing having run. */
+  tokensUsed?: TokenCount;
+  /**
+   * Set when the loop could not finish the ticket off: the pull request could
+   * not be read back after the run, or the ticket could not be closed. Either
+   * way the ticket is still ready-for-agent.
+   */
+  notClosed?: NotClosed;
 }
 
 /**

@@ -77,6 +77,9 @@ the manager leaves every project working.
 31. As a developer, I want the reviewer to leave findings as PR comments, so that I read them where the diff is.
 32. As a developer, I want the reviewer to be unable to push, so that it stays a reviewer and doesn't become a second implementer.
 33. As a developer, I want the review to check both whether the code follows the repo's standards and whether it does what the ticket asked, so that a technically clean PR solving the wrong problem is caught.
+59. As a developer, I want to comment `/rebase` on a draft PR whose branch conflicts with its base, so that the loop puts it back on top and I can merge it without rebasing by hand.
+60. As a developer, I want a rebase worked before a review is applied, so that the review lands on the code that will actually merge.
+61. As a developer, I want a rebase ticket closed only once GitHub stops reporting the PR conflicting, so that a closed ticket never hides a branch that still cannot merge.
 
 **When things go wrong**
 
@@ -155,9 +158,9 @@ when each project was last worked, and what runs cost. They are separate documen
 different authors and different change rates.
 
 **Work queue.** Tickets are issues in each project's own repo, filtered to the ready-for-agent triage
-label. Selection is: review tickets before implementation tickets; then explicit priority; then least
-recently worked. One project per iteration. Within that project: review tickets first; then ticket
-priority, read from `priority:1`–`priority:3` labels (smallest wins when several are present, anything
+label. Selection is: rebase tickets, then apply-review tickets, then review tickets, then
+implementation tickets; then explicit priority; then least recently worked. One project per
+iteration. Within that project: pull request tickets first, in that same order; then ticket priority, read from `priority:1`–`priority:3` labels (smallest wins when several are present, anything
 else is ignored); then lowest issue number. Ticket priority never influences which project is chosen.
 A backlog is read up to 100 tickets, the newest ones — a newly prioritised ticket costs more to miss
 than an old one — and a truncated backlog is named in the summary's waiting section.
@@ -183,6 +186,18 @@ sub-issue's scope is bounded by a PR that already exists.
 on two axes: conformance to the repo's documented standards, and fidelity to what the originating
 ticket asked for. A reviewer that could push would become a second implementer and reintroduce
 exactly the context bias the separation exists to remove.
+
+**Rebase is a separate job too.** Commenting `/rebase` on a draft PR opens a rebase ticket, worked
+like an apply-review ticket but with a different verb. Before any run, the repo host is asked whether
+the PR needs a rebase; if not, no run starts and the ticket closes, saying the PR already sits on its
+base. Otherwise the sandbox runs the rebase on a clone of the PR's branch, and the agent resolves the
+conflicts and force-pushes itself. What the run spent is recorded whatever it came to. An agent that
+gave up, or a model refusal, hands the ticket back; a limit refusal leaves it as it was and stands the
+invocation down. A run that finished is read back rather than believed: the repo host is asked
+again, and the ticket closes only if the PR no longer conflicts — otherwise it is handed back, saying
+the branch still conflicts. The PR's draft state is never touched. A read or close that fails after
+the run is reported on the iteration, never raised. The summary names a rebased PR under what is
+waiting on the developer, and a handed-back rebase ticket under attempts.
 
 **Merge is manual.** Draft PRs stay drafts until the developer asks for their review to be applied:
 an apply-review ticket that finishes promotes its PR. Nothing else is auto-promoted and nothing is
@@ -221,7 +236,10 @@ decision, is the target.
 **Primary seam: the morning loop entry point.** The loop is exercised end to end with all six ports
 faked. This is the highest available seam and carries the bulk of the suite. Behaviours covered:
 
-- reviews are selected before implementations
+- reviews are selected before implementations, apply-reviews before reviews, and rebases before
+  apply-reviews
+- a rebase ticket whose PR needs no rebase closes with no run; one whose run finished closes only
+  once the PR no longer conflicts, and is handed back otherwise, the PR left a draft either way
 - least-recently-worked ordering, and explicit priority overriding it
 - within a project, ticket priority ordering, oldest-first ties, and reviews still first
 - a truncated backlog appears in the summary's waiting section

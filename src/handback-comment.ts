@@ -88,7 +88,9 @@ export function reviewHandbackComment(
  * What an apply-review ticket is told when its run gave up or left a thread
  * unanswered: as a review's, plus the moved head where a rejected push is why,
  * and that the pull request is still a draft — it is marked ready only once
- * every thread is answered.
+ * every thread is answered. A rebase ticket whose run gave up or left its
+ * pull request still conflicting is told the same: the two runs give up the
+ * same ways, and a rebase never touches the draft state.
  */
 export function applyReviewHandbackComment(
   failure: GaveUp,
@@ -122,6 +124,21 @@ export function appliedReviewComment(
       ? `The morning loop found no review thread on ${pullRequest} left unanswered, so there was nothing left to apply.`
       : `The morning loop applied the review on ${pullRequest}: ${answers.applied} applied, ${answers.declined} declined. Every thread has a reply saying which, and why.`;
   return [what, `${pullRequest} is marked ready for review.`].join("\n\n");
+}
+
+/**
+ * What a rebase ticket is told as it closes: that its pull request no longer
+ * conflicts with its base, or already sat on it so there was nothing to
+ * rebase, and that it is still a draft — a rebase promotes nothing.
+ */
+export function rebasedComment(
+  pullRequest: PullRequestUrl,
+  ran: boolean,
+): string {
+  const what = ran
+    ? `The morning loop rebased ${pullRequest}: the repo host reports it no longer conflicts with its base branch.`
+    : `The morning loop found ${pullRequest} already sits on its base branch, so there was nothing to rebase.`;
+  return [what, `${pullRequest} is still a draft.`].join("\n\n");
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */
