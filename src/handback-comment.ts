@@ -7,6 +7,8 @@ import type {
 import type {
   ApplyReviewGaveUp,
   PullRequestUrl,
+  RebaseFinished,
+  RebaseGaveUp,
   ReviewFinished,
   ReviewGaveUp,
   RunFinished,
@@ -111,7 +113,7 @@ export function applyReviewHandbackComment(
  */
 export function rebaseHandbackComment(
   failure: GaveUp,
-  run: ReviewFinished | ApplyReviewGaveUp | undefined,
+  run: RebaseFinished | RebaseGaveUp | undefined,
   pullRequest: PullRequestUrl,
 ): string {
   const untouched = `${pullRequest}'s draft state was left as it was.`;

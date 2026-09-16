@@ -12,6 +12,8 @@ import type {
   ModelName,
   ModelRefusal,
   ProjectState,
+  RebaseFinished,
+  RebaseGaveUp,
   RebaseTicket,
   RepoHost,
   RepoSlug,
@@ -1483,7 +1485,7 @@ async function finishRebase(
 async function handRebaseBack(
   ports: MorningLoopPorts,
   ticket: RebaseTicket,
-  run: ReviewFinished | ApplyReviewGaveUp | undefined,
+  run: RebaseFinished | RebaseGaveUp | undefined,
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };

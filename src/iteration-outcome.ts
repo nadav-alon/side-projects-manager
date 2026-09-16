@@ -6,6 +6,7 @@ import type {
   ModelName,
   ModelRefusal,
   PullRequestUrl,
+  RebaseFinished,
   RebaseTicket,
   RepoSlug,
   ReviewFinished,
@@ -306,7 +307,7 @@ export interface ApplyReviewNotClosed {
 export interface Rebased {
   kind: "rebased";
   /** The run. Absent when there was nothing to rebase, so nothing ran. */
-  rebase?: ReviewFinished;
+  rebase?: RebaseFinished;
   /** As `Failed.tokensUsed`: absent exactly when `rebase` is, nothing having run. */
   tokensUsed?: TokenCount;
   /**
