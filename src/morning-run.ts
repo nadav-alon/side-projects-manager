@@ -1375,16 +1375,16 @@ async function runRebase(
   model: ResolvedModel | undefined,
 ): Promise<Rebased | LimitRefused | Failed> {
   const pullRequest = ticket.pullRequest.url;
-  let conflicting: boolean;
+  let needsRebase: boolean;
   try {
-    conflicting = await ports.repoHost.needsRebase(pullRequest);
+    needsRebase = await ports.repoHost.needsRebase(pullRequest);
   } catch (error: unknown) {
     if (error instanceof MergeabilityUnknown) {
       return handRebaseBack(ports, ticket, undefined, errorMessage(error));
     }
     return infrastructureFailure(error);
   }
-  if (!conflicting) {
+  if (!needsRebase) {
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
@@ -1428,7 +1428,7 @@ async function runRebase(
   }
 
   try {
-    conflicting = await ports.repoHost.needsRebase(pullRequest);
+    needsRebase = await ports.repoHost.needsRebase(pullRequest);
   } catch (error: unknown) {
     return {
       kind: "rebased",
@@ -1437,7 +1437,7 @@ async function runRebase(
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
   }
-  if (conflicting) {
+  if (needsRebase) {
     return handRebaseBack(
       ports,
       ticket,
