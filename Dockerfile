@@ -74,6 +74,10 @@ RUN claude plugin marketplace add anthropics/claude-plugins-official \
 # the file survived the build.
 COPY --chown=node:node .claude/skills/apply-pr-review/SKILL.md $HOME/.claude/skills/apply-pr-review/SKILL.md
 
+# The skill for a run that rebases a pull request's branch onto its base. Same
+# reasoning as apply-pr-review just above.
+COPY --chown=node:node .claude/skills/rebase-pr/SKILL.md $HOME/.claude/skills/rebase-pr/SKILL.md
+
 # A run's whole product is commits, and git refuses to make one without an
 # identity. Set in the image rather than per run, so every run's commits are
 # attributable to the manager rather than to whoever built the image.
