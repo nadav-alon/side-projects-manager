@@ -705,9 +705,10 @@ function promptFor(ticket: Ticket): string {
  * Posting is spelled out as a single review with one inline comment per
  * finding — not the skill's own aggregated report dropped as one comment —
  * because a finding a reviewer would read in context of the line it is about
- * is exactly what a summary comment strips away. `RepoHost.hasNewComment`
- * checks for this same shape: an inline comment on the pull request, not an
- * issue-level one.
+ * is exactly what a summary comment strips away. `RepoHost.hasReviewFindings`
+ * checks for this same shape, declared once beside the port as
+ * `ReviewFinding`: an inline comment on the pull request, not an issue-level
+ * one.
  *
  * The prompt also says the run is unattended. A `--print` run gets no reply,
  * so a reviewer that finishes and then asks whether to submit posts nothing;
