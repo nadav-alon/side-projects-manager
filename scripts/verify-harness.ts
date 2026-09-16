@@ -67,6 +67,15 @@ const REQUIRED_SKILL = "implement";
 const APPLY_REVIEW_SKILL = "apply-pr-review";
 
 /**
+ * The skill for a run that rebases a pull request's branch onto its base, copied
+ * into the same personal-skill directory for the same reason as
+ * APPLY_REVIEW_SKILL above: `disable-model-invocation: true` means a run invokes
+ * it explicitly (`/rebase-pr <pull request url>`), so this only has to prove the
+ * file is there.
+ */
+const REBASE_PR_SKILL = "rebase-pr";
+
+/**
  * Skill names as `claude plugin details` prints them: `Skills (25)  a, b, c`.
  * `plugin details` takes no `--json` (unlike `plugin list`), so this reads
  * display output. A format change upstream therefore has to fail as itself
@@ -165,6 +174,16 @@ if (!existsSync(applyReviewSkillPath)) {
   fail(
     `${applyReviewSkillPath} is missing, so a run applying a pull request's review has no ${APPLY_REVIEW_SKILL} skill to invoke`,
     "the Dockerfile's COPY of .claude/skills/apply-pr-review/SKILL.md is what puts it there",
+  );
+}
+
+// Checked by existence rather than through `claude`; REBASE_PR_SKILL says why.
+const rebasePrSkillPath = path.join(HOME, ".claude", "skills", REBASE_PR_SKILL, "SKILL.md");
+
+if (!existsSync(rebasePrSkillPath)) {
+  fail(
+    `${rebasePrSkillPath} is missing, so a run rebasing a pull request's branch has no ${REBASE_PR_SKILL} skill to invoke`,
+    "the Dockerfile's COPY of .claude/skills/rebase-pr/SKILL.md is what puts it there",
   );
 }
 
@@ -270,5 +289,5 @@ if (!usage.includes(PERMISSION_MODE)) {
 }
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${APPLY_REVIEW_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${APPLY_REVIEW_SKILL} present, ${REBASE_PR_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
 );
