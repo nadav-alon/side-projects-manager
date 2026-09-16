@@ -284,8 +284,13 @@ export class FakeRepoHost implements RepoHost {
   }
 
   async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
-    return resolveNeedsRebase(pullRequest, async () =>
-      this.mergeStatus(pullRequest),
+    // No real wait between retries: a fake standing in for the host in
+    // application tests should not make those tests slower than the host it
+    // stands in for.
+    return resolveNeedsRebase(
+      pullRequest,
+      async () => this.mergeStatus(pullRequest),
+      async () => {},
     );
   }
 

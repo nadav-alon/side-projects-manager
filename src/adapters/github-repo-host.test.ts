@@ -1074,6 +1074,9 @@ describe("whether a pull request's branch needs a rebase", () => {
     "https://github.com/nadav-alon/pilot/pull/7",
   );
 
+  /** No delay between retries, so a test with several stays as fast as one with none. */
+  const NO_WAIT = async () => {};
+
   /**
    * A `gh` that answers `mergeable` with each of `statuses` in turn, then
    * repeats the last — tracked with a counter file, since each read is a
@@ -1103,26 +1106,35 @@ describe("whether a pull request's branch needs a rebase", () => {
   it("says a conflicting pull request needs a rebase", async (t) => {
     await answering(t, "CONFLICTING");
 
-    assert.equal(await githubRepoHost().needsRebase(PULL_REQUEST), true);
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
   });
 
   it("says a clean pull request does not need a rebase", async (t) => {
     await answering(t, "MERGEABLE");
 
-    assert.equal(await githubRepoHost().needsRebase(PULL_REQUEST), false);
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      false,
+    );
   });
 
   it("retries a pull request that answers unknown before it settles", async (t) => {
     await answering(t, "UNKNOWN", "UNKNOWN", "CONFLICTING");
 
-    assert.equal(await githubRepoHost().needsRebase(PULL_REQUEST), true);
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
   });
 
   it("throws, naming the pull request and the unsettled status, once retries are exhausted", async (t) => {
     await answering(t, "UNKNOWN");
 
     await assert.rejects(
-      githubRepoHost().needsRebase(PULL_REQUEST),
+      githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
       (error: unknown) => {
         assert.ok(error instanceof MergeabilityUnknown);
         assert.equal(error.pullRequest, PULL_REQUEST);
@@ -1135,10 +1147,13 @@ describe("whether a pull request's branch needs a rebase", () => {
   it("asks about one pull request at a time, never gh pr list", async (t) => {
     const gh = await answering(t, "MERGEABLE");
 
-    await githubRepoHost().needsRebase(PULL_REQUEST);
+    await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST);
 
-    const [call] = await gh.calls();
-    assert.deepEqual(call?.slice(0, 2), ["pr", "view"]);
-    assert.ok(call?.includes(PULL_REQUEST));
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call.slice(0, 2)),
+      [["pr", "view"]],
+    );
+    assert.ok(calls[0]?.includes(PULL_REQUEST));
   });
 });

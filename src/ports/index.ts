@@ -60,7 +60,6 @@ export {
   APPLY_REVIEW_MARKER,
   DECLINED_REPLY_PREFIX,
   MergeabilityUnknown,
-  REBASE_STATUS_RETRIES,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "./repo-host.ts";

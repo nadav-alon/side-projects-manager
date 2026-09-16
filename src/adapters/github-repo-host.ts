@@ -11,6 +11,7 @@ import type {
   Checkout,
   DraftPullRequestOpening,
   MergeStatus,
+  Milliseconds,
   Proposal,
   PullRequestUrl,
   RepoHost,
@@ -38,8 +39,15 @@ const run = promisify(execFile);
  * named by everywhere else. Derivable rather than remembered, which is what
  * makes a missing clone self-healing, and owner-qualified so that two people's
  * repos of the same name are two directories rather than one.
+ *
+ * `rebaseRetryWait` is {@link resolveNeedsRebase}'s wait between retries,
+ * threaded through for tests that need `needsRebase` to run without a real
+ * delay; production callers leave it at the real one.
  */
-export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
+export function githubRepoHost(
+  location: string = MANAGED_LOCATION,
+  rebaseRetryWait?: (delay: Milliseconds) => Promise<void>,
+): RepoHost {
   return {
     async exists(repo: RepoSlug): Promise<boolean> {
       try {
@@ -387,7 +395,11 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
-      return resolveNeedsRebase(pullRequest, () => mergeStatusOf(pullRequest));
+      return resolveNeedsRebase(
+        pullRequest,
+        () => mergeStatusOf(pullRequest),
+        rebaseRetryWait,
+      );
     },
   };
 }
@@ -399,6 +411,11 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
  * Asking `gh pr view` for one pull request gets GitHub's settled answer, or an
  * honest `UNKNOWN` while that pull request's own computation is still
  * running, so this reads one pull request at a time rather than the list.
+ *
+ * Reads `mergeable` only, not `mergeStateStatus`: this answers #298's
+ * question, conflicts, not #293's broader one of whether a branch merely
+ * behind its base also counts. A pull request that is `MERGEABLE` but
+ * `BEHIND` answers `false` here.
  */
 async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> {
   const { stdout } = await run("gh", [

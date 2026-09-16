@@ -1,6 +1,7 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
+import { milliseconds, type Milliseconds } from "./milliseconds.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 
@@ -140,16 +141,30 @@ function verdictOf(body: string): "applied" | "declined" | undefined {
 export type MergeStatus = "conflicting" | "clean" | "unknown";
 
 /**
- * How many times {@link resolveNeedsRebase} asks again after an `"unknown"`
- * read before it gives up. Bounded rather than unbounded, so a pull request
- * whose mergeability never finishes computing fails loudly instead of
- * hanging the caller.
+ * How many times total {@link resolveNeedsRebase} calls `read` — the first
+ * try plus every retry after an `"unknown"` — before it gives up. Bounded
+ * rather than unbounded, so a pull request whose mergeability never finishes
+ * computing fails loudly instead of hanging the caller.
  */
-export const REBASE_STATUS_RETRIES = 5;
+export const REBASE_STATUS_ATTEMPTS = 5;
+
+/**
+ * How long {@link resolveNeedsRebase} waits before a retry. GitHub computes
+ * mergeability lazily (see the module comment on {@link MergeStatus}), so a
+ * retry issued in the same instant as the read before it gets back the same
+ * unsettled answer; the wait is what gives GitHub's computation time to
+ * finish before the next `read`.
+ */
+export const REBASE_STATUS_RETRY_DELAY: Milliseconds = milliseconds(2000);
+
+/** The real-time wait {@link resolveNeedsRebase} uses unless handed another. */
+function realDelay(delay: Milliseconds): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
 
 /**
  * Thrown by {@link resolveNeedsRebase} when `read` never settles past
- * `"unknown"` within {@link REBASE_STATUS_RETRIES} tries.
+ * `"unknown"` within {@link REBASE_STATUS_ATTEMPTS} tries.
  *
  * Carries `pullRequest` and `lastStatus` because the caller has nothing else
  * to say why: a rebase ticket that cannot get a settled answer needs both to
@@ -162,7 +177,7 @@ export class MergeabilityUnknown extends Error {
 
   constructor(pullRequest: PullRequestUrl, lastStatus: MergeStatus) {
     super(
-      `${pullRequest}: still "${lastStatus}" after ${REBASE_STATUS_RETRIES} tries. GitHub never finished computing mergeability.`,
+      `${pullRequest}: still "${lastStatus}" after ${REBASE_STATUS_ATTEMPTS} tries. GitHub never finished computing mergeability.`,
     );
     this.pullRequest = pullRequest;
     this.lastStatus = lastStatus;
@@ -173,18 +188,27 @@ export class MergeabilityUnknown extends Error {
  * Whether a pull request needs a rebase, read repeatedly through `read` until
  * it settles.
  *
- * `read` is called again on `"unknown"`, up to {@link REBASE_STATUS_RETRIES}
- * times, so neither adapter has to write this loop for itself. An `"unknown"`
- * that never settles throws {@link MergeabilityUnknown} rather than resolving:
- * mistaking it for `false` would close a rebase ticket on a branch that still
- * conflicts.
+ * `read` is called again on `"unknown"`, up to {@link REBASE_STATUS_ATTEMPTS}
+ * times in total, waiting `wait` between one read and the next so a retry is
+ * not just the same question asked before GitHub could have answered it
+ * differently. An `"unknown"` that never settles throws
+ * {@link MergeabilityUnknown} rather than resolving: mistaking it for `false`
+ * would close a rebase ticket on a branch that still conflicts.
+ *
+ * `wait` defaults to a real delay; callers that need the retry loop to run
+ * instantly — a port test proving the counting, or a fake standing in for the
+ * host — hand it one that doesn't.
  */
 export async function resolveNeedsRebase(
   pullRequest: PullRequestUrl,
   read: () => Promise<MergeStatus>,
+  wait: (delay: Milliseconds) => Promise<void> = realDelay,
 ): Promise<boolean> {
   let last: MergeStatus = "unknown";
-  for (let attempt = 0; attempt < REBASE_STATUS_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < REBASE_STATUS_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await wait(REBASE_STATUS_RETRY_DELAY);
+    }
     last = await read();
     if (last !== "unknown") {
       return last === "conflicting";
