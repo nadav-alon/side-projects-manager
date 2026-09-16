@@ -25,7 +25,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: rebase tickets before apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: rebase tickets first, then apply-review tickets, then review tickets, then ticket priority, then the oldest ticket.
+Choosing which project and ticket an iteration works: rebase tickets first, then apply-review tickets, then review tickets, then implementations, then explicit priority, then least recently worked. Within the chosen project: rebase tickets first, then apply-review tickets, then review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
