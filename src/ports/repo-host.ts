@@ -105,7 +105,7 @@ export function summarizeApplyReviewThreads(
     }
 
     const last = thread.comments.at(-1);
-    if (!thread.resolved && (last === undefined || !isMarked(last.body))) {
+    if (!thread.resolved && (last === undefined || !isMarkedReply(last.body))) {
       unanswered++;
     }
   }
@@ -113,13 +113,20 @@ export function summarizeApplyReviewThreads(
   return { appliedSince: applied, declinedSince: declined, unanswered };
 }
 
-function isMarked(body: string): boolean {
+/**
+ * Whether `body` is a reply the apply-pr-review skill posted, wherever it
+ * landed — a review thread's own comments, or a pull request's own comments
+ * for a review body's pseudo-thread ({@link RepoHost.readApplyReviewAnswers}).
+ * The one place both readers ask the question, so they agree on the answer
+ * rather than by coincidence.
+ */
+export function isMarkedReply(body: string): boolean {
   return body.trimEnd().endsWith(APPLY_REVIEW_MARKER);
 }
 
 /** What a marked reply decided, read from its first verdict line. */
 function verdictOf(body: string): "applied" | "declined" | undefined {
-  if (!isMarked(body)) {
+  if (!isMarkedReply(body)) {
     return undefined;
   }
   for (const line of body.split("\n")) {

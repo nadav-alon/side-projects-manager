@@ -22,6 +22,7 @@ import type {
 } from "../ports/index.ts";
 import {
   checkout,
+  isMarkedReply,
   isPullRequestUrl,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
@@ -582,14 +583,19 @@ function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
  *
  * A review's own thread has no comments of its own on GitHub — its reply is
  * posted as one of the pull request's comments (`gh pr comment`, per the
- * skill) — so its thread is built from the review's body followed by every
- * later pull request comment that opens quoting it.
+ * skill) — so its thread is built from the review's body followed by the
+ * marked reply matched to it.
+ *
+ * Reviews are taken oldest first, and each claims the earliest marked pull
+ * request comment posted after it that no earlier review has already
+ * claimed. Matched by the marker and posting order — not by re-deriving the
+ * reviewer's prose from the reply's opening quote, which the skill is free to
+ * abridge, reword, or reflow — so one marked reply always answers exactly one
+ * review body, whatever it quotes.
  */
 function applyReviewThreadsFrom(
   pullRequest: RawApplyReviewPullRequest,
 ): ApplyReviewThread[] {
-  const pullRequestComments = commentsFrom(pullRequest.comments);
-
   const threads: ApplyReviewThread[] = [];
 
   for (const thread of pullRequest.reviewThreads) {
@@ -599,45 +605,41 @@ function applyReviewThreadsFrom(
     });
   }
 
-  for (const review of pullRequest.reviews) {
-    if (review.body.trim() === "" || review.submittedAt === null) {
-      continue;
+  const markedReplies = commentsFrom(pullRequest.comments)
+    .filter((comment) => isMarkedReply(comment.body))
+    .sort((a, b) => a.postedAt.getTime() - b.postedAt.getTime());
+
+  const reviews = pullRequest.reviews
+    .filter(
+      (review) => review.body.trim() !== "" && review.submittedAt !== null,
+    )
+    .map((review) => ({
+      body: review.body,
+      submittedAt: new Date(review.submittedAt as string),
+    }))
+    .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+
+  let nextReply = 0;
+  for (const review of reviews) {
+    const comments: ApplyReviewComment[] = [
+      { body: review.body, postedAt: review.submittedAt },
+    ];
+    let candidate = markedReplies[nextReply];
+    while (
+      candidate !== undefined &&
+      candidate.postedAt <= review.submittedAt
+    ) {
+      nextReply++;
+      candidate = markedReplies[nextReply];
     }
-    const submittedAt = new Date(review.submittedAt);
-    const body = review.body;
-    threads.push({
-      resolved: false,
-      comments: [
-        { body, postedAt: submittedAt },
-        ...pullRequestComments.filter(
-          (comment) =>
-            comment.postedAt > submittedAt && opensQuoting(comment.body, body),
-        ),
-      ],
-    });
+    if (candidate !== undefined) {
+      comments.push(candidate);
+      nextReply++;
+    }
+    threads.push({ resolved: false, comments });
   }
 
   return threads;
-}
-
-/**
- * Whether `comment` opens with a quote of a passage from `review`: the one
- * link the skill leaves from a pull request comment back to the review body it
- * answers. A comment quoting nothing — a status comment, someone chiming in —
- * belongs to no review's thread.
- */
-function opensQuoting(comment: string, review: string): boolean {
-  const quoted: string[] = [];
-  for (const line of comment.split("\n")) {
-    if (!line.startsWith(">")) {
-      break;
-    }
-    const text = line.replace(/^>\s?/, "").trim();
-    if (text !== "") {
-      quoted.push(text);
-    }
-  }
-  return quoted.length > 0 && quoted.every((text) => review.includes(text));
 }
 
 /**
