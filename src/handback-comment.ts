@@ -2,6 +2,7 @@ import type {
   GaveUp,
   HandoverFailed,
   ModelRefused,
+  Rebased,
   UnusableModelLabel,
 } from "./iteration-outcome.ts";
 import type {
@@ -161,11 +162,12 @@ export function appliedReviewComment(
  */
 export function rebasedComment(
   pullRequest: PullRequestUrl,
-  ran: boolean,
+  rebased: Rebased,
 ): string {
-  const what = ran
-    ? `The morning loop rebased ${pullRequest}: the repo host reports it no longer conflicts with its base branch.`
-    : `The morning loop found ${pullRequest} already sits on its base branch, so there was nothing to rebase.`;
+  const what =
+    rebased.rebase !== undefined
+      ? `The morning loop rebased ${pullRequest}: the repo host reports it no longer conflicts with its base branch.`
+      : `The morning loop found ${pullRequest} already sits on its base branch, so there was nothing to rebase.`;
   return [what, `Its draft state was left as it was.`].join("\n\n");
 }
 

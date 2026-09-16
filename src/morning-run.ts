@@ -1467,7 +1467,7 @@ async function finishRebase(
   try {
     await ports.tracker.closeRebaseTicket(
       ticket,
-      rebasedComment(ticket.pullRequest.url, rebased.rebase !== undefined),
+      rebasedComment(ticket.pullRequest.url, rebased),
     );
   } catch (error: unknown) {
     return {
