@@ -25,7 +25,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: apply-review tickets first, then review tickets, then ticket priority, then the oldest ticket.
+Choosing which project and ticket an iteration works: rebase tickets first, then apply-review tickets, then review tickets, then implementations, then explicit priority, then least recently worked. Within the chosen project: rebase tickets first, then apply-review tickets, then review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -151,7 +151,7 @@ What the loop does with a ticket whose run gave up or finished, or whose model i
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
-A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
+A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host, or, for a rebase run, could not resolve a conflict green. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
@@ -203,15 +203,19 @@ What a finished run comes to for the developer: the run itself, and the draft pu
 _Avoid_: work, result, outcome
 
 **Pull request ticket**:
-A review ticket or an apply-review ticket: a sub-issue bound to one draft pull request.
+A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound to one draft pull request.
 _Avoid_: PR ticket, review sub-issue (unqualified)
+
+**Rebase ticket**:
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving its draft state alone. The run owes tests green along the way; closing itself turns only on what the repo host reports. A pull request the repo host already reports mergeable when the iteration starts has nothing to rebase: no run starts, and the ticket closes all the same.
+_Avoid_: rebase task, merge ticket, conflict ticket
 
 **Review ticket**:
 A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
@@ -260,11 +264,11 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation, review or apply-review, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
-A run, implementation, review or apply-review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
+A run, implementation, review, apply-review or rebase, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
 _Avoid_: bad model, model error, invalid model
 
 **Spend ceiling**:
@@ -311,7 +315,7 @@ A working in-memory implementation of a port, used to exercise the loop in tests
 _Avoid_: mock, double, spy
 
 **Sandbox**:
-The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. The clone is not kept.
+The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run brings no branch back either, as an apply-review run does not — it force-pushes to the pull request's branch from inside the container. The clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:
