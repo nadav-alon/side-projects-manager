@@ -264,11 +264,11 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation, review or apply-review, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
-A run, implementation, review or apply-review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
+A run, implementation, review, apply-review or rebase, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
 _Avoid_: bad model, model error, invalid model
 
 **Spend ceiling**:
