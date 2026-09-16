@@ -2,7 +2,6 @@
 # an agent to rebase a draft pull request, linked as a sub-issue of the ticket
 # the pull request closes (CONTEXT.md: Draft pull request, Review ticket,
 # Implementation ticket).
-
 name: Rebase
 
 on:
