@@ -8,6 +8,7 @@ import {
   carriesReadyForAgent,
   isApplyReviewTicket,
   isPullRequestTicket,
+  isRebaseTicket,
   isReviewTicket,
   modelLabelOf,
   ticketKind,
@@ -183,6 +184,17 @@ describe("ticketKind", () => {
     assert.equal(ticketKind(ticket), "apply-review");
   });
 
+  it("reads a ticket bound to a rebase as a rebase", () => {
+    const ticket = {
+      repo: PILOT,
+      number: issueNumber(13),
+      title: "Rebase #12",
+      pullRequest: { kind: "rebase" as const, url: PULL_REQUEST },
+    };
+
+    assert.equal(ticketKind(ticket), "rebase");
+  });
+
   it("reads a ticket naming no pull request as an implementation", () => {
     assert.equal(
       ticketKind({ repo: PILOT, number: issueNumber(12), title: "Add a thing" }),
@@ -191,7 +203,7 @@ describe("ticketKind", () => {
   });
 });
 
-describe("isReviewTicket, isApplyReviewTicket and isPullRequestTicket", () => {
+describe("isReviewTicket, isApplyReviewTicket, isRebaseTicket and isPullRequestTicket", () => {
   const review = {
     repo: PILOT,
     number: issueNumber(13),
@@ -204,23 +216,39 @@ describe("isReviewTicket, isApplyReviewTicket and isPullRequestTicket", () => {
     title: "Apply the review",
     pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
   };
+  const rebase = {
+    repo: PILOT,
+    number: issueNumber(15),
+    title: "Rebase #12",
+    pullRequest: { kind: "rebase" as const, url: PULL_REQUEST },
+  };
   const implementation = { repo: PILOT, number: issueNumber(12), title: "Add a thing" };
 
-  it("tells a review ticket from the other two kinds", () => {
+  it("tells a review ticket from the other three kinds", () => {
     assert.equal(isReviewTicket(review), true);
     assert.equal(isReviewTicket(applyReview), false);
+    assert.equal(isReviewTicket(rebase), false);
     assert.equal(isReviewTicket(implementation), false);
   });
 
-  it("tells an apply-review ticket from the other two kinds", () => {
+  it("tells an apply-review ticket from the other three kinds", () => {
     assert.equal(isApplyReviewTicket(applyReview), true);
     assert.equal(isApplyReviewTicket(review), false);
+    assert.equal(isApplyReviewTicket(rebase), false);
     assert.equal(isApplyReviewTicket(implementation), false);
   });
 
-  it("tells a pull-request-bound ticket, of either kind, from an implementation", () => {
+  it("tells a rebase ticket from the other three kinds", () => {
+    assert.equal(isRebaseTicket(rebase), true);
+    assert.equal(isRebaseTicket(review), false);
+    assert.equal(isRebaseTicket(applyReview), false);
+    assert.equal(isRebaseTicket(implementation), false);
+  });
+
+  it("tells a pull-request-bound ticket, of any of the three kinds, from an implementation", () => {
     assert.equal(isPullRequestTicket(review), true);
     assert.equal(isPullRequestTicket(applyReview), true);
+    assert.equal(isPullRequestTicket(rebase), true);
     assert.equal(isPullRequestTicket(implementation), false);
   });
 });

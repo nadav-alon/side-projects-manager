@@ -16,6 +16,7 @@ import {
   pullRequestUrl,
   repoSlug,
   type ApplyReviewTicket,
+  type RebaseTicket,
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
@@ -1137,6 +1138,135 @@ describe("ghIssueTracker.listOpenIssues — apply-review tickets", () => {
 });
 
 /**
+ * Telling a rebase ticket from a review, an apply-review and an
+ * implementation ticket, the same way `APPLY_REVIEW_BODY` is told apart: the
+ * rebase line is written by the `/rebase` workflow, never by this adapter, so
+ * it is read back from the body exactly as a review's or an apply-review's
+ * association is.
+ */
+describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/12",
+  );
+
+  it("carries the pull request a rebase ticket's body names", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 1);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+
+  it("never mistakes a rebase body and an apply-review body for each other", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+        {
+          number: 10,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(
+      issues.map(({ ticket }) => ticket.pullRequest?.kind),
+      ["apply-review", "rebase"],
+    );
+  });
+
+  it("reads past a malformed apply-review line to a well-formed rebase line", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Rebase #7",
+          body: `Apply the review on not-a-url, the draft pull request opened for #7.\n\nRebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+
+  it("treats a malformed rebase line as an implementation ticket", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Rebase #7",
+          body: "Rebase not-a-url, the draft pull request opened for #7.",
+        },
+        {
+          number: 10,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for it.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 2);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
+    assert.equal(issues[1]?.ticket.pullRequest, undefined);
+  });
+
+  /**
+   * `linkToParent`'s fallback, for a tracker without sub-issues, prepends
+   * `Part of #N.` ahead of the review sentence — a rebase ticket's own body
+   * would carry the same shape, so the association survives it too.
+   */
+  it("still carries the pull request when the body also names its parent", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Rebase #7",
+          body: `Part of #7.\n\nRebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+});
+
+/**
  * A ticket's model label, read from the labels the same listing carries.
  * What a label says is `modelLabelOf`'s to decide; these check that the
  * adapter hands it every label a ticket has, and only that ticket's.
@@ -1316,6 +1446,7 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
   );
   const REVIEW_BODY = `Review ${PULL_REQUEST}, the draft pull request opened for #7.`;
   const APPLY_REVIEW_BODY = `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`;
+  const REBASE_BODY = `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`;
 
   function implementation(open: number): Record<string, unknown> {
     return {
@@ -1360,6 +1491,16 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
     await recordingGh(
       t,
       listing([subIssueOf7(43, APPLY_REVIEW_BODY), implementation(1)]),
+    );
+
+    const ticket = await ticket7();
+    assert.equal(ticket?.openSubIssues, undefined);
+  });
+
+  it("does not count a rebase ticket among a ticket's open sub-issues", async (t) => {
+    await recordingGh(
+      t,
+      listing([subIssueOf7(44, REBASE_BODY), implementation(1)]),
     );
 
     const ticket = await ticket7();
@@ -1709,6 +1850,37 @@ describe("ghIssueTracker.closeApplyReviewTicket", () => {
     assert.equal(
       valueOf(close, "--comment"),
       "Nothing to apply.\n\nThe pull request is ready for review.",
+    );
+  });
+});
+
+describe("ghIssueTracker.closeRebaseTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const REBASE: RebaseTicket = {
+    repo: PILOT,
+    number: issueNumber(44),
+    title: "Rebase the draft pull request for #7",
+    pullRequest: {
+      kind: "rebase",
+      url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    },
+  };
+
+  it("closes the rebase ticket in its own repo, with the comment", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeRebaseTicket(
+      REBASE,
+      "Already sits on its base branch.",
+    );
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close, "the ticket should be closed with `gh issue close`");
+    assert.equal(valueOf(close, "--repo"), PILOT);
+    assert.ok(close.includes("44"));
+    assert.equal(
+      valueOf(close, "--comment"),
+      "Already sits on its base branch.",
     );
   });
 });

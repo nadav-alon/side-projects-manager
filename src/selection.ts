@@ -282,18 +282,18 @@ async function scan(
 }
 
 /**
- * The one ticket `backlog` offers selection, within a single project: an
- * apply-review ticket before a review ticket before any implementation
- * ticket, since finishing beats starting and a review already written is
- * nearer finished than one not yet written; among implementation tickets,
- * ticket priority ascending — as `ticketPriorities` holds it by issue number,
- * never a ticket's own priority label — with a ticket absent from it sorting
- * after every ticket present; and, ties still standing, the oldest ticket —
- * the lowest issue number — so the order the tracker happened to return them
- * in never matters. Two pull request tickets of the same kind go straight to
- * the oldest ticket: ticket priority orders implementation tickets only, and
- * a pull request ticket inherits its parent's as a sub-issue, not as a rank
- * of its own.
+ * The one ticket `backlog` offers selection, within a single project: a
+ * rebase ticket before an apply-review ticket before a review ticket before
+ * any implementation ticket, since finishing beats starting and a review
+ * already written is nearer finished than one not yet written; among
+ * implementation tickets, ticket priority ascending — as `ticketPriorities`
+ * holds it by issue number, never a ticket's own priority label — with a
+ * ticket absent from it sorting after every ticket present; and, ties still
+ * standing, the oldest ticket — the lowest issue number — so the order the
+ * tracker happened to return them in never matters. Two pull request tickets
+ * of the same kind go straight to the oldest ticket: ticket priority orders
+ * implementation tickets only, and a pull request ticket inherits its
+ * parent's as a sub-issue, not as a rank of its own.
  */
 function bestTicket(
   backlog: Ticket[],
@@ -310,9 +310,10 @@ function bestTicket(
  * to compile until it is given a place here.
  */
 const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
-  "apply-review": 0,
-  review: 1,
-  implementation: 2,
+  rebase: 0,
+  "apply-review": 1,
+  review: 2,
+  implementation: 3,
 };
 
 /** Ascending by each kind's `SELECTION_RANK`. */
@@ -345,11 +346,11 @@ function compareTickets(
 
 /**
  * Selection's ordering rule, applied as one comparison rather than as
- * separate passes: apply-reviews before reviews before implementations, then
- * explicit priority, then least recently worked. Each level only breaks ties
- * the level before it left standing, so a pull request ticket is never
- * outranked by priority and priority is never outranked by how long a project
- * has waited.
+ * separate passes: rebases before apply-reviews before reviews before
+ * implementations, then explicit priority, then least recently worked. Each
+ * level only breaks ties the level before it left standing, so a pull request
+ * ticket is never outranked by priority and priority is never outranked by
+ * how long a project has waited.
  *
  * A project without a priority sorts after every project that has one, and a
  * project never worked sorts before every project that has been — it is, by

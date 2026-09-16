@@ -101,8 +101,10 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
  * The pull request a ticket is bound to, and why: `review` binds a review
  * ticket to the draft it was opened to review; `apply-review` binds an
  * apply-review ticket to the draft the apply-review workflow asks the loop to
- * revise. Both name the one thing a run cannot work out for itself, since the
- * sandbox's clone has no GitHub remote to infer it from.
+ * revise; `rebase` binds a rebase ticket to the draft the `/rebase` workflow
+ * asks the loop to put back on top of its base branch. Each names the one
+ * thing a run cannot work out for itself, since the sandbox's clone has no
+ * GitHub remote to infer it from.
  *
  * `kind` is the ticket's kind itself, which is why it is spelled from
  * `TicketKind`: every kind but an implementation is bound to a pull request.
@@ -115,9 +117,9 @@ export interface PullRequestBinding {
 /**
  * An issue in a project's own repo that the loop may work on.
  *
- * `pullRequest` is what tells a review or an apply-review ticket from an
- * implementation ticket, and the two apart from each other: present only on
- * one of those two kinds, its `kind` names which, and its `url` names the
+ * `pullRequest` is what tells a review, an apply-review or a rebase ticket
+ * from an implementation ticket, and the three apart from each other: present
+ * only on those three kinds, its `kind` names which, and its `url` names the
  * draft pull request the ticket is bound to. Absent on every implementation
  * ticket, which is what selection reads to choose which kind of run to
  * start.
@@ -336,22 +338,35 @@ export type ApplyReviewTicket = Ticket & {
   pullRequest: PullRequestBinding & { kind: "apply-review" };
 };
 
-/** A ticket narrowed to either pull-request-bound kind, once `isPullRequestTicket` has said so. */
+/** A ticket narrowed to the rebase kind, once `isRebaseTicket` has said so. */
+export type RebaseTicket = Ticket & {
+  pullRequest: PullRequestBinding & { kind: "rebase" };
+};
+
+/** A ticket narrowed to any pull-request-bound kind, once `isPullRequestTicket` has said so. */
 export type PullRequestTicket = Ticket & { pullRequest: PullRequestBinding };
 
-/** Whether `ticket` is a review ticket rather than an implementation or apply-review ticket. */
+/** Whether `ticket` is a review ticket rather than an implementation, apply-review or rebase ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest?.kind === "review";
 }
 
-/** Whether `ticket` is an apply-review ticket rather than an implementation or review ticket. */
+/** Whether `ticket` is an apply-review ticket rather than an implementation, review or rebase ticket. */
 export function isApplyReviewTicket(
   ticket: Ticket,
 ): ticket is ApplyReviewTicket {
   return ticket.pullRequest?.kind === "apply-review";
 }
 
-/** Whether `ticket` is bound to a pull request at all — a review or an apply-review ticket. */
+/** Whether `ticket` is a rebase ticket rather than an implementation, review or apply-review ticket. */
+export function isRebaseTicket(ticket: Ticket): ticket is RebaseTicket {
+  return ticket.pullRequest?.kind === "rebase";
+}
+
+/**
+ * Whether `ticket` is bound to a pull request at all — a review, an
+ * apply-review or a rebase ticket.
+ */
 export function isPullRequestTicket(
   ticket: Ticket,
 ): ticket is PullRequestTicket {
@@ -363,6 +378,7 @@ export const TICKET_KINDS = [
   "implementation",
   "review",
   "apply-review",
+  "rebase",
 ] as const;
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
@@ -441,6 +457,15 @@ export interface IssueTracker {
     ticket: ApplyReviewTicket,
     comment: string,
   ): Promise<void>;
+
+  /**
+   * Closes `ticket` with `comment`, once its pull request no longer needs a
+   * rebase — or needed none when the run started. Its own call rather than
+   * `closeApplyReviewTicket` reused: what the comment says differs, a rebase
+   * promotes nothing, and a rebase ticket is never the one an apply-review
+   * close's promotion is about.
+   */
+  closeRebaseTicket(ticket: RebaseTicket, comment: string): Promise<void>;
 }
 
 /**

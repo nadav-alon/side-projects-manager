@@ -8,6 +8,7 @@ import type {
   OpenIssues,
   PullRequestBinding,
   PullRequestUrl,
+  RebaseTicket,
   RepoSlug,
   ReviewTicket,
   Ticket,
@@ -130,6 +131,21 @@ export function ghIssueTracker(
 
     async closeApplyReviewTicket(
       ticket: ApplyReviewTicket,
+      comment: string,
+    ): Promise<void> {
+      await execFileAsync("gh", [
+        "issue",
+        "close",
+        "--repo",
+        ticket.repo,
+        String(ticket.number),
+        "--comment",
+        comment,
+      ]);
+    },
+
+    async closeRebaseTicket(
+      ticket: RebaseTicket,
       comment: string,
     ): Promise<void> {
       await execFileAsync("gh", [
@@ -305,21 +321,34 @@ const APPLY_REVIEW_BODY =
   /^Apply the review on (\S+), the draft pull request opened for #\d+\.$/m;
 
 /**
- * The pull request an issue's body binds it to, and which of the two bound
- * kinds, or undefined where `body` carries neither line — which is what makes
- * a fresh `listOpenIssues` able to tell a review or an apply-review ticket
- * from an implementation ticket, and the two apart from each other: the
- * association `createReviewTicket` returned in the same process is gone by
- * the next morning, and the body is the only place it survives.
+ * The line the `/rebase` workflow writes — never this adapter, and never by
+ * hand — read back the same way `REVIEW_BODY` and `APPLY_REVIEW_BODY` are:
+ * matched per line, so it survives beside a `Part of #N.` line or any other
+ * the body carries.
+ */
+const REBASE_BODY =
+  /^Rebase (\S+), the draft pull request opened for #\d+\.$/m;
+
+/**
+ * The pull request an issue's body binds it to, and which of the three bound
+ * kinds, or undefined where `body` carries none of the three lines — which is
+ * what makes a fresh `listOpenIssues` able to tell a review, an apply-review
+ * or a rebase ticket from an implementation ticket, and the three apart from
+ * each other: the association `createReviewTicket` returned in the same
+ * process is gone by the next morning, and the body is the only place it
+ * survives.
  *
- * A well-formed review line wins: a body carrying both lines reads as a
- * review. A review line with a malformed URL binds nothing, so a well-formed
- * apply-review line beside it still binds the body as an apply-review.
+ * A well-formed review line wins over the other two, and a well-formed
+ * apply-review line wins over a rebase line: a body carrying more than one
+ * reads as the earliest kind checked. A line with a malformed URL binds
+ * nothing, so a well-formed line of another kind beside it still binds the
+ * body.
  */
 function pullRequestBoundIn(body: string): PullRequestBinding | undefined {
   return (
     bindingMatching(REVIEW_BODY, "review", body) ??
-    bindingMatching(APPLY_REVIEW_BODY, "apply-review", body)
+    bindingMatching(APPLY_REVIEW_BODY, "apply-review", body) ??
+    bindingMatching(REBASE_BODY, "rebase", body)
   );
 }
 

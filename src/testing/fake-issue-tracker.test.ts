@@ -4,12 +4,14 @@ import { describe, it } from "node:test";
 import {
   backlogIn,
   isApplyReviewTicket,
+  isRebaseTicket,
   issueNumber,
   modelName,
   pullRequestUrl,
   repoSlug,
   ticketPriority,
   type ApplyReviewTicket,
+  type RebaseTicket,
   type Ticket,
 } from "../ports/index.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
@@ -192,6 +194,21 @@ describe("FakeIssueTracker", () => {
       assert.equal(ticket?.openSubIssues, undefined);
     });
 
+    it("does not count a rebase ticket among a ticket's open sub-issues", async () => {
+      const tracker = new FakeIssueTracker();
+      withSubIssues(tracker, 1);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(44),
+        title: "Rebase #12",
+        pullRequest: { kind: "rebase", url: pullRequest },
+        parent: issueNumber(7),
+      });
+
+      const ticket = await ticket7(tracker);
+
+      assert.equal(ticket?.openSubIssues, undefined);
+    });
+
     it("counts an ordinary open sub-issue beside a review ticket as one", async () => {
       const tracker = new FakeIssueTracker();
       withSubIssues(tracker, 2);
@@ -264,6 +281,46 @@ describe("FakeIssueTracker", () => {
 
     assert.deepEqual(tracker.closedApplyReviewTickets, [
       { ticket, comment: "Nothing to apply." },
+    ]);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    assert.deepEqual(issues, []);
+  });
+
+  it("holds a rebase ticket, bound to the pull request it names", async () => {
+    const tracker = new FakeIssueTracker();
+    const pullRequest = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/12",
+    );
+    tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "Rebase",
+      pullRequest: { kind: "rebase", url: pullRequest },
+    });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(isRebaseTicket(backlog[0] as Ticket), true);
+    assert.deepEqual((backlog[0] as Ticket).pullRequest, {
+      kind: "rebase",
+      url: pullRequest,
+    });
+  });
+
+  it("closes a rebase ticket, recording its comment and taking it off the open issues", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "Rebase",
+      pullRequest: {
+        kind: "rebase",
+        url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+      },
+    }) as RebaseTicket;
+
+    await tracker.closeRebaseTicket(ticket, "Already sits on its base.");
+
+    assert.deepEqual(tracker.closedRebaseTickets, [
+      { ticket, comment: "Already sits on its base." },
     ]);
     const { issues } = await tracker.listOpenIssues(PILOT);
     assert.deepEqual(issues, []);
