@@ -108,6 +108,8 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
  *
  * `kind` is the ticket's kind itself, which is why it is spelled from
  * `TicketKind`: every kind but an implementation is bound to a pull request.
+ *
+ * TODO[#295]: the `/rebase` workflow itself.
  */
 export interface PullRequestBinding {
   kind: Exclude<TicketKind, "implementation">;
