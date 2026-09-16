@@ -21,6 +21,7 @@ export const UNIFORM_FILES = [
   "docs/agents/triage-labels.md",
   "docs/agents/domain.md",
   ".github/workflows/apply-review.yml",
+  ".github/workflows/rebase.yml",
 ] as const;
 
 /** Where the generated, project-specific instructions go. */

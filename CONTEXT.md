@@ -218,6 +218,10 @@ _Avoid_: review task, review job, QA ticket
 A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
+**Rebase ticket**:
+A sub-issue of the ticket a draft pull request closes, asking for that pull request to be rebased. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent. Where it sits in selection is not yet decided.
+_Avoid_: rebase task, sync ticket, update-branch ticket
+
 ### Budget
 
 **Budget gate**:
