@@ -25,7 +25,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: apply-review tickets first, then review tickets, then ticket priority, then the oldest ticket.
+Choosing which project and ticket an iteration works: rebase tickets before apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: rebase tickets first, then apply-review tickets, then review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -151,7 +151,7 @@ What the loop does with a ticket whose run gave up or finished, or whose model i
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
-A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
+A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host, or, for a rebase run, could not resolve a conflict green. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
@@ -203,8 +203,12 @@ What a finished run comes to for the developer: the run itself, and the draft pu
 _Avoid_: work, result, outcome
 
 **Pull request ticket**:
-A review ticket or an apply-review ticket: a sub-issue bound to one draft pull request.
+A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound to one draft pull request.
 _Avoid_: PR ticket, review sub-issue (unqualified)
+
+**Rebase ticket**:
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving the pull request a draft. A pull request that needs no rebase when the iteration starts starts no run, and the ticket closes all the same.
+_Avoid_: rebase task, merge ticket, conflict ticket
 
 **Review ticket**:
 A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
@@ -311,7 +315,7 @@ A working in-memory implementation of a port, used to exercise the loop in tests
 _Avoid_: mock, double, spy
 
 **Sandbox**:
-The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. The clone is not kept.
+The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run force-pushes from inside the container and brings no branch back, as an apply-review run does. The clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:
