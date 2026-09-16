@@ -207,7 +207,7 @@ A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound t
 _Avoid_: PR ticket, review sub-issue (unqualified)
 
 **Rebase ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving the pull request a draft. A pull request that needs no rebase when the iteration starts starts no run, and the ticket closes all the same.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving its draft state alone. The run owes tests green along the way; closing itself turns only on what the repo host reports. A pull request the repo host already reports mergeable when the iteration starts has nothing to rebase: no run starts, and the ticket closes all the same.
 _Avoid_: rebase task, merge ticket, conflict ticket
 
 **Review ticket**:
