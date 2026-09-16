@@ -1069,7 +1069,8 @@ describe("reading a pull request's apply-review answers", () => {
     assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 1 });
   });
 
-  it("answers a review body's thread with a reply that abridges its quote, a real reply from pull request 195", async (t) => {
+  it("answers a review body's thread with a reply that abridges its quote", async (t) => {
+    // A review body and the skill's reply to it, as posted on pull request 195.
     const reviewBody = [
       "Two-axis review (standards + spec against #123). Three findings: two are inline, one is here because the line it concerns isn't in the diff.",
       "",
