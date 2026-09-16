@@ -3,6 +3,7 @@ import { workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type AppliedReview,
+  type Attempt,
   type Finished,
   type Handover,
   type IterationOutcome,
@@ -468,10 +469,7 @@ function notClosedLine(
 }
 
 /** An apply-review iteration, with the ticket it worked. */
-type AppliedReviewIteration = {
-  repo: RepoSlug;
-  ticket: ApplyReviewTicket;
-} & AppliedReview;
+type AppliedReviewIteration = Attempt<ApplyReviewTicket> & AppliedReview;
 
 /** What the replies came to on the pull request, or that there were none to post. */
 function answered({ ticket, answers }: AppliedReviewIteration): string {
@@ -520,10 +518,7 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string {
 }
 
 /** A rebase iteration, with the ticket it worked. */
-type RebasedIteration = {
-  repo: RepoSlug;
-  ticket: RebaseTicket;
-} & Rebased;
+type RebasedIteration = Attempt<RebaseTicket> & Rebased;
 
 /** What became of the pull request: rebased by the run, or already on its base. */
 function rebasedWhat({ repo, ticket, rebase }: RebasedIteration): string {
