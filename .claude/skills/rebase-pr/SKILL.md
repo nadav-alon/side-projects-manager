@@ -26,6 +26,9 @@ commit for step 3 to resolve.
 
 ## 3. Resolve conflicts
 
+If step 2 finished clean, skip straight to step 4 — there is no conflict here for
+`resolving-merge-conflicts` to resolve.
+
 Before resolving anything, load what each resolution is judged against:
 
 - The ticket the pull request closes: read its body for `Closes #n` / `Fixes #n`, then
@@ -34,11 +37,9 @@ Before resolving anything, load what each resolution is judged against:
 
 These, not the shape of the diff, decide what each resolution should be.
 
-Resolve the conflicts with `resolving-merge-conflicts` — a plugin skill, so it is addressed with its
-plugin's prefix, the way the review runs invoke `/mattpocock-skills:code-review`:
-`/mattpocock-skills:resolving-merge-conflicts`. That skill covers how a hunk gets resolved and how
-the rebase gets finished end to end; nothing here restates it. It forbids `--abort`, and so does this
-skill.
+Delegate the conflicted hunks to `resolving-merge-conflicts` — a plugin skill, addressed with its
+plugin's prefix: `/mattpocock-skills:resolving-merge-conflicts`. Nothing here restates how a hunk
+gets resolved. It forbids `--abort`, and so does this skill.
 
 Done when the rebase reports no commits left to apply.
 
@@ -46,7 +47,7 @@ Done when the rebase reports no commits left to apply.
 
 Run the repo's tests and type check on the rebased `HEAD`. Red is not done.
 
-A rebase that cannot be got green is a stop: report the conflicted file and why, and go no further.
+A rebase that cannot be got green is a stop: report the file and why, and go no further.
 Nothing is force-pushed. The half-finished rebase is left exactly where it is — the clone is thrown
 away at the end of the run, so there is nothing to clean up — and this skill asks for neither
 `--abort` nor `--skip` nor a pushed half-rebase.
