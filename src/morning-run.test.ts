@@ -1194,6 +1194,89 @@ describe("morningLoop", () => {
 
         assert.equal(report.projects[0]?.backlogTruncated, undefined);
       });
+
+      it("names the truncated project in the waiting section, even when nothing else is waiting", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addBrokenOutTicket(
+          PILOT,
+          { number: 66, title: "Too big for one run" },
+          7,
+        );
+        ports.tracker.truncateBacklog(PILOT);
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(report.iterations, []);
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.match(body, /## Waiting on you/);
+        const waiting = body.slice(body.indexOf("## Waiting on you"));
+        const bullets = waiting
+          .split("\n")
+          .filter((line) => line.includes(PILOT));
+        assert.equal(bullets.length, 1);
+        assert.match(
+          bullets[0] ?? "",
+          new RegExp(
+            `- ${PILOT}: holds more than 100 ready-for-agent tickets — only the newest 100 were considered`,
+          ),
+        );
+      });
+
+      it("names truncated projects in registry order", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER);
+        ports.tracker.addBrokenOutTicket(
+          MANAGER,
+          { number: 66, title: "Too big for one run" },
+          7,
+        );
+        ports.tracker.truncateBacklog(MANAGER);
+        ports.store.register(PILOT);
+        ports.tracker.addBrokenOutTicket(
+          PILOT,
+          { number: 67, title: "Also too big" },
+          8,
+        );
+        ports.tracker.truncateBacklog(PILOT);
+
+        await morningLoop(ports);
+
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        const waiting = body.slice(body.indexOf("## Waiting on you"));
+        assert.notEqual(waiting.indexOf(MANAGER), -1);
+        assert.notEqual(waiting.indexOf(PILOT), -1);
+        assert.ok(waiting.indexOf(MANAGER) < waiting.indexOf(PILOT));
+      });
+
+      it("never mentions truncation in the one-line message", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: 7,
+          title: "Add the thing",
+        });
+        ports.tracker.truncateBacklog(PILOT);
+
+        const report = await morningLoop(ports);
+
+        assert.doesNotMatch(report.message, /truncat|100 ready-for-agent/i);
+      });
+
+      it("adds no waiting section when no project is truncated", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addBrokenOutTicket(
+          PILOT,
+          { number: 66, title: "Too big for one run" },
+          7,
+        );
+
+        await morningLoop(ports);
+
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.doesNotMatch(body, /## Waiting on you/);
+      });
     });
 
     it("never selects a paused project's ticket over another's, however high its priority", async () => {
