@@ -608,16 +608,18 @@ function applyReviewThreadsFrom(
   }
 
   const reviews = pullRequest.reviews
-    .filter(
-      (review) => review.body.trim() !== "" && review.submittedAt !== null,
-    )
-    .map((review) => {
-      const submittedAt = new Date(review.submittedAt as string);
-      return {
-        body: review.body,
-        submittedAt,
-        comments: [{ body: review.body, postedAt: submittedAt }],
-      };
+    .flatMap((review) => {
+      if (review.body.trim() === "" || review.submittedAt === null) {
+        return [];
+      }
+      const submittedAt = new Date(review.submittedAt);
+      return [
+        {
+          body: review.body,
+          submittedAt,
+          comments: [{ body: review.body, postedAt: submittedAt }],
+        },
+      ];
     })
     .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
 
