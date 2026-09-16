@@ -1528,7 +1528,7 @@ describe("containerSandbox.applyReview", () => {
 
 const REBASE_TICKET: RebaseTicket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 44,
+  number: issueNumber(44),
   title: "Rebase the draft pull request for #7",
   pullRequest: {
     kind: "rebase",

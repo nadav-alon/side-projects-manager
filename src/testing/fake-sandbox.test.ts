@@ -49,7 +49,7 @@ const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
 
 const REBASE_TICKET: RebaseTicket = {
   ...TICKET,
-  number: 11,
+  number: issueNumber(11),
   pullRequest: {
     kind: "rebase",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
