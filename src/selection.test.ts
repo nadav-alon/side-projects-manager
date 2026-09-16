@@ -893,10 +893,10 @@ describe("invocationSelection", () => {
         });
         const { selection, worked } = await open(store, tracker);
 
-        const picks = await drain(selection, worked);
+        const selections = await drain(selection, worked);
 
         assert.deepEqual(
-          picks.map((pick) => pick.ticket.number),
+          selections.map((selected) => selected.ticket.number),
           [7],
         );
       });
@@ -984,10 +984,10 @@ describe("invocationSelection", () => {
         store.markWorkedOn(TODAY, { repo: PILOT, number: 9 });
         const { selection, worked } = await open(store, tracker);
 
-        const picks = await drain(selection, worked);
+        const selections = await drain(selection, worked);
 
         assert.deepEqual(
-          picks.map((pick) => pick.ticket.number),
+          selections.map((selected) => selected.ticket.number),
           [7],
         );
       });
