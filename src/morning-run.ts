@@ -722,7 +722,11 @@ async function work(
     return {
       kind: "failed",
       tokensUsed: run.tokensUsed,
-      failure: { kind: "infrastructure", reason: run.reason },
+      failure: {
+        kind: "infrastructure",
+        reason: run.reason,
+        tokensUsed: run.tokensUsed,
+      },
     };
   }
   if (run.kind === "limit-refused") {

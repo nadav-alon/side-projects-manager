@@ -133,13 +133,23 @@ export interface UnsettledMergeability {
 }
 
 /**
- * The sandbox or the repo host could not do its part, so nothing ran. Never
- * handed back: the ticket is left eligible on purpose, since the setup is the
- * problem.
+ * A run that never happened, or whose work never reached the checkout,
+ * because the sandbox or the repo host could not do its part — before the
+ * agent started, or after it stopped. The setup is the problem. Never handed
+ * back: the ticket is left eligible on purpose.
  */
 export interface InfrastructureFailure {
   kind: "infrastructure";
   reason: string;
+  /**
+   * What an agent that did start spent, present exactly when the sandbox
+   * failed after the agent had already run (`RunOutcome`'s `"sandbox-failed"`
+   * case) — absent when the setup never got the agent running at all. Told
+   * apart here, on the failure itself, rather than left for a reader to infer
+   * from `Failed.tokensUsed`, which every kind of `RunFailure` can carry for
+   * its own reason.
+   */
+  tokensUsed?: TokenCount;
 }
 
 /**
@@ -222,8 +232,8 @@ export interface Failed {
    * when model labels named no run to start, and for an infrastructure
    * failure the sandbox never got the agent running for. Present all the
    * same for an infrastructure failure where the sandbox failed after the
-   * agent had already run (`RunOutcome`'s `"sandbox-failed"` case) — that
-   * spend is real, and this is how the summary is told so.
+   * agent had already run — equal, there, to `InfrastructureFailure.tokensUsed`,
+   * which is where that distinction is actually told apart.
    */
   tokensUsed?: TokenCount;
 }

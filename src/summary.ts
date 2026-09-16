@@ -426,13 +426,13 @@ function describeIteration(iteration: IterationOutcome): string {
       return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${kept}`;
     }
     case "failed": {
-      const { repo, ticket, failure, tokensUsed } = iteration;
+      const { repo, ticket, failure } = iteration;
       // Named as a rebase, since a rebase ticket's own title says nothing a
       // reader of the summary would tell apart from an apply-review's.
       const attempted = isRebaseTicket(ticket)
         ? `a rebase of ${ticket.pullRequest.url} on ${repo}`
         : repo;
-      return `Attempted ${attempted}: ${stoppedBecause(failure, ticket, tokensUsed)}`;
+      return `Attempted ${attempted}: ${stoppedBecause(failure, ticket)}`;
     }
     case "reviewed":
       return reviewSummary(iteration);
@@ -604,18 +604,11 @@ function queued(finished: Finished): string {
  * Names the ticket, because the developer's next move is to open it: the whole
  * of what happened is in the comment waiting there.
  */
-function stoppedBecause(
-  failure: RunFailure,
-  ticket: Ticket,
-  tokensUsed: TokenCount | undefined,
-): string {
+function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   const which = `#${ticket.number}`;
   if (failure.kind === "infrastructure") {
-    // Present exactly when the sandbox failed after the agent had already
-    // run and spent (`RunOutcome`'s `"sandbox-failed"` case) — absent, the
-    // sandbox never got that far.
     const what =
-      tokensUsed === undefined
+      failure.tokensUsed === undefined
         ? `the run would not start on ${which}`
         : `the sandbox failed on ${which} after the agent had already run`;
     return `${what}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
