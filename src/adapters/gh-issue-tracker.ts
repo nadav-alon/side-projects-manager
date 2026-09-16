@@ -133,30 +133,14 @@ export function ghIssueTracker(
       ticket: ApplyReviewTicket,
       comment: string,
     ): Promise<void> {
-      await execFileAsync("gh", [
-        "issue",
-        "close",
-        "--repo",
-        ticket.repo,
-        String(ticket.number),
-        "--comment",
-        comment,
-      ]);
+      await closeWithComment(ticket, comment);
     },
 
     async closeRebaseTicket(
       ticket: RebaseTicket,
       comment: string,
     ): Promise<void> {
-      await execFileAsync("gh", [
-        "issue",
-        "close",
-        "--repo",
-        ticket.repo,
-        String(ticket.number),
-        "--comment",
-        comment,
-      ]);
+      await closeWithComment(ticket, comment);
     },
 
     async createReviewTicket(
@@ -257,6 +241,27 @@ export function ghIssueTracker(
       }
     },
   };
+}
+
+/**
+ * Closes an issue with a comment, the shape `closeApplyReviewTicket` and
+ * `closeRebaseTicket` share — the ticket kind is theirs to keep apart, since
+ * each answers to its own port method, but the `gh` call underneath is
+ * identical.
+ */
+async function closeWithComment(
+  ticket: Ticket,
+  comment: string,
+): Promise<void> {
+  await execFileAsync("gh", [
+    "issue",
+    "close",
+    "--repo",
+    ticket.repo,
+    String(ticket.number),
+    "--comment",
+    comment,
+  ]);
 }
 
 /**
