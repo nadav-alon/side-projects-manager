@@ -5,6 +5,7 @@ import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
+  MergeabilityUnknown,
   backlogIn,
   branch,
   checkout,
@@ -1922,7 +1923,7 @@ describe("morningLoop", () => {
       assert.deepEqual(closed?.ticket, ticket);
       assert.ok(closed?.comment.includes(PULL_REQUEST));
       assert.match(closed?.comment ?? "", /no longer conflicts/);
-      assert.match(closed?.comment ?? "", /still a draft/);
+      assert.match(closed?.comment ?? "", /draft state was left as it was/);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.equal(ports.repoHost.pullRequests.length, 0);
@@ -1943,6 +1944,8 @@ describe("morningLoop", () => {
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback?.comment ?? "", /still conflicts/);
+      assert.match(handback?.comment ?? "", /draft state was left as it was/);
+      assert.doesNotMatch(handback?.comment ?? "", /is still a draft/);
       assert.ok(handback?.comment.includes(PULL_REQUEST));
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
@@ -2026,6 +2029,26 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.rebases.length, 0);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.match(report.message, /gh api rate limited/);
+    });
+
+    it("hands back, running nothing, a ticket whose pull request's mergeability never settles", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      t.mock.method(ports.repoHost, "needsRebase", async () => {
+        throw new MergeabilityUnknown(PULL_REQUEST, "unknown");
+      });
+
+      const report = await morningLoop(ports);
+      const later = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(ports.sandbox.rebases.length, 0);
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", /did not run this ticket/);
+      assert.match(handback?.comment ?? "", /never finished computing mergeability/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.equal(later.outcome, "dry-queue");
     });
 
     it("leaves the ticket eligible when the sandbox breaks", async (t) => {
@@ -2116,13 +2139,13 @@ describe("morningLoop", () => {
       assert.equal(report.outcome, "work-selected");
       assert.ok(
         report.message.includes(
-          `Rebased ${PULL_REQUEST} for ${PILOT} #44: it no longer conflicts with its base, still a draft.`,
+          `Rebased ${PULL_REQUEST} for ${PILOT} #44: it no longer conflicts with its base.`,
         ),
         report.message,
       );
       assert.ok(
         waitingOn(ports).includes(
-          `- ${PILOT}: ${PULL_REQUEST} — rebased onto its base, still a draft`,
+          `- ${PILOT}: ${PULL_REQUEST} — rebased onto its base`,
         ),
         waitingOn(ports),
       );

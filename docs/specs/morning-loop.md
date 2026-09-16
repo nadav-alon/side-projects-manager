@@ -190,8 +190,9 @@ exactly the context bias the separation exists to remove.
 **Rebase is a separate job too.** Commenting `/rebase` on a draft PR opens a rebase ticket, worked
 like an apply-review ticket but with a different verb. Before any run, the repo host is asked whether
 the PR needs a rebase; if not, no run starts and the ticket closes, saying the PR already sits on its
-base. Otherwise the sandbox runs the rebase on a clone of the PR's branch, and the agent resolves the
-conflicts and force-pushes itself. What the run spent is recorded whatever it came to. An agent that
+base; if GitHub never settles whether it does, the ticket is handed back with no run. Otherwise the
+sandbox runs the rebase on a clone of the PR's branch, and the agent resolves the conflicts and
+force-pushes itself. What the run spent is recorded whatever it came to. An agent that
 gave up, or a model refusal, hands the ticket back; a limit refusal leaves it as it was and stands the
 invocation down. A run that finished is read back rather than believed: the repo host is asked
 again, and the ticket closes only if the PR no longer conflicts — otherwise it is handed back, saying

@@ -535,8 +535,8 @@ function rebasedWhat({ repo, ticket, rebase }: RebasedIteration): string {
 
 /**
  * How a rebase ticket's iteration reads to the developer: that its pull
- * request no longer conflicts and is still a draft, or why the loop could not
- * finish the ticket off.
+ * request no longer conflicts, or why the loop could not finish the ticket
+ * off. Nothing is said of its draft state, which a rebase leaves alone.
  */
 function rebasedSummary(iteration: RebasedIteration): string {
   const { ticket, rebase, notClosed } = iteration;
@@ -546,7 +546,7 @@ function rebasedSummary(iteration: RebasedIteration): string {
     rebase === undefined ? what : `${what}: it no longer conflicts with its base`;
   switch (notClosed?.kind) {
     case undefined:
-      return `${clean}, still a draft.`;
+      return `${clean}.`;
     case "check-failed":
       return `${what}, but ${pullRequest} could not be checked for conflicts: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check it and close the ticket yourself.`;
     case "close-failed":
@@ -554,7 +554,7 @@ function rebasedSummary(iteration: RebasedIteration): string {
   }
 }
 
-/** The Waiting-on-you line for a rebase iteration: its pull request, still a draft, or the ticket left open. */
+/** The Waiting-on-you line for a rebase iteration: its pull request to merge, or the ticket left open. */
 function rebasedWaitingLine(iteration: RebasedIteration): string {
   const { repo, ticket, rebase, notClosed } = iteration;
   const pullRequest = ticket.pullRequest.url;
@@ -562,8 +562,8 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
   switch (notClosed?.kind) {
     case undefined:
       return rebase === undefined
-        ? `- ${repo}: ${pullRequest} — already on its base, still a draft`
-        : `- ${repo}: ${pullRequest} — rebased onto its base, still a draft`;
+        ? `- ${repo}: ${pullRequest} — already on its base`
+        : `- ${repo}: ${pullRequest} — rebased onto its base`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for conflicts: ${notClosed.error}; check it and close the ticket yourself`;
     case "close-failed":
