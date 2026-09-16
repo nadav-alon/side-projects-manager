@@ -10,6 +10,7 @@ import { withCheckoutLock } from "./checkout-lock.ts";
 import { githubRepoHost } from "./github-repo-host.ts";
 import {
   APPLY_REVIEW_MARKER,
+  MergeabilityUnknown,
   branch as toBranch,
   checkout as toCheckout,
   issueNumber,
@@ -1099,5 +1100,94 @@ describe("marking a pull request ready for review", () => {
     await githubRepoHost().markPullRequestReady(PULL_REQUEST);
 
     assert.equal(callWith(await gh.calls(), "ready"), undefined);
+  });
+});
+
+describe("whether a pull request's branch needs a rebase", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  /** No delay between retries, so a test with several stays as fast as one with none. */
+  const NO_WAIT = async () => {};
+
+  /**
+   * A `gh` that answers `mergeable` with each of `statuses` in turn, then
+   * repeats the last — tracked with a counter file, since each read is a
+   * fresh process with nothing else to remember its call count by.
+   */
+  async function answering(t: TestContext, ...statuses: string[]) {
+    const counter = path.join(
+      await mkdtemp(path.join(tmpdir(), "merge-status-")),
+      "n",
+    );
+    const cases = statuses
+      .map((status, index) => `  ${index}) echo "${status}" ;;`)
+      .join("\n");
+    return recordingGh(
+      t,
+      [
+        `n=$(cat "${counter}" 2>/dev/null || echo 0)`,
+        `echo $((n + 1)) > "${counter}"`,
+        `case "$n" in`,
+        cases,
+        `  *) echo "${statuses.at(-1)}" ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+  }
+
+  it("says a conflicting pull request needs a rebase", async (t) => {
+    await answering(t, "CONFLICTING");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
+  });
+
+  it("says a clean pull request does not need a rebase", async (t) => {
+    await answering(t, "MERGEABLE");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      false,
+    );
+  });
+
+  it("retries a pull request that answers unknown before it settles", async (t) => {
+    await answering(t, "UNKNOWN", "UNKNOWN", "CONFLICTING");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
+  });
+
+  it("throws, naming the pull request and the unsettled status, once retries are exhausted", async (t) => {
+    await answering(t, "UNKNOWN");
+
+    await assert.rejects(
+      githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      (error: unknown) => {
+        assert.ok(error instanceof MergeabilityUnknown);
+        assert.equal(error.pullRequest, PULL_REQUEST);
+        assert.equal(error.lastStatus, "unknown");
+        return true;
+      },
+    );
+  });
+
+  it("asks about one pull request at a time, never gh pr list", async (t) => {
+    const gh = await answering(t, "MERGEABLE");
+
+    await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST);
+
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call.slice(0, 2)),
+      [["pr", "view"]],
+    );
+    assert.ok(calls[0]?.includes(PULL_REQUEST));
   });
 });

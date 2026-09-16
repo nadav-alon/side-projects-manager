@@ -4,6 +4,7 @@ import type {
   Branch,
   Checkout,
   DraftPullRequestOpening,
+  MergeStatus,
   Proposal,
   PullRequestUrl,
   RepoHost,
@@ -18,6 +19,7 @@ import {
   DECLINED_REPLY_PREFIX,
   checkout,
   pullRequestUrl,
+  resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
 
@@ -116,6 +118,13 @@ export class FakeRepoHost implements RepoHost {
     kind: "opened",
     pullRequest: FakeRepoHost.RUN_PULL_REQUEST,
   });
+
+  /**
+   * What `needsRebase` reads for a pull request, called once per attempt so a
+   * test can answer `"unknown"` a bounded number of times before it settles.
+   * Clean, unless a test says otherwise.
+   */
+  mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -281,6 +290,17 @@ export class FakeRepoHost implements RepoHost {
 
   async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
     this.readyMarked.push(pullRequest);
+  }
+
+  async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
+    // No real wait between retries: a fake standing in for the host in
+    // application tests should not make those tests slower than the host it
+    // stands in for.
+    return resolveNeedsRebase(
+      pullRequest,
+      async () => this.mergeStatus(pullRequest),
+      async () => {},
+    );
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {

@@ -61,6 +61,8 @@ export {
   APPLIED_REPLY_PREFIX,
   APPLY_REVIEW_MARKER,
   DECLINED_REPLY_PREFIX,
+  MergeabilityUnknown,
+  resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "./repo-host.ts";
 export type {
@@ -68,6 +70,7 @@ export type {
   ApplyReviewComment,
   ApplyReviewThread,
   DraftPullRequestOpening,
+  MergeStatus,
   Proposal,
   RepoHost,
   ReviewFinding,
