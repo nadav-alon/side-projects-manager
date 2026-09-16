@@ -185,9 +185,10 @@ export type ReviewOutcome =
 /**
  * As `ReviewGaveUp`, for an apply-review or a rebase run — either of which
  * also gives up when the repo host rejects its push, plain or forced,
- * because the pull request's branch moved under it. Shared by both rather
- * than given a rebase-specific sibling: the two runs give up on a moved
- * branch for exactly the same reason.
+ * because the pull request's branch moved under it. Shared by both, and
+ * named `RebaseGaveUp` where a rebase run is meant, rather than given a
+ * rebase-specific sibling: the two runs give up on a moved branch for
+ * exactly the same reason.
  */
 export interface ApplyReviewGaveUp extends ReviewGaveUp {
   /**
@@ -210,14 +211,20 @@ export type ApplyReviewOutcome =
   | ReviewLimitRefused
   | ReviewModelRefused;
 
+/** A rebase run that ran to completion: a review's shape, named for what ran. */
+export type RebaseFinished = ReviewFinished;
+
+/** A rebase run that stopped short: an apply-review's shape, named for what ran. */
+export type RebaseGaveUp = ApplyReviewGaveUp;
+
 /**
  * As `ApplyReviewOutcome`, for a rebase run. No branch or commits on any
  * variant: the agent force-pushes to the pull request's branch itself, and
  * whether it worked is read back from the repo host, never from here.
  */
 export type RebaseOutcome =
-  | ReviewFinished
-  | ApplyReviewGaveUp
+  | RebaseFinished
+  | RebaseGaveUp
   | ReviewLimitRefused
   | ReviewModelRefused;
 

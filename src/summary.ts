@@ -3,10 +3,12 @@ import { workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type AppliedReview,
+  type Attempt,
   type Finished,
   type Handover,
   type IterationOutcome,
   type NotClosed,
+  type Rebased,
   type Reviewed,
   type RunFailure,
 } from "./iteration-outcome.ts";
@@ -14,6 +16,7 @@ import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type {
   ApplyReviewTicket,
+  RebaseTicket,
   RepoSlug,
   ReviewTicket,
   RunFinished,
@@ -23,6 +26,7 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isRebaseTicket,
   isReviewTicket,
   localDay,
 } from "./ports/index.ts";
@@ -182,15 +186,11 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
 
 /**
  * One bullet per attempt this invocation made, its outcome, its cost, and the
- * model it was started on. A ticket handed back for its model labels was never
- * started, so it names neither.
+ * model it was started on. An attempt that started no run names neither.
  */
 function attemptsSection(iterations: IterationOutcome[]): string {
   const lines = iterations.map((iteration) => {
-    if (
-      handedBackForModelLabels(iteration) ||
-      (iteration.kind === "applied-review" && iteration.review === undefined)
-    ) {
+    if (ranNothing(iteration)) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
     const spent = iteration.tokensUsed;
@@ -234,6 +234,8 @@ function waitingSection(
           : [];
       case "applied-review":
         return [appliedReviewWaitingLine(iteration)];
+      case "rebased":
+        return [rebasedWaitingLine(iteration)];
       // A limit refusal's ticket waits on the provider, not the developer.
       case "limit-refused":
         return [];
@@ -378,11 +380,38 @@ function waitingOnFailure(
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`
         : stillEligibleLine({ repo, ticket });
+    case "unsettled-mergeability":
+      return failure.handedBack
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`
+        : stillEligibleLine({ repo, ticket });
     case "conflicting-model-labels":
     case "unusable-model-label":
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
         : stillEligibleLine({ repo, ticket });
+  }
+}
+
+/**
+ * Whether `iteration` started no run: a ticket handed back before one could
+ * start, or a pull request ticket that found nothing to do. A switch on every
+ * kind, so an iteration kind added later has to say which it is.
+ */
+function ranNothing(iteration: IterationOutcome): boolean {
+  switch (iteration.kind) {
+    case "applied-review":
+      return iteration.review === undefined;
+    case "rebased":
+      return iteration.rebase === undefined;
+    case "failed":
+      return (
+        handedBackForModelLabels(iteration) ||
+        iteration.failure.kind === "unsettled-mergeability"
+      );
+    case "finished":
+    case "reviewed":
+    case "limit-refused":
+      return false;
   }
 }
 
@@ -396,12 +425,21 @@ function describeIteration(iteration: IterationOutcome): string {
           : "";
       return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${kept}`;
     }
-    case "failed":
-      return `Attempted ${iteration.repo}: ${stoppedBecause(iteration.failure, iteration.ticket)}`;
+    case "failed": {
+      const { repo, ticket, failure } = iteration;
+      // Named as a rebase, since a rebase ticket's own title says nothing a
+      // reader of the summary would tell apart from an apply-review's.
+      const attempted = isRebaseTicket(ticket)
+        ? `a rebase of ${ticket.pullRequest.url} on ${repo}`
+        : repo;
+      return `Attempted ${attempted}: ${stoppedBecause(failure, ticket)}`;
+    }
     case "reviewed":
       return reviewSummary(iteration);
     case "applied-review":
       return appliedReviewSummary(iteration);
+    case "rebased":
+      return rebasedSummary(iteration);
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
   }
@@ -453,10 +491,7 @@ function notClosedLine(
 }
 
 /** An apply-review iteration, with the ticket it worked. */
-type AppliedReviewIteration = {
-  repo: RepoSlug;
-  ticket: ApplyReviewTicket;
-} & AppliedReview;
+type AppliedReviewIteration = Attempt<ApplyReviewTicket> & AppliedReview;
 
 /** What the replies came to on the pull request, or that there were none to post. */
 function answered({ ticket, answers }: AppliedReviewIteration): string {
@@ -504,6 +539,55 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string {
   }
 }
 
+/** A rebase iteration, with the ticket it worked. */
+type RebasedIteration = Attempt<RebaseTicket> & Rebased;
+
+/** What became of the pull request: rebased by the run, or already on its base. */
+function rebasedWhat({ repo, ticket, rebase }: RebasedIteration): string {
+  const pullRequest = ticket.pullRequest.url;
+  return rebase === undefined
+    ? `Nothing to rebase for ${repo} #${ticket.number}: ${pullRequest} already sits on its base`
+    : `Rebased ${pullRequest} for ${repo} #${ticket.number}`;
+}
+
+/**
+ * How a rebase ticket's iteration reads to the developer: that its pull
+ * request no longer conflicts, or why the loop could not finish the ticket
+ * off. Nothing is said of its draft state, which a rebase leaves alone.
+ */
+function rebasedSummary(iteration: RebasedIteration): string {
+  const { ticket, rebase, notClosed } = iteration;
+  const pullRequest = ticket.pullRequest.url;
+  const what = rebasedWhat(iteration);
+  const clean =
+    rebase === undefined ? what : `${what}: it no longer conflicts with its base`;
+  switch (notClosed?.kind) {
+    case undefined:
+      return `${clean}.`;
+    case "check-failed":
+      return `${what}, but ${pullRequest} could not be checked for conflicts: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check it and close the ticket yourself.`;
+    case "close-failed":
+      return `${clean}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+  }
+}
+
+/** The Waiting-on-you line for a rebase iteration: its pull request to merge, or the ticket left open. */
+function rebasedWaitingLine(iteration: RebasedIteration): string {
+  const { repo, ticket, rebase, notClosed } = iteration;
+  const pullRequest = ticket.pullRequest.url;
+  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
+  switch (notClosed?.kind) {
+    case undefined:
+      return rebase === undefined
+        ? `- ${repo}: ${pullRequest} — already on its base`
+        : `- ${repo}: ${pullRequest} — rebased onto its base`;
+    case "check-failed":
+      return `${still} — ${pullRequest} could not be checked for conflicts: ${notClosed.error}; check it and close the ticket yourself`;
+    case "close-failed":
+      return `${still} — ${pullRequest} no longer conflicts, but the ticket could not be closed: ${notClosed.error}; close it yourself`;
+  }
+}
+
 /**
  * The review waiting on the developer, named by number because that is how a
  * backlog is read. Nothing to say on a morning that opened no pull request,
@@ -538,6 +622,7 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
       return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${failure.reason}. ${now}`;
     case "model-refused":
       return `${which} was not worked, because ${failure.reason}. ${now}`;
+    case "unsettled-mergeability":
     case "conflicting-model-labels":
     case "unusable-model-label":
       return `${which} was not run, because ${failure.reason}. ${now}`;

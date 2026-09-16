@@ -530,6 +530,44 @@ describe("invocationSelection", () => {
       };
     }
 
+    /** A ticket asking for `SOME_PULL_REQUEST` to be rebased. */
+    function rebaseTicket(
+      number: number,
+    ): Omit<Ticket, "repo" | "modelLabel"> {
+      return {
+        number: issueNumber(number),
+        title: `Rebase ${SOME_PULL_REQUEST}`,
+        pullRequest: { kind: "rebase", url: SOME_PULL_REQUEST },
+      };
+    }
+
+    it("selects a rebase ticket over an older apply-review ticket in the same backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, rebaseTicket(9));
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 9);
+    });
+
+    it("selects a project with a rebase ticket before one with an apply-review ticket, even with explicit registry priority", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(MANAGER, { priority: priority(1) });
+      tracker.addEligibleTicket(MANAGER, applyReviewTicket(4));
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, rebaseTicket(8));
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.project.repo, PILOT);
+    });
+
     it("selects an apply-review ticket over an older review ticket in the same backlog", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();

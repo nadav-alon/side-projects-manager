@@ -2,11 +2,15 @@ import type {
   GaveUp,
   HandoverFailed,
   ModelRefused,
+  Rebased,
+  UnsettledMergeability,
   UnusableModelLabel,
 } from "./iteration-outcome.ts";
 import type {
   ApplyReviewGaveUp,
   PullRequestUrl,
+  RebaseFinished,
+  RebaseGaveUp,
   ReviewFinished,
   ReviewGaveUp,
   RunFinished,
@@ -95,16 +99,55 @@ export function applyReviewHandbackComment(
   run: ReviewFinished | ApplyReviewGaveUp,
   pullRequest: PullRequestUrl,
 ): string {
-  const moved =
-    run.kind === "gave-up" && run.movedHead !== undefined
-      ? [
-          `Its push was rejected: the pull request's branch had moved to \`${run.movedHead}\` on the repo host, so what it committed never reached the pull request.`,
-        ]
-      : [];
   return gaveUpComment(failure, run.output, [
-    ...moved,
+    ...movedHeadNote(run),
     `${pullRequest} is still a draft.`,
   ]);
+}
+
+/**
+ * What a rebase ticket is told when its run gave up or left its pull request
+ * still conflicting: as an apply-review ticket's, except that nothing is said
+ * of the pull request being a draft — `/rebase` can be commented on one
+ * already marked ready, and a rebase leaves that as it found it.
+ */
+export function rebaseHandbackComment(
+  failure: GaveUp,
+  run: RebaseFinished | RebaseGaveUp,
+  pullRequest: PullRequestUrl,
+): string {
+  return gaveUpComment(failure, run.output, [
+    ...movedHeadNote(run),
+    untouchedDraftState(pullRequest),
+  ]);
+}
+
+/**
+ * What a rebase ticket is told when its pull request could not be read
+ * before a run started: only that, since nothing ran.
+ */
+export function unsettledMergeabilityComment(
+  failure: UnsettledMergeability,
+  pullRequest: PullRequestUrl,
+): string {
+  return [
+    `The morning loop did not run this ticket: ${tail(failure.reason, REASON_QUOTED)}`,
+    untouchedDraftState(pullRequest),
+    notRetried(),
+  ].join("\n\n");
+}
+
+function untouchedDraftState(pullRequest: PullRequestUrl): string {
+  return `${pullRequest}'s draft state was left as it was.`;
+}
+
+/** Says which head a rejected push found the branch on, when that is why the run gave up. */
+function movedHeadNote(run: ReviewFinished | ApplyReviewGaveUp): string[] {
+  return run.kind === "gave-up" && run.movedHead !== undefined
+    ? [
+        `Its push was rejected: the pull request's branch had moved to \`${run.movedHead}\` on the repo host, so what it committed never reached the pull request.`,
+      ]
+    : [];
 }
 
 /**
@@ -122,6 +165,23 @@ export function appliedReviewComment(
       ? `The morning loop found no review thread on ${pullRequest} left unanswered, so there was nothing left to apply.`
       : `The morning loop applied the review on ${pullRequest}: ${answers.applied} applied, ${answers.declined} declined. Every thread has a reply saying which, and why.`;
   return [what, `${pullRequest} is marked ready for review.`].join("\n\n");
+}
+
+/**
+ * What a rebase ticket is told as it closes: that its pull request no longer
+ * conflicts with its base, or already sat on it so there was nothing to
+ * rebase, and that its draft state was left alone — a rebase promotes
+ * nothing, and `/rebase` may have been commented on one already marked ready.
+ */
+export function rebasedComment(
+  pullRequest: PullRequestUrl,
+  rebased: Rebased,
+): string {
+  const what =
+    rebased.rebase !== undefined
+      ? `The morning loop rebased ${pullRequest}: the repo host reports it no longer conflicts with its base branch.`
+      : `The morning loop found ${pullRequest} already sits on its base branch, so there was nothing to rebase.`;
+  return [what, `Its draft state was left as it was.`].join("\n\n");
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */

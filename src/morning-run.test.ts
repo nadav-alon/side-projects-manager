@@ -5,6 +5,7 @@ import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
+  MergeabilityUnknown,
   backlogIn,
   branch,
   checkout,
@@ -20,6 +21,7 @@ import {
   usd,
   type ApplyReviewTicket,
   type CommitSha,
+  type RebaseTicket,
   type ReviewTicket,
   type RunFinished,
   type RunOutcome,
@@ -75,7 +77,8 @@ function reviewTicketOf(iteration: IterationOutcome | undefined) {
 function ranWith(iteration: IterationOutcome | undefined) {
   return iteration === undefined ||
     iteration.kind === "reviewed" ||
-    iteration.kind === "applied-review"
+    iteration.kind === "applied-review" ||
+    iteration.kind === "rebased"
     ? undefined
     : iteration.run;
 }
@@ -1802,6 +1805,368 @@ describe("morningLoop", () => {
       assert.match(
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+    });
+  });
+
+  describe("a rebase ticket, selected", () => {
+    const PULL_REQUEST = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/12",
+    );
+
+    /** A rebase ticket, eligible like any other, on a pull request that conflicts with its base. */
+    function queued(ports: FakePorts): RebaseTicket {
+      ports.store.register(PILOT);
+      ports.repoHost.mergeStatus = () => "conflicting";
+      return ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(44),
+        title: "Rebase the draft pull request for #7",
+        pullRequest: { kind: "rebase", url: PULL_REQUEST },
+      }) as RebaseTicket;
+    }
+
+    /** A run that leaves the pull request `after`, as the repo host then reads it, and finishes. */
+    function rebasing(
+      ports: FakePorts,
+      after: "clean" | "conflicting",
+      tokensUsed = tokenCount(0),
+    ): void {
+      ports.sandbox.rebaseResult = () => {
+        ports.repoHost.mergeStatus = () => after;
+        return { kind: "finished", output: "rebased", tokensUsed };
+      };
+    }
+
+    function waitingOn(ports: FakePorts): string {
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      const at = body.indexOf("## Waiting on you");
+      return at === -1 ? "" : body.slice(at);
+    }
+
+    function attempts(ports: FakePorts): string {
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      const at = body.indexOf("## Attempts");
+      const end = body.indexOf("## Waiting on you");
+      return at === -1 ? "" : body.slice(at, end === -1 ? undefined : end);
+    }
+
+    it("works the rebase ticket of a project that also has an apply-review ticket", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(43),
+        title: "Apply the review on the draft pull request for #7",
+        pullRequest: { kind: "apply-review", url: PULL_REQUEST },
+      });
+      rebasing(ports, "clean");
+      ports.sandbox.applyReviewResult = () => {
+        assert.equal(ports.sandbox.rebases.length, 1);
+        return { kind: "gave-up", output: "", reason: "stop", tokensUsed: tokenCount(0) };
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.ticket.number, ticket.number);
+      assert.equal(report.iterations[0]?.kind, "rebased");
+    });
+
+    it("runs the rebase agent on the ticket and the project checkout, rather than any other", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      rebasing(ports, "clean");
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.rebases, [
+        {
+          ticket,
+          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          spendCeiling: DEFAULT_BUDGET.spendCeiling,
+        },
+      ]);
+      assert.equal(ports.sandbox.runs.length, 0);
+      assert.equal(ports.sandbox.reviews.length, 0);
+      assert.equal(ports.sandbox.applyReviews.length, 0);
+    });
+
+    it("closes a ticket whose pull request needs no rebase without running anything, saying so", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.mergeStatus = () => "clean";
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.rebases.length, 0);
+      assert.equal(ports.repoHost.clones.length, 0);
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      const [closed] = ports.tracker.closedRebaseTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.ok(closed?.comment.includes(PULL_REQUEST));
+      assert.match(closed?.comment ?? "", /already sits on its base/);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      const state = await ports.store.loadState();
+      assert.equal(state.projects.get(PILOT), undefined);
+      assert.match(report.message, /already sits on its base/);
+      assert.match(attempts(ports), /nothing run/);
+    });
+
+    it("closes a finished run's ticket once its pull request no longer conflicts, leaving the pull request a draft", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      rebasing(ports, "clean");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      const [closed] = ports.tracker.closedRebaseTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.ok(closed?.comment.includes(PULL_REQUEST));
+      assert.match(closed?.comment ?? "", /no longer conflicts/);
+      assert.match(closed?.comment ?? "", /draft state was left as it was/);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(ports.repoHost.pullRequests.length, 0);
+      assert.equal(ports.repoHost.discarded.length, 0);
+      assert.equal(ports.tracker.reviewTickets.length, 0);
+    });
+
+    it("hands back a finished run whose pull request still conflicts, and does not close it", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      rebasing(ports, "conflicting");
+
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), true);
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", /still conflicts/);
+      assert.match(handback?.comment ?? "", /draft state was left as it was/);
+      assert.doesNotMatch(handback?.comment ?? "", /is still a draft/);
+      assert.ok(handback?.comment.includes(PULL_REQUEST));
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("hands back a run that gave up, naming a moved head, without closing it", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      const moved = commitSha("b2".repeat(20));
+      ports.sandbox.rebaseResult = () => ({
+        kind: "gave-up",
+        output: `Branch moved: ${moved}`,
+        reason: `The force-push was rejected: the branch had moved to ${moved}.`,
+        movedHead: moved,
+        tokensUsed: tokenCount(2_000),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", new RegExp(`moved to \`${moved}\``));
+      assert.match(handback?.comment ?? "", /will not be retried/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+    });
+
+    it("stands down on a limit refusal, leaving the ticket exactly as it was", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.rebaseResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "limit-refused");
+      assert.equal(report.standDown?.reason, "provider-limit");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
+    it("hands back a ticket whose model is refused, naming the rebase model defaults", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const haiku = modelName("haiku");
+      ports.store.modelDefaults = { rebase: haiku };
+      ports.sandbox.rebaseResult = () => ({
+        kind: "model-refused",
+        tokensUsed: tokenCount(0),
+        refusal: { model: haiku, words: "refused model haiku" },
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+      const comment = ports.tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /haiku/);
+      assert.match(comment, /model defaults for rebase tickets/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+    });
+
+    it("leaves the ticket eligible, running nothing, when the pull request cannot be read before the run", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      t.mock.method(ports.repoHost, "needsRebase", async () => {
+        throw new Error("gh api rate limited");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.equal(ports.sandbox.rebases.length, 0);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.match(report.message, /gh api rate limited/);
+    });
+
+    it("hands back, running nothing, a ticket whose pull request's mergeability never settles", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      t.mock.method(ports.repoHost, "needsRebase", async () => {
+        throw new MergeabilityUnknown(PULL_REQUEST, "unknown");
+      });
+
+      const report = await morningLoop(ports);
+      const later = await morningLoop(ports);
+
+      assert.equal(
+        failureOf(report.iterations[0])?.kind,
+        "unsettled-mergeability",
+      );
+      assert.equal(ports.sandbox.rebases.length, 0);
+      assert.match(attempts(ports), /nothing run/);
+      assert.doesNotMatch(attempts(ports), /gave up/);
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(handback?.comment ?? "", /did not run this ticket/);
+      assert.match(handback?.comment ?? "", /never finished computing mergeability/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.equal(later.outcome, "dry-queue");
+    });
+
+    it("leaves the ticket eligible when the sandbox breaks", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      t.mock.method(ports.sandbox, "rebase", async () => {
+        throw new Error("docker is not running");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+    });
+
+    it("records what the run cost, whatever it came to", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      rebasing(ports, "conflicting", tokenCount(9_000));
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(9_000) },
+      ]);
+    });
+
+    it("reports a pull request that cannot be read after the run, leaving the ticket open", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      rebasing(ports, "clean");
+      let reads = 0;
+      t.mock.method(ports.repoHost, "needsRebase", async () => {
+        reads += 1;
+        if (reads > 1) {
+          throw new Error("gh api rate limited");
+        }
+        return true;
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      assert.notEqual(report.outcome, "invocation-failed");
+      assert.match(report.message, /gh api rate limited/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+    });
+
+    it("reports a ticket that cannot be closed, leaving it open, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      rebasing(ports, "clean");
+      t.mock.method(ports.tracker, "closeRebaseTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      assert.notEqual(report.outcome, "invocation-failed");
+      assert.match(report.message, /issue is locked/);
+      assert.match(report.message, /close it yourself/);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
+    it("names the rebased pull request in the summary, distinctly from an applied review", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      rebasing(ports, "clean", tokenCount(1_000));
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.ok(
+        report.message.includes(
+          `Rebased ${PULL_REQUEST} for ${PILOT} #44: it no longer conflicts with its base.`,
+        ),
+        report.message,
+      );
+      assert.ok(
+        waitingOn(ports).includes(
+          `- ${PILOT}: ${PULL_REQUEST} — rebased onto its base`,
+        ),
+        waitingOn(ports),
+      );
+      assert.doesNotMatch(waitingOn(ports), /ready for review/);
+    });
+
+    it("names a handed-back rebase ticket under attempts, distinctly from an apply-review ticket", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      rebasing(ports, "conflicting", tokenCount(1_000));
+
+      await morningLoop(ports);
+
+      assert.match(
+        attempts(ports),
+        new RegExp(`- Attempted a rebase of ${PULL_REQUEST} on ${PILOT}: the agent gave up on #44: .*still conflicts`),
       );
     });
   });
