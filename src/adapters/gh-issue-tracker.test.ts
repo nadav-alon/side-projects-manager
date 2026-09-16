@@ -1230,14 +1230,20 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
           title: "Rebase #7",
           body: `Rebase ${PULL_REQUEST}, the draft pull request opened for it.`,
         },
+        {
+          number: 11,
+          title: "Rebase #7",
+          body: `Rebasing ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
       ]),
     );
 
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-    assert.equal(issues.length, 2);
+    assert.equal(issues.length, 3);
     assert.equal(issues[0]?.ticket.pullRequest, undefined);
     assert.equal(issues[1]?.ticket.pullRequest, undefined);
+    assert.equal(issues[2]?.ticket.pullRequest, undefined);
   });
 
   /**
