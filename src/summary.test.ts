@@ -59,6 +59,7 @@ function reviewedButNotClosed(number: number): IterationOutcome {
   const reviewed: Reviewed = {
     kind: "reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
     notClosed: { kind: "close-failed", error: "the tracker was unreachable" },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
