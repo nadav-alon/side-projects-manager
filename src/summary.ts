@@ -191,7 +191,7 @@ function attemptsSection(iterations: IterationOutcome[]): string {
     ) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
-    const spent = costOf(iteration);
+    const spent = iteration.tokensUsed;
     const cost =
       spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
     return `- ${describeIteration(iteration)}${cost} on ${iteration.model ?? "the image's model"}`;
@@ -305,25 +305,6 @@ function waitingOnFailure(
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
         : stillEligibleLine({ repo, ticket });
-  }
-}
-
-/**
- * What one iteration's run or review cost. Absent only for a run that never
- * started — an infrastructure failure before the sandbox spent anything.
- */
-function costOf(iteration: IterationOutcome): TokenCount | undefined {
-  switch (iteration.kind) {
-    case "reviewed":
-      return iteration.review.tokensUsed;
-    case "applied-review":
-      return iteration.review?.tokensUsed;
-    case "limit-refused":
-      return iteration.tokensUsed;
-    case "failed":
-      return iteration.run?.tokensUsed ?? iteration.tokensUsed;
-    case "finished":
-      return iteration.run.tokensUsed;
   }
 }
 

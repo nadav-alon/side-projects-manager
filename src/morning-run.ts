@@ -1,7 +1,6 @@
 import type {
   ApplyReviewAnswers,
   ApplyReviewGaveUp,
-  ApplyReviewOutcome,
   ApplyReviewTicket,
   Budget,
   Checkout,
@@ -17,7 +16,6 @@ import type {
   RepoSlug,
   ReviewFinished,
   ReviewGaveUp,
-  ReviewOutcome,
   ReviewTicket,
   RunCost,
   RunFinished,
@@ -26,6 +24,7 @@ import type {
   State,
   Store,
   Ticket,
+  TokenCount,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -690,7 +689,7 @@ async function work(
 
   // A variant is exactly one kind, so nothing here turns on the order the
   // three failing kinds are checked in.
-  const { run, checkout } = returned;
+  const { outcome: run, checkout } = returned;
   if (run.kind === "limit-refused") {
     return {
       kind: "limit-refused",
@@ -708,7 +707,7 @@ async function work(
       selection.ticket,
       failure,
       modelRefusalComment(selection.ticket, failure, run, discard),
-      run,
+      { run },
     );
   }
   if (run.kind === "finished") {
@@ -730,7 +729,7 @@ async function work(
     selection.ticket,
     failure,
     handbackComment(failure, run, discard),
-    run,
+    { run },
   );
 }
 
@@ -766,6 +765,7 @@ async function handOver(
     return {
       kind: "finished",
       run,
+      tokensUsed: run.tokensUsed,
       ...(handbackFailure !== undefined && { handbackFailure }),
     };
   }
@@ -820,6 +820,7 @@ async function handOver(
   return {
     kind: "finished",
     run,
+    tokensUsed: run.tokensUsed,
     handover: { pullRequest, reviewTicket },
     ...(handbackFailure !== undefined && { handbackFailure }),
   };
@@ -848,7 +849,7 @@ async function handoverFailed(
     ticket,
     failure,
     handoverFailureComment(failure),
-    run,
+    { run },
   );
 }
 
@@ -876,6 +877,13 @@ async function handFinishedTicketBack(
 }
 
 /**
+ * What a failed ticket's hand-back carries into `Failed`: an implementation
+ * run's own outcome, whose `tokensUsed` is taken as the spend too, or — for a
+ * review, which has no `RunOutcome` of its own — the spend directly.
+ */
+type Spend = { run: RunOutcome } | { tokensUsed: TokenCount };
+
+/**
  * Puts the ticket of a run that failed on the ticket's account — an agent
  * that gave up, or a model it could not use — back in the developer's hands
  * with `comment`, and says whether it got there.
@@ -888,13 +896,21 @@ async function handTicketBack(
   ticket: Ticket,
   failure: HandedBackFailure,
   comment: string,
-  run?: RunOutcome,
+  spend?: Spend,
 ): Promise<Failed> {
+  const run = spend !== undefined && "run" in spend ? spend.run : undefined;
+  const tokensUsed =
+    spend === undefined
+      ? undefined
+      : "run" in spend
+        ? spend.run.tokensUsed
+        : spend.tokensUsed;
   try {
     await ports.tracker.handBack(ticket, comment);
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
+      ...(tokensUsed !== undefined && { tokensUsed }),
       failure: { ...failure, handedBack: true },
     };
   } catch (error: unknown) {
@@ -904,6 +920,7 @@ async function handTicketBack(
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
+      ...(tokensUsed !== undefined && { tokensUsed }),
       failure: {
         ...failure,
         reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
@@ -938,15 +955,17 @@ async function discardBranch(
   }
 }
 
-/** A run the sandbox carried out, whatever the agent made of it. */
-interface Ran {
+/** What `runInSandbox` came back with, before its caller reads what kind of outcome it was. */
+interface SandboxResult<Outcome> {
   kind: "ran";
-  run: RunOutcome;
+  outcome: Outcome;
   checkout: Checkout;
 }
 
 /**
- * The run itself, and what it cost.
+ * The one step an implementation run and a review share: make the throwaway
+ * clone, run the sandbox, and record what it cost against the project —
+ * before either kind goes on to read what its own outcome came back as.
  *
  * The checkout comes from the repo host rather than from anything the loop
  * remembers, so a project whose clone has gone missing heals on the way into
@@ -957,37 +976,17 @@ interface Ran {
  * or tear itself down, and reports an agent that gave up as a result carrying
  * the `"gave-up"` variant.
  */
-async function attemptRun(
+async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
-  selection: Selection,
+  repo: RepoSlug,
   state: Map<RepoSlug, ProjectState>,
-  spendCeiling: Usd,
-  model: ResolvedModel | undefined,
-): Promise<Ran | Failed> {
-  const repo = selection.project.repo;
-
+  sandboxCall: (checkout: Checkout) => Promise<Outcome>,
+): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
-  let run: RunOutcome;
+  let outcome: Outcome;
   try {
     checkout = await ports.repoHost.clone(repo);
-    // Built as two distinct calls rather than one call with `model` spread in
-    // conditionally: `Sandbox.run` is overloaded on whether `model` is
-    // present precisely so that a run given none can never come back with a
-    // model refusal, and only a call whose own argument is plainly one shape
-    // or the other resolves to the right overload.
-    run =
-      model === undefined
-        ? await ports.sandbox.run({
-            ticket: selection.ticket,
-            checkout,
-            spendCeiling,
-          })
-        : await ports.sandbox.run({
-            ticket: selection.ticket,
-            checkout,
-            spendCeiling,
-            model: model.name,
-          });
+    outcome = await sandboxCall(checkout);
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
     // token count — so there is nothing to record against the project, and no
@@ -998,11 +997,15 @@ async function attemptRun(
     return infrastructureFailure(error);
   }
 
-  const at = ports.clock.now();
-  const cost = { at, tokensUsed: run.tokensUsed };
-  state.set(repo, recordRun(state.get(repo), cost));
+  state.set(
+    repo,
+    recordRun(state.get(repo), {
+      at: ports.clock.now(),
+      tokensUsed: outcome.tokensUsed,
+    }),
+  );
 
-  return { kind: "ran", run, checkout };
+  return { kind: "ran", outcome, checkout };
 }
 
 /** A checkout or a sandbox that could not do its part, as the iteration it comes to. */
@@ -1011,6 +1014,33 @@ function infrastructureFailure(error: unknown): Failed {
     kind: "failed",
     failure: { kind: "infrastructure", reason: errorMessage(error) },
   };
+}
+
+/**
+ * An implementation run: works `selection`'s ticket in the sandbox, held to
+ * `spendCeiling` and started on `model` — or, given none, on whatever model
+ * the sandbox image itself is pinned to, which can never come back refused.
+ */
+async function attemptRun(
+  ports: MorningLoopPorts,
+  selection: Selection,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<SandboxResult<RunOutcome> | Failed> {
+  const { ticket } = selection;
+  const repo = selection.project.repo;
+
+  return runInSandbox(ports, repo, state, (checkout) =>
+    // Built as two distinct calls rather than one call with `model` spread in
+    // conditionally: `Sandbox.run` is overloaded on whether `model` is
+    // present precisely so that a run given none can never come back with a
+    // model refusal, and only a call whose own argument is plainly one shape
+    // or the other resolves to the right overload.
+    model === undefined
+      ? ports.sandbox.run({ ticket, checkout, spendCeiling })
+      : ports.sandbox.run({ ticket, checkout, spendCeiling, model: model.name }),
+  );
 }
 
 /**
@@ -1042,32 +1072,18 @@ async function runReview(
   model: ResolvedModel | undefined,
 ): Promise<Reviewed | LimitRefused | Failed> {
   const startedAt = ports.clock.now();
-  let review: ReviewOutcome;
-  try {
-    const checkout = await ports.repoHost.clone(repo);
+  const result = await runInSandbox(ports, repo, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
-    review =
-      model === undefined
-        ? await ports.sandbox.review({ ticket, checkout, spendCeiling })
-        : await ports.sandbox.review({
-            ticket,
-            checkout,
-            spendCeiling,
-            model: model.name,
-          });
-  } catch (error: unknown) {
-    return infrastructureFailure(error);
-  }
-
-  state.set(
-    repo,
-    recordRun(state.get(repo), {
-      at: ports.clock.now(),
-      tokensUsed: review.tokensUsed,
-    }),
+    model === undefined
+      ? ports.sandbox.review({ ticket, checkout, spendCeiling })
+      : ports.sandbox.review({ ticket, checkout, spendCeiling, model: model.name }),
   );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: review } = result;
 
   if (review.kind === "limit-refused") {
     return {
@@ -1081,15 +1097,13 @@ async function runReview(
   // ticket's is: every later morning would refuse the same model the same way.
   if (review.kind === "model-refused") {
     const failure = modelRefused(ticket, review.refusal);
-    return {
-      ...(await handTicketBack(
-        ports,
-        ticket,
-        failure,
-        modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      )),
-      tokensUsed: review.tokensUsed,
-    };
+    return handTicketBack(
+      ports,
+      ticket,
+      failure,
+      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      { tokensUsed: review.tokensUsed },
+    );
   }
 
   if (review.kind === "gave-up") {
@@ -1106,6 +1120,7 @@ async function runReview(
     return {
       kind: "reviewed",
       review,
+      tokensUsed: review.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
   }
@@ -1124,10 +1139,11 @@ async function runReview(
     return {
       kind: "reviewed",
       review,
+      tokensUsed: review.tokensUsed,
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
-  return { kind: "reviewed", review };
+  return { kind: "reviewed", review, tokensUsed: review.tokensUsed };
 }
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */
@@ -1138,15 +1154,13 @@ async function handReviewBack(
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
-  return {
-    ...(await handTicketBack(
-      ports,
-      ticket,
-      failure,
-      reviewHandbackComment(failure, review),
-    )),
-    tokensUsed: review.tokensUsed,
-  };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    reviewHandbackComment(failure, review),
+    { tokensUsed: review.tokensUsed },
+  );
 }
 
 /**
@@ -1179,40 +1193,35 @@ async function runApplyReview(
 ): Promise<AppliedReview | LimitRefused | Failed> {
   const pullRequest = ticket.pullRequest.url;
   const startedAt = ports.clock.now();
-  let run: ApplyReviewOutcome;
+  let before: ApplyReviewAnswers;
   try {
-    const before = await ports.repoHost.readApplyReviewAnswers(
+    before = await ports.repoHost.readApplyReviewAnswers(
       pullRequest,
       startedAt,
     );
-    if (before.unanswered === 0) {
-      return await finishApplyReview(ports, ticket, {
-        kind: "applied-review",
-      });
-    }
-    const checkout = await ports.repoHost.clone(repo);
-    // As `attemptRun`: two distinct calls so each resolves the overload that
-    // actually matches.
-    run =
-      model === undefined
-        ? await ports.sandbox.applyReview({ ticket, checkout, spendCeiling })
-        : await ports.sandbox.applyReview({
-            ticket,
-            checkout,
-            spendCeiling,
-            model: model.name,
-          });
   } catch (error: unknown) {
     return infrastructureFailure(error);
   }
+  if (before.unanswered === 0) {
+    return finishApplyReview(ports, ticket, { kind: "applied-review" });
+  }
 
-  state.set(
-    repo,
-    recordRun(state.get(repo), {
-      at: ports.clock.now(),
-      tokensUsed: run.tokensUsed,
-    }),
+  const result = await runInSandbox(ports, repo, state, (checkout) =>
+    // As `attemptRun`: two distinct calls so each resolves the overload that
+    // actually matches.
+    model === undefined
+      ? ports.sandbox.applyReview({ ticket, checkout, spendCeiling })
+      : ports.sandbox.applyReview({
+          ticket,
+          checkout,
+          spendCeiling,
+          model: model.name,
+        }),
   );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: run } = result;
 
   if (run.kind === "limit-refused") {
     return {
@@ -1224,15 +1233,13 @@ async function runApplyReview(
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(ticket, run.refusal);
-    return {
-      ...(await handTicketBack(
-        ports,
-        ticket,
-        failure,
-        modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      )),
-      tokensUsed: run.tokensUsed,
-    };
+    return handTicketBack(
+      ports,
+      ticket,
+      failure,
+      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      { tokensUsed: run.tokensUsed },
+    );
   }
   if (run.kind === "gave-up") {
     return handApplyReviewBack(ports, ticket, run, run.reason);
@@ -1248,6 +1255,7 @@ async function runApplyReview(
     return {
       kind: "applied-review",
       review: run,
+      tokensUsed: run.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
   }
@@ -1265,6 +1273,7 @@ async function runApplyReview(
   return finishApplyReview(ports, ticket, {
     kind: "applied-review",
     review: run,
+    tokensUsed: run.tokensUsed,
     answers: { applied: answers.appliedSince, declined: answers.declinedSince },
   });
 }
@@ -1310,13 +1319,11 @@ async function handApplyReviewBack(
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
-  return {
-    ...(await handTicketBack(
-      ports,
-      ticket,
-      failure,
-      applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
-    )),
-    tokensUsed: run.tokensUsed,
-  };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
+    { tokensUsed: run.tokensUsed },
+  );
 }

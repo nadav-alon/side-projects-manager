@@ -151,6 +151,7 @@ export interface LimitRefused {
   kind: "limit-refused";
   /** What the provider said. */
   limitRefusal: string;
+  /** What ran spent before the provider refused. Always set — a limit refusal has spent. */
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
@@ -162,6 +163,11 @@ export interface LimitRefused {
 export interface Finished {
   kind: "finished";
   run: RunFinished;
+  /**
+   * What the run spent. Always equal to `run.tokensUsed` — duplicated here so
+   * `costOf` reads one field without telling a run and a review apart.
+   */
+  tokensUsed: TokenCount;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
@@ -192,7 +198,13 @@ export interface Failed {
   failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: RunOutcome;
-  /** What a review that ran spent, since it has no `run`. */
+  /**
+   * What ran spent, carried the same way whether it was a run's failure or a
+   * review's — so the summary reads it without telling the two apart. Absent
+   * when model labels named no run to start, and for an infrastructure
+   * failure — including one where the sandbox rejected after the agent had
+   * already spent something, a gap `TODO[#35]` still owns.
+   */
   tokensUsed?: TokenCount;
 }
 
@@ -225,6 +237,11 @@ export interface Reviewed {
   kind: "reviewed";
   review: ReviewFinished;
   /**
+   * What the review spent. Always equal to `review.tokensUsed` — duplicated
+   * here for the same reason as `Finished.tokensUsed`.
+   */
+  tokensUsed: TokenCount;
+  /**
    * Set when the loop could not finish the ticket off: the pull request could
    * not be checked for the posted comment, or the ticket could not be closed.
    * Either way it is still ready-for-agent, and the developer checks the pull
@@ -251,6 +268,8 @@ export interface AppliedReview {
   kind: "applied-review";
   /** The run. Absent when no thread was open to answer, so nothing ran. */
   review?: ReviewFinished;
+  /** As `Failed.tokensUsed`: absent exactly when `review` is, nothing having run. */
+  tokensUsed?: TokenCount;
   /**
    * The replies the run posted, by verdict. Absent when nothing ran, and when
    * they could not be read — `notClosed` says so.
