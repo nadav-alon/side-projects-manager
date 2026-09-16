@@ -583,15 +583,17 @@ function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
  *
  * A review's own thread has no comments of its own on GitHub — its reply is
  * posted as one of the pull request's comments (`gh pr comment`, per the
- * skill) — so its thread is built from the review's body followed by the
- * marked reply matched to it.
+ * skill) — so each review body's thread is built from the pull request's
+ * comments, taken in posting order, each joining only reviews submitted
+ * before it:
  *
- * Reviews are taken oldest first, and each claims the earliest marked pull
- * request comment posted after it that no earlier review has already
- * claimed. Matched by the marker and posting order — not by re-deriving the
- * reviewer's prose from the reply's opening quote, which the skill is free to
- * abridge, reword, or reflow — so one marked reply always answers exactly one
- * review body, whatever it quotes.
+ * - A marked reply answers the oldest review still awaiting a reply. With
+ *   none awaiting, it joins the newest review, so its verdict still counts.
+ *   The skill is free to abridge, reword or reflow the quote a reply opens
+ *   with, so nothing here reads that quote: one marked reply answers one
+ *   review body, whatever it quotes.
+ * - Any other comment joins each review it opens quoting, so a reviewer
+ *   quoting a review body to ask again reopens that review's thread.
  */
 function applyReviewThreadsFrom(
   pullRequest: RawApplyReviewPullRequest,
@@ -605,41 +607,73 @@ function applyReviewThreadsFrom(
     });
   }
 
-  const markedReplies = commentsFrom(pullRequest.comments)
-    .filter((comment) => isMarkedReply(comment.body))
-    .sort((a, b) => a.postedAt.getTime() - b.postedAt.getTime());
-
   const reviews = pullRequest.reviews
     .filter(
       (review) => review.body.trim() !== "" && review.submittedAt !== null,
     )
-    .map((review) => ({
-      body: review.body,
-      submittedAt: new Date(review.submittedAt as string),
-    }))
+    .map((review) => {
+      const submittedAt = new Date(review.submittedAt as string);
+      return {
+        body: review.body,
+        submittedAt,
+        comments: [{ body: review.body, postedAt: submittedAt }],
+      };
+    })
     .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
 
-  let nextReply = 0;
+  const comments = commentsFrom(pullRequest.comments).sort(
+    (a, b) => a.postedAt.getTime() - b.postedAt.getTime(),
+  );
+
+  for (const comment of comments) {
+    const earlier = reviews.filter(
+      (review) => review.submittedAt < comment.postedAt,
+    );
+    if (isMarkedReply(comment.body)) {
+      const answered =
+        earlier.find((review) => awaitsReply(review.comments)) ??
+        earlier.at(-1);
+      answered?.comments.push(comment);
+    } else {
+      for (const review of earlier) {
+        if (opensQuoting(comment.body, review.body)) {
+          review.comments.push(comment);
+        }
+      }
+    }
+  }
+
   for (const review of reviews) {
-    const comments: ApplyReviewComment[] = [
-      { body: review.body, postedAt: review.submittedAt },
-    ];
-    let candidate = markedReplies[nextReply];
-    while (
-      candidate !== undefined &&
-      candidate.postedAt <= review.submittedAt
-    ) {
-      nextReply++;
-      candidate = markedReplies[nextReply];
-    }
-    if (candidate !== undefined) {
-      comments.push(candidate);
-      nextReply++;
-    }
-    threads.push({ resolved: false, comments });
+    threads.push({ resolved: false, comments: review.comments });
   }
 
   return threads;
+}
+
+/** Whether a thread's last comment is anything but a marked reply. */
+function awaitsReply(comments: ApplyReviewComment[]): boolean {
+  const last = comments.at(-1);
+  return last === undefined || !isMarkedReply(last.body);
+}
+
+/**
+ * Whether `comment` opens with a quote of a passage from `review`: how a
+ * comment that is not a marked reply names the review body it speaks to. A
+ * comment quoting nothing — a status comment, someone chiming in — belongs to
+ * no review's thread.
+ */
+function opensQuoting(comment: string, review: string): boolean {
+  const quoted: string[] = [];
+  for (const line of comment.split("\n")) {
+    if (!line.startsWith(">")) {
+      break;
+    }
+    const text = line.replace(/^>\s?/, "").trim();
+    if (text !== "") {
+      quoted.push(text);
+    }
+  }
+  return quoted.length > 0 && quoted.every((text) => review.includes(text));
 }
 
 /**

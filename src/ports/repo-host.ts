@@ -47,7 +47,7 @@ export interface ApplyReviewComment {
 
 /**
  * One thread's comments, oldest first: a review thread's, or a review's
- * non-empty body followed by the pull request comments that quote it — the
+ * non-empty body followed by the pull request comments that speak to it — the
  * two kinds of thread the apply-pr-review skill answers.
  *
  * `resolved` threads are no longer open, so none of them is unanswered; but

@@ -899,6 +899,7 @@ describe("reading a pull request's apply-review answers", () => {
   const SINCE = new Date("2026-09-15T00:00:00Z");
 
   const BEFORE = "2026-09-14T00:00:00Z";
+  const BEFORE_SINCE = "2026-09-14T12:00:00Z";
   const AFTER = "2026-09-15T01:00:00Z";
   const LATER = "2026-09-15T02:00:00Z";
 
@@ -981,7 +982,34 @@ describe("reading a pull request's apply-review answers", () => {
     assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 1 });
   });
 
-  it("answers a review body's thread with a marked reply that opens with no quote at all, and an unmarked comment after it does not reopen the thread", async (t) => {
+  it("answers a review body's thread with a marked reply that opens with no quote at all", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [marked("Applied in abc123: renamed it")],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("reopens a review body's thread when a later unmarked comment quotes it", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it"),
+          { body: "> Rename the helper.\n\nStill the old name.", createdAt: LATER },
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 1 });
+  });
+
+  it("does not let a later comment quoting no review reopen a review body's thread", async (t) => {
     const answers = await answersTo(
       t,
       response({
@@ -994,6 +1022,37 @@ describe("reading a pull request's apply-review answers", () => {
     );
 
     assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("answers a reopened review body's thread with the next marked reply", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it", BEFORE_SINCE),
+          { body: "> Rename the helper.\n\nStill the old name.", createdAt: AFTER },
+          marked("Applied in def456: renamed the export too", LATER),
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("counts a marked reply posted after every review body already has one", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it", BEFORE_SINCE),
+          marked("Declined: the export keeps its name", AFTER),
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 0 });
   });
 
   it("does not let a marked reply posted before the review body answer it", async (t) => {
