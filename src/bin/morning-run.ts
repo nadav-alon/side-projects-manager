@@ -3,6 +3,11 @@ import { containerSandbox } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
+import {
+  CHECKOUT_ROOT,
+  readImageLabels,
+  staleImageWarning,
+} from "../adapters/sandbox-image.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
@@ -43,6 +48,16 @@ async function main(): Promise<void> {
   // summary to publish.
   for (const stream of [process.stdout, process.stderr]) {
     stream.on("error", () => {});
+  }
+
+  // Before the loop rather than inside a run: a stale image fails every run it
+  // starts, and whoever is watching should hear why before the first one.
+  const staleImage = await staleImageWarning(
+    CHECKOUT_ROOT,
+    await readImageLabels(),
+  );
+  if (staleImage !== undefined) {
+    console.log(staleImage);
   }
 
   const report = await morningLoop(

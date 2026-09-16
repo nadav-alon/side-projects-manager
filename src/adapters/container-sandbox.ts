@@ -47,11 +47,9 @@ import {
   unreserveBranch,
 } from "./branch-reservations.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { IMAGE } from "./sandbox-image.ts";
 
 const run = promisify(execFile);
-
-/** The image the harness is baked into, as `npm run sandbox:build` tags it. */
-const IMAGE = "side-projects-sandbox:latest";
 
 /**
  * How much of the agent's output to hold in memory. A full implementation run
