@@ -132,6 +132,68 @@ function verdictOf(body: string): "applied" | "declined" | undefined {
 }
 
 /**
+ * What a pull request's mergeability currently reads as. GitHub computes it
+ * lazily: a pull request just opened, or just pushed to, answers `"unknown"`
+ * until it has finished, and only `"conflicting"` or `"clean"` is a settled
+ * answer.
+ */
+export type MergeStatus = "conflicting" | "clean" | "unknown";
+
+/**
+ * How many times {@link resolveNeedsRebase} asks again after an `"unknown"`
+ * read before it gives up. Bounded rather than unbounded, so a pull request
+ * whose mergeability never finishes computing fails loudly instead of
+ * hanging the caller.
+ */
+export const REBASE_STATUS_RETRIES = 5;
+
+/**
+ * Thrown by {@link resolveNeedsRebase} when `read` never settles past
+ * `"unknown"` within {@link REBASE_STATUS_RETRIES} tries.
+ *
+ * Carries `pullRequest` and `lastStatus` because the caller has nothing else
+ * to say why: a rebase ticket that cannot get a settled answer needs both to
+ * report back to the developer.
+ */
+export class MergeabilityUnknown extends Error {
+  override name = "MergeabilityUnknown";
+  readonly pullRequest: PullRequestUrl;
+  readonly lastStatus: MergeStatus;
+
+  constructor(pullRequest: PullRequestUrl, lastStatus: MergeStatus) {
+    super(
+      `${pullRequest}: still "${lastStatus}" after ${REBASE_STATUS_RETRIES} tries. GitHub never finished computing mergeability.`,
+    );
+    this.pullRequest = pullRequest;
+    this.lastStatus = lastStatus;
+  }
+}
+
+/**
+ * Whether a pull request needs a rebase, read repeatedly through `read` until
+ * it settles.
+ *
+ * `read` is called again on `"unknown"`, up to {@link REBASE_STATUS_RETRIES}
+ * times, so neither adapter has to write this loop for itself. An `"unknown"`
+ * that never settles throws {@link MergeabilityUnknown} rather than resolving:
+ * mistaking it for `false` would close a rebase ticket on a branch that still
+ * conflicts.
+ */
+export async function resolveNeedsRebase(
+  pullRequest: PullRequestUrl,
+  read: () => Promise<MergeStatus>,
+): Promise<boolean> {
+  let last: MergeStatus = "unknown";
+  for (let attempt = 0; attempt < REBASE_STATUS_RETRIES; attempt++) {
+    last = await read();
+    if (last !== "unknown") {
+      return last === "conflicting";
+    }
+  }
+  throw new MergeabilityUnknown(pullRequest, last);
+}
+
+/**
  * What proposing the scaffold to a project that predates the manager came to.
  *
  * A proposal has three ends and the command reports all of them, because the
@@ -292,4 +354,11 @@ export interface RepoHost {
    * pull request was still a draft by then.
    */
   markPullRequestReady(pullRequest: PullRequestUrl): Promise<void>;
+  /**
+   * Whether `pullRequest`'s branch needs a rebase onto its base branch.
+   *
+   * What a rebase ticket's run reads back rather than takes on its own say-so:
+   * see {@link resolveNeedsRebase} for how an unsettled `"unknown"` is handled.
+   */
+  needsRebase(pullRequest: PullRequestUrl): Promise<boolean>;
 }

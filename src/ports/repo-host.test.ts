@@ -5,10 +5,15 @@ import {
   APPLIED_REPLY_PREFIX,
   APPLY_REVIEW_MARKER,
   DECLINED_REPLY_PREFIX,
+  MergeabilityUnknown,
+  REBASE_STATUS_RETRIES,
+  resolveNeedsRebase,
   summarizeApplyReviewThreads,
   type ApplyReviewComment,
   type ApplyReviewThread,
+  type MergeStatus,
 } from "./repo-host.ts";
+import { pullRequestUrl } from "./pull-request-url.ts";
 
 const SINCE = new Date("2026-09-15T00:00:00Z");
 const AFTER = new Date("2026-09-15T01:00:00Z");
@@ -118,5 +123,67 @@ describe("summarizeApplyReviewThreads", () => {
     const answers = summarizeApplyReviewThreads([applied("abc123: old pass", BEFORE)], SINCE);
 
     assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 0 });
+  });
+});
+
+describe("resolveNeedsRebase", () => {
+  const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
+
+  /** A `read` that answers `statuses` in order, then repeats the last. */
+  function reading(...statuses: MergeStatus[]): () => Promise<MergeStatus> {
+    let calls = 0;
+    return async () => statuses[Math.min(calls++, statuses.length - 1)]!;
+  }
+
+  it("says a conflicting pull request needs a rebase", async () => {
+    const needsRebase = await resolveNeedsRebase(PULL_REQUEST, reading("conflicting"));
+
+    assert.equal(needsRebase, true);
+  });
+
+  it("says a clean pull request does not need a rebase", async () => {
+    const needsRebase = await resolveNeedsRebase(PULL_REQUEST, reading("clean"));
+
+    assert.equal(needsRebase, false);
+  });
+
+  it("retries an unknown read until it settles, rather than answering on the first try", async () => {
+    const needsRebase = await resolveNeedsRebase(
+      PULL_REQUEST,
+      reading("unknown", "unknown", "conflicting"),
+    );
+
+    assert.equal(needsRebase, true);
+  });
+
+  it("never answers false for a read that stays unknown", async () => {
+    await assert.rejects(
+      resolveNeedsRebase(PULL_REQUEST, reading("unknown")),
+      MergeabilityUnknown,
+    );
+  });
+
+  it("throws carrying the pull request and what the host last said, once retries are exhausted", async () => {
+    await assert.rejects(
+      resolveNeedsRebase(PULL_REQUEST, reading("unknown")),
+      (error: unknown) => {
+        assert.ok(error instanceof MergeabilityUnknown);
+        assert.equal(error.pullRequest, PULL_REQUEST);
+        assert.equal(error.lastStatus, "unknown");
+        return true;
+      },
+    );
+  });
+
+  it("stops retrying after the bounded number of tries", async () => {
+    let calls = 0;
+    const read = async (): Promise<MergeStatus> => {
+      calls++;
+      return "unknown";
+    };
+
+    await assert.rejects(resolveNeedsRebase(PULL_REQUEST, read));
+
+    assert.equal(calls, REBASE_STATUS_RETRIES);
   });
 });

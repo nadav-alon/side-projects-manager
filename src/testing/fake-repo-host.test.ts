@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { pullRequestUrl } from "../ports/index.ts";
+import { MergeabilityUnknown, pullRequestUrl, type MergeStatus } from "../ports/index.ts";
 import { FakeRepoHost } from "./fake-repo-host.ts";
 
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
@@ -49,5 +49,39 @@ describe("FakeRepoHost apply-review answers", () => {
     await host.markPullRequestReady(PULL_REQUEST);
 
     assert.deepEqual(host.readyMarked, [PULL_REQUEST]);
+  });
+});
+
+describe("FakeRepoHost needsRebase", () => {
+  it("says a clean pull request does not need a rebase, by default", async () => {
+    const host = new FakeRepoHost();
+
+    assert.equal(await host.needsRebase(PULL_REQUEST), false);
+  });
+
+  it("says a conflicting pull request needs a rebase", async () => {
+    const host = new FakeRepoHost();
+    host.mergeStatus = () => "conflicting";
+
+    assert.equal(await host.needsRebase(PULL_REQUEST), true);
+  });
+
+  it("retries a pull request that answers unknown before it settles", async () => {
+    const host = new FakeRepoHost();
+    const answers: MergeStatus[] = ["unknown", "unknown", "conflicting"];
+    host.mergeStatus = () => answers.shift() ?? "conflicting";
+
+    assert.equal(await host.needsRebase(PULL_REQUEST), true);
+  });
+
+  it("throws, naming the pull request, once an unknown pull request exhausts its retries", async () => {
+    const host = new FakeRepoHost();
+    host.mergeStatus = () => "unknown";
+
+    await assert.rejects(host.needsRebase(PULL_REQUEST), (error: unknown) => {
+      assert.ok(error instanceof MergeabilityUnknown);
+      assert.equal(error.pullRequest, PULL_REQUEST);
+      return true;
+    });
   });
 });
