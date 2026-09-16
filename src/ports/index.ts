@@ -63,6 +63,7 @@ export {
   APPLIED_REPLY_PREFIX,
   APPLY_REVIEW_MARKER,
   DECLINED_REPLY_PREFIX,
+  isMarkedReply,
   MergeabilityUnknown,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,

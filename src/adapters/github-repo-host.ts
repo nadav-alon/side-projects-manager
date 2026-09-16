@@ -22,6 +22,7 @@ import type {
 } from "../ports/index.ts";
 import {
   checkout,
+  isMarkedReply,
   isPullRequestUrl,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
@@ -582,14 +583,21 @@ function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
  *
  * A review's own thread has no comments of its own on GitHub — its reply is
  * posted as one of the pull request's comments (`gh pr comment`, per the
- * skill) — so its thread is built from the review's body followed by every
- * later pull request comment that opens quoting it.
+ * skill) — so each review body's thread is built from the pull request's
+ * comments, taken in posting order, each joining only reviews submitted
+ * before it:
+ *
+ * - A marked reply answers the oldest review still awaiting a reply. With
+ *   none awaiting, it joins the newest review, so its verdict still counts.
+ *   The skill is free to abridge, reword or reflow the quote a reply opens
+ *   with, so nothing here reads that quote: one marked reply answers one
+ *   review body, whatever it quotes.
+ * - Any other comment joins each review it opens quoting, so a reviewer
+ *   quoting a review body to ask again reopens that review's thread.
  */
 function applyReviewThreadsFrom(
   pullRequest: RawApplyReviewPullRequest,
 ): ApplyReviewThread[] {
-  const pullRequestComments = commentsFrom(pullRequest.comments);
-
   const threads: ApplyReviewThread[] = [];
 
   for (const thread of pullRequest.reviewThreads) {
@@ -599,32 +607,62 @@ function applyReviewThreadsFrom(
     });
   }
 
-  for (const review of pullRequest.reviews) {
-    if (review.body.trim() === "" || review.submittedAt === null) {
-      continue;
+  const reviews = pullRequest.reviews
+    .flatMap((review) => {
+      if (review.body.trim() === "" || review.submittedAt === null) {
+        return [];
+      }
+      const submittedAt = new Date(review.submittedAt);
+      return [
+        {
+          body: review.body,
+          submittedAt,
+          comments: [{ body: review.body, postedAt: submittedAt }],
+        },
+      ];
+    })
+    .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+
+  const comments = commentsFrom(pullRequest.comments).sort(
+    (a, b) => a.postedAt.getTime() - b.postedAt.getTime(),
+  );
+
+  for (const comment of comments) {
+    const earlier = reviews.filter(
+      (review) => review.submittedAt < comment.postedAt,
+    );
+    if (isMarkedReply(comment.body)) {
+      const answered =
+        earlier.find((review) => awaitsReply(review.comments)) ??
+        earlier.at(-1);
+      answered?.comments.push(comment);
+    } else {
+      for (const review of earlier) {
+        if (opensQuoting(comment.body, review.body)) {
+          review.comments.push(comment);
+        }
+      }
     }
-    const submittedAt = new Date(review.submittedAt);
-    const body = review.body;
-    threads.push({
-      resolved: false,
-      comments: [
-        { body, postedAt: submittedAt },
-        ...pullRequestComments.filter(
-          (comment) =>
-            comment.postedAt > submittedAt && opensQuoting(comment.body, body),
-        ),
-      ],
-    });
+  }
+
+  for (const review of reviews) {
+    threads.push({ resolved: false, comments: review.comments });
   }
 
   return threads;
 }
 
+/** Whether a thread's last comment is anything but a marked reply. */
+function awaitsReply(comments: ApplyReviewComment[]): boolean {
+  const last = comments.at(-1);
+  return last === undefined || !isMarkedReply(last.body);
+}
+
 /**
- * Whether `comment` opens with a quote of a passage from `review`: the one
- * link the skill leaves from a pull request comment back to the review body it
- * answers. A comment quoting nothing — a status comment, someone chiming in —
- * belongs to no review's thread.
+ * Whether `comment` opens with a quote of a passage from `review`: how a
+ * comment that is not a marked reply names the review body it speaks to. A
+ * comment quoting nothing — a status comment, someone chiming in — belongs to
+ * no review's thread.
  */
 function opensQuoting(comment: string, review: string): boolean {
   const quoted: string[] = [];

@@ -899,6 +899,7 @@ describe("reading a pull request's apply-review answers", () => {
   const SINCE = new Date("2026-09-15T00:00:00Z");
 
   const BEFORE = "2026-09-14T00:00:00Z";
+  const BEFORE_SINCE = "2026-09-14T12:00:00Z";
   const AFTER = "2026-09-15T01:00:00Z";
   const LATER = "2026-09-15T02:00:00Z";
 
@@ -965,7 +966,7 @@ describe("reading a pull request's apply-review answers", () => {
     assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 1 });
   });
 
-  it("ties a reply to the review body it quotes, not to every review", async (t) => {
+  it("does not let one marked reply answer two review bodies", async (t) => {
     const answers = await answersTo(
       t,
       response({
@@ -974,22 +975,123 @@ describe("reading a pull request's apply-review answers", () => {
           { body: "Rename the helper.", submittedAt: BEFORE },
           { body: "Add a test for the draft case.", submittedAt: BEFORE },
         ],
-        comments: [marked("> Rename the helper.\n\nDeclined: out of scope")],
+        comments: [marked("Declined: out of scope")],
       }),
     );
 
     assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 1 });
   });
 
-  it("reads a comment quoting no review as neither answering nor reopening one", async (t) => {
+  it("answers a review body's thread with a marked reply that opens with no quote at all", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [marked("Applied in abc123: renamed it")],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("reopens a review body's thread when a later unmarked comment quotes it", async (t) => {
     const answers = await answersTo(
       t,
       response({
         reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
         comments: [
-          marked("> Rename the helper.\n\nApplied in abc123: renamed it"),
+          marked("Applied in abc123: renamed it"),
+          { body: "> Rename the helper.\n\nStill the old name.", createdAt: LATER },
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 1 });
+  });
+
+  it("does not let a later comment quoting no review reopen a review body's thread", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it"),
           { body: "The morning loop finished this ticket.", createdAt: LATER },
         ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("answers a reopened review body's thread with the next marked reply", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it", BEFORE_SINCE),
+          { body: "> Rename the helper.\n\nStill the old name.", createdAt: AFTER },
+          marked("Applied in def456: renamed the export too", LATER),
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("counts a marked reply posted after every review body already has one", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it", BEFORE_SINCE),
+          marked("Declined: the export keeps its name", AFTER),
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 0 });
+  });
+
+  it("does not let a marked reply posted before the review body answer it", async (t) => {
+    const beforeReview = "2026-09-15T00:30:00Z";
+
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: AFTER }],
+        comments: [marked("Applied in abc123: unrelated work", beforeReview)],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 1 });
+  });
+
+  it("answers a review body's thread with a reply that abridges its quote", async (t) => {
+    // A review body and the skill's reply to it, as posted on pull request 195.
+    const reviewBody = [
+      "Two-axis review (standards + spec against #123). Three findings: two are inline, one is here because the line it concerns isn't in the diff.",
+      "",
+      '**Spec, acceptance criterion 4 — `CONTEXT.md:158`, untouched by this PR.** The criterion is "No other entry still says the loop works one iteration or one project at a time." **Infrastructure failure** still ends:',
+      "",
+      "> The invocation carries on to its next iteration.",
+      "",
+      'That\'s the serial reading. With a concurrency limit above 1 the other iterations were never stopped, so there is no "next" one to carry on to — what the entry means is that the invocation doesn\'t stand down. `The invocation carries on.` would say it, and is the wording **Handover** (line 202) already uses.',
+    ].join("\n");
+
+    const reply = [
+      "> **Spec, acceptance criterion 4 — `CONTEXT.md:158`, untouched by this PR.** [...] `The invocation carries on.` would say it, and is the wording **Handover** (line 202) already uses.",
+      "",
+      'Applied in 248689b: changed Infrastructure failure\'s closing sentence from "The invocation carries on to its next iteration." to "The invocation carries on.", matching Handover\'s wording. Agreed this was in scope of AC4 even though the line wasn\'t touched by the original diff.',
+    ].join("\n");
+
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: reviewBody, submittedAt: BEFORE }],
+        comments: [marked(reply)],
       }),
     );
 
