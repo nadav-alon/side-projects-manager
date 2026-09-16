@@ -1,3 +1,4 @@
+import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -144,7 +145,7 @@ export interface PullRequestBinding {
 export interface Ticket {
   /** The project the ticket lives in. */
   repo: RepoSlug;
-  number: number;
+  number: IssueNumber;
   title: string;
   pullRequest?: PullRequestBinding;
   openSubIssues?: number;
@@ -235,8 +236,8 @@ export function discountPullRequestTickets(
 export interface OpenIssue {
   ticket: Ticket;
   eligible: boolean;
-  parent?: number;
-  openBlockerNumbers: readonly number[];
+  parent?: IssueNumber;
+  openBlockerNumbers: readonly IssueNumber[];
 }
 
 /**
@@ -282,10 +283,10 @@ export function backlogIn(open: OpenIssues): Backlog {
  */
 export function ticketPrioritiesIn(
   open: OpenIssues,
-): ReadonlyMap<number, TicketPriority> {
-  const passesTo = new Map<number, number[]>();
+): ReadonlyMap<IssueNumber, TicketPriority> {
+  const passesTo = new Map<IssueNumber, IssueNumber[]>();
   const read = new Set(open.issues.map((issue) => issue.ticket.number));
-  const edge = (from: number, to: number) => {
+  const edge = (from: IssueNumber, to: IssueNumber) => {
     if (read.has(from) && read.has(to)) {
       const tos = passesTo.get(from) ?? [];
       tos.push(to);
@@ -306,7 +307,7 @@ export function ticketPrioritiesIn(
       priority === undefined ? [] : [{ number, priority }],
     )
     .sort((a, b) => a.priority - b.priority);
-  const priorities = new Map<number, TicketPriority>();
+  const priorities = new Map<IssueNumber, TicketPriority>();
   for (const { number, priority } of labelled) {
     if (priorities.has(number)) {
       continue;

@@ -12,6 +12,7 @@ import {
   APPLY_REVIEW_MARKER,
   branch as toBranch,
   checkout as toCheckout,
+  issueNumber,
   pullRequestUrl,
   repoSlug,
   type Checkout,
@@ -433,7 +434,7 @@ describe("finding the checkout", () => {
 describe("opening a draft pull request for a completed run", () => {
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 

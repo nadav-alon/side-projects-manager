@@ -23,6 +23,7 @@ import {
   branch,
   checkout,
   commitSha,
+  issueNumber,
   modelName,
   pullRequestUrl,
   remoteUrl,
@@ -54,13 +55,13 @@ function variant<
 
 const TICKET: Ticket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 7,
+  number: issueNumber(7),
   title: "Run a ticket in the sandbox",
 };
 
 const REVIEW_TICKET: ReviewTicket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 42,
+  number: issueNumber(42),
   title: "Review the draft pull request for #7",
   pullRequest: {
     kind: "review",
@@ -697,7 +698,7 @@ describe("containerSandbox", () => {
     const runs = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.run({
-        ticket: { ...TICKET, number: 8, title: "Another" },
+        ticket: { ...TICKET, number: issueNumber(8), title: "Another" },
         checkout: directory,
         spendCeiling: CEILING,
       }),
@@ -1142,7 +1143,7 @@ describe("containerSandbox.review", () => {
 
 const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 43,
+  number: issueNumber(43),
   title: "Apply the review on the draft pull request for #7",
   pullRequest: {
     kind: "apply-review",

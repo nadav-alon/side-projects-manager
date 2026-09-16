@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
+  IssueNumber,
   IssueTracker,
   OpenIssues,
   PullRequestBinding,
@@ -17,6 +18,7 @@ import {
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
   discountPullRequestTickets,
+  isIssueNumber,
   isPullRequestUrl,
   isTicketPriority,
   modelLabelOf,
@@ -443,12 +445,18 @@ async function issueIdOf(ticket: Ticket): Promise<IssueId> {
 }
 
 /** `gh issue create` answers with the new issue's URL, and nothing else. */
-function issueNumberIn(stdout: string, repo: RepoSlug): number {
+function issueNumberIn(stdout: string, repo: RepoSlug): IssueNumber {
   const url = stdout.trim();
-  const number = Number(/\/issues\/(\d+)$/.exec(url)?.[1]);
-  if (!Number.isInteger(number)) {
+  const match = /\/issues\/(\d+)$/.exec(url);
+  if (match === null) {
     throw new Error(
       `gh issue create --repo ${repo}: expected the new issue's URL, got: ${url}`,
+    );
+  }
+  const number = Number(match[1]);
+  if (!isIssueNumber(number)) {
+    throw new Error(
+      `gh issue create --repo ${repo}: the new issue's URL named a number that is not a positive integer: ${url}`,
     );
   }
   return number;
@@ -497,7 +505,7 @@ interface RawSubIssuesSummary {
  * reports it, with each label reduced to its name.
  */
 interface RawIssue {
-  number: number;
+  number: IssueNumber;
   title: string;
   body: string;
   subIssuesSummary: RawSubIssuesSummary;
@@ -512,7 +520,7 @@ interface RawIssue {
  * the URL naming its repo are kept.
  */
 interface RawLinkedIssue {
-  number: number;
+  number: IssueNumber;
   url: string;
 }
 
@@ -546,7 +554,7 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     const { number, title, body, subIssuesSummary, blockedBy, parent, labels } =
       issue as Record<string, unknown>;
     return {
-      number: expectField(number, "number", "number", at),
+      number: expectIssueNumber(number, "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
@@ -567,7 +575,7 @@ function parseParent(value: unknown, at: string): RawLinkedIssue | null {
   }
   const { number, url } = value as Record<string, unknown>;
   return {
-    number: expectField(number, "number", "parent.number", at),
+    number: expectIssueNumber(number, "parent.number", at),
     url: expectField(url, "string", "parent.url", at),
   };
 }
@@ -608,7 +616,7 @@ function parseBlockedBy(value: unknown, at: string): RawBlocker[] {
     }
     const { number, state, url } = node as Record<string, unknown>;
     return {
-      number: expectField(number, "number", "blockedBy.nodes.number", at),
+      number: expectIssueNumber(number, "blockedBy.nodes.number", at),
       state: expectField(state, "string", "blockedBy.nodes.state", at),
       url: expectField(url, "string", "blockedBy.nodes.url", at),
     };
@@ -632,4 +640,23 @@ function parseSubIssuesSummary(
       at,
     ),
   };
+}
+
+/**
+ * `value`, as the issue number `field` names it at `at`: a positive integer.
+ * `gh` itself would never return anything else, but a tracker that did must
+ * be refused loudly rather than handed on as a `Ticket`.
+ */
+function expectIssueNumber(
+  value: unknown,
+  field: string,
+  at: string,
+): IssueNumber {
+  const number = expectField(value, "number", field, at);
+  if (!isIssueNumber(number)) {
+    throw new Error(
+      `${at}: "${field}" must be a positive integer, got ${number}.`,
+    );
+  }
+  return number;
 }

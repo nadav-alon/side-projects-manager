@@ -1,4 +1,5 @@
 import type {
+  IssueNumber,
   IssueTracker,
   Priority,
   ProjectState,
@@ -296,7 +297,7 @@ async function scan(
  */
 function bestTicket(
   backlog: Ticket[],
-  ticketPriorities: ReadonlyMap<number, TicketPriority>,
+  ticketPriorities: ReadonlyMap<IssueNumber, TicketPriority>,
 ): Ticket | undefined {
   return [...backlog].sort((a, b) =>
     compareTickets(a, b, ticketPriorities),
@@ -322,7 +323,7 @@ function compareKinds(a: TicketKind, b: TicketKind): number {
 function compareTickets(
   a: Ticket,
   b: Ticket,
-  ticketPriorities: ReadonlyMap<number, TicketPriority>,
+  ticketPriorities: ReadonlyMap<IssueNumber, TicketPriority>,
 ): number {
   const kind = ticketKind(a);
   const kindOrder = compareKinds(kind, ticketKind(b));

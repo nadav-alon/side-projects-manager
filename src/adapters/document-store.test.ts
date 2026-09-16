@@ -8,6 +8,7 @@ import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
   day,
+  issueNumber,
   modelName,
   priority,
   repoSlug,
@@ -723,8 +724,8 @@ describe("the state document", () => {
       workedToday: {
         day: day("2026-01-01"),
         tickets: [
-          { repo: PILOT, number: 7 },
-          { repo: MANAGER, number: 12 },
+          { repo: PILOT, number: issueNumber(7) },
+          { repo: MANAGER, number: issueNumber(12) },
         ],
       },
     };

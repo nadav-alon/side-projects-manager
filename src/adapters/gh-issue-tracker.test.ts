@@ -10,6 +10,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isBrokenOut,
+  issueNumber,
   modelLabelOf,
   modelName,
   pullRequestUrl,
@@ -95,7 +96,7 @@ describe("ghIssueTracker", () => {
     // Excluded by state, included whatever its labels: checked against the
     // fixtures found above rather than a JS reimplementation of the adapter's
     // own filter.
-    assert.ok(!numbers.includes(closedButLabelled.number));
+    assert.ok(!numbers.includes(issueNumber(closedButLabelled.number)));
     const unlabelled = issues.find(
       (issue) => issue.ticket.number === openButUnlabelled.number,
     );
@@ -324,7 +325,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
 
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -560,6 +561,18 @@ describe("ghIssueTracker.createReviewTicket", () => {
     );
   });
 
+  it("rejects a new issue's URL naming a number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      `echo https://github.com/nadav-alon/pilot/issues/0`,
+    );
+
+    await assert.rejects(
+      ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
+      /named a number that is not a positive integer/,
+    );
+  });
+
   it("says so when linking fails after the review was opened", async (t) => {
     const gh = await recordingGh(
       t,
@@ -596,7 +609,7 @@ describe("ghIssueTracker.handBack", () => {
 
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -803,6 +816,14 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
 
     assert.equal(listed[0]?.eligible, true);
   });
+
+  it("rejects an issue number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(t, listing([{ number: 0, title: "Add the thing" }]));
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"number" must be a positive integer, got 0/,
+    });
+  });
 });
 
 describe("ghIssueTracker.listOpenIssues — parent", () => {
@@ -848,6 +869,23 @@ describe("ghIssueTracker.listOpenIssues — parent", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed[0]?.parent, undefined);
+  });
+
+  it("rejects a parent number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 208,
+          title: "Part of the spec",
+          parent: linkedIssue("nadav-alon/pilot", 0),
+        },
+      ]),
+    );
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"parent.number" must be a positive integer, got 0/,
+    });
   });
 });
 
@@ -1488,6 +1526,26 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
 
     assert.equal(issues[0]?.ticket.openBlockers, undefined);
   });
+
+  it("rejects a blocker number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 56,
+          title: "Waits on others",
+          blockedBy: {
+            nodes: [linkedIssue("nadav-alon/pilot", 0)],
+            totalCount: 1,
+          },
+        },
+      ]),
+    );
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"blockedBy.nodes.number" must be a positive integer, got 0/,
+    });
+  });
 });
 
 describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
@@ -1604,7 +1662,7 @@ describe("ghIssueTracker.closeReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const REVIEW: ReviewTicket = {
     repo: PILOT,
-    number: 42,
+    number: issueNumber(42),
     title: "Review the draft pull request for #7",
     pullRequest: {
       kind: "review",
@@ -1628,7 +1686,7 @@ describe("ghIssueTracker.closeApplyReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const APPLY_REVIEW: ApplyReviewTicket = {
     repo: PILOT,
-    number: 43,
+    number: issueNumber(43),
     title: "Apply the review on the draft pull request for #7",
     pullRequest: {
       kind: "apply-review",

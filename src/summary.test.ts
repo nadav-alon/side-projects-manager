@@ -5,6 +5,7 @@ import type { Finished, IterationOutcome, Reviewed } from "./iteration-outcome.t
 import {
   branch,
   commitSha,
+  issueNumber,
   pullRequestUrl,
   repoSlug,
   tokenCount,
@@ -17,11 +18,11 @@ const REPO = repoSlug("nadav-alon/pilot");
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/171");
 
 function implementationTicket(number: number): Ticket {
-  return { repo: REPO, number, title: `Ticket ${number}` };
+  return { repo: REPO, number: issueNumber(number), title: `Ticket ${number}` };
 }
 
 function reviewTicket(number: number): ReviewTicket {
-  return { repo: REPO, number, title: `Review ${number}`, pullRequest: { kind: "review", url: PULL_REQUEST } };
+  return { repo: REPO, number: issueNumber(number), title: `Review ${number}`, pullRequest: { kind: "review", url: PULL_REQUEST } };
 }
 
 /** A finished run that opened a pull request and queued `reviewNumber` to review it. */

@@ -14,6 +14,7 @@ import {
   carriesReadyForAgent,
   discountPullRequestTickets,
   isPullRequestTicket,
+  issueNumber,
   modelLabelOf,
   reviewTitle,
 } from "../ports/index.ts";
@@ -242,7 +243,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const issues = this.#issues.get(ticket.repo) ?? [];
     const numbers = issues.map((entry) => entry.issue.number);
     const review = this.addEligibleTicket(ticket.repo, {
-      number: Math.max(ticket.number, ...numbers) + 1,
+      number: issueNumber(Math.max(ticket.number, ...numbers) + 1),
       title: reviewTitle(ticket),
       pullRequest: { kind: "review", url: pullRequest },
     });

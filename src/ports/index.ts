@@ -11,6 +11,8 @@ export { day, isDay, localDay } from "./day.ts";
 export type { Day } from "./day.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
+export { isIssueNumber, issueNumber } from "./issue-number.ts";
+export type { IssueNumber } from "./issue-number.ts";
 export {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,

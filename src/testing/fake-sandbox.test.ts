@@ -5,6 +5,7 @@ import {
   branch,
   checkout,
   commitSha,
+  issueNumber,
   modelName,
   pullRequestUrl,
   repoSlug,
@@ -22,13 +23,13 @@ import { HANGS } from "./gate.ts";
 
 const TICKET: Ticket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 7,
+  number: issueNumber(7),
   title: "Do the thing",
 };
 
 const REVIEW_TICKET: ReviewTicket = {
   ...TICKET,
-  number: 8,
+  number: issueNumber(8),
   pullRequest: {
     kind: "review",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
@@ -37,7 +38,7 @@ const REVIEW_TICKET: ReviewTicket = {
 
 const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
   ...TICKET,
-  number: 10,
+  number: issueNumber(10),
   pullRequest: {
     kind: "apply-review",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
