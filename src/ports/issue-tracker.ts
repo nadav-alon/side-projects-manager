@@ -348,27 +348,24 @@ export type RebaseTicket = Ticket & {
 /** A ticket narrowed to any pull-request-bound kind, once `isPullRequestTicket` has said so. */
 export type PullRequestTicket = Ticket & { pullRequest: PullRequestBinding };
 
-/** Whether `ticket` is a review ticket rather than an implementation, apply-review or rebase ticket. */
+/** Whether `ticket` is a review ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest?.kind === "review";
 }
 
-/** Whether `ticket` is an apply-review ticket rather than an implementation, review or rebase ticket. */
+/** Whether `ticket` is an apply-review ticket. */
 export function isApplyReviewTicket(
   ticket: Ticket,
 ): ticket is ApplyReviewTicket {
   return ticket.pullRequest?.kind === "apply-review";
 }
 
-/** Whether `ticket` is a rebase ticket rather than an implementation, review or apply-review ticket. */
+/** Whether `ticket` is a rebase ticket. */
 export function isRebaseTicket(ticket: Ticket): ticket is RebaseTicket {
   return ticket.pullRequest?.kind === "rebase";
 }
 
-/**
- * Whether `ticket` is bound to a pull request at all — a review, an
- * apply-review or a rebase ticket.
- */
+/** Whether `ticket` is bound to a pull request at all. */
 export function isPullRequestTicket(
   ticket: Ticket,
 ): ticket is PullRequestTicket {
