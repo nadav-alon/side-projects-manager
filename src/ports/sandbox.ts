@@ -98,10 +98,12 @@ interface Ended {
 
 /**
  * The branch an implementation run worked on, and what it committed there.
- * True of every variant an implementation run can end as — the branch is
- * created before the agent starts, so even a run refused before the agent did
- * anything still leaves one, empty of commits. A review has neither: it
- * never creates a branch.
+ * True of every variant but `RunSandboxFailed`: the branch is created before
+ * the agent starts, so even a run refused before the agent did anything
+ * still leaves one, empty of commits — but a sandbox that fails once the
+ * agent has already run may never get as far as fetching that branch back,
+ * so `RunSandboxFailed` carries neither. A review has neither for a
+ * different reason: it never creates a branch at all.
  */
 interface Worked {
   /** Branch the agent worked on. */
