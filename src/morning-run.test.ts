@@ -2254,7 +2254,7 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs.length, 0);
     });
 
-    it("records nothing against the project when the sandbox fails before the agent ran, as now", async (t) => {
+    it("records nothing against the project when the sandbox fails before the agent ran", async (t) => {
       const ports = readyToWork();
       t.mock.method(ports.sandbox, "run", async () => {
         throw new Error(BROKE);
@@ -2557,7 +2557,7 @@ describe("morningLoop", () => {
 
       const run = ranWith(report.iterations[0]);
       assert.deepEqual(
-        run !== undefined && "commits" in run ? run.commits : undefined,
+        run?.kind === "gave-up" ? run.commits : undefined,
         [commitSha("c0ffee1")],
       );
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
