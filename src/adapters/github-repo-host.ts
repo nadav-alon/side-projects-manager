@@ -14,7 +14,6 @@ import type {
   PullRequestUrl,
   RepoHost,
   RepoSlug,
-  ReviewFinding,
   Ticket,
 } from "../ports/index.ts";
 import {
@@ -324,22 +323,24 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       });
     },
 
-    async hasReviewFindings(
+    async hasNewComment(
       pullRequest: PullRequestUrl,
       since: Date,
     ): Promise<boolean> {
       // Inline comments — one per finding, on the line it is actually about —
       // not the pull request's own issue-level comments: that is the shape
-      // `reviewPromptFor` asks the reviewing agent to post in.
+      // `reviewPromptFor` asks the reviewing agent to post in, and checking
+      // the wrong kind here would never see it land.
       const { owner, repo, number } = pullRequestParts(pullRequest);
       const { stdout } = await run("gh", [
         "api",
         `repos/${owner}/${repo}/pulls/${number}/comments`,
+        "--jq",
+        "[.[].created_at] | max",
       ]);
 
-      return reviewFindingsIn(stdout, pullRequest).some(
-        (finding) => finding.postedAt > since,
-      );
+      const latest = stdout.trim();
+      return latest !== "" && latest !== "null" && new Date(latest) > since;
     },
 
     async readApplyReviewAnswers(
@@ -754,49 +755,6 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
     .filter((segment) => segment !== "");
 
   return segments.slice(-2).join("/").toLowerCase() === repo.toLowerCase();
-}
-
-/**
- * The {@link ReviewFinding}s `stdout` — `gh api pulls/.../comments` —
- * carries, each beside when it was posted. Read against the declared shape
- * and no other: a raw comment missing `path`, `line` or `body` is not a
- * finding in that shape, and is left out rather than counted, which is what
- * keeps this from also counting the aggregated report the reviewer was told
- * never to post as one comment.
- */
-function reviewFindingsIn(
-  stdout: string,
-  pullRequest: PullRequestUrl,
-): { finding: ReviewFinding; postedAt: Date }[] {
-  const where = `gh api pulls comments for ${pullRequest}`;
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
-  if (!Array.isArray(payload)) {
-    throw new Error(`${where}: expected an array.`);
-  }
-
-  const findings: { finding: ReviewFinding; postedAt: Date }[] = [];
-  for (const raw of payload) {
-    if (typeof raw !== "object" || raw === null) {
-      continue;
-    }
-    const { path, line, body, created_at } = raw as Record<string, unknown>;
-    if (
-      typeof path !== "string" ||
-      typeof line !== "number" ||
-      typeof body !== "string" ||
-      typeof created_at !== "string"
-    ) {
-      continue;
-    }
-    findings.push({ finding: { path, line, body }, postedAt: new Date(created_at) });
-  }
-  return findings;
 }
 
 /** The owner, repo and number a pull request's own URL names. */

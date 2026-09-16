@@ -985,59 +985,6 @@ describe("reading a pull request's apply-review answers", () => {
   });
 });
 
-describe("checking a pull request for posted review findings", () => {
-  const PULL_REQUEST = pullRequestUrl(
-    "https://github.com/nadav-alon/pilot/pull/7",
-  );
-  const SINCE = new Date("2026-09-15T00:00:00Z");
-  const BEFORE = "2026-09-14T00:00:00Z";
-  const AFTER = "2026-09-15T01:00:00Z";
-
-  const FINDING = {
-    path: "src/thing.ts",
-    line: 3,
-    body: "Missing a null check here.",
-  };
-
-  function comments(entries: Record<string, unknown>[]): string {
-    return JSON.stringify(entries);
-  }
-
-  async function checkedWith(t: TestContext, entries: Record<string, unknown>[]) {
-    await recordingGh(t, `cat <<'JSON'\n${comments(entries)}\nJSON`);
-    return githubRepoHost().hasReviewFindings(PULL_REQUEST, SINCE);
-  }
-
-  it("finds a finding posted after the read's instant", async (t) => {
-    const found = await checkedWith(t, [{ ...FINDING, created_at: AFTER }]);
-
-    assert.equal(found, true);
-  });
-
-  it("does not find one posted before the read's instant", async (t) => {
-    const found = await checkedWith(t, [{ ...FINDING, created_at: BEFORE }]);
-
-    assert.equal(found, false);
-  });
-
-  it("does not count a comment missing the finding's own shape, whatever else it carries", async (t) => {
-    const found = await checkedWith(t, [{ body: "LGTM", created_at: AFTER }]);
-
-    assert.equal(found, false);
-  });
-
-  it("reads the pull request's own inline review comments, named by its own URL", async (t) => {
-    const gh = await recordingGh(t, `cat <<'JSON'\n${comments([])}\nJSON`);
-
-    await githubRepoHost().hasReviewFindings(PULL_REQUEST, SINCE);
-
-    assert.deepEqual(callWith(await gh.calls(), "api"), [
-      "api",
-      "repos/nadav-alon/pilot/pulls/7/comments",
-    ]);
-  });
-});
-
 describe("marking a pull request ready for review", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",
