@@ -523,6 +523,7 @@ describe("the model defaults document", () => {
           implementation: "sonnet",
           review: "claude-opus-5",
           "apply-review": "sonnet",
+          rebase: "opus",
         }),
       }),
     );
@@ -531,6 +532,7 @@ describe("the model defaults document", () => {
       implementation: modelName("sonnet"),
       "apply-review": modelName("sonnet"),
       review: modelName("claude-opus-5"),
+      rebase: modelName("opus"),
     });
   });
 

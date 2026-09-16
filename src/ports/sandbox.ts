@@ -3,6 +3,7 @@ import type { Checkout } from "./checkout.ts";
 import type { CommitSha } from "./commit-sha.ts";
 import type {
   ApplyReviewTicket,
+  RebaseTicket,
   ReviewTicket,
   Ticket,
 } from "./issue-tracker.ts";
@@ -51,6 +52,21 @@ export interface ApplyReviewRequest {
    * The project's managed clone: what the run's own clone comes from, and
    * where its GitHub remote is read. Never written to — the agent pushes to
    * the pull request's branch itself, so nothing comes back here.
+   */
+  checkout: Checkout;
+  spendCeiling: Usd;
+  /** As `RunRequest.model`. */
+  model?: ModelName;
+}
+
+/** One rebase ticket, and the project checkout it is to be worked against. */
+export interface RebaseRequest {
+  ticket: RebaseTicket;
+  /**
+   * The project's managed clone: what the run's own clone comes from, and
+   * where its GitHub remote is read. Never written to — the agent
+   * force-pushes to the pull request's branch itself, so nothing comes back
+   * here.
    */
   checkout: Checkout;
   spendCeiling: Usd;
@@ -192,6 +208,27 @@ export type ApplyReviewOutcome =
   | ReviewModelRefused;
 
 /**
+ * As `ApplyReviewGaveUp`, for a rebase run — which also gives up when the
+ * repo host rejects its force-push because the pull request's branch moved
+ * under it.
+ */
+export interface RebaseGaveUp extends ReviewGaveUp {
+  /** As `ApplyReviewGaveUp.movedHead`. */
+  movedHead?: CommitSha;
+}
+
+/**
+ * As `ApplyReviewOutcome`, for a rebase run. No branch or commits on any
+ * variant: the agent force-pushes to the pull request's branch itself, and
+ * whether it worked is read back from the repo host, never from here.
+ */
+export type RebaseOutcome =
+  | ReviewFinished
+  | RebaseGaveUp
+  | ReviewLimitRefused
+  | ReviewModelRefused;
+
+/**
  * Runs a coding agent against one ticket, in a container, on a checkout of its
  * own. The loop never runs an agent on the host.
  *
@@ -259,4 +296,20 @@ export interface Sandbox {
   applyReview(
     request: ApplyReviewRequest & { model?: undefined },
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
+
+  /**
+   * Runs the `rebase-pr` skill against `request.ticket.pullRequest`, on a
+   * clone checked out on that pull request's head branch and mounted
+   * read-write, exactly as `applyReview` sets one up — the run resolves the
+   * conflicts and force-pushes itself, with the implementation's own
+   * credential; no branch is created, and nothing is fetched back into the
+   * checkout.
+   *
+   * Rejects as `applyReview` does. As `run`, a request naming no model can
+   * never come back refused for one.
+   */
+  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model?: undefined },
+  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
 }

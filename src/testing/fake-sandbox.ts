@@ -3,6 +3,9 @@ import type {
   ApplyReviewRequest,
   ApplyReviewTicket,
   ModelName,
+  RebaseOutcome,
+  RebaseRequest,
+  RebaseTicket,
   ReviewModelRefused,
   ReviewOutcome,
   ReviewRequest,
@@ -19,13 +22,13 @@ import { gate } from "./gate.ts";
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
  *
- * Tests arrange what a run, a review or an apply-review run comes to through
- * `result`, `reviewResult` and `applyReviewResult`, and inspect `runs`,
- * `reviews` and `applyReviews` to see which tickets the loop ran and against
- * which checkouts. Whatever those return is what comes
- * back, verbatim: this fake detects no refusal and words none of its own, so
- * a test after a limit refusal or a model refusal writes the exact variant it
- * wants.
+ * Tests arrange what a run, a review, an apply-review run or a rebase run
+ * comes to through `result`, `reviewResult`, `applyReviewResult` and
+ * `rebaseResult`, and inspect `runs`, `reviews`, `applyReviews` and `rebases`
+ * to see which tickets the loop ran and against which checkouts. Whatever
+ * those return is what comes back, verbatim: this fake detects no refusal and
+ * words none of its own, so a test after a limit refusal or a model refusal
+ * writes the exact variant it wants.
  */
 export class FakeSandbox implements Sandbox {
   /** Every run asked for, in order. */
@@ -60,31 +63,41 @@ export class FakeSandbox implements Sandbox {
     tokensUsed: tokenCount(0),
   });
 
-  /** The most runs, reviews and apply-review runs that were in progress at once. */
+  /** Every rebase run asked for, in order. */
+  readonly rebases: RebaseRequest[] = [];
+
+  /** What the next rebase run comes to. A costless, finished one unless set. */
+  rebaseResult: (ticket: RebaseTicket) => RebaseOutcome = () => ({
+    kind: "finished",
+    output: "",
+    tokensUsed: tokenCount(0),
+  });
+
+  /** The most runs, reviews, apply-review runs and rebase runs that were in progress at once. */
   mostInProgress = 0;
 
   #running = 0;
   #holding = false;
-  /** Held runs, reviews and apply-review runs, in the order they started, with what releases each. */
+  /** Held runs, reviews, apply-review runs and rebase runs, in the order they started, with what releases each. */
   readonly #held: { ticket: Ticket; release: () => void }[] = [];
   /** The one `whenHeld` still pending, if any. */
   #waiter: { count: number; resolve: () => void } | undefined;
 
   /**
-   * Holds every run, review and apply-review run from now on until `release` names its ticket,
-   * so a test can see several in progress at once and finish them in any
-   * order it likes.
+   * Holds every run, review, apply-review run and rebase run from now on
+   * until `release` names its ticket, so a test can see several in progress
+   * at once and finish them in any order it likes.
    */
   hold(): void {
     this.#holding = true;
   }
 
-  /** The tickets whose runs, reviews or apply-review runs are held, in the order they started. */
+  /** The tickets whose runs, reviews, apply-review runs or rebase runs are held, in the order they started. */
   held(): Ticket[] {
     return this.#held.map((entry) => entry.ticket);
   }
 
-  /** Lets the held run, review or apply-review run on `ticket` finish. Throws if none is held. */
+  /** Lets the held run, review, apply-review run or rebase run on `ticket` finish. Throws if none is held. */
   release(ticket: Ticket): void {
     const index = this.#held.findIndex(
       (entry) => ticketKey(entry.ticket) === ticketKey(ticket),
@@ -96,7 +109,7 @@ export class FakeSandbox implements Sandbox {
     entry.release();
   }
 
-  /** Settles once at least `count` runs, reviews or apply-review runs are held. Throws while another is pending. */
+  /** Settles once at least `count` runs, reviews, apply-review runs or rebase runs are held. Throws while another is pending. */
   whenHeld(count: number): Promise<void> {
     if (this.#waiter !== undefined) {
       throw new Error("already waiting on held runs");
@@ -140,7 +153,18 @@ export class FakeSandbox implements Sandbox {
     );
   }
 
-  /** Counts `ticket`'s run, review or apply-review run as in progress until `finish`, holding it first if told to. */
+  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model?: undefined },
+  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
+  async rebase(request: RebaseRequest): Promise<RebaseOutcome> {
+    this.rebases.push(request);
+    return this.#inProgress(request.ticket, () =>
+      this.rebaseResult(request.ticket),
+    );
+  }
+
+  /** Counts `ticket`'s run, review, apply-review run or rebase run as in progress until `finish`, holding it first if told to. */
   async #inProgress<T>(ticket: Ticket, finish: () => T): Promise<T> {
     this.#running++;
     this.mostInProgress = Math.max(this.mostInProgress, this.#running);
