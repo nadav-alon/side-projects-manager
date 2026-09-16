@@ -4,6 +4,7 @@ import type {
   OpenIssue,
   OpenIssues,
   PullRequestUrl,
+  RebaseTicket,
   RepoSlug,
   ReviewTicket,
   Ticket,
@@ -113,6 +114,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** The apply-review tickets closed, in the order closed, with what each was told. */
   readonly closedApplyReviewTickets: {
     ticket: ApplyReviewTicket;
+    comment: string;
+  }[] = [];
+
+  /** The rebase tickets closed, in the order closed, with what each was told. */
+  readonly closedRebaseTickets: {
+    ticket: RebaseTicket;
     comment: string;
   }[] = [];
 
@@ -278,6 +285,15 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     comment: string,
   ): Promise<void> {
     this.closedApplyReviewTickets.push({ ticket, comment });
+    this.#close(ticket);
+  }
+
+  /** As `closeReviewTicket`, keeping the comment it closed with. */
+  async closeRebaseTicket(
+    ticket: RebaseTicket,
+    comment: string,
+  ): Promise<void> {
+    this.closedRebaseTickets.push({ ticket, comment });
     this.#close(ticket);
   }
 

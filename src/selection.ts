@@ -294,6 +294,8 @@ async function scan(
  * the oldest ticket: ticket priority orders implementation tickets only, and
  * a pull request ticket inherits its parent's as a sub-issue, not as a rank
  * of its own.
+ *
+ * A rebase ticket sorts last: #300, not this, is what selects and runs one.
  */
 function bestTicket(
   backlog: Ticket[],
@@ -308,11 +310,15 @@ function bestTicket(
  * Where each ticket kind stands in the order selection works them, lowest
  * first. A record rather than a list, so a kind added to `TicketKind` fails
  * to compile until it is given a place here.
+ *
+ * TODO[#300]: rank rebase ahead of apply-review, once selection and `work`
+ * both know how to run one.
  */
 const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
   "apply-review": 0,
   review: 1,
   implementation: 2,
+  rebase: 3,
 };
 
 /** Ascending by each kind's `SELECTION_RANK`. */
