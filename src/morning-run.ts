@@ -58,6 +58,7 @@ import {
   rebaseHandbackComment,
   rebasedComment,
   reviewHandbackComment,
+  unsettledMergeabilityComment,
   unusableModelLabelComment,
   type Discard,
 } from "./handback-comment.ts";
@@ -79,6 +80,7 @@ import {
   type ModelSource,
   type Rebased,
   type Reviewed,
+  type UnsettledMergeability,
   type UnusableModelLabel,
 } from "./iteration-outcome.ts";
 import {
@@ -1364,8 +1366,8 @@ async function handApplyReviewBack(
  * the pull request's doing, commonly one merged or closed since, and left
  * eligible it would come round every firing ahead of the project's other
  * work. A repo host or sandbox that could not otherwise do its part before
- * the agent started is an infrastructure failure, and a limit or model refusal reads as for an
- * apply-review ticket. A read or close that fails after the run is reported on
+ * the agent started is an infrastructure failure, and a limit or model
+ * refusal reads as for an apply-review ticket. A read or close that fails after the run is reported on
  * the iteration, never raised.
  */
 async function runRebase(
@@ -1382,7 +1384,17 @@ async function runRebase(
     needsRebase = await ports.repoHost.needsRebase(pullRequest);
   } catch (error: unknown) {
     if (error instanceof MergeabilityUnknown) {
-      return handRebaseBack(ports, ticket, undefined, errorMessage(error));
+      const failure: UnsettledMergeability = {
+        kind: "unsettled-mergeability",
+        reason: errorMessage(error),
+        handedBack: false,
+      };
+      return handTicketBack(
+        ports,
+        ticket,
+        failure,
+        unsettledMergeabilityComment(failure, pullRequest),
+      );
     }
     return infrastructureFailure(error);
   }
@@ -1480,12 +1492,12 @@ async function finishRebase(
 
 /**
  * Hands back a rebase ticket whose run gave up or left its pull request
- * conflicting — or, given no run, whose pull request could not be read.
+ * conflicting.
  */
 async function handRebaseBack(
   ports: MorningLoopPorts,
   ticket: RebaseTicket,
-  run: RebaseFinished | RebaseGaveUp | undefined,
+  run: RebaseFinished | RebaseGaveUp,
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
@@ -1494,6 +1506,6 @@ async function handRebaseBack(
     ticket,
     failure,
     rebaseHandbackComment(failure, run, ticket.pullRequest.url),
-    run === undefined ? undefined : { tokensUsed: run.tokensUsed },
+    { tokensUsed: run.tokensUsed },
   );
 }

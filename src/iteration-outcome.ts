@@ -36,6 +36,7 @@ export type RunFailure =
   | HandoverFailed
   | InfrastructureFailure
   | ModelRefused
+  | UnsettledMergeability
   | UnusableModelLabel;
 
 /** A failure whose ticket the loop hands back: every kind but the setup's. */
@@ -113,6 +114,20 @@ export interface UnusableModelLabel {
   reason: string;
   /** The model labels at fault, as the ticket carries them. */
   labels: readonly string[];
+  /** As `GaveUp.handedBack`. */
+  handedBack: boolean;
+}
+
+/**
+ * A rebase ticket whose pull request the repo host never settled as
+ * conflicting or not — commonly one merged or closed since — caught before
+ * any run, so nothing was cloned, run or spent. The pull request is the
+ * problem, not the setup, so the ticket is handed back: left eligible, it
+ * would come round every firing ahead of the project's other work.
+ */
+export interface UnsettledMergeability {
+  kind: "unsettled-mergeability";
+  reason: string;
   /** As `GaveUp.handedBack`. */
   handedBack: boolean;
 }

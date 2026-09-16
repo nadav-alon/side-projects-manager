@@ -147,7 +147,7 @@ The triage label a ticket carries once the loop has stopped working on it. Alway
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
-What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
+What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows, or, for a rebase ticket, whose pull request the repo host never settles as conflicting or not: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:

@@ -2041,8 +2041,13 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
       const later = await morningLoop(ports);
 
-      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(
+        failureOf(report.iterations[0])?.kind,
+        "unsettled-mergeability",
+      );
       assert.equal(ports.sandbox.rebases.length, 0);
+      assert.match(attempts(ports), /nothing run/);
+      assert.doesNotMatch(attempts(ports), /gave up/);
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback?.comment ?? "", /did not run this ticket/);

@@ -194,7 +194,9 @@ function attemptsSection(iterations: IterationOutcome[]): string {
     if (
       handedBackForModelLabels(iteration) ||
       (iteration.kind === "applied-review" && iteration.review === undefined) ||
-      (iteration.kind === "rebased" && iteration.rebase === undefined)
+      (iteration.kind === "rebased" && iteration.rebase === undefined) ||
+      (iteration.kind === "failed" &&
+        iteration.failure.kind === "unsettled-mergeability")
     ) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
@@ -384,6 +386,10 @@ function waitingOnFailure(
     case "model-refused":
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`
+        : stillEligibleLine({ repo, ticket });
+    case "unsettled-mergeability":
+      return failure.handedBack
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`
         : stillEligibleLine({ repo, ticket });
     case "conflicting-model-labels":
     case "unusable-model-label":
@@ -600,6 +606,7 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
       return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${failure.reason}. ${now}`;
     case "model-refused":
       return `${which} was not worked, because ${failure.reason}. ${now}`;
+    case "unsettled-mergeability":
     case "conflicting-model-labels":
     case "unusable-model-label":
       return `${which} was not run, because ${failure.reason}. ${now}`;

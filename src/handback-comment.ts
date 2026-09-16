@@ -3,6 +3,7 @@ import type {
   HandoverFailed,
   ModelRefused,
   Rebased,
+  UnsettledMergeability,
   UnusableModelLabel,
 } from "./iteration-outcome.ts";
 import type {
@@ -108,24 +109,36 @@ export function applyReviewHandbackComment(
  * What a rebase ticket is told when its run gave up or left its pull request
  * still conflicting: as an apply-review ticket's, except that nothing is said
  * of the pull request being a draft — `/rebase` can be commented on one
- * already marked ready, and a rebase leaves that as it found it. Given no
- * run, the pull request could not be read before one started, and the
- * comment says only that.
+ * already marked ready, and a rebase leaves that as it found it.
  */
 export function rebaseHandbackComment(
   failure: GaveUp,
-  run: RebaseFinished | RebaseGaveUp | undefined,
+  run: RebaseFinished | RebaseGaveUp,
   pullRequest: PullRequestUrl,
 ): string {
-  const untouched = `${pullRequest}'s draft state was left as it was.`;
-  if (run === undefined) {
-    return [
-      `The morning loop did not run this ticket: ${tail(failure.reason, REASON_QUOTED)}`,
-      untouched,
-      notRetried(),
-    ].join("\n\n");
-  }
-  return gaveUpComment(failure, run.output, [...movedHeadNote(run), untouched]);
+  return gaveUpComment(failure, run.output, [
+    ...movedHeadNote(run),
+    untouchedDraftState(pullRequest),
+  ]);
+}
+
+/**
+ * What a rebase ticket is told when its pull request could not be read
+ * before a run started: only that, since nothing ran.
+ */
+export function unsettledMergeabilityComment(
+  failure: UnsettledMergeability,
+  pullRequest: PullRequestUrl,
+): string {
+  return [
+    `The morning loop did not run this ticket: ${tail(failure.reason, REASON_QUOTED)}`,
+    untouchedDraftState(pullRequest),
+    notRetried(),
+  ].join("\n\n");
+}
+
+function untouchedDraftState(pullRequest: PullRequestUrl): string {
+  return `${pullRequest}'s draft state was left as it was.`;
 }
 
 /** Says which head a rejected push found the branch on, when that is why the run gave up. */
