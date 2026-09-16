@@ -215,7 +215,7 @@ A sub-issue of an implementation ticket asking for that ticket's draft pull requ
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
