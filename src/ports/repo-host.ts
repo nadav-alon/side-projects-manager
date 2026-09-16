@@ -27,16 +27,39 @@ export const DECLINED_REPLY_PREFIX = "Declined: ";
 
 /**
  * One finding a review posts, in the shape the reviewer is told to post it
- * (`reviewPromptFor` in `container-sandbox.ts`) and {@link RepoHost.hasReviewFindings}
- * checks a pull request for: an inline comment on the file and line it is
- * actually about, not the pull request's own issue-level comments. Declared
- * once, beside the port, so the reviewer's instructions and this check agree
- * on what a finding looks like rather than by coincidence.
+ * (`reviewPromptFor` in `container-sandbox.ts`, via {@link reviewFindingTemplate})
+ * and {@link RepoHost.hasReviewFindings} checks a pull request for: an inline
+ * comment on the file and line it is actually about, not the pull request's
+ * own issue-level comments. Declared once, beside the port, so the reviewer's
+ * instructions and this check agree on what a finding looks like rather than
+ * by coincidence.
  */
 export interface ReviewFinding {
   path: string;
   line: number;
   body: string;
+}
+
+/**
+ * {@link ReviewFinding}'s own field names, in the order a finding is posted
+ * and read back. `satisfies` ties each name to a real field of the interface,
+ * so a field renamed there and not here fails to compile, rather than
+ * drifting into a prompt nobody notices is stale.
+ */
+export const REVIEW_FINDING_FIELDS = [
+  "path",
+  "line",
+  "body",
+] as const satisfies readonly (keyof ReviewFinding)[];
+
+/**
+ * One {@link ReviewFinding}'s JSON shape, rendered from
+ * {@link REVIEW_FINDING_FIELDS} with `<field>` standing in for its value.
+ * What the review prompt shows the reviewing agent, so the prompt carries no
+ * wording of the shape that isn't this declaration's.
+ */
+export function reviewFindingTemplate(): string {
+  return `{${REVIEW_FINDING_FIELDS.map((field) => `"${field}": <${field}>`).join(", ")}}`;
 }
 
 /** One comment in an {@link ApplyReviewThread}: what it says, and when. */

@@ -28,6 +28,7 @@ import {
   pullRequestUrl,
   remoteUrl,
   repoSlug,
+  reviewFindingTemplate,
   tokenCount,
   usd,
   type ApplyReviewOutcome,
@@ -919,6 +920,28 @@ describe("containerSandbox.review", () => {
     assert.match(asked, /pulls\/<number>\/reviews/);
     assert.match(asked, /"comments":\s*\[\{"path"/);
     assert.doesNotMatch(asked, /gh pr comment/);
+  });
+
+  /**
+   * The prompt has no wording of a finding's shape of its own: it shows the
+   * reviewer exactly {@link reviewFindingTemplate}'s output, the same
+   * rendering `RepoHost.hasReviewFindings` checks a posted finding against.
+   */
+  it("shows the reviewer the finding shape the repo host checks for, not a wording of its own", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.ok(asked.includes(reviewFindingTemplate()));
   });
 
   /**

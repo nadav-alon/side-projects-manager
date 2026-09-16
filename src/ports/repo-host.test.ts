@@ -9,6 +9,8 @@ import {
   REBASE_STATUS_ATTEMPTS,
   REBASE_STATUS_RETRY_DELAY,
   resolveNeedsRebase,
+  REVIEW_FINDING_FIELDS,
+  reviewFindingTemplate,
   summarizeApplyReviewThreads,
   type ApplyReviewComment,
   type ApplyReviewThread,
@@ -199,5 +201,18 @@ describe("resolveNeedsRebase", () => {
     );
 
     assert.deepEqual(waits, [REBASE_STATUS_RETRY_DELAY, REBASE_STATUS_RETRY_DELAY]);
+  });
+});
+
+describe("reviewFindingTemplate", () => {
+  it("renders path, line and body as their own placeholders, in that order", () => {
+    assert.equal(
+      reviewFindingTemplate(),
+      '{"path": <path>, "line": <line>, "body": <body>}',
+    );
+  });
+
+  it("names exactly the fields REVIEW_FINDING_FIELDS declares", () => {
+    assert.deepEqual(REVIEW_FINDING_FIELDS, ["path", "line", "body"]);
   });
 });

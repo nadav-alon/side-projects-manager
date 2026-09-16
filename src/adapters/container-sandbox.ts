@@ -37,6 +37,7 @@ import {
   isCommitSha,
   isRemoteUrl,
   remoteUrl,
+  reviewFindingTemplate,
   tokenCount,
   type TokenCount,
 } from "../ports/index.ts";
@@ -794,10 +795,10 @@ function promptFor(ticket: Ticket): string {
  * Posting is spelled out as a single review with one inline comment per
  * finding — not the skill's own aggregated report dropped as one comment —
  * because a finding a reviewer would read in context of the line it is about
- * is exactly what a summary comment strips away. `RepoHost.hasReviewFindings`
- * checks for this same shape, declared once beside the port as
- * `ReviewFinding`: an inline comment on the pull request, not an issue-level
- * one.
+ * is exactly what a summary comment strips away. The JSON shape below comes
+ * from `reviewFindingTemplate`, not a second wording of it here, so it can
+ * only ever match what `RepoHost.hasReviewFindings` checks for: `ReviewFinding`,
+ * declared once beside the port.
  *
  * The prompt also says the run is unattended. A `--print` run gets no reply,
  * so a reviewer that finishes and then asks whether to submit posts nothing;
@@ -823,7 +824,7 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "finding inline, on the file and line it is actually about, by submitting a single review —",
     "`gh api repos/<owner>/<repo>/pulls/<number>/reviews --input -`, with `<owner>/<repo>` and",
     `\`<number>\` read off ${ticket.pullRequest.url} — piped a JSON object shaped`,
-    '`{"event": "COMMENT", "comments": [{"path": <file>, "line": <line>, "body": <finding>}, ...]}`,',
+    `\`{"event": "COMMENT", "comments": [${reviewFindingTemplate()}, ...]}\`,`,
     "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
     "sit on — a one-line summary, or a finding that spans the whole change.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered. Posting",
