@@ -186,18 +186,11 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
 
 /**
  * One bullet per attempt this invocation made, its outcome, its cost, and the
- * model it was started on. A ticket handed back for its model labels was never
- * started, so it names neither.
+ * model it was started on. An attempt that started no run names neither.
  */
 function attemptsSection(iterations: IterationOutcome[]): string {
   const lines = iterations.map((iteration) => {
-    if (
-      handedBackForModelLabels(iteration) ||
-      (iteration.kind === "applied-review" && iteration.review === undefined) ||
-      (iteration.kind === "rebased" && iteration.rebase === undefined) ||
-      (iteration.kind === "failed" &&
-        iteration.failure.kind === "unsettled-mergeability")
-    ) {
+    if (ranNothing(iteration)) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
     const spent = iteration.tokensUsed;
@@ -396,6 +389,29 @@ function waitingOnFailure(
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
         : stillEligibleLine({ repo, ticket });
+  }
+}
+
+/**
+ * Whether `iteration` started no run: a ticket handed back before one could
+ * start, or a pull request ticket that found nothing to do. A switch on every
+ * kind, so an iteration kind added later has to say which it is.
+ */
+function ranNothing(iteration: IterationOutcome): boolean {
+  switch (iteration.kind) {
+    case "applied-review":
+      return iteration.review === undefined;
+    case "rebased":
+      return iteration.rebase === undefined;
+    case "failed":
+      return (
+        handedBackForModelLabels(iteration) ||
+        iteration.failure.kind === "unsettled-mergeability"
+      );
+    case "finished":
+    case "reviewed":
+    case "limit-refused":
+      return false;
   }
 }
 
