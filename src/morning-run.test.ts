@@ -2254,6 +2254,39 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs.length, 0);
     });
 
+    it("records nothing against the project when the sandbox fails before the agent ran, as now", async (t) => {
+      const ports = readyToWork();
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error(BROKE);
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.projects.get(PILOT)?.runs, undefined);
+    });
+
+    it("records what the agent spent, and leaves the ticket eligible rather than handing it back, when the sandbox fails after the agent ran", async () => {
+      const ports = readyToWork();
+      const reason = "git could not fetch the branch back into the checkout";
+      ports.sandbox.result = () => ({
+        kind: "sandbox-failed",
+        reason,
+        tokensUsed: tokenCount(42_000),
+      });
+
+      const report = await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
+      ]);
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.equal(ports.tracker.handbacks.length, 0);
+      assert.match(report.message, /still ready-for-agent/);
+      assert.match(report.message, new RegExp(reason));
+    });
+
     describe("the comment it leaves", () => {
       it("says why the agent stopped, and what it said before it did", async () => {
         const ports = readyToWork();
@@ -2522,7 +2555,11 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.deepEqual(ranWith(report.iterations[0])?.commits, [commitSha("c0ffee1")]);
+      const run = ranWith(report.iterations[0]);
+      assert.deepEqual(
+        run !== undefined && "commits" in run ? run.commits : undefined,
+        [commitSha("c0ffee1")],
+      );
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
     });
   });

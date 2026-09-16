@@ -220,8 +220,10 @@ export interface Failed {
    * What ran spent, carried the same way whether it was a run's failure or a
    * review's — so the summary reads it without telling the two apart. Absent
    * when model labels named no run to start, and for an infrastructure
-   * failure — including one where the sandbox rejected after the agent had
-   * already spent something, a gap `TODO[#35]` still owns.
+   * failure the sandbox never got the agent running for. Present all the
+   * same for an infrastructure failure where the sandbox failed after the
+   * agent had already run (`RunOutcome`'s `"sandbox-failed"` case) — that
+   * spend is real, and this is how the summary is told so.
    */
   tokensUsed?: TokenCount;
 }

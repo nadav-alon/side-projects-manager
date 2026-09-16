@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -301,10 +301,11 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
 
-    assert.equal(result.branch, BRANCH);
+    assert.equal(finished?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
-    assert.equal(await headOf(directory, BRANCH), result.commits.at(-1));
+    assert.equal(await headOf(directory, BRANCH), finished?.commits.at(-1));
   });
 
   it("leaves the branch the checkout is on untouched", async () => {
@@ -323,6 +324,7 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(agentCommitting(["one.txt", "two.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
 
     const { stdout } = await run("git", [
       "-C",
@@ -330,12 +332,12 @@ describe("containerSandbox", () => {
       "log",
       "--format=%H %s",
       "--reverse",
-      `main..${result.branch}`,
+      `main..${finished?.branch}`,
     ]);
     const log = stdout.trim().split("\n");
     assert.deepEqual(
       log.map((line) => line.split(" ")[0]),
-      result.commits,
+      finished?.commits,
     );
     assert.match(log[0] ?? "", /Add one\.txt/);
     assert.match(log[1] ?? "", /Add two\.txt/);
@@ -346,10 +348,11 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
 
-    assert.equal(result.commits.length, 1);
-    assert.equal(result.commits[0]?.length, 64);
-    assert.equal(await headOf(directory, BRANCH), result.commits.at(-1));
+    assert.equal(finished?.commits.length, 1);
+    assert.equal(finished?.commits[0]?.length, 64);
+    assert.equal(await headOf(directory, BRANCH), finished?.commits.at(-1));
   });
 
   it("reports no commits, and leaves no branch, when the agent committed nothing", async () => {
@@ -358,7 +361,7 @@ describe("containerSandbox", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.deepEqual(result.commits, []);
+    assert.deepEqual(variant(result, "finished")?.commits, []);
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
 
@@ -387,7 +390,9 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(clone), false);
-    assert.ok((await branchesIn(directory)).includes(result.branch));
+    assert.ok(
+      (await branchesIn(directory)).includes(variant(result, "finished")?.branch ?? ""),
+    );
   });
 
   it("takes the clone away even when the agent fails", async () => {
@@ -683,13 +688,36 @@ describe("containerSandbox", () => {
     const first = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const second = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(first.branch, BRANCH);
-    assert.equal(second.branch, `${BRANCH}-2`);
+    assert.equal(variant(first, "finished")?.branch, BRANCH);
+    assert.equal(variant(second, "finished")?.branch, `${BRANCH}-2`);
     assert.deepEqual(await branchesIn(directory), [
       BRANCH,
       `${BRANCH}-2`,
       "main",
     ]);
+  });
+
+  /**
+   * Fetching a finished agent's branch back into the checkout is the last
+   * thing a run does, and the one still able to fail once the agent has
+   * already spent tokens. That spend must not be lost the way a rejection
+   * would lose it — see `RunSandboxFailed`.
+   */
+  it("returns the agent's spend as a sandbox failure, rather than losing it to a rejection, when fetching its branch back into the checkout fails", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async (options) => {
+      const agent = await agentCommitting(["one.txt"], 42_000)(options);
+      // The checkout the fetch would land in is gone by the time the agent
+      // hands back, so the fetch — the only git step left — is what fails.
+      await rm(directory, { recursive: true, force: true });
+      return agent;
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "sandbox-failed");
+    assert.equal(variant(result, "sandbox-failed")?.tokensUsed, tokenCount(42_000));
+    assert.notEqual(variant(result, "sandbox-failed")?.reason, "");
   });
 
   it("runs agents side by side on one checkout", HANGS, async () => {
@@ -727,19 +755,19 @@ describe("containerSandbox", () => {
     ]);
     await held.allInProgress;
     held.release();
-    const results = await runs;
+    const finished = (await runs).map((result) => variant(result, "finished"));
 
-    assert.deepEqual(results.map((result) => result.branch).sort(), [
-      BRANCH,
-      `${BRANCH}-2`,
-    ]);
+    assert.deepEqual(
+      finished.map((result) => result?.branch).sort(),
+      [BRANCH, `${BRANCH}-2`],
+    );
     assert.deepEqual(await branchesIn(directory), [
       BRANCH,
       `${BRANCH}-2`,
       "main",
     ]);
-    for (const result of results) {
-      assert.equal(await headOf(directory, result.branch), result.commits.at(-1));
+    for (const result of finished) {
+      assert.equal(await headOf(directory, result?.branch ?? ""), result?.commits.at(-1));
     }
   });
 
@@ -795,13 +823,13 @@ describe("containerSandbox", () => {
       spendCeiling: CEILING,
     });
 
-    assert.deepEqual(await branchesIn(elsewhere), [other.branch, "main"]);
+    assert.deepEqual(await branchesIn(elsewhere), [variant(other, "finished")?.branch, "main"]);
     assert.equal(settled, false, "the run finished while its checkout was locked");
     assert.deepEqual(await branchesIn(directory), ["main"]);
     lock.open();
     await holding;
     const result = await running;
-    assert.deepEqual(await branchesIn(directory), [result.branch, "main"]);
+    assert.deepEqual(await branchesIn(directory), [variant(result, "finished")?.branch, "main"]);
   });
 
   /**
@@ -828,7 +856,7 @@ describe("containerSandbox", () => {
       spendCeiling: CEILING,
     });
 
-    assert.equal(result.branch, BRANCH);
+    assert.equal(variant(result, "finished")?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
   });
 });

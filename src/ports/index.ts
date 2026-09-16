@@ -105,6 +105,7 @@ export type {
   RunModelRefused,
   RunOutcome,
   RunRequest,
+  RunSandboxFailed,
   Sandbox,
 } from "./sandbox.ts";
 export { isTicketGist, ticketGist } from "./ticket-gist.ts";

@@ -22,6 +22,9 @@ import type {
   ReviewTicket,
   RunCost,
   RunFinished,
+  RunGaveUp,
+  RunLimitRefused,
+  RunModelRefused,
   RunOutcome,
   Sandbox,
   State,
@@ -709,8 +712,19 @@ async function work(
   }
 
   // A variant is exactly one kind, so nothing here turns on the order the
-  // three failing kinds are checked in.
+  // failing kinds are checked in.
   const { outcome: run, checkout } = returned;
+  if (run.kind === "sandbox-failed") {
+    // The agent already ran and spent — recorded against the project above,
+    // same as any other run — but the sandbox is what failed, so the ticket
+    // is left exactly as an infrastructure failure leaves it: not handed
+    // back, and eligible to come round again.
+    return {
+      kind: "failed",
+      tokensUsed: run.tokensUsed,
+      failure: { kind: "infrastructure", reason: run.reason },
+    };
+  }
   if (run.kind === "limit-refused") {
     return {
       kind: "limit-refused",
@@ -960,7 +974,7 @@ async function handTicketBack(
 async function discardBranch(
   ports: MorningLoopPorts,
   checkout: Checkout,
-  run: RunOutcome,
+  run: RunGaveUp | RunLimitRefused | RunModelRefused,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -992,10 +1006,12 @@ interface SandboxResult<Outcome> {
  * remembers, so a project whose clone has gone missing heals on the way into
  * the run instead of failing the morning.
  *
- * The two ways a run ends badly are told apart by where they surface: the
- * sandbox port rejects only when it could not set itself up, start the agent,
- * or tear itself down, and reports an agent that gave up as a result carrying
- * the `"gave-up"` variant.
+ * The ways a run ends badly are told apart by where they surface: the sandbox
+ * port rejects only when it could not set itself up or start the agent, and
+ * reports everything past that point as a result — an agent that gave up
+ * carries the `"gave-up"` variant, and a sandbox that failed once the agent
+ * had already run carries `"sandbox-failed"`, still spending what `outcome`
+ * carries below.
  */
 async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
@@ -1011,10 +1027,11 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
     // token count — so there is nothing to record against the project, and no
-    // branch to discard: fetching one back is the last thing a run does that
-    // can fail. The sandbox can reject after the agent has already worked,
-    // though, and that run's spend is lost to the ledger.
-    // TODO[#35]: record what a run spent even when the sandbox rejects.
+    // branch to discard. The sandbox rejects only when it could not set
+    // itself up or start the agent, before any of that existed to lose: a
+    // failure once the agent has already run comes back as a result instead
+    // (`RunOutcome`'s `"sandbox-failed"` case), carrying its spend, so it
+    // reaches `recordRun` below like any other.
     return infrastructureFailure(error);
   }
 
