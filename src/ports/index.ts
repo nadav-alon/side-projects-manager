@@ -88,7 +88,6 @@ export type {
   ApplyReviewOutcome,
   ApplyReviewRequest,
   ModelRefusal,
-  RebaseGaveUp,
   RebaseOutcome,
   RebaseRequest,
   ReviewFinished,

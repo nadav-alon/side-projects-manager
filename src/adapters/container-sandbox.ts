@@ -468,10 +468,11 @@ async function reviewOnClone(
 /**
  * Clones `project` under the checkout lock, points the clone's `origin` at
  * the checkout's own remote made pushable, and switches it onto the pull
- * request's `head` branch as the repo host has it now, tracking it — so a
- * plain `git push` from the agent lands on the pull request. Shared by
- * `applyReviewOnClone` and `rebaseOnClone`, whose clones are set up
- * identically and differ only in what they ask the agent to do with them.
+ * request's `head` branch as the repo host has it now, tracking it — so the
+ * agent's push, plain from an apply-review run, `--force-with-lease` from a
+ * rebase, lands on the pull request. Shared by `applyReviewOnClone` and
+ * `rebaseOnClone`, whose clones are set up identically and differ only in
+ * what they ask the agent to do with them.
  *
  * `gh` answers git's credential requests from the `GH_TOKEN` the container is
  * handed, which is how the agent's push authenticates against GitHub.
@@ -538,65 +539,69 @@ async function cloneOntoPullRequestHead(
 }
 
 /**
- * The apply-review run: a throwaway clone of its own, like any other, but
- * checked out on the pull request's head branch as the repo host has it now, and
- * mounted read-write — the agent commits there, pushes, and replies on the
- * pull request itself.
+ * The apply-review and rebase runs: a throwaway clone of its own, like any
+ * other, but checked out on the pull request's head branch as the repo host
+ * has it now, and mounted read-write — the agent commits there, pushes (plain
+ * for apply-review, `--force-with-lease` for rebase), and replies on the pull
+ * request itself.
  *
  * Inside the container the checkout's path means nothing, so the clone's
  * `origin` is pointed at the checkout's own remote, and the branch tracks it:
- * a plain `git push` from the agent lands on the pull request. Nothing is
- * fetched back and no branch is created in the checkout — what the run did
- * lives on the repo host, and is read back from there.
+ * the agent's push lands on the pull request. Nothing is fetched back and no
+ * branch is created in the checkout — what the run did lives on the repo
+ * host, and is read back from there. Shared by `applyReviewOnClone` and
+ * `rebaseOnClone`, which differ only in the clone's temp-directory prefix and
+ * the prompt the agent is given.
  */
+async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
+  kind: "apply-review" | "rebase",
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
+  promptFor: (ticket: T) => string,
+): Promise<ApplyReviewOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+  const head = await pullRequestHead(ticket.pullRequest.url);
+
+  return withThrowawayClone(kind, async (clone) => {
+    await cloneOntoPullRequestHead(project, clone, head);
+
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+      model,
+    );
+
+    return pushRejectedOutcomeOf(agent, model);
+  });
+}
+
 async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
 ): Promise<ApplyReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
-  const head = await pullRequestHead(ticket.pullRequest.url);
-
-  return withThrowawayClone("apply-review", async (clone) => {
-    await cloneOntoPullRequestHead(project, clone, head);
-
-    const agent = await attempt(
-      container,
-      { directory: clone, prompt: applyReviewPromptFor(ticket), spendCeiling, mount: "rw" },
-      model,
-    );
-
-    return applyReviewOutcomeOf(agent, model);
-  });
+  return pushingRunOnClone(
+    "apply-review",
+    container,
+    pullRequestHead,
+    request,
+    applyReviewPromptFor,
+  );
 }
 
-/**
- * The rebase run: shaped exactly like the apply-review run above, and for the
- * same reasons — a throwaway clone checked out on the pull request's head
- * branch as the repo host has it now, mounted read-write, so the agent's
- * force-push lands on the pull request itself. Nothing is fetched back and no
- * branch is created in the checkout — whether the rebase worked is read back
- * from the repo host, never from here.
- */
 async function rebaseOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
 ): Promise<RebaseOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
-  const head = await pullRequestHead(ticket.pullRequest.url);
-
-  return withThrowawayClone("rebase", async (clone) => {
-    await cloneOntoPullRequestHead(project, clone, head);
-
-    const agent = await attempt(
-      container,
-      { directory: clone, prompt: rebasePromptFor(ticket), spendCeiling, mount: "rw" },
-      model,
-    );
-
-    return rebaseOutcomeOf(agent, model);
-  });
+  return pushingRunOnClone(
+    "rebase",
+    container,
+    pullRequestHead,
+    request,
+    rebasePromptFor,
+  );
 }
 
 /**
@@ -614,11 +619,12 @@ const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * `endingOf`, as an apply-review run ends it: no branch or commits to carry,
- * and an agent that reports the branch moved under its push has given up,
- * whatever its exit code — its commits never reached the pull request.
+ * `endingOf`, as an apply-review or rebase run ends it: no branch or commits
+ * to carry, and an agent that reports the branch moved under its push has
+ * given up, whatever its exit code — its commits never reached the pull
+ * request, whether the push was plain (apply-review) or forced (rebase).
  */
-function applyReviewOutcomeOf(
+function pushRejectedOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
 ): ApplyReviewOutcome {
@@ -631,33 +637,6 @@ function applyReviewOutcomeOf(
   ) {
     // Only a full hash is carried: an abbreviation cannot be compared with
     // the head the repo host reports. The push was rejected all the same.
-    return {
-      kind: "gave-up",
-      output: agent.output,
-      reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
-      ...(FULL_HASH.test(moved) ? { movedHead: moved } : {}),
-      tokensUsed: agent.tokensUsed,
-    };
-  }
-  return { ...ending, tokensUsed: agent.tokensUsed };
-}
-
-/**
- * `endingOf`, as a rebase run ends it: as `applyReviewOutcomeOf`, since a
- * rebase run gives up on a moved branch for exactly the reason an
- * apply-review run does — its force-push never reached the pull request.
- */
-function rebaseOutcomeOf(
-  agent: AgentRun,
-  model: ModelName | undefined,
-): RebaseOutcome {
-  const ending = endingOf(agent, model);
-  const moved = BRANCH_MOVED.exec(agent.output)?.[1];
-  if (
-    (ending.kind === "finished" || ending.kind === "gave-up") &&
-    moved !== undefined &&
-    isCommitSha(moved)
-  ) {
     return {
       kind: "gave-up",
       output: agent.output,
