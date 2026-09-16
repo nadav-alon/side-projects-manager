@@ -73,7 +73,10 @@ const APPLY_REVIEW_SKILL = "apply-pr-review";
  * it explicitly (`/rebase-pr <pull request url>`), so this only has to prove the
  * file is there.
  */
-const REBASE_PR_SKILL = "rebase-pr";
+const REBASE_SKILL = "rebase-pr";
+
+/** Every skill copied into the personal-skill directory rather than shipped by a plugin. */
+const PERSONAL_SKILLS = [APPLY_REVIEW_SKILL, REBASE_SKILL];
 
 /**
  * Skill names as `claude plugin details` prints them: `Skills (25)  a, b, c`.
@@ -167,24 +170,17 @@ for (const directory of [HOME, path.join(HOME, ".claude")]) {
   }
 }
 
-// Checked by existence rather than through `claude`; APPLY_REVIEW_SKILL says why.
-const applyReviewSkillPath = path.join(HOME, ".claude", "skills", APPLY_REVIEW_SKILL, "SKILL.md");
+// Checked by existence rather than through `claude`, for the reason each of
+// PERSONAL_SKILLS' own doc comments gives.
+for (const skill of PERSONAL_SKILLS) {
+  const skillPath = path.join(HOME, ".claude", "skills", skill, "SKILL.md");
 
-if (!existsSync(applyReviewSkillPath)) {
-  fail(
-    `${applyReviewSkillPath} is missing, so a run applying a pull request's review has no ${APPLY_REVIEW_SKILL} skill to invoke`,
-    "the Dockerfile's COPY of .claude/skills/apply-pr-review/SKILL.md is what puts it there",
-  );
-}
-
-// Checked by existence rather than through `claude`; REBASE_PR_SKILL says why.
-const rebasePrSkillPath = path.join(HOME, ".claude", "skills", REBASE_PR_SKILL, "SKILL.md");
-
-if (!existsSync(rebasePrSkillPath)) {
-  fail(
-    `${rebasePrSkillPath} is missing, so a run rebasing a pull request's branch has no ${REBASE_PR_SKILL} skill to invoke`,
-    "the Dockerfile's COPY of .claude/skills/rebase-pr/SKILL.md is what puts it there",
-  );
+  if (!existsSync(skillPath)) {
+    fail(
+      `${skillPath} is missing, so a run has no ${skill} skill to invoke`,
+      `the Dockerfile's COPY of .claude/skills/${skill}/SKILL.md is what puts it there`,
+    );
+  }
 }
 
 // Read off the image rather than restated here: the Dockerfile declares
@@ -288,6 +284,8 @@ if (!usage.includes(PERMISSION_MODE)) {
   );
 }
 
+const personalSkillsPresent = PERSONAL_SKILLS.map((skill) => `${skill} present`).join(", ");
+
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${APPLY_REVIEW_SKILL} present, ${REBASE_PR_SKILL} present, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
 );
