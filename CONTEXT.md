@@ -315,7 +315,7 @@ A working in-memory implementation of a port, used to exercise the loop in tests
 _Avoid_: mock, double, spy
 
 **Sandbox**:
-The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run force-pushes from inside the container and brings no branch back, as an apply-review run does. The clone is not kept.
+The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run brings no branch back either, as an apply-review run does not — it force-pushes to the pull request's branch from inside the container. The clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:
