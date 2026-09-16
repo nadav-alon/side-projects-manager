@@ -1238,8 +1238,7 @@ async function runApplyReview(
       ticket,
       failure,
       modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      undefined,
-      run.tokensUsed,
+      { tokensUsed: run.tokensUsed },
     );
   }
   if (run.kind === "gave-up") {
@@ -1325,7 +1324,6 @@ async function handApplyReviewBack(
     ticket,
     failure,
     applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
-    undefined,
-    run.tokensUsed,
+    { tokensUsed: run.tokensUsed },
   );
 }
