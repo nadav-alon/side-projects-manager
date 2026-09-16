@@ -15,6 +15,8 @@ import {
 import type {
   ApplyReviewOutcome,
   ApplyReviewTicket,
+  RebaseOutcome,
+  RebaseTicket,
   ReviewTicket,
   Ticket,
 } from "../ports/index.ts";
@@ -41,6 +43,15 @@ const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
   number: issueNumber(10),
   pullRequest: {
     kind: "apply-review",
+    url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
+  },
+};
+
+const REBASE_TICKET: RebaseTicket = {
+  ...TICKET,
+  number: issueNumber(11),
+  pullRequest: {
+    kind: "rebase",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
   },
 };
@@ -189,6 +200,85 @@ describe("FakeSandbox", () => {
       assert.deepEqual(outcome, configured);
     });
   }
+
+  it("finishes a rebase run costlessly unless told otherwise, recording what was asked", async () => {
+    const sandbox = new FakeSandbox();
+
+    const outcome = await sandbox.rebase({
+      ticket: REBASE_TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.deepEqual(outcome, {
+      kind: "finished",
+      output: "",
+      tokensUsed: tokenCount(0),
+    });
+    assert.deepEqual(
+      sandbox.rebases.map((request) => [request.ticket.number, request.model]),
+      [[11, "opus"]],
+    );
+    assert.deepEqual(sandbox.runs, []);
+    assert.deepEqual(sandbox.reviews, []);
+    assert.deepEqual(sandbox.applyReviews, []);
+  });
+
+  const REBASE_OUTCOMES: RebaseOutcome[] = [
+    { kind: "finished", output: "rebased onto main", tokensUsed: tokenCount(10) },
+    {
+      kind: "gave-up",
+      output: "could not resolve the conflict",
+      reason: "conflict in src/index.ts",
+      tokensUsed: tokenCount(20),
+    },
+    {
+      kind: "gave-up",
+      output: "Branch moved: 0123456789abcdef0123456789abcdef01234567",
+      reason: "the branch moved",
+      tokensUsed: tokenCount(30),
+      movedHead: commitSha("0123456789abcdef0123456789abcdef01234567"),
+    },
+    { kind: "limit-refused", words: "You've hit your session limit", tokensUsed: tokenCount(0) },
+    {
+      kind: "model-refused",
+      refusal: { model: modelName("bogus"), words: "refused model bogus" },
+      tokensUsed: tokenCount(0),
+    },
+  ];
+
+  for (const configured of REBASE_OUTCOMES) {
+    const moved = configured.kind === "gave-up" && configured.movedHead !== undefined;
+    it(`returns a rebase run's configured ${configured.kind}${moved ? " (branch moved)" : ""} result verbatim`, async () => {
+      const sandbox = new FakeSandbox();
+      sandbox.rebaseResult = () => configured;
+
+      const outcome = await sandbox.rebase({
+        ticket: REBASE_TICKET,
+        checkout: CHECKOUT,
+        spendCeiling: CEILING,
+        model: modelName("bogus"),
+      });
+
+      assert.deepEqual(outcome, configured);
+    });
+  }
+
+  it("holds rebase runs until released, like any other", HANGS, async () => {
+    const sandbox = new FakeSandbox();
+    sandbox.hold();
+
+    const rebasing = sandbox.rebase({
+      ticket: REBASE_TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+    });
+    await sandbox.whenHeld(1);
+    assert.deepEqual(sandbox.held().map((ticket) => ticket.number), [11]);
+    sandbox.release(REBASE_TICKET);
+    await rebasing;
+  });
 
   it("holds apply-review runs until released, like any other", HANGS, async () => {
     const sandbox = new FakeSandbox();

@@ -14,6 +14,9 @@ import type {
   ModelName,
   ModelRefusal,
   PullRequestUrl,
+  RebaseOutcome,
+  RebaseRequest,
+  RebaseTicket,
   RemoteUrl,
   ReviewModelRefused,
   ReviewOutcome,
@@ -176,10 +179,10 @@ export function containerSandbox(
 
 /**
  * `Sandbox`'s implementation, as a class rather than an object literal of
- * arrow functions: `run`, `review` and `applyReview` are each overloaded on
- * whether `request.model` is present, and only a method (or a standalone
- * function declaration) can carry more than one call signature — an arrow
- * assigned to an object property cannot.
+ * arrow functions: `run`, `review`, `applyReview` and `rebase` are each
+ * overloaded on whether `request.model` is present, and only a method (or a
+ * standalone function declaration) can carry more than one call signature —
+ * an arrow assigned to an object property cannot.
  */
 class ContainerSandbox implements Sandbox {
   private readonly container: Container;
@@ -198,6 +201,14 @@ class ContainerSandbox implements Sandbox {
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
   applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
     return applyReviewOnClone(this.container, this.pullRequestHead, request);
+  }
+
+  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model?: undefined },
+  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
+  rebase(request: RebaseRequest): Promise<RebaseOutcome> {
+    return rebaseOnClone(this.container, this.pullRequestHead, request);
   }
 
   run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
@@ -230,7 +241,7 @@ class ContainerSandbox implements Sandbox {
  * pushed successfully.
  */
 async function withThrowawayClone<T>(
-  kind: "run" | "review" | "apply-review",
+  kind: "run" | "review" | "apply-review" | "rebase",
   body: (clone: Checkout) => Promise<T>,
 ): Promise<T> {
   const clone = checkout(
@@ -455,100 +466,152 @@ async function reviewOnClone(
 }
 
 /**
- * The apply-review run: a throwaway clone of its own, like any other, but
- * checked out on the pull request's head branch as the repo host has it now, and
- * mounted read-write — the agent commits there, pushes, and replies on the
- * pull request itself.
+ * Clones `project` under the checkout lock, points the clone's `origin` at
+ * the checkout's own remote made pushable, and switches it onto the pull
+ * request's `head` branch as the repo host has it now, tracking it — so the
+ * agent's push, plain from an apply-review run, `--force-with-lease` from a
+ * rebase, lands on the pull request. Shared by `applyReviewOnClone` and
+ * `rebaseOnClone`, whose clones are set up identically and differ only in
+ * what they ask the agent to do with them.
+ *
+ * `gh` answers git's credential requests from the `GH_TOKEN` the container is
+ * handed, which is how the agent's push authenticates against GitHub.
+ * `--force-create`: the clone already has a local branch of that name when
+ * the checkout was on it, and that copy may be stale; the repo host's is the
+ * one.
+ */
+async function cloneOntoPullRequestHead(
+  project: Checkout,
+  clone: Checkout,
+  head: Branch,
+): Promise<void> {
+  const remote = await withCheckoutLock(project, async () => {
+    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    const { stdout } = await run("git", [
+      "-C",
+      project,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
+    const origin = stdout.trim();
+    if (!isRemoteUrl(origin)) {
+      throw new Error(
+        `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
+      );
+    }
+    return origin;
+  });
+  await run("git", [
+    "-C",
+    clone,
+    "remote",
+    "set-url",
+    "origin",
+    pushableRemote(remote),
+  ]);
+  await run("git", [
+    "-C",
+    clone,
+    "config",
+    "credential.helper",
+    "!gh auth git-credential",
+  ]);
+  await run("git", [
+    "-C",
+    clone,
+    "fetch",
+    "--quiet",
+    "--no-tags",
+    "origin",
+    `+refs/heads/${head}:refs/remotes/origin/${head}`,
+  ]);
+  await run("git", [
+    "-C",
+    clone,
+    "switch",
+    "--quiet",
+    "--track",
+    "--force-create",
+    head,
+    `origin/${head}`,
+  ]);
+}
+
+/**
+ * The apply-review and rebase runs: a throwaway clone of its own, like any
+ * other, but checked out on the pull request's head branch as the repo host
+ * has it now, and mounted read-write — the agent commits there, pushes (plain
+ * for apply-review, `--force-with-lease` for rebase), and replies on the pull
+ * request itself.
  *
  * Inside the container the checkout's path means nothing, so the clone's
  * `origin` is pointed at the checkout's own remote, and the branch tracks it:
- * a plain `git push` from the agent lands on the pull request. Nothing is
- * fetched back and no branch is created in the checkout — what the run did
- * lives on the repo host, and is read back from there.
+ * the agent's push lands on the pull request. Nothing is fetched back and no
+ * branch is created in the checkout — what the run did lives on the repo
+ * host, and is read back from there. Shared by `applyReviewOnClone` and
+ * `rebaseOnClone`, which differ only in the clone's temp-directory prefix and
+ * the prompt the agent is given.
  */
+async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
+  kind: "apply-review" | "rebase",
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
+  promptFor: (ticket: T) => string,
+): Promise<ApplyReviewOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+  const head = await pullRequestHead(ticket.pullRequest.url);
+
+  return withThrowawayClone(kind, async (clone) => {
+    await cloneOntoPullRequestHead(project, clone, head);
+
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+      model,
+    );
+
+    return pushRejectedOutcomeOf(agent, model);
+  });
+}
+
 async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
 ): Promise<ApplyReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
-  const head = await pullRequestHead(ticket.pullRequest.url);
+  return pushingRunOnClone(
+    "apply-review",
+    container,
+    pullRequestHead,
+    request,
+    applyReviewPromptFor,
+  );
+}
 
-  return withThrowawayClone("apply-review", async (clone) => {
-    const remote = await withCheckoutLock(project, async () => {
-      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
-      const { stdout } = await run("git", [
-        "-C",
-        project,
-        "remote",
-        "get-url",
-        "origin",
-      ]);
-      const origin = stdout.trim();
-      if (!isRemoteUrl(origin)) {
-        throw new Error(
-          `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
-        );
-      }
-      return origin;
-    });
-    await run("git", [
-      "-C",
-      clone,
-      "remote",
-      "set-url",
-      "origin",
-      pushableRemote(remote),
-    ]);
-    // `gh` answers git's credential requests from the `GH_TOKEN` the container
-    // is handed, which is how the agent's push authenticates against GitHub.
-    await run("git", [
-      "-C",
-      clone,
-      "config",
-      "credential.helper",
-      "!gh auth git-credential",
-    ]);
-    await run("git", [
-      "-C",
-      clone,
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      "origin",
-      `+refs/heads/${head}:refs/remotes/origin/${head}`,
-    ]);
-    // `--force-create`: the clone already has a local branch of that name when
-    // the checkout was on it, and that copy may be stale; the repo host's is the one.
-    await run("git", [
-      "-C",
-      clone,
-      "switch",
-      "--quiet",
-      "--track",
-      "--force-create",
-      head,
-      `origin/${head}`,
-    ]);
-
-    const agent = await attempt(
-      container,
-      { directory: clone, prompt: applyReviewPromptFor(ticket), spendCeiling, mount: "rw" },
-      model,
-    );
-
-    return applyReviewOutcomeOf(agent, model);
-  });
+async function rebaseOnClone(
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: RebaseRequest,
+): Promise<RebaseOutcome> {
+  return pushingRunOnClone(
+    "rebase",
+    container,
+    pullRequestHead,
+    request,
+    rebasePromptFor,
+  );
 }
 
 /**
- * The line an apply-review agent ends its report with when the repo host rejected
- * its push because the branch moved, naming the head it moved to — as
- * `applyReviewPromptFor` asks for it. Anchored to the start of a line (`m`),
- * and matched only with a commit hash after it, so prose that merely mentions
- * a moved branch is not read as one; whatever the agent adds after the hash is
- * ignored, since a rejected push must not read as finished over a stray word.
- * The only place the line's shape is known.
+ * The line an apply-review or rebase agent ends its report with when the repo
+ * host rejected its push because the branch moved, naming the head it moved
+ * to — as `applyReviewPromptFor` and `rebasePromptFor` ask for it. Anchored to
+ * the start of a line (`m`), and matched only with a commit hash after it, so
+ * prose that merely mentions a moved branch is not read as one; whatever the
+ * agent adds after the hash is ignored, since a rejected push must not read
+ * as finished over a stray word. The only place the line's shape is known.
  */
 const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 
@@ -556,11 +619,12 @@ const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * `endingOf`, as an apply-review run ends it: no branch or commits to carry,
- * and an agent that reports the branch moved under its push has given up,
- * whatever its exit code — its commits never reached the pull request.
+ * `endingOf`, as an apply-review or rebase run ends it: no branch or commits
+ * to carry, and an agent that reports the branch moved under its push has
+ * given up, whatever its exit code — its commits never reached the pull
+ * request, whether the push was plain (apply-review) or forced (rebase).
  */
-function applyReviewOutcomeOf(
+function pushRejectedOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
 ): ApplyReviewOutcome {
@@ -668,6 +732,33 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
     "`git push` lands on the pull request. Name the repo explicitly wherever gh needs one.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "work every thread, push and reply without asking for confirmation.",
+    "If the push is rejected because the branch moved, stop, and end your report with the line",
+    "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
+    `(\`gh pr view ${url} --json headRefOid\`).`,
+  ].join("\n");
+}
+
+/**
+ * What the rebase agent is asked to do: invoke the skill on the pull request,
+ * named explicitly since nothing in the prompt otherwise says which. The
+ * skill says how.
+ *
+ * Shaped exactly like `applyReviewPromptFor`, and for the same reason: the
+ * run is unattended, so a pass that stops to ask has answered nothing, and a
+ * rejected push is asked for as the same fixed line naming the moved head
+ * (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
+ * refused from one that finished.
+ */
+function rebasePromptFor(ticket: RebaseTicket): string {
+  const url = ticket.pullRequest.url;
+  return [
+    `/rebase-pr ${url}`,
+    "",
+    `This clone is already checked out on ${url}'s head branch, tracking it on GitHub, so a`,
+    "force-push with `--force-with-lease` lands on the pull request. Name the repo explicitly",
+    "wherever gh needs one.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "resolve the rebase and force-push without asking for confirmation.",
     "If the push is rejected because the branch moved, stop, and end your report with the line",
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
