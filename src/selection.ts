@@ -32,6 +32,13 @@ export type ProjectVerdict =
   /** Considered, and its backlog held nothing eligible. */
   | "no-eligible-tickets"
   /**
+   * Considered, and its backlog held eligible tickets, but every one of them
+   * was already worked today — distinct from `no-eligible-tickets` because
+   * "no ready-for-agent tickets" would misreport a backlog that in fact has
+   * some, just not ones left to pick today.
+   */
+  | "already-worked-today"
+  /**
    * Had an eligible ticket, but another project outranked it this iteration —
    * a review elsewhere, an explicit priority, or simply having waited longer.
    * Not skipped for good: a later iteration in the same invocation, or
@@ -225,9 +232,16 @@ async function scan(
     const ticket = bestTicket(selectable, ticketPriorities);
 
     if (ticket === undefined) {
+      // Every eligible ticket found this scan is already accounted for by
+      // `worked`, not merely broken out or blocked: the backlog has some,
+      // just none left to pick today.
+      const verdict =
+        tickets.length > 0 && backlog.length === 0
+          ? "already-worked-today"
+          : "no-eligible-tickets";
       outcomes.set(
         project.repo,
-        outcome(project.repo, "no-eligible-tickets", projectState, findings),
+        outcome(project.repo, verdict, projectState, findings),
       );
       continue;
     }

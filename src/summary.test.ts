@@ -209,4 +209,39 @@ describe("summaryLine", () => {
 
     assert.match(line, /the run would not start on #184/);
   });
+
+  it("does not double a closing period when the quoted reason already ends in one", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(185),
+      kind: "failed",
+      failure: {
+        kind: "gave-up",
+        reason: "left the tests red at 2168fc2c.",
+        handedBack: true,
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /left the tests red at 2168fc2c\. Handed back for a human\./);
+    assert.doesNotMatch(line, /\.\./);
+  });
+
+  it("trims a trailing newline from a quoted reason before the closing period", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(186),
+      kind: "failed",
+      failure: {
+        kind: "gave-up",
+        reason: "left the branch on finding-shape\n",
+        handedBack: true,
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /left the branch on finding-shape\. Handed back for a human\./);
+  });
 });
