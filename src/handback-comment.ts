@@ -16,7 +16,6 @@ import type {
   RunFinished,
   RunGaveUp,
   RunModelRefused,
-  RunOutcome,
   Ticket,
 } from "./ports/index.ts";
 import {
@@ -338,7 +337,10 @@ function notRetried(fix?: string): string {
 }
 
 /** What the developer will find in the checkout, when it is worth saying. */
-function branchNote(run: RunOutcome | undefined, discard: Discard): string[] {
+function branchNote(
+  run: RunGaveUp | RunModelRefused | undefined,
+  discard: Discard,
+): string[] {
   switch (discard.kind) {
     case "none":
       return [];

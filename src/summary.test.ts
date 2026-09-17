@@ -12,7 +12,7 @@ import {
   type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
-import { summaryBody, type SummaryFacts } from "./summary.ts";
+import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
 
 const REPO = repoSlug("nadav-alon/pilot");
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/171");
@@ -175,5 +175,38 @@ describe("waitingSection", () => {
     assert.deepEqual(lines, [
       `- ${REPO} #182: still ready-for-agent — its findings are on ${PULL_REQUEST}, but it could not be closed: the tracker was unreachable; close it yourself`,
     ]);
+  });
+});
+
+describe("summaryLine", () => {
+  it("says the sandbox failed after the agent had already run when the infrastructure failure carries spend", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(183),
+      kind: "failed",
+      tokensUsed: tokenCount(42_000),
+      failure: {
+        kind: "infrastructure",
+        reason: "git could not fetch the branch back into the checkout",
+        tokensUsed: tokenCount(42_000),
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /the sandbox failed on #183 after the agent had already run/);
+  });
+
+  it("says the run would not start when the infrastructure failure carries no spend", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(184),
+      kind: "failed",
+      failure: { kind: "infrastructure", reason: "docker died" },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /the run would not start on #184/);
   });
 });

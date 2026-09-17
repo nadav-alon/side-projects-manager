@@ -607,7 +607,11 @@ function queued(finished: Finished): string {
 function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   const which = `#${ticket.number}`;
   if (failure.kind === "infrastructure") {
-    return `the run would not start on ${which}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
+    const what =
+      failure.tokensUsed === undefined
+        ? `the run would not start on ${which}`
+        : `the sandbox failed on ${which} after the agent had already run`;
+    return `${what}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and

@@ -98,10 +98,12 @@ interface Ended {
 
 /**
  * The branch an implementation run worked on, and what it committed there.
- * True of every variant an implementation run can end as — the branch is
- * created before the agent starts, so even a run refused before the agent did
- * anything still leaves one, empty of commits. A review has neither: it
- * never creates a branch.
+ * True of every variant but `RunSandboxFailed`: the branch is created before
+ * the agent starts, so even a run refused before the agent did anything
+ * still leaves one, empty of commits — but a sandbox that fails once the
+ * agent has already run may never get as far as fetching that branch back,
+ * so `RunSandboxFailed` carries neither. A review has neither for a
+ * different reason: it never creates a branch at all.
  */
 interface Worked {
   /** Branch the agent worked on. */
@@ -168,12 +170,34 @@ export interface ReviewModelRefused extends Ended {
 }
 
 /**
- * How a run in the container ended, as exactly one variant: finished, gave
- * up, was refused by the provider limit, or was refused the model it was
- * asked to run on. Told apart by `kind`, and nothing else — a caller that
- * matches on it exhaustively needs no other field to know which is which.
+ * The sandbox failed after the agent had already run: reading its commits
+ * back, or fetching its branch into the checkout, threw. Only an
+ * implementation run reaches either step, so no `ReviewOutcome` or
+ * `ApplyReviewOutcome` needs a variant like this one.
+ *
+ * The agent's spend is real whatever git did afterwards, so it travels with
+ * this result instead of being lost to a rejection — a rejection stays
+ * reserved for a sandbox that never got the agent running at all.
  */
-export type RunOutcome = RunFinished | RunGaveUp | RunLimitRefused | RunModelRefused;
+export interface RunSandboxFailed extends Ended {
+  kind: "sandbox-failed";
+  /** Why the sandbox failed, once the agent had already run. */
+  reason: string;
+}
+
+/**
+ * How a run in the container ended, as exactly one variant: finished, gave
+ * up, was refused by the provider limit, was refused the model it was asked
+ * to run on, or ran and spent before the sandbox itself failed. Told apart by
+ * `kind`, and nothing else — a caller that matches on it exhaustively needs no
+ * other field to know which is which.
+ */
+export type RunOutcome =
+  | RunFinished
+  | RunGaveUp
+  | RunLimitRefused
+  | RunModelRefused
+  | RunSandboxFailed;
 
 /** As `RunOutcome`, for a review — with no branch or commits on any variant. */
 export type ReviewOutcome =
@@ -246,12 +270,14 @@ export interface Sandbox {
    * its own, so the branch the checkout is on is never committed to; the
    * branch it leaves behind is the one named in the result.
    *
-   * Rejects only when the sandbox itself could not be set up or taken down,
-   * which includes a container that could not start the agent at all, a clone
-   * whose commit hashes are not ones a `CommitSha` can hold, and git failing
-   * to read the agent's commits back or fetch them into the checkout. An
-   * agent that ran and failed comes back as a result carrying `"gave-up"`,
-   * because its commits, its output and its spend are all still the morning's.
+   * Rejects only when the sandbox could not be set up before the agent ever
+   * started: a container that could not start it at all, or a clone whose
+   * commit hashes are not ones a `CommitSha` can hold. An agent that ran and
+   * failed comes back as a result carrying `"gave-up"`, because its commits,
+   * its output and its spend are all still the morning's — and git failing to
+   * read its commits back or fetch its branch into the checkout, once it has
+   * already run, comes back the same way, carrying `"sandbox-failed"`
+   * (`RunSandboxFailed`): its spend is real whatever git did afterwards.
    *
    * A request naming no model can never come back refused for one: that
    * variant of `RunOutcome` is excluded from what this overload returns,

@@ -287,26 +287,38 @@ async function runOnClone(
         { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
         model,
       );
-      const commits = await commitsSince(clone, base);
 
-      // Only when the agent actually committed: a branch pointing at the commit
-      // it started from is not work, and the checkout should not collect one
-      // for every morning that came to nothing.
-      if (commits.length > 0) {
-        const branch = onto;
-        await withCheckoutLock(project, () =>
-          run("git", [
-            "-C",
-            project,
-            "fetch",
-            "--no-tags",
-            clone,
-            `${branch}:${branch}`,
-          ]),
-        );
+      try {
+        const commits = await commitsSince(clone, base);
+
+        // Only when the agent actually committed: a branch pointing at the
+        // commit it started from is not work, and the checkout should not
+        // collect one for every morning that came to nothing.
+        if (commits.length > 0) {
+          const branch = onto;
+          await withCheckoutLock(project, () =>
+            run("git", [
+              "-C",
+              project,
+              "fetch",
+              "--no-tags",
+              clone,
+              `${branch}:${branch}`,
+            ]),
+          );
+        }
+
+        return runOutcomeOf(agent, model, onto, commits);
+      } catch (error: unknown) {
+        // The agent already ran and spent, whatever became of its commits
+        // afterwards — reported rather than thrown, so that spend is not lost
+        // to a rejection the way it would be before the agent ever started.
+        return {
+          kind: "sandbox-failed",
+          reason: errorMessage(error),
+          tokensUsed: agent.tokensUsed,
+        };
       }
-
-      return runOutcomeOf(agent, model, onto, commits);
     } finally {
       // If fetched back, the checkout now records the name; otherwise the name
       // is free again.
