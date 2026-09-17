@@ -10,6 +10,7 @@ import type {
   Scaffold,
   Store,
 } from "./ports/index.ts";
+import { branch } from "./ports/index.ts";
 
 /**
  * What the new-project command reaches the outside world through. Four ports,
@@ -164,7 +165,7 @@ export async function newProject(
 const SCAFFOLD_MESSAGE = "Install the agent harness";
 
 /** Where a proposed harness waits for the developer. */
-const HARNESS_BRANCH = "harness";
+const HARNESS_BRANCH = branch("harness");
 
 /**
  * What the pull request says the scaffold did.
@@ -299,6 +300,6 @@ function harnessSentence(proposal: Proposal | undefined): string | undefined {
     case "proposed":
       return `Its harness is proposed in ${proposal.url}; merge that and unpause the project.`;
     case "pushed":
-      return `Its harness is pushed to ${proposal.branch}, but no pull request could be opened (${proposal.failure}); open and merge one, then unpause the project.`;
+      return `Its harness is pushed to ${proposal.branch}, but ${proposal.failure}; open one if it isn't already open, merge it, then unpause the project.`;
   }
 }

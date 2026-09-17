@@ -22,6 +22,7 @@ import type {
 } from "../ports/index.ts";
 import {
   checkout,
+  isBranch,
   isMarkedReply,
   isPullRequestUrl,
   resolveNeedsRebase,
@@ -97,7 +98,7 @@ export function githubRepoHost(
     },
 
     async commitAndPush(
-      directory: string,
+      directory: Checkout,
       message: string,
       paths: string[],
     ): Promise<void> {
@@ -153,11 +154,11 @@ export function githubRepoHost(
     },
 
     async commitAndPropose(
-      directory: string,
+      directory: Checkout,
       message: string,
       body: string,
       paths: string[],
-      branch: string,
+      branch: Branch,
     ): Promise<Proposal> {
       if (paths.length === 0 || !(await hasChanges(directory, paths))) {
         return { kind: "unchanged" };
@@ -199,6 +200,7 @@ export function githubRepoHost(
         await returnTo(directory, found);
       }
 
+      let opened: string;
       try {
         const { stdout } = await run(
           "gh",
@@ -215,13 +217,18 @@ export function githubRepoHost(
           ],
           { cwd: directory },
         );
-        return { kind: "proposed", branch, url: stdout.trim() };
+        opened = stdout;
       } catch (error) {
         // The branch is on the host by now. A repo with pull requests turned
         // off, or a base branch nobody can open against, is a reason to say so
         // rather than to lose the push that already happened.
         return { kind: "pushed", branch, failure: errorMessage(error) };
       }
+
+      const result = pullRequestFrom(opened, "");
+      return "url" in result
+        ? { kind: "proposed", branch, url: result.url }
+        : { kind: "pushed", branch, failure: result.failure };
     },
 
     async openDraftPullRequest(
@@ -233,7 +240,7 @@ export function githubRepoHost(
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
       // every other run of this project for no reason.
-      let base: string;
+      let base: Branch;
       try {
         base = await withCheckoutLock(directory, async () => {
           // What the run branched from: the sandbox clones this checkout at its
@@ -310,17 +317,10 @@ export function githubRepoHost(
         };
       }
 
-      // Outside the catch: `gh` answering with something that is not a pull
-      // request is a different failure from `gh` refusing, and reporting it as
-      // the second would say a pull request was refused that may well exist.
-      const answer = opened.trim();
-      if (!isPullRequestUrl(answer)) {
-        return {
-          kind: "pushed",
-          failure: `gh answered "${answer}" rather than a pull request URL, so a pull request against ${base} may have been opened all the same`,
-        };
-      }
-      return { kind: "opened", pullRequest: answer };
+      const result = pullRequestFrom(opened, ` against ${base}`);
+      return "url" in result
+        ? { kind: "opened", pullRequest: result.url }
+        : { kind: "pushed", failure: result.failure };
     },
 
     async discardBranch(directory: Checkout, branch: Branch): Promise<void> {
@@ -679,6 +679,29 @@ function opensQuoting(comment: string, review: string): boolean {
 }
 
 /**
+ * What `gh pr create`'s stdout came to: the pull request it opened, or the
+ * sentence to report when it did not.
+ *
+ * `gh` answering with something that is not a pull request URL is a
+ * different failure from `gh` refusing outright, and reporting it as the
+ * second would say a pull request was refused that may well exist. `detail`
+ * names what the pull request would have been opened against, for the one
+ * caller that has a base to name.
+ */
+export function pullRequestFrom(
+  stdout: string,
+  detail: string,
+): { url: PullRequestUrl } | { failure: string } {
+  const answer = stdout.trim();
+  if (isPullRequestUrl(answer)) {
+    return { url: answer };
+  }
+  return {
+    failure: `gh answered "${answer}" rather than a pull request URL, so a pull request${detail} may have been opened all the same`,
+  };
+}
+
+/**
  * What the pull request says. With a gist, it opens with that sentence — what
  * the ticket asked for, in the implementing agent's own words — followed by a
  * blank line and the closing reference and draft note; without one, it is
@@ -718,7 +741,7 @@ async function hasBranch(directory: Checkout, of: Branch): Promise<boolean> {
 
 /** Whether any of `paths` differs from what the checkout has committed. */
 async function hasChanges(
-  directory: string,
+  directory: Checkout,
   paths: string[],
 ): Promise<boolean> {
   const { stdout } = await run("git", [
@@ -740,7 +763,7 @@ async function hasChanges(
  * rather than failing, which is what makes re-scaffolding after a convention
  * changes the same command as scaffolding the first time.
  */
-async function switchTo(directory: string, branch: string): Promise<void> {
+async function switchTo(directory: Checkout, branch: Branch): Promise<void> {
   try {
     await run("git", ["-C", directory, "checkout", "-b", branch]);
   } catch {
@@ -757,8 +780,8 @@ async function switchTo(directory: string, branch: string): Promise<void> {
  * than leaving the developer standing on the branch this command made.
  */
 async function returnTo(
-  directory: string,
-  branch: string | undefined,
+  directory: Checkout,
+  branch: Branch | undefined,
 ): Promise<void> {
   try {
     await run("git", ["-C", directory, "checkout", branch ?? "-"]);
@@ -942,18 +965,28 @@ async function catchUp(directory: Checkout): Promise<void> {
 }
 
 /** The branch the checkout is on, or undefined on a detached HEAD. */
-async function currentBranch(directory: string): Promise<string | undefined> {
+async function currentBranch(
+  directory: Checkout,
+): Promise<Branch | undefined> {
   const { stdout } = await run("git", [
     "-C",
     directory,
     "branch",
     "--show-current",
   ]);
-  const branch = stdout.trim();
-  return branch === "" ? undefined : branch;
+  const name = stdout.trim();
+  if (name === "") {
+    return undefined;
+  }
+  if (!isBranch(name)) {
+    throw new TypeError(
+      `git answered a branch name this adapter cannot use: ${name}`,
+    );
+  }
+  return name;
 }
 
-async function hasUpstream(directory: string): Promise<boolean> {
+async function hasUpstream(directory: Checkout): Promise<boolean> {
   try {
     await run("git", [
       "-C",

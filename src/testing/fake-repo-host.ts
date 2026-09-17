@@ -25,7 +25,7 @@ import {
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
-  directory: string;
+  directory: Checkout;
   message: string;
   /** The paths committed, and nothing else in the checkout. */
   paths: string[];
@@ -36,7 +36,7 @@ export interface FakeProposal extends FakePush {
   /** What the pull request says about the change. */
   body: string;
   /** The branch the scaffold was committed to, never the developer's own. */
-  branch: string;
+  branch: Branch;
 }
 
 /** One draft pull request the loop opened, in the order the fake received it. */
@@ -76,8 +76,9 @@ export class FakeRepoHost implements RepoHost {
   /** The managed location every clone lands under. */
   static readonly MANAGED_LOCATION = "/side-projects";
   /** The pull request a proposed scaffold waits in, unless a test says otherwise. */
-  static readonly PROPOSED_PULL_REQUEST =
-    "https://github.com/nadav-alon/pilot/pull/1";
+  static readonly PROPOSED_PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/1",
+  );
   /** The pull request a run's work waits in, unless a test says otherwise. */
   static readonly RUN_PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/2",
@@ -107,7 +108,7 @@ export class FakeRepoHost implements RepoHost {
   readonly #reviewFindings = new Map<PullRequestUrl, FakeReviewFinding[]>();
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
-  proposal: (branch: string) => Proposal = (branch) => ({
+  proposal: (branch: Branch) => Proposal = (branch) => ({
     kind: "proposed",
     branch,
     url: FakeRepoHost.PROPOSED_PULL_REQUEST,
@@ -146,7 +147,7 @@ export class FakeRepoHost implements RepoHost {
   }
 
   async commitAndPush(
-    directory: string,
+    directory: Checkout,
     message: string,
     paths: string[],
   ): Promise<void> {
@@ -154,11 +155,11 @@ export class FakeRepoHost implements RepoHost {
   }
 
   async commitAndPropose(
-    directory: string,
+    directory: Checkout,
     message: string,
     body: string,
     paths: string[],
-    branch: string,
+    branch: Branch,
   ): Promise<Proposal> {
     this.proposals.push({
       directory,

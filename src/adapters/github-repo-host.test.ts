@@ -7,7 +7,7 @@ import { describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
 import { withCheckoutLock } from "./checkout-lock.ts";
-import { githubRepoHost } from "./github-repo-host.ts";
+import { githubRepoHost, pullRequestFrom } from "./github-repo-host.ts";
 import {
   APPLY_REVIEW_MARKER,
   MergeabilityUnknown,
@@ -31,7 +31,7 @@ const run = promisify(execFile);
  * git half of the adapter is exercised here; everything that reaches GitHub
  * needs a credential and a network, and is left to the developer's own run.
  */
-async function checkout(remote = "nadav-alon/pilot"): Promise<string> {
+async function checkout(remote = "nadav-alon/pilot"): Promise<Checkout> {
   const root = await mkdtemp(path.join(tmpdir(), "repo-host-"));
   // Named as the remote it stands for, so the bare repo's path is what the
   // adapter compares the slug against.
@@ -43,7 +43,7 @@ async function checkout(remote = "nadav-alon/pilot"): Promise<string> {
   await run("git", ["clone", origin, working]);
   await run("git", ["-C", working, "config", "user.email", "test@example.com"]);
   await run("git", ["-C", working, "config", "user.name", "Test"]);
-  return working;
+  return toCheckout(working);
 }
 
 /** The managed location a `checkout()` sits in. */
@@ -75,6 +75,35 @@ async function pushedFiles(
   return filesIn(directory, branch);
 }
 
+describe("parsing what gh pr create answered", () => {
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/1";
+
+  it("accepts a pull request URL, trailing newline and all", () => {
+    assert.deepEqual(pullRequestFrom(`${OPENED}\n`, ""), { url: OPENED });
+  });
+
+  it("says a pull request may exist, rather than that gh refused, when the answer is not one", () => {
+    const result = pullRequestFrom("something went sideways", "");
+
+    assert.match(
+      "failure" in result ? result.failure : "",
+      /something went sideways.*may have been opened/,
+    );
+  });
+
+  it("names what the pull request would have been opened against, when given one", () => {
+    const result = pullRequestFrom(
+      "something went sideways",
+      " against release-2",
+    );
+
+    assert.match(
+      "failure" in result ? result.failure : "",
+      /against release-2.*may have been opened/,
+    );
+  });
+});
+
 /**
  * Proposing against a bare repo on disk. The push is real; opening the pull
  * request is not, because `gh` cannot resolve a local path to a repository —
@@ -82,17 +111,17 @@ async function pushedFiles(
  * git half is responsible for getting right.
  */
 describe("proposing a scaffold to a project that predates the manager", () => {
-  const propose = (directory: string, paths: string[]) =>
+  const propose = (directory: Checkout, paths: string[]) =>
     githubRepoHost().commitAndPropose(
       directory,
       "Install the agent harness",
       "body",
       paths,
-      "harness",
+      toBranch("harness"),
     );
 
   /** A checkout with history behind it, which is what "predates" means. */
-  async function existing(): Promise<string> {
+  async function existing(): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -177,6 +206,20 @@ describe("proposing a scaffold to a project that predates the manager", () => {
 
     assert.equal(proposal.kind === "pushed" && proposal.branch, "harness");
     assert.ok(proposal.kind === "pushed" && proposal.failure !== "");
+  });
+
+  it("reports pushed rather than refused, when gh answers with something that is not a pull request URL", async (t) => {
+    await recordingGh(t, "echo 'something went sideways'");
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    assert.deepEqual(await pushedFiles(directory, "origin/harness"), [
+      "AGENTS.md",
+      "seed.md",
+    ]);
   });
 });
 
@@ -304,7 +347,7 @@ describe("finding the checkout", () => {
   }
 
   /** A clone with history, tracking `origin/main`, as the loop's own clone is. */
-  async function seeded(): Promise<string> {
+  async function seeded(): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -357,7 +400,7 @@ describe("finding the checkout", () => {
     await landedElsewhere(directory, "merged.md");
     await landedElsewhere(elsewhere, "merged.md");
     const lock = gate();
-    const holding = withCheckoutLock(toCheckout(directory), () => lock.opened);
+    const holding = withCheckoutLock(directory, () => lock.opened);
 
     const waiting = githubRepoHost(locationOf(directory)).clone(PILOT);
     await githubRepoHost(locationOf(elsewhere)).clone(PILOT);
@@ -387,7 +430,7 @@ describe("finding the checkout", () => {
     );
 
     assert.equal(
-      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      await withCheckoutLock(directory, async () => "ran"),
       "ran",
     );
   });
@@ -468,7 +511,7 @@ describe("opening a draft pull request for a completed run", () => {
     await run("git", ["-C", directory, "add", "thing.md"]);
     await run("git", ["-C", directory, "commit", "--message", "Add the thing"]);
     await run("git", ["-C", directory, "switch", BASE]);
-    return toCheckout(directory);
+    return directory;
   }
 
   /** The branch the run left its commits on, in every test here. */
@@ -742,7 +785,7 @@ describe("opening a draft pull request for a completed run", () => {
     ]);
   });
 
-  it("says a pull request may exist, rather than that the branch was not pushed, when gh answers with something that is not one", async (t) => {
+  it("reports pushed rather than unpushed, when gh answers with something that is not a pull request URL", async (t) => {
     await recordingGh(t, "echo 'something went sideways'");
     const directory = await ran(RAN);
 
@@ -753,10 +796,6 @@ describe("opening a draft pull request for a completed run", () => {
     );
 
     assert.equal(opening.kind, "pushed");
-    assert.match(
-      opening.kind === "pushed" ? opening.failure : "",
-      /something went sideways.*may have been opened/,
-    );
     assert.deepEqual(await pushedFiles(directory, `origin/${RAN}`), [
       "seed.md",
       "thing.md",
@@ -768,7 +807,7 @@ describe("discarding a failed run's branch", () => {
   const FAILED = toBranch("issue-7-add-the-thing");
 
   /** A checkout with a commit behind it, as a project the loop works has. */
-  async function seeded(): Promise<string> {
+  async function seeded(): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -826,7 +865,7 @@ describe("discarding a failed run's branch", () => {
     ]);
     assert.match(unmergedBranches, new RegExp(FAILED));
 
-    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(directory, FAILED);
 
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
@@ -834,7 +873,7 @@ describe("discarding a failed run's branch", () => {
   it("says nothing about a branch the run never left, since it committed nothing", async () => {
     const directory = await seeded();
 
-    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(directory, FAILED);
 
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
@@ -845,10 +884,10 @@ describe("discarding a failed run's branch", () => {
     await unmerged(directory, FAILED);
     await unmerged(elsewhere, FAILED);
     const lock = gate();
-    const holding = withCheckoutLock(toCheckout(directory), () => lock.opened);
+    const holding = withCheckoutLock(directory, () => lock.opened);
 
-    const waiting = githubRepoHost().discardBranch(toCheckout(directory), FAILED);
-    await githubRepoHost().discardBranch(toCheckout(elsewhere), FAILED);
+    const waiting = githubRepoHost().discardBranch(directory, FAILED);
+    await githubRepoHost().discardBranch(elsewhere, FAILED);
 
     assert.deepEqual(await branchesIn(elsewhere), ["main"]);
     assert.deepEqual(
@@ -869,11 +908,11 @@ describe("discarding a failed run's branch", () => {
     await run("git", ["-C", directory, "switch", FAILED]);
 
     await assert.rejects(
-      githubRepoHost().discardBranch(toCheckout(directory), FAILED),
+      githubRepoHost().discardBranch(directory, FAILED),
     );
 
     assert.equal(
-      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      await withCheckoutLock(directory, async () => "ran"),
       "ran",
     );
   });
@@ -883,7 +922,7 @@ describe("discarding a failed run's branch", () => {
     await unmerged(directory, FAILED);
     await unmerged(directory, "issue-9-something-else");
 
-    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(directory, FAILED);
 
     assert.deepEqual(await branchesIn(directory), [
       "issue-9-something-else",
