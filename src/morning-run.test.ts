@@ -4193,14 +4193,26 @@ describe("morningLoop", () => {
 
       it("carries the local time to the minute in the summary title", async () => {
         const ports = fakePorts();
-        const startedAt = new Date(2026, 2, 5, 14, 37);
+        const startedAt = new Date("2026-03-05T14:37:00.000Z");
         ports.clock = new FakeClock(startedAt);
 
         await morningLoop(ports);
 
+        const local = Object.fromEntries(
+          new Intl.DateTimeFormat("en-CA", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          })
+            .formatToParts(startedAt)
+            .map((part) => [part.type, part.value]),
+        );
         assert.equal(
           ports.tracker.summaries[0]?.title,
-          "Morning loop summary — 2026-03-05 14:37",
+          `Morning loop summary — ${local.year}-${local.month}-${local.day} ${local.hour}:${local.minute}`,
         );
       });
     });
