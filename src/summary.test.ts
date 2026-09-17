@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { Finished, IterationOutcome, Reviewed } from "./iteration-outcome.ts";
+import type { GateStandDown } from "./morning-run.ts";
 import {
   branch,
   commitSha,
@@ -208,5 +209,57 @@ describe("summaryLine", () => {
     const line = summaryLine(facts([iteration]));
 
     assert.match(line, /the run would not start on #184/);
+  });
+
+  /**
+   * What the gate's own arithmetic came to is proven in `budget-gate.test.ts`,
+   * against the ledger and store fakes — this is only how the line reads once
+   * that verdict is in hand, so it needs nothing more than the verdict itself.
+   */
+  describe("a gate refusal", () => {
+    const RESETS_AT = new Date("2026-01-04T00:00:00.000Z");
+
+    function weeklyRefusal(overrides: Partial<GateStandDown> = {}): GateStandDown {
+      return {
+        reason: "weekly-reserve",
+        tokensUsed: tokenCount(250_000_001),
+        spendable: tokenCount(250_000_000),
+        resetsAt: RESETS_AT,
+        refused: REPO,
+        ...overrides,
+      };
+    }
+
+    function standDownLine(standDown: GateStandDown): string {
+      return summaryLine({
+        projects: [],
+        iterations: [],
+        standDown,
+        invocationFailure: undefined,
+      });
+    }
+
+    it("says it stood down for the budget, not that there was nothing to do", () => {
+      const line = standDownLine(weeklyRefusal());
+
+      assert.match(line, /stood down/i);
+      assert.match(line, /reserve/i);
+      assert.doesNotMatch(line, /nothing to do/i);
+    });
+
+    it("says which project was ready and when the window resets", () => {
+      const line = standDownLine(weeklyRefusal());
+
+      assert.match(line, /nadav-alon\/pilot/);
+      assert.match(line, new RegExp(RESETS_AT.toISOString()));
+    });
+
+    it("says the 5-hour window when that is what refused", () => {
+      const line = standDownLine(
+        weeklyRefusal({ reason: "five-hour-window" }),
+      );
+
+      assert.match(line, /5-hour/);
+    });
   });
 });
