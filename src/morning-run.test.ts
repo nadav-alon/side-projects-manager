@@ -387,7 +387,7 @@ describe("morningLoop", () => {
       });
     });
 
-    it("says a project whose only ready ticket was already worked today, not that it has none", async () => {
+    it("says a project whose only eligible ticket was already worked today, not that it has none", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
