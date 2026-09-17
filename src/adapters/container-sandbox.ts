@@ -42,6 +42,8 @@ import {
   type TokenCount,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
+import { REASON_QUOTED } from "../handback-comment.ts";
+import { tail } from "../tail.ts";
 import {
   isBranchReserved,
   reserveBranch,
@@ -987,17 +989,17 @@ export function readExitedRun(error: unknown): AgentRun {
  * How much of stderr a failed command is reported with: the tail, since that
  * is where a process says what stopped it right before it exits, bounded so a
  * command that wrote megabytes to stderr does not carry all of it into a
- * ticket comment.
+ * ticket comment — comfortably under `REASON_QUOTED` (`handback-comment.ts`),
+ * which tails the whole failure reason again before it reaches a hand-back
+ * comment, so the exit-code prefix below survives that second tail intact.
  */
-const FAILURE_STDERR_TAIL = 4_000;
+const FAILURE_STDERR_TAIL = REASON_QUOTED - 100;
 
 /**
  * What a command that exited non-zero is reported as: its exit code and the
  * tail of what it wrote to stderr — never `errorMessage(error)`, whose
- * `Command failed: <argv>` restates the whole command line. `dockerCommand`'s
- * argv carries the agent's prompt, so quoting it verbatim put the ticket's own
- * prompt into the report meant to say why the run failed, not what it was
- * asked to do.
+ * `Command failed: <argv>` restates the whole command line, including the
+ * agent's prompt from `dockerCommand`'s argv.
  */
 function commandFailure(error: unknown, stderr: string): string {
   const code = exitStatus(error);
@@ -1019,11 +1021,6 @@ function exitStatus(error: unknown): number | undefined {
   }
   const { code } = error as { code: unknown };
   return typeof code === "number" ? code : undefined;
-}
-
-/** The last `limit` characters of `text`, marked as a tail when it is one. */
-function tail(text: string, limit: number): string {
-  return text.length <= limit ? text : `…${text.slice(-limit)}`;
 }
 
 /**

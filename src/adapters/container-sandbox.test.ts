@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { REASON_QUOTED } from "../handback-comment.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,
@@ -1913,9 +1914,8 @@ describe("readExitedRun", () => {
   /**
    * What `execFile` rejects with when a command exits `code` having written
    * `stdout`/`stderr` — its `message` shaped exactly as Node's own rejection is,
-   * `Command failed: <argv>` with the whole command line (the agent's prompt
-   * included), so a test here proves `readExitedRun` never repeats it rather
-   * than merely not going looking for it.
+   * `Command failed: <argv>` with the whole command line, the agent's prompt
+   * included.
    */
   function exitedCommand(
     code: number,
@@ -1941,12 +1941,14 @@ describe("readExitedRun", () => {
     assert.match(agent.failure ?? "", /tests failed/);
   });
 
-  it("bounds the stderr it reports in length", () => {
-    const stderr = "x".repeat(10_000);
+  it("bounds the stderr it reports well under what a hand-back comment quotes again, keeping the exit code and the tail (not the head) of stderr", () => {
+    const stderr = `${"x".repeat(10_000)}last line`;
 
     const agent = readExitedRun(exitedCommand(1, { stderr }));
 
-    assert.ok((agent.failure ?? "").length < stderr.length);
+    assert.ok((agent.failure ?? "").length < REASON_QUOTED);
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+    assert.match(agent.failure ?? "", /last line$/);
   });
 
   it("never reports the command line or the prompt it ran", () => {
