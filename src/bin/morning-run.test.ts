@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import {
   access,
   mkdir,
@@ -13,6 +13,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
 import { localDay } from "../ports/index.ts";
 import {
   callWith,
@@ -45,7 +46,65 @@ async function home(registry?: unknown): Promise<string> {
   return directory;
 }
 
+/** A pid guaranteed no longer alive: a child process that has already exited. */
+function deadPid(): number {
+  const child = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+  if (child.pid === undefined) {
+    throw new Error("failed to spawn a child process for its pid");
+  }
+  return child.pid;
+}
+
 describe("the morning-run command", () => {
+  describe("the invocation lease", () => {
+    it("refuses, without running the loop, while a live invocation holds the lease", async (t) => {
+      const gh = await emptyBacklogGh(t);
+      const directory = await home();
+      const held = fileInvocationLease(directory);
+      await held.acquire();
+
+      const { stdout } = await run(directory);
+
+      assert.match(stdout, /already running/i);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 0, "the held invocation never ran");
+    });
+
+    it("runs again once an earlier invocation has released the lease", async (t) => {
+      await emptyBacklogGh(t);
+      const directory = await home();
+
+      await run(directory);
+      const { stdout } = await run(directory);
+
+      assert.doesNotMatch(
+        stdout,
+        /already running/i,
+        "the lease was released",
+      );
+      assert.match(stdout, /nothing to do/i);
+    });
+
+    it("is not blocked by a lease a dead process left behind", async (t) => {
+      const gh = await emptyBacklogGh(t);
+      const directory = await home();
+      await writeFile(
+        path.join(directory, "invocation.lease"),
+        String(deadPid()),
+      );
+
+      const { stdout } = await run(directory);
+
+      assert.doesNotMatch(stdout, /already running/i);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 1, "the run went ahead");
+    });
+  });
+
   it("exits successfully and says there was nothing to do", async (t) => {
     await emptyBacklogGh(t);
 
