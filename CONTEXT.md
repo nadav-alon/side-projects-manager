@@ -1,15 +1,16 @@
 # Side Projects Manager
 
-The manager owns a morning loop that moves one side project forward each day inside a sandboxed
-agent, and a command that starts new projects. Projects stay independent: the manager holds the
-registry and the harness, each project repo holds its own backlog.
+The manager owns a morning loop that moves side projects forward each day by working their
+eligible tickets, several at once, and a command that starts new projects. Projects stay
+independent: the manager holds the registry and the harness, each project repo holds its own
+backlog.
 
 ## Language
 
 ### The loop
 
 **Morning loop**:
-The job that picks one side project with available work and moves it forward. Referred to as "the loop".
+The job that moves side projects forward by working their eligible tickets, several at once. Referred to as "the loop".
 _Avoid_: the daily job, the cron job, the automation
 
 **Invocation**:
@@ -17,7 +18,7 @@ One firing of the morning loop, by whichever trigger got there first. Writes exa
 _Avoid_: run, execution, session
 
 **Iteration**:
-One pass within an invocation. An iteration works one project, and the budget gate is re-checked between iterations.
+One selection, gate check and run. Iterations of one invocation may overlap, up to the concurrency limit, and the gate is asked before each one starts.
 _Avoid_: cycle, pass, turn, loop
 
 **Run**:
@@ -37,7 +38,7 @@ The tickets the loop has worked on the current local calendar day, recorded in t
 _Avoid_: seen, attempted, cooldown
 
 **Stand down**:
-What the loop does when the budget gate refuses, when the provider limit refuses a run already started, or when the developer stops an invocation by hand: it starts nothing further, lets the runs already in progress finish, and says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
+What the loop does when the budget gate refuses, when the provider limit refuses a run already started, or when the developer stops an invocation by hand: no further iteration starts, iterations already in progress are not cancelled and finish on their own, and it says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
@@ -155,7 +156,7 @@ A run whose agent ran and stopped short — it said it could not, left the tests
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
+A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on.
 _Avoid_: outage, crash, system error
 
 **Discard**:
@@ -233,7 +234,7 @@ The fraction of a window held back for the developer's own interactive work. Eac
 _Avoid_: buffer, headroom
 
 **Budget document**:
-The hand-edited document of what the mornings may spend: the two allowances, the two reserve fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+The hand-edited document of what the mornings may spend: the two allowances, the two reserve fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend ceiling, the concurrency limit, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
@@ -274,6 +275,10 @@ _Avoid_: bad model, model error, invalid model
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.
 _Avoid_: budget, limit, cap
+
+**Concurrency limit**:
+The most iterations one invocation has in progress at once, `maxConcurrentIterations` in the budget document, defaulting to 1. The gate does not count iterations in progress, so it multiplies the overshoot a spend ceiling allows.
+_Avoid_: parallelism, workers, pool size
 
 ### Observability
 
