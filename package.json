@@ -9,7 +9,8 @@
   },
   "bin": {
     "morning-run": "./dist/bin/morning-run.js",
-    "new-project": "./dist/bin/new-project.js"
+    "new-project": "./dist/bin/new-project.js",
+    "status": "./dist/bin/status.js"
   },
   "files": [
     "dist",
@@ -21,6 +22,7 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "morning-run": "node src/bin/morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
+    "status": "node src/bin/status.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
     "sandbox:build": "docker build --label side-projects-sandbox.inputs=$(node scripts/sandbox-inputs-digest.ts) --build-arg CLAUDE_CODE_VERSION=$(npm view @anthropic-ai/claude-code version) -t side-projects-sandbox:latest .",
     "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" -v \"$PWD/src/error-message.ts:/src/error-message.ts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts",

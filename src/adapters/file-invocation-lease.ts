@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { InvocationLease } from "../trigger-guard.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
+import { isProcessAlive } from "./process-alive.ts";
 
 /** The lease file's name under the manager home, exported for tests that plant one directly. */
 export const LEASE_FILE = "invocation.lease";
@@ -76,7 +77,7 @@ async function create(file: string): Promise<boolean> {
 
 async function heldByLiveProcess(file: string): Promise<boolean> {
   const pid = await readPid(file);
-  return pid !== undefined && isAlive(pid);
+  return pid !== undefined && isProcessAlive(pid);
 }
 
 async function removeStale(file: string): Promise<void> {
@@ -96,22 +97,6 @@ async function readPid(file: string): Promise<Pid | undefined> {
   } catch (error) {
     if (isMissing(error)) {
       return undefined;
-    }
-    throw error;
-  }
-}
-
-/** Whether `pid` names a process still running — pid reuse after a reboot is accepted as negligible. */
-function isAlive(pid: Pid): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (isNoSuchProcess(error)) {
-      return false;
-    }
-    if (isErrorWithCode(error, "EPERM")) {
-      return true;
     }
     throw error;
   }
@@ -137,10 +122,6 @@ function isAlreadyExists(error: unknown): boolean {
 
 function isMissing(error: unknown): boolean {
   return isErrorWithCode(error, "ENOENT");
-}
-
-function isNoSuchProcess(error: unknown): boolean {
-  return isErrorWithCode(error, "ESRCH");
 }
 
 function isErrorWithCode(error: unknown, code: string): boolean {
