@@ -156,6 +156,7 @@ export class FakeStore implements Store {
       ...(closing.standDownReason !== undefined && {
         standDownReason: closing.standDownReason,
       }),
+      ...(closing.exitCode !== undefined && { exitCode: closing.exitCode }),
     });
   }
 

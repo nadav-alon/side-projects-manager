@@ -33,10 +33,41 @@ const entryPoint = path.join(import.meta.dirname, "morning-run.ts");
  * The command against its own manager home, so the suite reads and writes
  * documents in a temporary directory rather than the developer's checkout.
  */
-async function run(home: string): Promise<{ stdout: string; stderr: string }> {
+async function run(
+  home: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync(process.execPath, [entryPoint], {
-    env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: home },
+    env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: home, ...env },
   });
+}
+
+/**
+ * Runs the command against a stand-in for the loop process that touches the
+ * journal not at all and exits with `code` — standing in for a loop entry
+ * point that has gone missing from under the trigger, the one case the
+ * trigger itself has to notice. Settles rather than rejects even on a
+ * non-zero exit, so a test can read the exit code back without unpacking an
+ * error.
+ */
+async function runWithBrokenLoop(
+  directory: string,
+  code: number,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const brokenLoop = path.join(directory, "broken-loop.mjs");
+  await writeFile(brokenLoop, `process.exit(${code});\n`);
+  return run(directory, {
+    SIDE_PROJECTS_MANAGER_LOOP_ENTRY_POINT: brokenLoop,
+  }).then(
+    (result) => ({ ...result, code: 0 }),
+    (error: { stdout: string; stderr: string; code: number }) => error,
+  );
+}
+
+async function journal(directory: string): Promise<{ records: unknown[] }> {
+  return JSON.parse(
+    await readFile(path.join(directory, "journal.json"), "utf8"),
+  );
 }
 
 async function home(registry?: unknown): Promise<string> {
@@ -65,6 +96,9 @@ describe("the morning-run command", () => {
         (call) => call[0] === "issue" && call[1] === "create",
       );
       assert.equal(creates.length, 0, "the held invocation never ran");
+      // A day that was not claimed still runs nothing and records nothing: no
+      // journal document was ever written for it.
+      await assert.rejects(readFile(path.join(directory, "journal.json")));
     });
 
     it("runs again once an earlier invocation has released the lease", async (t) => {
@@ -200,6 +234,8 @@ describe("the morning-run command", () => {
     const journal = JSON.parse(
       await readFile(path.join(directory, "journal.json"), "utf8"),
     );
+    // One record and not two: the loop opened its own, so nothing extra is
+    // recorded for it having never reported.
     assert.equal(journal.records.length, 1);
     const [record] = journal.records;
     assert.equal(typeof record.process, "number");
@@ -266,6 +302,48 @@ describe("the morning-run command", () => {
     );
     assert.equal(journal.records.length, 1);
     assert.equal(journal.records[0].closedAt, undefined);
+  });
+
+  it("records that the loop never reported when its process leaves no journal record", async () => {
+    const directory = await home();
+
+    const { code } = await runWithBrokenLoop(directory, 7);
+
+    assert.equal(code, 7, "the loop's own exit code is passed through");
+    const { records } = await journal(directory);
+    assert.equal(records.length, 1);
+    const [record] = records as [
+      {
+        outcome: string;
+        exitCode: number;
+        openedAt: string;
+        closedAt: string;
+        projects: unknown[];
+      },
+    ];
+    assert.equal(record.outcome, "never-reported");
+    assert.equal(record.exitCode, 7);
+    assert.deepEqual(record.projects, []);
+    assert.ok(
+      new Date(record.openedAt).getTime() <=
+        new Date(record.closedAt).getTime(),
+    );
+  });
+
+  it("says on stderr, and leaves the exit code alone, when the never-reported record cannot be written", async () => {
+    const directory = await home();
+    // A file where the journal expects to write a directory forces every
+    // journal write to fail.
+    await mkdir(path.join(directory, "journal.json"));
+
+    const { stderr, code } = await runWithBrokenLoop(directory, 3);
+
+    assert.equal(
+      code,
+      3,
+      "the exit code is unaffected by the journal write failing",
+    );
+    assert.match(stderr, /journal/i);
   });
 
   describe("interrupted", () => {

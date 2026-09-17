@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { modelName, processId, repoSlug, tokenCount } from "../ports/index.ts";
+import {
+  exitCode,
+  modelName,
+  processId,
+  repoSlug,
+  tokenCount,
+} from "../ports/index.ts";
 import { FakeStore } from "./fake-store.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -64,6 +70,25 @@ describe("FakeStore journal", () => {
         },
       ],
     });
+  });
+
+  it("records an exit code when the invocation never reported", async () => {
+    const store = new FakeStore();
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "never-reported",
+      projects: [],
+      exitCode: exitCode(7),
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(record?.outcome, "never-reported");
+    assert.equal(record?.exitCode, 7);
   });
 
   it("rejects closing a record that was never opened", async () => {

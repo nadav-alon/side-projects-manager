@@ -15,7 +15,12 @@ import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing } from "../journal-record.ts";
 import { morningLoop, type InvocationReport } from "../morning-run.ts";
-import { processId, type OpenInvocation, type Store } from "../ports/index.ts";
+import {
+  exitCode,
+  processId,
+  type OpenInvocation,
+  type Store,
+} from "../ports/index.ts";
 import { invokeExclusively } from "../trigger-guard.ts";
 import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
 
@@ -27,6 +32,17 @@ const LOOP_PROCESS = "SIDE_PROJECTS_MANAGER_LOOP_PROCESS";
 
 /** Exit code of a process ended by SIGINT, as a shell reports it. */
 const INTERRUPTED = 130;
+
+// This file again, as the loop process.
+//
+// Overridable so a test can point it at a script that never touches the
+// journal, standing in for the one case that matters here: a loop entry
+// point that has gone missing from under the trigger that spawns it, which
+// is exactly what a moved manager home produces since the triggers hardcode
+// an absolute path to the checkout.
+const LOOP_ENTRY_POINT =
+  process.env["SIDE_PROJECTS_MANAGER_LOOP_ENTRY_POINT"] ||
+  import.meta.filename;
 
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
@@ -112,13 +128,64 @@ async function main(): Promise<void> {
  * once from the terminal's whole foreground group and again from here.
  */
 async function invokeLoop(): Promise<void> {
-  const code = await runShielded([import.meta.filename], {
+  const store = documentStore();
+  // Noted before the child even exists, so a record it opens the instant it
+  // starts still counts as its own — the comparison below is `>=`.
+  const notedAt = systemClock.now();
+  const code = await runShielded([LOOP_ENTRY_POINT], {
     ...process.env,
     [LOOP_PROCESS]: "1",
   });
   // The child already reported its own failure; passing its exit code
   // through is all this wrapper owes whoever is watching it run.
-  process.exitCode = code ?? 1;
+  const exit = code ?? 1;
+  await recordIfNeverReported(store, notedAt, exit);
+  process.exitCode = exit;
+}
+
+/**
+ * Appends a closed record saying the invocation never reported, carrying
+ * `exit`, when the loop's process left no record of its own opened at or
+ * after `notedAt`. The loop records everything that happens once it is
+ * running; this is the one thing it cannot record for itself — never having
+ * started at all.
+ *
+ * Reads the journal back rather than being told by the child, which stays
+ * uncoupled from the process that spawned it: it is given no identity and no
+ * argument beyond its own entry point.
+ *
+ * Never throws: a journal that cannot be read or written is said on stderr,
+ * the same policy the loop follows around its own recording, so observability
+ * here is never what fails an invocation that has already finished.
+ */
+async function recordIfNeverReported(
+  store: Store,
+  notedAt: Date,
+  exit: number,
+): Promise<void> {
+  try {
+    const { records } = await store.loadJournal();
+    const reported = records.some(
+      (record) => record.openedAt.getTime() >= notedAt.getTime(),
+    );
+    if (reported) {
+      return;
+    }
+    const opened = await store.openInvocation({
+      openedAt: notedAt,
+      process: processId(process.pid),
+    });
+    await store.closeInvocation(opened, {
+      closedAt: systemClock.now(),
+      outcome: "never-reported",
+      projects: [],
+      exitCode: exitCode(exit),
+    });
+  } catch (error: unknown) {
+    console.error(
+      `morning-run: the journal could not be written: ${errorMessage(error)}`,
+    );
+  }
 }
 
 /**
