@@ -6,6 +6,7 @@ import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
   MergeabilityUnknown,
+  READY_FOR_HUMAN_LABEL,
   backlogIn,
   branch,
   checkout,
@@ -59,7 +60,7 @@ function gateRefusal(report: InvocationReport) {
     : standDown;
 }
 
-/** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
+/** What became of an agent that gave up's own hand-back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
   const failure = failureOf(iteration);
   return failure?.kind === "gave-up" ? failure.handedBack : undefined;
@@ -1177,7 +1178,7 @@ describe("morningLoop", () => {
       const tomorrow = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
@@ -1186,6 +1187,36 @@ describe("morningLoop", () => {
       assert.match(handback.comment, /will not be retried/);
       assert.equal(ports.sandbox.reviews.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("leaves a review ticket alone when an overlapping run closed it before this one gave up", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.reviewResult = () => {
+        // Stands in for an overlapping run finishing first: by the time this
+        // run's own agent gives up, the ticket it was working is already
+        // closed.
+        ports.tracker.closeTicket(ticket);
+        return {
+          kind: "gave-up",
+          output: "I could not read the diff",
+          tokensUsed: tokenCount(1_000),
+          reason: "the review skill exited 1",
+        };
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), "already-closed");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(
+        ports.tracker.carriesLabel(ticket, READY_FOR_HUMAN_LABEL),
+        false,
+      );
+      const [summary] = ports.tracker.summaries;
+      assert.ok(summary);
+      assert.doesNotMatch(summary.body, /Waiting on you/);
     });
 
     it("hands back a review whose agent finished but posted nothing, naming the pull request", async () => {
@@ -1234,7 +1265,7 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.equal(handedBackOf(report.iterations[0]), false);
+      assert.equal(handedBackOf(report.iterations[0]), "refused");
       assert.match(report.message, /gh is not logged in/);
       assert.match(report.message, /relabel it yourself/);
     });
@@ -1627,7 +1658,7 @@ describe("morningLoop", () => {
       const tomorrow = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback?.comment ?? "", /1 thread left unanswered/);
@@ -1954,7 +1985,7 @@ describe("morningLoop", () => {
       const tomorrow = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback?.comment ?? "", /still conflicts/);
@@ -2482,7 +2513,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), false);
+      assert.equal(handedBackOf(report.iterations[0]), "refused");
       assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
       // The one morning the developer has to act on themselves: saying it was
@@ -2502,7 +2533,7 @@ describe("morningLoop", () => {
 
       // Relabelling is the half that stops the ticket costing another
       // morning; a branch git will not delete must not take it down.
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.match(
         ports.tracker.handbacks[0]?.comment ?? "",
         /could not be discarded/,

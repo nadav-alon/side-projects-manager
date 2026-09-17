@@ -728,6 +728,26 @@ describe("ghIssueTracker.handBack", () => {
     // has to hear about, because the developer has to relabel it by hand.
     await assert.rejects(ghIssueTracker().handBack(TICKET, COMMENT));
   });
+
+  it("leaves a closed ticket alone: no comment, no label touched", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "CLOSED" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const outcome = await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    assert.equal(outcome, "already-closed");
+    const calls = await gh.calls();
+    assert.equal(callWith(calls, "issue", "comment"), undefined);
+    assert.equal(callWith(calls, "--remove-label"), undefined);
+    assert.equal(callWith(calls, "--add-label"), undefined);
+  });
 });
 
 /**

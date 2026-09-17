@@ -74,7 +74,7 @@ function reviewFailed(number: number): IterationOutcome {
     repo: REPO,
     ticket: reviewTicket(number),
     kind: "failed",
-    failure: { kind: "gave-up", reason: "left the tests red", handedBack: true },
+    failure: { kind: "gave-up", reason: "left the tests red", handedBack: "handed-back" },
   };
 }
 
@@ -84,7 +84,17 @@ function reviewFailedNotHandedBack(number: number): IterationOutcome {
     repo: REPO,
     ticket: reviewTicket(number),
     kind: "failed",
-    failure: { kind: "gave-up", reason: "left the tests red", handedBack: false },
+    failure: { kind: "gave-up", reason: "left the tests red", handedBack: "refused" },
+  };
+}
+
+/** A review ticket's own run that gave up on a ticket an overlapping run had already closed. */
+function reviewFailedAlreadyClosed(number: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: reviewTicket(number),
+    kind: "failed",
+    failure: { kind: "gave-up", reason: "left the tests red", handedBack: "already-closed" },
   };
 }
 
@@ -166,6 +176,15 @@ describe("waitingSection", () => {
     assert.deepEqual(lines, [
       `- ${REPO} #180: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
     ]);
+  });
+
+  it("renders nothing for a review an overlapping run had already closed, not even the queue line", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(190), 191),
+      reviewFailedAlreadyClosed(191),
+    ]);
+
+    assert.deepEqual(lines, []);
   });
 
   it("renders the review's own still-open line, not a second line from its handover, when it ran but could not close its ticket", () => {
@@ -300,7 +319,7 @@ describe("summaryLine", () => {
       failure: {
         kind: "gave-up",
         reason: "left the tests red at 2168fc2c.",
-        handedBack: true,
+        handedBack: "handed-back",
       },
     };
 
@@ -318,7 +337,7 @@ describe("summaryLine", () => {
       failure: {
         kind: "gave-up",
         reason: "left the branch on finding-shape\n",
-        handedBack: true,
+        handedBack: "handed-back",
       },
     };
 
@@ -335,7 +354,7 @@ describe("summaryLine", () => {
       failure: {
         kind: "gave-up",
         reason: "left the tests red at 2168fc2c...",
-        handedBack: true,
+        handedBack: "handed-back",
       },
     };
 
@@ -378,5 +397,24 @@ describe("summaryLine", () => {
       line,
       /could not be handed back: the tracker was unreachable — still ready-for-agent/,
     );
+  });
+
+  it("says a ticket already closed by another run was left alone, not handed back or still eligible", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(191),
+      kind: "failed",
+      failure: {
+        kind: "gave-up",
+        reason: "left the tests red",
+        handedBack: "already-closed",
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /#191 was already closed by another run, so it was left alone/);
+    assert.doesNotMatch(line, /Handed back for a human/);
+    assert.doesNotMatch(line, /still ready-for-agent/);
   });
 });

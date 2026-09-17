@@ -32,6 +32,13 @@ export function carriesReadyForAgent(labels: Iterable<string>): boolean {
 export const READY_FOR_HUMAN_LABEL = "ready-for-human";
 
 /**
+ * What `IssueTracker.handBack` found: the ticket was open, so it was
+ * commented on and relabelled, or it was already closed, so it was left
+ * exactly as it is.
+ */
+export type HandBackOutcome = "handed-back" | "already-closed";
+
+/**
  * What a label starts with when it is a model label, per `CONTEXT.md`: the
  * rest of the label is the model's name. The one place the literal lives.
  */
@@ -517,8 +524,15 @@ export interface IssueTracker {
    * cannot select it and spend another morning on it — the same rule that
    * keeps a finished run's ticket from being reselected once its work is
    * waiting in a draft pull request, or once it committed nothing at all.
+   *
+   * Checked against the tracker before either write: a ticket already closed —
+   * by an overlapping run that finished it first, most commonly — is left
+   * exactly as it is, no comment and no label touched, and the answer says so.
+   * Closing is itself the no-retry rule for the ticket kinds the loop closes;
+   * relabelling a closed ticket ready-for-human would put it back in front of
+   * the developer for work that is already done.
    */
-  handBack(ticket: Ticket, comment: string): Promise<void>;
+  handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome>;
 
   /**
    * Closes `ticket`, once its review has been posted, and takes

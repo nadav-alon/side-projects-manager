@@ -578,14 +578,14 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
         kind: "conflicting-model-labels",
         reason: `it carries more than one model label (${label.labels.join(", ")})`,
         labels: label.labels,
-        handedBack: false,
+        handedBack: "refused",
       };
     case "unusable":
       return {
         kind: "unusable-model-label",
         reason: `its model label names no usable model (${label.labels.join(", ")})`,
         labels: label.labels,
-        handedBack: false,
+        handedBack: "refused",
       };
   }
 }
@@ -612,7 +612,7 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
     reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
     refusal,
     source,
-    handedBack: false,
+    handedBack: "refused",
   };
 }
 
@@ -742,7 +742,7 @@ async function work(
   const failure: GaveUp = {
     kind: "gave-up",
     reason: run.reason,
-    handedBack: false,
+    handedBack: "refused",
   };
   return handTicketBack(
     ports,
@@ -862,7 +862,7 @@ async function handoverFailed(
     reason,
     branch: run.branch,
     where,
-    handedBack: false,
+    handedBack: "refused",
   };
   return handTicketBack(
     ports,
@@ -906,7 +906,9 @@ type Spend = { run: RunOutcome } | { tokensUsed: TokenCount };
 /**
  * Puts the ticket of a run that failed on the ticket's account — an agent
  * that gave up, or a model it could not use — back in the developer's hands
- * with `comment`, and says whether it got there.
+ * with `comment`, and says whether it got there: handed back, refused, or
+ * found already closed by an overlapping run that finished it first, in
+ * which case the tracker touched nothing and `failure.handedBack` says so.
  *
  * Never throws. A tracker that could not be reached leaves the ticket eligible,
  * and saying so is the one thing still worth doing.
@@ -926,12 +928,12 @@ async function handTicketBack(
         ? spend.run.tokensUsed
         : spend.tokensUsed;
   try {
-    await ports.tracker.handBack(ticket, comment);
+    const outcome = await ports.tracker.handBack(ticket, comment);
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
       ...(tokensUsed !== undefined && { tokensUsed }),
-      failure: { ...failure, handedBack: true },
+      failure: { ...failure, handedBack: outcome },
     };
   } catch (error: unknown) {
     // The policy itself could not be carried out, which leaves the ticket
@@ -1176,7 +1178,7 @@ async function handReviewBack(
   review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
   return handTicketBack(
     ports,
     ticket,
@@ -1341,7 +1343,7 @@ async function handApplyReviewBack(
   run: ReviewFinished | ApplyReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
   return handTicketBack(
     ports,
     ticket,
@@ -1389,7 +1391,7 @@ async function runRebase(
       const failure: UnsettledMergeability = {
         kind: "unsettled-mergeability",
         reason: errorMessage(error),
-        handedBack: false,
+        handedBack: "refused",
       };
       return handTicketBack(
         ports,
@@ -1502,7 +1504,7 @@ async function handRebaseBack(
   run: RebaseFinished | RebaseGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
   return handTicketBack(
     ports,
     ticket,

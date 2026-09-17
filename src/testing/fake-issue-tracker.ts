@@ -1,5 +1,6 @@
 import type {
   ApplyReviewTicket,
+  HandBackOutcome,
   IssueTracker,
   OpenIssue,
   OpenIssues,
@@ -287,15 +288,33 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return review;
   }
 
-  async handBack(ticket: Ticket, comment: string): Promise<void> {
+  async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
+    const entry = this.#find(ticket);
+    // As the real tracker: a ticket an overlapping run already closed is left
+    // exactly as it is — no comment recorded, no label touched.
+    if (entry?.closed === true) {
+      return "already-closed";
+    }
+
     this.handbacks.push({ ticket, comment });
     // Loses ready-for-agent and gains ready-for-human, exactly the relabel the
     // real tracker makes — not removed from the open issues, since the ticket is
     // still there for the developer to find. Tests assert no retry by
     // invoking the loop again and finding nothing to select.
-    const entry = this.#find(ticket);
     entry?.labels.delete(READY_FOR_AGENT_LABEL);
     entry?.labels.add(READY_FOR_HUMAN_LABEL);
+    return "handed-back";
+  }
+
+  /**
+   * Closes `ticket` out of band — the way an overlapping run's own success,
+   * or a human on the tracker's own UI, might — without going through any of
+   * the loop's own close methods. Exists so a test can arrange the race
+   * `handBack` must leave alone: a ticket already closed by the time the loop
+   * gets back to it.
+   */
+  closeTicket(ticket: Ticket): void {
+    this.#close(ticket);
   }
 
   /**

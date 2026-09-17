@@ -3,6 +3,7 @@ import type {
   ApplyReviewTicket,
   Branch,
   Checkout,
+  HandBackOutcome,
   ModelName,
   ModelRefusal,
   PullRequestUrl,
@@ -17,6 +18,14 @@ import type {
   Ticket,
   TokenCount,
 } from "./ports/index.ts";
+
+/**
+ * What became of the loop's own attempt to hand a ticket back: the tracker's
+ * own `HandBackOutcome`, or `"refused"` where the tracker call itself failed —
+ * leaving the ticket still eligible, and due to come round again until a
+ * human relabels it by hand.
+ */
+export type HandBackAttempt = HandBackOutcome | "refused";
 
 /**
  * Whose problem a failed run is.
@@ -47,12 +56,14 @@ export interface GaveUp {
   kind: "gave-up";
   reason: string;
   /**
-   * Whether the ticket made it back to the developer. False says the loop
-   * could not comment or relabel, so the ticket is still eligible and will be
-   * selected again — a morning that needs the developer to go and look at the
-   * ticket themselves.
+   * What became of the attempt to give the ticket back to the developer.
+   * `"refused"` says the loop could not comment or relabel, so the ticket is
+   * still eligible and will be selected again — a morning that needs the
+   * developer to go and look at the ticket themselves. `"already-closed"`
+   * says an overlapping run closed it first, so nothing here needs the
+   * developer at all.
    */
-  handedBack: boolean;
+  handedBack: HandBackAttempt;
 }
 
 /**
@@ -71,7 +82,7 @@ export interface HandoverFailed {
   /** How far the branch got, and so where the developer finds the work. */
   where: HandoverReach;
   /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
+  handedBack: HandBackAttempt;
 }
 
 /** How far a failed handover's branch got before the handover failed. */
@@ -101,7 +112,7 @@ export interface ModelRefused {
   /** What named the refused model: the ticket's model label or the model defaults. */
   source: ModelSource;
   /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
+  handedBack: HandBackAttempt;
 }
 
 /**
@@ -115,7 +126,7 @@ export interface UnusableModelLabel {
   /** The model labels at fault, as the ticket carries them. */
   labels: readonly string[];
   /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
+  handedBack: HandBackAttempt;
 }
 
 /**
@@ -129,7 +140,7 @@ export interface UnsettledMergeability {
   kind: "unsettled-mergeability";
   reason: string;
   /** As `GaveUp.handedBack`. */
-  handedBack: boolean;
+  handedBack: HandBackAttempt;
 }
 
 /**
