@@ -1317,6 +1317,23 @@ describe("invocationSelection", () => {
       ]);
     });
 
+    it("reads a project as already worked today even when a blocked ticket is also left in its backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(55), title: "The blocker" });
+      tracker.addBlockedTicket(PILOT, { number: issueNumber(56), title: "Waits on #55" }, 1);
+      store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(55) });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen, undefined);
+      assert.deepEqual(verdicts(selection.verdicts()), [
+        [PILOT, "already-worked-today"],
+      ]);
+    });
+
     it("selects a ticket again once the day it was worked on has passed", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();

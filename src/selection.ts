@@ -32,10 +32,10 @@ export type ProjectVerdict =
   /** Considered, and its backlog held nothing eligible. */
   | "no-eligible-tickets"
   /**
-   * Considered, and its backlog held eligible tickets, but every one of them
-   * was already worked today — distinct from `no-eligible-tickets` because
-   * "no ready-for-agent tickets" would misreport a backlog that in fact has
-   * some, just not ones left to pick today.
+   * Considered, and at least one eligible ticket in its backlog was already
+   * worked today, with nothing selectable left over — whatever remains is
+   * blocked or broken out. Distinct from `no-eligible-tickets` because a
+   * backlog is not empty just because nothing in it is pickable today.
    */
   | "already-worked-today"
   /**
@@ -182,9 +182,10 @@ interface ScanFindings {
  * answering with the winner, if any.
  *
  * A paused project is passed over without asking the tracker anything,
- * because paused means never considered; a project this invocation has
- * exhausted — every eligible ticket already in `worked` — reads the same as
- * an empty backlog.
+ * because paused means never considered. A project left with no selectable
+ * ticket reads as already worked today when at least one eligible ticket is
+ * in `worked`, and reads the same as an empty backlog otherwise — including
+ * when every ticket left is merely blocked or broken out.
  */
 async function scan(
   ports: SelectionPorts,
@@ -232,11 +233,12 @@ async function scan(
     const ticket = bestTicket(selectable, ticketPriorities);
 
     if (ticket === undefined) {
-      // Every eligible ticket found this scan is already accounted for by
-      // `worked`, not merely broken out or blocked: the backlog has some,
-      // just none left to pick today.
+      // Nothing here is selectable, but that is only "already worked today"
+      // when `worked` is why: at least one eligible ticket this scan found is
+      // in it. A backlog left with nothing but blocked or broken-out tickets,
+      // none of them in `worked`, reads the same as an empty one.
       const verdict =
-        tickets.length > 0 && backlog.length === 0
+        tickets.length > backlog.length
           ? "already-worked-today"
           : "no-eligible-tickets";
       outcomes.set(
