@@ -45,6 +45,7 @@ export function spent(consumed: {
 /** What `FakeUsageLedger.read` was called with, in the order it was called. */
 export interface FakeRead {
   now: Date;
+  /** Omitted entirely, not set to `undefined`, when the read named no reset. */
   observedReset?: Date;
 }
 
