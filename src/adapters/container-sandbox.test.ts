@@ -13,6 +13,7 @@ import {
   containerSandbox,
   dockerCommand,
   dockerNeverRan,
+  dockerNeverRanMessage,
   pullRequestHeadFrom,
   pushableRemote,
   readAgentRun,
@@ -2409,5 +2410,28 @@ describe("dockerNeverRan", () => {
     assert.equal(dockerNeverRan(new Error("no code")), false);
     assert.equal(dockerNeverRan("a string"), false);
     assert.equal(dockerNeverRan(null), false);
+  });
+});
+
+describe("dockerNeverRanMessage", () => {
+  /** What `execFile` rejects with when docker itself exits `code`. */
+  function dockerRejection(code: number | string, stderr = ""): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout: "", stderr },
+    );
+  }
+
+  it("reports the exit code and the tail of stderr, never the command line or the prompt", () => {
+    const message = dockerNeverRanMessage(
+      dockerRejection(125, "no such image"),
+    );
+
+    assert.match(message, /\bcode 125\b/);
+    assert.match(message, /no such image/);
+    assert.doesNotMatch(message, /docker run/);
+    assert.doesNotMatch(message, /whole-prompt/);
   });
 });

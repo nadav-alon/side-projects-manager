@@ -963,13 +963,24 @@ const dockerContainer: Container = async (options) => {
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
     if (dockerNeverRan(error)) {
-      throw new AgentNeverRan(
-        `docker could not start the agent: ${errorMessage(error)}`,
-      );
+      throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
     return readExitedRun(error);
   }
 };
+
+/**
+ * What `AgentNeverRan` says when docker itself would not run the container:
+ * its exit code and the tail of stderr, the same as a command the agent ran
+ * itself, since this too is `execFile` rejecting and its argv carries the
+ * agent's prompt.
+ *
+ * Exported so it can be asserted the way `dockerContainer` uses it, without
+ * docker installed.
+ */
+export function dockerNeverRanMessage(error: unknown): string {
+  return `docker could not start the agent: ${commandFailure(error, captured(error).stderr)}`;
+}
 
 /**
  * What an agent that exited non-zero came back with. Any exit `dockerNeverRan`
