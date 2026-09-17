@@ -1016,21 +1016,33 @@ function commandFailure(error: unknown, stderr: string): string {
   const code = exitStatus(error);
   const said = stderr.trim();
   const detail = said === "" ? "" : `: ${tail(said, FAILURE_STDERR_TAIL)}`;
-  return code === undefined
-    ? `the command failed${detail}`
-    : `the command exited with code ${code}${detail}`;
+  if (code !== undefined) {
+    return `the command exited with code ${code}${detail}`;
+  }
+  const signal = errorProperty(error, "signal");
+  return typeof signal === "string"
+    ? `the command was killed by ${signal}${detail}`
+    : `the command stopped without an exit code${detail}`;
 }
 
 /**
- * The exit code `execFile` hangs off a non-zero exit. Absent for anything
- * `dockerNeverRan` would also miss — a signal instead of a code, or no `code`
- * property at all.
+ * The `code` or `signal` property `execFile` hangs a rejection off, whatever
+ * shape it is — a number, a string such as `"ENOENT"`, or absent entirely
+ * when the error isn't one `execFile` throws.
+ */
+function errorProperty(error: unknown, name: "code" | "signal"): unknown {
+  return typeof error === "object" && error !== null && name in error
+    ? (error as Record<typeof name, unknown>)[name]
+    : undefined;
+}
+
+/**
+ * The exit code `execFile` hangs off a non-zero exit. Absent when there is no
+ * numeric `code` — a signal kill, a non-`execFile` error, or a `code` that
+ * isn't a number, such as `dockerNeverRan`'s `"ENOENT"`.
  */
 function exitStatus(error: unknown): number | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return undefined;
-  }
-  const { code } = error as { code: unknown };
+  const code = errorProperty(error, "code");
   return typeof code === "number" ? code : undefined;
 }
 
@@ -1075,10 +1087,7 @@ function envFor(mount: Mount): NodeJS.ProcessEnv {
  * decides whether a ticket is told its agent gave up.
  */
 export function dockerNeverRan(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const { code } = error;
+  const code = errorProperty(error, "code");
   return code === "ENOENT" || code === 125 || code === 126 || code === 127;
 }
 

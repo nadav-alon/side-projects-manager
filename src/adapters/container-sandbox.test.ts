@@ -1966,6 +1966,19 @@ describe("readExitedRun", () => {
 
     assert.match(agent.failure ?? "", /\bcode 1\b/);
   });
+
+  it("names the signal that killed a container with no exit code of its own", () => {
+    const killed = Object.assign(new Error("Command failed"), {
+      code: null,
+      signal: "SIGKILL",
+      stdout: "",
+      stderr: "",
+    });
+
+    const agent = readExitedRun(killed);
+
+    assert.match(agent.failure ?? "", /killed by SIGKILL/);
+  });
 });
 
 describe("readAgentRun", () => {
