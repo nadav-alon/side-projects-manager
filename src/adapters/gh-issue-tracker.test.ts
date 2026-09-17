@@ -1864,6 +1864,42 @@ describe("ghIssueTracker.closeReviewTicket", () => {
     assert.equal(valueOf(close, "--repo"), PILOT);
     assert.ok(close.includes("42"));
   });
+
+  it("takes ready-for-agent off, so a reopened review is not back in the queue", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+
+    const calls = await gh.calls();
+    const close = callWith(calls, "issue", "close");
+    const removed = callWith(calls, "--remove-label");
+    assert.ok(removed, "ready-for-agent should be removed");
+    assert.equal(valueOf(removed, "--remove-label"), READY_FOR_AGENT_LABEL);
+    assert.equal(valueOf(removed, "--repo"), PILOT);
+    assert.ok(removed.includes("42"));
+    // Closed before unlabelled, so a caller who never learns whether the
+    // label removal succeeded still finds a closed review, never an open one.
+    assert.ok(close, "the ticket should be closed first");
+    assert.ok(calls.indexOf(close) < calls.indexOf(removed));
+  });
+
+  it("still closes the review when only the label removal is refused", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$*" in`,
+        `  *--remove-label*) echo "HTTP 403" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+    t.mock.method(console, "warn", () => undefined);
+
+    // The review is closed either way — a caller told this failed would
+    // report a review that is not closed, sending the developer to close one
+    // that already is.
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+  });
 });
 
 describe("ghIssueTracker.closeApplyReviewTicket", () => {
