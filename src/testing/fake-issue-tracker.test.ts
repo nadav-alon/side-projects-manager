@@ -437,3 +437,78 @@ describe("FakeIssueTracker — model labels", () => {
     assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });
   });
 });
+
+/** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */
+describe("FakeIssueTracker — size labels", () => {
+  it("declares no size for a ticket without a size label", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(backlog[0]?.sizeLabel, undefined);
+  });
+
+  /** Checked by the type check: the size label comes from labels alone. */
+  it("takes no size label with the ticket it is given", () => {
+    const tracker = new FakeIssueTracker();
+    const given: Ticket = {
+      repo: PILOT,
+      number: issueNumber(7),
+      title: "Add the thing",
+      sizeLabel: { kind: "declared", size: "M" },
+    };
+    // @ts-expect-error: a ticket carrying a size label is not a TicketInput.
+    tracker.addEligibleTicket(PILOT, given);
+  });
+
+  it("declares the size a ticket labelled size:M asks for", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(ticket, "size:M");
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.deepEqual(backlog[0]?.sizeLabel, { kind: "declared", size: "M" });
+  });
+
+  it("counts the larger of two declared sizes", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(ticket, "size:S");
+    tracker.addLabel(ticket, "size:L");
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.deepEqual(backlog[0]?.sizeLabel, { kind: "declared", size: "L" });
+  });
+
+  it("marks a ticket whose size label names no recognised size as unusable", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(ticket, "size:huge");
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.deepEqual(backlog[0]?.sizeLabel, {
+      kind: "unusable",
+      labels: ["size:huge"],
+    });
+  });
+
+  it("reads a review ticket's own labels, not its parent's", async () => {
+    const tracker = new FakeIssueTracker();
+    const parent = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(parent, "size:XL");
+
+    const review = await tracker.createReviewTicket(
+      parent,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    const listed = backlog.find((ticket) => ticket.number === review.number);
+    assert.ok(listed);
+    assert.equal(listed.sizeLabel, undefined);
+  });
+});

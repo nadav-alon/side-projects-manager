@@ -770,6 +770,20 @@ function linkedIssue(
   };
 }
 
+/** A raw issue carrying `labels` by name, the way label-reading tests need. */
+function issue(
+  number: number,
+  labels: string[],
+  body = "",
+): Record<string, unknown> {
+  return rawIssue({
+    number,
+    title: `Ticket ${number}`,
+    body,
+    labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
+  });
+}
+
 describe("ghIssueTracker.listOpenIssues — every open issue", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -1280,19 +1294,6 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
 describe("ghIssueTracker.listOpenIssues — model labels", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
-  function issue(
-    number: number,
-    labels: string[],
-    body = "",
-  ): Record<string, unknown> {
-    return rawIssue({
-      number,
-      title: `Ticket ${number}`,
-      body,
-      labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
-    });
-  }
-
   it("names no model for a ticket without a model label", async (t) => {
     await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
 
@@ -1381,6 +1382,42 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
 
     assert.deepEqual(before[0]?.ticket.modelLabel, { kind: "named", name: modelName("opus") });
     assert.deepEqual(after[0]?.ticket.modelLabel, { kind: "named", name: modelName("sonnet") });
+  });
+});
+
+/**
+ * A ticket's size label, read from the labels the same listing carries.
+ * What a label says is `sizeLabelOf`'s to decide; these check that the
+ * adapter hands it every label a ticket has.
+ */
+describe("ghIssueTracker.listOpenIssues — size labels", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("declares no size for a ticket without a size label", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues[0]?.ticket.sizeLabel, undefined);
+  });
+
+  it("declares the size a ticket labelled size:M asks for", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "size:M"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.sizeLabel, { kind: "declared", size: "M" });
+  });
+
+  it("marks a ticket whose size label names no recognised size as unusable", async (t) => {
+    await recordingGh(t, listing([issue(7, ["size:huge"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.sizeLabel, {
+      kind: "unusable",
+      labels: ["size:huge"],
+    });
   });
 });
 

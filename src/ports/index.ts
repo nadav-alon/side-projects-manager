@@ -17,6 +17,7 @@ export {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SIZE_LABEL_PREFIX,
   TICKET_KINDS,
   backlogIn,
   carriesReadyForAgent,
@@ -29,6 +30,7 @@ export {
   isReviewTicket,
   modelLabelOf,
   reviewTitle,
+  sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
 } from "./issue-tracker.ts";
@@ -43,6 +45,7 @@ export type {
   PullRequestTicket,
   RebaseTicket,
   ReviewTicket,
+  SizeLabel,
   Ticket,
   TicketKind,
 } from "./issue-tracker.ts";
@@ -82,7 +85,7 @@ export { isRepoSlug, repoName, repoSlug } from "./repo-slug.ts";
 export type { RepoSlug } from "./repo-slug.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
-export { isSize, SIZES } from "./size.ts";
+export { isSize, largerSize, SIZES } from "./size.ts";
 export type { Size } from "./size.ts";
 export type {
   ApplyReviewGaveUp,

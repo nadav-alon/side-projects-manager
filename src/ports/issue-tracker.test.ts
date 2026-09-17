@@ -5,12 +5,14 @@ import { issueNumber } from "./issue-number.ts";
 import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
+  SIZE_LABEL_PREFIX,
   carriesReadyForAgent,
   isApplyReviewTicket,
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
   modelLabelOf,
+  sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
   type OpenIssue,
@@ -319,6 +321,56 @@ describe("modelLabelOf", () => {
     assert.deepEqual(modelLabelOf(["model:opus", "model:"]), {
       kind: "unusable",
       labels: ["model:"],
+    });
+  });
+});
+
+describe("sizeLabelOf", () => {
+  it("declares no size for a ticket without a size label", () => {
+    assert.equal(sizeLabelOf([READY_FOR_AGENT_LABEL, "enhancement"]), undefined);
+    assert.equal(sizeLabelOf([]), undefined);
+  });
+
+  for (const letter of ["S", "M", "L", "XL"] as const) {
+    it(`declares ${letter} for a ticket labelled size:${letter}`, () => {
+      assert.deepEqual(sizeLabelOf([READY_FOR_AGENT_LABEL, `size:${letter}`]), {
+        kind: "declared",
+        size: letter,
+      });
+    });
+  }
+
+  it("counts the larger of two declared sizes, whichever order they're labelled in", () => {
+    assert.deepEqual(sizeLabelOf(["size:S", "size:L"]), {
+      kind: "declared",
+      size: "L",
+    });
+    assert.deepEqual(sizeLabelOf(["size:XL", "size:M"]), {
+      kind: "declared",
+      size: "XL",
+    });
+  });
+
+  it("reads only labels that start with the prefix, whatever its case", () => {
+    assert.equal(SIZE_LABEL_PREFIX, "size:");
+    assert.equal(sizeLabelOf(["my-size:S", "sizes:S"]), undefined);
+    assert.deepEqual(sizeLabelOf(["SIZE:m"]), {
+      kind: "declared",
+      size: "M",
+    });
+  });
+
+  it("marks a size label naming no recognised size unusable, carrying it as written", () => {
+    assert.deepEqual(sizeLabelOf(["size:huge"]), {
+      kind: "unusable",
+      labels: ["size:huge"],
+    });
+  });
+
+  it("marks a ticket unusable even beside a recognised size", () => {
+    assert.deepEqual(sizeLabelOf(["size:S", "size:huge"]), {
+      kind: "unusable",
+      labels: ["size:huge"],
     });
   });
 });

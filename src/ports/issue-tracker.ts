@@ -2,6 +2,7 @@ import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import { isSize, largerSize, type Size } from "./size.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -35,6 +36,33 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
  * rest of the label is the model's name. The one place the literal lives.
  */
 export const MODEL_LABEL_PREFIX = "model:";
+
+/**
+ * What a label starts with when it is a size label, per `CONTEXT.md`: the
+ * rest of the label names one of the four recognised sizes. The one place
+ * the literal lives.
+ */
+export const SIZE_LABEL_PREFIX = "size:";
+
+/**
+ * Every label in `labels` starting with `prefix`, matched without regard to
+ * case the way GitHub matches label names, paired with what follows the
+ * prefix — kept in the case it was written, since folding that further is
+ * each prefix's own rule to apply. What `modelLabelOf` and `sizeLabelOf`
+ * both filter their labels down to before applying their own.
+ */
+function labelsWithPrefix(
+  labels: Iterable<string>,
+  prefix: string,
+): Array<{ label: string; value: string }> {
+  const matches: Array<{ label: string; value: string }> = [];
+  for (const label of labels) {
+    if (label.toLowerCase().startsWith(prefix)) {
+      matches.push({ label, value: label.slice(prefix.length) });
+    }
+  }
+  return matches;
+}
 
 /**
  * What a ticket's model labels say, where it carries any: one model by name,
@@ -72,13 +100,9 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   const names: ModelName[] = [];
   const named: string[] = [];
   const unusable: string[] = [];
-  for (const label of labels) {
-    if (!label.toLowerCase().startsWith(MODEL_LABEL_PREFIX)) {
-      continue;
-    }
-    const name = label.slice(MODEL_LABEL_PREFIX.length);
-    if (isModelName(name)) {
-      names.push(name);
+  for (const { label, value } of labelsWithPrefix(labels, MODEL_LABEL_PREFIX)) {
+    if (isModelName(value)) {
+      names.push(value);
       named.push(label);
     } else {
       unusable.push(label);
@@ -95,6 +119,58 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   return others.length === 0
     ? { kind: "named", name }
     : { kind: "conflicting", names, labels: named };
+}
+
+/**
+ * What a ticket's size labels say, where it carries any: one recognised
+ * size, or a label whose name none of the four recognised sizes match.
+ * Absent from a ticket that names no size — an unsized ticket, per
+ * `CONTEXT.md`'s "Size label".
+ *
+ * `unusable` carries each size label whose name `isSize` refuses — as
+ * written, so a hand-back can quote it. It wins even beside a recognised
+ * size: the developer named a size, and running the ticket unsized or under
+ * the other size is not what they asked for. Two recognised sizes are not an
+ * error the same way: overestimating is the safe direction, so the larger
+ * one counts instead.
+ */
+export type SizeLabel =
+  | { kind: "declared"; size: Size }
+  | { kind: "unusable"; labels: readonly string[] };
+
+/**
+ * The size label a ticket carrying `labels` declares, or undefined where it
+ * names no size.
+ *
+ * Beside the port rather than in an adapter, so the real tracker and the fake
+ * read labels identically. The prefix is matched without regard to case, the
+ * way `modelLabelOf` matches `MODEL_LABEL_PREFIX`, and so is the size itself:
+ * `size:s` and `size:S` declare the same size. Unlike a model name, which is
+ * open-ended and so passed through as written, a size is one of four known
+ * spellings with no meaning in its case — folding it here, before `isSize`
+ * ever sees it, is what lets `isSize` stay the strict, exact check the rest
+ * of the codebase can rely on.
+ */
+export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
+  const declared: Size[] = [];
+  const unusable: string[] = [];
+  for (const { label, value } of labelsWithPrefix(labels, SIZE_LABEL_PREFIX)) {
+    const candidate = value.toUpperCase();
+    if (isSize(candidate)) {
+      declared.push(candidate);
+    } else {
+      unusable.push(label);
+    }
+  }
+
+  if (unusable.length > 0) {
+    return { kind: "unusable", labels: unusable };
+  }
+  const [first, ...rest] = declared;
+  if (first === undefined) {
+    return undefined;
+  }
+  return { kind: "declared", size: rest.reduce(largerSize, first) };
 }
 
 /**
@@ -145,6 +221,11 @@ export interface PullRequestBinding {
  *
  * `priority` is the level its own priority label names, from that same
  * listing. Absent means it carries none.
+ *
+ * `sizeLabel` is what the ticket's own size labels say, read from that same
+ * listing on every call. Absent means the ticket names no size — an unsized
+ * ticket, per `CONTEXT.md`'s "Size label". A review ticket reads its own
+ * labels, never its parent's, and never inherits a size from it.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -156,6 +237,7 @@ export interface Ticket {
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
+  sizeLabel?: SizeLabel;
 }
 
 /**
