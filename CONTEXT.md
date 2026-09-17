@@ -156,12 +156,16 @@ A run whose agent ran and stopped short — it said it could not, left the tests
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on.
+A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. What an implementation agent that did start left is salvaged, wherever it can still be reached. The invocation carries on.
 _Avoid_: outage, crash, system error
 
 **Discard**:
-What becomes of a failed run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
+What becomes of a gave-up run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
 _Avoid_: clean up, prune, delete
+
+**Salvage**:
+What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, or an infrastructure failure after the agent started: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch. Nothing about the ticket changes. A run that continues on a salvage and then gives up is discarded, salvage and all.
+_Avoid_: leftover, WIP branch, partial run, resume branch
 
 **Backlog**:
 One project's eligible tickets.
@@ -265,7 +269,7 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, an implementation run's work is salvaged, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
