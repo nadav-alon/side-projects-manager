@@ -66,12 +66,18 @@ export class FakeUsageLedger implements UsageLedger {
   /** Every call `read` answered, in the order they arrived. */
   readonly reads: FakeRead[] = [];
 
-  /** What the ledger reports from here on, for a read with no observed reset. */
+  /**
+   * What the ledger reports from here on, for a read with no observed reset
+   * or one `reportsForReset` was never told about.
+   */
   reports(windows: UsageWindows): void {
     this.#windows = windows;
   }
 
-  /** What it will report, for a test that needs a boundary it did not name. */
+  /**
+   * What it will report, for a read with no observed reset or one
+   * `reportsForReset` was never told about.
+   */
   get reported(): UsageWindows {
     return this.#windows;
   }
