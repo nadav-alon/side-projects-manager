@@ -229,7 +229,7 @@ anything:
   "weeklyAllowance": 500000000,
   "reserveFraction": 0.5,
   "fiveHourReserveFraction": 0,
-  "spendCeiling": 5,
+  "spendCeiling": 10,
   "sizes": { "S": 500000, "M": 2000000, "L": 5000000, "XL": 10000000 },
   "unsizedCountsAs": "M"
 }
