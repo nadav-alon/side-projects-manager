@@ -570,7 +570,10 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
+    assert.equal(
+      variant(result, "gave-up")?.reason,
+      `the command exited with code 1: ${MODEL_REFUSAL_STDERR.trim()}`,
+    );
   });
 
   /**
@@ -1904,6 +1907,62 @@ describe("pullRequestHeadFrom", () => {
       assert.throws(() => pullRequestHeadFrom(answer, url), /no usable head branch/);
     });
   }
+});
+
+describe("readExitedRun", () => {
+  /**
+   * What `execFile` rejects with when a command exits `code` having written
+   * `stdout`/`stderr` — its `message` shaped exactly as Node's own rejection is,
+   * `Command failed: <argv>` with the whole command line (the agent's prompt
+   * included), so a test here proves `readExitedRun` never repeats it rather
+   * than merely not going looking for it.
+   */
+  function exitedCommand(
+    code: number,
+    { stdout = "", stderr = "" }: { stdout?: string; stderr?: string } = {},
+  ): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout, stderr },
+    );
+  }
+
+  it("reports the exit code", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("reports the tail of stderr", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /tests failed/);
+  });
+
+  it("bounds the stderr it reports in length", () => {
+    const stderr = "x".repeat(10_000);
+
+    const agent = readExitedRun(exitedCommand(1, { stderr }));
+
+    assert.ok((agent.failure ?? "").length < stderr.length);
+  });
+
+  it("never reports the command line or the prompt it ran", () => {
+    const agent = readExitedRun(
+      exitedCommand(1, { stderr: "tests failed" }),
+    );
+
+    assert.doesNotMatch(agent.failure ?? "", /docker run/);
+    assert.doesNotMatch(agent.failure ?? "", /whole-prompt/);
+  });
+
+  it("still says it failed and gives the exit code when there is no stderr", () => {
+    const agent = readExitedRun(exitedCommand(1));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
 });
 
 describe("readAgentRun", () => {

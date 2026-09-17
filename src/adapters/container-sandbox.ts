@@ -980,7 +980,50 @@ const dockerContainer: Container = async (options) => {
  */
 export function readExitedRun(error: unknown): AgentRun {
   const { stdout, stderr } = captured(error);
-  return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+  return { ...readAgentRun(stdout, stderr), failure: commandFailure(error, stderr) };
+}
+
+/**
+ * How much of stderr a failed command is reported with: the tail, since that
+ * is where a process says what stopped it right before it exits, bounded so a
+ * command that wrote megabytes to stderr does not carry all of it into a
+ * ticket comment.
+ */
+const FAILURE_STDERR_TAIL = 4_000;
+
+/**
+ * What a command that exited non-zero is reported as: its exit code and the
+ * tail of what it wrote to stderr — never `errorMessage(error)`, whose
+ * `Command failed: <argv>` restates the whole command line. `dockerCommand`'s
+ * argv carries the agent's prompt, so quoting it verbatim put the ticket's own
+ * prompt into the report meant to say why the run failed, not what it was
+ * asked to do.
+ */
+function commandFailure(error: unknown, stderr: string): string {
+  const code = exitStatus(error);
+  const said = stderr.trim();
+  const detail = said === "" ? "" : `: ${tail(said, FAILURE_STDERR_TAIL)}`;
+  return code === undefined
+    ? `the command failed${detail}`
+    : `the command exited with code ${code}${detail}`;
+}
+
+/**
+ * The exit code `execFile` hangs off a non-zero exit. Absent for anything
+ * `dockerNeverRan` would also miss — a signal instead of a code, or no `code`
+ * property at all.
+ */
+function exitStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+  const { code } = error as { code: unknown };
+  return typeof code === "number" ? code : undefined;
+}
+
+/** The last `limit` characters of `text`, marked as a tail when it is one. */
+function tail(text: string, limit: number): string {
+  return text.length <= limit ? text : `…${text.slice(-limit)}`;
 }
 
 /**
