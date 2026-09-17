@@ -2971,27 +2971,23 @@ describe("morningLoop", () => {
     });
 
     describe("when the gate is asked", () => {
-      it("reads the ledger before the run, at the clock's instant", async (t) => {
+      it("reads the ledger before the run, at the clock's instant", async () => {
         const ports = readyToWork();
-        const read = t.mock.method(ports.ledger, "read");
 
         await morningLoop(ports);
 
-        assert.equal(read.mock.callCount(), 1);
-        assert.deepEqual(read.mock.calls[0]?.arguments, [FROZEN_NOW, undefined]);
+        assert.deepEqual(ports.ledger.reads, [{ now: FROZEN_NOW }]);
       });
 
-      it("hands the ledger the observed reset the budget declares", async (t) => {
+      it("hands the ledger the observed reset the budget declares", async () => {
         const ports = readyToWork();
         const observedResetAt = new Date("2026-01-01T06:00:00.000Z");
         ports.store.budget = { ...ports.store.budget, observedResetAt };
-        const read = t.mock.method(ports.ledger, "read");
 
         await morningLoop(ports);
 
-        assert.deepEqual(read.mock.calls[0]?.arguments, [
-          FROZEN_NOW,
-          observedResetAt,
+        assert.deepEqual(ports.ledger.reads, [
+          { now: FROZEN_NOW, observedReset: observedResetAt },
         ]);
       });
 
@@ -3033,15 +3029,14 @@ describe("morningLoop", () => {
         assert.deepEqual(order, ["gate", "run"]);
       });
 
-      it("does not read the ledger on a morning with nothing to run", async (t) => {
+      it("does not read the ledger on a morning with nothing to run", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
-        const read = t.mock.method(ports.ledger, "read");
 
         const report = await morningLoop(ports);
 
         assert.equal(report.outcome, "dry-queue");
-        assert.equal(read.mock.callCount(), 0);
+        assert.equal(ports.ledger.reads.length, 0);
       });
     });
 
