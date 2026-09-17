@@ -1,45 +1,46 @@
-import { localDay, type Clock, type Day } from "./ports/index.ts";
-
 /**
- * What a trigger needs to coordinate with every other trigger: a way to claim
- * a calendar day, once, however many of them race for it.
+ * What a trigger needs to coordinate with every other trigger: exclusive
+ * access to one invocation at a time, however long it runs.
  *
  * Not one of the loop's six ports (CONTEXT.md: Port) — the loop itself never
- * sees this. It exists only for whatever calls `morningLoop`, which is exactly
- * where the once-per-day lock belongs: the loop stays callable directly, with
- * no trigger-specific logic inside it.
+ * sees this. It exists only for whatever calls `morningLoop`, which is
+ * exactly where the invocation lease belongs: the loop stays callable
+ * directly, with no trigger-specific logic inside it.
  */
-export interface TriggerLock {
+export interface InvocationLease {
   /**
-   * Claims `day` for the trigger. Returns `true` the first time anything
-   * claims a given day, `false` to every later trigger the same day —
-   * whether that's a second trigger racing the first, or the same trigger
-   * asking again. Persisted, so the claim survives a reboot between the
-   * asking and the next, and an invocation that fails after claiming it.
+   * Acquires the lease for the calling process. Returns `true` if nothing
+   * else holds it, `false` if a live process already does. A lease left by a
+   * process that is no longer alive is stale and is taken over rather than
+   * refused, so a process killed mid-run does not stop the loop for good.
    */
-  claim(day: Day): Promise<boolean>;
+  acquire(): Promise<boolean>;
+
+  /** Releases the lease, so a later acquire can succeed. */
+  release(): Promise<void>;
 }
 
 /**
- * Calls `invoke` for the calendar day `clock` reports, but only for whichever
- * trigger gets here first that day (CONTEXT.md: Invocation). Returns whether
- * this call was the one that invoked it.
+ * Calls `invoke` only for whichever firing acquires `lease`; every other
+ * firing while it is held is refused (CONTEXT.md: Invocation). Returns
+ * whether this call was the one that invoked it.
  *
- * The day is claimed before `invoke` is called, not after. An invocation that
- * fails still leaves the day claimed: the loop's own no-retry policy
- * (CONTEXT.md: Hand back) already decides what happens to a failed run, and a
- * second trigger re-invoking the same day because the first invocation didn't
- * finish cleanly would go straight past that policy rather than through it.
+ * The lease is released once `invoke` settles, whether it resolves or
+ * throws — a failed invocation must not leave every later firing believing
+ * one is still running.
  */
-export async function invokeOncePerDay(
-  lock: TriggerLock,
-  clock: Clock,
+export async function invokeExclusively(
+  lease: InvocationLease,
   invoke: () => Promise<void>,
 ): Promise<boolean> {
-  const claimed = await lock.claim(localDay(clock.now()));
-  if (!claimed) {
+  const acquired = await lease.acquire();
+  if (!acquired) {
     return false;
   }
-  await invoke();
+  try {
+    await invoke();
+  } finally {
+    await lease.release();
+  }
   return true;
 }

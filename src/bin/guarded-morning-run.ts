@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import path from "node:path";
 
-import { fileTriggerLock } from "../adapters/file-trigger-lock.ts";
-import { systemClock } from "../adapters/system-clock.ts";
-import { invokeOncePerDay } from "../trigger-guard.ts";
+import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
+import { invokeExclusively } from "../trigger-guard.ts";
 import { runShielded } from "./shielded-child.ts";
 
 // `morning-run.ts` in this checkout, `morning-run.js` once built — matching
@@ -17,22 +16,19 @@ const LOOP_ENTRY_POINT = path.join(
 
 /**
  * What both the daily schedule and the logon guard call (`scripts/install-triggers.sh`):
- * whichever gets here first for a calendar day runs `morning-run.ts`, and the
- * other is a no-op. `morning-run.ts` itself stays the direct, unguarded entry
- * point — nothing here changes what a manual invocation does.
+ * whichever firing acquires the invocation lease runs `morning-run.ts`, and
+ * every other firing — however long that one takes — is a no-op.
+ * `morning-run.ts` itself stays the direct, unguarded entry point — nothing
+ * here changes what a manual invocation does.
  *
  * Spawns `morning-run.ts` as its own process rather than importing its
  * `main`, so its own exit-code and error-reporting policy applies unchanged:
  * this script's only job is deciding whether that process runs at all.
  */
 async function main(): Promise<void> {
-  const invoked = await invokeOncePerDay(
-    fileTriggerLock(),
-    systemClock,
-    invokeLoop,
-  );
+  const invoked = await invokeExclusively(fileInvocationLease(), invokeLoop);
   if (!invoked) {
-    console.log("morning-run already invoked today; nothing to do.");
+    console.log("an invocation is already running; nothing to do.");
   }
 }
 

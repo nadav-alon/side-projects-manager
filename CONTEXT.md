@@ -52,12 +52,12 @@ Whatever calls `morningLoop`: the daily schedule, the logon guard, or any future
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
-The trigger that fires on every new interactive shell, relying on the once-per-day lock to act only the first time that happens each day — so a machine left off overnight doesn't silently skip a day.
+The trigger that fires on every new interactive shell, invoking the loop through the invocation lease. A machine left off overnight doesn't silently skip a day because every new shell fires it; a machine left on all day doesn't re-work tickets or over-publish because worked today and the once-a-day summary rule hold regardless of how many times it fires.
 _Avoid_: startup hook, login script
 
-**Once-per-day lock**:
-What stops two triggers firing the same day: the first to claim a calendar day invokes the loop, every later claim that day is refused. Claimed before the loop is invoked, so an invocation that fails still leaves the day claimed.
-_Avoid_: mutex, semaphore, debounce
+**Invocation lease**:
+What stops two invocations overlapping, however long one runs: a file under the manager home, created exclusively and holding the holder's pid. Acquired before the loop is invoked and released once it ends, including when it throws, so a firing that cannot acquire it does nothing and says an invocation is already running. A lease whose holder's pid is no longer alive is stale and is taken over by whichever firing next asks, so a process killed mid-run does not stop the loop for good; PID reuse after a reboot is accepted as negligible.
+_Avoid_: mutex, semaphore, debounce, once-per-day lock
 
 ### Projects
 
