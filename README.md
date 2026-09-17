@@ -203,6 +203,12 @@ cost. The loop writes it after every invocation and you never have to edit it; i
 the audit trail. It does not exist until the loop has run, and no state for a project means the
 project has never been worked.
 
+`journal.json` records every invocation, whether or not it published a summary: when it started, when
+it ended, what it came to, and which projects it worked at what cost. `morning-run` opens a record
+before the loop runs and closes it with the report, so an invocation that dies partway leaves an
+in-flight record — one with no `closedAt` — rather than no trace at all. It keeps only the 50 most
+recent records, oldest dropped first, and is committed alongside `state.json`.
+
 ## The budget
 
 `scripts/budget-wizard.sh` writes this document one field at a time, starting from what
@@ -332,8 +338,8 @@ A key that is not one of those three kinds fails the invocation, and so does a n
 usable string. Every kind is optional, so `"reveiw"` would otherwise read as no review default at
 all, and your reviews would quietly run on the image's model.
 
-All four documents, your three and the loop's `state.json`, live in the manager home: this
-checkout, unless `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
+All five documents, your three and the loop's `state.json` and `journal.json`, live in the manager
+home: this checkout, unless `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
 House rules for source — branded primitives, and what a comment is allowed to say — are in
 [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).

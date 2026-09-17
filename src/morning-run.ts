@@ -6,6 +6,7 @@ import type {
   Checkout,
   Clock,
   Day,
+  InvocationOutcome as JournaledInvocationOutcome,
   IssueTracker,
   IterationLimit,
   ModelDefaults,
@@ -138,6 +139,15 @@ export type InvocationOutcome =
    * iterations; this is the invocation itself never getting that far.
    */
   | "invocation-failed";
+
+/**
+ * Kept assignable to the store port's own copy of this union: a variant
+ * added here without being added to `ports/journal.ts`'s `InvocationOutcome`
+ * fails this line, rather than surfacing later as a runtime parse error when
+ * the journal tries to read back an outcome it does not recognise.
+ */
+const _outcomeStaysInSyncWithJournal: JournaledInvocationOutcome =
+  "dry-queue" as InvocationOutcome;
 
 /** The model a ticket's run is started on, and what named it. */
 export interface ResolvedModel {

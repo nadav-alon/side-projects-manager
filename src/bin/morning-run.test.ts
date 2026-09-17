@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -119,6 +125,84 @@ describe("the morning-run command", () => {
     );
     assert.equal(creates.length, 1, "exactly one summary issue is created");
     assert.ok(callWith(calls, "issue", "create", "--title"));
+  });
+
+  it("leaves a closed journal record behind, naming this process", async (t) => {
+    await emptyBacklogGh(t);
+
+    const directory = await home();
+
+    await run(directory);
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    assert.equal(journal.records.length, 1);
+    const [record] = journal.records;
+    assert.equal(typeof record.process, "number");
+    assert.equal(record.outcome, "dry-queue");
+    assert.deepEqual(record.projects, []);
+    assert.ok(new Date(record.openedAt).getTime() <= new Date(record.closedAt).getTime());
+  });
+
+  it("records a closed invocation even when the loop itself broke", async (t) => {
+    await emptyBacklogGh(t);
+
+    const directory = await home({ projects: [{ repo: "pilot" }] });
+
+    await run(directory).catch(() => {});
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    assert.equal(journal.records[0]?.outcome, "invocation-failed");
+  });
+
+  it("keeps running, and says nothing but stderr, when the journal cannot be written", async (t) => {
+    await emptyBacklogGh(t);
+
+    const directory = await home();
+    // A file where the journal expects to write a directory forces every
+    // journal write to fail, without touching anything the loop itself reads.
+    await mkdir(path.join(directory, "journal.json"));
+
+    const { stdout, stderr } = await run(directory);
+
+    assert.match(stdout, /nothing to do/i);
+    assert.match(stderr, /journal/i);
+  });
+
+  it("keeps running, leaves the record open, and says nothing but stderr, when the journal cannot be closed", async (t) => {
+    const directory = await home();
+
+    // The journal writes through `journal.json.pending`, renamed over
+    // `journal.json` once written. Opening the record uses and frees that
+    // path before the loop ever calls `gh`, so blocking it there — the
+    // first moment this test controls after the open has already
+    // succeeded — fails only the close.
+    const pending = path.join(directory, "journal.json.pending");
+    await recordingGh(
+      t,
+      [
+        `mkdir -p "${pending}"`,
+        `case "$1 $2" in`,
+        `  "issue list") echo "[]" ;;`,
+        `  "issue create") echo "https://github.com/nadav-alon/side-projects-manager/issues/0" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const { stdout, stderr } = await run(directory);
+
+    assert.match(stdout, /nothing to do/i);
+    assert.match(stderr, /journal/i);
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    assert.equal(journal.records.length, 1);
+    assert.equal(journal.records[0].closedAt, undefined);
   });
 
   describe("interrupted", () => {

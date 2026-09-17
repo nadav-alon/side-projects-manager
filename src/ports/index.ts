@@ -51,6 +51,20 @@ export type {
 } from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
+export {
+  INVOCATION_OUTCOMES,
+  JOURNAL_LIMIT,
+  findInvocationRecord,
+  isInvocationOutcome,
+} from "./journal.ts";
+export type {
+  InvocationClosing,
+  InvocationOutcome,
+  InvocationRecord,
+  Journal,
+  JournaledProject,
+  OpenInvocation,
+} from "./journal.ts";
 export { isMilliseconds, milliseconds } from "./milliseconds.ts";
 export type { Milliseconds } from "./milliseconds.ts";
 export type { ModelDefaults } from "./model-defaults.ts";
@@ -58,6 +72,8 @@ export { MODEL_NAME_SHAPE, isModelName, modelName } from "./model-name.ts";
 export type { ModelName } from "./model-name.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
+export { isProcessId, processId } from "./process-id.ts";
+export type { ProcessId } from "./process-id.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
 export { isRemoteUrl, remoteUrl } from "./remote-url.ts";
