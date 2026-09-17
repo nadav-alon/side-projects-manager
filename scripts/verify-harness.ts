@@ -14,6 +14,10 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+// `sandbox:verify` (package.json) mounts this one file from `src/` alongside
+// `scripts/` for exactly this import.
+import { errorMessage } from "../src/error-message.ts";
+
 /** What `claude plugin list --json` prints per installed plugin. */
 type InstalledPlugin = {
   id?: string;
@@ -94,8 +98,8 @@ function fail(message: string, evidence: string): never {
 
 /** Whatever a thrown value can offer as evidence, in the order worth printing. */
 function describe(error: unknown): string {
-  const thrown = error as { stderr?: string; stdout?: string; message?: string };
-  return thrown?.stderr || thrown?.stdout || thrown?.message || String(error);
+  const thrown = error as { stderr?: string; stdout?: string };
+  return thrown?.stderr || thrown?.stdout || errorMessage(error);
 }
 
 /**

@@ -2,6 +2,7 @@
 import path from "node:path";
 
 import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
+import { errorMessage } from "../error-message.ts";
 import { invokeExclusively } from "../trigger-guard.ts";
 import { runShielded } from "./shielded-child.ts";
 
@@ -43,8 +44,6 @@ async function invokeLoop(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(
-    `morning-run trigger failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`morning-run trigger failed: ${errorMessage(error)}`);
   process.exitCode = 1;
 });

@@ -28,6 +28,7 @@ import {
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
+import { errorMessage } from "../error-message.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
@@ -222,7 +223,7 @@ export function githubRepoHost(
         // The branch is on the host by now. A repo with pull requests turned
         // off, or a base branch nobody can open against, is a reason to say so
         // rather than to lose the push that already happened.
-        return { kind: "pushed", branch, failure: errorMessage(error) };
+        return { kind: "pushed", branch, failure: commandFailureMessage(error) };
       }
 
       const result = pullRequestFrom(opened, "");
@@ -269,7 +270,7 @@ export function githubRepoHost(
             // earlier morning, which a checkout that has since been re-cloned
             // cannot see. Said plainly, because the raw push output does not.
             throw new Error(
-              `Could not push ${branch} to ${ticket.repo}: ${errorMessage(error)}`,
+              `Could not push ${branch} to ${ticket.repo}: ${commandFailureMessage(error)}`,
             );
           }
           return onBranch;
@@ -277,7 +278,7 @@ export function githubRepoHost(
       } catch (error) {
         // Everything that can fail in here fails before or at the push, so
         // the branch is still only in the checkout.
-        return { kind: "unpushed", failure: errorMessage(error) };
+        return { kind: "unpushed", failure: commandFailureMessage(error) };
       }
 
       let opened: string;
@@ -313,7 +314,7 @@ export function githubRepoHost(
         // anything else in this message.
         return {
           kind: "pushed",
-          failure: `could not open a pull request against ${base}: ${errorMessage(error)}`,
+          failure: `could not open a pull request against ${base}: ${commandFailureMessage(error)}`,
         };
       }
 
@@ -799,16 +800,18 @@ async function returnTo(
   }
 }
 
-/** What `gh` or `git` said, preferring its stderr over the exit-code message. */
-function errorMessage(error: unknown): string {
+/**
+ * What `gh` or `git` said, preferring its stderr over the exit-code message
+ * `errorMessage` alone would give: `execFile` throws an error whose `message`
+ * is its own "Command failed" summary, and the useful sentence is what the
+ * process wrote to its error stream instead.
+ */
+function commandFailureMessage(error: unknown): string {
   const stderr =
     typeof error === "object" && error !== null && "stderr" in error
       ? String(error.stderr).trim()
       : "";
-  if (stderr !== "") {
-    return stderr;
-  }
-  return error instanceof Error ? error.message : String(error);
+  return stderr !== "" ? stderr : errorMessage(error);
 }
 
 /**
@@ -959,7 +962,7 @@ async function catchUp(directory: Checkout): Promise<void> {
     ]);
   } catch (error) {
     throw new Error(
-      `${directory} cannot be brought up to date with its remote: ${errorMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
+      `${directory} cannot be brought up to date with its remote: ${commandFailureMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
     );
   }
 }
