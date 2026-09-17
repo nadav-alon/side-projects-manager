@@ -55,11 +55,9 @@ export interface FakeRead {
  * and the fake keeps one answer to the question rather than a settable field
  * beside a constructor saying the same thing twice.
  *
- * `read` takes the same arguments the port declares, `now` and
- * `observedReset` included, rather than the fixed windows a caller with no
- * arguments could only ever hand back one way — so a test against the loop
- * can see whether a reset it wrote into the budget document actually reached
- * the ledger, not just that the port's own type allows it to.
+ * `read` takes the port's own arguments, `now` and `observedReset`, so a
+ * test can see whether a reset written into the budget document actually
+ * reached the ledger, not just that the port's type allows it.
  */
 export class FakeUsageLedger implements UsageLedger {
   #windows: UsageWindows = NO_USAGE;
