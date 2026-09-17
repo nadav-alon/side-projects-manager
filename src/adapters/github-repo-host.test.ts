@@ -16,6 +16,7 @@ import {
   issueNumber,
   pullRequestUrl,
   repoSlug,
+  REVIEW_FINDING_FIELDS,
   ticketGist,
   type Checkout,
   type Ticket,
@@ -1183,6 +1184,17 @@ describe("checking a pull request for posted review findings", () => {
     await recordingGh(t, `cat <<'JSON'\n${comments(entries)}\nJSON`);
     return githubRepoHost().hasReviewFindings(PULL_REQUEST, SINCE);
   }
+
+  /**
+   * `FINDING`'s own keys are exactly `REVIEW_FINDING_FIELDS` — the same
+   * declaration the review prompt's posting instruction is rendered from
+   * (`reviewFindingTemplate`, `container-sandbox.test.ts`) — so this check
+   * accepting `FINDING` is evidence it accepts what that prompt asks the
+   * reviewer to post, not a coincidentally similar shape of this test's own.
+   */
+  it("checks for exactly the fields REVIEW_FINDING_FIELDS declares", () => {
+    assert.deepEqual(Object.keys(FINDING).sort(), [...REVIEW_FINDING_FIELDS].sort());
+  });
 
   it("finds a finding posted after the read's instant", async (t) => {
     const found = await checkedWith(t, [{ ...FINDING, created_at: AFTER }]);

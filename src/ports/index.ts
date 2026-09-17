@@ -69,6 +69,8 @@ export {
   isMarkedReply,
   MergeabilityUnknown,
   resolveNeedsRebase,
+  REVIEW_FINDING_FIELDS,
+  reviewFindingTemplate,
   summarizeApplyReviewThreads,
 } from "./repo-host.ts";
 export type {
