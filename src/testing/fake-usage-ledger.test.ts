@@ -5,7 +5,7 @@ import { tokenCount } from "../ports/index.ts";
 import { FROZEN_NOW } from "./fake-clock.ts";
 import { FakeUsageLedger, NO_USAGE } from "./fake-usage-ledger.ts";
 
-/** The ledger has no caller in the loop yet, so its contract is pinned here. */
+/** Pins the fake's own contract, independent of the loop tests that exercise it through `morningLoop`. */
 describe("FakeUsageLedger", () => {
   it("reports no usage by default", async () => {
     const windows = await new FakeUsageLedger().read(FROZEN_NOW);
