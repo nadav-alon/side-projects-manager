@@ -16,6 +16,7 @@ import {
   pushableRemote,
   readAgentRun,
   readExitedRun,
+  TICKET_GIST_TAG,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
@@ -389,7 +390,7 @@ describe("containerSandbox", () => {
 
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.match(asked, /TICKET GIST:/);
+    assert.ok(asked.includes(TICKET_GIST_TAG));
   });
 
   it("carries a well-formed ticket gist off the last line of a finished run", async () => {
@@ -398,7 +399,7 @@ describe("containerSandbox", () => {
       agentCommitting(
         [],
         0,
-        "Implemented the thing.\nTICKET GIST: Add retries to the flaky upload step.",
+        `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
       ),
     );
 
@@ -416,7 +417,7 @@ describe("containerSandbox", () => {
       agentCommitting(
         [],
         0,
-        "Implemented the thing.\n`TICKET GIST: Add retries to the flaky upload step.`",
+        `Implemented the thing.\n\`${TICKET_GIST_TAG} Add retries to the flaky upload step.\``,
       ),
     );
 
@@ -440,7 +441,7 @@ describe("containerSandbox", () => {
   it("carries no gist when the tagged line is empty", async () => {
     const directory = await project();
     const sandbox = containerSandbox(
-      agentCommitting([], 0, "Implemented the thing.\nTICKET GIST:   "),
+      agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
     );
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
@@ -454,7 +455,7 @@ describe("containerSandbox", () => {
       agentCommitting(
         [],
         0,
-        "TICKET GIST: Add retries to the flaky upload step.\nOne more line after it.",
+        `${TICKET_GIST_TAG} Add retries to the flaky upload step.\nOne more line after it.`,
       ),
     );
 
@@ -468,7 +469,7 @@ describe("containerSandbox", () => {
     const commit = agentCommitting(
       ["one.txt"],
       0,
-      "TICKET GIST: Add retries to the flaky upload step.",
+      `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
     );
     const sandbox = containerSandbox(async (options) => {
       await commit(options);
@@ -2157,7 +2158,7 @@ describe("readAgentRun", () => {
    */
   it("still carries a well-formed ticket gist once stderr is appended after it", () => {
     const stdout = JSON.stringify({
-      result: "Implemented the thing.\nTICKET GIST: Add retries to the flaky upload step.",
+      result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
     });
 
     const agent = readAgentRun(stdout, "npm warn deprecated foo@1.0.0\n");
@@ -2169,7 +2170,7 @@ describe("readAgentRun", () => {
   it("still carries a well-formed ticket gist once a denied-tools note is appended after it", () => {
     const stdout = JSON.stringify({
       is_error: false,
-      result: "TICKET GIST: Add retries to the flaky upload step.",
+      result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
       permission_denials: [{ tool_name: "Bash" }],
     });
 

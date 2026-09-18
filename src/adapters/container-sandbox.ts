@@ -801,10 +801,12 @@ function rebasePromptFor(ticket: RebaseTicket): string {
 
 /**
  * The tag `promptFor` asks the agent to close its output with, and `gistFrom`
- * reads back off the last line — the one place its wording is spelled out, so
- * the prompt and the parser cannot drift apart from each other.
+ * reads back off the last line — the one place in source its wording is
+ * spelled out, so the prompt and the parser cannot drift apart from each
+ * other. Exported so a test can assert against the tag that ships rather
+ * than a copy of the literal.
  */
-const TICKET_GIST_TAG = "TICKET GIST:";
+export const TICKET_GIST_TAG = "TICKET GIST:";
 
 /**
  * What the agent is asked to do. The repo's own instructions say how.
