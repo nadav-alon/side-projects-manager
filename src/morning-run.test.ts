@@ -2745,6 +2745,30 @@ describe("morningLoop", () => {
         assert.equal(report.outcome, "dry-queue");
         assert.equal(ports.ledger.reads.length, 0);
       });
+
+      it("asks again before a second run, standing down without starting it", async (t) => {
+        const ports = readyToWork();
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(8),
+          title: "Add another thing",
+        });
+        let asked = 0;
+        const read = t.mock.method(ports.ledger, "read", async () => {
+          asked += 1;
+          return asked === 1
+            ? spent({})
+            : spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(read.mock.callCount(), 2);
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7],
+        );
+        assert.equal(report.standDown?.reason, "weekly-reserve");
+      });
     });
   });
 
