@@ -36,9 +36,11 @@ import {
   isBranch,
   isCommitSha,
   isRemoteUrl,
+  isTicketGist,
   remoteUrl,
   reviewFindingTemplate,
   tokenCount,
+  type TicketGist,
   type TokenCount,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
@@ -86,6 +88,12 @@ export interface AgentRun {
    * it flagged the model unrecognised — see `MODEL_REFUSAL`.
    */
   modelRefused?: string;
+  /**
+   * The ticket gist off the agent's own last line, read before `output` gains
+   * any diagnostics appended after it — see `gistFrom`. Absent when the agent
+   * gave none.
+   */
+  gist?: TicketGist;
 }
 
 /**
@@ -431,14 +439,29 @@ function endingOf(
     : { kind: "gave-up", output: agent.output, reason: agent.failure };
 }
 
-/** `endingOf`, with the branch an implementation run worked on and its commits. */
+/**
+ * `endingOf`, with the branch an implementation run worked on and its
+ * commits, and — for a finished run — its ticket gist: `agent.gist` when the
+ * container already read one off the agent's own text, before any
+ * diagnostics were appended to `output`, and only otherwise a best-effort
+ * read of `output`'s own last line, for a container that never sets it.
+ */
 function runOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
   branch: Branch,
   commits: CommitSha[],
 ): RunOutcome {
-  return { ...endingOf(agent, model), tokensUsed: agent.tokensUsed, branch, commits };
+  const ending = endingOf(agent, model);
+  const gist =
+    ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
+  return {
+    ...ending,
+    ...(gist !== undefined && { gist }),
+    tokensUsed: agent.tokensUsed,
+    branch,
+    commits,
+  };
 }
 
 /** `endingOf`, as a review ends it: no branch or commits to carry. */
@@ -779,6 +802,15 @@ function rebasePromptFor(ticket: RebaseTicket): string {
 }
 
 /**
+ * The tag `promptFor` asks the agent to close its output with, and `gistFrom`
+ * reads back off the last line — the one place in source its wording is
+ * spelled out, so the prompt and the parser cannot drift apart from each
+ * other. Exported so a test can assert against the tag that ships rather
+ * than a copy of the literal.
+ */
+export const TICKET_GIST_TAG = "TICKET GIST:";
+
+/**
  * What the agent is asked to do. The repo's own instructions say how.
  *
  * `--repo` is spelled out because the clone's `origin` is a path on the host
@@ -793,7 +825,34 @@ function promptFor(ticket: Ticket): string {
     "— and follow this repo's own agent instructions and coding standards.",
     "Commit your work to the branch you are on; do not push, and do not open a",
     "pull request.",
+    `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
+    "followed by one sentence saying what the ticket asked for — not what",
+    "your diff did; the run is complete either way.",
   ].join(" ");
+}
+
+/**
+ * The ticket gist off the last line of a finished run's output, absent when
+ * the agent gave none.
+ *
+ * Only the last line is read, trailing blank lines aside: an agent that wrote
+ * more after the tag has made the gist span more than one line, which is
+ * indistinguishable here from an agent that tagged nothing at all, and both
+ * come back absent rather than guessed at.
+ *
+ * Backticks are stripped before the prefix test: `promptFor` shows the tag
+ * wrapped in backticks (as `BRANCH_MOVED`'s own prompt does for its line),
+ * and an agent that echoes that formatting verbatim must not lose its gist
+ * over it.
+ */
+function gistFrom(output: string): TicketGist | undefined {
+  const lines = output.trimEnd().split("\n");
+  const last = (lines.at(-1) ?? "").replace(/`/g, "");
+  if (!last.startsWith(TICKET_GIST_TAG)) {
+    return undefined;
+  }
+  const text = last.slice(TICKET_GIST_TAG.length).trim();
+  return isTicketGist(text) ? text : undefined;
 }
 
 /**
@@ -1231,15 +1290,21 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  *
  * A model refusal's words are the envelope's `result`, which is prose meant
  * for a reader, or the stderr tag itself when there is no `result` to quote.
+ *
+ * The ticket gist is read off the agent's own text before `stderr` and the
+ * denied-tools note are appended to it: once appended, the tag is no longer
+ * on the last line, and `gistFrom` would find nothing.
  */
 export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
+    const gist = gistFrom(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
+      ...(gist !== undefined && { gist }),
     };
   }
 
@@ -1247,16 +1312,15 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
     result?: unknown;
     usage?: unknown;
   };
+  const output = typeof result === "string" ? result : stdout;
+  const gist = gistFrom(output);
   return {
-    output: withDiagnostics(
-      typeof result === "string" ? result : stdout,
-      stderr,
-      deniedTools(envelope),
-    ),
+    output: withDiagnostics(output, stderr, deniedTools(envelope)),
     tokensUsed: totalTokens(usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
+    ...(gist !== undefined && { gist }),
   };
 }
 

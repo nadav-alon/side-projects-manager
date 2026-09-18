@@ -9,6 +9,7 @@ import {
   modelName,
   pullRequestUrl,
   repoSlug,
+  ticketGist,
   tokenCount,
   usd,
 } from "../ports/index.ts";
@@ -112,6 +113,53 @@ describe("FakeSandbox", () => {
       tokensUsed: tokenCount(0),
       branch: refused,
       commits: [],
+    });
+  });
+
+  it("returns a finished run's configured gist verbatim", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
+    const gist = ticketGist("Add retries to the flaky upload step.");
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      gist,
+    });
+
+    const withGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.deepEqual(withGist, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      gist,
+    });
+  });
+
+  it("returns a finished run with no gist when none was configured", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+    });
+
+    const withoutGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.deepEqual(withoutGist, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
     });
   });
 

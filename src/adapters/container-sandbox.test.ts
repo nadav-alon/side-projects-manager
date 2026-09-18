@@ -18,6 +18,7 @@ import {
   pushableRemote,
   readAgentRun,
   readExitedRun,
+  TICKET_GIST_TAG,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
@@ -379,6 +380,108 @@ describe("containerSandbox", () => {
     assert.equal(result.kind, "finished");
     assert.equal(variant(result, "finished")?.output, "implemented the thing");
     assert.equal(result.tokensUsed, tokenCount(42_000));
+  });
+
+  it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.ok(asked.includes(TICKET_GIST_TAG));
+  });
+
+  it("carries a well-formed ticket gist off the last line of a finished run", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries the gist even when the agent echoes the prompt's own backticks", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n\`${TICKET_GIST_TAG} Add retries to the flaky upload step.\``,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries no gist when the agent gave none", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(agentCommitting([], 0, "implemented the thing"));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the tagged line is empty", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the agent gave more than one line", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `${TICKET_GIST_TAG} Add retries to the flaky upload step.\nOne more line after it.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist on a run that gave up, even one tagged like a finished run's", async () => {
+    const directory = await project();
+    const commit = agentCommitting(
+      ["one.txt"],
+      0,
+      `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    );
+    const sandbox = containerSandbox(async (options) => {
+      await commit(options);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished"), undefined);
+    assert.equal(result.kind, "gave-up");
   });
 
   it("takes the clone away and leaves the branch behind", async () => {
@@ -2121,6 +2224,35 @@ describe("readAgentRun", () => {
     });
 
     assert.equal(readAgentRun(stdout).output, "done");
+  });
+
+  /**
+   * `withDiagnostics` appends stderr and the denied-tools note after the
+   * agent's own text, so a gist that reads correctly off the raw result must
+   * not be lost once those are appended to `output`.
+   */
+  it("still carries a well-formed ticket gist once stderr is appended after it", () => {
+    const stdout = JSON.stringify({
+      result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    });
+
+    const agent = readAgentRun(stdout, "npm warn deprecated foo@1.0.0\n");
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /npm warn deprecated/);
+  });
+
+  it("still carries a well-formed ticket gist once a denied-tools note is appended after it", () => {
+    const stdout = JSON.stringify({
+      is_error: false,
+      result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      permission_denials: [{ tool_name: "Bash" }],
+    });
+
+    const agent = readAgentRun(stdout);
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /refused these tools/);
   });
 });
 
