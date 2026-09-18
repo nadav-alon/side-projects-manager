@@ -2451,6 +2451,26 @@ describe("dockerCommand", () => {
   });
 
   /**
+   * On the bridge network, runs' API connections went silent while staying
+   * open (#262) or never answered at all, while the host's own CLI on the
+   * same machine was fine. The host's network stack takes docker's NAT out
+   * of the path. Dropped, nothing fails loudly: runs just stall again.
+   */
+  it("runs the container on the host's network", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
+
+    const network = command.indexOf("--network");
+    assert.notEqual(network, -1, "no --network: the run goes through docker's bridge NAT");
+    assert.equal(command[network + 1], "host");
+    assert.ok(network < command.indexOf("--print"), "--network must reach docker, not the CLI");
+  });
+
+  /**
    * A manager started with `sudo` would pin the container to root and hand the
    * CLI a permission mode it refuses under root — the very failure this pin
    * exists downstream of, arriving as exit 1 rather than as one of docker's own
