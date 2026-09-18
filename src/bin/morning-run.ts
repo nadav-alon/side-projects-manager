@@ -107,12 +107,18 @@ async function main(): Promise<void> {
   }
 }
 
-/** Runs the loop itself in a shielded child, once the lease is held. */
+/**
+ * Runs the loop itself in a shielded child, once the lease is held: so a
+ * Ctrl+C reaches the loop once, passed on from `stopOnInterrupt`, rather than
+ * once from the terminal's whole foreground group and again from here.
+ */
 async function invokeLoop(): Promise<void> {
   const code = await runShielded([import.meta.filename], {
     ...process.env,
     [LOOP_PROCESS]: "1",
   });
+  // The child already reported its own failure; passing its exit code
+  // through is all this wrapper owes whoever is watching it run.
   process.exitCode = code ?? 1;
 }
 
