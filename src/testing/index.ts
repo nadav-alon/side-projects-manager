@@ -38,4 +38,11 @@ export {
   type FakeNewProjectPorts,
 } from "./fake-new-project-ports.ts";
 export { fakePorts, type FakePorts } from "./fake-ports.ts";
-export { LAST_WEEK, MANAGER, PILOT, YESTERDAY, verdicts } from "./fixtures.ts";
+export {
+  LAST_WEEK,
+  MANAGER,
+  PILOT,
+  SPENDABLE_THIS_WEEK,
+  YESTERDAY,
+  verdicts,
+} from "./fixtures.ts";

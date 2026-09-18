@@ -31,9 +31,9 @@ import {
 } from "./ports/index.ts";
 import {
   FROZEN_NOW,
-  LAST_WEEK,
   MANAGER,
   PILOT,
+  SPENDABLE_THIS_WEEK,
   YESTERDAY,
   FakeClock,
   FakeRepoHost,
@@ -2647,16 +2647,13 @@ describe("morningLoop", () => {
     });
   });
   /**
-   * The gate is exercised here, through the loop, rather than against the
-   * budget arithmetic directly: what matters is whether a morning started
-   * work, not how the sum came out.
-   *
-   * `DEFAULT_BUDGET` holds back half of a 500,000,000-token week, so
-   * 250,000,000 is the most the week may have spent before the gate refuses.
+   * The gate's own arithmetic, and how it reads the ledger and the state
+   * document, are exercised directly in `budget-gate.test.ts`, against the
+   * ledger and store fakes — no sandbox, no summary. What is pinned here is
+   * only that the loop actually consults the gate before every run, and
+   * actually stands down on a refusal.
    */
   describe("the budget gate", () => {
-    const SPENDABLE_THIS_WEEK = 250_000_000;
-
     /** A project with one thing to do, so the gate is the only question. */
     function readyToWork() {
       const ports = fakePorts();
@@ -2668,7 +2665,7 @@ describe("morningLoop", () => {
       return ports;
     }
 
-    it("starts a run while the reserve is intact", async () => {
+    it("starts a run while the gate says go", async () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
 
@@ -2679,114 +2676,24 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs.length, 1);
     });
 
-    it("starts a run that leaves the reserve intact to the token", async () => {
-      const ports = readyToWork();
-      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK }));
-
-      const report = await morningLoop(ports);
-
-      assert.equal(report.outcome, "work-selected");
-      assert.equal(ports.sandbox.runs.length, 1);
-    });
-
-    it("stands down rather than spend a token of the reserve", async () => {
-      const ports = readyToWork();
-      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
-
-      const report = await morningLoop(ports);
-
-      assert.equal(report.outcome, "stood-down");
-      assert.equal(report.standDown?.reason, "weekly-reserve");
-      assert.deepEqual(ports.sandbox.runs, []);
-    });
-
     /**
      * The two halves of the morning meet here: a gate that refused means no
-     * run, and no run means nothing to hand over. A stand-down that still
-     * opened a pull request would be one for a branch that was never worked.
+     * run, and no run means nothing cloned, nothing recorded, and nothing to
+     * hand over. A stand-down that still opened a pull request would be one
+     * for a branch that was never worked.
      */
-    it("hands nothing over, since a run it refused left nothing to hand over", async () => {
+    it("stands down rather than spend a token of the reserve, starting and recording nothing", async () => {
       const ports = readyToWork();
       ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
 
       const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "stood-down");
+      assert.equal(report.standDown?.reason, "weekly-reserve");
+      assert.deepEqual(ports.sandbox.runs, []);
+      assert.deepEqual(ports.repoHost.clones, []);
       assert.deepEqual(ports.repoHost.pullRequests, []);
       assert.deepEqual(report.iterations, []);
-    });
-
-    it("stands down when the 5-hour window is spent, whatever the week looks like", async () => {
-      const ports = readyToWork();
-      ports.ledger.reports(spent({
-        fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
-        weekly: 0,
-      }));
-
-      const report = await morningLoop(ports);
-
-      assert.equal(report.outcome, "stood-down");
-      assert.equal(report.standDown?.reason, "five-hour-window");
-      assert.deepEqual(ports.sandbox.runs, []);
-    });
-
-    it("names the window that resets later when both refuse", async () => {
-      const ports = readyToWork();
-      ports.ledger.reports(spent({
-        fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
-        weekly: SPENDABLE_THIS_WEEK + 1,
-      }));
-
-      const report = await morningLoop(ports);
-
-      assert.equal(report.standDown?.reason, "weekly-reserve");
-    });
-
-    /**
-     * Saturday night: the week resets at midnight, and a block opened at ten
-     * runs to three in the morning. Naming the week would send a trigger back
-     * at midnight to stand down all over again.
-     */
-    it("names the 5-hour window when it is the one that outlasts the week", async () => {
-      const ports = readyToWork();
-      ports.clock = new FakeClock(new Date("2026-01-03T23:00:00.000Z"));
-      ports.ledger.reports({
-        fiveHour: {
-          openedAt: new Date("2026-01-03T22:00:00.000Z"),
-          resetsAt: new Date("2026-01-04T03:00:00.000Z"),
-          tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
-        },
-        weekly: {
-          openedAt: new Date("2025-12-28T00:00:00.000Z"),
-          resetsAt: new Date("2026-01-04T00:00:00.000Z"),
-          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
-        },
-      });
-
-      const report = await morningLoop(ports);
-
-      assert.equal(report.standDown?.reason, "five-hour-window");
-      assert.deepEqual(
-        gateRefusal(report)?.resetsAt,
-        new Date("2026-01-04T03:00:00.000Z"),
-      );
-    });
-
-    it("clones nothing when it stands down", async () => {
-      const ports = readyToWork();
-      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
-
-      await morningLoop(ports);
-
-      assert.deepEqual(ports.repoHost.clones, []);
-    });
-
-    it("records nothing against a project it stood down on", async () => {
-      const ports = readyToWork();
-      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
-
-      await morningLoop(ports);
-
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
     });
@@ -2804,207 +2711,7 @@ describe("morningLoop", () => {
       assert.equal(saveState.mock.callCount(), 2);
     });
 
-    describe("what the developer is told", () => {
-      it("says it stood down for the budget, not that there was nothing to do", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
-
-        const report = await morningLoop(ports);
-
-        assert.match(report.message, /stood down/i);
-        assert.match(report.message, /reserve/i);
-        assert.doesNotMatch(report.message, /nothing to do/i);
-      });
-
-      it("says which project was ready and when the window resets", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
-
-        const report = await morningLoop(ports);
-
-        assert.match(report.message, /nadav-alon\/pilot/);
-        assert.match(
-          report.message,
-          new RegExp(ports.ledger.reported.weekly.resetsAt.toISOString()),
-        );
-      });
-
-      it("says the 5-hour window when that is what refused", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({
-          fiveHour: DEFAULT_BUDGET.fiveHourAllowance + 1,
-        }));
-
-        const report = await morningLoop(ports);
-
-        assert.match(report.message, /5-hour/);
-      });
-
-      it("carries what was spent and what was spendable", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
-
-        const report = await morningLoop(ports);
-
-        assert.equal(gateRefusal(report)?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
-        assert.equal(gateRefusal(report)?.spendable, SPENDABLE_THIS_WEEK);
-        assert.deepEqual(
-          gateRefusal(report)?.resetsAt,
-          ports.ledger.reported.weekly.resetsAt,
-        );
-      });
-    });
-
-    /**
-     * The ledger reads this machine's session logs, and a run writes its log
-     * inside a container that is thrown away when it ends — so a morning's
-     * own spend reaches the gate through the state document or not at all.
-     * A gate that missed it would ration the developer's typing and never the
-     * loop, which is the whole thing it was built to bound.
-     */
-    describe("what the mornings themselves spent", () => {
-      it("counts a recorded run the ledger cannot see", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ weekly: 0 }));
-        ports.store.markWorked(PILOT, YESTERDAY, {
-          at: YESTERDAY,
-          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "stood-down");
-        assert.equal(report.standDown?.reason, "weekly-reserve");
-        assert.deepEqual(ports.sandbox.runs, []);
-      });
-
-      it("adds them to what the ledger did see", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 100 }));
-        ports.store.markWorked(PILOT, YESTERDAY, {
-          at: YESTERDAY,
-          tokensUsed: tokenCount(101),
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "stood-down");
-        assert.equal(gateRefusal(report)?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
-      });
-
-      it("counts every project's runs, not just the one being worked", async () => {
-        const ports = readyToWork();
-        ports.store.register(MANAGER);
-        ports.ledger.reports(spent({ weekly: 0 }));
-        ports.store.markWorked(MANAGER, YESTERDAY, {
-          at: YESTERDAY,
-          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "stood-down");
-      });
-
-      it("ignores runs from before the window opened", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ weekly: 0 }));
-        ports.store.markWorked(PILOT, LAST_WEEK, {
-          at: LAST_WEEK,
-          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "work-selected");
-        assert.equal(ports.sandbox.runs.length, 1);
-      });
-
-      /**
-       * A run big enough to blow the 5-hour allowance on its own, made before
-       * the current block opened. Counting it there would stand the morning
-       * down; the week, which it does fall inside, has room for it.
-       */
-      it("leaves a run out of the 5-hour window it predates", async () => {
-        const ports = readyToWork();
-        ports.ledger.reports(spent({ fiveHour: 0, weekly: 0 }));
-        ports.store.markWorked(PILOT, YESTERDAY, {
-          at: YESTERDAY,
-          tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
-        });
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "work-selected");
-        assert.equal(ports.sandbox.runs.length, 1);
-      });
-    });
-
-    describe("the reserve fraction", () => {
-      it("holds back more of the week when the developer raises it", async () => {
-        const ports = readyToWork();
-        ports.store.budget = {
-          ...DEFAULT_BUDGET,
-          reserveFraction: reserveFraction(0.9),
-        };
-        ports.ledger.reports(spent({ weekly: 60_000_000 }));
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "stood-down");
-        assert.equal(gateRefusal(report)?.spendable, 50_000_000);
-      });
-
-      it("holds back none of it at zero, and the same usage runs", async () => {
-        const ports = readyToWork();
-        ports.store.budget = {
-          ...DEFAULT_BUDGET,
-          reserveFraction: reserveFraction(0),
-        };
-        ports.ledger.reports(spent({ weekly: 60_000_000 }));
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "work-selected");
-      });
-
-      it("is measured against the weekly allowance the developer declared", async () => {
-        const ports = readyToWork();
-        ports.store.budget = {
-          ...DEFAULT_BUDGET,
-          weeklyAllowance: tokenCount(1_000),
-          reserveFraction: reserveFraction(0.5),
-        };
-        ports.ledger.reports(spent({ weekly: 501 }));
-
-        const report = await morningLoop(ports);
-
-        assert.equal(report.outcome, "stood-down");
-        assert.equal(gateRefusal(report)?.spendable, 500);
-      });
-    });
-
     describe("when the gate is asked", () => {
-      it("reads the ledger before the run, at the clock's instant", async () => {
-        const ports = readyToWork();
-
-        await morningLoop(ports);
-
-        assert.deepEqual(ports.ledger.reads, [{ now: FROZEN_NOW }]);
-      });
-
-      it("hands the ledger the observed reset the budget declares", async () => {
-        const ports = readyToWork();
-        const observedResetAt = new Date("2026-01-01T06:00:00.000Z");
-        ports.store.budget = { ...ports.store.budget, observedResetAt };
-
-        await morningLoop(ports);
-
-        assert.deepEqual(ports.ledger.reads, [
-          { now: FROZEN_NOW, observedReset: observedResetAt },
-        ]);
-      });
-
       it("tells the developer when the ledger refuses the reset they declared", async (t) => {
         const ports = readyToWork();
         t.mock.method(ports.ledger, "read", async () => {
@@ -3052,17 +2759,46 @@ describe("morningLoop", () => {
         assert.equal(report.outcome, "dry-queue");
         assert.equal(ports.ledger.reads.length, 0);
       });
-    });
 
-    describe("the spend ceiling", () => {
-      it("gives the run the ceiling the budget declares", async () => {
+      it("asks again before a second run, standing down without starting it", async (t) => {
         const ports = readyToWork();
-        ports.store.budget = { ...DEFAULT_BUDGET, spendCeiling: usd(2.5) };
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(8),
+          title: "Add another thing",
+        });
+        let asked = 0;
+        const read = t.mock.method(ports.ledger, "read", async () => {
+          asked += 1;
+          return asked === 1
+            ? spent({})
+            : spent({ weekly: SPENDABLE_THIS_WEEK + 1 });
+        });
 
-        await morningLoop(ports);
+        const report = await morningLoop(ports);
 
-        assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
+        assert.equal(read.mock.callCount(), 2);
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7],
+        );
+        assert.equal(report.standDown?.reason, "weekly-reserve");
       });
+    });
+  });
+
+  describe("the spend ceiling", () => {
+    it("gives the run the ceiling the budget declares", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.store.budget = { ...DEFAULT_BUDGET, spendCeiling: usd(2.5) };
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
     });
   });
 

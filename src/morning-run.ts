@@ -2,7 +2,6 @@ import type {
   ApplyReviewAnswers,
   ApplyReviewGaveUp,
   ApplyReviewTicket,
-  Budget,
   Checkout,
   Clock,
   Day,
@@ -21,7 +20,6 @@ import type {
   ReviewFinished,
   ReviewGaveUp,
   ReviewTicket,
-  RunCost,
   RunFinished,
   RunGaveUp,
   RunLimitRefused,
@@ -44,7 +42,7 @@ import {
   recordRun,
   ticketKind,
 } from "./ports/index.ts";
-import { budgetGate, type StandDown } from "./budget-gate.ts";
+import { invocationBudgetGate, type StandDown } from "./budget-gate.ts";
 import {
   invocationSelection,
   type ProjectOutcome,
@@ -106,9 +104,6 @@ import {
 export interface SummaryTracker {
   publishSummary(title: string, body: string): Promise<void>;
 }
-
-/** What the state document records of each project, by repo slug. */
-type ProjectStates = State["projects"];
 
 /**
  * The six outside-world dependencies of the loop. Everything it knows about
@@ -304,7 +299,13 @@ export async function morningLoop(
     // it is what remembers a project's "selected" verdict across scans and
     // where each registered project first landed in registry order.
     const selecting = invocationSelection(ports, projects, worked);
-    const inProgress = new Set<Promise<void>>();
+    // Built once too, over the same live `projects` map: a run recorded
+    // between two consultations is exactly what the next one counts.
+    const gate = invocationBudgetGate(ports, projects);
+    // Keyed by each iteration's own completion, so the tickets an in-progress
+    // consultation names are exactly the ones still running when it asks —
+    // never the one it is asking on behalf of, which is passed separately.
+    const inProgress = new Map<Promise<void>, Ticket>();
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
     const thrown: unknown[] = [];
@@ -325,7 +326,7 @@ export async function morningLoop(
           concurrencyLimit !== undefined &&
           inProgress.size >= concurrencyLimit
         ) {
-          await Promise.race(inProgress);
+          await Promise.race(inProgress.keys());
         }
         if (stopped()) {
           break;
@@ -338,7 +339,7 @@ export async function morningLoop(
           if (inProgress.size === 0) {
             break;
           }
-          await Promise.race(inProgress);
+          await Promise.race(inProgress.keys());
           continue;
         }
         // A refusal can land while the registry was being read.
@@ -366,9 +367,14 @@ export async function morningLoop(
           continue;
         }
 
-        const budget = await ports.store.loadBudget();
+        // Asked immediately before this run and never earlier, so the
+        // windows it reads are the ones in force when the run would start,
+        // not the state the invocation opened with.
+        const { standDown: refusal, budget } = await gate.consult(
+          ticket,
+          [...inProgress.values()],
+        );
         concurrencyLimit = budget.maxConcurrentIterations;
-        const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
           standDown ??= { ...refusal, refused: chosen.project.repo };
@@ -429,11 +435,11 @@ export async function morningLoop(
             },
           )
           .finally(() => inProgress.delete(completion));
-        inProgress.add(completion);
+        inProgress.set(completion, ticket);
       }
     } finally {
       // Never rejects: each iteration's own settling catches what it threw.
-      await Promise.all(inProgress);
+      await Promise.all(inProgress.keys());
       // Read back out here rather than only on the happy path, so a for loop
       // that throws still reports every verdict scanned before that — the
       // same partial account `iterations` already carries for the runs made
@@ -538,41 +544,6 @@ function outcomeOf(
     return "stood-down";
   }
   return iterations.length > 0 ? "work-selected" : "dry-queue";
-}
-
-/**
- * The budget gate, asked immediately before a run and never earlier: the
- * windows it reads are the ones in force when the run would start, not the
- * ones the invocation opened with.
- *
- * The state goes in with them. The ledger reads this machine's session logs
- * and a run writes its log inside a container that is then thrown away, so
- * what the mornings have spent is in the state document and nowhere else. A
- * gate handed only the ledger would ration the developer and never the loop.
- *
- * The budget's observed reset goes in too, since the developer declares it
- * and only the ledger can act on it.
- *
- * A dry morning never gets here, so the loop reports a quiet queue as a quiet
- * queue rather than reading the ledger to decline work that did not exist.
- */
-async function consultTheGate(
-  ports: MorningLoopPorts,
-  budget: Budget,
-  projects: ProjectStates,
-): Promise<StandDown | undefined> {
-  return budgetGate(
-    await ports.ledger.read(ports.clock.now(), budget.observedResetAt),
-    budget,
-    runsRecorded(projects),
-  );
-}
-
-/** Every run the mornings have made, across every project, oldest first. */
-function runsRecorded(projects: ProjectStates): RunCost[] {
-  return [...projects.values()]
-    .flatMap((project) => project.runs)
-    .sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
 /**

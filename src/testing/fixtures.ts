@@ -1,10 +1,15 @@
-import { repoSlug, type RepoSlug } from "../ports/index.ts";
+import { DEFAULT_BUDGET, repoSlug, tokenCount, type RepoSlug } from "../ports/index.ts";
 import type { ProjectOutcome } from "../selection.ts";
 
 /** A registered project, for tests that need one and don't care which. */
 export const MANAGER: RepoSlug = repoSlug("nadav-alon/side-projects-manager");
 /** A second registered project, for tests that need two. */
 export const PILOT: RepoSlug = repoSlug("nadav-alon/pilot");
+
+/** The most a week may have spent before `DEFAULT_BUDGET`'s reserve refuses. */
+export const SPENDABLE_THIS_WEEK = tokenCount(
+  DEFAULT_BUDGET.weeklyAllowance * (1 - DEFAULT_BUDGET.reserveFraction),
+);
 
 /** A day before `FROZEN_NOW`, and before the weekly window it opens. */
 export const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");

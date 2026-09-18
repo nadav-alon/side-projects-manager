@@ -1,8 +1,14 @@
 import type {
   Budget,
+  Clock,
+  ProjectState,
+  RepoSlug,
   ReserveFraction,
   RunCost,
+  Store,
+  Ticket,
   TokenCount,
+  UsageLedger,
   UsageWindow,
   UsageWindows,
 } from "./ports/index.ts";
@@ -26,10 +32,95 @@ export interface StandDown {
   resetsAt: Date;
 }
 
+/** What a consultation found: its verdict, and the budget document it read to reach it. */
+export interface Consultation {
+  /** `undefined` is the go-ahead. */
+  standDown: StandDown | undefined;
+  /**
+   * The document this consultation read. Handed back rather than reread, so
+   * the loop's own concerns that live in it — the concurrency limit, the
+   * spend ceiling — see exactly what the verdict was reasoned over.
+   */
+  budget: Budget;
+}
+
+/** The two ports the gate reads afresh on every consultation. */
+export interface BudgetGatePorts {
+  ledger: UsageLedger;
+  clock: Clock;
+  store: Pick<Store, "loadBudget">;
+}
+
+/**
+ * The invocation's whole view of the budget gate: one question, asked before
+ * every run, over whatever the ledger and the state document say at that
+ * instant.
+ *
+ * A single instance is built once per invocation and lives for its whole
+ * length, the same as `InvocationSelection` — not because it caches
+ * anything, but because it is what the loop hands each iteration instead of
+ * assembling the consultation itself.
+ */
+export interface InvocationBudgetGate {
+  /**
+   * Whether `ticket`'s run may start, given the tickets whose runs are still
+   * in progress.
+   *
+   * Reads the budget document afresh and the ledger at this instant, with
+   * the budget document's own observed reset, and counts the runs the state
+   * document records inside each window — nothing here is cached from when
+   * the gate was built.
+   *
+   * TODO[#158]: charge a run estimate for `ticket` and for `inProgress`.
+   */
+  consult(
+    ticket: Ticket,
+    inProgress: readonly Ticket[],
+  ): Promise<Consultation>;
+}
+
+/**
+ * Builds one invocation's budget gate, over `projectStates` as the
+ * invocation holds it. Read live rather than copied: it is the same map
+ * `morningLoop` records a finished run's cost into, so a run recorded
+ * between two consultations is exactly what the next one counts.
+ */
+export function invocationBudgetGate(
+  ports: BudgetGatePorts,
+  projectStates: ReadonlyMap<RepoSlug, ProjectState>,
+): InvocationBudgetGate {
+  return {
+    consult: async (_ticket, _inProgress) => {
+      const budget = await ports.store.loadBudget();
+      const windows = await ports.ledger.read(
+        ports.clock.now(),
+        budget.observedResetAt,
+      );
+      return {
+        standDown: budgetGate(windows, budget, runsRecorded(projectStates)),
+        budget,
+      };
+    },
+  };
+}
+
+/** Every run the mornings have made, across every project, oldest first. */
+function runsRecorded(
+  projectStates: ReadonlyMap<RepoSlug, ProjectState>,
+): RunCost[] {
+  return [...projectStates.values()]
+    .flatMap((project) => project.runs)
+    .sort((a, b) => a.at.getTime() - b.at.getTime());
+}
+
 /**
  * Whether a run may start, given the windows in force, what the mornings have
  * already spent, and what the developer declared they are willing to spend.
  * `undefined` is the go-ahead.
+ *
+ * The window arithmetic `invocationBudgetGate` calls this with: pure, and
+ * the gate's own internal seam — everything above assembles what this needs
+ * from the outside world; this is only ever asked to add it up.
  *
  * Two windows, refusing for two different reasons. The weekly window is
  * measured against the part of the allowance the reserve does not hold back,
