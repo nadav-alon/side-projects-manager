@@ -87,6 +87,12 @@ export interface AgentRun {
    * it flagged the model unrecognised — see `MODEL_REFUSAL`.
    */
   modelRefused?: string;
+  /**
+   * The ticket gist off the agent's own last line, read before `output` gains
+   * any diagnostics appended after it — see `gistFrom`. Absent when the agent
+   * gave none.
+   */
+  gist?: TicketGist;
 }
 
 /**
@@ -434,7 +440,10 @@ function endingOf(
 
 /**
  * `endingOf`, with the branch an implementation run worked on and its
- * commits, and — for a finished run — the ticket gist off its last line.
+ * commits, and — for a finished run — its ticket gist: `agent.gist` when the
+ * container already read one off the agent's own text, before any
+ * diagnostics were appended to `output`, and only otherwise a best-effort
+ * read of `output`'s own last line, for a container that never sets it.
  */
 function runOutcomeOf(
   agent: AgentRun,
@@ -443,7 +452,8 @@ function runOutcomeOf(
   commits: CommitSha[],
 ): RunOutcome {
   const ending = endingOf(agent, model);
-  const gist = ending.kind === "finished" ? gistFrom(ending.output) : undefined;
+  const gist =
+    ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
   return {
     ...ending,
     ...(gist !== undefined && { gist }),
@@ -1215,15 +1225,21 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  *
  * A model refusal's words are the envelope's `result`, which is prose meant
  * for a reader, or the stderr tag itself when there is no `result` to quote.
+ *
+ * The ticket gist is read off the agent's own text before `stderr` and the
+ * denied-tools note are appended to it: once appended, the tag is no longer
+ * on the last line, and `gistFrom` would find nothing.
  */
 export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
+    const gist = gistFrom(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
+      ...(gist !== undefined && { gist }),
     };
   }
 
@@ -1231,16 +1247,15 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
     result?: unknown;
     usage?: unknown;
   };
+  const output = typeof result === "string" ? result : stdout;
+  const gist = gistFrom(output);
   return {
-    output: withDiagnostics(
-      typeof result === "string" ? result : stdout,
-      stderr,
-      deniedTools(envelope),
-    ),
+    output: withDiagnostics(output, stderr, deniedTools(envelope)),
     tokensUsed: totalTokens(usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
+    ...(gist !== undefined && { gist }),
   };
 }
 

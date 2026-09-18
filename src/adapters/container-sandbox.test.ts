@@ -2131,6 +2131,35 @@ describe("readAgentRun", () => {
 
     assert.equal(readAgentRun(stdout).output, "done");
   });
+
+  /**
+   * `withDiagnostics` appends stderr and the denied-tools note after the
+   * agent's own text, so a gist that reads correctly off the raw result must
+   * not be lost once those are appended to `output`.
+   */
+  it("still carries a well-formed ticket gist once stderr is appended after it", () => {
+    const stdout = JSON.stringify({
+      result: "Implemented the thing.\nTICKET GIST: Add retries to the flaky upload step.",
+    });
+
+    const agent = readAgentRun(stdout, "npm warn deprecated foo@1.0.0\n");
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /npm warn deprecated/);
+  });
+
+  it("still carries a well-formed ticket gist once a denied-tools note is appended after it", () => {
+    const stdout = JSON.stringify({
+      is_error: false,
+      result: "TICKET GIST: Add retries to the flaky upload step.",
+      permission_denials: [{ tool_name: "Bash" }],
+    });
+
+    const agent = readAgentRun(stdout);
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /refused these tools/);
+  });
 });
 
 /**
