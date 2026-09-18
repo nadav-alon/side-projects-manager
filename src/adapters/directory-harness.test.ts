@@ -12,7 +12,7 @@ import { MANAGER_HOME } from "./manager-home.ts";
 const INSTRUCTIONS = "# pilot\n\nA flight log that files itself.\n";
 
 /** An empty project checkout, as a fresh clone would be. */
-async function freshCheckout(): Promise<Checkout> {
+async function emptyCheckout(): Promise<Checkout> {
   return checkout(await mkdtemp(path.join(tmpdir(), "new-project-")));
 }
 
@@ -22,7 +22,7 @@ async function contentsOf(directory: string, file: string): Promise<string> {
 
 describe("scaffolding the harness into a project", () => {
   it("copies every uniform file verbatim", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
 
     await directoryHarness().install(directory, INSTRUCTIONS);
 
@@ -36,7 +36,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("writes the project's own agent instructions alongside them", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
 
     await directoryHarness().install(directory, INSTRUCTIONS);
 
@@ -44,7 +44,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("reports every path it wrote, relative to the checkout", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
 
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
 
@@ -52,7 +52,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("reports nothing overwritten in a checkout that had none of it", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
 
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
 
@@ -60,7 +60,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("names the project's own files it replaced, so a review can see it", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
     const theirs = UNIFORM_FILES[0] ?? "";
     await mkdir(path.join(directory, "docs", "agents"), { recursive: true });
     await writeFile(path.join(directory, theirs), "# ours, from before\n");
@@ -71,7 +71,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("leaves instructions a project already wrote for itself alone", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
     await writeFile(path.join(directory, "AGENTS.md"), "# mine\n");
 
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS);
@@ -82,7 +82,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("replaces uniform files that have drifted, since uniform is the point", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
     await mkdir(path.join(directory, "docs", "agents"), { recursive: true });
     await writeFile(path.join(directory, UNIFORM_FILES[0] ?? ""), "stale\n");
 
@@ -92,7 +92,7 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("installs nothing that points back at the manager", async () => {
-    const directory = await freshCheckout();
+    const directory = await emptyCheckout();
 
     const { paths } = await directoryHarness().install(directory, INSTRUCTIONS);
 
@@ -106,10 +106,10 @@ describe("scaffolding the harness into a project", () => {
   });
 
   it("fails naming the file when the harness source is not there", async () => {
-    const harness = directoryHarness(await freshCheckout());
+    const harness = directoryHarness(await emptyCheckout());
 
     await assert.rejects(
-      harness.install(await freshCheckout(), INSTRUCTIONS),
+      harness.install(await emptyCheckout(), INSTRUCTIONS),
       new RegExp(UNIFORM_FILES[0]?.replaceAll(".", "\\.") ?? ""),
     );
   });
