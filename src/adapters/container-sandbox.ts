@@ -824,8 +824,7 @@ function promptFor(ticket: Ticket): string {
     "pull request.",
     `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
     "followed by one sentence saying what the ticket asked for — not what",
-    "your diff did. Leave that line out if there is nothing worth one line;",
-    "the run is complete either way.",
+    "your diff did; the run is complete either way.",
   ].join(" ");
 }
 
