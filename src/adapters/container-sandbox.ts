@@ -42,6 +42,8 @@ import {
   type TokenCount,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
+import { REASON_QUOTED } from "../handback-comment.ts";
+import { tail } from "../tail.ts";
 import {
   isBranchReserved,
   reserveBranch,
@@ -961,13 +963,24 @@ const dockerContainer: Container = async (options) => {
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
     if (dockerNeverRan(error)) {
-      throw new AgentNeverRan(
-        `docker could not start the agent: ${errorMessage(error)}`,
-      );
+      throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
     return readExitedRun(error);
   }
 };
+
+/**
+ * What `AgentNeverRan` says when docker itself would not run the container:
+ * its exit code and the tail of stderr, the same as a command the agent ran
+ * itself, since this too is `execFile` rejecting and its argv carries the
+ * agent's prompt.
+ *
+ * Exported so it can be asserted the way `dockerContainer` uses it, without
+ * docker installed.
+ */
+export function dockerNeverRanMessage(error: unknown): string {
+  return `docker could not start the agent: ${commandFailure(error, captured(error).stderr)}`;
+}
 
 /**
  * What an agent that exited non-zero came back with. Any exit `dockerNeverRan`
@@ -980,7 +993,57 @@ const dockerContainer: Container = async (options) => {
  */
 export function readExitedRun(error: unknown): AgentRun {
   const { stdout, stderr } = captured(error);
-  return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+  return { ...readAgentRun(stdout, stderr), failure: commandFailure(error, stderr) };
+}
+
+/**
+ * How much of stderr a failed command is reported with: the tail, since that
+ * is where a process says what stopped it right before it exits, bounded so a
+ * command that wrote megabytes to stderr does not carry all of it into a
+ * ticket comment — comfortably under `REASON_QUOTED` (`handback-comment.ts`),
+ * which tails the whole failure reason again before it reaches a hand-back
+ * comment, so the exit-code prefix below survives that second tail intact.
+ */
+const FAILURE_STDERR_TAIL = REASON_QUOTED - 100;
+
+/**
+ * What a command that exited non-zero is reported as: its exit code and the
+ * tail of what it wrote to stderr — never `errorMessage(error)`, whose
+ * `Command failed: <argv>` restates the whole command line, including the
+ * agent's prompt from `dockerCommand`'s argv.
+ */
+function commandFailure(error: unknown, stderr: string): string {
+  const code = exitStatus(error);
+  const said = stderr.trim();
+  const detail = said === "" ? "" : `: ${tail(said, FAILURE_STDERR_TAIL)}`;
+  if (code !== undefined) {
+    return `the command exited with code ${code}${detail}`;
+  }
+  const signal = errorProperty(error, "signal");
+  return typeof signal === "string"
+    ? `the command was killed by ${signal}${detail}`
+    : `the command stopped without an exit code${detail}`;
+}
+
+/**
+ * The `code` or `signal` property `execFile` hangs a rejection off, whatever
+ * shape it is — a number, a string such as `"ENOENT"`, or absent entirely
+ * when the error isn't one `execFile` throws.
+ */
+function errorProperty(error: unknown, name: "code" | "signal"): unknown {
+  return typeof error === "object" && error !== null && name in error
+    ? (error as Record<typeof name, unknown>)[name]
+    : undefined;
+}
+
+/**
+ * The exit code `execFile` hangs off a non-zero exit. Absent when there is no
+ * numeric `code` — a signal kill, a non-`execFile` error, or a `code` that
+ * isn't a number, such as `dockerNeverRan`'s `"ENOENT"`.
+ */
+function exitStatus(error: unknown): number | undefined {
+  const code = errorProperty(error, "code");
+  return typeof code === "number" ? code : undefined;
 }
 
 /**
@@ -1024,10 +1087,7 @@ function envFor(mount: Mount): NodeJS.ProcessEnv {
  * decides whether a ticket is told its agent gave up.
  */
 export function dockerNeverRan(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const { code } = error;
+  const code = errorProperty(error, "code");
   return code === "ENOENT" || code === 125 || code === 126 || code === 127;
 }
 
