@@ -1196,7 +1196,7 @@ describe("morningLoop", () => {
         // Stands in for an overlapping run finishing first: by the time this
         // run's own agent gives up, the ticket it was working is already
         // closed.
-        ports.tracker.closeTicket(ticket);
+        ports.tracker.closeOutOfBand(ticket);
         return {
           kind: "gave-up",
           output: "I could not read the diff",

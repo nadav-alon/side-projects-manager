@@ -202,6 +202,17 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * Closes `ticket` out of band — the way an overlapping run's own success,
+   * or a human on the tracker's own UI, might — without going through any of
+   * the loop's own close methods. Exists so a test can arrange the race
+   * `handBack` must leave alone: a ticket already closed by the time the loop
+   * gets back to it.
+   */
+  closeOutOfBand(ticket: Ticket): void {
+    this.#close(ticket);
+  }
+
+  /**
    * Whether `ticket` currently carries `label`, closed or not — the way a
    * label query against the real tracker would find it, even once
    * `listOpenIssues` has stopped listing the ticket at all.
@@ -304,17 +315,6 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     entry?.labels.delete(READY_FOR_AGENT_LABEL);
     entry?.labels.add(READY_FOR_HUMAN_LABEL);
     return "handed-back";
-  }
-
-  /**
-   * Closes `ticket` out of band — the way an overlapping run's own success,
-   * or a human on the tracker's own UI, might — without going through any of
-   * the loop's own close methods. Exists so a test can arrange the race
-   * `handBack` must leave alone: a ticket already closed by the time the loop
-   * gets back to it.
-   */
-  closeTicket(ticket: Ticket): void {
-    this.#close(ticket);
   }
 
   /**

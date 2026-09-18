@@ -57,7 +57,7 @@ describe("FakeIssueTracker", () => {
       number: issueNumber(7),
       title: "Add the thing",
     });
-    tracker.closeTicket(ticket);
+    tracker.closeOutOfBand(ticket);
 
     const outcome = await tracker.handBack(ticket, "gave up");
 
