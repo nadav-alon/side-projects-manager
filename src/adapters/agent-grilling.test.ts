@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { checkout } from "../ports/index.ts";
 import { grillingPrompt } from "./agent-grilling.ts";
 
-const CHECKOUT = "/projects/nadav-alon/pilot";
+const CHECKOUT = checkout("/projects/nadav-alon/pilot");
 
 describe("what the grilling session is asked to do", () => {
   it("points the session at the instructions scaffolded into the checkout", () => {
