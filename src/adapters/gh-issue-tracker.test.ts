@@ -616,8 +616,13 @@ describe("ghIssueTracker.handBack", () => {
 
   const COMMENT = "The morning loop ran this ticket and the agent gave up.\n\nWhy it stopped: red tests";
 
-  /** A tracker where every call succeeds. */
-  const WORKING = ":";
+  /** A tracker where every call succeeds, on a ticket that is open. */
+  const WORKING = [
+    `case "$1 $2" in`,
+    `  "issue view") echo "OPEN" ;;`,
+    `  *) : ;;`,
+    `esac`,
+  ].join("\n");
 
   it("comments on the ticket, in its own repo, saying what it was given", async (t) => {
     const gh = await recordingGh(t, WORKING);
@@ -681,6 +686,7 @@ describe("ghIssueTracker.handBack", () => {
       t,
       [
         `case "$1 $2" in`,
+        `  "issue view") echo "OPEN" ;;`,
         `  "label create") echo "label already exists" >&2; exit 1 ;;`,
         `  *) : ;;`,
         `esac`,
@@ -697,6 +703,7 @@ describe("ghIssueTracker.handBack", () => {
       t,
       [
         `case "$*" in`,
+        `  "issue view "*) echo "OPEN" ;;`,
         `  *--add-label*) echo "could not add label" >&2; exit 1 ;;`,
         `  *) : ;;`,
         `esac`,
@@ -718,6 +725,7 @@ describe("ghIssueTracker.handBack", () => {
       t,
       [
         `case "$*" in`,
+        `  "issue view "*) echo "OPEN" ;;`,
         `  *--remove-label*) echo "HTTP 403" >&2; exit 1 ;;`,
         `  *) : ;;`,
         `esac`,
@@ -747,6 +755,44 @@ describe("ghIssueTracker.handBack", () => {
     assert.equal(callWith(calls, "issue", "comment"), undefined);
     assert.equal(callWith(calls, "--remove-label"), undefined);
     assert.equal(callWith(calls, "--add-label"), undefined);
+  });
+
+  it("hands an open ticket back even when the state read itself fails", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "rate limited" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    // The read failed, not the ticket's own state: proceeding as open keeps
+    // this check from adding a new way to refuse an open ticket's hand-back.
+    const outcome = await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    assert.equal(outcome, "handed-back");
+    const calls = await gh.calls();
+    assert.ok(callWith(calls, "issue", "comment"));
+    assert.ok(callWith(calls, "--remove-label"));
+  });
+
+  it("fails the hand-back when the state read answers with neither OPEN nor CLOSED", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "MERGED" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      ghIssueTracker().handBack(TICKET, COMMENT),
+      /neither OPEN nor CLOSED/,
+    );
   });
 });
 

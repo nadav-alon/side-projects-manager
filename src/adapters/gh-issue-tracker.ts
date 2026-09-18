@@ -315,18 +315,43 @@ function issueArgs(ticket: Ticket): string[] {
   return [String(ticket.number), "--repo", ticket.repo];
 }
 
-/** Whether `ticket` is closed on the tracker right now. */
+/**
+ * Whether `ticket` is closed on the tracker right now.
+ *
+ * A read that fails outright — a rate limit, a network blip — says nothing
+ * about the ticket, so it is treated as open: `handBack`'s three writes below
+ * are the ones this check must not add a new way to refuse an open ticket's
+ * hand-back on. A read that succeeds is narrowed to the two states `gh`
+ * reports, or thrown on naming the offending value, since a value neither
+ * open nor closed is not something this can safely default either way.
+ */
 async function isClosed(ticket: Ticket): Promise<boolean> {
-  const { stdout } = await execFileAsync("gh", [
-    "issue",
-    "view",
-    ...issueArgs(ticket),
-    "--json",
-    "state",
-    "--jq",
-    ".state",
-  ]);
-  return stdout.trim() === "CLOSED";
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("gh", [
+      "issue",
+      "view",
+      ...issueArgs(ticket),
+      "--json",
+      "state",
+      "--jq",
+      ".state",
+    ]));
+  } catch {
+    return false;
+  }
+
+  const state = stdout.trim();
+  switch (state) {
+    case "OPEN":
+      return false;
+    case "CLOSED":
+      return true;
+    default:
+      throw new Error(
+        `gh issue view ${ticket.repo}#${ticket.number}: "state" was neither OPEN nor CLOSED: ${JSON.stringify(state)}`,
+      );
+  }
 }
 
 /**
