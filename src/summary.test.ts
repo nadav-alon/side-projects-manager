@@ -253,6 +253,7 @@ describe("summaryLine", () => {
         reason: "weekly-reserve",
         tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
         spendable: tokenCount(SPENDABLE_THIS_WEEK),
+        estimateCharged: tokenCount(2_000_000),
         resetsAt: RESETS_AT,
         refused: REPO,
         ...overrides,
@@ -289,6 +290,26 @@ describe("summaryLine", () => {
       );
 
       assert.match(line, /5-hour/);
+    });
+
+    it("tells apart a window already spent from one only the estimate pushed over", () => {
+      const spent = standDownLine(weeklyRefusal({ reason: "weekly-reserve" }));
+      const estimate = standDownLine(
+        weeklyRefusal({ reason: "weekly-reserve-estimate" }),
+      );
+
+      assert.match(spent, /reserve/i);
+      assert.match(estimate, /estimate/i);
+      assert.notEqual(spent, estimate);
+    });
+
+    it("says the estimate when the 5-hour window is only pushed over by it", () => {
+      const line = standDownLine(
+        weeklyRefusal({ reason: "five-hour-window-estimate" }),
+      );
+
+      assert.match(line, /5-hour/);
+      assert.match(line, /estimate/i);
     });
   });
 

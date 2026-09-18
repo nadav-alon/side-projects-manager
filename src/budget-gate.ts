@@ -12,24 +12,34 @@ import type {
   UsageWindow,
   UsageWindows,
 } from "./ports/index.ts";
-import { tokenCount } from "./ports/index.ts";
+import { isPullRequestTicket, tokenCount } from "./ports/index.ts";
 
-/** Which window refused a run. */
+/** Which window refused a run, and whether consumption alone did it or the estimate tipped it over. */
 export type StandDownReason =
-  /** Spending more of the week would eat into the developer's reserve. */
+  /** The week alone, before any estimate, had already eaten into the developer's reserve. */
   | "weekly-reserve"
-  /** The current 5-hour block is spent, whatever the week looks like. */
-  | "five-hour-window";
+  /** The week was within its reserve, but the estimate charged would eat into it. */
+  | "weekly-reserve-estimate"
+  /** The current 5-hour block was already spent, whatever the week looks like. */
+  | "five-hour-window"
+  /** The block was within its spendable, but the estimate charged would spend it. */
+  | "five-hour-window-estimate";
 
 /** Why the loop stood down, and everything the developer needs to see why. */
 export interface StandDown {
   reason: StandDownReason;
-  /** What that window had consumed when the gate looked. */
+  /** What that window had consumed when the gate looked, estimate not included. */
   tokensUsed: TokenCount;
   /** The most it may consume before the gate refuses. */
   spendable: TokenCount;
   /** When that window resets, which is when work could resume. */
   resetsAt: Date;
+  /**
+   * The run estimate charged against this window: the ticket about to start's
+   * own estimate, plus every ticket still in progress's. What, together with
+   * `tokensUsed`, decided `reason`.
+   */
+  estimateCharged: TokenCount;
 }
 
 /** What a consultation found: its verdict, and the budget document it read to reach it. */
@@ -42,6 +52,13 @@ export interface Consultation {
    * spend ceiling — see exactly what the verdict was reasoned over.
    */
   budget: Budget;
+  /**
+   * The run estimate this consultation charged: the ticket about to start's
+   * own estimate, plus every ticket still in progress's. Carried on a
+   * go-ahead too, since `standDown` is `undefined` there and has nothing to
+   * carry it on — this is what lets the loop record it on the iteration.
+   */
+  estimateCharged: TokenCount;
 }
 
 /** The two ports the gate reads afresh on every consultation. */
@@ -69,9 +86,9 @@ export interface InvocationBudgetGate {
    * Reads the budget document afresh and the ledger at this instant, with
    * the budget document's own observed reset, and counts the runs the state
    * document records inside each window — nothing here is cached from when
-   * the gate was built.
-   *
-   * TODO[#158]: charge a run estimate for `ticket` and for `inProgress`.
+   * the gate was built. Charges a run estimate for `ticket` and for every
+   * ticket in `inProgress`, resolved from each one's own size label — see
+   * `budgetGate`.
    */
   consult(
     ticket: Ticket,
@@ -90,15 +107,23 @@ export function invocationBudgetGate(
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
 ): InvocationBudgetGate {
   return {
-    consult: async (_ticket, _inProgress) => {
+    consult: async (ticket, inProgress) => {
       const budget = await ports.store.loadBudget();
       const windows = await ports.ledger.read(
         ports.clock.now(),
         budget.observedResetAt,
       );
+      const estimateCharged = totalEstimate(ticket, inProgress, budget);
       return {
-        standDown: budgetGate(windows, budget, runsRecorded(projectStates)),
+        standDown: budgetGate(
+          windows,
+          budget,
+          runsRecorded(projectStates),
+          ticket,
+          inProgress,
+        ),
         budget,
+        estimateCharged,
       };
     },
   };
@@ -115,8 +140,9 @@ function runsRecorded(
 
 /**
  * Whether a run may start, given the windows in force, what the mornings have
- * already spent, and what the developer declared they are willing to spend.
- * `undefined` is the go-ahead.
+ * already spent, what the developer declared they are willing to spend, and
+ * the ticket about to start and the tickets still in progress. `undefined` is
+ * the go-ahead.
  *
  * The window arithmetic `invocationBudgetGate` calls this with: pure, and
  * the gate's own internal seam — everything above assembles what this needs
@@ -125,10 +151,22 @@ function runsRecorded(
  * Two windows, refusing for two different reasons. The weekly window is
  * measured against the part of the allowance the reserve does not hold back,
  * so the developer's own interactive work still has a week's worth of room
- * after the mornings have had theirs. The 5-hour window has no reserve of its
- * own — the reserve is a share of the week — and is measured against the
- * whole allowance, because a spent block is a wall the loop should not walk
- * into rather than a supply to ration.
+ * after the mornings have had theirs. The 5-hour window has its own reserve
+ * too, `fiveHourReserveFraction`, which a machine that declares none leaves
+ * at zero — measuring the block against its whole allowance, because a spent
+ * block is a wall the loop should not walk into rather than a supply to
+ * ration.
+ *
+ * Each window counts what it has consumed, plus the run estimate for the
+ * ticket about to start and for every ticket still in progress (ADR 0004),
+ * which is what stops a run authorised at the boundary from spending its
+ * whole spend ceiling out of the reserve, and a run in progress from
+ * overshooting unaccounted for (ADR 0003, which this supersedes). A window
+ * whose consumption alone already exceeds what is spendable refuses for that
+ * reason alone; one within it that the estimate would push over refuses for
+ * the estimate instead — told apart so the developer knows which is true.
+ * Reaching the boundary exactly, consumption and estimate together, is still
+ * a go.
  *
  * When both windows refuse, the developer hears about whichever resets later:
  * that is when work could actually resume, and a trigger that came back at the
@@ -149,18 +187,23 @@ export function budgetGate(
   windows: UsageWindows,
   budget: Budget,
   ownSpend: readonly RunCost[],
+  ticket: Ticket,
+  inProgress: readonly Ticket[],
 ): StandDown | undefined {
+  const estimateCharged = totalEstimate(ticket, inProgress, budget);
   const weekly = refusal(
-    "weekly-reserve",
+    { spent: "weekly-reserve", estimate: "weekly-reserve-estimate" },
     windows.weekly,
     spendableOf(budget.weeklyAllowance, budget.reserveFraction),
     ownSpend,
+    estimateCharged,
   );
   const fiveHour = refusal(
-    "five-hour-window",
+    { spent: "five-hour-window", estimate: "five-hour-window-estimate" },
     windows.fiveHour,
-    budget.fiveHourAllowance,
+    spendableOf(budget.fiveHourAllowance, budget.fiveHourReserveFraction),
     ownSpend,
+    estimateCharged,
   );
 
   if (weekly !== undefined && fiveHour !== undefined) {
@@ -170,25 +213,78 @@ export function budgetGate(
 }
 
 /**
- * The stand-down `window` calls for, or `undefined` when it still has room.
+ * The stand-down `window` calls for, or `undefined` when it still has room
+ * for both what it has consumed and `estimateCharged` besides.
  *
- * A window that has consumed exactly what it may consume has not overrun it,
- * so the boundary is a go: the reserve is intact to the token. What the run
- * about to start will itself spend is not subtracted here — the spend ceiling
- * is what bounds that, and it is the deliberate overshoot the gate accepts
- * between one check and the next.
+ * A window whose consumption alone exceeds `spendable` refuses under
+ * `reasons.spent`, whatever the estimate is. One within `spendable` that
+ * `estimateCharged` would push over refuses under `reasons.estimate` instead
+ * — the two are told apart so the developer knows whether a spent window or
+ * an estimate is what stopped the run. A window that, consumption and
+ * estimate together, lands exactly on `spendable` has not overrun it, so the
+ * boundary is a go.
  */
 function refusal(
-  reason: StandDownReason,
+  reasons: { spent: StandDownReason; estimate: StandDownReason },
   window: UsageWindow,
   spendable: TokenCount,
   ownSpend: readonly RunCost[],
+  estimateCharged: TokenCount,
 ): StandDown | undefined {
   const tokensUsed = consumedIn(window, ownSpend);
-  if (tokensUsed <= spendable) {
-    return undefined;
+  if (tokensUsed > spendable) {
+    return {
+      reason: reasons.spent,
+      tokensUsed,
+      spendable,
+      resetsAt: window.resetsAt,
+      estimateCharged,
+    };
   }
-  return { reason, tokensUsed, spendable, resetsAt: window.resetsAt };
+  if (tokensUsed + estimateCharged > spendable) {
+    return {
+      reason: reasons.estimate,
+      tokensUsed,
+      spendable,
+      resetsAt: window.resetsAt,
+      estimateCharged,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The run estimate `ticket` and every ticket in `inProgress` together charge
+ * against a window: the same total for both windows, since the estimate
+ * itself does not vary by window.
+ */
+function totalEstimate(
+  ticket: Ticket,
+  inProgress: readonly Ticket[],
+  budget: Budget,
+): TokenCount {
+  return tokenCount(
+    [ticket, ...inProgress].reduce(
+      (total, candidate) => total + runEstimate(candidate, budget),
+      0,
+    ),
+  );
+}
+
+/**
+ * The run estimate `ticket` charges, per `CONTEXT.md`'s "Run estimate": an
+ * implementation ticket's own declared size, in the tokens `budget.sizes`
+ * gives it. An unsized ticket, and every pull request ticket whatever it
+ * declares — a review, an apply-review or a rebase never inherits its
+ * parent's size — charges `unsizedCountsAs`'s instead. Never derived from
+ * what past runs cost.
+ */
+function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
+  const size =
+    !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
+      ? ticket.sizeLabel.size
+      : budget.unsizedCountsAs;
+  return budget.sizes[size];
 }
 
 /**

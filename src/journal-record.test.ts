@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { invocationClosing } from "./journal-record.ts";
 import { morningLoop } from "./morning-run.ts";
 import {
+  DEFAULT_BUDGET,
   branch,
   issueNumber,
   repoSlug,
@@ -14,6 +15,9 @@ import { LIMIT_REFUSAL, fakePorts, spent } from "./testing/index.ts";
 const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const CLOSED_AT = new Date("2026-01-01T08:00:00.000Z");
+
+/** The run estimate an unsized ticket charges under `DEFAULT_BUDGET`. */
+const UNSIZED_ESTIMATE = DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs];
 
 describe("invocationClosing", () => {
   it("closes a dry queue with no projects and no stand-down reason", async () => {
@@ -142,8 +146,11 @@ describe("invocationClosing", () => {
       number: issueNumber(3),
       title: "Second",
     });
-    // Leaves only 1,000 tokens of reserve headroom; one run of 2,000 blows it.
-    ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1_000 }));
+    // Leaves room for the first ticket's own run estimate, plus 1,000 tokens
+    // of reserve headroom; one run of 2,000 blows it.
+    ports.ledger.reports(
+      spent({ weekly: SPENDABLE_THIS_WEEK - UNSIZED_ESTIMATE - 1_000 }),
+    );
     ports.sandbox.result = () => ({
       kind: "finished",
       branch: branch("issue-7"),

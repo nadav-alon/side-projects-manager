@@ -671,13 +671,22 @@ function landed(finished: Finished): string {
 
 /**
  * Why the gate refused, in the developer's terms: what was spent, against
- * what it was measured, and which of the two windows said no.
+ * what it was measured, which of the two windows said no, and whether
+ * consumption alone did it or the run estimate tipped it over.
  */
 function standDownReason(standDown: StandDown): string {
   const spent = `${tokens(standDown.tokensUsed)} of ${tokens(standDown.spendable)} tokens`;
-  return standDown.reason === "weekly-reserve"
-    ? `spending more of the week would eat into the reserve (${spent} spendable this week)`
-    : `the 5-hour window is spent (${spent})`;
+  const estimate = `${tokens(standDown.estimateCharged)} tokens charged as the run estimate`;
+  switch (standDown.reason) {
+    case "weekly-reserve":
+      return `spending more of the week would eat into the reserve (${spent} spendable this week)`;
+    case "weekly-reserve-estimate":
+      return `${spent} spendable this week, but the run estimate would eat into the reserve (${estimate})`;
+    case "five-hour-window":
+      return `the 5-hour window is spent (${spent})`;
+    case "five-hour-window-estimate":
+      return `the 5-hour window is within ${spent}, but the run estimate would spend it (${estimate})`;
+  }
 }
 
 function tokens(count: TokenCount): string {
