@@ -3,8 +3,8 @@ declare const dayBrand: unique symbol;
 const PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * A calendar day, `YYYY-MM-DD`: a trigger-lock key and, in the file-backed
- * lock, a filename.
+ * A calendar day, `YYYY-MM-DD`: what worked today and the once-a-day summary
+ * rule are scoped to.
  *
  * Branded, so a day cannot be handed a branch name or any other string of
  * the same shape. Values enter through `day` or `isDay`.

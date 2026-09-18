@@ -8,8 +8,10 @@ import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
   day,
+  issueNumber,
   modelName,
   priority,
+  processId,
   repoSlug,
   tokenCount,
 } from "../ports/index.ts";
@@ -26,6 +28,7 @@ async function home(
     budget?: string;
     state?: string;
     models?: string;
+    journal?: string;
   } = {},
 ): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "morning-run-"));
@@ -40,6 +43,9 @@ async function home(
   }
   if (documents.state !== undefined) {
     await writeFile(path.join(directory, "state.json"), documents.state);
+  }
+  if (documents.journal !== undefined) {
+    await writeFile(path.join(directory, "journal.json"), documents.journal);
   }
   return directory;
 }
@@ -522,6 +528,7 @@ describe("the model defaults document", () => {
           implementation: "sonnet",
           review: "claude-opus-5",
           "apply-review": "sonnet",
+          rebase: "opus",
         }),
       }),
     );
@@ -530,6 +537,7 @@ describe("the model defaults document", () => {
       implementation: modelName("sonnet"),
       "apply-review": modelName("sonnet"),
       review: modelName("claude-opus-5"),
+      rebase: modelName("opus"),
     });
   });
 
@@ -723,8 +731,8 @@ describe("the state document", () => {
       workedToday: {
         day: day("2026-01-01"),
         tickets: [
-          { repo: PILOT, number: 7 },
-          { repo: MANAGER, number: 12 },
+          { repo: PILOT, number: issueNumber(7) },
+          { repo: MANAGER, number: issueNumber(12) },
         ],
       },
     };
@@ -800,5 +808,263 @@ describe("the state document", () => {
     );
 
     await assert.rejects(store.loadState(), /announcedOn/);
+  });
+});
+
+describe("the journal document", () => {
+  const OPENED_AT = new Date("2026-01-01T06:00:00.000Z");
+  const CLOSED_AT = new Date("2026-01-01T06:10:00.000Z");
+  const PROCESS = processId(4242);
+
+  it("reads no records when the document does not exist", async () => {
+    const store = documentStore(await home());
+
+    assert.deepEqual(await store.loadJournal(), { records: [] });
+  });
+
+  it("reads no records when the document is empty", async () => {
+    const store = documentStore(await home({ journal: "" }));
+
+    assert.deepEqual(await store.loadJournal(), { records: [] });
+  });
+
+  it("rejects a document that is not valid JSON, naming the file", async () => {
+    const store = documentStore(await home({ journal: "{ records: [" }));
+
+    await assert.rejects(store.loadJournal(), /journal\.json/);
+  });
+
+  it("appends an in-flight record when opened, with no closing fields", async () => {
+    const store = documentStore(await home());
+
+    await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+
+    assert.deepEqual(await store.loadJournal(), {
+      records: [{ openedAt: OPENED_AT, process: PROCESS }],
+    });
+  });
+
+  it("returns whatever closing the record later needs", async () => {
+    const store = documentStore(await home());
+
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    assert.deepEqual(opened, { openedAt: OPENED_AT, process: PROCESS });
+  });
+
+  it("closes an open record with what the invocation came to", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "work-selected",
+      projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+    });
+
+    assert.deepEqual(await store.loadJournal(), {
+      records: [
+        {
+          openedAt: OPENED_AT,
+          process: PROCESS,
+          closedAt: CLOSED_AT,
+          outcome: "work-selected",
+          projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+        },
+      ],
+    });
+  });
+
+  it("records a stand-down reason when the invocation stood down", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "stood-down",
+      projects: [],
+      standDownReason: "weekly-reserve: 250000000 of 250000000 tokens used",
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(
+      record?.standDownReason,
+      "weekly-reserve: 250000000 of 250000000 tokens used",
+    );
+  });
+
+  it("rejects closing a record that was never opened", async () => {
+    const store = documentStore(await home());
+
+    await assert.rejects(
+      store.closeInvocation(
+        { openedAt: OPENED_AT, process: PROCESS },
+        { closedAt: CLOSED_AT, outcome: "dry-queue", projects: [] },
+      ),
+      /no invocation record opened/,
+    );
+  });
+
+  it("rejects closing a record that is already closed", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "dry-queue",
+      projects: [],
+    });
+
+    await assert.rejects(
+      store.closeInvocation(opened, {
+        closedAt: CLOSED_AT,
+        outcome: "dry-queue",
+        projects: [],
+      }),
+      /already closed/,
+    );
+  });
+
+  it("keeps a record in flight until it is closed", async () => {
+    const store = documentStore(await home());
+    await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+
+    const [record] = (await store.loadJournal()).records;
+
+    assert.equal(record?.closedAt, undefined);
+  });
+
+  it("keeps only the most recent records, oldest dropped first", async () => {
+    const store = documentStore(await home());
+    for (let i = 0; i < 55; i += 1) {
+      const openedAt = new Date(OPENED_AT.getTime() + i * 1_000);
+      await store.openInvocation({ openedAt, process: PROCESS });
+    }
+
+    const journal = await store.loadJournal();
+
+    assert.equal(journal.records.length, 50);
+    assert.deepEqual(
+      journal.records[0]?.openedAt,
+      new Date(OPENED_AT.getTime() + 5_000),
+    );
+    assert.deepEqual(
+      journal.records[49]?.openedAt,
+      new Date(OPENED_AT.getTime() + 54_000),
+    );
+  });
+
+  it("rejects a record naming a process that is not a whole number above 0", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [{ openedAt: OPENED_AT.toISOString(), process: 0 }],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"process"/);
+  });
+
+  it("rejects a record naming an outcome the loop does not report", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "something-else",
+              projects: [],
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"outcome"/);
+  });
+
+  it("rejects a field it does not recognise, naming the file", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [{ openedAt: OPENED_AT.toISOString(), process: 4242, extra: true }],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /no such field: extra/);
+  });
+
+  it("survives a round trip through the document, closed record included", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "work-selected",
+      projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+    });
+
+    assert.deepEqual(await store.loadJournal(), {
+      records: [
+        {
+          openedAt: OPENED_AT,
+          process: PROCESS,
+          closedAt: CLOSED_AT,
+          outcome: "work-selected",
+          projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+        },
+      ],
+    });
+  });
+
+  it("writes a document a developer can read in a diff", async () => {
+    const directory = await home();
+    const store = documentStore(directory);
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "dry-queue",
+      projects: [],
+    });
+
+    const written = await readFile(path.join(directory, "journal.json"), "utf8");
+    assert.equal(
+      written,
+      `${JSON.stringify(
+        {
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "dry-queue",
+              projects: [],
+            },
+          ],
+        },
+        undefined,
+        2,
+      )}\n`,
+    );
   });
 });

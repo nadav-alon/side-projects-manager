@@ -6,6 +6,8 @@ import type {
   ModelName,
   ModelRefusal,
   PullRequestUrl,
+  RebaseFinished,
+  RebaseTicket,
   RepoSlug,
   ReviewFinished,
   ReviewTicket,
@@ -34,6 +36,7 @@ export type RunFailure =
   | HandoverFailed
   | InfrastructureFailure
   | ModelRefused
+  | UnsettledMergeability
   | UnusableModelLabel;
 
 /** A failure whose ticket the loop hands back: every kind but the setup's. */
@@ -116,19 +119,43 @@ export interface UnusableModelLabel {
 }
 
 /**
- * The sandbox or the repo host could not do its part, so nothing ran. Never
- * handed back: the ticket is left eligible on purpose, since the setup is the
- * problem.
+ * A rebase ticket whose pull request the repo host never settled as
+ * conflicting or not — commonly one merged or closed since — caught before
+ * any run, so nothing was cloned, run or spent. The pull request is the
+ * problem, not the setup, so the ticket is handed back: left eligible, it
+ * would come round every firing ahead of the project's other work.
+ */
+export interface UnsettledMergeability {
+  kind: "unsettled-mergeability";
+  reason: string;
+  /** As `GaveUp.handedBack`. */
+  handedBack: boolean;
+}
+
+/**
+ * A run that never happened, or whose work never reached the checkout,
+ * because the sandbox or the repo host could not do its part — before the
+ * agent started, or after it stopped. The setup is the problem. Never handed
+ * back: the ticket is left eligible on purpose.
  */
 export interface InfrastructureFailure {
   kind: "infrastructure";
   reason: string;
+  /**
+   * What an agent that did start spent, present exactly when the sandbox
+   * failed after the agent had already run (`RunOutcome`'s `"sandbox-failed"`
+   * case) — absent when the setup never got the agent running at all. Told
+   * apart here, on the failure itself, rather than left for a reader to infer
+   * from `Failed.tokensUsed`, which every kind of `RunFailure` can carry for
+   * its own reason.
+   */
+  tokensUsed?: TokenCount;
 }
 
 /**
  * What one iteration did with the ticket it selected: finished a run, failed
- * one, worked a review or an apply-review ticket's own run, or had any kind of
- * run refused by the provider limit. Told apart by `kind`, and nothing else.
+ * one, worked a review, an apply-review or a rebase ticket's own run, or had
+ * any kind of run refused by the provider limit. Told apart by `kind`, and nothing else.
  *
  * Nothing here is thrown. A run that gave up, and one that never happened, are
  * described rather than raised, so the invocation still reports on the
@@ -139,18 +166,20 @@ export type Iteration =
   | Failed
   | Reviewed
   | AppliedReview
+  | Rebased
   | LimitRefused;
 
 /**
- * A limit refusal: an implementation, review or apply-review run the provider
- * limit refused. Not a failure: the ticket is nobody's problem, so it is
- * neither commented on nor relabelled, and stays eligible for a morning with
- * limit left to spend.
+ * A limit refusal: an implementation, review, apply-review or rebase run the
+ * provider limit refused. Not a failure: the ticket is nobody's problem, so it
+ * is neither commented on nor relabelled, and stays eligible for a morning
+ * with limit left to spend.
  */
 export interface LimitRefused {
   kind: "limit-refused";
   /** What the provider said. */
   limitRefusal: string;
+  /** What ran spent before the provider refused. Always set — a limit refusal has spent. */
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
@@ -162,6 +191,11 @@ export interface LimitRefused {
 export interface Finished {
   kind: "finished";
   run: RunFinished;
+  /**
+   * What the run spent. Always equal to `run.tokensUsed` — duplicated here so
+   * `costOf` reads one field without telling a run and a review apart.
+   */
+  tokensUsed: TokenCount;
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
@@ -192,7 +226,15 @@ export interface Failed {
   failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: RunOutcome;
-  /** What a review that ran spent, since it has no `run`. */
+  /**
+   * What ran spent, carried the same way whether it was a run's failure or a
+   * review's — so the summary reads it without telling the two apart. Absent
+   * when model labels named no run to start, and for an infrastructure
+   * failure the sandbox never got the agent running for. Present all the
+   * same for an infrastructure failure where the sandbox failed after the
+   * agent had already run — equal, there, to `InfrastructureFailure.tokensUsed`,
+   * which is where that distinction is actually told apart.
+   */
   tokensUsed?: TokenCount;
 }
 
@@ -213,6 +255,7 @@ export type IterationOutcome =
   | (Attempt & Failed)
   | (Attempt<ReviewTicket> & Reviewed)
   | (Attempt<ApplyReviewTicket> & AppliedReview)
+  | (Attempt<RebaseTicket> & Rebased)
   | (Attempt & LimitRefused);
 
 /**
@@ -225,6 +268,11 @@ export interface Reviewed {
   kind: "reviewed";
   review: ReviewFinished;
   /**
+   * What the review spent. Always equal to `review.tokensUsed` — duplicated
+   * here for the same reason as `Finished.tokensUsed`.
+   */
+  tokensUsed: TokenCount;
+  /**
    * Set when the loop could not finish the ticket off: the pull request could
    * not be checked for the posted comment, or the ticket could not be closed.
    * Either way it is still ready-for-agent, and the developer checks the pull
@@ -233,7 +281,10 @@ export interface Reviewed {
   notClosed?: NotClosed;
 }
 
-/** Why a review that ran left its ticket open, and the error that stopped it. */
+/**
+ * Why a review or a rebase that ran left its ticket open, and the error that
+ * stopped it.
+ */
 export interface NotClosed {
   kind: "check-failed" | "close-failed";
   error: string;
@@ -251,6 +302,8 @@ export interface AppliedReview {
   kind: "applied-review";
   /** The run. Absent when no thread was open to answer, so nothing ran. */
   review?: ReviewFinished;
+  /** As `Failed.tokensUsed`: absent exactly when `review` is, nothing having run. */
+  tokensUsed?: TokenCount;
   /**
    * The replies the run posted, by verdict. Absent when nothing ran, and when
    * they could not be read — `notClosed` says so.
@@ -268,6 +321,28 @@ export interface AppliedReview {
 export interface ApplyReviewNotClosed {
   kind: "check-failed" | "ready-failed" | "close-failed";
   error: string;
+}
+
+/**
+ * A rebase ticket's own iteration whose pull request no longer needs a
+ * rebase: its run finished and the repo host no longer reports the pull
+ * request conflicting, or it needed none when the iteration started, so no
+ * run was needed. Either way the ticket is closed and the pull request's
+ * draft state left alone. A run that gave up, or left the pull request still
+ * conflicting, is `Failed` instead.
+ */
+export interface Rebased {
+  kind: "rebased";
+  /** The run. Absent when there was nothing to rebase, so nothing ran. */
+  rebase?: RebaseFinished;
+  /** As `Failed.tokensUsed`: absent exactly when `rebase` is, nothing having run. */
+  tokensUsed?: TokenCount;
+  /**
+   * Set when the loop could not finish the ticket off: the pull request could
+   * not be read back after the run, or the ticket could not be closed. Either
+   * way the ticket is still ready-for-agent.
+   */
+  notClosed?: NotClosed;
 }
 
 /**

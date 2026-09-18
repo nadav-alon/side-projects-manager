@@ -1,6 +1,8 @@
+import type { IssueNumber } from "./issue-number.ts";
 import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import { isSize, largerSize, type Size } from "./size.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -34,6 +36,33 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
  * rest of the label is the model's name. The one place the literal lives.
  */
 export const MODEL_LABEL_PREFIX = "model:";
+
+/**
+ * What a label starts with when it is a size label, per `CONTEXT.md`: the
+ * rest of the label names one of the four recognised sizes. The one place
+ * the literal lives.
+ */
+export const SIZE_LABEL_PREFIX = "size:";
+
+/**
+ * Every label in `labels` starting with `prefix`, matched without regard to
+ * case the way GitHub matches label names, paired with what follows the
+ * prefix — kept in the case it was written, since folding that further is
+ * each prefix's own rule to apply. What `modelLabelOf` and `sizeLabelOf`
+ * both filter their labels down to before applying their own.
+ */
+function labelsWithPrefix(
+  labels: Iterable<string>,
+  prefix: string,
+): Array<{ label: string; value: string }> {
+  const matches: Array<{ label: string; value: string }> = [];
+  for (const label of labels) {
+    if (label.toLowerCase().startsWith(prefix)) {
+      matches.push({ label, value: label.slice(prefix.length) });
+    }
+  }
+  return matches;
+}
 
 /**
  * What a ticket's model labels say, where it carries any: one model by name,
@@ -71,13 +100,9 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
   const names: ModelName[] = [];
   const named: string[] = [];
   const unusable: string[] = [];
-  for (const label of labels) {
-    if (!label.toLowerCase().startsWith(MODEL_LABEL_PREFIX)) {
-      continue;
-    }
-    const name = label.slice(MODEL_LABEL_PREFIX.length);
-    if (isModelName(name)) {
-      names.push(name);
+  for (const { label, value } of labelsWithPrefix(labels, MODEL_LABEL_PREFIX)) {
+    if (isModelName(value)) {
+      names.push(value);
       named.push(label);
     } else {
       unusable.push(label);
@@ -97,14 +122,70 @@ export function modelLabelOf(labels: Iterable<string>): ModelLabel | undefined {
 }
 
 /**
+ * What a ticket's size labels say, where it carries any: one recognised
+ * size, or a label whose name none of the four recognised sizes match.
+ * Absent from a ticket that names no size — an unsized ticket, per
+ * `CONTEXT.md`'s "Size label".
+ *
+ * `unusable` carries each size label whose name `isSize` refuses — as
+ * written, so a hand-back can quote it. It wins even beside a recognised
+ * size: the developer named a size, and running the ticket unsized or under
+ * the other size is not what they asked for. Two recognised sizes are not an
+ * error the same way: overestimating is the safe direction, so the larger
+ * one counts instead.
+ */
+export type SizeLabel =
+  | { kind: "declared"; size: Size }
+  | { kind: "unusable"; labels: readonly string[] };
+
+/**
+ * The size label a ticket carrying `labels` declares, or undefined where it
+ * names no size.
+ *
+ * Beside the port rather than in an adapter, so the real tracker and the fake
+ * read labels identically. The prefix is matched without regard to case, the
+ * way `modelLabelOf` matches `MODEL_LABEL_PREFIX`, and so is the size itself:
+ * `size:s` and `size:S` declare the same size. Unlike a model name, which is
+ * open-ended and so passed through as written, a size is one of four known
+ * spellings with no meaning in its case — folding it here, before `isSize`
+ * ever sees it, is what lets `isSize` stay the strict, exact check the rest
+ * of the codebase can rely on.
+ */
+export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
+  const declared: Size[] = [];
+  const unusable: string[] = [];
+  for (const { label, value } of labelsWithPrefix(labels, SIZE_LABEL_PREFIX)) {
+    const candidate = value.toUpperCase();
+    if (isSize(candidate)) {
+      declared.push(candidate);
+    } else {
+      unusable.push(label);
+    }
+  }
+
+  if (unusable.length > 0) {
+    return { kind: "unusable", labels: unusable };
+  }
+  const [first, ...rest] = declared;
+  if (first === undefined) {
+    return undefined;
+  }
+  return { kind: "declared", size: rest.reduce(largerSize, first) };
+}
+
+/**
  * The pull request a ticket is bound to, and why: `review` binds a review
  * ticket to the draft it was opened to review; `apply-review` binds an
  * apply-review ticket to the draft the apply-review workflow asks the loop to
- * revise. Both name the one thing a run cannot work out for itself, since the
- * sandbox's clone has no GitHub remote to infer it from.
+ * revise; `rebase` binds a rebase ticket to the draft the `/rebase` workflow
+ * asks the loop to put back on top of its base branch. Each names the one
+ * thing a run cannot work out for itself, since the sandbox's clone has no
+ * GitHub remote to infer it from.
  *
  * `kind` is the ticket's kind itself, which is why it is spelled from
  * `TicketKind`: every kind but an implementation is bound to a pull request.
+ *
+ * TODO[#295]: the `/rebase` workflow itself.
  */
 export interface PullRequestBinding {
   kind: Exclude<TicketKind, "implementation">;
@@ -114,9 +195,9 @@ export interface PullRequestBinding {
 /**
  * An issue in a project's own repo that the loop may work on.
  *
- * `pullRequest` is what tells a review or an apply-review ticket from an
- * implementation ticket, and the two apart from each other: present only on
- * one of those two kinds, its `kind` names which, and its `url` names the
+ * `pullRequest` is what tells a review, an apply-review or a rebase ticket
+ * from an implementation ticket, and the three apart from each other: present
+ * only on those three kinds, its `kind` names which, and its `url` names the
  * draft pull request the ticket is bound to. Absent on every implementation
  * ticket, which is what selection reads to choose which kind of run to
  * start.
@@ -140,17 +221,23 @@ export interface PullRequestBinding {
  *
  * `priority` is the level its own priority label names, from that same
  * listing. Absent means it carries none.
+ *
+ * `sizeLabel` is what the ticket's own size labels say, read from that same
+ * listing on every call. Absent means the ticket names no size — an unsized
+ * ticket, per `CONTEXT.md`'s "Size label". A review ticket reads its own
+ * labels, never its parent's, and never inherits a size from it.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
   repo: RepoSlug;
-  number: number;
+  number: IssueNumber;
   title: string;
   pullRequest?: PullRequestBinding;
   openSubIssues?: number;
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
+  sizeLabel?: SizeLabel;
 }
 
 /**
@@ -235,8 +322,8 @@ export function discountPullRequestTickets(
 export interface OpenIssue {
   ticket: Ticket;
   eligible: boolean;
-  parent?: number;
-  openBlockerNumbers: readonly number[];
+  parent?: IssueNumber;
+  openBlockerNumbers: readonly IssueNumber[];
 }
 
 /**
@@ -282,10 +369,10 @@ export function backlogIn(open: OpenIssues): Backlog {
  */
 export function ticketPrioritiesIn(
   open: OpenIssues,
-): ReadonlyMap<number, TicketPriority> {
-  const passesTo = new Map<number, number[]>();
+): ReadonlyMap<IssueNumber, TicketPriority> {
+  const passesTo = new Map<IssueNumber, IssueNumber[]>();
   const read = new Set(open.issues.map((issue) => issue.ticket.number));
-  const edge = (from: number, to: number) => {
+  const edge = (from: IssueNumber, to: IssueNumber) => {
     if (read.has(from) && read.has(to)) {
       const tos = passesTo.get(from) ?? [];
       tos.push(to);
@@ -306,7 +393,7 @@ export function ticketPrioritiesIn(
       priority === undefined ? [] : [{ number, priority }],
     )
     .sort((a, b) => a.priority - b.priority);
-  const priorities = new Map<number, TicketPriority>();
+  const priorities = new Map<IssueNumber, TicketPriority>();
   for (const { number, priority } of labelled) {
     if (priorities.has(number)) {
       continue;
@@ -335,22 +422,32 @@ export type ApplyReviewTicket = Ticket & {
   pullRequest: PullRequestBinding & { kind: "apply-review" };
 };
 
-/** A ticket narrowed to either pull-request-bound kind, once `isPullRequestTicket` has said so. */
+/** A ticket narrowed to the rebase kind, once `isRebaseTicket` has said so. */
+export type RebaseTicket = Ticket & {
+  pullRequest: PullRequestBinding & { kind: "rebase" };
+};
+
+/** A ticket narrowed to any pull-request-bound kind, once `isPullRequestTicket` has said so. */
 export type PullRequestTicket = Ticket & { pullRequest: PullRequestBinding };
 
-/** Whether `ticket` is a review ticket rather than an implementation or apply-review ticket. */
+/** Whether `ticket` is a review ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest?.kind === "review";
 }
 
-/** Whether `ticket` is an apply-review ticket rather than an implementation or review ticket. */
+/** Whether `ticket` is an apply-review ticket. */
 export function isApplyReviewTicket(
   ticket: Ticket,
 ): ticket is ApplyReviewTicket {
   return ticket.pullRequest?.kind === "apply-review";
 }
 
-/** Whether `ticket` is bound to a pull request at all — a review or an apply-review ticket. */
+/** Whether `ticket` is a rebase ticket. */
+export function isRebaseTicket(ticket: Ticket): ticket is RebaseTicket {
+  return ticket.pullRequest?.kind === "rebase";
+}
+
+/** Whether `ticket` is bound to a pull request at all. */
 export function isPullRequestTicket(
   ticket: Ticket,
 ): ticket is PullRequestTicket {
@@ -362,6 +459,7 @@ export const TICKET_KINDS = [
   "implementation",
   "review",
   "apply-review",
+  "rebase",
 ] as const;
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
@@ -423,10 +521,18 @@ export interface IssueTracker {
   handBack(ticket: Ticket, comment: string): Promise<void>;
 
   /**
-   * Closes `ticket`, once its review has been posted. One of the two tickets
-   * the loop ever closes itself, both pull request tickets: a review that
-   * finished needs nobody to close it by hand, and the ticket it reviews stays
-   * the developer's either way.
+   * Closes `ticket`, once its review has been posted, and takes
+   * ready-for-agent off it. One of the two tickets the loop ever closes
+   * itself, both pull request tickets: a review that finished needs nobody
+   * to close it by hand, and the ticket it reviews stays the developer's
+   * either way.
+   *
+   * The label matters even though a closed ticket is already ineligible:
+   * without it, reopening the ticket would silently put it back in the
+   * queue, and a label query would find a closed review still marked ready
+   * for an agent. Best effort on the label alone — the close is what makes
+   * the ticket un-selectable, so a caller told this failed still finds it
+   * closed and just missing the label.
    */
   closeReviewTicket(ticket: ReviewTicket): Promise<void>;
 
@@ -440,6 +546,15 @@ export interface IssueTracker {
     ticket: ApplyReviewTicket,
     comment: string,
   ): Promise<void>;
+
+  /**
+   * Closes `ticket` with `comment`, once its pull request no longer needs a
+   * rebase — or needed none when the run started. Its own call rather than
+   * `closeApplyReviewTicket` reused: what the comment says differs, a rebase
+   * promotes nothing, and a rebase ticket is never the one an apply-review
+   * close's promotion is about.
+   */
+  closeRebaseTicket(ticket: RebaseTicket, comment: string): Promise<void>;
 }
 
 /**

@@ -1,5 +1,7 @@
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
+import type { IssueNumber } from "./issue-number.ts";
+import type { InvocationClosing, Journal, OpenInvocation } from "./journal.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -97,7 +99,7 @@ export function workedTicket({ repo, number }: WorkedTicket): WorkedTicket {
 /** A ticket as the state document names it: its project, and its number there. */
 export interface WorkedTicket {
   repo: RepoSlug;
-  number: number;
+  number: IssueNumber;
 }
 
 /**
@@ -165,4 +167,27 @@ export interface Store {
   loadState(): Promise<State>;
   /** Replaces the state document with `state`. */
   saveState(state: State): Promise<void>;
+  /**
+   * Opens an invocation record and writes it immediately, so a process that
+   * dies before closing it leaves an in-flight record rather than no trace at
+   * all. Returns whatever closing the record later needs to find it again.
+   */
+  openInvocation(opened: OpenInvocation): Promise<OpenInvocation>;
+  /**
+   * Closes the record `opened` identifies with what the invocation came to.
+   *
+   * An error, not a silent no-op, when no such record is open — it was never
+   * opened, or it already carries a `closedAt` — since either would otherwise
+   * lose an invocation's account of itself without saying so.
+   */
+  closeInvocation(
+    opened: OpenInvocation,
+    closing: InvocationClosing,
+  ): Promise<void>;
+  /**
+   * The journal in force, oldest record first. Empty when nothing has ever
+   * been recorded — a machine the loop has never run on, same as an absent
+   * state document.
+   */
+  loadJournal(): Promise<Journal>;
 }

@@ -4,11 +4,16 @@ import { describe, it } from "node:test";
 import {
   backlogIn,
   isApplyReviewTicket,
+  isRebaseTicket,
+  isReviewTicket,
+  issueNumber,
   modelName,
   pullRequestUrl,
+  READY_FOR_AGENT_LABEL,
   repoSlug,
   ticketPriority,
   type ApplyReviewTicket,
+  type RebaseTicket,
   type Ticket,
 } from "../ports/index.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
@@ -18,9 +23,9 @@ const PILOT = repoSlug("nadav-alon/pilot");
 describe("FakeIssueTracker", () => {
   it("lists only tickets carrying ready-for-agent", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addIneligibleTicket(PILOT, {
-      number: 8,
+      number: issueNumber(8),
       title: "Not triaged yet",
     });
 
@@ -35,7 +40,7 @@ describe("FakeIssueTracker", () => {
   it("no longer lists a ticket once it has been handed back", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {
-      number: 7,
+      number: issueNumber(7),
       title: "Add the thing",
     });
 
@@ -44,9 +49,28 @@ describe("FakeIssueTracker", () => {
     assert.deepEqual(backlogIn(await tracker.listOpenIssues(PILOT)).tickets, []);
   });
 
+  it("no longer lists a review ticket, nor carries ready-for-agent on it, once closed", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    assert.ok(isReviewTicket(review));
+
+    await tracker.closeReviewTicket(review);
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    assert.ok(!issues.some((issue) => issue.ticket.number === review.number));
+    assert.equal(tracker.carriesLabel(review, READY_FOR_AGENT_LABEL), false);
+  });
+
   it("lists a blocked ticket alongside its open blocker count", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addBlockedTicket(PILOT, { number: 56, title: "Waits on #55" }, 2);
+    tracker.addBlockedTicket(PILOT, { number: issueNumber(56), title: "Waits on #55" }, 2);
 
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
 
@@ -56,7 +80,7 @@ describe("FakeIssueTracker", () => {
   it("lists a ticket alongside the ticket priority it was given", async () => {
     const tracker = new FakeIssueTracker();
     tracker.addEligibleTicket(PILOT, {
-      number: 7,
+      number: issueNumber(7),
       title: "Add the thing",
       priority: ticketPriority(2),
     });
@@ -69,8 +93,8 @@ describe("FakeIssueTracker", () => {
   it("reports a backlog as truncated only once set up as one", async () => {
     const tracker = new FakeIssueTracker();
     const OTHER = repoSlug("nadav-alon/other");
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
-    tracker.addEligibleTicket(OTHER, { number: 1, title: "Another" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addEligibleTicket(OTHER, { number: issueNumber(1), title: "Another" });
 
     tracker.truncateBacklog(PILOT);
 
@@ -86,9 +110,9 @@ describe("FakeIssueTracker", () => {
 
   it("lists every open issue, marking eligible only those carrying ready-for-agent", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addIneligibleTicket(PILOT, {
-      number: 5,
+      number: issueNumber(5),
       title: "Spec: the thing",
       priority: ticketPriority(1),
     });
@@ -107,10 +131,10 @@ describe("FakeIssueTracker", () => {
   it("lists an issue alongside its parent and open blocker numbers", async () => {
     const tracker = new FakeIssueTracker();
     tracker.addEligibleTicket(PILOT, {
-      number: 8,
+      number: issueNumber(8),
       title: "Part of the spec",
-      parent: 5,
-      openBlockerNumbers: [6],
+      parent: issueNumber(5),
+      openBlockerNumbers: [issueNumber(6)],
     });
 
     const { issues } = await tracker.listOpenIssues(PILOT);
@@ -121,7 +145,7 @@ describe("FakeIssueTracker", () => {
 
   it("lists no blocker numbers for an issue given none", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
 
     const { issues } = await tracker.listOpenIssues(PILOT);
 
@@ -133,7 +157,7 @@ describe("FakeIssueTracker", () => {
     const tracker = new FakeIssueTracker();
     tracker.addBrokenOutTicket(
       PILOT,
-      { number: 66, title: "Too big for one run" },
+      { number: issueNumber(66), title: "Too big for one run" },
       7,
     );
 
@@ -150,7 +174,7 @@ describe("FakeIssueTracker", () => {
     /** Ticket #7, holding `open` open sub-issues as the tracker counts them. */
     function withSubIssues(tracker: FakeIssueTracker, open: number): void {
       tracker.addEligibleTicket(PILOT, {
-        number: 7,
+        number: issueNumber(7),
         title: "Add the thing",
         openSubIssues: open,
       });
@@ -165,10 +189,10 @@ describe("FakeIssueTracker", () => {
       const tracker = new FakeIssueTracker();
       withSubIssues(tracker, 1);
       tracker.addEligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: "Review the draft pull request for #7",
         pullRequest: { kind: "review", url: pullRequest },
-        parent: 7,
+        parent: issueNumber(7),
       });
 
       const ticket = await ticket7(tracker);
@@ -180,10 +204,25 @@ describe("FakeIssueTracker", () => {
       const tracker = new FakeIssueTracker();
       withSubIssues(tracker, 1);
       tracker.addEligibleTicket(PILOT, {
-        number: 43,
+        number: issueNumber(43),
         title: "Apply the review on #12",
         pullRequest: { kind: "apply-review", url: pullRequest },
-        parent: 7,
+        parent: issueNumber(7),
+      });
+
+      const ticket = await ticket7(tracker);
+
+      assert.equal(ticket?.openSubIssues, undefined);
+    });
+
+    it("does not count a rebase ticket among a ticket's open sub-issues", async () => {
+      const tracker = new FakeIssueTracker();
+      withSubIssues(tracker, 1);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(44),
+        title: "Rebase #12",
+        pullRequest: { kind: "rebase", url: pullRequest },
+        parent: issueNumber(7),
       });
 
       const ticket = await ticket7(tracker);
@@ -195,15 +234,15 @@ describe("FakeIssueTracker", () => {
       const tracker = new FakeIssueTracker();
       withSubIssues(tracker, 2);
       tracker.addEligibleTicket(PILOT, {
-        number: 9,
+        number: issueNumber(9),
         title: "Build part of the thing",
-        parent: 7,
+        parent: issueNumber(7),
       });
       tracker.addEligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: "Review the draft pull request for #7",
         pullRequest: { kind: "review", url: pullRequest },
-        parent: 7,
+        parent: issueNumber(7),
       });
 
       const ticket = await ticket7(tracker);
@@ -213,12 +252,12 @@ describe("FakeIssueTracker", () => {
 
     it("refuses a ticket whose open sub-issues leave out its pull request tickets", async () => {
       const tracker = new FakeIssueTracker();
-      tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       tracker.addEligibleTicket(PILOT, {
-        number: 42,
+        number: issueNumber(42),
         title: "Review the draft pull request for #7",
         pullRequest: { kind: "review", url: pullRequest },
-        parent: 7,
+        parent: issueNumber(7),
       });
 
       await assert.rejects(
@@ -234,7 +273,7 @@ describe("FakeIssueTracker", () => {
       "https://github.com/nadav-alon/pilot/pull/12",
     );
     tracker.addEligibleTicket(PILOT, {
-      number: 9,
+      number: issueNumber(9),
       title: "Apply the review",
       pullRequest: { kind: "apply-review", url: pullRequest },
     });
@@ -251,7 +290,7 @@ describe("FakeIssueTracker", () => {
   it("closes an apply-review ticket, recording its comment and taking it off the open issues", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {
-      number: 9,
+      number: issueNumber(9),
       title: "Apply the review",
       pullRequest: {
         kind: "apply-review",
@@ -267,13 +306,53 @@ describe("FakeIssueTracker", () => {
     const { issues } = await tracker.listOpenIssues(PILOT);
     assert.deepEqual(issues, []);
   });
+
+  it("holds a rebase ticket, bound to the pull request it names", async () => {
+    const tracker = new FakeIssueTracker();
+    const pullRequest = pullRequestUrl(
+      "https://github.com/nadav-alon/pilot/pull/12",
+    );
+    tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "Rebase",
+      pullRequest: { kind: "rebase", url: pullRequest },
+    });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(isRebaseTicket(backlog[0] as Ticket), true);
+    assert.deepEqual((backlog[0] as Ticket).pullRequest, {
+      kind: "rebase",
+      url: pullRequest,
+    });
+  });
+
+  it("closes a rebase ticket, recording its comment and taking it off the open issues", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "Rebase",
+      pullRequest: {
+        kind: "rebase",
+        url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+      },
+    }) as RebaseTicket;
+
+    await tracker.closeRebaseTicket(ticket, "Already sits on its base.");
+
+    assert.deepEqual(tracker.closedRebaseTickets, [
+      { ticket, comment: "Already sits on its base." },
+    ]);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    assert.deepEqual(issues, []);
+  });
 });
 
 /** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */
 describe("FakeIssueTracker — model labels", () => {
   it("names no model for a ticket without a model label", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
 
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
 
@@ -285,7 +364,7 @@ describe("FakeIssueTracker — model labels", () => {
     const tracker = new FakeIssueTracker();
     const given: Ticket = {
       repo: PILOT,
-      number: 7,
+      number: issueNumber(7),
       title: "Add the thing",
       modelLabel: { kind: "named", name: modelName("opus") },
     };
@@ -295,7 +374,7 @@ describe("FakeIssueTracker — model labels", () => {
 
   it("names the model a ticket labelled model:opus asks for", async () => {
     const tracker = new FakeIssueTracker();
-    const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addLabel(ticket, "model:opus");
 
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
@@ -308,7 +387,7 @@ describe("FakeIssueTracker — model labels", () => {
 
   it("passes a name no Claude model uses through unchanged", async () => {
     const tracker = new FakeIssueTracker();
-    const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addLabel(ticket, "model:GPT-9-Turbo");
 
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
@@ -321,7 +400,7 @@ describe("FakeIssueTracker — model labels", () => {
 
   it("marks a ticket with two model labels as conflicting, with both names", async () => {
     const tracker = new FakeIssueTracker();
-    const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addLabel(ticket, "model:opus");
     tracker.addLabel(ticket, "model:haiku");
 
@@ -337,7 +416,7 @@ describe("FakeIssueTracker — model labels", () => {
 
   it("marks a ticket whose model label names no usable model as unusable", async () => {
     const tracker = new FakeIssueTracker();
-    const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addLabel(ticket, "model:claude opus");
 
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
@@ -351,7 +430,7 @@ describe("FakeIssueTracker — model labels", () => {
 
   it("reads a review ticket's own labels, not its parent's", async () => {
     const tracker = new FakeIssueTracker();
-    const parent = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const parent = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addLabel(parent, "model:opus");
 
     const review = await tracker.createReviewTicket(
@@ -367,7 +446,7 @@ describe("FakeIssueTracker — model labels", () => {
 
   it("reads the labels afresh on every call", async () => {
     const tracker = new FakeIssueTracker();
-    const ticket = tracker.addEligibleTicket(PILOT, { number: 7, title: "Add the thing" });
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.addLabel(ticket, "model:opus");
     const { tickets: before } = backlogIn(await tracker.listOpenIssues(PILOT));
 
@@ -377,5 +456,80 @@ describe("FakeIssueTracker — model labels", () => {
 
     assert.deepEqual(before[0]?.modelLabel, { kind: "named", name: modelName("opus") });
     assert.deepEqual(after[0]?.modelLabel, { kind: "named", name: modelName("sonnet") });
+  });
+});
+
+/** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */
+describe("FakeIssueTracker — size labels", () => {
+  it("declares no size for a ticket without a size label", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(backlog[0]?.sizeLabel, undefined);
+  });
+
+  /** Checked by the type check: the size label comes from labels alone. */
+  it("takes no size label with the ticket it is given", () => {
+    const tracker = new FakeIssueTracker();
+    const given: Ticket = {
+      repo: PILOT,
+      number: issueNumber(7),
+      title: "Add the thing",
+      sizeLabel: { kind: "declared", size: "M" },
+    };
+    // @ts-expect-error: a ticket carrying a size label is not a TicketInput.
+    tracker.addEligibleTicket(PILOT, given);
+  });
+
+  it("declares the size a ticket labelled size:M asks for", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(ticket, "size:M");
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.deepEqual(backlog[0]?.sizeLabel, { kind: "declared", size: "M" });
+  });
+
+  it("counts the larger of two declared sizes", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(ticket, "size:S");
+    tracker.addLabel(ticket, "size:L");
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.deepEqual(backlog[0]?.sizeLabel, { kind: "declared", size: "L" });
+  });
+
+  it("marks a ticket whose size label names no recognised size as unusable", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(ticket, "size:huge");
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.deepEqual(backlog[0]?.sizeLabel, {
+      kind: "unusable",
+      labels: ["size:huge"],
+    });
+  });
+
+  it("reads a review ticket's own labels, not its parent's", async () => {
+    const tracker = new FakeIssueTracker();
+    const parent = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.addLabel(parent, "size:XL");
+
+    const review = await tracker.createReviewTicket(
+      parent,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    const listed = backlog.find((ticket) => ticket.number === review.number);
+    assert.ok(listed);
+    assert.equal(listed.sizeLabel, undefined);
   });
 });

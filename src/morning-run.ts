@@ -1,51 +1,56 @@
 import type {
   ApplyReviewAnswers,
   ApplyReviewGaveUp,
-  ApplyReviewOutcome,
   ApplyReviewTicket,
   Budget,
   Checkout,
   Clock,
   Day,
+  InvocationOutcome as JournaledInvocationOutcome,
   IssueTracker,
   IterationLimit,
   ModelDefaults,
   ModelName,
   ModelRefusal,
-  Priority,
   ProjectState,
-  RegisteredProject,
+  RebaseFinished,
+  RebaseGaveUp,
+  RebaseTicket,
   RepoHost,
   RepoSlug,
   ReviewFinished,
   ReviewGaveUp,
-  ReviewOutcome,
   ReviewTicket,
   RunCost,
   RunFinished,
+  RunGaveUp,
+  RunLimitRefused,
+  RunModelRefused,
   RunOutcome,
   Sandbox,
   State,
   Store,
   Ticket,
-  TicketKind,
-  TicketPriority,
+  TokenCount,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
 import {
-  backlogIn,
+  MergeabilityUnknown,
   isApplyReviewTicket,
-  isBlocked,
-  isBrokenOut,
+  isRebaseTicket,
   isReviewTicket,
   localDay,
   recordRun,
   ticketKind,
-  ticketPrioritiesIn,
 } from "./ports/index.ts";
 import { budgetGate, type StandDown } from "./budget-gate.ts";
-import { workedTickets, type WorkedTickets } from "./worked-today.ts";
+import {
+  invocationSelection,
+  type ProjectOutcome,
+  type Selection,
+} from "./selection.ts";
+import { workedTickets } from "./worked-today.ts";
 import {
   appliedReviewComment,
   applyReviewHandbackComment,
@@ -54,7 +59,10 @@ import {
   handoverComment,
   handoverFailureComment,
   modelRefusalComment,
+  rebaseHandbackComment,
+  rebasedComment,
   reviewHandbackComment,
+  unsettledMergeabilityComment,
   unusableModelLabelComment,
   type Discard,
 } from "./handback-comment.ts";
@@ -74,7 +82,9 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type Rebased,
   type Reviewed,
+  type UnsettledMergeability,
   type UnusableModelLabel,
 } from "./iteration-outcome.ts";
 import {
@@ -130,57 +140,19 @@ export type InvocationOutcome =
    */
   | "invocation-failed";
 
-/** What became of one registered project. */
-export type ProjectVerdict =
-  /** Paused in the registry, so not considered at all. */
-  | "paused"
-  /** Considered, and its backlog held nothing eligible. */
-  | "no-eligible-tickets"
-  /**
-   * Had an eligible ticket, but another project outranked it this iteration —
-   * a review elsewhere, an explicit priority, or simply having waited longer.
-   * Not skipped for good: a later iteration in the same invocation, or
-   * tomorrow's, may still pick it.
-   */
-  | "deferred"
-  /** Considered and selected: the project this iteration works. */
-  | "selected";
+/**
+ * Kept assignable to the store port's own copy of this union: a variant
+ * added here without being added to `ports/journal.ts`'s `InvocationOutcome`
+ * fails this line, rather than surfacing later as a runtime parse error when
+ * the journal tries to read back an outcome it does not recognise.
+ */
+const _outcomeStaysInSyncWithJournal: JournaledInvocationOutcome =
+  "dry-queue" as InvocationOutcome;
 
 /** The model a ticket's run is started on, and what named it. */
 export interface ResolvedModel {
   name: ModelName;
   source: ModelSource;
-}
-
-/** One registered project, and what the invocation made of it. */
-export interface ProjectOutcome {
-  repo: RepoSlug;
-  verdict: ProjectVerdict;
-  /**
-   * When an iteration last worked it, as the invocation found it. A project
-   * this invocation went on to work still reads as it did beforehand, so the
-   * report says what was true when the decision was made.
-   */
-  lastWorkedAt?: Date;
-  /**
-   * Tickets this scan found carrying ready-for-agent but passed over for
-   * being broken out, in backlog order. What makes a backlog that looked
-   * full but yielded nothing explicable, rather than indistinguishable from
-   * one that was simply empty.
-   */
-  brokenOut?: Ticket[];
-  /**
-   * Tickets this scan found carrying ready-for-agent but passed over because
-   * an open ticket blocks them, in backlog order — for the same reason as
-   * `brokenOut`.
-   */
-  blocked?: Ticket[];
-  /**
-   * Set when this project's backlog held more eligible tickets than the read
-   * kept — regardless of verdict, since a project outranked this morning can
-   * still be the one whose backlog needs thinning.
-   */
-  backlogTruncated?: true;
 }
 
 /** What one invocation did. The summary issue is written from this. */
@@ -260,33 +232,6 @@ export interface MorningLoopOptions {
   stop?: AbortSignal;
 }
 
-/** The project an iteration works, and the ticket it works there. */
-interface Selection {
-  project: RegisteredProject;
-  ticket: Ticket;
-}
-
-/**
- * One project with an eligible ticket, as far as selection is concerned: the
- * project itself, the ticket selection would work on its behalf, and that
- * ticket's kind — everything the ordering rule needs and nothing it has to
- * ask the tracker twice for.
- */
-interface Candidate {
-  project: RegisteredProject;
-  ticket: Ticket;
-  kind: TicketKind;
-  priority?: Priority;
-  lastWorkedAt?: Date;
-}
-
-/** What walking the registry came to: the verdicts, and any work found. */
-interface RegistryScan {
-  outcomes: ProjectOutcome[];
-  /** Absent when no project had an eligible, not-yet-worked ticket. */
-  selection?: Selection;
-}
-
 /**
  * One invocation of the morning loop: as many iterations as the registry has
  * eligible work for and the budget allows, each one project and one ticket.
@@ -328,12 +273,10 @@ export async function morningLoop(
   // One slot per iteration, in the order they started. A slot is left empty
   // only by an iteration that threw.
   const outcomeSlots: (IterationOutcome | undefined)[] = [];
-  const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
-  // Registry order as each repo is first seen. Read fresh every iteration
-  // rather than snapshotted from the first scan, so a project the developer
-  // adds mid-invocation still lands in the report instead of being silently
-  // dropped from it.
-  const registryOrder: RepoSlug[] = [];
+  // Populated from `selecting.verdicts()` once selecting exists to ask;
+  // stays empty if the invocation never gets that far, the same as an
+  // invocation that got that far but found an empty registry.
+  let outcomes: ProjectOutcome[] = [];
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -357,6 +300,10 @@ export async function morningLoop(
       };
     };
     const modelDefaults = await ports.store.loadModelDefaults();
+    // Built once and kept for the whole invocation, not once per iteration:
+    // it is what remembers a project's "selected" verdict across scans and
+    // where each registered project first landed in registry order.
+    const selecting = invocationSelection(ports, projects, worked);
     const inProgress = new Set<Promise<void>>();
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
@@ -384,21 +331,8 @@ export async function morningLoop(
           break;
         }
 
-        const scan = await considerProjects(ports, projects, worked);
-        // A project keeps its "selected" verdict once it has one: a later scan
-        // in the same invocation, run after its ticket is excluded, would
-        // otherwise read it right back to "no eligible tickets" and hide that
-        // its turn already came.
-        for (const project of scan.outcomes) {
-          if (!registryOrder.includes(project.repo)) {
-            registryOrder.push(project.repo);
-          }
-          if (outcomesByRepo.get(project.repo)?.verdict !== "selected") {
-            outcomesByRepo.set(project.repo, project);
-          }
-        }
-
-        if (scan.selection === undefined) {
+        const chosen = await selecting.next();
+        if (chosen === undefined) {
           // An iteration in progress can still queue work — a finished run's
           // review ticket — so nothing left means nothing left once none is.
           if (inProgress.size === 0) {
@@ -411,7 +345,7 @@ export async function morningLoop(
         if (stopped()) {
           break;
         }
-        const { ticket } = scan.selection;
+        const { ticket } = chosen;
 
         // Ahead of the gate as well as of the run: handing a ticket back
         // spends nothing, so a morning the gate refuses still gives the
@@ -420,7 +354,7 @@ export async function morningLoop(
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
           outcomeSlots.push({
-            repo: scan.selection.project.repo,
+            repo: chosen.project.repo,
             ticket,
             ...(await handTicketBack(
               ports,
@@ -437,7 +371,7 @@ export async function morningLoop(
         const refusal = await consultTheGate(ports, budget, projects);
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
-          standDown ??= { ...refusal, refused: scan.selection.project.repo };
+          standDown ??= { ...refusal, refused: chosen.project.repo };
           break;
         }
 
@@ -452,13 +386,13 @@ export async function morningLoop(
           break;
         }
 
-        const { repo } = scan.selection.project;
+        const { repo } = chosen.project;
         const model = resolveModel(ticket, modelDefaults);
         // Reported where it started, however long it then takes to finish.
         const slot = outcomeSlots.push(undefined) - 1;
         const completion: Promise<void> = work(
           ports,
-          scan.selection,
+          chosen,
           projects,
           budget.spendCeiling,
           model,
@@ -500,6 +434,11 @@ export async function morningLoop(
     } finally {
       // Never rejects: each iteration's own settling catches what it threw.
       await Promise.all(inProgress);
+      // Read back out here rather than only on the happy path, so a for loop
+      // that throws still reports every verdict scanned before that — the
+      // same partial account `iterations` already carries for the runs made
+      // before it.
+      outcomes = selecting.verdicts();
       // State is written back at the end of every invocation, including one that
       // worked nothing and one whose run failed part way, so that a machine
       // which has run the loop always has a state document to read next morning.
@@ -526,11 +465,6 @@ export async function morningLoop(
 
   const iterations = outcomeSlots.filter(
     (iteration): iteration is IterationOutcome => iteration !== undefined,
-  );
-  const outcomes = registryOrder.map(
-    // Set for every repo named in `registryOrder`, which is read from the
-    // very outcomes this populates.
-    (repo) => outcomesByRepo.get(repo) as ProjectOutcome,
   );
   const facts: SummaryFacts = {
     projects: outcomes,
@@ -642,103 +576,6 @@ function runsRecorded(projects: ProjectStates): RunCost[] {
 }
 
 /**
- * The first step of an iteration: ask every non-paused project's backlog for
- * a candidate ticket, then hand the best one to `bestCandidate`. A paused
- * project is passed over without asking the tracker anything, because paused
- * means never considered; a project this invocation has exhausted — every
- * eligible ticket already in `worked` — reads the same as an empty backlog.
- *
- * Every non-paused project is asked, never just enough to find one: priority
- * can make a project registered last outrank one registered first, so the
- * only way to know which project wins is to have looked at all of them.
- */
-async function considerProjects(
-  ports: MorningLoopPorts,
-  projects: ProjectStates,
-  worked: WorkedTickets,
-): Promise<RegistryScan> {
-  const outcomes: ProjectOutcome[] = [];
-  const candidates: Candidate[] = [];
-  // Where each candidate's placeholder verdict lives in `outcomes`, so the
-  // winner's can be swapped for "selected" once every project has been seen.
-  const outcomeIndexByRepo = new Map<RepoSlug, number>();
-
-  for (const project of await ports.store.loadRegistry()) {
-    const projectState = projects.get(project.repo);
-
-    if (project.paused) {
-      outcomes.push(outcome(project.repo, "paused", projectState));
-      continue;
-    }
-
-    // Worked out over every open issue read, before `backlogIn` keeps only the
-    // eligible ones: a spec left ready-for-human, or a ticket passed over as
-    // blocked, still passes its priority label on.
-    const open = await ports.tracker.listOpenIssues(project.repo);
-    const ticketPriorities = ticketPrioritiesIn(open);
-    const { tickets, truncated: backlogTruncated } = backlogIn(open);
-    const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
-    // A ticket whose work has moved into open sub-issues is a container, not
-    // work of its own — set aside here rather than in the tracker's query, so
-    // the rule can be exercised against the fake and the summary can still
-    // name what it passed over. A ticket an open ticket blocks is set aside
-    // the same way: its work builds on work not yet done.
-    const brokenOut: Ticket[] = [];
-    const blocked: Ticket[] = [];
-    const selectable: Ticket[] = [];
-    for (const ticket of backlog) {
-      if (isBrokenOut(ticket)) {
-        brokenOut.push(ticket);
-      } else if (isBlocked(ticket)) {
-        blocked.push(ticket);
-      } else {
-        selectable.push(ticket);
-      }
-    }
-    const findings: ScanFindings = { brokenOut, blocked, backlogTruncated };
-    // A review in the same backlog as its parent ticket is worked before it.
-    const ticket = bestTicket(selectable, ticketPriorities);
-
-    if (ticket === undefined) {
-      outcomes.push(
-        outcome(project.repo, "no-eligible-tickets", projectState, findings),
-      );
-      continue;
-    }
-
-    candidates.push({
-      project,
-      ticket,
-      kind: ticketKind(ticket),
-      ...(project.priority !== undefined && { priority: project.priority }),
-      ...(projectState?.lastWorkedAt !== undefined && {
-        lastWorkedAt: projectState.lastWorkedAt,
-      }),
-    });
-    outcomeIndexByRepo.set(project.repo, outcomes.length);
-    outcomes.push(outcome(project.repo, "deferred", projectState, findings));
-  }
-
-  const winner = bestCandidate(candidates);
-  if (winner === undefined) {
-    return { outcomes };
-  }
-
-  // Set by the loop above for every candidate, this one included.
-  const winnerIndex = outcomeIndexByRepo.get(winner.project.repo) as number;
-  const scanned = outcomes[winnerIndex] as ProjectOutcome;
-  // Only the verdict changes: what the scan found, passed-over tickets and a
-  // truncated backlog included, is as true of the winner as of any project it
-  // outranked.
-  outcomes[winnerIndex] = { ...scanned, verdict: "selected" };
-
-  return {
-    outcomes,
-    selection: { project: winner.project, ticket: winner.ticket },
-  };
-}
-
-/**
  * The model `ticket`'s run is started on: the one its own model label names,
  * else the model defaults' entry for its kind, else none, which leaves the
  * sandbox image's pin in force.
@@ -809,134 +646,6 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 }
 
 /**
- * The one ticket `backlog` offers selection, within a single project: an
- * apply-review ticket before a review ticket before any implementation
- * ticket, since finishing beats starting and a review already written is
- * nearer finished than one not yet written; among implementation tickets,
- * ticket priority ascending — as `ticketPriorities` holds it by issue number,
- * never a ticket's own priority label — with a ticket absent from it sorting
- * after every ticket present; and, ties still standing, the oldest ticket —
- * the lowest issue number — so the order the tracker happened to return them
- * in never matters. Two pull request tickets of the same kind go straight to
- * the oldest ticket: ticket priority orders implementation tickets only, and
- * a pull request ticket inherits its parent's as a sub-issue, not as a rank
- * of its own.
- */
-function bestTicket(
-  backlog: Ticket[],
-  ticketPriorities: ReadonlyMap<number, TicketPriority>,
-): Ticket | undefined {
-  return [...backlog].sort((a, b) =>
-    compareTickets(a, b, ticketPriorities),
-  )[0];
-}
-
-/**
- * Where each ticket kind stands in the order selection works them, lowest
- * first. A record rather than a list, so a kind added to `TicketKind` fails
- * to compile until it is given a place here.
- */
-const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
-  "apply-review": 0,
-  review: 1,
-  implementation: 2,
-};
-
-/** Ascending by each kind's `SELECTION_RANK`. */
-function compareKinds(a: TicketKind, b: TicketKind): number {
-  return SELECTION_RANK[a] - SELECTION_RANK[b];
-}
-
-function compareTickets(
-  a: Ticket,
-  b: Ticket,
-  ticketPriorities: ReadonlyMap<number, TicketPriority>,
-): number {
-  const kind = ticketKind(a);
-  const kindOrder = compareKinds(kind, ticketKind(b));
-  if (kindOrder !== 0) {
-    return kindOrder;
-  }
-  if (kind !== "implementation") {
-    return a.number - b.number;
-  }
-  const byPriority = absentLast(
-    ticketPriorities.get(a.number),
-    ticketPriorities.get(b.number),
-  );
-  if (byPriority !== 0) {
-    return byPriority;
-  }
-  return a.number - b.number;
-}
-
-/**
- * Selection's ordering rule, applied as one comparison rather than as
- * separate passes: apply-reviews before reviews before implementations, then
- * explicit priority, then least recently worked. Each level only breaks ties
- * the level before it left standing, so a pull request ticket is never
- * outranked by priority and priority is never outranked by how long a project
- * has waited.
- *
- * A project without a priority sorts after every project that has one, and a
- * project never worked sorts before every project that has been — it is, by
- * definition, the one that has waited longest.
- */
-function bestCandidate(candidates: Candidate[]): Candidate | undefined {
-  return [...candidates].sort(compareCandidates)[0];
-}
-
-function compareCandidates(a: Candidate, b: Candidate): number {
-  const kindOrder = compareKinds(a.kind, b.kind);
-  if (kindOrder !== 0) {
-    return kindOrder;
-  }
-  const byPriority = absentLast(a.priority, b.priority);
-  if (byPriority !== 0) {
-    return byPriority;
-  }
-  return leastRecentlyWorkedFirst(a.lastWorkedAt, b.lastWorkedAt);
-}
-
-/**
- * Ascending by a project's `Priority` or by a ticket's `TicketPriority`, never
- * one against the other, with an absent value sorting after every present
- * one. Not via arithmetic on a sentinel, since `Infinity - Infinity` is `NaN`,
- * and a comparator that can return `NaN` leaves `Array.prototype.sort` free to
- * return either order.
- */
-function absentLast(a: Priority | undefined, b: Priority | undefined): number;
-function absentLast(
-  a: TicketPriority | undefined,
-  b: TicketPriority | undefined,
-): number;
-function absentLast(
-  a: Priority | TicketPriority | undefined,
-  b: Priority | TicketPriority | undefined,
-): number {
-  if (a === undefined) {
-    return b === undefined ? 0 : 1;
-  }
-  if (b === undefined) {
-    return -1;
-  }
-  return a - b;
-}
-
-function leastRecentlyWorkedFirst(
-  a: Date | undefined,
-  b: Date | undefined,
-): number {
-  if (a === undefined) {
-    return b === undefined ? 0 : -1;
-  }
-  if (b === undefined) {
-    return 1;
-  }
-  return a.getTime() - b.getTime();
-}
-
-/**
  * Whether `iteration` was one of the two that say nothing about its ticket —
  * an infrastructure failure or a limit refusal — and so, as `work` leaves it,
  * leaves the ticket exactly as it was.
@@ -955,7 +664,8 @@ function leavesTicketUntouched(iteration: Iteration): boolean {
  * leaves the ticket untouched. A review ticket's own run posts its findings
  * itself and is closed once it has; an apply-review ticket's pushes and
  * replies itself, and is closed once the repo host shows every thread
- * answered.
+ * answered; a rebase ticket's force-pushes itself, and is closed once the repo
+ * host no longer reports its pull request conflicting.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -967,6 +677,16 @@ async function work(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<Iteration> {
+  if (isRebaseTicket(selection.ticket)) {
+    return await runRebase(
+      ports,
+      selection.project.repo,
+      selection.ticket,
+      state,
+      spendCeiling,
+      model,
+    );
+  }
   if (isApplyReviewTicket(selection.ticket)) {
     return await runApplyReview(
       ports,
@@ -1002,8 +722,23 @@ async function work(
   }
 
   // A variant is exactly one kind, so nothing here turns on the order the
-  // three failing kinds are checked in.
-  const { run, checkout } = returned;
+  // failing kinds are checked in.
+  const { outcome: run, checkout } = returned;
+  if (run.kind === "sandbox-failed") {
+    // The agent already ran and spent — recorded against the project above,
+    // same as any other run — but the sandbox is what failed, so the ticket
+    // is left exactly as an infrastructure failure leaves it: not handed
+    // back, and eligible to come round again.
+    return {
+      kind: "failed",
+      tokensUsed: run.tokensUsed,
+      failure: {
+        kind: "infrastructure",
+        reason: run.reason,
+        tokensUsed: run.tokensUsed,
+      },
+    };
+  }
   if (run.kind === "limit-refused") {
     return {
       kind: "limit-refused",
@@ -1021,7 +756,7 @@ async function work(
       selection.ticket,
       failure,
       modelRefusalComment(selection.ticket, failure, run, discard),
-      run,
+      { run },
     );
   }
   if (run.kind === "finished") {
@@ -1043,7 +778,7 @@ async function work(
     selection.ticket,
     failure,
     handbackComment(failure, run, discard),
-    run,
+    { run },
   );
 }
 
@@ -1079,6 +814,7 @@ async function handOver(
     return {
       kind: "finished",
       run,
+      tokensUsed: run.tokensUsed,
       ...(handbackFailure !== undefined && { handbackFailure }),
     };
   }
@@ -1133,6 +869,7 @@ async function handOver(
   return {
     kind: "finished",
     run,
+    tokensUsed: run.tokensUsed,
     handover: { pullRequest, reviewTicket },
     ...(handbackFailure !== undefined && { handbackFailure }),
   };
@@ -1161,7 +898,7 @@ async function handoverFailed(
     ticket,
     failure,
     handoverFailureComment(failure),
-    run,
+    { run },
   );
 }
 
@@ -1189,6 +926,13 @@ async function handFinishedTicketBack(
 }
 
 /**
+ * What a failed ticket's hand-back carries into `Failed`: an implementation
+ * run's own outcome, whose `tokensUsed` is taken as the spend too, or — for a
+ * review, which has no `RunOutcome` of its own — the spend directly.
+ */
+type Spend = { run: RunOutcome } | { tokensUsed: TokenCount };
+
+/**
  * Puts the ticket of a run that failed on the ticket's account — an agent
  * that gave up, or a model it could not use — back in the developer's hands
  * with `comment`, and says whether it got there.
@@ -1201,13 +945,21 @@ async function handTicketBack(
   ticket: Ticket,
   failure: HandedBackFailure,
   comment: string,
-  run?: RunOutcome,
+  spend?: Spend,
 ): Promise<Failed> {
+  const run = spend !== undefined && "run" in spend ? spend.run : undefined;
+  const tokensUsed =
+    spend === undefined
+      ? undefined
+      : "run" in spend
+        ? spend.run.tokensUsed
+        : spend.tokensUsed;
   try {
     await ports.tracker.handBack(ticket, comment);
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
+      ...(tokensUsed !== undefined && { tokensUsed }),
       failure: { ...failure, handedBack: true },
     };
   } catch (error: unknown) {
@@ -1217,6 +969,7 @@ async function handTicketBack(
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
+      ...(tokensUsed !== undefined && { tokensUsed }),
       failure: {
         ...failure,
         reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
@@ -1235,7 +988,7 @@ async function handTicketBack(
 async function discardBranch(
   ports: MorningLoopPorts,
   checkout: Checkout,
-  run: RunOutcome,
+  run: RunGaveUp | RunLimitRefused | RunModelRefused,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -1251,71 +1004,60 @@ async function discardBranch(
   }
 }
 
-/** A run the sandbox carried out, whatever the agent made of it. */
-interface Ran {
+/** What `runInSandbox` came back with, before its caller reads what kind of outcome it was. */
+interface SandboxResult<Outcome> {
   kind: "ran";
-  run: RunOutcome;
+  outcome: Outcome;
   checkout: Checkout;
 }
 
 /**
- * The run itself, and what it cost.
+ * The one step an implementation run and a review share: make the throwaway
+ * clone, run the sandbox, and record what it cost against the project —
+ * before either kind goes on to read what its own outcome came back as.
  *
  * The checkout comes from the repo host rather than from anything the loop
  * remembers, so a project whose clone has gone missing heals on the way into
  * the run instead of failing the morning.
  *
- * The two ways a run ends badly are told apart by where they surface: the
- * sandbox port rejects only when it could not set itself up, start the agent,
- * or tear itself down, and reports an agent that gave up as a result carrying
- * the `"gave-up"` variant.
+ * The ways a run ends badly are told apart by where they surface: the sandbox
+ * port rejects only when it could not set itself up or start the agent, and
+ * reports everything past that point as a result — an agent that gave up
+ * carries the `"gave-up"` variant, and a sandbox that failed once the agent
+ * had already run carries `"sandbox-failed"`, still spending what `outcome`
+ * carries below.
  */
-async function attemptRun(
+async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
-  selection: Selection,
+  repo: RepoSlug,
   state: Map<RepoSlug, ProjectState>,
-  spendCeiling: Usd,
-  model: ResolvedModel | undefined,
-): Promise<Ran | Failed> {
-  const repo = selection.project.repo;
-
+  sandboxCall: (checkout: Checkout) => Promise<Outcome>,
+): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
-  let run: RunOutcome;
+  let outcome: Outcome;
   try {
     checkout = await ports.repoHost.clone(repo);
-    // Built as two distinct calls rather than one call with `model` spread in
-    // conditionally: `Sandbox.run` is overloaded on whether `model` is
-    // present precisely so that a run given none can never come back with a
-    // model refusal, and only a call whose own argument is plainly one shape
-    // or the other resolves to the right overload.
-    run =
-      model === undefined
-        ? await ports.sandbox.run({
-            ticket: selection.ticket,
-            checkout,
-            spendCeiling,
-          })
-        : await ports.sandbox.run({
-            ticket: selection.ticket,
-            checkout,
-            spendCeiling,
-            model: model.name,
-          });
+    outcome = await sandboxCall(checkout);
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
     // token count — so there is nothing to record against the project, and no
-    // branch to discard: fetching one back is the last thing a run does that
-    // can fail. The sandbox can reject after the agent has already worked,
-    // though, and that run's spend is lost to the ledger.
-    // TODO[#35]: record what a run spent even when the sandbox rejects.
+    // branch to discard. The sandbox rejects only when it could not set
+    // itself up or start the agent, before any of that existed to lose: a
+    // failure once the agent has already run comes back as a result instead
+    // (`RunOutcome`'s `"sandbox-failed"` case), carrying its spend, so it
+    // reaches `recordRun` below like any other.
     return infrastructureFailure(error);
   }
 
-  const at = ports.clock.now();
-  const cost = { at, tokensUsed: run.tokensUsed };
-  state.set(repo, recordRun(state.get(repo), cost));
+  state.set(
+    repo,
+    recordRun(state.get(repo), {
+      at: ports.clock.now(),
+      tokensUsed: outcome.tokensUsed,
+    }),
+  );
 
-  return { kind: "ran", run, checkout };
+  return { kind: "ran", outcome, checkout };
 }
 
 /** A checkout or a sandbox that could not do its part, as the iteration it comes to. */
@@ -1324,6 +1066,33 @@ function infrastructureFailure(error: unknown): Failed {
     kind: "failed",
     failure: { kind: "infrastructure", reason: errorMessage(error) },
   };
+}
+
+/**
+ * An implementation run: works `selection`'s ticket in the sandbox, held to
+ * `spendCeiling` and started on `model` — or, given none, on whatever model
+ * the sandbox image itself is pinned to, which can never come back refused.
+ */
+async function attemptRun(
+  ports: MorningLoopPorts,
+  selection: Selection,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<SandboxResult<RunOutcome> | Failed> {
+  const { ticket } = selection;
+  const repo = selection.project.repo;
+
+  return runInSandbox(ports, repo, state, (checkout) =>
+    // Built as two distinct calls rather than one call with `model` spread in
+    // conditionally: `Sandbox.run` is overloaded on whether `model` is
+    // present precisely so that a run given none can never come back with a
+    // model refusal, and only a call whose own argument is plainly one shape
+    // or the other resolves to the right overload.
+    model === undefined
+      ? ports.sandbox.run({ ticket, checkout, spendCeiling })
+      : ports.sandbox.run({ ticket, checkout, spendCeiling, model: model.name }),
+  );
 }
 
 /**
@@ -1355,32 +1124,18 @@ async function runReview(
   model: ResolvedModel | undefined,
 ): Promise<Reviewed | LimitRefused | Failed> {
   const startedAt = ports.clock.now();
-  let review: ReviewOutcome;
-  try {
-    const checkout = await ports.repoHost.clone(repo);
+  const result = await runInSandbox(ports, repo, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
-    review =
-      model === undefined
-        ? await ports.sandbox.review({ ticket, checkout, spendCeiling })
-        : await ports.sandbox.review({
-            ticket,
-            checkout,
-            spendCeiling,
-            model: model.name,
-          });
-  } catch (error: unknown) {
-    return infrastructureFailure(error);
-  }
-
-  state.set(
-    repo,
-    recordRun(state.get(repo), {
-      at: ports.clock.now(),
-      tokensUsed: review.tokensUsed,
-    }),
+    model === undefined
+      ? ports.sandbox.review({ ticket, checkout, spendCeiling })
+      : ports.sandbox.review({ ticket, checkout, spendCeiling, model: model.name }),
   );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: review } = result;
 
   if (review.kind === "limit-refused") {
     return {
@@ -1394,15 +1149,13 @@ async function runReview(
   // ticket's is: every later morning would refuse the same model the same way.
   if (review.kind === "model-refused") {
     const failure = modelRefused(ticket, review.refusal);
-    return {
-      ...(await handTicketBack(
-        ports,
-        ticket,
-        failure,
-        modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      )),
-      tokensUsed: review.tokensUsed,
-    };
+    return handTicketBack(
+      ports,
+      ticket,
+      failure,
+      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      { tokensUsed: review.tokensUsed },
+    );
   }
 
   if (review.kind === "gave-up") {
@@ -1411,7 +1164,7 @@ async function runReview(
 
   let posted: boolean;
   try {
-    posted = await ports.repoHost.hasNewComment(
+    posted = await ports.repoHost.hasReviewFindings(
       ticket.pullRequest.url,
       startedAt,
     );
@@ -1419,6 +1172,7 @@ async function runReview(
     return {
       kind: "reviewed",
       review,
+      tokensUsed: review.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
   }
@@ -1437,10 +1191,11 @@ async function runReview(
     return {
       kind: "reviewed",
       review,
+      tokensUsed: review.tokensUsed,
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
-  return { kind: "reviewed", review };
+  return { kind: "reviewed", review, tokensUsed: review.tokensUsed };
 }
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */
@@ -1451,15 +1206,13 @@ async function handReviewBack(
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
-  return {
-    ...(await handTicketBack(
-      ports,
-      ticket,
-      failure,
-      reviewHandbackComment(failure, review),
-    )),
-    tokensUsed: review.tokensUsed,
-  };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    reviewHandbackComment(failure, review),
+    { tokensUsed: review.tokensUsed },
+  );
 }
 
 /**
@@ -1492,40 +1245,35 @@ async function runApplyReview(
 ): Promise<AppliedReview | LimitRefused | Failed> {
   const pullRequest = ticket.pullRequest.url;
   const startedAt = ports.clock.now();
-  let run: ApplyReviewOutcome;
+  let before: ApplyReviewAnswers;
   try {
-    const before = await ports.repoHost.readApplyReviewAnswers(
+    before = await ports.repoHost.readApplyReviewAnswers(
       pullRequest,
       startedAt,
     );
-    if (before.unanswered === 0) {
-      return await finishApplyReview(ports, ticket, {
-        kind: "applied-review",
-      });
-    }
-    const checkout = await ports.repoHost.clone(repo);
-    // As `attemptRun`: two distinct calls so each resolves the overload that
-    // actually matches.
-    run =
-      model === undefined
-        ? await ports.sandbox.applyReview({ ticket, checkout, spendCeiling })
-        : await ports.sandbox.applyReview({
-            ticket,
-            checkout,
-            spendCeiling,
-            model: model.name,
-          });
   } catch (error: unknown) {
     return infrastructureFailure(error);
   }
+  if (before.unanswered === 0) {
+    return finishApplyReview(ports, ticket, { kind: "applied-review" });
+  }
 
-  state.set(
-    repo,
-    recordRun(state.get(repo), {
-      at: ports.clock.now(),
-      tokensUsed: run.tokensUsed,
-    }),
+  const result = await runInSandbox(ports, repo, state, (checkout) =>
+    // As `attemptRun`: two distinct calls so each resolves the overload that
+    // actually matches.
+    model === undefined
+      ? ports.sandbox.applyReview({ ticket, checkout, spendCeiling })
+      : ports.sandbox.applyReview({
+          ticket,
+          checkout,
+          spendCeiling,
+          model: model.name,
+        }),
   );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: run } = result;
 
   if (run.kind === "limit-refused") {
     return {
@@ -1537,15 +1285,13 @@ async function runApplyReview(
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(ticket, run.refusal);
-    return {
-      ...(await handTicketBack(
-        ports,
-        ticket,
-        failure,
-        modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      )),
-      tokensUsed: run.tokensUsed,
-    };
+    return handTicketBack(
+      ports,
+      ticket,
+      failure,
+      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      { tokensUsed: run.tokensUsed },
+    );
   }
   if (run.kind === "gave-up") {
     return handApplyReviewBack(ports, ticket, run, run.reason);
@@ -1561,6 +1307,7 @@ async function runApplyReview(
     return {
       kind: "applied-review",
       review: run,
+      tokensUsed: run.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
   }
@@ -1578,6 +1325,7 @@ async function runApplyReview(
   return finishApplyReview(ports, ticket, {
     kind: "applied-review",
     review: run,
+    tokensUsed: run.tokensUsed,
     answers: { applied: answers.appliedSince, declined: answers.declinedSince },
   });
 }
@@ -1623,44 +1371,172 @@ async function handApplyReviewBack(
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
-  return {
-    ...(await handTicketBack(
-      ports,
-      ticket,
-      failure,
-      applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
-    )),
-    tokensUsed: run.tokensUsed,
-  };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
+    { tokensUsed: run.tokensUsed },
+  );
 }
 
 /**
- * What scanning one project's backlog found, whatever its verdict: the tickets
- * passed over, and whether the listing was truncated.
+ * A rebase ticket's own run: the agent replays the pull request the ticket
+ * names onto its base branch and force-pushes it itself, from a clone on that
+ * pull request's branch. Whether it worked is read back from the repo host,
+ * never taken from the agent's say-so: the ticket closes only once the pull
+ * request no longer conflicts. Its draft state is never touched — a rebase
+ * promotes nothing.
+ *
+ * A pull request that needs no rebase when the iteration starts has nothing to
+ * rebase, so no run is started: the ticket closes all the same.
+ *
+ * An agent that gave up — a force-push the repo host rejected included — or a
+ * run that left the pull request still conflicting is handed back, and so,
+ * with no run, is a pull request whose mergeability never settles: that is
+ * the pull request's doing, commonly one merged or closed since, and left
+ * eligible it would come round every firing ahead of the project's other
+ * work. A repo host or sandbox that could not otherwise do its part before
+ * the agent started is an infrastructure failure, and a limit or model
+ * refusal reads as for an apply-review ticket. A read or close that fails after the run is reported on
+ * the iteration, never raised.
  */
-interface ScanFindings {
-  brokenOut: Ticket[];
-  blocked: Ticket[];
-  backlogTruncated: boolean;
+async function runRebase(
+  ports: MorningLoopPorts,
+  repo: RepoSlug,
+  ticket: RebaseTicket,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<Rebased | LimitRefused | Failed> {
+  const pullRequest = ticket.pullRequest.url;
+  let needsRebase: boolean;
+  try {
+    needsRebase = await ports.repoHost.needsRebase(pullRequest);
+  } catch (error: unknown) {
+    if (error instanceof MergeabilityUnknown) {
+      const failure: UnsettledMergeability = {
+        kind: "unsettled-mergeability",
+        reason: errorMessage(error),
+        handedBack: false,
+      };
+      return handTicketBack(
+        ports,
+        ticket,
+        failure,
+        unsettledMergeabilityComment(failure, pullRequest),
+      );
+    }
+    return infrastructureFailure(error);
+  }
+  if (!needsRebase) {
+    return finishRebase(ports, ticket, { kind: "rebased" });
+  }
+
+  const result = await runInSandbox(ports, repo, state, (checkout) =>
+    // As `attemptRun`: two distinct calls so each resolves the overload that
+    // actually matches.
+    model === undefined
+      ? ports.sandbox.rebase({ ticket, checkout, spendCeiling })
+      : ports.sandbox.rebase({
+          ticket,
+          checkout,
+          spendCeiling,
+          model: model.name,
+        }),
+  );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: run } = result;
+
+  if (run.kind === "limit-refused") {
+    return {
+      kind: "limit-refused",
+      limitRefusal: run.words,
+      tokensUsed: run.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+  if (run.kind === "model-refused") {
+    const failure = modelRefused(ticket, run.refusal);
+    return handTicketBack(
+      ports,
+      ticket,
+      failure,
+      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
+      { tokensUsed: run.tokensUsed },
+    );
+  }
+  if (run.kind === "gave-up") {
+    return handRebaseBack(ports, ticket, run, run.reason);
+  }
+
+  try {
+    needsRebase = await ports.repoHost.needsRebase(pullRequest);
+  } catch (error: unknown) {
+    return {
+      kind: "rebased",
+      rebase: run,
+      tokensUsed: run.tokensUsed,
+      notClosed: { kind: "check-failed", error: errorMessage(error) },
+    };
+  }
+  if (needsRebase) {
+    return handRebaseBack(
+      ports,
+      ticket,
+      run,
+      `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+    );
+  }
+
+  return finishRebase(ports, ticket, {
+    kind: "rebased",
+    rebase: run,
+    tokensUsed: run.tokensUsed,
+  });
 }
 
-function outcome(
-  repo: RepoSlug,
-  verdict: ProjectVerdict,
-  state: ProjectState | undefined,
-  {
-    brokenOut = [],
-    blocked = [],
-    backlogTruncated = false,
-  }: Partial<ScanFindings> = {},
-): ProjectOutcome {
-  const lastWorkedAt = state?.lastWorkedAt;
-  return {
-    repo,
-    verdict,
-    ...(lastWorkedAt !== undefined && { lastWorkedAt }),
-    ...(brokenOut.length > 0 && { brokenOut }),
-    ...(blocked.length > 0 && { blocked }),
-    ...(backlogTruncated && { backlogTruncated: true }),
-  };
+/**
+ * Closes `ticket` with a comment saying what `rebased` came to. Never throws:
+ * a close that fails is reported on the iteration, and the ticket left open.
+ */
+async function finishRebase(
+  ports: MorningLoopPorts,
+  ticket: RebaseTicket,
+  rebased: Rebased,
+): Promise<Rebased> {
+  try {
+    await ports.tracker.closeRebaseTicket(
+      ticket,
+      rebasedComment(ticket.pullRequest.url, rebased),
+    );
+  } catch (error: unknown) {
+    return {
+      ...rebased,
+      notClosed: { kind: "close-failed", error: errorMessage(error) },
+    };
+  }
+  return rebased;
+}
+
+/**
+ * Hands back a rebase ticket whose run gave up or left its pull request
+ * conflicting.
+ */
+async function handRebaseBack(
+  ports: MorningLoopPorts,
+  ticket: RebaseTicket,
+  run: RebaseFinished | RebaseGaveUp,
+  reason: string,
+): Promise<Failed> {
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  return handTicketBack(
+    ports,
+    ticket,
+    failure,
+    rebaseHandbackComment(failure, run, ticket.pullRequest.url),
+    { tokensUsed: run.tokensUsed },
+  );
 }

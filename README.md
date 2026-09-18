@@ -31,13 +31,15 @@ the logon guard and any future cloud trigger are callers of `morningLoop` exactl
 Two triggers fire the loop: a daily schedule and a guard that catches a day the machine was off
 overnight by firing on first logon instead. Both call
 [`src/bin/guarded-morning-run.ts`](src/bin/guarded-morning-run.ts) rather than `morning-run.ts`
-directly — it wraps the same entry point in a once-per-day lock
-([`src/trigger-guard.ts`](src/trigger-guard.ts)), so whichever of the two gets there first for a
-calendar day runs the loop and the other is a no-op. The lock is a file per claimed day
-([`src/adapters/file-trigger-lock.ts`](src/adapters/file-trigger-lock.ts)), created exclusively so two
-triggers racing for the same day can't both believe they won, and claimed before the loop runs so a
-run that fails still leaves the day claimed. `morning-run.ts` itself carries none of this — it stays
-directly callable, unguarded, exactly as before.
+directly — it wraps the same entry point in an invocation lease
+([`src/trigger-guard.ts`](src/trigger-guard.ts)), so whichever firing acquires it runs the loop and
+every other firing, however long the first one takes, is a no-op that says an invocation is already
+running. The lease is a single file holding the holder's pid
+([`src/adapters/file-invocation-lease.ts`](src/adapters/file-invocation-lease.ts)), created
+exclusively so two firings racing for it can't both believe they won; a lease whose holder's pid is
+no longer alive is stale and is taken over, so a process killed mid-run doesn't stop the loop for
+good. `morning-run.ts` itself carries none of this — it stays directly callable, unguarded, exactly as
+before.
 
 `npm run triggers:install` ([`scripts/install-triggers.sh`](scripts/install-triggers.sh)) registers
 both on the current machine: a cron line for the schedule, and a snippet appended to `~/.bashrc` and
@@ -96,7 +98,7 @@ is applied. If the tracker itself cannot be reached, the summary says the ticket
 `ready-for-agent` and needs relabelling by hand.
 
 Runs are serialized within one process — a second run waits for the first rather than starting a
-container beside it. Two separate invocations are covered separately, by the once-per-day lock —
+container beside it. Two separate invocations are covered separately, by the invocation lease —
 see [Triggers](#triggers) below. Build the image with
 `npm run sandbox:build`, and export `CLAUDE_CODE_OAUTH_TOKEN` before a run — the container
 authenticates on the subscription, not on a metered API key. Export `GH_TOKEN` (or `GITHUB_TOKEN`;
@@ -201,6 +203,12 @@ cost. The loop writes it after every invocation and you never have to edit it; i
 the audit trail. It does not exist until the loop has run, and no state for a project means the
 project has never been worked.
 
+`journal.json` records every invocation, whether or not it published a summary: when it started, when
+it ended, what it came to, and which projects it worked at what cost. `morning-run` opens a record
+before the loop runs and closes it with the report, so an invocation that dies partway leaves an
+in-flight record — one with no `closedAt` — rather than no trace at all. It keeps only the 50 most
+recent records, oldest dropped first, and is committed alongside `state.json`.
+
 ## The budget
 
 `scripts/budget-wizard.sh` writes this document one field at a time, starting from what
@@ -221,7 +229,7 @@ anything:
   "weeklyAllowance": 500000000,
   "reserveFraction": 0.5,
   "fiveHourReserveFraction": 0,
-  "spendCeiling": 5,
+  "spendCeiling": 10,
   "sizes": { "S": 500000, "M": 2000000, "L": 5000000, "XL": 10000000 },
   "unsizedCountsAs": "M"
 }
@@ -330,8 +338,8 @@ A key that is not one of those three kinds fails the invocation, and so does a n
 usable string. Every kind is optional, so `"reveiw"` would otherwise read as no review default at
 all, and your reviews would quietly run on the image's model.
 
-All four documents, your three and the loop's `state.json`, live in the manager home: this
-checkout, unless `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
+All five documents, your three and the loop's `state.json` and `journal.json`, live in the manager
+home: this checkout, unless `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
 House rules for source — branded primitives, and what a comment is allowed to say — are in
 [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
@@ -367,8 +375,9 @@ A container with no token set fails cleanly (`Not logged in`) rather than fallin
 CI makes the same check on every push touching the image, and needs no token to do it:
 [`.github/workflows/sandbox-image.yml`](.github/workflows/sandbox-image.yml) builds the image, then
 runs [`scripts/verify-harness.ts`](scripts/verify-harness.ts) inside it to assert the plugin is
-installed, enabled, and enumerating its skills, and that the `apply-pr-review` skill the image
-carries for applying a pull request's review is on disk at the CLI's personal-skill path. Asking
+installed, enabled, and enumerating its skills, and that the `apply-pr-review` and `rebase-pr`
+skills the image carries — for applying a pull request's review, and for rebasing a pull request's
+branch onto its base — are on disk at the CLI's personal-skill path. Asking
 `claude` about an installed plugin reads it off disk with no Anthropic call in it, which is what
 lets the check run unauthenticated where the prompt above cannot. CI runs it through the same two
 npm scripts a local check does:

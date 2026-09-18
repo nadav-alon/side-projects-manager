@@ -10,11 +10,13 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isBrokenOut,
+  issueNumber,
   modelLabelOf,
   modelName,
   pullRequestUrl,
   repoSlug,
   type ApplyReviewTicket,
+  type RebaseTicket,
   type ReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
@@ -95,7 +97,7 @@ describe("ghIssueTracker", () => {
     // Excluded by state, included whatever its labels: checked against the
     // fixtures found above rather than a JS reimplementation of the adapter's
     // own filter.
-    assert.ok(!numbers.includes(closedButLabelled.number));
+    assert.ok(!numbers.includes(issueNumber(closedButLabelled.number)));
     const unlabelled = issues.find(
       (issue) => issue.ticket.number === openButUnlabelled.number,
     );
@@ -324,7 +326,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
 
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -560,6 +562,18 @@ describe("ghIssueTracker.createReviewTicket", () => {
     );
   });
 
+  it("rejects a new issue's URL naming a number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      `echo https://github.com/nadav-alon/pilot/issues/0`,
+    );
+
+    await assert.rejects(
+      ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST),
+      /named a number that is not a positive integer/,
+    );
+  });
+
   it("says so when linking fails after the review was opened", async (t) => {
     const gh = await recordingGh(
       t,
@@ -596,7 +610,7 @@ describe("ghIssueTracker.handBack", () => {
 
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -756,6 +770,20 @@ function linkedIssue(
   };
 }
 
+/** A raw issue carrying `labels` by name, the way label-reading tests need. */
+function issue(
+  number: number,
+  labels: string[],
+  body = "",
+): Record<string, unknown> {
+  return rawIssue({
+    number,
+    title: `Ticket ${number}`,
+    body,
+    labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
+  });
+}
+
 describe("ghIssueTracker.listOpenIssues — every open issue", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -803,6 +831,14 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
 
     assert.equal(listed[0]?.eligible, true);
   });
+
+  it("rejects an issue number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(t, listing([{ number: 0, title: "Add the thing" }]));
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"number" must be a positive integer, got 0/,
+    });
+  });
 });
 
 describe("ghIssueTracker.listOpenIssues — parent", () => {
@@ -848,6 +884,23 @@ describe("ghIssueTracker.listOpenIssues — parent", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed[0]?.parent, undefined);
+  });
+
+  it("rejects a parent number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 208,
+          title: "Part of the spec",
+          parent: linkedIssue("nadav-alon/pilot", 0),
+        },
+      ]),
+    );
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"parent.number" must be a positive integer, got 0/,
+    });
   });
 });
 
@@ -1099,25 +1152,147 @@ describe("ghIssueTracker.listOpenIssues — apply-review tickets", () => {
 });
 
 /**
+ * Telling a rebase ticket from a review, an apply-review and an
+ * implementation ticket, the same way `APPLY_REVIEW_BODY` is told apart: the
+ * rebase line is written by the `/rebase` workflow, never by this adapter, so
+ * it is read back from the body exactly as a review's or an apply-review's
+ * association is.
+ */
+describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/12",
+  );
+
+  it("carries the pull request a rebase ticket's body names", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 1);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+
+  it("never mistakes a rebase body and an apply-review body for each other", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Apply the review",
+          body: `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+        {
+          number: 10,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(
+      issues.map(({ ticket }) => ticket.pullRequest?.kind),
+      ["apply-review", "rebase"],
+    );
+  });
+
+  it("reads past a malformed apply-review line to a well-formed rebase line", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Rebase #7",
+          body: `Apply the review on not-a-url, the draft pull request opened for #7.\n\nRebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+
+  it("treats a malformed rebase line as an implementation ticket", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 9,
+          title: "Rebase #7",
+          body: "Rebase not-a-url, the draft pull request opened for #7.",
+        },
+        {
+          number: 10,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for it.`,
+        },
+        {
+          number: 11,
+          title: "Rebase #7",
+          body: `Rebasing ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 3);
+    assert.equal(issues[0]?.ticket.pullRequest, undefined);
+    assert.equal(issues[1]?.ticket.pullRequest, undefined);
+    assert.equal(issues[2]?.ticket.pullRequest, undefined);
+  });
+
+  /**
+   * `linkToParent`'s fallback, for a tracker without sub-issues, prepends
+   * `Part of #N.` ahead of the review sentence — a rebase ticket's own body
+   * would carry the same shape, so the association survives it too.
+   */
+  it("still carries the pull request when the body also names its parent", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Rebase #7",
+          body: `Part of #7.\n\nRebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+});
+
+/**
  * A ticket's model label, read from the labels the same listing carries.
  * What a label says is `modelLabelOf`'s to decide; these check that the
  * adapter hands it every label a ticket has, and only that ticket's.
  */
 describe("ghIssueTracker.listOpenIssues — model labels", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
-
-  function issue(
-    number: number,
-    labels: string[],
-    body = "",
-  ): Record<string, unknown> {
-    return rawIssue({
-      number,
-      title: `Ticket ${number}`,
-      body,
-      labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
-    });
-  }
 
   it("names no model for a ticket without a model label", async (t) => {
     await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
@@ -1210,6 +1385,42 @@ describe("ghIssueTracker.listOpenIssues — model labels", () => {
   });
 });
 
+/**
+ * A ticket's size label, read from the labels the same listing carries.
+ * What a label says is `sizeLabelOf`'s to decide; these check that the
+ * adapter hands it every label a ticket has.
+ */
+describe("ghIssueTracker.listOpenIssues — size labels", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("declares no size for a ticket without a size label", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "enhancement"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues[0]?.ticket.sizeLabel, undefined);
+  });
+
+  it("declares the size a ticket labelled size:M asks for", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL, "size:M"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.sizeLabel, { kind: "declared", size: "M" });
+  });
+
+  it("marks a ticket whose size label names no recognised size as unusable", async (t) => {
+    await recordingGh(t, listing([issue(7, ["size:huge"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.deepEqual(issues[0]?.ticket.sizeLabel, {
+      kind: "unusable",
+      labels: ["size:huge"],
+    });
+  });
+});
+
 describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -1278,6 +1489,7 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
   );
   const REVIEW_BODY = `Review ${PULL_REQUEST}, the draft pull request opened for #7.`;
   const APPLY_REVIEW_BODY = `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`;
+  const REBASE_BODY = `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`;
 
   function implementation(open: number): Record<string, unknown> {
     return {
@@ -1322,6 +1534,16 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
     await recordingGh(
       t,
       listing([subIssueOf7(43, APPLY_REVIEW_BODY), implementation(1)]),
+    );
+
+    const ticket = await ticket7();
+    assert.equal(ticket?.openSubIssues, undefined);
+  });
+
+  it("does not count a rebase ticket among a ticket's open sub-issues", async (t) => {
+    await recordingGh(
+      t,
+      listing([subIssueOf7(44, REBASE_BODY), implementation(1)]),
     );
 
     const ticket = await ticket7();
@@ -1488,6 +1710,26 @@ describe("ghIssueTracker.listOpenIssues — blockers", () => {
 
     assert.equal(issues[0]?.ticket.openBlockers, undefined);
   });
+
+  it("rejects a blocker number that is not a positive integer, loudly", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 56,
+          title: "Waits on others",
+          blockedBy: {
+            nodes: [linkedIssue("nadav-alon/pilot", 0)],
+            totalCount: 1,
+          },
+        },
+      ]),
+    );
+
+    await assert.rejects(ghIssueTracker().listOpenIssues(PILOT), {
+      message: /"blockedBy.nodes.number" must be a positive integer, got 0/,
+    });
+  });
 });
 
 describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
@@ -1604,7 +1846,7 @@ describe("ghIssueTracker.closeReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const REVIEW: ReviewTicket = {
     repo: PILOT,
-    number: 42,
+    number: issueNumber(42),
     title: "Review the draft pull request for #7",
     pullRequest: {
       kind: "review",
@@ -1622,13 +1864,49 @@ describe("ghIssueTracker.closeReviewTicket", () => {
     assert.equal(valueOf(close, "--repo"), PILOT);
     assert.ok(close.includes("42"));
   });
+
+  it("takes ready-for-agent off, so a reopened review is not back in the queue", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+
+    const calls = await gh.calls();
+    const close = callWith(calls, "issue", "close");
+    const removed = callWith(calls, "--remove-label");
+    assert.ok(removed, "ready-for-agent should be removed");
+    assert.equal(valueOf(removed, "--remove-label"), READY_FOR_AGENT_LABEL);
+    assert.equal(valueOf(removed, "--repo"), PILOT);
+    assert.ok(removed.includes("42"));
+    // Closed before unlabelled, so a caller who never learns whether the
+    // label removal succeeded still finds a closed review, never an open one.
+    assert.ok(close, "the ticket should be closed first");
+    assert.ok(calls.indexOf(close) < calls.indexOf(removed));
+  });
+
+  it("still closes the review when only the label removal is refused", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$*" in`,
+        `  *--remove-label*) echo "HTTP 403" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+    t.mock.method(console, "warn", () => undefined);
+
+    // The review is closed either way — a caller told this failed would
+    // report a review that is not closed, sending the developer to close one
+    // that already is.
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+  });
 });
 
 describe("ghIssueTracker.closeApplyReviewTicket", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const APPLY_REVIEW: ApplyReviewTicket = {
     repo: PILOT,
-    number: 43,
+    number: issueNumber(43),
     title: "Apply the review on the draft pull request for #7",
     pullRequest: {
       kind: "apply-review",
@@ -1651,6 +1929,37 @@ describe("ghIssueTracker.closeApplyReviewTicket", () => {
     assert.equal(
       valueOf(close, "--comment"),
       "Nothing to apply.\n\nThe pull request is ready for review.",
+    );
+  });
+});
+
+describe("ghIssueTracker.closeRebaseTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const REBASE: RebaseTicket = {
+    repo: PILOT,
+    number: issueNumber(44),
+    title: "Rebase the draft pull request for #7",
+    pullRequest: {
+      kind: "rebase",
+      url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    },
+  };
+
+  it("closes the rebase ticket in its own repo, with the comment", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeRebaseTicket(
+      REBASE,
+      "Already sits on its base branch.",
+    );
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close, "the ticket should be closed with `gh issue close`");
+    assert.equal(valueOf(close, "--repo"), PILOT);
+    assert.ok(close.includes("44"));
+    assert.equal(
+      valueOf(close, "--comment"),
+      "Already sits on its base branch.",
     );
   });
 });

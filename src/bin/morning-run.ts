@@ -3,10 +3,18 @@ import { containerSandbox } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
+import {
+  CHECKOUT_ROOT,
+  readImageLabels,
+  staleImageWarning,
+} from "../adapters/sandbox-image.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
+import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
-import { morningLoop } from "../morning-run.ts";
+import { invocationClosing } from "../journal-record.ts";
+import { morningLoop, type InvocationReport } from "../morning-run.ts";
+import { processId, type OpenInvocation, type Store } from "../ports/index.ts";
 import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
 
 /**
@@ -27,6 +35,10 @@ const INTERRUPTED = 130;
  * Runs the loop in a child shielded from the terminal's Ctrl+C (see
  * `runShielded`), so an interrupt can stop the morning without killing what it
  * has in progress.
+ *
+ * Recording the invocation happens here, around the loop, rather than inside
+ * it: `morningLoop` stays a pure function of its ports, and this is the one
+ * place that already has both the store and the finished report.
  */
 async function main(): Promise<void> {
   if (process.env[LOOP_PROCESS] === undefined) {
@@ -45,6 +57,19 @@ async function main(): Promise<void> {
     stream.on("error", () => {});
   }
 
+  // Before the loop rather than inside a run: a stale image fails every run it
+  // starts, and whoever is watching should hear why before the first one.
+  const staleImage = await staleImageWarning(
+    CHECKOUT_ROOT,
+    await readImageLabels(),
+  );
+  if (staleImage !== undefined) {
+    console.log(staleImage);
+  }
+
+  const store = documentStore();
+  const opened = await openJournalRecord(store);
+
   const report = await morningLoop(
     {
       tracker: ghIssueTracker(),
@@ -52,12 +77,13 @@ async function main(): Promise<void> {
       sandbox: containerSandbox(),
       ledger: sessionLogUsageLedger,
       clock: systemClock,
-      store: documentStore(),
+      store,
     },
     { stop: stopOnInterrupt() },
   );
 
   console.log(report.message);
+  await closeJournalRecord(store, opened, report);
 
   // A broken setup exits non-zero even though it reported cleanly: whatever
   // triggers the loop reads a morning by its exit code, and a sandbox that is
@@ -119,11 +145,52 @@ function stopOnInterrupt(): AbortSignal {
   return controller.signal;
 }
 
+/**
+ * Opens the invocation's journal record, naming this process and the instant
+ * it started. `undefined` when the journal could not be written — said on
+ * stderr and nothing more, since observability must never be the thing that
+ * fails a morning, and an invocation with no handle simply closes nothing.
+ */
+async function openJournalRecord(
+  store: Store,
+): Promise<OpenInvocation | undefined> {
+  try {
+    return await store.openInvocation({
+      openedAt: systemClock.now(),
+      process: processId(process.pid),
+    });
+  } catch (error: unknown) {
+    console.error(
+      `morning-run: the journal could not be opened: ${errorMessage(error)}`,
+    );
+    return undefined;
+  }
+}
+
+/** Closes `opened` with what `report` came to, the same silent-on-stderr policy as opening. */
+async function closeJournalRecord(
+  store: Store,
+  opened: OpenInvocation | undefined,
+  report: InvocationReport,
+): Promise<void> {
+  if (opened === undefined) {
+    return;
+  }
+  try {
+    await store.closeInvocation(
+      opened,
+      invocationClosing(report, systemClock.now()),
+    );
+  } catch (error: unknown) {
+    console.error(
+      `morning-run: the journal could not be closed: ${errorMessage(error)}`,
+    );
+  }
+}
+
 main().catch((error: unknown) => {
   // A failed morning reports what happened; it never greets the developer
   // with a stack trace.
-  console.error(
-    `morning-run failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`morning-run failed: ${errorMessage(error)}`);
   process.exitCode = 1;
 });

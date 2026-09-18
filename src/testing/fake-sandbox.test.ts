@@ -5,15 +5,19 @@ import {
   branch,
   checkout,
   commitSha,
+  issueNumber,
   modelName,
   pullRequestUrl,
   repoSlug,
+  ticketGist,
   tokenCount,
   usd,
 } from "../ports/index.ts";
 import type {
   ApplyReviewOutcome,
   ApplyReviewTicket,
+  RebaseOutcome,
+  RebaseTicket,
   ReviewTicket,
   Ticket,
 } from "../ports/index.ts";
@@ -22,13 +26,13 @@ import { HANGS } from "./gate.ts";
 
 const TICKET: Ticket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 7,
+  number: issueNumber(7),
   title: "Do the thing",
 };
 
 const REVIEW_TICKET: ReviewTicket = {
   ...TICKET,
-  number: 8,
+  number: issueNumber(8),
   pullRequest: {
     kind: "review",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
@@ -37,9 +41,18 @@ const REVIEW_TICKET: ReviewTicket = {
 
 const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
   ...TICKET,
-  number: 10,
+  number: issueNumber(10),
   pullRequest: {
     kind: "apply-review",
+    url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
+  },
+};
+
+const REBASE_TICKET: RebaseTicket = {
+  ...TICKET,
+  number: issueNumber(11),
+  pullRequest: {
+    kind: "rebase",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
   },
 };
@@ -100,6 +113,53 @@ describe("FakeSandbox", () => {
       tokensUsed: tokenCount(0),
       branch: refused,
       commits: [],
+    });
+  });
+
+  it("returns a finished run's configured gist verbatim", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
+    const gist = ticketGist("Add retries to the flaky upload step.");
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      gist,
+    });
+
+    const withGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.deepEqual(withGist, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      gist,
+    });
+  });
+
+  it("returns a finished run with no gist when none was configured", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+    });
+
+    const withoutGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.deepEqual(withoutGist, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
     });
   });
 
@@ -188,6 +248,85 @@ describe("FakeSandbox", () => {
       assert.deepEqual(outcome, configured);
     });
   }
+
+  it("finishes a rebase run costlessly unless told otherwise, recording what was asked", async () => {
+    const sandbox = new FakeSandbox();
+
+    const outcome = await sandbox.rebase({
+      ticket: REBASE_TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.deepEqual(outcome, {
+      kind: "finished",
+      output: "",
+      tokensUsed: tokenCount(0),
+    });
+    assert.deepEqual(
+      sandbox.rebases.map((request) => [request.ticket.number, request.model]),
+      [[11, "opus"]],
+    );
+    assert.deepEqual(sandbox.runs, []);
+    assert.deepEqual(sandbox.reviews, []);
+    assert.deepEqual(sandbox.applyReviews, []);
+  });
+
+  const REBASE_OUTCOMES: RebaseOutcome[] = [
+    { kind: "finished", output: "rebased onto main", tokensUsed: tokenCount(10) },
+    {
+      kind: "gave-up",
+      output: "could not resolve the conflict",
+      reason: "conflict in src/index.ts",
+      tokensUsed: tokenCount(20),
+    },
+    {
+      kind: "gave-up",
+      output: "Branch moved: 0123456789abcdef0123456789abcdef01234567",
+      reason: "the branch moved",
+      tokensUsed: tokenCount(30),
+      movedHead: commitSha("0123456789abcdef0123456789abcdef01234567"),
+    },
+    { kind: "limit-refused", words: "You've hit your session limit", tokensUsed: tokenCount(0) },
+    {
+      kind: "model-refused",
+      refusal: { model: modelName("bogus"), words: "refused model bogus" },
+      tokensUsed: tokenCount(0),
+    },
+  ];
+
+  for (const configured of REBASE_OUTCOMES) {
+    const moved = configured.kind === "gave-up" && configured.movedHead !== undefined;
+    it(`returns a rebase run's configured ${configured.kind}${moved ? " (branch moved)" : ""} result verbatim`, async () => {
+      const sandbox = new FakeSandbox();
+      sandbox.rebaseResult = () => configured;
+
+      const outcome = await sandbox.rebase({
+        ticket: REBASE_TICKET,
+        checkout: CHECKOUT,
+        spendCeiling: CEILING,
+        model: modelName("bogus"),
+      });
+
+      assert.deepEqual(outcome, configured);
+    });
+  }
+
+  it("holds rebase runs until released, like any other", HANGS, async () => {
+    const sandbox = new FakeSandbox();
+    sandbox.hold();
+
+    const rebasing = sandbox.rebase({
+      ticket: REBASE_TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+    });
+    await sandbox.whenHeld(1);
+    assert.deepEqual(sandbox.held().map((ticket) => ticket.number), [11]);
+    sandbox.release(REBASE_TICKET);
+    await rebasing;
+  });
 
   it("holds apply-review runs until released, like any other", HANGS, async () => {
     const sandbox = new FakeSandbox();

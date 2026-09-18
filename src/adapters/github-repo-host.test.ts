@@ -7,13 +7,17 @@ import { describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
 import { withCheckoutLock } from "./checkout-lock.ts";
-import { githubRepoHost } from "./github-repo-host.ts";
+import { githubRepoHost, pullRequestFrom } from "./github-repo-host.ts";
 import {
   APPLY_REVIEW_MARKER,
+  MergeabilityUnknown,
   branch as toBranch,
   checkout as toCheckout,
+  issueNumber,
   pullRequestUrl,
   repoSlug,
+  REVIEW_FINDING_FIELDS,
+  ticketGist,
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
@@ -28,7 +32,7 @@ const run = promisify(execFile);
  * git half of the adapter is exercised here; everything that reaches GitHub
  * needs a credential and a network, and is left to the developer's own run.
  */
-async function checkout(remote = "nadav-alon/pilot"): Promise<string> {
+async function checkout(remote = "nadav-alon/pilot"): Promise<Checkout> {
   const root = await mkdtemp(path.join(tmpdir(), "repo-host-"));
   // Named as the remote it stands for, so the bare repo's path is what the
   // adapter compares the slug against.
@@ -40,7 +44,7 @@ async function checkout(remote = "nadav-alon/pilot"): Promise<string> {
   await run("git", ["clone", origin, working]);
   await run("git", ["-C", working, "config", "user.email", "test@example.com"]);
   await run("git", ["-C", working, "config", "user.name", "Test"]);
-  return working;
+  return toCheckout(working);
 }
 
 /** The managed location a `checkout()` sits in. */
@@ -72,6 +76,35 @@ async function pushedFiles(
   return filesIn(directory, branch);
 }
 
+describe("parsing what gh pr create answered", () => {
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/1";
+
+  it("accepts a pull request URL, trailing newline and all", () => {
+    assert.deepEqual(pullRequestFrom(`${OPENED}\n`, ""), { url: OPENED });
+  });
+
+  it("says a pull request may exist, rather than that gh refused, when the answer is not one", () => {
+    const result = pullRequestFrom("something went sideways", "");
+
+    assert.match(
+      "failure" in result ? result.failure : "",
+      /something went sideways.*may have been opened/,
+    );
+  });
+
+  it("names what the pull request would have been opened against, when given one", () => {
+    const result = pullRequestFrom(
+      "something went sideways",
+      " against release-2",
+    );
+
+    assert.match(
+      "failure" in result ? result.failure : "",
+      /against release-2.*may have been opened/,
+    );
+  });
+});
+
 /**
  * Proposing against a bare repo on disk. The push is real; opening the pull
  * request is not, because `gh` cannot resolve a local path to a repository —
@@ -79,7 +112,7 @@ async function pushedFiles(
  * git half is responsible for getting right.
  */
 describe("proposing a scaffold to a project that predates the manager", () => {
-  const propose = (directory: string, paths: string[]) =>
+  const propose = (directory: Checkout, paths: string[]) =>
     githubRepoHost().commitAndPropose(
       directory,
       "Install the agent harness",
@@ -89,7 +122,7 @@ describe("proposing a scaffold to a project that predates the manager", () => {
     );
 
   /** A checkout with history behind it, which is what "predates" means. */
-  async function existing(): Promise<string> {
+  async function existing(): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -174,6 +207,20 @@ describe("proposing a scaffold to a project that predates the manager", () => {
 
     assert.equal(proposal.kind === "pushed" && proposal.branch, "harness");
     assert.ok(proposal.kind === "pushed" && proposal.failure !== "");
+  });
+
+  it("reports pushed rather than refused, when gh answers with something that is not a pull request URL", async (t) => {
+    await recordingGh(t, "echo 'something went sideways'");
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    assert.deepEqual(await pushedFiles(directory, "origin/harness"), [
+      "AGENTS.md",
+      "seed.md",
+    ]);
   });
 });
 
@@ -301,7 +348,7 @@ describe("finding the checkout", () => {
   }
 
   /** A clone with history, tracking `origin/main`, as the loop's own clone is. */
-  async function seeded(): Promise<string> {
+  async function seeded(): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -354,7 +401,7 @@ describe("finding the checkout", () => {
     await landedElsewhere(directory, "merged.md");
     await landedElsewhere(elsewhere, "merged.md");
     const lock = gate();
-    const holding = withCheckoutLock(toCheckout(directory), () => lock.opened);
+    const holding = withCheckoutLock(directory, () => lock.opened);
 
     const waiting = githubRepoHost(locationOf(directory)).clone(PILOT);
     await githubRepoHost(locationOf(elsewhere)).clone(PILOT);
@@ -384,7 +431,7 @@ describe("finding the checkout", () => {
     );
 
     assert.equal(
-      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      await withCheckoutLock(directory, async () => "ran"),
       "ran",
     );
   });
@@ -433,7 +480,7 @@ describe("finding the checkout", () => {
 describe("opening a draft pull request for a completed run", () => {
   const TICKET: Ticket = {
     repo: PILOT,
-    number: 7,
+    number: issueNumber(7),
     title: "Add the thing",
   };
 
@@ -465,7 +512,7 @@ describe("opening a draft pull request for a completed run", () => {
     await run("git", ["-C", directory, "add", "thing.md"]);
     await run("git", ["-C", directory, "commit", "--message", "Add the thing"]);
     await run("git", ["-C", directory, "switch", BASE]);
-    return toCheckout(directory);
+    return directory;
   }
 
   /** The branch the run left its commits on, in every test here. */
@@ -668,6 +715,38 @@ describe("opening a draft pull request for a completed run", () => {
     assert.match(valueOf(call, "--body") ?? "", /#7\b/);
   });
 
+  const BODY_WITHOUT_GIST = [
+    "Closes #7.",
+    "",
+    "Implemented by the morning loop, in a sandbox, from the ticket above.",
+    "It stays a draft: promoting and merging it are yours.",
+  ].join("\n");
+
+  it("opens with the closing body alone when the run carried no gist", async (t) => {
+    const { call } = await openedFor(t);
+
+    assert.equal(valueOf(call, "--body"), BODY_WITHOUT_GIST);
+  });
+
+  it("opens with the gist, a blank line, then the closing body, when the run carried one", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    const gist = ticketGist("Adds a retry to the flaky upload step.");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+      gist,
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(
+      valueOf(call, "--body"),
+      [gist, "", BODY_WITHOUT_GIST].join("\n"),
+    );
+  });
+
   it("never promotes it out of draft, and never merges it", async (t) => {
     const { gh } = await openedFor(t);
 
@@ -707,7 +786,7 @@ describe("opening a draft pull request for a completed run", () => {
     ]);
   });
 
-  it("says a pull request may exist, rather than that the branch was not pushed, when gh answers with something that is not one", async (t) => {
+  it("reports pushed rather than unpushed, when gh answers with something that is not a pull request URL", async (t) => {
     await recordingGh(t, "echo 'something went sideways'");
     const directory = await ran(RAN);
 
@@ -718,10 +797,6 @@ describe("opening a draft pull request for a completed run", () => {
     );
 
     assert.equal(opening.kind, "pushed");
-    assert.match(
-      opening.kind === "pushed" ? opening.failure : "",
-      /something went sideways.*may have been opened/,
-    );
     assert.deepEqual(await pushedFiles(directory, `origin/${RAN}`), [
       "seed.md",
       "thing.md",
@@ -733,7 +808,7 @@ describe("discarding a failed run's branch", () => {
   const FAILED = toBranch("issue-7-add-the-thing");
 
   /** A checkout with a commit behind it, as a project the loop works has. */
-  async function seeded(): Promise<string> {
+  async function seeded(): Promise<Checkout> {
     const directory = await checkout();
     await writeFile(path.join(directory, "seed.md"), "seed\n");
     await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
@@ -791,7 +866,7 @@ describe("discarding a failed run's branch", () => {
     ]);
     assert.match(unmergedBranches, new RegExp(FAILED));
 
-    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(directory, FAILED);
 
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
@@ -799,7 +874,7 @@ describe("discarding a failed run's branch", () => {
   it("says nothing about a branch the run never left, since it committed nothing", async () => {
     const directory = await seeded();
 
-    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(directory, FAILED);
 
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
@@ -810,10 +885,10 @@ describe("discarding a failed run's branch", () => {
     await unmerged(directory, FAILED);
     await unmerged(elsewhere, FAILED);
     const lock = gate();
-    const holding = withCheckoutLock(toCheckout(directory), () => lock.opened);
+    const holding = withCheckoutLock(directory, () => lock.opened);
 
-    const waiting = githubRepoHost().discardBranch(toCheckout(directory), FAILED);
-    await githubRepoHost().discardBranch(toCheckout(elsewhere), FAILED);
+    const waiting = githubRepoHost().discardBranch(directory, FAILED);
+    await githubRepoHost().discardBranch(elsewhere, FAILED);
 
     assert.deepEqual(await branchesIn(elsewhere), ["main"]);
     assert.deepEqual(
@@ -834,11 +909,11 @@ describe("discarding a failed run's branch", () => {
     await run("git", ["-C", directory, "switch", FAILED]);
 
     await assert.rejects(
-      githubRepoHost().discardBranch(toCheckout(directory), FAILED),
+      githubRepoHost().discardBranch(directory, FAILED),
     );
 
     assert.equal(
-      await withCheckoutLock(toCheckout(directory), async () => "ran"),
+      await withCheckoutLock(directory, async () => "ran"),
       "ran",
     );
   });
@@ -848,7 +923,7 @@ describe("discarding a failed run's branch", () => {
     await unmerged(directory, FAILED);
     await unmerged(directory, "issue-9-something-else");
 
-    await githubRepoHost().discardBranch(toCheckout(directory), FAILED);
+    await githubRepoHost().discardBranch(directory, FAILED);
 
     assert.deepEqual(await branchesIn(directory), [
       "issue-9-something-else",
@@ -864,6 +939,7 @@ describe("reading a pull request's apply-review answers", () => {
   const SINCE = new Date("2026-09-15T00:00:00Z");
 
   const BEFORE = "2026-09-14T00:00:00Z";
+  const BEFORE_SINCE = "2026-09-14T12:00:00Z";
   const AFTER = "2026-09-15T01:00:00Z";
   const LATER = "2026-09-15T02:00:00Z";
 
@@ -930,7 +1006,7 @@ describe("reading a pull request's apply-review answers", () => {
     assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 1 });
   });
 
-  it("ties a reply to the review body it quotes, not to every review", async (t) => {
+  it("does not let one marked reply answer two review bodies", async (t) => {
     const answers = await answersTo(
       t,
       response({
@@ -939,22 +1015,123 @@ describe("reading a pull request's apply-review answers", () => {
           { body: "Rename the helper.", submittedAt: BEFORE },
           { body: "Add a test for the draft case.", submittedAt: BEFORE },
         ],
-        comments: [marked("> Rename the helper.\n\nDeclined: out of scope")],
+        comments: [marked("Declined: out of scope")],
       }),
     );
 
     assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 1 });
   });
 
-  it("reads a comment quoting no review as neither answering nor reopening one", async (t) => {
+  it("answers a review body's thread with a marked reply that opens with no quote at all", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [marked("Applied in abc123: renamed it")],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("reopens a review body's thread when a later unmarked comment quotes it", async (t) => {
     const answers = await answersTo(
       t,
       response({
         reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
         comments: [
-          marked("> Rename the helper.\n\nApplied in abc123: renamed it"),
+          marked("Applied in abc123: renamed it"),
+          { body: "> Rename the helper.\n\nStill the old name.", createdAt: LATER },
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 1 });
+  });
+
+  it("does not let a later comment quoting no review reopen a review body's thread", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it"),
           { body: "The morning loop finished this ticket.", createdAt: LATER },
         ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("answers a reopened review body's thread with the next marked reply", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it", BEFORE_SINCE),
+          { body: "> Rename the helper.\n\nStill the old name.", createdAt: AFTER },
+          marked("Applied in def456: renamed the export too", LATER),
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+  });
+
+  it("counts a marked reply posted after every review body already has one", async (t) => {
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: BEFORE }],
+        comments: [
+          marked("Applied in abc123: renamed it", BEFORE_SINCE),
+          marked("Declined: the export keeps its name", AFTER),
+        ],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 0 });
+  });
+
+  it("does not let a marked reply posted before the review body answer it", async (t) => {
+    const beforeReview = "2026-09-15T00:30:00Z";
+
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: "Rename the helper.", submittedAt: AFTER }],
+        comments: [marked("Applied in abc123: unrelated work", beforeReview)],
+      }),
+    );
+
+    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 1 });
+  });
+
+  it("answers a review body's thread with a reply that abridges its quote", async (t) => {
+    // A review body and the skill's reply to it, as posted on pull request 195.
+    const reviewBody = [
+      "Two-axis review (standards + spec against #123). Three findings: two are inline, one is here because the line it concerns isn't in the diff.",
+      "",
+      '**Spec, acceptance criterion 4 — `CONTEXT.md:158`, untouched by this PR.** The criterion is "No other entry still says the loop works one iteration or one project at a time." **Infrastructure failure** still ends:',
+      "",
+      "> The invocation carries on to its next iteration.",
+      "",
+      'That\'s the serial reading. With a concurrency limit above 1 the other iterations were never stopped, so there is no "next" one to carry on to — what the entry means is that the invocation doesn\'t stand down. `The invocation carries on.` would say it, and is the wording **Handover** (line 202) already uses.',
+    ].join("\n");
+
+    const reply = [
+      "> **Spec, acceptance criterion 4 — `CONTEXT.md:158`, untouched by this PR.** [...] `The invocation carries on.` would say it, and is the wording **Handover** (line 202) already uses.",
+      "",
+      'Applied in 248689b: changed Infrastructure failure\'s closing sentence from "The invocation carries on to its next iteration." to "The invocation carries on.", matching Handover\'s wording. Agreed this was in scope of AC4 even though the line wasn\'t touched by the original diff.',
+    ].join("\n");
+
+    const answers = await answersTo(
+      t,
+      response({
+        reviews: [{ body: reviewBody, submittedAt: BEFORE }],
+        comments: [marked(reply)],
       }),
     );
 
@@ -985,6 +1162,70 @@ describe("reading a pull request's apply-review answers", () => {
   });
 });
 
+describe("checking a pull request for posted review findings", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+  const SINCE = new Date("2026-09-15T00:00:00Z");
+  const BEFORE = "2026-09-14T00:00:00Z";
+  const AFTER = "2026-09-15T01:00:00Z";
+
+  const FINDING = {
+    path: "src/thing.ts",
+    line: 3,
+    body: "Missing a null check here.",
+  };
+
+  function comments(entries: Record<string, unknown>[]): string {
+    return JSON.stringify(entries);
+  }
+
+  async function checkedWith(t: TestContext, entries: Record<string, unknown>[]) {
+    await recordingGh(t, `cat <<'JSON'\n${comments(entries)}\nJSON`);
+    return githubRepoHost().hasReviewFindings(PULL_REQUEST, SINCE);
+  }
+
+  /**
+   * `FINDING`'s own keys are exactly `REVIEW_FINDING_FIELDS` — the same
+   * declaration the review prompt's posting instruction is rendered from
+   * (`reviewFindingTemplate`, `container-sandbox.test.ts`) — so this check
+   * accepting `FINDING` is evidence it accepts what that prompt asks the
+   * reviewer to post, not a coincidentally similar shape of this test's own.
+   */
+  it("checks for exactly the fields REVIEW_FINDING_FIELDS declares", () => {
+    assert.deepEqual(Object.keys(FINDING).sort(), [...REVIEW_FINDING_FIELDS].sort());
+  });
+
+  it("finds a finding posted after the read's instant", async (t) => {
+    const found = await checkedWith(t, [{ ...FINDING, created_at: AFTER }]);
+
+    assert.equal(found, true);
+  });
+
+  it("does not find one posted before the read's instant", async (t) => {
+    const found = await checkedWith(t, [{ ...FINDING, created_at: BEFORE }]);
+
+    assert.equal(found, false);
+  });
+
+  it("does not count a comment missing the finding's own shape, whatever else it carries", async (t) => {
+    const found = await checkedWith(t, [{ body: "LGTM", created_at: AFTER }]);
+
+    assert.equal(found, false);
+  });
+
+  it("reads the pull request's own inline review comments, named by its own URL", async (t) => {
+    const gh = await recordingGh(t, `cat <<'JSON'\n${comments([])}\nJSON`);
+
+    await githubRepoHost().hasReviewFindings(PULL_REQUEST, SINCE);
+
+    assert.deepEqual(callWith(await gh.calls(), "api"), [
+      "api",
+      "repos/nadav-alon/pilot/pulls/7/comments",
+    ]);
+  });
+});
+
 describe("marking a pull request ready for review", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",
@@ -1012,5 +1253,94 @@ describe("marking a pull request ready for review", () => {
     await githubRepoHost().markPullRequestReady(PULL_REQUEST);
 
     assert.equal(callWith(await gh.calls(), "ready"), undefined);
+  });
+});
+
+describe("whether a pull request's branch needs a rebase", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  /** No delay between retries, so a test with several stays as fast as one with none. */
+  const NO_WAIT = async () => {};
+
+  /**
+   * A `gh` that answers `mergeable` with each of `statuses` in turn, then
+   * repeats the last — tracked with a counter file, since each read is a
+   * fresh process with nothing else to remember its call count by.
+   */
+  async function answering(t: TestContext, ...statuses: string[]) {
+    const counter = path.join(
+      await mkdtemp(path.join(tmpdir(), "merge-status-")),
+      "n",
+    );
+    const cases = statuses
+      .map((status, index) => `  ${index}) echo "${status}" ;;`)
+      .join("\n");
+    return recordingGh(
+      t,
+      [
+        `n=$(cat "${counter}" 2>/dev/null || echo 0)`,
+        `echo $((n + 1)) > "${counter}"`,
+        `case "$n" in`,
+        cases,
+        `  *) echo "${statuses.at(-1)}" ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+  }
+
+  it("says a conflicting pull request needs a rebase", async (t) => {
+    await answering(t, "CONFLICTING");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
+  });
+
+  it("says a clean pull request does not need a rebase", async (t) => {
+    await answering(t, "MERGEABLE");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      false,
+    );
+  });
+
+  it("retries a pull request that answers unknown before it settles", async (t) => {
+    await answering(t, "UNKNOWN", "UNKNOWN", "CONFLICTING");
+
+    assert.equal(
+      await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      true,
+    );
+  });
+
+  it("throws, naming the pull request and the unsettled status, once retries are exhausted", async (t) => {
+    await answering(t, "UNKNOWN");
+
+    await assert.rejects(
+      githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST),
+      (error: unknown) => {
+        assert.ok(error instanceof MergeabilityUnknown);
+        assert.equal(error.pullRequest, PULL_REQUEST);
+        assert.equal(error.lastStatus, "unknown");
+        return true;
+      },
+    );
+  });
+
+  it("asks about one pull request at a time, never gh pr list", async (t) => {
+    const gh = await answering(t, "MERGEABLE");
+
+    await githubRepoHost(undefined, NO_WAIT).needsRebase(PULL_REQUEST);
+
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call.slice(0, 2)),
+      [["pr", "view"]],
+    );
+    assert.ok(calls[0]?.includes(PULL_REQUEST));
   });
 });

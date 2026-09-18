@@ -24,9 +24,9 @@
     "guarded-morning-run": "node src/bin/guarded-morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
-    "sandbox:build": "docker build -t side-projects-sandbox:latest .",
-    "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts",
-    "sandbox:verify:pinned": "docker run --rm --user 4242:4242 -v \"$PWD/scripts:/scripts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts"
+    "sandbox:build": "docker build --label side-projects-sandbox.inputs=$(node scripts/sandbox-inputs-digest.ts) -t side-projects-sandbox:latest .",
+    "sandbox:verify": "docker run --rm -v \"$PWD/scripts:/scripts:ro\" -v \"$PWD/src/error-message.ts:/src/error-message.ts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts",
+    "sandbox:verify:pinned": "docker run --rm --user 4242:4242 -v \"$PWD/scripts:/scripts:ro\" -v \"$PWD/src/error-message.ts:/src/error-message.ts:ro\" --entrypoint node side-projects-sandbox:latest /scripts/verify-harness.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

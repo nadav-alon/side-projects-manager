@@ -24,11 +24,17 @@ export {
   type RecordedGh,
 } from "./recording-gh.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
-export { FakeTriggerLock } from "./fake-trigger-lock.ts";
+export { FakeInvocationLease } from "./fake-invocation-lease.ts";
 export { tempHome } from "./temp-home.ts";
-export { NO_USAGE, FakeUsageLedger, spent } from "./fake-usage-ledger.ts";
+export {
+  NO_USAGE,
+  FakeUsageLedger,
+  spent,
+  type FakeRead,
+} from "./fake-usage-ledger.ts";
 export {
   fakeNewProjectPorts,
   type FakeNewProjectPorts,
 } from "./fake-new-project-ports.ts";
 export { fakePorts, type FakePorts } from "./fake-ports.ts";
+export { LAST_WEEK, MANAGER, PILOT, YESTERDAY, verdicts } from "./fixtures.ts";

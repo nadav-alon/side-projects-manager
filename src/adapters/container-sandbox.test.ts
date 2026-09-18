@@ -1,21 +1,24 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { REASON_QUOTED } from "../handback-comment.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,
   containerSandbox,
   dockerCommand,
   dockerNeverRan,
+  dockerNeverRanMessage,
   pullRequestHeadFrom,
   pushableRemote,
   readAgentRun,
   readExitedRun,
+  TICKET_GIST_TAG,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
@@ -23,15 +26,19 @@ import {
   branch,
   checkout,
   commitSha,
+  issueNumber,
   modelName,
   pullRequestUrl,
   remoteUrl,
   repoSlug,
+  reviewFindingTemplate,
   tokenCount,
   usd,
   type ApplyReviewOutcome,
   type ApplyReviewTicket,
   type Checkout,
+  type RebaseOutcome,
+  type RebaseTicket,
   type ReviewOutcome,
   type ReviewTicket,
   type RunOutcome,
@@ -44,7 +51,7 @@ const run = promisify(execFile);
 
 /** The `kind` variant of `result`, absent if it ended any other way. */
 function variant<
-  Outcome extends RunOutcome | ReviewOutcome | ApplyReviewOutcome,
+  Outcome extends RunOutcome | ReviewOutcome | ApplyReviewOutcome | RebaseOutcome,
   Kind extends Outcome["kind"],
 >(result: Outcome, kind: Kind): Extract<Outcome, { kind: Kind }> | undefined {
   return result.kind === kind
@@ -54,13 +61,13 @@ function variant<
 
 const TICKET: Ticket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 7,
+  number: issueNumber(7),
   title: "Run a ticket in the sandbox",
 };
 
 const REVIEW_TICKET: ReviewTicket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 42,
+  number: issueNumber(42),
   title: "Review the draft pull request for #7",
   pullRequest: {
     kind: "review",
@@ -298,10 +305,11 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
 
-    assert.equal(result.branch, BRANCH);
+    assert.equal(finished?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
-    assert.equal(await headOf(directory, BRANCH), result.commits.at(-1));
+    assert.equal(await headOf(directory, BRANCH), finished?.commits.at(-1));
   });
 
   it("leaves the branch the checkout is on untouched", async () => {
@@ -320,6 +328,7 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(agentCommitting(["one.txt", "two.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
 
     const { stdout } = await run("git", [
       "-C",
@@ -327,12 +336,12 @@ describe("containerSandbox", () => {
       "log",
       "--format=%H %s",
       "--reverse",
-      `main..${result.branch}`,
+      `main..${finished?.branch}`,
     ]);
     const log = stdout.trim().split("\n");
     assert.deepEqual(
       log.map((line) => line.split(" ")[0]),
-      result.commits,
+      finished?.commits,
     );
     assert.match(log[0] ?? "", /Add one\.txt/);
     assert.match(log[1] ?? "", /Add two\.txt/);
@@ -343,10 +352,11 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
 
-    assert.equal(result.commits.length, 1);
-    assert.equal(result.commits[0]?.length, 64);
-    assert.equal(await headOf(directory, BRANCH), result.commits.at(-1));
+    assert.equal(finished?.commits.length, 1);
+    assert.equal(finished?.commits[0]?.length, 64);
+    assert.equal(await headOf(directory, BRANCH), finished?.commits.at(-1));
   });
 
   it("reports no commits, and leaves no branch, when the agent committed nothing", async () => {
@@ -355,7 +365,7 @@ describe("containerSandbox", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.deepEqual(result.commits, []);
+    assert.deepEqual(variant(result, "finished")?.commits, []);
     assert.deepEqual(await branchesIn(directory), ["main"]);
   });
 
@@ -372,6 +382,108 @@ describe("containerSandbox", () => {
     assert.equal(result.tokensUsed, tokenCount(42_000));
   });
 
+  it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.ok(asked.includes(TICKET_GIST_TAG));
+  });
+
+  it("carries a well-formed ticket gist off the last line of a finished run", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries the gist even when the agent echoes the prompt's own backticks", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n\`${TICKET_GIST_TAG} Add retries to the flaky upload step.\``,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries no gist when the agent gave none", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(agentCommitting([], 0, "implemented the thing"));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the tagged line is empty", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the agent gave more than one line", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `${TICKET_GIST_TAG} Add retries to the flaky upload step.\nOne more line after it.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist on a run that gave up, even one tagged like a finished run's", async () => {
+    const directory = await project();
+    const commit = agentCommitting(
+      ["one.txt"],
+      0,
+      `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    );
+    const sandbox = containerSandbox(async (options) => {
+      await commit(options);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished"), undefined);
+    assert.equal(result.kind, "gave-up");
+  });
+
   it("takes the clone away and leaves the branch behind", async () => {
     const directory = await project();
     let clone = "";
@@ -384,7 +496,9 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(clone), false);
-    assert.ok((await branchesIn(directory)).includes(result.branch));
+    assert.ok(
+      (await branchesIn(directory)).includes(variant(result, "finished")?.branch ?? ""),
+    );
   });
 
   it("takes the clone away even when the agent fails", async () => {
@@ -561,7 +675,10 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
+    assert.equal(
+      variant(result, "gave-up")?.reason,
+      `the command exited with code 1: ${MODEL_REFUSAL_STDERR.trim()}`,
+    );
   });
 
   /**
@@ -680,13 +797,36 @@ describe("containerSandbox", () => {
     const first = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const second = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(first.branch, BRANCH);
-    assert.equal(second.branch, `${BRANCH}-2`);
+    assert.equal(variant(first, "finished")?.branch, BRANCH);
+    assert.equal(variant(second, "finished")?.branch, `${BRANCH}-2`);
     assert.deepEqual(await branchesIn(directory), [
       BRANCH,
       `${BRANCH}-2`,
       "main",
     ]);
+  });
+
+  /**
+   * Fetching a finished agent's branch back into the checkout is the last
+   * thing a run does, and the one still able to fail once the agent has
+   * already spent tokens. That spend must not be lost the way a rejection
+   * would lose it — see `RunSandboxFailed`.
+   */
+  it("returns the agent's spend as a sandbox failure, rather than losing it to a rejection, when fetching its branch back into the checkout fails", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async (options) => {
+      const agent = await agentCommitting(["one.txt"], 42_000)(options);
+      // The checkout the fetch would land in is gone by the time the agent
+      // hands back, so the fetch — the only git step left — is what fails.
+      await rm(directory, { recursive: true, force: true });
+      return agent;
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "sandbox-failed");
+    assert.equal(variant(result, "sandbox-failed")?.tokensUsed, tokenCount(42_000));
+    assert.notEqual(variant(result, "sandbox-failed")?.reason, "");
   });
 
   it("runs agents side by side on one checkout", HANGS, async () => {
@@ -697,7 +837,7 @@ describe("containerSandbox", () => {
     const runs = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       sandbox.run({
-        ticket: { ...TICKET, number: 8, title: "Another" },
+        ticket: { ...TICKET, number: issueNumber(8), title: "Another" },
         checkout: directory,
         spendCeiling: CEILING,
       }),
@@ -724,19 +864,19 @@ describe("containerSandbox", () => {
     ]);
     await held.allInProgress;
     held.release();
-    const results = await runs;
+    const finished = (await runs).map((result) => variant(result, "finished"));
 
-    assert.deepEqual(results.map((result) => result.branch).sort(), [
-      BRANCH,
-      `${BRANCH}-2`,
-    ]);
+    assert.deepEqual(
+      finished.map((result) => result?.branch).sort(),
+      [BRANCH, `${BRANCH}-2`],
+    );
     assert.deepEqual(await branchesIn(directory), [
       BRANCH,
       `${BRANCH}-2`,
       "main",
     ]);
-    for (const result of results) {
-      assert.equal(await headOf(directory, result.branch), result.commits.at(-1));
+    for (const result of finished) {
+      assert.equal(await headOf(directory, result?.branch ?? ""), result?.commits.at(-1));
     }
   });
 
@@ -792,13 +932,13 @@ describe("containerSandbox", () => {
       spendCeiling: CEILING,
     });
 
-    assert.deepEqual(await branchesIn(elsewhere), [other.branch, "main"]);
+    assert.deepEqual(await branchesIn(elsewhere), [variant(other, "finished")?.branch, "main"]);
     assert.equal(settled, false, "the run finished while its checkout was locked");
     assert.deepEqual(await branchesIn(directory), ["main"]);
     lock.open();
     await holding;
     const result = await running;
-    assert.deepEqual(await branchesIn(directory), [result.branch, "main"]);
+    assert.deepEqual(await branchesIn(directory), [variant(result, "finished")?.branch, "main"]);
   });
 
   /**
@@ -825,7 +965,7 @@ describe("containerSandbox", () => {
       spendCeiling: CEILING,
     });
 
-    assert.equal(result.branch, BRANCH);
+    assert.equal(variant(result, "finished")?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
   });
 });
@@ -916,6 +1056,28 @@ describe("containerSandbox.review", () => {
     assert.match(asked, /pulls\/<number>\/reviews/);
     assert.match(asked, /"comments":\s*\[\{"path"/);
     assert.doesNotMatch(asked, /gh pr comment/);
+  });
+
+  /**
+   * The prompt has no wording of a finding's shape of its own: it shows the
+   * reviewer exactly {@link reviewFindingTemplate}'s output, the same
+   * rendering `RepoHost.hasReviewFindings` checks a posted finding against.
+   */
+  it("shows the reviewer the finding shape the repo host checks for, not a wording of its own", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.ok(asked.includes(reviewFindingTemplate()));
   });
 
   /**
@@ -1142,7 +1304,7 @@ describe("containerSandbox.review", () => {
 
 const APPLY_REVIEW_TICKET: ApplyReviewTicket = {
   repo: repoSlug("nadav-alon/pilot"),
-  number: 43,
+  number: issueNumber(43),
   title: "Apply the review on the draft pull request for #7",
   pullRequest: {
     kind: "apply-review",
@@ -1523,6 +1685,285 @@ describe("containerSandbox.applyReview", () => {
   });
 });
 
+const REBASE_TICKET: RebaseTicket = {
+  repo: repoSlug("nadav-alon/pilot"),
+  number: issueNumber(44),
+  title: "Rebase the draft pull request for #7",
+  pullRequest: {
+    kind: "rebase",
+    url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+  },
+};
+
+/** Asks `sandbox` to rebase `REBASE_TICKET`, against `directory`. */
+function rebaseOn(sandbox: Sandbox, directory: Checkout) {
+  return sandbox.rebase({
+    ticket: REBASE_TICKET,
+    checkout: directory,
+    spendCeiling: CEILING,
+  });
+}
+
+describe("containerSandbox.rebase", () => {
+  it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
+    const { directory, headCommit } = await hostedProject();
+    const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];
+    const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
+      seen.push({
+        mounted,
+        mount,
+        on: (await run("git", ["-C", mounted, "branch", "--show-current"])).stdout.trim(),
+        at: await headOf(mounted),
+      });
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.equal(seen.length, 1);
+    assert.notEqual(seen[0]?.mounted, directory);
+    assert.equal(seen[0]?.mount, "rw");
+    assert.equal(seen[0]?.on, BRANCH);
+    assert.equal(seen[0]?.at, headCommit);
+  });
+
+  it("looks the head branch up from the ticket's own pull request", async () => {
+    const { directory } = await hostedProject();
+    const asked: string[] = [];
+    const sandbox = containerSandbox(
+      async () => ({ output: "", tokensUsed: tokenCount(0) }),
+      async (pullRequest) => {
+        asked.push(pullRequest);
+        return branch(BRANCH);
+      },
+    );
+
+    await rebaseOn(sandbox, directory);
+
+    assert.deepEqual(asked, [REBASE_TICKET.pullRequest.url]);
+  });
+
+  it("leaves the branch tracking the repo host, so the agent's force-push lands on the pull request", async () => {
+    const { directory, hosted } = await hostedProject();
+    let pushed = "";
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      await identify(mounted);
+      await writeFile(path.join(mounted, "rebased.md"), "rebased\n");
+      await run("git", ["-C", mounted, "add", "."]);
+      // A rebase rewrites history, so a plain push would be non-fast-forward
+      // and rejected; only a force-push with `--force-with-lease` lands.
+      await run("git", ["-C", mounted, "commit", "--amend", "--message", "Rebase"]);
+      await run("git", ["-C", mounted, "push", "--quiet", "--force-with-lease"]);
+      pushed = await headOf(mounted);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.equal(await headOf(hosted, BRANCH), pushed);
+  });
+
+  it("fetches no branch back and creates none in the checkout, whatever the agent does", async () => {
+    const { directory } = await hostedProject();
+    const before = await headOf(directory);
+    const sandbox = containerSandbox(agentCommitting(["rebased.md"]), headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+    assert.equal(await headOf(directory), before);
+  });
+
+  it("names the pull request, invokes the rebase-pr skill on it, and says the run is unattended", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.ok(asked.includes(`/rebase-pr ${REBASE_TICKET.pullRequest.url}`), asked);
+    assert.match(asked, new RegExp(`already checked out on ${REBASE_TICKET.pullRequest.url}'s head branch, tracking it`));
+    assert.match(asked, /unattended/);
+  });
+
+  it("passes the model to the agent CLI", async () => {
+    const { directory } = await hostedProject();
+    let seen: string | undefined;
+    const sandbox = containerSandbox(async ({ model }) => {
+      seen = model;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await sandbox.rebase({
+      ticket: REBASE_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(seen, "opus");
+  });
+
+  it("asks the agent CLI for no model when none was given", async () => {
+    const { directory } = await hostedProject();
+    let seen: string | undefined = "unset";
+    const sandbox = containerSandbox(async ({ model }) => {
+      seen = model;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.equal(seen, undefined);
+  });
+
+  it("returns the agent's own output and what the run cost", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: "rebased onto main, 1 conflict resolved",
+      tokensUsed: tokenCount(9_000),
+    }), headIsBranch);
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.deepEqual(result, {
+      kind: "finished",
+      output: "rebased onto main, 1 conflict resolved",
+      tokensUsed: tokenCount(9_000),
+    });
+  });
+
+  it("reports a failed agent rather than throwing", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => {
+      throw new Error("could not resolve the conflict");
+    }, headIsBranch);
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.equal(result.kind, "gave-up");
+    assert.match(variant(result, "gave-up")?.reason ?? "", /could not resolve the conflict/);
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
+  });
+
+  it("reports a push rejected because the branch moved as gave-up, carrying the moved head", async () => {
+    const { directory } = await hostedProject();
+    const report = [
+      "Push rejected: the branch moved under me.",
+      `Branch moved: ${MOVED_HEAD}`,
+    ].join("\n");
+    const sandbox = containerSandbox(async () => ({
+      output: report,
+      tokensUsed: tokenCount(500),
+    }), headIsBranch);
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.equal(result.kind, "gave-up");
+    const gaveUp = variant(result, "gave-up");
+    assert.equal(gaveUp?.movedHead, commitSha(MOVED_HEAD));
+    assert.match(gaveUp?.reason ?? "", new RegExp(MOVED_HEAD));
+    assert.equal(gaveUp?.output, report);
+    assert.equal(result.tokensUsed, tokenCount(500));
+  });
+
+  it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: "Branch moved: abc1234",
+      tokensUsed: tokenCount(0),
+    }), headIsBranch);
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.equal(result.kind, "gave-up");
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
+  });
+
+  it("reports a limit refusal as an apply-review run does", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => ({
+      output: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+    }), headIsBranch);
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.deepEqual(result, {
+      kind: "limit-refused",
+      words: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+    });
+  });
+
+  it("reports a model refusal as an apply-review run does, naming the model and the CLI's words, told apart from a limit refusal", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(
+      async () => readExitedRun(MODEL_REFUSAL_EXIT),
+      headIsBranch,
+    );
+
+    const result = await sandbox.rebase({
+      ticket: REBASE_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("this-model-does-not-exist-xyz"),
+    });
+
+    assert.deepEqual(result, {
+      kind: "model-refused",
+      refusal: {
+        model: modelName("this-model-does-not-exist-xyz"),
+        words: MODEL_REFUSAL_WORDS,
+      },
+      tokensUsed: tokenCount(0),
+    });
+  });
+
+  it("rejects, starting no agent, when the head branch cannot be looked up", async () => {
+    const { directory } = await hostedProject();
+    let started = false;
+    const sandbox = containerSandbox(
+      async () => {
+        started = true;
+        return { output: "", tokensUsed: tokenCount(0) };
+      },
+      async () => {
+        throw new Error("gh: no pull request found");
+      },
+    );
+
+    await assert.rejects(rebaseOn(sandbox, directory), /no pull request found/);
+    assert.equal(started, false);
+  });
+
+  it("rejects as an infrastructure failure when the agent never ran", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(async () => {
+      throw new AgentNeverRan("docker is not running");
+    }, headIsBranch);
+
+    await assert.rejects(rebaseOn(sandbox, directory), AgentNeverRan);
+  });
+
+  it("takes the clone away once the run ends", async () => {
+    const { directory } = await hostedProject();
+    let clone = "";
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      clone = mounted;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.equal(await exists(clone), false);
+  });
+});
+
 describe("pushableRemote", () => {
   for (const [ssh, https] of [
     ["git@github.com:nadav-alon/pilot.git", "https://github.com/nadav-alon/pilot.git"],
@@ -1571,6 +2012,76 @@ describe("pullRequestHeadFrom", () => {
       assert.throws(() => pullRequestHeadFrom(answer, url), /no usable head branch/);
     });
   }
+});
+
+describe("readExitedRun", () => {
+  /**
+   * What `execFile` rejects with when a command exits `code` having written
+   * `stdout`/`stderr` — its `message` shaped exactly as Node's own rejection is,
+   * `Command failed: <argv>` with the whole command line, the agent's prompt
+   * included.
+   */
+  function exitedCommand(
+    code: number,
+    { stdout = "", stderr = "" }: { stdout?: string; stderr?: string } = {},
+  ): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout, stderr },
+    );
+  }
+
+  it("reports the exit code", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("reports the tail of stderr", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /tests failed/);
+  });
+
+  it("bounds the stderr it reports well under what a hand-back comment quotes again, keeping the exit code and the tail (not the head) of stderr", () => {
+    const stderr = `${"x".repeat(10_000)}last line`;
+
+    const agent = readExitedRun(exitedCommand(1, { stderr }));
+
+    assert.ok((agent.failure ?? "").length < REASON_QUOTED);
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+    assert.match(agent.failure ?? "", /last line$/);
+  });
+
+  it("never reports the command line or the prompt it ran", () => {
+    const agent = readExitedRun(
+      exitedCommand(1, { stderr: "tests failed" }),
+    );
+
+    assert.doesNotMatch(agent.failure ?? "", /docker run/);
+    assert.doesNotMatch(agent.failure ?? "", /whole-prompt/);
+  });
+
+  it("still says it failed and gives the exit code when there is no stderr", () => {
+    const agent = readExitedRun(exitedCommand(1));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("names the signal that killed a container with no exit code of its own", () => {
+    const killed = Object.assign(new Error("Command failed"), {
+      code: null,
+      signal: "SIGKILL",
+      stdout: "",
+      stderr: "",
+    });
+
+    const agent = readExitedRun(killed);
+
+    assert.match(agent.failure ?? "", /killed by SIGKILL/);
+  });
 });
 
 describe("readAgentRun", () => {
@@ -1713,6 +2224,35 @@ describe("readAgentRun", () => {
     });
 
     assert.equal(readAgentRun(stdout).output, "done");
+  });
+
+  /**
+   * `withDiagnostics` appends stderr and the denied-tools note after the
+   * agent's own text, so a gist that reads correctly off the raw result must
+   * not be lost once those are appended to `output`.
+   */
+  it("still carries a well-formed ticket gist once stderr is appended after it", () => {
+    const stdout = JSON.stringify({
+      result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    });
+
+    const agent = readAgentRun(stdout, "npm warn deprecated foo@1.0.0\n");
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /npm warn deprecated/);
+  });
+
+  it("still carries a well-formed ticket gist once a denied-tools note is appended after it", () => {
+    const stdout = JSON.stringify({
+      is_error: false,
+      result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      permission_denials: [{ tool_name: "Bash" }],
+    });
+
+    const agent = readAgentRun(stdout);
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /refused these tools/);
   });
 });
 
@@ -2015,5 +2555,28 @@ describe("dockerNeverRan", () => {
     assert.equal(dockerNeverRan(new Error("no code")), false);
     assert.equal(dockerNeverRan("a string"), false);
     assert.equal(dockerNeverRan(null), false);
+  });
+});
+
+describe("dockerNeverRanMessage", () => {
+  /** What `execFile` rejects with when docker itself exits `code`. */
+  function dockerRejection(code: number | string, stderr = ""): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout: "", stderr },
+    );
+  }
+
+  it("reports the exit code and the tail of stderr, never the command line or the prompt", () => {
+    const message = dockerNeverRanMessage(
+      dockerRejection(125, "no such image"),
+    );
+
+    assert.match(message, /\bcode 125\b/);
+    assert.match(message, /no such image/);
+    assert.doesNotMatch(message, /docker run/);
+    assert.doesNotMatch(message, /whole-prompt/);
   });
 });

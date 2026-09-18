@@ -3,10 +3,12 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
+  IssueNumber,
   IssueTracker,
   OpenIssues,
   PullRequestBinding,
   PullRequestUrl,
+  RebaseTicket,
   RepoSlug,
   ReviewTicket,
   Ticket,
@@ -17,10 +19,12 @@ import {
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
   discountPullRequestTickets,
+  isIssueNumber,
   isPullRequestUrl,
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
+  sizeLabelOf,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
@@ -96,6 +100,7 @@ export function ghIssueTracker(
             .map((blocker) => blocker.number);
           const modelLabel = modelLabelOf(labels);
           const priority = priorityLabelIn(labels);
+          const sizeLabel = sizeLabelOf(labels);
           return {
             ticket: {
               repo,
@@ -105,6 +110,7 @@ export function ghIssueTracker(
               ...(pullRequest !== undefined && { pullRequest }),
               ...(modelLabel !== undefined && { modelLabel }),
               ...(priority !== undefined && { priority }),
+              ...(sizeLabel !== undefined && { sizeLabel }),
             },
             eligible: carriesReadyForAgent(labels),
             openBlockerNumbers,
@@ -117,28 +123,47 @@ export function ghIssueTracker(
     },
 
     async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
-      await execFileAsync("gh", [
-        "issue",
-        "close",
-        "--repo",
-        ticket.repo,
-        String(ticket.number),
-      ]);
+      const args = issueArgs(ticket);
+
+      // Close first, because closed is what makes a review un-selectable —
+      // unlike `handBack`, where losing the label is what stops reselection.
+      // The label removal comes after for what it alone protects: a query for
+      // closed reviews, and a reopen, which would otherwise carry the ticket
+      // back into the queue.
+      await execFileAsync("gh", ["issue", "close", ...args]);
+      try {
+        await execFileAsync("gh", [
+          "issue",
+          "edit",
+          ...args,
+          "--remove-label",
+          READY_FOR_AGENT_LABEL,
+        ]);
+      } catch (error) {
+        // Warned about rather than raised, the way handBack's own trailing
+        // label edit is (below): the close already succeeded, so a caller
+        // told this failed would report the ticket as not closed, sending the
+        // developer to close a review that is already done — and never
+        // naming the actual fault, a closed ticket still carrying
+        // ready-for-agent.
+        console.warn(
+          `${ticket.repo}#${ticket.number} is closed but still labelled ${READY_FOR_AGENT_LABEL}: ${errorMessage(error)}`,
+        );
+      }
     },
 
     async closeApplyReviewTicket(
       ticket: ApplyReviewTicket,
       comment: string,
     ): Promise<void> {
-      await execFileAsync("gh", [
-        "issue",
-        "close",
-        "--repo",
-        ticket.repo,
-        String(ticket.number),
-        "--comment",
-        comment,
-      ]);
+      await closeWithComment(ticket, comment);
+    },
+
+    async closeRebaseTicket(
+      ticket: RebaseTicket,
+      comment: string,
+    ): Promise<void> {
+      await closeWithComment(ticket, comment);
     },
 
     async createReviewTicket(
@@ -187,7 +212,7 @@ export function ghIssueTracker(
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<void> {
-      const issue = [String(ticket.number), "--repo", ticket.repo];
+      const args = issueArgs(ticket);
 
       // Three calls in the order they degrade best, because `gh` gives no way
       // to do them as one and any of them can be the one that fails.
@@ -202,14 +227,14 @@ export function ghIssueTracker(
       await execFileAsync("gh", [
         "issue",
         "comment",
-        ...issue,
+        ...args,
         "--body",
         comment,
       ]);
       await execFileAsync("gh", [
         "issue",
         "edit",
-        ...issue,
+        ...args,
         "--remove-label",
         READY_FOR_AGENT_LABEL,
       ]);
@@ -222,7 +247,7 @@ export function ghIssueTracker(
         await execFileAsync("gh", [
           "issue",
           "edit",
-          ...issue,
+          ...args,
           "--add-label",
           READY_FOR_HUMAN_LABEL,
         ]);
@@ -242,6 +267,27 @@ export function ghIssueTracker(
 }
 
 /**
+ * Closes an issue with a comment, the shape `closeApplyReviewTicket` and
+ * `closeRebaseTicket` share — the ticket kind is theirs to keep apart, since
+ * each answers to its own port method, but the `gh` call underneath is
+ * identical.
+ */
+async function closeWithComment(
+  ticket: Ticket,
+  comment: string,
+): Promise<void> {
+  await execFileAsync("gh", [
+    "issue",
+    "close",
+    "--repo",
+    ticket.repo,
+    String(ticket.number),
+    "--comment",
+    comment,
+  ]);
+}
+
+/**
  * What each label the manager applies itself says about itself, as
  * `docs/agents/triage-labels.md` describes it.
  */
@@ -249,6 +295,15 @@ const LABEL_DESCRIPTIONS = {
   [READY_FOR_AGENT_LABEL]: "Fully specified, ready for an AFK agent",
   [READY_FOR_HUMAN_LABEL]: "Requires human implementation",
 } as const;
+
+/**
+ * The `gh` argv fragment that names `ticket` to a subcommand: the number and
+ * the repo it lives in, both of which every per-ticket call needs since `gh`
+ * does not infer a repo from a bare number.
+ */
+function issueArgs(ticket: Ticket): string[] {
+  return [String(ticket.number), "--repo", ticket.repo];
+}
 
 /**
  * Creates `label` where the project has none, because `gh issue create
@@ -303,21 +358,36 @@ const APPLY_REVIEW_BODY =
   /^Apply the review on (\S+), the draft pull request opened for #\d+\.$/m;
 
 /**
- * The pull request an issue's body binds it to, and which of the two bound
- * kinds, or undefined where `body` carries neither line — which is what makes
- * a fresh `listOpenIssues` able to tell a review or an apply-review ticket
- * from an implementation ticket, and the two apart from each other: the
- * association `createReviewTicket` returned in the same process is gone by
- * the next morning, and the body is the only place it survives.
+ * The line the `/rebase` workflow writes — never this adapter, and never by
+ * hand — read back the same way `REVIEW_BODY` and `APPLY_REVIEW_BODY` are:
+ * matched per line, so it survives beside a `Part of #N.` line or any other
+ * the body carries.
  *
- * A well-formed review line wins: a body carrying both lines reads as a
- * review. A review line with a malformed URL binds nothing, so a well-formed
- * apply-review line beside it still binds the body as an apply-review.
+ * TODO[#295]: the workflow itself.
+ */
+const REBASE_BODY =
+  /^Rebase (\S+), the draft pull request opened for #\d+\.$/m;
+
+/**
+ * The pull request an issue's body binds it to, and which of the three bound
+ * kinds, or undefined where `body` carries none of the three lines — which is
+ * what makes a fresh `listOpenIssues` able to tell a review, an apply-review
+ * or a rebase ticket from an implementation ticket, and the three apart from
+ * each other: the association `createReviewTicket` returned in the same
+ * process is gone by the next morning, and the body is the only place it
+ * survives.
+ *
+ * A well-formed review line wins over the other two, and a well-formed
+ * apply-review line wins over a rebase line: a body carrying more than one
+ * reads as the earliest kind checked. A line with a malformed URL binds
+ * nothing, so a well-formed line of another kind beside it still binds the
+ * body.
  */
 function pullRequestBoundIn(body: string): PullRequestBinding | undefined {
   return (
     bindingMatching(REVIEW_BODY, "review", body) ??
-    bindingMatching(APPLY_REVIEW_BODY, "apply-review", body)
+    bindingMatching(APPLY_REVIEW_BODY, "apply-review", body) ??
+    bindingMatching(REBASE_BODY, "rebase", body)
   );
 }
 
@@ -374,9 +444,7 @@ async function linkToParent(
     await execFileAsync("gh", [
       "issue",
       "edit",
-      String(review.number),
-      "--repo",
-      review.repo,
+      ...issueArgs(review),
       "--body",
       `Part of #${parent.number}.\n\n${reviewBody(parent, pullRequest)}`,
     ]);
@@ -443,12 +511,18 @@ async function issueIdOf(ticket: Ticket): Promise<IssueId> {
 }
 
 /** `gh issue create` answers with the new issue's URL, and nothing else. */
-function issueNumberIn(stdout: string, repo: RepoSlug): number {
+function issueNumberIn(stdout: string, repo: RepoSlug): IssueNumber {
   const url = stdout.trim();
-  const number = Number(/\/issues\/(\d+)$/.exec(url)?.[1]);
-  if (!Number.isInteger(number)) {
+  const match = /\/issues\/(\d+)$/.exec(url);
+  if (match === null) {
     throw new Error(
       `gh issue create --repo ${repo}: expected the new issue's URL, got: ${url}`,
+    );
+  }
+  const number = Number(match[1]);
+  if (!isIssueNumber(number)) {
+    throw new Error(
+      `gh issue create --repo ${repo}: the new issue's URL named a number that is not a positive integer: ${url}`,
     );
   }
   return number;
@@ -497,7 +571,7 @@ interface RawSubIssuesSummary {
  * reports it, with each label reduced to its name.
  */
 interface RawIssue {
-  number: number;
+  number: IssueNumber;
   title: string;
   body: string;
   subIssuesSummary: RawSubIssuesSummary;
@@ -512,7 +586,7 @@ interface RawIssue {
  * the URL naming its repo are kept.
  */
 interface RawLinkedIssue {
-  number: number;
+  number: IssueNumber;
   url: string;
 }
 
@@ -546,7 +620,7 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     const { number, title, body, subIssuesSummary, blockedBy, parent, labels } =
       issue as Record<string, unknown>;
     return {
-      number: expectField(number, "number", "number", at),
+      number: expectIssueNumber(number, "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
       subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
@@ -567,7 +641,7 @@ function parseParent(value: unknown, at: string): RawLinkedIssue | null {
   }
   const { number, url } = value as Record<string, unknown>;
   return {
-    number: expectField(number, "number", "parent.number", at),
+    number: expectIssueNumber(number, "parent.number", at),
     url: expectField(url, "string", "parent.url", at),
   };
 }
@@ -608,7 +682,7 @@ function parseBlockedBy(value: unknown, at: string): RawBlocker[] {
     }
     const { number, state, url } = node as Record<string, unknown>;
     return {
-      number: expectField(number, "number", "blockedBy.nodes.number", at),
+      number: expectIssueNumber(number, "blockedBy.nodes.number", at),
       state: expectField(state, "string", "blockedBy.nodes.state", at),
       url: expectField(url, "string", "blockedBy.nodes.url", at),
     };
@@ -632,4 +706,23 @@ function parseSubIssuesSummary(
       at,
     ),
   };
+}
+
+/**
+ * `value`, as the issue number `field` names it at `at`: a positive integer.
+ * `gh` itself would never return anything else, but a tracker that did must
+ * be refused loudly rather than handed on as a `Ticket`.
+ */
+function expectIssueNumber(
+  value: unknown,
+  field: string,
+  at: string,
+): IssueNumber {
+  const number = expectField(value, "number", field, at);
+  if (!isIssueNumber(number)) {
+    throw new Error(
+      `${at}: "${field}" must be a positive integer, got ${number}.`,
+    );
+  }
+  return number;
 }

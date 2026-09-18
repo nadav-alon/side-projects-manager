@@ -3,10 +3,12 @@ import type { Checkout } from "./checkout.ts";
 import type { CommitSha } from "./commit-sha.ts";
 import type {
   ApplyReviewTicket,
+  RebaseTicket,
   ReviewTicket,
   Ticket,
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
+import type { TicketGist } from "./ticket-gist.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
 
@@ -58,6 +60,21 @@ export interface ApplyReviewRequest {
   model?: ModelName;
 }
 
+/** One rebase ticket, and the project checkout it is to be worked against. */
+export interface RebaseRequest {
+  ticket: RebaseTicket;
+  /**
+   * The project's managed clone: what the run's own clone comes from, and
+   * where its GitHub remote is read. Never written to — the agent
+   * force-pushes to the pull request's branch itself, so nothing comes back
+   * here.
+   */
+  checkout: Checkout;
+  spendCeiling: Usd;
+  /** As `RunRequest.model`. */
+  model?: ModelName;
+}
+
 /**
  * What the agent CLI said when it refused the model it was started on: the
  * name that was asked for, and the CLI's own words refusing it.
@@ -82,10 +99,12 @@ interface Ended {
 
 /**
  * The branch an implementation run worked on, and what it committed there.
- * True of every variant an implementation run can end as — the branch is
- * created before the agent starts, so even a run refused before the agent did
- * anything still leaves one, empty of commits. A review has neither: it
- * never creates a branch.
+ * True of every variant but `RunSandboxFailed`: the branch is created before
+ * the agent starts, so even a run refused before the agent did anything
+ * still leaves one, empty of commits — but a sandbox that fails once the
+ * agent has already run may never get as far as fetching that branch back,
+ * so `RunSandboxFailed` carries neither. A review has neither for a
+ * different reason: it never creates a branch at all.
  */
 interface Worked {
   /** Branch the agent worked on. */
@@ -98,6 +117,12 @@ export interface RunFinished extends Ended, Worked {
   kind: "finished";
   /** The agent's own output, for the ticket comment when it committed nothing. */
   output: string;
+  /**
+   * The ticket gist the agent gave, absent when it gave none, an empty one,
+   * or more than one line. Its absence never changes `kind`: a run missing
+   * one is `"finished"` exactly as one that has it.
+   */
+  gist?: TicketGist;
 }
 
 /** As `RunFinished`, for a review: there is no branch or commits to carry. */
@@ -152,12 +177,34 @@ export interface ReviewModelRefused extends Ended {
 }
 
 /**
- * How a run in the container ended, as exactly one variant: finished, gave
- * up, was refused by the provider limit, or was refused the model it was
- * asked to run on. Told apart by `kind`, and nothing else — a caller that
- * matches on it exhaustively needs no other field to know which is which.
+ * The sandbox failed after the agent had already run: reading its commits
+ * back, or fetching its branch into the checkout, threw. Only an
+ * implementation run reaches either step, so no `ReviewOutcome` or
+ * `ApplyReviewOutcome` needs a variant like this one.
+ *
+ * The agent's spend is real whatever git did afterwards, so it travels with
+ * this result instead of being lost to a rejection — a rejection stays
+ * reserved for a sandbox that never got the agent running at all.
  */
-export type RunOutcome = RunFinished | RunGaveUp | RunLimitRefused | RunModelRefused;
+export interface RunSandboxFailed extends Ended {
+  kind: "sandbox-failed";
+  /** Why the sandbox failed, once the agent had already run. */
+  reason: string;
+}
+
+/**
+ * How a run in the container ended, as exactly one variant: finished, gave
+ * up, was refused by the provider limit, was refused the model it was asked
+ * to run on, or ran and spent before the sandbox itself failed. Told apart by
+ * `kind`, and nothing else — a caller that matches on it exhaustively needs no
+ * other field to know which is which.
+ */
+export type RunOutcome =
+  | RunFinished
+  | RunGaveUp
+  | RunLimitRefused
+  | RunModelRefused
+  | RunSandboxFailed;
 
 /** As `RunOutcome`, for a review — with no branch or commits on any variant. */
 export type ReviewOutcome =
@@ -167,8 +214,12 @@ export type ReviewOutcome =
   | ReviewModelRefused;
 
 /**
- * As `ReviewGaveUp`, for an apply-review run — which also gives up when the
- * repo host rejects its push because the pull request's branch moved under it.
+ * As `ReviewGaveUp`, for an apply-review or a rebase run — either of which
+ * also gives up when the repo host rejects its push, plain or forced,
+ * because the pull request's branch moved under it. Shared by both, and
+ * named `RebaseGaveUp` where a rebase run is meant, rather than given a
+ * rebase-specific sibling: the two runs give up on a moved branch for
+ * exactly the same reason.
  */
 export interface ApplyReviewGaveUp extends ReviewGaveUp {
   /**
@@ -191,6 +242,23 @@ export type ApplyReviewOutcome =
   | ReviewLimitRefused
   | ReviewModelRefused;
 
+/** A rebase run that ran to completion: a review's shape, named for what ran. */
+export type RebaseFinished = ReviewFinished;
+
+/** A rebase run that stopped short: an apply-review's shape, named for what ran. */
+export type RebaseGaveUp = ApplyReviewGaveUp;
+
+/**
+ * As `ApplyReviewOutcome`, for a rebase run. No branch or commits on any
+ * variant: the agent force-pushes to the pull request's branch itself, and
+ * whether it worked is read back from the repo host, never from here.
+ */
+export type RebaseOutcome =
+  | RebaseFinished
+  | RebaseGaveUp
+  | ReviewLimitRefused
+  | ReviewModelRefused;
+
 /**
  * Runs a coding agent against one ticket, in a container, on a checkout of its
  * own. The loop never runs an agent on the host.
@@ -209,12 +277,14 @@ export interface Sandbox {
    * its own, so the branch the checkout is on is never committed to; the
    * branch it leaves behind is the one named in the result.
    *
-   * Rejects only when the sandbox itself could not be set up or taken down,
-   * which includes a container that could not start the agent at all, a clone
-   * whose commit hashes are not ones a `CommitSha` can hold, and git failing
-   * to read the agent's commits back or fetch them into the checkout. An
-   * agent that ran and failed comes back as a result carrying `"gave-up"`,
-   * because its commits, its output and its spend are all still the morning's.
+   * Rejects only when the sandbox could not be set up before the agent ever
+   * started: a container that could not start it at all, or a clone whose
+   * commit hashes are not ones a `CommitSha` can hold. An agent that ran and
+   * failed comes back as a result carrying `"gave-up"`, because its commits,
+   * its output and its spend are all still the morning's — and git failing to
+   * read its commits back or fetch its branch into the checkout, once it has
+   * already run, comes back the same way, carrying `"sandbox-failed"`
+   * (`RunSandboxFailed`): its spend is real whatever git did afterwards.
    *
    * A request naming no model can never come back refused for one: that
    * variant of `RunOutcome` is excluded from what this overload returns,
@@ -259,4 +329,20 @@ export interface Sandbox {
   applyReview(
     request: ApplyReviewRequest & { model?: undefined },
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
+
+  /**
+   * Runs the `rebase-pr` skill against `request.ticket.pullRequest`, on a
+   * clone checked out on that pull request's head branch and mounted
+   * read-write, exactly as `applyReview` sets one up — the run resolves the
+   * conflicts and force-pushes itself, with the implementation's own
+   * credential; no branch is created, and nothing is fetched back into the
+   * checkout.
+   *
+   * Rejects as `applyReview` does. As `run`, a request naming no model can
+   * never come back refused for one.
+   */
+  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model?: undefined },
+  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
 }

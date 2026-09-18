@@ -4,11 +4,14 @@ import type {
   Branch,
   Checkout,
   DraftPullRequestOpening,
+  MergeStatus,
   Proposal,
   PullRequestUrl,
   RepoHost,
   RepoSlug,
+  ReviewFinding,
   Ticket,
+  TicketGist,
 } from "../ports/index.ts";
 import {
   APPLIED_REPLY_PREFIX,
@@ -16,12 +19,13 @@ import {
   DECLINED_REPLY_PREFIX,
   checkout,
   pullRequestUrl,
+  resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
 
 /** One push the command made, in the order the fake received it. */
 export interface FakePush {
-  directory: string;
+  directory: Checkout;
   message: string;
   /** The paths committed, and nothing else in the checkout. */
   paths: string[];
@@ -43,12 +47,20 @@ export interface FakePullRequest {
   branch: Branch;
   /** The ticket the pull request is opened against. */
   ticket: Ticket;
+  /** The run's ticket gist, when it carried one. */
+  gist?: TicketGist;
 }
 
 /** One branch thrown away, and the checkout it was thrown away from. */
 export interface FakeDiscard {
   directory: Checkout;
   branch: Branch;
+}
+
+/** One {@link ReviewFinding} recorded against a pull request, and when. */
+export interface FakeReviewFinding {
+  finding: ReviewFinding;
+  postedAt: Date;
 }
 
 /**
@@ -64,8 +76,9 @@ export class FakeRepoHost implements RepoHost {
   /** The managed location every clone lands under. */
   static readonly MANAGED_LOCATION = "/side-projects";
   /** The pull request a proposed scaffold waits in, unless a test says otherwise. */
-  static readonly PROPOSED_PULL_REQUEST =
-    "https://github.com/nadav-alon/pilot/pull/1";
+  static readonly PROPOSED_PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/1",
+  );
   /** The pull request a run's work waits in, unless a test says otherwise. */
   static readonly RUN_PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/2",
@@ -85,16 +98,14 @@ export class FakeRepoHost implements RepoHost {
   readonly pullRequests: FakePullRequest[] = [];
   /** Branches discarded, in order. */
   readonly discarded: FakeDiscard[] = [];
-  /** Every `hasNewComment` check made, in order. */
-  readonly commentChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
-
-  /** What the next `hasNewComment` check finds. A comment posted, unless set. */
-  newCommentPosted = true;
+  /** Every `hasReviewFindings` check made, in order. */
+  readonly findingChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
 
   /** Every pull request `markPullRequestReady` was called on, in order. */
   readonly readyMarked: PullRequestUrl[] = [];
 
   readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
+  readonly #reviewFindings = new Map<PullRequestUrl, FakeReviewFinding[]>();
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: Branch) => Proposal = (branch) => ({
@@ -108,6 +119,13 @@ export class FakeRepoHost implements RepoHost {
     kind: "opened",
     pullRequest: FakeRepoHost.RUN_PULL_REQUEST,
   });
+
+  /**
+   * What `needsRebase` reads for a pull request, called once per attempt so a
+   * test can answer `"unknown"` a bounded number of times before it settles.
+   * Clean, unless a test says otherwise.
+   */
+  mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -129,7 +147,7 @@ export class FakeRepoHost implements RepoHost {
   }
 
   async commitAndPush(
-    directory: string,
+    directory: Checkout,
     message: string,
     paths: string[],
   ): Promise<void> {
@@ -137,7 +155,7 @@ export class FakeRepoHost implements RepoHost {
   }
 
   async commitAndPropose(
-    directory: string,
+    directory: Checkout,
     message: string,
     body: string,
     paths: string[],
@@ -157,8 +175,14 @@ export class FakeRepoHost implements RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
+    gist?: TicketGist,
   ): Promise<DraftPullRequestOpening> {
-    this.pullRequests.push({ directory, branch, ticket });
+    this.pullRequests.push({
+      directory,
+      branch,
+      ticket,
+      ...(gist !== undefined && { gist }),
+    });
     return this.draftPullRequest();
   }
 
@@ -166,12 +190,36 @@ export class FakeRepoHost implements RepoHost {
     this.discarded.push({ directory, branch });
   }
 
-  async hasNewComment(
+  /**
+   * Records `finding` as posted to `pullRequest` at `postedAt`, as a
+   * reviewing agent's inline review comment would land — what
+   * `hasReviewFindings` answers from.
+   */
+  postReviewFinding(
+    pullRequest: PullRequestUrl,
+    finding: ReviewFinding,
+    postedAt = new Date(),
+  ): void {
+    this.#findingsOn(pullRequest).push({ finding, postedAt });
+  }
+
+  async hasReviewFindings(
     pullRequest: PullRequestUrl,
     since: Date,
   ): Promise<boolean> {
-    this.commentChecks.push({ pullRequest, since });
-    return this.newCommentPosted;
+    this.findingChecks.push({ pullRequest, since });
+    return this.#findingsOn(pullRequest).some(
+      (recorded) => recorded.postedAt > since,
+    );
+  }
+
+  #findingsOn(pullRequest: PullRequestUrl): FakeReviewFinding[] {
+    let findings = this.#reviewFindings.get(pullRequest);
+    if (findings === undefined) {
+      findings = [];
+      this.#reviewFindings.set(pullRequest, findings);
+    }
+    return findings;
   }
 
   /**
@@ -243,6 +291,17 @@ export class FakeRepoHost implements RepoHost {
 
   async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
     this.readyMarked.push(pullRequest);
+  }
+
+  async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
+    // No real wait between retries: a fake standing in for the host in
+    // application tests should not make those tests slower than the host it
+    // stands in for.
+    return resolveNeedsRebase(
+      pullRequest,
+      async () => this.mergeStatus(pullRequest),
+      async () => {},
+    );
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {

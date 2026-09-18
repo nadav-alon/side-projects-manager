@@ -14,6 +14,9 @@ import type {
   ModelName,
   ModelRefusal,
   PullRequestUrl,
+  RebaseOutcome,
+  RebaseRequest,
+  RebaseTicket,
   RemoteUrl,
   ReviewModelRefused,
   ReviewOutcome,
@@ -33,22 +36,25 @@ import {
   isBranch,
   isCommitSha,
   isRemoteUrl,
+  isTicketGist,
   remoteUrl,
+  reviewFindingTemplate,
   tokenCount,
+  type TicketGist,
   type TokenCount,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
+import { REASON_QUOTED } from "../handback-comment.ts";
+import { tail } from "../tail.ts";
 import {
   isBranchReserved,
   reserveBranch,
   unreserveBranch,
 } from "./branch-reservations.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { IMAGE } from "./sandbox-image.ts";
 
 const run = promisify(execFile);
-
-/** The image the harness is baked into, as `npm run sandbox:build` tags it. */
-const IMAGE = "side-projects-sandbox:latest";
 
 /**
  * How much of the agent's output to hold in memory. A full implementation run
@@ -82,6 +88,12 @@ export interface AgentRun {
    * it flagged the model unrecognised — see `MODEL_REFUSAL`.
    */
   modelRefused?: string;
+  /**
+   * The ticket gist off the agent's own last line, read before `output` gains
+   * any diagnostics appended after it — see `gistFrom`. Absent when the agent
+   * gave none.
+   */
+  gist?: TicketGist;
 }
 
 /**
@@ -176,10 +188,10 @@ export function containerSandbox(
 
 /**
  * `Sandbox`'s implementation, as a class rather than an object literal of
- * arrow functions: `run`, `review` and `applyReview` are each overloaded on
- * whether `request.model` is present, and only a method (or a standalone
- * function declaration) can carry more than one call signature — an arrow
- * assigned to an object property cannot.
+ * arrow functions: `run`, `review`, `applyReview` and `rebase` are each
+ * overloaded on whether `request.model` is present, and only a method (or a
+ * standalone function declaration) can carry more than one call signature —
+ * an arrow assigned to an object property cannot.
  */
 class ContainerSandbox implements Sandbox {
   private readonly container: Container;
@@ -198,6 +210,14 @@ class ContainerSandbox implements Sandbox {
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
   applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
     return applyReviewOnClone(this.container, this.pullRequestHead, request);
+  }
+
+  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model?: undefined },
+  ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
+  rebase(request: RebaseRequest): Promise<RebaseOutcome> {
+    return rebaseOnClone(this.container, this.pullRequestHead, request);
   }
 
   run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
@@ -230,7 +250,7 @@ class ContainerSandbox implements Sandbox {
  * pushed successfully.
  */
 async function withThrowawayClone<T>(
-  kind: "run" | "review" | "apply-review",
+  kind: "run" | "review" | "apply-review" | "rebase",
   body: (clone: Checkout) => Promise<T>,
 ): Promise<T> {
   const clone = checkout(
@@ -278,26 +298,38 @@ async function runOnClone(
         { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
         model,
       );
-      const commits = await commitsSince(clone, base);
 
-      // Only when the agent actually committed: a branch pointing at the commit
-      // it started from is not work, and the checkout should not collect one
-      // for every morning that came to nothing.
-      if (commits.length > 0) {
-        const branch = onto;
-        await withCheckoutLock(project, () =>
-          run("git", [
-            "-C",
-            project,
-            "fetch",
-            "--no-tags",
-            clone,
-            `${branch}:${branch}`,
-          ]),
-        );
+      try {
+        const commits = await commitsSince(clone, base);
+
+        // Only when the agent actually committed: a branch pointing at the
+        // commit it started from is not work, and the checkout should not
+        // collect one for every morning that came to nothing.
+        if (commits.length > 0) {
+          const branch = onto;
+          await withCheckoutLock(project, () =>
+            run("git", [
+              "-C",
+              project,
+              "fetch",
+              "--no-tags",
+              clone,
+              `${branch}:${branch}`,
+            ]),
+          );
+        }
+
+        return runOutcomeOf(agent, model, onto, commits);
+      } catch (error: unknown) {
+        // The agent already ran and spent, whatever became of its commits
+        // afterwards — reported rather than thrown, so that spend is not lost
+        // to a rejection the way it would be before the agent ever started.
+        return {
+          kind: "sandbox-failed",
+          reason: errorMessage(error),
+          tokensUsed: agent.tokensUsed,
+        };
       }
-
-      return runOutcomeOf(agent, model, onto, commits);
     } finally {
       // If fetched back, the checkout now records the name; otherwise the name
       // is free again.
@@ -407,14 +439,29 @@ function endingOf(
     : { kind: "gave-up", output: agent.output, reason: agent.failure };
 }
 
-/** `endingOf`, with the branch an implementation run worked on and its commits. */
+/**
+ * `endingOf`, with the branch an implementation run worked on and its
+ * commits, and — for a finished run — its ticket gist: `agent.gist` when the
+ * container already read one off the agent's own text, before any
+ * diagnostics were appended to `output`, and only otherwise a best-effort
+ * read of `output`'s own last line, for a container that never sets it.
+ */
 function runOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
   branch: Branch,
   commits: CommitSha[],
 ): RunOutcome {
-  return { ...endingOf(agent, model), tokensUsed: agent.tokensUsed, branch, commits };
+  const ending = endingOf(agent, model);
+  const gist =
+    ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
+  return {
+    ...ending,
+    ...(gist !== undefined && { gist }),
+    tokensUsed: agent.tokensUsed,
+    branch,
+    commits,
+  };
 }
 
 /** `endingOf`, as a review ends it: no branch or commits to carry. */
@@ -455,100 +502,152 @@ async function reviewOnClone(
 }
 
 /**
- * The apply-review run: a throwaway clone of its own, like any other, but
- * checked out on the pull request's head branch as the repo host has it now, and
- * mounted read-write — the agent commits there, pushes, and replies on the
- * pull request itself.
+ * Clones `project` under the checkout lock, points the clone's `origin` at
+ * the checkout's own remote made pushable, and switches it onto the pull
+ * request's `head` branch as the repo host has it now, tracking it — so the
+ * agent's push, plain from an apply-review run, `--force-with-lease` from a
+ * rebase, lands on the pull request. Shared by `applyReviewOnClone` and
+ * `rebaseOnClone`, whose clones are set up identically and differ only in
+ * what they ask the agent to do with them.
+ *
+ * `gh` answers git's credential requests from the `GH_TOKEN` the container is
+ * handed, which is how the agent's push authenticates against GitHub.
+ * `--force-create`: the clone already has a local branch of that name when
+ * the checkout was on it, and that copy may be stale; the repo host's is the
+ * one.
+ */
+async function cloneOntoPullRequestHead(
+  project: Checkout,
+  clone: Checkout,
+  head: Branch,
+): Promise<void> {
+  const remote = await withCheckoutLock(project, async () => {
+    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    const { stdout } = await run("git", [
+      "-C",
+      project,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
+    const origin = stdout.trim();
+    if (!isRemoteUrl(origin)) {
+      throw new Error(
+        `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
+      );
+    }
+    return origin;
+  });
+  await run("git", [
+    "-C",
+    clone,
+    "remote",
+    "set-url",
+    "origin",
+    pushableRemote(remote),
+  ]);
+  await run("git", [
+    "-C",
+    clone,
+    "config",
+    "credential.helper",
+    "!gh auth git-credential",
+  ]);
+  await run("git", [
+    "-C",
+    clone,
+    "fetch",
+    "--quiet",
+    "--no-tags",
+    "origin",
+    `+refs/heads/${head}:refs/remotes/origin/${head}`,
+  ]);
+  await run("git", [
+    "-C",
+    clone,
+    "switch",
+    "--quiet",
+    "--track",
+    "--force-create",
+    head,
+    `origin/${head}`,
+  ]);
+}
+
+/**
+ * The apply-review and rebase runs: a throwaway clone of its own, like any
+ * other, but checked out on the pull request's head branch as the repo host
+ * has it now, and mounted read-write — the agent commits there, pushes (plain
+ * for apply-review, `--force-with-lease` for rebase), and replies on the pull
+ * request itself.
  *
  * Inside the container the checkout's path means nothing, so the clone's
  * `origin` is pointed at the checkout's own remote, and the branch tracks it:
- * a plain `git push` from the agent lands on the pull request. Nothing is
- * fetched back and no branch is created in the checkout — what the run did
- * lives on the repo host, and is read back from there.
+ * the agent's push lands on the pull request. Nothing is fetched back and no
+ * branch is created in the checkout — what the run did lives on the repo
+ * host, and is read back from there. Shared by `applyReviewOnClone` and
+ * `rebaseOnClone`, which differ only in the clone's temp-directory prefix and
+ * the prompt the agent is given.
  */
+async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
+  kind: "apply-review" | "rebase",
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
+  promptFor: (ticket: T) => string,
+): Promise<ApplyReviewOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+  const head = await pullRequestHead(ticket.pullRequest.url);
+
+  return withThrowawayClone(kind, async (clone) => {
+    await cloneOntoPullRequestHead(project, clone, head);
+
+    const agent = await attempt(
+      container,
+      { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+      model,
+    );
+
+    return pushRejectedOutcomeOf(agent, model);
+  });
+}
+
 async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
 ): Promise<ApplyReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
-  const head = await pullRequestHead(ticket.pullRequest.url);
+  return pushingRunOnClone(
+    "apply-review",
+    container,
+    pullRequestHead,
+    request,
+    applyReviewPromptFor,
+  );
+}
 
-  return withThrowawayClone("apply-review", async (clone) => {
-    const remote = await withCheckoutLock(project, async () => {
-      await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
-      const { stdout } = await run("git", [
-        "-C",
-        project,
-        "remote",
-        "get-url",
-        "origin",
-      ]);
-      const origin = stdout.trim();
-      if (!isRemoteUrl(origin)) {
-        throw new Error(
-          `${project}'s origin is not an address a clone can push to: ${JSON.stringify(origin)}`,
-        );
-      }
-      return origin;
-    });
-    await run("git", [
-      "-C",
-      clone,
-      "remote",
-      "set-url",
-      "origin",
-      pushableRemote(remote),
-    ]);
-    // `gh` answers git's credential requests from the `GH_TOKEN` the container
-    // is handed, which is how the agent's push authenticates against GitHub.
-    await run("git", [
-      "-C",
-      clone,
-      "config",
-      "credential.helper",
-      "!gh auth git-credential",
-    ]);
-    await run("git", [
-      "-C",
-      clone,
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      "origin",
-      `+refs/heads/${head}:refs/remotes/origin/${head}`,
-    ]);
-    // `--force-create`: the clone already has a local branch of that name when
-    // the checkout was on it, and that copy may be stale; the repo host's is the one.
-    await run("git", [
-      "-C",
-      clone,
-      "switch",
-      "--quiet",
-      "--track",
-      "--force-create",
-      head,
-      `origin/${head}`,
-    ]);
-
-    const agent = await attempt(
-      container,
-      { directory: clone, prompt: applyReviewPromptFor(ticket), spendCeiling, mount: "rw" },
-      model,
-    );
-
-    return applyReviewOutcomeOf(agent, model);
-  });
+async function rebaseOnClone(
+  container: Container,
+  pullRequestHead: PullRequestHead,
+  request: RebaseRequest,
+): Promise<RebaseOutcome> {
+  return pushingRunOnClone(
+    "rebase",
+    container,
+    pullRequestHead,
+    request,
+    rebasePromptFor,
+  );
 }
 
 /**
- * The line an apply-review agent ends its report with when the repo host rejected
- * its push because the branch moved, naming the head it moved to — as
- * `applyReviewPromptFor` asks for it. Anchored to the start of a line (`m`),
- * and matched only with a commit hash after it, so prose that merely mentions
- * a moved branch is not read as one; whatever the agent adds after the hash is
- * ignored, since a rejected push must not read as finished over a stray word.
- * The only place the line's shape is known.
+ * The line an apply-review or rebase agent ends its report with when the repo
+ * host rejected its push because the branch moved, naming the head it moved
+ * to — as `applyReviewPromptFor` and `rebasePromptFor` ask for it. Anchored to
+ * the start of a line (`m`), and matched only with a commit hash after it, so
+ * prose that merely mentions a moved branch is not read as one; whatever the
+ * agent adds after the hash is ignored, since a rejected push must not read
+ * as finished over a stray word. The only place the line's shape is known.
  */
 const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 
@@ -556,11 +655,12 @@ const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * `endingOf`, as an apply-review run ends it: no branch or commits to carry,
- * and an agent that reports the branch moved under its push has given up,
- * whatever its exit code — its commits never reached the pull request.
+ * `endingOf`, as an apply-review or rebase run ends it: no branch or commits
+ * to carry, and an agent that reports the branch moved under its push has
+ * given up, whatever its exit code — its commits never reached the pull
+ * request, whether the push was plain (apply-review) or forced (rebase).
  */
-function applyReviewOutcomeOf(
+function pushRejectedOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
 ): ApplyReviewOutcome {
@@ -675,6 +775,42 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
 }
 
 /**
+ * What the rebase agent is asked to do: invoke the skill on the pull request,
+ * named explicitly since nothing in the prompt otherwise says which. The
+ * skill says how.
+ *
+ * Shaped exactly like `applyReviewPromptFor`, and for the same reason: the
+ * run is unattended, so a pass that stops to ask has answered nothing, and a
+ * rejected push is asked for as the same fixed line naming the moved head
+ * (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
+ * refused from one that finished.
+ */
+function rebasePromptFor(ticket: RebaseTicket): string {
+  const url = ticket.pullRequest.url;
+  return [
+    `/rebase-pr ${url}`,
+    "",
+    `This clone is already checked out on ${url}'s head branch, tracking it on GitHub, so a`,
+    "force-push with `--force-with-lease` lands on the pull request. Name the repo explicitly",
+    "wherever gh needs one.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "resolve the rebase and force-push without asking for confirmation.",
+    "If the push is rejected because the branch moved, stop, and end your report with the line",
+    "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
+    `(\`gh pr view ${url} --json headRefOid\`).`,
+  ].join("\n");
+}
+
+/**
+ * The tag `promptFor` asks the agent to close its output with, and `gistFrom`
+ * reads back off the last line — the one place in source its wording is
+ * spelled out, so the prompt and the parser cannot drift apart from each
+ * other. Exported so a test can assert against the tag that ships rather
+ * than a copy of the literal.
+ */
+export const TICKET_GIST_TAG = "TICKET GIST:";
+
+/**
  * What the agent is asked to do. The repo's own instructions say how.
  *
  * `--repo` is spelled out because the clone's `origin` is a path on the host
@@ -689,7 +825,34 @@ function promptFor(ticket: Ticket): string {
     "— and follow this repo's own agent instructions and coding standards.",
     "Commit your work to the branch you are on; do not push, and do not open a",
     "pull request.",
+    `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
+    "followed by one sentence saying what the ticket asked for — not what",
+    "your diff did; the run is complete either way.",
   ].join(" ");
+}
+
+/**
+ * The ticket gist off the last line of a finished run's output, absent when
+ * the agent gave none.
+ *
+ * Only the last line is read, trailing blank lines aside: an agent that wrote
+ * more after the tag has made the gist span more than one line, which is
+ * indistinguishable here from an agent that tagged nothing at all, and both
+ * come back absent rather than guessed at.
+ *
+ * Backticks are stripped before the prefix test: `promptFor` shows the tag
+ * wrapped in backticks (as `BRANCH_MOVED`'s own prompt does for its line),
+ * and an agent that echoes that formatting verbatim must not lose its gist
+ * over it.
+ */
+function gistFrom(output: string): TicketGist | undefined {
+  const lines = output.trimEnd().split("\n");
+  const last = (lines.at(-1) ?? "").replace(/`/g, "");
+  if (!last.startsWith(TICKET_GIST_TAG)) {
+    return undefined;
+  }
+  const text = last.slice(TICKET_GIST_TAG.length).trim();
+  return isTicketGist(text) ? text : undefined;
 }
 
 /**
@@ -705,9 +868,10 @@ function promptFor(ticket: Ticket): string {
  * Posting is spelled out as a single review with one inline comment per
  * finding — not the skill's own aggregated report dropped as one comment —
  * because a finding a reviewer would read in context of the line it is about
- * is exactly what a summary comment strips away. `RepoHost.hasNewComment`
- * checks for this same shape: an inline comment on the pull request, not an
- * issue-level one.
+ * is exactly what a summary comment strips away. The JSON shape below comes
+ * from `reviewFindingTemplate`, not a second wording of it here, so it can
+ * only ever match what `RepoHost.hasReviewFindings` checks for: `ReviewFinding`,
+ * declared once beside the port.
  *
  * The prompt also says the run is unattended. A `--print` run gets no reply,
  * so a reviewer that finishes and then asks whether to submit posts nothing;
@@ -733,7 +897,7 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "finding inline, on the file and line it is actually about, by submitting a single review —",
     "`gh api repos/<owner>/<repo>/pulls/<number>/reviews --input -`, with `<owner>/<repo>` and",
     `\`<number>\` read off ${ticket.pullRequest.url} — piped a JSON object shaped`,
-    '`{"event": "COMMENT", "comments": [{"path": <file>, "line": <line>, "body": <finding>}, ...]}`,',
+    `\`{"event": "COMMENT", "comments": [${reviewFindingTemplate()}, ...]}\`,`,
     "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
     "sit on — a one-line summary, or a finding that spans the whole change.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered. Posting",
@@ -858,13 +1022,24 @@ const dockerContainer: Container = async (options) => {
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
     if (dockerNeverRan(error)) {
-      throw new AgentNeverRan(
-        `docker could not start the agent: ${errorMessage(error)}`,
-      );
+      throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
     return readExitedRun(error);
   }
 };
+
+/**
+ * What `AgentNeverRan` says when docker itself would not run the container:
+ * its exit code and the tail of stderr, the same as a command the agent ran
+ * itself, since this too is `execFile` rejecting and its argv carries the
+ * agent's prompt.
+ *
+ * Exported so it can be asserted the way `dockerContainer` uses it, without
+ * docker installed.
+ */
+export function dockerNeverRanMessage(error: unknown): string {
+  return `docker could not start the agent: ${commandFailure(error, captured(error).stderr)}`;
+}
 
 /**
  * What an agent that exited non-zero came back with. Any exit `dockerNeverRan`
@@ -877,7 +1052,57 @@ const dockerContainer: Container = async (options) => {
  */
 export function readExitedRun(error: unknown): AgentRun {
   const { stdout, stderr } = captured(error);
-  return { ...readAgentRun(stdout, stderr), failure: errorMessage(error) };
+  return { ...readAgentRun(stdout, stderr), failure: commandFailure(error, stderr) };
+}
+
+/**
+ * How much of stderr a failed command is reported with: the tail, since that
+ * is where a process says what stopped it right before it exits, bounded so a
+ * command that wrote megabytes to stderr does not carry all of it into a
+ * ticket comment — comfortably under `REASON_QUOTED` (`handback-comment.ts`),
+ * which tails the whole failure reason again before it reaches a hand-back
+ * comment, so the exit-code prefix below survives that second tail intact.
+ */
+const FAILURE_STDERR_TAIL = REASON_QUOTED - 100;
+
+/**
+ * What a command that exited non-zero is reported as: its exit code and the
+ * tail of what it wrote to stderr — never `errorMessage(error)`, whose
+ * `Command failed: <argv>` restates the whole command line, including the
+ * agent's prompt from `dockerCommand`'s argv.
+ */
+function commandFailure(error: unknown, stderr: string): string {
+  const code = exitStatus(error);
+  const said = stderr.trim();
+  const detail = said === "" ? "" : `: ${tail(said, FAILURE_STDERR_TAIL)}`;
+  if (code !== undefined) {
+    return `the command exited with code ${code}${detail}`;
+  }
+  const signal = errorProperty(error, "signal");
+  return typeof signal === "string"
+    ? `the command was killed by ${signal}${detail}`
+    : `the command stopped without an exit code${detail}`;
+}
+
+/**
+ * The `code` or `signal` property `execFile` hangs a rejection off, whatever
+ * shape it is — a number, a string such as `"ENOENT"`, or absent entirely
+ * when the error isn't one `execFile` throws.
+ */
+function errorProperty(error: unknown, name: "code" | "signal"): unknown {
+  return typeof error === "object" && error !== null && name in error
+    ? (error as Record<typeof name, unknown>)[name]
+    : undefined;
+}
+
+/**
+ * The exit code `execFile` hangs off a non-zero exit. Absent when there is no
+ * numeric `code` — a signal kill, a non-`execFile` error, or a `code` that
+ * isn't a number, such as `dockerNeverRan`'s `"ENOENT"`.
+ */
+function exitStatus(error: unknown): number | undefined {
+  const code = errorProperty(error, "code");
+  return typeof code === "number" ? code : undefined;
 }
 
 /**
@@ -921,10 +1146,7 @@ function envFor(mount: Mount): NodeJS.ProcessEnv {
  * decides whether a ticket is told its agent gave up.
  */
 export function dockerNeverRan(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const { code } = error;
+  const code = errorProperty(error, "code");
   return code === "ENOENT" || code === 125 || code === 126 || code === 127;
 }
 
@@ -1068,15 +1290,21 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  *
  * A model refusal's words are the envelope's `result`, which is prose meant
  * for a reader, or the stderr tag itself when there is no `result` to quote.
+ *
+ * The ticket gist is read off the agent's own text before `stderr` and the
+ * denied-tools note are appended to it: once appended, the tag is no longer
+ * on the last line, and `gistFrom` would find nothing.
  */
 export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
+    const gist = gistFrom(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
+      ...(gist !== undefined && { gist }),
     };
   }
 
@@ -1084,16 +1312,15 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
     result?: unknown;
     usage?: unknown;
   };
+  const output = typeof result === "string" ? result : stdout;
+  const gist = gistFrom(output);
   return {
-    output: withDiagnostics(
-      typeof result === "string" ? result : stdout,
-      stderr,
-      deniedTools(envelope),
-    ),
+    output: withDiagnostics(output, stderr, deniedTools(envelope)),
     tokensUsed: totalTokens(usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
+    ...(gist !== undefined && { gist }),
   };
 }
 

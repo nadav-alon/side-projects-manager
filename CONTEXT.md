@@ -1,15 +1,16 @@
 # Side Projects Manager
 
-The manager owns a morning loop that moves one side project forward each day inside a sandboxed
-agent, and a command that starts new projects. Projects stay independent: the manager holds the
-registry and the harness, each project repo holds its own backlog.
+The manager owns a morning loop that moves side projects forward each day by working their
+eligible tickets, several at once, and a command that starts new projects. Projects stay
+independent: the manager holds the registry and the harness, each project repo holds its own
+backlog.
 
 ## Language
 
 ### The loop
 
 **Morning loop**:
-The job that picks one side project with available work and moves it forward. Referred to as "the loop".
+The job that moves side projects forward by working their eligible tickets, several at once. Referred to as "the loop".
 _Avoid_: the daily job, the cron job, the automation
 
 **Invocation**:
@@ -17,7 +18,7 @@ One firing of the morning loop, by whichever trigger got there first. Writes exa
 _Avoid_: run, execution, session
 
 **Iteration**:
-One pass within an invocation. An iteration works one project, and the budget gate is re-checked between iterations.
+One selection, gate check and run. Iterations of one invocation may overlap, up to the concurrency limit, and the gate is asked before each one starts.
 _Avoid_: cycle, pass, turn, loop
 
 **Run**:
@@ -25,7 +26,7 @@ One agent execution in the sandbox against a single ticket. Carries a cost and a
 _Avoid_: job, session, execution, task
 
 **Selection**:
-Choosing which project and ticket an iteration works: apply-review tickets before review tickets before implementations, then explicit priority, then least recently worked. Within the chosen project: apply-review tickets first, then review tickets, then ticket priority, then the oldest ticket.
+Choosing which project and ticket an iteration works: rebase tickets first, then apply-review tickets, then review tickets, then implementations, then explicit priority, then least recently worked. Within the chosen project: rebase tickets first, then apply-review tickets, then review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -33,11 +34,11 @@ No registered project had an eligible ticket. A normal quiet morning, reported e
 _Avoid_: empty queue, no work, nothing found
 
 **Worked today**:
-The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes them over until the next day, even while they still carry ready-for-agent — a hand-back the tracker refused, a review the loop could not close, a finished run whose relabel failed — so a loop firing every hour does not spend a run on one every hour. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. A run that was an infrastructure failure or a limit refusal says nothing about its ticket, so the ticket comes off the record again and a later firing the same day may select it. A record for any other day reads as nothing worked today.
+The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes them over until the next day, even while they still carry ready-for-agent — a hand-back the tracker refused, a review the loop could not close, a finished run whose relabel failed — so a loop firing every hour does not spend a run on one every hour. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. A run that was an infrastructure failure, a provider failure or a limit refusal says nothing about its ticket, so the ticket comes off the record again and a later firing the same day may select it. A record for any other day reads as nothing worked today.
 _Avoid_: seen, attempted, cooldown
 
 **Stand down**:
-What the loop does when the budget gate refuses, when the provider limit refuses a run already started, or when the developer stops an invocation by hand: it starts nothing further, lets the runs already in progress finish, and says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
+What the loop does when the budget gate refuses, when a run already started is cut off, or when the developer stops an invocation by hand: no further iteration starts, iterations already in progress are not cancelled and finish on their own, and it says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
@@ -51,12 +52,12 @@ Whatever calls `morningLoop`: the daily schedule, the logon guard, or any future
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
-The trigger that fires on every new interactive shell, relying on the once-per-day lock to act only the first time that happens each day — so a machine left off overnight doesn't silently skip a day.
+The trigger that fires on every new interactive shell, invoking the loop through the invocation lease. A machine left off overnight doesn't silently skip a day because every new shell fires it; a machine left on all day doesn't re-work tickets or over-publish because worked today and the once-a-day summary rule hold regardless of how many times it fires.
 _Avoid_: startup hook, login script
 
-**Once-per-day lock**:
-What stops two triggers firing the same day: the first to claim a calendar day invokes the loop, every later claim that day is refused. Claimed before the loop is invoked, so an invocation that fails still leaves the day claimed.
-_Avoid_: mutex, semaphore, debounce
+**Invocation lease**:
+What stops two invocations overlapping, however long one runs: a file under the manager home, created exclusively and holding the holder's pid. Acquired before the loop is invoked and released once it ends, including when it throws, so a firing that cannot acquire it does nothing and says an invocation is already running. A lease whose holder's pid is no longer alive is stale and is taken over by whichever firing next asks, so a process killed mid-run does not stop the loop for good; PID reuse after a reboot is accepted as negligible.
+_Avoid_: mutex, semaphore, debounce, once-per-day lock
 
 ### Projects
 
@@ -151,20 +152,24 @@ The triage label a ticket carries once the loop has stopped working on it. Alway
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
-What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
+What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows, or, for a rebase ticket, whose pull request the repo host never settles as conflicting or not: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, a provider failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
-A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
+A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host, or, for a rebase run, could not resolve a conflict green. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on to its next iteration.
-_Avoid_: outage, crash, system error
+A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. What an implementation agent that did start left is salvaged, wherever it can still be reached. The invocation carries on.
+_Avoid_: outage (a provider failure, if the provider was down), crash, system error
 
 **Discard**:
-What becomes of a failed run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
+What becomes of a gave-up run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
 _Avoid_: clean up, prune, delete
+
+**Salvage**:
+What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, or an infrastructure failure after the agent started: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch. Nothing about the ticket changes. A run that continues on a salvage and then gives up is discarded, salvage and all.
+_Avoid_: leftover, WIP branch, partial run, resume branch
 
 **Backlog**:
 One project's eligible tickets.
@@ -207,15 +212,19 @@ What a finished run comes to for the developer: the run itself, and the draft pu
 _Avoid_: work, result, outcome
 
 **Pull request ticket**:
-A review ticket or an apply-review ticket: a sub-issue bound to one draft pull request.
+A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound to one draft pull request.
 _Avoid_: PR ticket, review sub-issue (unqualified)
+
+**Rebase ticket**:
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving its draft state alone. The run owes tests green along the way; closing itself turns only on what the repo host reports. A pull request the repo host already reports not conflicting when the iteration starts has nothing to rebase: no run starts, and the ticket closes all the same. One whose mergeability the repo host never settles is handed back, with no run.
+_Avoid_: rebase task, merge ticket, conflict ticket, sync ticket, update-branch ticket
 
 **Review ticket**:
 A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget
@@ -233,7 +242,7 @@ The fraction of a window held back for the developer's own interactive work. Eac
 _Avoid_: buffer, headroom
 
 **Budget document**:
-The hand-edited document of what the mornings may spend: the two allowances, the two reserve fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend ceiling, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
+The hand-edited document of what the mornings may spend: the two allowances, the two reserve fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend ceiling, the concurrency limit, and any observed reset. `budget.json` in the manager home. Separate from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
@@ -264,16 +273,28 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation, review or apply-review, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, an implementation run's work is salvaged, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
-A run, implementation, review or apply-review, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
+A run, implementation, review, apply-review or rebase, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
 _Avoid_: bad model, model error, invalid model
+
+**Provider failure**:
+A run, implementation, review, apply-review or rebase, that the agent started but the provider never answered: down, overloaded or unreachable. The provider is the problem, not the ticket, the agent or the setup, so it is neither gave up nor an infrastructure failure, and never handed back: its ticket is left exactly as it was, for a later firing to select again.
+_Avoid_: outage, API error, provider down
+
+**Cut off**:
+A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way.
+_Avoid_: interrupted, killed, aborted
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.
 _Avoid_: budget, limit, cap
+
+**Concurrency limit**:
+The most iterations one invocation has in progress at once, `maxConcurrentIterations` in the budget document, defaulting to 1. The gate does not count iterations in progress, so it multiplies the overshoot a spend ceiling allows.
+_Avoid_: parallelism, workers, pool size
 
 ### Observability
 
@@ -315,7 +336,7 @@ A working in-memory implementation of a port, used to exercise the loop in tests
 _Avoid_: mock, double, spy
 
 **Sandbox**:
-The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. The clone is not kept.
+The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run brings no branch back either, as an apply-review run does not — it force-pushes to the pull request's branch from inside the container. The clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:

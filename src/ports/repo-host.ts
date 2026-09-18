@@ -1,8 +1,10 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
+import { milliseconds, type Milliseconds } from "./milliseconds.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { TicketGist } from "./ticket-gist.ts";
 
 /**
  * The marker every apply-review reply ends with (`.claude/skills/apply-pr-review/SKILL.md`),
@@ -23,6 +25,43 @@ export const APPLIED_REPLY_PREFIX = "Applied in ";
 /** What a declined reply's verdict line starts with, before the reason. */
 export const DECLINED_REPLY_PREFIX = "Declined: ";
 
+/**
+ * One finding a review posts, in the shape the reviewer is told to post it
+ * (`reviewPromptFor` in `container-sandbox.ts`, via {@link reviewFindingTemplate})
+ * and {@link RepoHost.hasReviewFindings} checks a pull request for: an inline
+ * comment on the file and line it is actually about, not the pull request's
+ * own issue-level comments. Declared once, beside the port, so the reviewer's
+ * instructions and this check agree on what a finding looks like rather than
+ * by coincidence.
+ */
+export interface ReviewFinding {
+  path: string;
+  line: number;
+  body: string;
+}
+
+/**
+ * {@link ReviewFinding}'s own field names, in the order a finding is posted
+ * and read back. `satisfies` ties each name to a real field of the interface,
+ * so a field renamed there and not here fails to compile, rather than
+ * drifting into a prompt nobody notices is stale.
+ */
+export const REVIEW_FINDING_FIELDS = [
+  "path",
+  "line",
+  "body",
+] as const satisfies readonly (keyof ReviewFinding)[];
+
+/**
+ * One {@link ReviewFinding}'s JSON shape, rendered from
+ * {@link REVIEW_FINDING_FIELDS} with `<field>` standing in for its value.
+ * What the review prompt shows the reviewing agent, so the prompt carries no
+ * wording of the shape that isn't this declaration's.
+ */
+export function reviewFindingTemplate(): string {
+  return `{${REVIEW_FINDING_FIELDS.map((field) => `"${field}": <${field}>`).join(", ")}}`;
+}
+
 /** One comment in an {@link ApplyReviewThread}: what it says, and when. */
 export interface ApplyReviewComment {
   body: string;
@@ -31,7 +70,7 @@ export interface ApplyReviewComment {
 
 /**
  * One thread's comments, oldest first: a review thread's, or a review's
- * non-empty body followed by the pull request comments that quote it — the
+ * non-empty body followed by the pull request comments that speak to it — the
  * two kinds of thread the apply-pr-review skill answers.
  *
  * `resolved` threads are no longer open, so none of them is unanswered; but
@@ -89,7 +128,7 @@ export function summarizeApplyReviewThreads(
     }
 
     const last = thread.comments.at(-1);
-    if (!thread.resolved && (last === undefined || !isMarked(last.body))) {
+    if (!thread.resolved && (last === undefined || !isMarkedReply(last.body))) {
       unanswered++;
     }
   }
@@ -97,13 +136,20 @@ export function summarizeApplyReviewThreads(
   return { appliedSince: applied, declinedSince: declined, unanswered };
 }
 
-function isMarked(body: string): boolean {
+/**
+ * Whether `body` is a reply the apply-pr-review skill posted, wherever it
+ * landed — a review thread's own comments, or a pull request's own comments
+ * for a review body's pseudo-thread ({@link RepoHost.readApplyReviewAnswers}).
+ * The one place both readers ask the question, so they agree on the answer
+ * rather than by coincidence.
+ */
+export function isMarkedReply(body: string): boolean {
   return body.trimEnd().endsWith(APPLY_REVIEW_MARKER);
 }
 
 /** What a marked reply decided, read from its first verdict line. */
 function verdictOf(body: string): "applied" | "declined" | undefined {
-  if (!isMarked(body)) {
+  if (!isMarkedReply(body)) {
     return undefined;
   }
   for (const line of body.split("\n")) {
@@ -118,6 +164,91 @@ function verdictOf(body: string): "applied" | "declined" | undefined {
 }
 
 /**
+ * What a pull request's mergeability currently reads as. GitHub computes it
+ * lazily: a pull request just opened, or just pushed to, answers `"unknown"`
+ * until it has finished, and only `"conflicting"` or `"clean"` is a settled
+ * answer.
+ */
+export type MergeStatus = "conflicting" | "clean" | "unknown";
+
+/**
+ * How many times total {@link resolveNeedsRebase} calls `read` — the first
+ * try plus every retry after an `"unknown"` — before it gives up. Bounded
+ * rather than unbounded, so a pull request whose mergeability never finishes
+ * computing fails loudly instead of hanging the caller.
+ */
+export const REBASE_STATUS_ATTEMPTS = 5;
+
+/**
+ * How long {@link resolveNeedsRebase} waits before a retry. GitHub computes
+ * mergeability lazily (see the module comment on {@link MergeStatus}), so a
+ * retry issued in the same instant as the read before it gets back the same
+ * unsettled answer; the wait is what gives GitHub's computation time to
+ * finish before the next `read`.
+ */
+export const REBASE_STATUS_RETRY_DELAY: Milliseconds = milliseconds(2000);
+
+/** The real-time wait {@link resolveNeedsRebase} uses unless handed another. */
+function realDelay(delay: Milliseconds): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+/**
+ * Thrown by {@link resolveNeedsRebase} when `read` never settles past
+ * `"unknown"` within {@link REBASE_STATUS_ATTEMPTS} tries.
+ *
+ * Carries `pullRequest` and `lastStatus` because the caller has nothing else
+ * to say why: a rebase ticket that cannot get a settled answer needs both to
+ * report back to the developer.
+ */
+export class MergeabilityUnknown extends Error {
+  override name = "MergeabilityUnknown";
+  readonly pullRequest: PullRequestUrl;
+  readonly lastStatus: MergeStatus;
+
+  constructor(pullRequest: PullRequestUrl, lastStatus: MergeStatus) {
+    super(
+      `${pullRequest}: still "${lastStatus}" after ${REBASE_STATUS_ATTEMPTS} tries. GitHub never finished computing mergeability.`,
+    );
+    this.pullRequest = pullRequest;
+    this.lastStatus = lastStatus;
+  }
+}
+
+/**
+ * Whether a pull request needs a rebase, read repeatedly through `read` until
+ * it settles.
+ *
+ * `read` is called again on `"unknown"`, up to {@link REBASE_STATUS_ATTEMPTS}
+ * times in total, waiting `wait` between one read and the next so a retry is
+ * not just the same question asked before GitHub could have answered it
+ * differently. An `"unknown"` that never settles throws
+ * {@link MergeabilityUnknown} rather than resolving: mistaking it for `false`
+ * would close a rebase ticket on a branch that still conflicts.
+ *
+ * `wait` defaults to a real delay; callers that need the retry loop to run
+ * instantly — a port test proving the counting, or a fake standing in for the
+ * host — hand it one that doesn't.
+ */
+export async function resolveNeedsRebase(
+  pullRequest: PullRequestUrl,
+  read: () => Promise<MergeStatus>,
+  wait: (delay: Milliseconds) => Promise<void> = realDelay,
+): Promise<boolean> {
+  let last: MergeStatus = "unknown";
+  for (let attempt = 0; attempt < REBASE_STATUS_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await wait(REBASE_STATUS_RETRY_DELAY);
+    }
+    last = await read();
+    if (last !== "unknown") {
+      return last === "conflicting";
+    }
+  }
+  throw new MergeabilityUnknown(pullRequest, last);
+}
+
+/**
  * What proposing the scaffold to a project that predates the manager came to.
  *
  * A proposal has three ends and the command reports all of them, because the
@@ -128,11 +259,13 @@ export type Proposal =
   /** The checkout already had the scaffold as it stands. Nothing was pushed. */
   | { kind: "unchanged" }
   /** The scaffold is on `branch`, and `url` is the draft pull request for it. */
-  | { kind: "proposed"; branch: Branch; url: string }
+  | { kind: "proposed"; branch: Branch; url: PullRequestUrl }
   /**
-   * The scaffold is committed and pushed to `branch`, but no pull request was
-   * opened. Reported rather than thrown: the branch is on the host either way,
-   * and a command that failed here did everything except the last step.
+   * The scaffold is on `branch`, but no pull request is known to be open for
+   * it. One may exist all the same, when `gh` answered with something that is
+   * not a pull request URL; `failure` says which. Reported rather than
+   * thrown: the branch is on the host either way, and a command that failed
+   * here did everything except the last step.
    */
   | { kind: "pushed"; branch: Branch; failure: string };
 
@@ -195,7 +328,7 @@ export interface RepoHost {
    * and work they had in progress there is not this command's to commit.
    */
   commitAndPush(
-    directory: string,
+    directory: Checkout,
     message: string,
     paths: string[],
   ): Promise<void>;
@@ -208,7 +341,7 @@ export interface RepoHost {
    * checkout is left on the branch it was found on, whatever the outcome.
    */
   commitAndPropose(
-    directory: string,
+    directory: Checkout,
     message: string,
     body: string,
     paths: string[],
@@ -229,11 +362,17 @@ export interface RepoHost {
    *
    * The branch is the agent's work, already committed and fetched back into
    * the checkout by the sandbox, so nothing is committed here.
+   *
+   * `gist`, when the run produced one, opens the body with it — one sentence
+   * saying what the ticket asked for, so the developer knows what they are
+   * looking at without opening the ticket. Absent, the body is the closing
+   * reference and the draft note alone.
    */
   openDraftPullRequest(
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
+    gist?: TicketGist,
   ): Promise<DraftPullRequestOpening>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.
@@ -248,15 +387,20 @@ export interface RepoHost {
    */
   discardBranch(directory: Checkout, branch: Branch): Promise<void>;
   /**
-   * Whether `pullRequest` has a comment posted after `since`.
+   * Whether `pullRequest` carries a {@link ReviewFinding} posted after
+   * `since`.
    *
    * What backs closing a review ticket: a reviewing agent that ran without
    * error still may have failed its own last step — posting the aggregated
    * report — and a ticket closed on process success alone would tell the
    * developer a review happened when nothing was ever written down. This is
-   * the one check that confirms the finding actually reached the pull request.
+   * the one check that confirms a finding, in the shape the reviewer is told
+   * to post it, actually reached the pull request.
    */
-  hasNewComment(pullRequest: PullRequestUrl, since: Date): Promise<boolean>;
+  hasReviewFindings(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<boolean>;
   /**
    * Reads `pullRequest`'s apply-review pass since `since`: see
    * {@link ApplyReviewAnswers}.
@@ -273,4 +417,11 @@ export interface RepoHost {
    * pull request was still a draft by then.
    */
   markPullRequestReady(pullRequest: PullRequestUrl): Promise<void>;
+  /**
+   * Whether `pullRequest`'s branch needs a rebase onto its base branch.
+   *
+   * What a rebase ticket's run reads back rather than takes on its own say-so:
+   * see {@link resolveNeedsRebase} for how an unsettled `"unknown"` is handled.
+   */
+  needsRebase(pullRequest: PullRequestUrl): Promise<boolean>;
 }

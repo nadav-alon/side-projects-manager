@@ -10,17 +10,25 @@ import type {
   Branch,
   Checkout,
   DraftPullRequestOpening,
+  MergeStatus,
+  Milliseconds,
   Proposal,
   PullRequestUrl,
   RepoHost,
   RepoSlug,
+  ReviewFinding,
   Ticket,
+  TicketGist,
 } from "../ports/index.ts";
 import {
   checkout,
+  isBranch,
+  isMarkedReply,
   isPullRequestUrl,
+  resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
+import { errorMessage } from "../error-message.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGED_LOCATION } from "./manager-home.ts";
@@ -35,8 +43,15 @@ const run = promisify(execFile);
  * named by everywhere else. Derivable rather than remembered, which is what
  * makes a missing clone self-healing, and owner-qualified so that two people's
  * repos of the same name are two directories rather than one.
+ *
+ * `rebaseRetryWait` is {@link resolveNeedsRebase}'s wait between retries,
+ * threaded through for tests that need `needsRebase` to run without a real
+ * delay; production callers leave it at the real one.
  */
-export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
+export function githubRepoHost(
+  location: string = MANAGED_LOCATION,
+  rebaseRetryWait?: (delay: Milliseconds) => Promise<void>,
+): RepoHost {
   return {
     async exists(repo: RepoSlug): Promise<boolean> {
       try {
@@ -84,7 +99,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async commitAndPush(
-      directory: string,
+      directory: Checkout,
       message: string,
       paths: string[],
     ): Promise<void> {
@@ -140,7 +155,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
     },
 
     async commitAndPropose(
-      directory: string,
+      directory: Checkout,
       message: string,
       body: string,
       paths: string[],
@@ -186,6 +201,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         await returnTo(directory, found);
       }
 
+      let opened: string;
       try {
         const { stdout } = await run(
           "gh",
@@ -202,24 +218,30 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
           ],
           { cwd: directory },
         );
-        return { kind: "proposed", branch, url: stdout.trim() };
+        opened = stdout;
       } catch (error) {
         // The branch is on the host by now. A repo with pull requests turned
         // off, or a base branch nobody can open against, is a reason to say so
         // rather than to lose the push that already happened.
-        return { kind: "pushed", branch, failure: errorMessage(error) };
+        return { kind: "pushed", branch, failure: commandFailureMessage(error) };
       }
+
+      const result = pullRequestFrom(opened, "");
+      return "url" in result
+        ? { kind: "proposed", branch, url: result.url }
+        : { kind: "pushed", branch, failure: result.failure };
     },
 
     async openDraftPullRequest(
       directory: Checkout,
       branch: Branch,
       ticket: Ticket,
+      gist?: TicketGist,
     ): Promise<DraftPullRequestOpening> {
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
       // every other run of this project for no reason.
-      let base: string;
+      let base: Branch;
       try {
         base = await withCheckoutLock(directory, async () => {
           // What the run branched from: the sandbox clones this checkout at its
@@ -248,7 +270,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
             // earlier morning, which a checkout that has since been re-cloned
             // cannot see. Said plainly, because the raw push output does not.
             throw new Error(
-              `Could not push ${branch} to ${ticket.repo}: ${errorMessage(error)}`,
+              `Could not push ${branch} to ${ticket.repo}: ${commandFailureMessage(error)}`,
             );
           }
           return onBranch;
@@ -256,7 +278,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       } catch (error) {
         // Everything that can fail in here fails before or at the push, so
         // the branch is still only in the checkout.
-        return { kind: "unpushed", failure: errorMessage(error) };
+        return { kind: "unpushed", failure: commandFailureMessage(error) };
       }
 
       let opened: string;
@@ -279,7 +301,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
             "--title",
             ticket.title,
             "--body",
-            pullRequestBody(ticket),
+            pullRequestBody(ticket, gist),
           ],
           { cwd: directory },
         );
@@ -292,21 +314,14 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
         // anything else in this message.
         return {
           kind: "pushed",
-          failure: `could not open a pull request against ${base}: ${errorMessage(error)}`,
+          failure: `could not open a pull request against ${base}: ${commandFailureMessage(error)}`,
         };
       }
 
-      // Outside the catch: `gh` answering with something that is not a pull
-      // request is a different failure from `gh` refusing, and reporting it as
-      // the second would say a pull request was refused that may well exist.
-      const answer = opened.trim();
-      if (!isPullRequestUrl(answer)) {
-        return {
-          kind: "pushed",
-          failure: `gh answered "${answer}" rather than a pull request URL, so a pull request against ${base} may have been opened all the same`,
-        };
-      }
-      return { kind: "opened", pullRequest: answer };
+      const result = pullRequestFrom(opened, ` against ${base}`);
+      return "url" in result
+        ? { kind: "opened", pullRequest: result.url }
+        : { kind: "pushed", failure: result.failure };
     },
 
     async discardBranch(directory: Checkout, branch: Branch): Promise<void> {
@@ -323,24 +338,22 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       });
     },
 
-    async hasNewComment(
+    async hasReviewFindings(
       pullRequest: PullRequestUrl,
       since: Date,
     ): Promise<boolean> {
       // Inline comments — one per finding, on the line it is actually about —
       // not the pull request's own issue-level comments: that is the shape
-      // `reviewPromptFor` asks the reviewing agent to post in, and checking
-      // the wrong kind here would never see it land.
+      // `reviewPromptFor` asks the reviewing agent to post in.
       const { owner, repo, number } = pullRequestParts(pullRequest);
       const { stdout } = await run("gh", [
         "api",
         `repos/${owner}/${repo}/pulls/${number}/comments`,
-        "--jq",
-        "[.[].created_at] | max",
       ]);
 
-      const latest = stdout.trim();
-      return latest !== "" && latest !== "null" && new Date(latest) > since;
+      return reviewFindingsIn(stdout, pullRequest).some(
+        (finding) => finding.postedAt > since,
+      );
     },
 
     async readApplyReviewAnswers(
@@ -384,7 +397,48 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       }
       await run("gh", ["pr", "ready", pullRequest]);
     },
+
+    async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
+      return resolveNeedsRebase(
+        pullRequest,
+        () => mergeStatusOf(pullRequest),
+        rebaseRetryWait,
+      );
+    },
   };
+}
+
+/**
+ * `gh pr list` computes every open pull request's mergeability in one
+ * background pass and answers `UNKNOWN` for all of them until it catches up —
+ * asked for a project with 14 open pull requests, all 14 came back `UNKNOWN`.
+ * Asking `gh pr view` for one pull request gets GitHub's settled answer, or an
+ * honest `UNKNOWN` while that pull request's own computation is still
+ * running, so this reads one pull request at a time rather than the list.
+ *
+ * Reads `mergeable` only, not `mergeStateStatus`: this answers #298's
+ * question, conflicts, not #293's broader one of whether a branch merely
+ * behind its base also counts. A pull request that is `MERGEABLE` but
+ * `BEHIND` answers `false` here.
+ */
+async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> {
+  const { stdout } = await run("gh", [
+    "pr",
+    "view",
+    pullRequest,
+    "--json",
+    "mergeable",
+    "--jq",
+    ".mergeable",
+  ]);
+  switch (stdout.trim()) {
+    case "CONFLICTING":
+      return "conflicting";
+    case "MERGEABLE":
+      return "clean";
+    default:
+      return "unknown";
+  }
 }
 
 /**
@@ -530,14 +584,21 @@ function commentsFrom(nodes: RawComment[]): ApplyReviewComment[] {
  *
  * A review's own thread has no comments of its own on GitHub — its reply is
  * posted as one of the pull request's comments (`gh pr comment`, per the
- * skill) — so its thread is built from the review's body followed by every
- * later pull request comment that opens quoting it.
+ * skill) — so each review body's thread is built from the pull request's
+ * comments, taken in posting order, each joining only reviews submitted
+ * before it:
+ *
+ * - A marked reply answers the oldest review still awaiting a reply. With
+ *   none awaiting, it joins the newest review, so its verdict still counts.
+ *   The skill is free to abridge, reword or reflow the quote a reply opens
+ *   with, so nothing here reads that quote: one marked reply answers one
+ *   review body, whatever it quotes.
+ * - Any other comment joins each review it opens quoting, so a reviewer
+ *   quoting a review body to ask again reopens that review's thread.
  */
 function applyReviewThreadsFrom(
   pullRequest: RawApplyReviewPullRequest,
 ): ApplyReviewThread[] {
-  const pullRequestComments = commentsFrom(pullRequest.comments);
-
   const threads: ApplyReviewThread[] = [];
 
   for (const thread of pullRequest.reviewThreads) {
@@ -547,32 +608,62 @@ function applyReviewThreadsFrom(
     });
   }
 
-  for (const review of pullRequest.reviews) {
-    if (review.body.trim() === "" || review.submittedAt === null) {
-      continue;
+  const reviews = pullRequest.reviews
+    .flatMap((review) => {
+      if (review.body.trim() === "" || review.submittedAt === null) {
+        return [];
+      }
+      const submittedAt = new Date(review.submittedAt);
+      return [
+        {
+          body: review.body,
+          submittedAt,
+          comments: [{ body: review.body, postedAt: submittedAt }],
+        },
+      ];
+    })
+    .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+
+  const comments = commentsFrom(pullRequest.comments).sort(
+    (a, b) => a.postedAt.getTime() - b.postedAt.getTime(),
+  );
+
+  for (const comment of comments) {
+    const earlier = reviews.filter(
+      (review) => review.submittedAt < comment.postedAt,
+    );
+    if (isMarkedReply(comment.body)) {
+      const answered =
+        earlier.find((review) => awaitsReply(review.comments)) ??
+        earlier.at(-1);
+      answered?.comments.push(comment);
+    } else {
+      for (const review of earlier) {
+        if (opensQuoting(comment.body, review.body)) {
+          review.comments.push(comment);
+        }
+      }
     }
-    const submittedAt = new Date(review.submittedAt);
-    const body = review.body;
-    threads.push({
-      resolved: false,
-      comments: [
-        { body, postedAt: submittedAt },
-        ...pullRequestComments.filter(
-          (comment) =>
-            comment.postedAt > submittedAt && opensQuoting(comment.body, body),
-        ),
-      ],
-    });
+  }
+
+  for (const review of reviews) {
+    threads.push({ resolved: false, comments: review.comments });
   }
 
   return threads;
 }
 
+/** Whether a thread's last comment is anything but a marked reply. */
+function awaitsReply(comments: ApplyReviewComment[]): boolean {
+  const last = comments.at(-1);
+  return last === undefined || !isMarkedReply(last.body);
+}
+
 /**
- * Whether `comment` opens with a quote of a passage from `review`: the one
- * link the skill leaves from a pull request comment back to the review body it
- * answers. A comment quoting nothing — a status comment, someone chiming in —
- * belongs to no review's thread.
+ * Whether `comment` opens with a quote of a passage from `review`: how a
+ * comment that is not a marked reply names the review body it speaks to. A
+ * comment quoting nothing — a status comment, someone chiming in — belongs to
+ * no review's thread.
  */
 function opensQuoting(comment: string, review: string): boolean {
   const quoted: string[] = [];
@@ -589,20 +680,47 @@ function opensQuoting(comment: string, review: string): boolean {
 }
 
 /**
- * What the pull request says. Short on purpose: the ticket says what was
- * wanted and the diff says what was done, and neither is worth restating.
+ * What `gh pr create`'s stdout came to: the pull request it opened, or the
+ * sentence to report when it did not.
+ *
+ * `gh` answering with something that is not a pull request URL is a
+ * different failure from `gh` refusing outright, and reporting it as the
+ * second would say a pull request was refused that may well exist. `detail`
+ * names what the pull request would have been opened against, for the one
+ * caller that has a base to name.
+ */
+export function pullRequestFrom(
+  stdout: string,
+  detail: string,
+): { url: PullRequestUrl } | { failure: string } {
+  const answer = stdout.trim();
+  if (isPullRequestUrl(answer)) {
+    return { url: answer };
+  }
+  return {
+    failure: `gh answered "${answer}" rather than a pull request URL, so a pull request${detail} may have been opened all the same`,
+  };
+}
+
+/**
+ * What the pull request says. With a gist, it opens with that sentence — what
+ * the ticket asked for, in the implementing agent's own words — followed by a
+ * blank line and the closing reference and draft note; without one, it is
+ * just the closing reference and draft note.
  *
  * The closing reference is what links the two in GitHub's own UI. It closes
  * nothing by itself — the pull request is a draft, and only a merge the
- * developer makes acts on it.
+ * developer makes acts on it. It stays on its own line either way: a
+ * reviewing agent finds the ticket by reading for it.
  */
-function pullRequestBody(ticket: Ticket): string {
-  return [
+function pullRequestBody(ticket: Ticket, gist?: TicketGist): string {
+  const body = [
     `Closes #${ticket.number}.`,
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It stays a draft: promoting and merging it are yours.",
   ].join("\n");
+  return gist === undefined ? body : [gist, "", body].join("\n");
 }
 
 /** Whether `directory` has a local branch named `of`. */
@@ -624,7 +742,7 @@ async function hasBranch(directory: Checkout, of: Branch): Promise<boolean> {
 
 /** Whether any of `paths` differs from what the checkout has committed. */
 async function hasChanges(
-  directory: string,
+  directory: Checkout,
   paths: string[],
 ): Promise<boolean> {
   const { stdout } = await run("git", [
@@ -646,7 +764,7 @@ async function hasChanges(
  * rather than failing, which is what makes re-scaffolding after a convention
  * changes the same command as scaffolding the first time.
  */
-async function switchTo(directory: string, branch: string): Promise<void> {
+async function switchTo(directory: Checkout, branch: Branch): Promise<void> {
   try {
     await run("git", ["-C", directory, "checkout", "-b", branch]);
   } catch {
@@ -663,8 +781,8 @@ async function switchTo(directory: string, branch: string): Promise<void> {
  * than leaving the developer standing on the branch this command made.
  */
 async function returnTo(
-  directory: string,
-  branch: string | undefined,
+  directory: Checkout,
+  branch: Branch | undefined,
 ): Promise<void> {
   try {
     await run("git", ["-C", directory, "checkout", branch ?? "-"]);
@@ -682,16 +800,18 @@ async function returnTo(
   }
 }
 
-/** What `gh` or `git` said, preferring its stderr over the exit-code message. */
-function errorMessage(error: unknown): string {
+/**
+ * What `gh` or `git` said, preferring its stderr over the exit-code message
+ * `errorMessage` alone would give: `execFile` throws an error whose `message`
+ * is its own "Command failed" summary, and the useful sentence is what the
+ * process wrote to its error stream instead.
+ */
+function commandFailureMessage(error: unknown): string {
   const stderr =
     typeof error === "object" && error !== null && "stderr" in error
       ? String(error.stderr).trim()
       : "";
-  if (stderr !== "") {
-    return stderr;
-  }
-  return error instanceof Error ? error.message : String(error);
+  return stderr !== "" ? stderr : errorMessage(error);
 }
 
 /**
@@ -757,6 +877,49 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
   return segments.slice(-2).join("/").toLowerCase() === repo.toLowerCase();
 }
 
+/**
+ * The {@link ReviewFinding}s `stdout` — `gh api pulls/.../comments` —
+ * carries, each beside when it was posted. Read against the declared shape
+ * and no other: a raw comment missing `path`, `line` or `body` is not a
+ * finding in that shape, and is left out rather than counted, which is what
+ * keeps this from also counting the aggregated report the reviewer was told
+ * never to post as one comment.
+ */
+function reviewFindingsIn(
+  stdout: string,
+  pullRequest: PullRequestUrl,
+): { finding: ReviewFinding; postedAt: Date }[] {
+  const where = `gh api pulls comments for ${pullRequest}`;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected an array.`);
+  }
+
+  const findings: { finding: ReviewFinding; postedAt: Date }[] = [];
+  for (const raw of payload) {
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+    const { path, line, body, created_at } = raw as Record<string, unknown>;
+    if (
+      typeof path !== "string" ||
+      typeof line !== "number" ||
+      typeof body !== "string" ||
+      typeof created_at !== "string"
+    ) {
+      continue;
+    }
+    findings.push({ finding: { path, line, body }, postedAt: new Date(created_at) });
+  }
+  return findings;
+}
+
 /** The owner, repo and number a pull request's own URL names. */
 function pullRequestParts(
   url: PullRequestUrl,
@@ -799,24 +962,34 @@ async function catchUp(directory: Checkout): Promise<void> {
     ]);
   } catch (error) {
     throw new Error(
-      `${directory} cannot be brought up to date with its remote: ${errorMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
+      `${directory} cannot be brought up to date with its remote: ${commandFailureMessage(error)}. Bring it level with its upstream by hand, then run this again.`,
     );
   }
 }
 
 /** The branch the checkout is on, or undefined on a detached HEAD. */
-async function currentBranch(directory: string): Promise<string | undefined> {
+async function currentBranch(
+  directory: Checkout,
+): Promise<Branch | undefined> {
   const { stdout } = await run("git", [
     "-C",
     directory,
     "branch",
     "--show-current",
   ]);
-  const branch = stdout.trim();
-  return branch === "" ? undefined : branch;
+  const name = stdout.trim();
+  if (name === "") {
+    return undefined;
+  }
+  if (!isBranch(name)) {
+    throw new TypeError(
+      `git answered a branch name this adapter cannot use: ${name}`,
+    );
+  }
+  return name;
 }
 
-async function hasUpstream(directory: string): Promise<boolean> {
+async function hasUpstream(directory: Checkout): Promise<boolean> {
   try {
     await run("git", [
       "-C",

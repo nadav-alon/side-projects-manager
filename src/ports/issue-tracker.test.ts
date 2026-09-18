@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { issueNumber } from "./issue-number.ts";
 import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
+  SIZE_LABEL_PREFIX,
   carriesReadyForAgent,
   isApplyReviewTicket,
   isPullRequestTicket,
+  isRebaseTicket,
   isReviewTicket,
   modelLabelOf,
+  sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
   type OpenIssue,
@@ -27,15 +31,17 @@ function openIssue(
   return {
     ticket: {
       repo: PILOT,
-      number,
+      number: issueNumber(number),
       title: `Issue ${number}`,
       ...(facts.priority === undefined
         ? {}
         : { priority: ticketPriority(facts.priority) }),
     },
     eligible: true,
-    openBlockerNumbers: facts.blockers ?? [],
-    ...(facts.parent === undefined ? {} : { parent: facts.parent }),
+    openBlockerNumbers: (facts.blockers ?? []).map(issueNumber),
+    ...(facts.parent === undefined
+      ? {}
+      : { parent: issueNumber(facts.parent) }),
   };
 }
 
@@ -161,7 +167,7 @@ describe("ticketKind", () => {
   it("reads a ticket bound to a review as a review", () => {
     const ticket = {
       repo: PILOT,
-      number: 13,
+      number: issueNumber(13),
       title: "Review #12",
       pullRequest: { kind: "review" as const, url: PULL_REQUEST },
     };
@@ -172,7 +178,7 @@ describe("ticketKind", () => {
   it("reads a ticket bound to an apply-review as an apply-review", () => {
     const ticket = {
       repo: PILOT,
-      number: 13,
+      number: issueNumber(13),
       title: "Apply the review",
       pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
     };
@@ -180,44 +186,71 @@ describe("ticketKind", () => {
     assert.equal(ticketKind(ticket), "apply-review");
   });
 
+  it("reads a ticket bound to a rebase as a rebase", () => {
+    const ticket = {
+      repo: PILOT,
+      number: issueNumber(13),
+      title: "Rebase #12",
+      pullRequest: { kind: "rebase" as const, url: PULL_REQUEST },
+    };
+
+    assert.equal(ticketKind(ticket), "rebase");
+  });
+
   it("reads a ticket naming no pull request as an implementation", () => {
     assert.equal(
-      ticketKind({ repo: PILOT, number: 12, title: "Add a thing" }),
+      ticketKind({ repo: PILOT, number: issueNumber(12), title: "Add a thing" }),
       "implementation",
     );
   });
 });
 
-describe("isReviewTicket, isApplyReviewTicket and isPullRequestTicket", () => {
+describe("isReviewTicket, isApplyReviewTicket, isRebaseTicket and isPullRequestTicket", () => {
   const review = {
     repo: PILOT,
-    number: 13,
+    number: issueNumber(13),
     title: "Review #12",
     pullRequest: { kind: "review" as const, url: PULL_REQUEST },
   };
   const applyReview = {
     repo: PILOT,
-    number: 14,
+    number: issueNumber(14),
     title: "Apply the review",
     pullRequest: { kind: "apply-review" as const, url: PULL_REQUEST },
   };
-  const implementation = { repo: PILOT, number: 12, title: "Add a thing" };
+  const rebase = {
+    repo: PILOT,
+    number: issueNumber(15),
+    title: "Rebase #12",
+    pullRequest: { kind: "rebase" as const, url: PULL_REQUEST },
+  };
+  const implementation = { repo: PILOT, number: issueNumber(12), title: "Add a thing" };
 
-  it("tells a review ticket from the other two kinds", () => {
+  it("tells a review ticket from the other three kinds", () => {
     assert.equal(isReviewTicket(review), true);
     assert.equal(isReviewTicket(applyReview), false);
+    assert.equal(isReviewTicket(rebase), false);
     assert.equal(isReviewTicket(implementation), false);
   });
 
-  it("tells an apply-review ticket from the other two kinds", () => {
+  it("tells an apply-review ticket from the other three kinds", () => {
     assert.equal(isApplyReviewTicket(applyReview), true);
     assert.equal(isApplyReviewTicket(review), false);
+    assert.equal(isApplyReviewTicket(rebase), false);
     assert.equal(isApplyReviewTicket(implementation), false);
   });
 
-  it("tells a pull-request-bound ticket, of either kind, from an implementation", () => {
+  it("tells a rebase ticket from the other three kinds", () => {
+    assert.equal(isRebaseTicket(rebase), true);
+    assert.equal(isRebaseTicket(review), false);
+    assert.equal(isRebaseTicket(applyReview), false);
+    assert.equal(isRebaseTicket(implementation), false);
+  });
+
+  it("tells a pull-request-bound ticket, of any of the three kinds, from an implementation", () => {
     assert.equal(isPullRequestTicket(review), true);
     assert.equal(isPullRequestTicket(applyReview), true);
+    assert.equal(isPullRequestTicket(rebase), true);
     assert.equal(isPullRequestTicket(implementation), false);
   });
 });
@@ -288,6 +321,56 @@ describe("modelLabelOf", () => {
     assert.deepEqual(modelLabelOf(["model:opus", "model:"]), {
       kind: "unusable",
       labels: ["model:"],
+    });
+  });
+});
+
+describe("sizeLabelOf", () => {
+  it("declares no size for a ticket without a size label", () => {
+    assert.equal(sizeLabelOf([READY_FOR_AGENT_LABEL, "enhancement"]), undefined);
+    assert.equal(sizeLabelOf([]), undefined);
+  });
+
+  for (const letter of ["S", "M", "L", "XL"] as const) {
+    it(`declares ${letter} for a ticket labelled size:${letter}`, () => {
+      assert.deepEqual(sizeLabelOf([READY_FOR_AGENT_LABEL, `size:${letter}`]), {
+        kind: "declared",
+        size: letter,
+      });
+    });
+  }
+
+  it("counts the larger of two declared sizes, whichever order they're labelled in", () => {
+    assert.deepEqual(sizeLabelOf(["size:S", "size:L"]), {
+      kind: "declared",
+      size: "L",
+    });
+    assert.deepEqual(sizeLabelOf(["size:XL", "size:M"]), {
+      kind: "declared",
+      size: "XL",
+    });
+  });
+
+  it("reads only labels that start with the prefix, whatever its case", () => {
+    assert.equal(SIZE_LABEL_PREFIX, "size:");
+    assert.equal(sizeLabelOf(["my-size:S", "sizes:S"]), undefined);
+    assert.deepEqual(sizeLabelOf(["SIZE:m"]), {
+      kind: "declared",
+      size: "M",
+    });
+  });
+
+  it("marks a size label naming no recognised size unusable, carrying it as written", () => {
+    assert.deepEqual(sizeLabelOf(["size:huge"]), {
+      kind: "unusable",
+      labels: ["size:huge"],
+    });
+  });
+
+  it("marks a ticket unusable even beside a recognised size", () => {
+    assert.deepEqual(sizeLabelOf(["size:S", "size:huge"]), {
+      kind: "unusable",
+      labels: ["size:huge"],
     });
   });
 });
