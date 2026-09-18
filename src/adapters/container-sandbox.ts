@@ -1190,6 +1190,14 @@ export function dockerCommand({
     // sudo to delete. Which uid that is matters as well as whose: see
     // `hostUser` for root, the one it refuses to pin.
     ...(user ? ["--user", user] : []),
+    // The host's network rather than docker's bridge. Through the bridge, a
+    // run's API connections went silent while staying open (#262), or got no
+    // response at all, while the host's own CLI was fine. Taking docker's NAT
+    // out of the path costs network isolation: the agent can reach services
+    // listening on the host's localhost. What still bounds a run is the
+    // filesystem — a throwaway clone, read-only for a review (see `Mount`).
+    "--network",
+    "host",
     "--volume",
     // Half the enforcement for a review — see `Mount`.
     `${directory}:/repo${mount === "ro" ? ":ro" : ""}`,
