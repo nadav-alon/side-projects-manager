@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   if (process.env[LOOP_PROCESS] === undefined) {
     const invoked = await invokeExclusively(fileInvocationLease(), invokeLoop);
     if (!invoked) {
-      console.log("an invocation is already running; nothing to do.");
+      console.log("an invocation is already running.");
     }
     return;
   }
