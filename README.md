@@ -24,12 +24,13 @@ invocation, an iteration and a run are three different things.
 the outside world only through six injected ports — issue tracker, repo host, sandbox, usage ledger,
 clock and store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
 ([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the daily schedule,
-the logon guard and any future cloud trigger are callers of `morningLoop` exactly like it is.
+the logon guard, a manual `npm run morning-run` and any future cloud trigger are callers of
+`morningLoop` exactly like it is.
 
 ## Triggers
 
-Two triggers fire the loop: a daily schedule and a guard that catches a day the machine was off
-overnight by firing on first logon instead. A manual `npm run morning-run` is a third. All three call
+Three triggers fire the loop: a daily schedule, a guard that catches a day the machine was off
+overnight by firing on first logon instead, and a manual `npm run morning-run`. All three call
 [`src/bin/morning-run.ts`](src/bin/morning-run.ts), which wraps the loop in an invocation lease
 ([`src/trigger-guard.ts`](src/trigger-guard.ts)): whichever firing acquires it runs the loop and every
 other firing, however long the first one takes, is a no-op that says an invocation is already running.
