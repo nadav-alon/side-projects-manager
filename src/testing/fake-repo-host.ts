@@ -32,7 +32,7 @@ export interface FakeProposal extends FakePush {
   /** What the pull request says about the change. */
   body: string;
   /** The branch the scaffold was committed to, never the developer's own. */
-  branch: string;
+  branch: Branch;
 }
 
 /** One draft pull request the loop opened, in the order the fake received it. */
@@ -97,7 +97,7 @@ export class FakeRepoHost implements RepoHost {
   readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
-  proposal: (branch: string) => Proposal = (branch) => ({
+  proposal: (branch: Branch) => Proposal = (branch) => ({
     kind: "proposed",
     branch,
     url: FakeRepoHost.PROPOSED_PULL_REQUEST,
@@ -141,7 +141,7 @@ export class FakeRepoHost implements RepoHost {
     message: string,
     body: string,
     paths: string[],
-    branch: string,
+    branch: Branch,
   ): Promise<Proposal> {
     this.proposals.push({
       directory,

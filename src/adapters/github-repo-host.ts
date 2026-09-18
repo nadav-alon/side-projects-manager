@@ -144,7 +144,7 @@ export function githubRepoHost(location: string = MANAGED_LOCATION): RepoHost {
       message: string,
       body: string,
       paths: string[],
-      branch: string,
+      branch: Branch,
     ): Promise<Proposal> {
       if (paths.length === 0 || !(await hasChanges(directory, paths))) {
         return { kind: "unchanged" };

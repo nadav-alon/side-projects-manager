@@ -128,13 +128,13 @@ export type Proposal =
   /** The checkout already had the scaffold as it stands. Nothing was pushed. */
   | { kind: "unchanged" }
   /** The scaffold is on `branch`, and `url` is the draft pull request for it. */
-  | { kind: "proposed"; branch: string; url: string }
+  | { kind: "proposed"; branch: Branch; url: string }
   /**
    * The scaffold is committed and pushed to `branch`, but no pull request was
    * opened. Reported rather than thrown: the branch is on the host either way,
    * and a command that failed here did everything except the last step.
    */
-  | { kind: "pushed"; branch: string; failure: string };
+  | { kind: "pushed"; branch: Branch; failure: string };
 
 /**
  * What opening a finished run's draft pull request came to.
@@ -212,7 +212,7 @@ export interface RepoHost {
     message: string,
     body: string,
     paths: string[],
-    branch: string,
+    branch: Branch,
   ): Promise<Proposal>;
   /**
    * Pushes `branch` from the checkout at `directory` and opens a draft pull

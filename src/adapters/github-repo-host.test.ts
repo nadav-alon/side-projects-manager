@@ -85,7 +85,7 @@ describe("proposing a scaffold to a project that predates the manager", () => {
       "Install the agent harness",
       "body",
       paths,
-      "harness",
+      toBranch("harness"),
     );
 
   /** A checkout with history behind it, which is what "predates" means. */
