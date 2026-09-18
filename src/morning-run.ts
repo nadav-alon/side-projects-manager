@@ -367,13 +367,14 @@ export async function morningLoop(
           continue;
         }
 
-        const budget = await ports.store.loadBudget();
+        // Asked immediately before this run and never earlier, so the
+        // windows it reads are the ones in force when the run would start,
+        // not the state the invocation opened with.
+        const { standDown: refusal, budget } = await gate.consult(
+          ticket,
+          [...inProgress.values()],
+        );
         concurrencyLimit = budget.maxConcurrentIterations;
-        // Asked immediately before this run and never earlier, so what it
-        // reads is the state as it stands right now — every run already in
-        // progress this invocation included — not the state the invocation
-        // opened with.
-        const refusal = await gate.consult(ticket, [...inProgress.values()]);
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
           standDown ??= { ...refusal, refused: chosen.project.repo };

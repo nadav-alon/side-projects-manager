@@ -33,6 +33,7 @@ import {
   FROZEN_NOW,
   MANAGER,
   PILOT,
+  SPENDABLE_THIS_WEEK,
   YESTERDAY,
   FakeClock,
   FakeRepoHost,
@@ -2639,8 +2640,6 @@ describe("morningLoop", () => {
    * actually stands down on a refusal.
    */
   describe("the budget gate", () => {
-    const SPENDABLE_THIS_WEEK = 250_000_000;
-
     /** A project with one thing to do, so the gate is the only question. */
     function readyToWork() {
       const ports = fakePorts();

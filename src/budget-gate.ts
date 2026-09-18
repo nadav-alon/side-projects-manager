@@ -32,6 +32,18 @@ export interface StandDown {
   resetsAt: Date;
 }
 
+/** What a consultation found: its verdict, and the budget document it read to reach it. */
+export interface Consultation {
+  /** `undefined` is the go-ahead. */
+  standDown: StandDown | undefined;
+  /**
+   * The document this consultation read. Handed back rather than reread, so
+   * the loop's own concerns that live in it — the concurrency limit, the
+   * spend ceiling — see exactly what the verdict was reasoned over.
+   */
+  budget: Budget;
+}
+
 /** The two ports the gate reads afresh on every consultation. */
 export interface BudgetGatePorts {
   ledger: UsageLedger;
@@ -52,21 +64,19 @@ export interface BudgetGatePorts {
 export interface InvocationBudgetGate {
   /**
    * Whether `ticket`'s run may start, given the tickets whose runs are still
-   * in progress. `undefined` is the go-ahead.
+   * in progress.
    *
    * Reads the budget document afresh and the ledger at this instant, with
    * the budget document's own observed reset, and counts the runs the state
    * document records inside each window — nothing here is cached from when
    * the gate was built.
    *
-   * `inProgress` is not yet weighed: charging its runs an estimate, like
-   * `ticket`'s own, is what the window arithmetic gains next.
    * TODO[#158]: charge a run estimate for `ticket` and for `inProgress`.
    */
   consult(
     ticket: Ticket,
     inProgress: readonly Ticket[],
-  ): Promise<StandDown | undefined>;
+  ): Promise<Consultation>;
 }
 
 /**
@@ -86,7 +96,10 @@ export function invocationBudgetGate(
         ports.clock.now(),
         budget.observedResetAt,
       );
-      return budgetGate(windows, budget, runsRecorded(projectStates));
+      return {
+        standDown: budgetGate(windows, budget, runsRecorded(projectStates)),
+        budget,
+      };
     },
   };
 }

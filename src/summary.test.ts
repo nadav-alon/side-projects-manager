@@ -14,6 +14,7 @@ import {
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
+import { SPENDABLE_THIS_WEEK } from "./testing/index.ts";
 
 const REPO = repoSlug("nadav-alon/pilot");
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/171");
@@ -222,8 +223,8 @@ describe("summaryLine", () => {
     function weeklyRefusal(overrides: Partial<GateStandDown> = {}): GateStandDown {
       return {
         reason: "weekly-reserve",
-        tokensUsed: tokenCount(250_000_001),
-        spendable: tokenCount(250_000_000),
+        tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
+        spendable: tokenCount(SPENDABLE_THIS_WEEK),
         resetsAt: RESETS_AT,
         refused: REPO,
         ...overrides,

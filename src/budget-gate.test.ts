@@ -9,8 +9,6 @@ import {
   reserveFraction,
   tokenCount,
   type Budget,
-  type ProjectState,
-  type RepoSlug,
   type Ticket,
   type UsageWindows,
 } from "./ports/index.ts";
@@ -20,6 +18,7 @@ import {
   MANAGER,
   NO_USAGE,
   PILOT,
+  SPENDABLE_THIS_WEEK,
   YESTERDAY,
   FakeClock,
   FakeStore,
@@ -29,14 +28,9 @@ import {
 
 const TICKET: Ticket = { repo: PILOT, number: issueNumber(7), title: "Add the thing" };
 
-/** The most a 500,000,000-token week may have spent before `DEFAULT_BUDGET`'s reserve refuses. */
-const SPENDABLE_THIS_WEEK = 250_000_000;
-
 /**
- * One invocation's gate, built the way `morningLoop` builds it: over the
- * state document's projects, read once up front and then held live — a run
- * `store.markWorked` after this call still reaches a later `consult`, the
- * same way a run `morningLoop` records mid-invocation does.
+ * One invocation's gate, built the way `morningLoop` builds it: over a
+ * snapshot of the state document's projects as the invocation read it.
  */
 async function openGate(
   store: FakeStore,
@@ -54,7 +48,7 @@ describe("invocationBudgetGate", () => {
     ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
     const gate = await openGate(store, ledger);
 
-    assert.equal(await gate.consult(TICKET, []), undefined);
+    assert.equal((await gate.consult(TICKET, [])).standDown, undefined);
   });
 
   it("refuses rather than let the reserve be spent a token over", async () => {
@@ -63,7 +57,7 @@ describe("invocationBudgetGate", () => {
     ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
     const gate = await openGate(store, ledger);
 
-    const refusal = await gate.consult(TICKET, []);
+    const { standDown: refusal } = await gate.consult(TICKET, []);
 
     assert.equal(refusal?.reason, "weekly-reserve");
     assert.equal(refusal?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
@@ -78,7 +72,7 @@ describe("invocationBudgetGate", () => {
     );
     const gate = await openGate(store, ledger);
 
-    const refusal = await gate.consult(TICKET, []);
+    const { standDown: refusal } = await gate.consult(TICKET, []);
 
     assert.equal(refusal?.reason, "five-hour-window");
   });
@@ -94,7 +88,32 @@ describe("invocationBudgetGate", () => {
     );
     const gate = await openGate(store, ledger);
 
-    assert.equal((await gate.consult(TICKET, []))?.reason, "weekly-reserve");
+    assert.equal(
+      (await gate.consult(TICKET, [])).standDown?.reason,
+      "weekly-reserve",
+    );
+  });
+
+  it("names the 5-hour window when it is the one that outlasts the week", async () => {
+    const store = new FakeStore();
+    const ledger = new FakeUsageLedger();
+    ledger.reports({
+      fiveHour: {
+        ...NO_USAGE.fiveHour,
+        resetsAt: new Date("2026-01-05T00:00:00.000Z"),
+        tokensUsed: tokenCount(DEFAULT_BUDGET.fiveHourAllowance + 1),
+      },
+      weekly: {
+        ...NO_USAGE.weekly,
+        tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
+      },
+    });
+    const gate = await openGate(store, ledger);
+
+    assert.equal(
+      (await gate.consult(TICKET, [])).standDown?.reason,
+      "five-hour-window",
+    );
   });
 
   describe("reading the ledger", () => {
@@ -138,8 +157,19 @@ describe("invocationBudgetGate", () => {
     store.budget = { ...store.budget, reserveFraction: reserveFraction(0) };
     const after = await gate.consult(TICKET, []);
 
-    assert.equal(before?.reason, "weekly-reserve");
-    assert.equal(after, undefined);
+    assert.equal(before.standDown?.reason, "weekly-reserve");
+    assert.equal(after.standDown, undefined);
+  });
+
+  it("hands back the budget document it read, for what the loop needs from it besides the verdict", async () => {
+    const store = new FakeStore();
+    store.budget = { ...DEFAULT_BUDGET, reserveFraction: reserveFraction(0) };
+    const ledger = new FakeUsageLedger();
+    const gate = await openGate(store, ledger);
+
+    const { budget } = await gate.consult(TICKET, []);
+
+    assert.deepEqual(budget, store.budget);
   });
 
   /**
@@ -158,7 +188,10 @@ describe("invocationBudgetGate", () => {
       ledger.reports(spent({ weekly: 0 }));
       const gate = await openGate(store, ledger);
 
-      assert.equal((await gate.consult(TICKET, []))?.reason, "weekly-reserve");
+      assert.equal(
+        (await gate.consult(TICKET, [])).standDown?.reason,
+        "weekly-reserve",
+      );
     });
 
     it("counts a run recorded against the live map after the gate was built", async () => {
@@ -166,7 +199,7 @@ describe("invocationBudgetGate", () => {
       const ledger = new FakeUsageLedger();
       ledger.reports(spent({ weekly: 0 }));
       const state = await store.loadState();
-      const projects = new Map(state.projects) as Map<RepoSlug, ProjectState>;
+      const projects = new Map(state.projects);
       const gate = invocationBudgetGate(
         { ledger, clock: new FakeClock(), store },
         projects,
@@ -182,8 +215,8 @@ describe("invocationBudgetGate", () => {
       );
       const after = await gate.consult(TICKET, []);
 
-      assert.equal(before, undefined);
-      assert.equal(after?.reason, "weekly-reserve");
+      assert.equal(before.standDown, undefined);
+      assert.equal(after.standDown?.reason, "weekly-reserve");
     });
 
     it("counts every project's runs, not just the ticket's own", async () => {
@@ -196,7 +229,10 @@ describe("invocationBudgetGate", () => {
       ledger.reports(spent({ weekly: 0 }));
       const gate = await openGate(store, ledger);
 
-      assert.equal((await gate.consult(TICKET, []))?.reason, "weekly-reserve");
+      assert.equal(
+        (await gate.consult(TICKET, [])).standDown?.reason,
+        "weekly-reserve",
+      );
     });
 
     it("ignores runs from before the window opened", async () => {
@@ -209,7 +245,38 @@ describe("invocationBudgetGate", () => {
       ledger.reports(spent({ weekly: 0 }));
       const gate = await openGate(store, ledger);
 
-      assert.equal(await gate.consult(TICKET, []), undefined);
+      assert.equal((await gate.consult(TICKET, [])).standDown, undefined);
+    });
+
+    it("leaves a run out of the 5-hour window it predates", async () => {
+      const store = new FakeStore();
+      store.markWorked(PILOT, YESTERDAY, {
+        at: YESTERDAY,
+        tokensUsed: tokenCount(1),
+      });
+      const ledger = new FakeUsageLedger();
+      ledger.reports(
+        spent({ fiveHour: DEFAULT_BUDGET.fiveHourAllowance, weekly: 0 }),
+      );
+      const gate = await openGate(store, ledger);
+
+      assert.equal((await gate.consult(TICKET, [])).standDown, undefined);
+    });
+
+    it("adds them to what the ledger did see", async () => {
+      const store = new FakeStore();
+      store.markWorked(PILOT, YESTERDAY, {
+        at: YESTERDAY,
+        tokensUsed: tokenCount(2),
+      });
+      const ledger = new FakeUsageLedger();
+      ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
+      const gate = await openGate(store, ledger);
+
+      const { standDown: refusal } = await gate.consult(TICKET, []);
+
+      assert.equal(refusal?.reason, "weekly-reserve");
+      assert.equal(refusal?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
     });
   });
 });
