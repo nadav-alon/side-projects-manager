@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   access,
   mkdir,
@@ -13,10 +13,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
-import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
+import {
+  fileInvocationLease,
+  LEASE_FILE,
+} from "../adapters/file-invocation-lease.ts";
 import { localDay } from "../ports/index.ts";
 import {
   callWith,
+  deadPid,
   emptyBacklogGh,
   recordingGh,
   type RecordedGh,
@@ -44,15 +48,6 @@ async function home(registry?: unknown): Promise<string> {
     );
   }
   return directory;
-}
-
-/** A pid guaranteed no longer alive: a child process that has already exited. */
-function deadPid(): number {
-  const child = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-  if (child.pid === undefined) {
-    throw new Error("failed to spawn a child process for its pid");
-  }
-  return child.pid;
 }
 
 describe("the morning-run command", () => {
@@ -90,10 +85,7 @@ describe("the morning-run command", () => {
     it("is not blocked by a lease a dead process left behind", async (t) => {
       const gh = await emptyBacklogGh(t);
       const directory = await home();
-      await writeFile(
-        path.join(directory, "invocation.lease"),
-        String(deadPid()),
-      );
+      await writeFile(path.join(directory, LEASE_FILE), String(deadPid()));
 
       const { stdout } = await run(directory);
 
@@ -101,7 +93,19 @@ describe("the morning-run command", () => {
       const creates = (await gh.calls()).filter(
         (call) => call[0] === "issue" && call[1] === "create",
       );
-      assert.equal(creates.length, 1, "the run went ahead");
+      assert.equal(creates.length, 1, "the invocation went ahead");
+    });
+
+    it("still runs for a manager home it hasn't seen before", async (t) => {
+      const gh = await emptyBacklogGh(t);
+
+      await run(await home());
+      await run(await home());
+
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 2, "each home has its own lease");
     });
   });
 
