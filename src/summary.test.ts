@@ -290,6 +290,8 @@ describe("summaryLine", () => {
 
       assert.match(line, /5-hour/);
     });
+  });
+
   it("does not double a closing period when the quoted reason already ends in one", () => {
     const iteration: IterationOutcome = {
       repo: REPO,
