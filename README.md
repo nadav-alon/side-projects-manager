@@ -351,8 +351,12 @@ Installing a plugin is a git clone plus a local file write with no Anthropic cal
 the image needs no credential at all:
 
 ```sh
-docker build -t side-projects-sandbox:latest .
+npm run sandbox:build
 ```
+
+That passes npm's current CLI release as `CLAUDE_CODE_VERSION`, so a rebuild picks up a new CLI
+instead of reusing the cached install layer. A bare `docker build -t side-projects-sandbox:latest .`
+installs `latest` once and then keeps whatever that was on every cached rebuild.
 
 Running the built image does need a credential: a one-year subscription token, generated once with
 `claude setup-token`, kept as the sandbox's long-lived credential and supplied as an environment
