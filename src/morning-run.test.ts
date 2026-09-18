@@ -1041,6 +1041,39 @@ describe("morningLoop", () => {
       assert.equal(reviewTicketOf(report.iterations[0]), undefined);
     });
 
+    it("is still queued when an overlapping run closed the implementation ticket before its own hand-back", async () => {
+      const ports = fakePorts();
+      const ticket = ranSuccessfully(ports);
+      ports.sandbox.result = () => {
+        // Stands in for an overlapping run finishing first: by the time this
+        // run's own hand-back reaches the tracker, the ticket it worked is
+        // already closed — the pull request and its review are real all the
+        // same, so the hand-back finding nothing to do must not take them
+        // down with it.
+        ports.tracker.closeOutOfBand(ticket);
+        return {
+          kind: "finished",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [commitSha("c0ffee1")],
+          output: "",
+          tokensUsed: tokenCount(42_000),
+        };
+      };
+
+      const report = await morningLoop(ports);
+
+      const review = ports.tracker.reviewTickets[0]?.ticket;
+      assert.deepEqual(reviewTicketOf(report.iterations[0]), review);
+      // The implementation ticket itself was never handed back — only its
+      // review, which this same invocation goes on to work, is: the fake
+      // sandbox's own default review posts no finding.
+      assert.equal(
+        ports.tracker.handbacks.some((handback) => handback.ticket.number === ticket.number),
+        false,
+      );
+      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+    });
+
     it("is not opened on a morning that ran nothing", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
@@ -2642,6 +2675,37 @@ describe("morningLoop", () => {
       );
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
+    });
+
+    it("leaves a ticket alone when an overlapping run closed it before this one committed nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => {
+        // Stands in for an overlapping run finishing first: by the time this
+        // run's own hand-back reaches the tracker, the ticket is already
+        // closed.
+        ports.tracker.closeOutOfBand(ticket);
+        return {
+          kind: "finished",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [],
+          output: "",
+          tokensUsed: tokenCount(0),
+        };
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+      const [summary] = ports.tracker.summaries;
+      assert.ok(summary);
+      assert.doesNotMatch(summary.body, /relabelled/);
+      assert.doesNotMatch(summary.body, /Waiting on you/);
     });
 
     it("takes the ticket out of the queue, so a later invocation does not select it again", async () => {

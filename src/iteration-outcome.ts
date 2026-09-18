@@ -211,12 +211,16 @@ export interface Finished {
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
-   * Set when the ticket itself could not be taken out of the queue: the
-   * tracker refused the comment or the relabel that `handFinishedTicketBack`
-   * tried on its behalf. Absent when that succeeded, whether or not the run
-   * produced a handover — a run that committed nothing is given back too,
-   * just with nothing to name in the comment but that.
+   * What became of the ticket's own hand-back, absent exactly when it
+   * succeeded outright as `"handed-back"` — whether or not the run produced a
+   * handover, since a run that committed nothing is given back too, just with
+   * nothing to name in the comment but that. `"already-closed"` says an
+   * overlapping run closed the ticket first, so `handFinishedTicketBack`
+   * wrote nothing and there is nothing further to say about it here.
+   * `"refused"` pairs with `handbackFailure` naming why.
    */
+  handedBack?: Exclude<HandBackAttempt, "handed-back">;
+  /** Present exactly when `handedBack` is `"refused"`: why the tracker call itself failed. */
   handbackFailure?: string;
 }
 

@@ -777,7 +777,7 @@ async function handOver(
   ticket: Ticket,
 ): Promise<Finished | Failed> {
   if (run.commits.length === 0) {
-    const handbackFailure = await handFinishedTicketBack(
+    const handback = await handFinishedTicketBack(
       ports,
       ticket,
       committedNothingComment(run),
@@ -786,7 +786,7 @@ async function handOver(
       kind: "finished",
       run,
       tokensUsed: run.tokensUsed,
-      ...(handbackFailure !== undefined && { handbackFailure }),
+      ...handback,
     };
   }
 
@@ -831,7 +831,7 @@ async function handOver(
     );
   }
 
-  const handbackFailure = await handFinishedTicketBack(
+  const handback = await handFinishedTicketBack(
     ports,
     ticket,
     handoverComment(pullRequest, reviewTicket),
@@ -842,7 +842,7 @@ async function handOver(
     run,
     tokensUsed: run.tokensUsed,
     handover: { pullRequest, reviewTicket },
-    ...(handbackFailure !== undefined && { handbackFailure }),
+    ...handback,
   };
 }
 
@@ -876,7 +876,10 @@ async function handoverFailed(
 /**
  * Takes a finished run's ticket out of the queue: the same comment-and-relabel
  * primitive a failed run's hand-back uses, so a project the developer never
- * triaged by hand still gets ready-for-human created for it.
+ * triaged by hand still gets ready-for-human created for it. The fields
+ * returned fold straight into `Finished`: empty for the common case, the
+ * tracker's own `"already-closed"` when an overlapping run closed the ticket
+ * first, or `"refused"` paired with why when the call itself failed.
  *
  * Never throws. A tracker that refuses the relabel is reported in the
  * summary instead, the same way a refused hand-back is today — the one thing
@@ -887,12 +890,12 @@ async function handFinishedTicketBack(
   ports: MorningLoopPorts,
   ticket: Ticket,
   comment: string,
-): Promise<string | undefined> {
+): Promise<Pick<Finished, "handedBack" | "handbackFailure">> {
   try {
-    await ports.tracker.handBack(ticket, comment);
-    return undefined;
+    const outcome = await ports.tracker.handBack(ticket, comment);
+    return outcome === "handed-back" ? {} : { handedBack: outcome };
   } catch (error: unknown) {
-    return errorMessage(error);
+    return { handedBack: "refused", handbackFailure: errorMessage(error) };
   }
 }
 

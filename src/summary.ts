@@ -262,8 +262,9 @@ function waitingSection(
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
         // name but the relabel itself, and a run whose hand-back — of either
-        // kind — was refused by the tracker.
-        const { handover, handbackFailure } = iteration;
+        // kind — was refused by the tracker. A ticket an overlapping run had
+        // already closed needs neither: it was left exactly as it found it.
+        const { handover, handedBack, handbackFailure } = iteration;
         return [
           ...(handover === undefined
             ? []
@@ -274,7 +275,7 @@ function waitingSection(
               )),
           ...(handbackFailure !== undefined
             ? [stillEligibleLine(iteration)]
-            : handover === undefined
+            : handover === undefined && handedBack !== "already-closed"
               ? [
                   `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
                 ]
