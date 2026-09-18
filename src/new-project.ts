@@ -1,6 +1,7 @@
 import { agentInstructions } from "./agent-instructions.ts";
 import { branch } from "./ports/index.ts";
 import type {
+  Checkout,
   Grilling,
   GrillingSubject,
   Harness,
@@ -49,7 +50,7 @@ export interface NewProjectReport {
   repo: RepoSlug;
   outcome: NewProjectOutcome;
   /** The checkout in the managed location. */
-  directory: string;
+  directory: Checkout;
   /** What the harness put into the checkout, relative to it. */
   scaffolded: string[];
   /**
@@ -247,7 +248,7 @@ async function register(
 /** Everything the one printed line has to account for. */
 interface Recap {
   repo: RepoSlug;
-  directory: string;
+  directory: Checkout;
   registered: boolean;
   paused: boolean;
   proposal: Proposal | undefined;
