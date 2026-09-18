@@ -156,6 +156,12 @@ export class FakeStore implements Store {
       ...(closing.standDownReason !== undefined && {
         standDownReason: closing.standDownReason,
       }),
+      ...(closing.summaryLocation !== undefined && {
+        summaryLocation: closing.summaryLocation,
+      }),
+      ...(closing.summaryFailure !== undefined && {
+        summaryFailure: { ...closing.summaryFailure },
+      }),
       ...(closing.exitCode !== undefined && { exitCode: closing.exitCode }),
     });
   }
@@ -166,6 +172,9 @@ export class FakeStore implements Store {
         ...record,
         ...(record.projects !== undefined && {
           projects: [...record.projects],
+        }),
+        ...(record.summaryFailure !== undefined && {
+          summaryFailure: { ...record.summaryFailure },
         }),
       })),
     };

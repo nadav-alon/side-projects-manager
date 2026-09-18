@@ -2,6 +2,7 @@ import type {
   ApplyReviewTicket,
   HandBackOutcome,
   IssueTracker,
+  IssueUrl,
   OpenIssue,
   OpenIssues,
   PullRequestUrl,
@@ -17,6 +18,7 @@ import {
   discountPullRequestTickets,
   isPullRequestTicket,
   issueNumber,
+  issueUrl,
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
@@ -27,6 +29,7 @@ import type { SummaryTracker } from "../morning-run.ts";
 export interface FakeSummary {
   title: string;
   body: string;
+  url: IssueUrl;
 }
 
 /** One review ticket the loop opened, in the order the fake received it. */
@@ -139,9 +142,13 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** The summary issues published, in the order they were published. */
   readonly summaries: FakeSummary[] = [];
 
-  /** Records the summary. Never fails — the fake has no repo to refuse it. */
-  async publishSummary(title: string, body: string): Promise<void> {
-    this.summaries.push({ title, body });
+  /** Records the summary, and answers with a fresh issue address. Never fails — the fake has no repo to refuse it. */
+  async publishSummary(title: string, body: string): Promise<IssueUrl> {
+    const url = issueUrl(
+      `https://github.com/nadav-alon/side-projects-manager/issues/${this.summaries.length + 1}`,
+    );
+    this.summaries.push({ title, body, url });
+    return url;
   }
 
   /** Puts a ticket carrying `READY_FOR_AGENT_LABEL` in `repo`'s backlog and returns it. */

@@ -15,6 +15,8 @@ export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
 export { isIssueNumber, issueNumber } from "./issue-number.ts";
 export type { IssueNumber } from "./issue-number.ts";
+export { isIssueUrl, issueUrl } from "./issue-url.ts";
+export type { IssueUrl } from "./issue-url.ts";
 export {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
@@ -67,6 +69,7 @@ export type {
   InvocationRecord,
   Journal,
   JournaledProject,
+  JournaledSummaryFailure,
   OpenInvocation,
 } from "./journal.ts";
 export { isMilliseconds, milliseconds } from "./milliseconds.ts";

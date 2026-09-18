@@ -6,6 +6,7 @@ import type {
   HandBackOutcome,
   IssueNumber,
   IssueTracker,
+  IssueUrl,
   OpenIssues,
   PullRequestBinding,
   PullRequestUrl,
@@ -21,6 +22,7 @@ import {
   carriesReadyForAgent,
   discountPullRequestTickets,
   isIssueNumber,
+  isIssueUrl,
   isPullRequestUrl,
   isTicketPriority,
   modelLabelOf,
@@ -60,12 +62,13 @@ export function ghIssueTracker(
   home: string = MANAGER_HOME,
 ): IssueTracker & SummaryTracker {
   return {
-    async publishSummary(title: string, body: string): Promise<void> {
-      await execFileAsync(
+    async publishSummary(title: string, body: string): Promise<IssueUrl> {
+      const { stdout } = await execFileAsync(
         "gh",
         ["issue", "create", "--title", title, "--body", body],
         { cwd: home },
       );
+      return issueUrlIn(stdout);
     },
 
     async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
@@ -575,6 +578,15 @@ function issueNumberIn(stdout: string, repo: RepoSlug): IssueNumber {
     );
   }
   return number;
+}
+
+/** `gh issue create`, with no `--repo`, answers with the new issue's URL, and nothing else. */
+function issueUrlIn(stdout: string): IssueUrl {
+  const url = stdout.trim();
+  if (!isIssueUrl(url)) {
+    throw new Error(`gh issue create: expected the new issue's URL, got: ${url}`);
+  }
+  return url;
 }
 
 /**

@@ -273,12 +273,19 @@ describe("ghIssueTracker", () => {
  * issue, with the title and body it was given, named to no `--repo` at all —
  * is asserted from the arguments it was called with.
  */
+const SUMMARY_URL =
+  "https://github.com/nadav-alon/side-projects-manager/issues/1";
+
 describe("ghIssueTracker.publishSummary", () => {
-  it("creates one issue, naming no repo of its own", async (t) => {
-    const gh = await recordingGh(t, ": ");
+  it("creates one issue, naming no repo of its own, and answers with its address", async (t) => {
+    const gh = await recordingGh(t, `echo ${SUMMARY_URL}`);
 
-    await ghIssueTracker().publishSummary("Morning loop summary — 2026-01-01", "Nothing to do.");
+    const url = await ghIssueTracker().publishSummary(
+      "Morning loop summary — 2026-01-01",
+      "Nothing to do.",
+    );
 
+    assert.equal(url, SUMMARY_URL);
     const create = callWith(await gh.calls(), "issue", "create");
     assert.ok(create, "the summary should be created with `gh issue create`");
     assert.equal(valueOf(create, "--title"), "Morning loop summary — 2026-01-01");
@@ -293,7 +300,7 @@ describe("ghIssueTracker.publishSummary", () => {
   it("creates the issue in the manager home, whatever the working directory", async (t) => {
     const home = await tempHome("manager-home");
     const recorded = path.join(await tempHome("gh-cwd"), "cwd");
-    await recordingGh(t, `pwd -P > ${recorded}`);
+    await recordingGh(t, `pwd -P > ${recorded}\necho ${SUMMARY_URL}`);
 
     await ghIssueTracker(home).publishSummary(
       "Morning loop summary — 2026-01-01",
@@ -308,6 +315,18 @@ describe("ghIssueTracker.publishSummary", () => {
     assert.equal(
       (await readFile(recorded, "utf8")).trim(),
       await realpath(home),
+    );
+  });
+
+  it("fails naming what gh answered, when it is not an issue URL", async (t) => {
+    await recordingGh(t, "echo not-a-url");
+
+    await assert.rejects(
+      ghIssueTracker().publishSummary(
+        "Morning loop summary — 2026-01-01",
+        "Nothing to do.",
+      ),
+      /expected the new issue's URL, got: not-a-url/,
     );
   });
 });

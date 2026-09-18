@@ -8,8 +8,10 @@ import type {
   InvocationClosing,
   InvocationOutcome,
   InvocationRecord,
+  IssueUrl,
   Journal,
   JournaledProject,
+  JournaledSummaryFailure,
   ModelDefaults,
   ModelName,
   OpenInvocation,
@@ -39,6 +41,7 @@ import {
   isExitCode,
   isInvocationOutcome,
   isIssueNumber,
+  isIssueUrl,
   isIterationLimit,
   isModelName,
   isPriority,
@@ -692,13 +695,17 @@ const RECORD_FIELDS = [
   "outcome",
   "projects",
   "standDownReason",
+  "summaryLocation",
+  "summaryFailure",
   "exitCode",
 ] as const;
 
 /**
  * `{ "records": [{ "openedAt": "…", "process": 123, "closedAt": "…",
  *    "outcome": "work-selected", "projects": [{ "repo": "owner/repo",
- *    "tokensUsed": 12000 }], "standDownReason": "…" }] }`
+ *    "tokensUsed": 12000 }], "standDownReason": "…",
+ *    "summaryLocation": "https://github.com/owner/repo/issues/1",
+ *    "summaryFailure": { "reason": "…", "keptAt": "…" } }] }`
  *
  * A record with no `closedAt` is in flight, and carries nothing else — the
  * fields closing adds are read only once `closedAt` says they were written.
@@ -745,6 +752,8 @@ function parseInvocationRecord(
     outcome: outcomeField(fieldOf(record, "outcome", where), where),
     projects: journaledProjectsField(fieldOf(record, "projects", where), where),
     ...standDownReasonField(fieldOf(record, "standDownReason", where), where),
+    ...summaryLocationField(fieldOf(record, "summaryLocation", where), where),
+    ...summaryFailureField(fieldOf(record, "summaryFailure", where), where),
     ...exitCodeField(fieldOf(record, "exitCode", where), where),
   };
 }
@@ -800,6 +809,46 @@ function standDownReasonField(
   return { standDownReason: value };
 }
 
+function summaryLocationField(
+  value: unknown,
+  where: string,
+): { summaryLocation?: IssueUrl } {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value !== "string" || !isIssueUrl(value)) {
+    throw new Error(
+      `${where}: "summaryLocation" must be an issue URL: ${JSON.stringify(value)}`,
+    );
+  }
+  return { summaryLocation: value };
+}
+
+function summaryFailureField(
+  value: unknown,
+  where: string,
+): { summaryFailure?: JournaledSummaryFailure } {
+  if (value === undefined) {
+    return {};
+  }
+  const failureWhere = `${where}: "summaryFailure"`;
+  const reason = fieldOf(value, "reason", failureWhere);
+  if (typeof reason !== "string") {
+    throw new Error(
+      `${failureWhere}: "reason" must be a string: ${JSON.stringify(reason)}`,
+    );
+  }
+  const keptAt = fieldOf(value, "keptAt", failureWhere);
+  if (keptAt !== undefined && typeof keptAt !== "string") {
+    throw new Error(
+      `${failureWhere}: "keptAt" must be a string: ${JSON.stringify(keptAt)}`,
+    );
+  }
+  return {
+    summaryFailure: { reason, ...(keptAt !== undefined && { keptAt }) },
+  };
+}
+
 function exitCodeField(value: unknown, where: string): { exitCode?: ExitCode } {
   if (value === undefined) {
     return {};
@@ -826,6 +875,17 @@ function formatJournal(journal: Journal): string {
       })),
       ...(record.standDownReason !== undefined && {
         standDownReason: record.standDownReason,
+      }),
+      ...(record.summaryLocation !== undefined && {
+        summaryLocation: record.summaryLocation,
+      }),
+      ...(record.summaryFailure !== undefined && {
+        summaryFailure: {
+          reason: record.summaryFailure.reason,
+          ...(record.summaryFailure.keptAt !== undefined && {
+            keptAt: record.summaryFailure.keptAt,
+          }),
+        },
       }),
       ...(record.exitCode !== undefined && { exitCode: record.exitCode }),
     }),

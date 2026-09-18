@@ -1,9 +1,13 @@
 #!/usr/bin/env node
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import { containerSandbox } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
+import { MANAGER_HOME } from "../adapters/manager-home.ts";
 import {
   CHECKOUT_ROOT,
   readImageLabels,
@@ -14,7 +18,7 @@ import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usag
 import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
-import { morningLoop } from "../morning-run.ts";
+import { morningLoop, type InvocationReport } from "../morning-run.ts";
 import {
   exitCode,
   processId,
@@ -94,10 +98,11 @@ async function main(): Promise<void> {
   );
 
   console.log(report.message);
+  const keptSummaryAt = await keepFailedSummary(report);
   await closeJournalRecord(
     store,
     opened,
-    invocationClosing(report, systemClock.now()),
+    invocationClosing(report, systemClock.now(), keptSummaryAt),
   );
 
   // A broken setup exits non-zero even though it reported cleanly: whatever
@@ -108,10 +113,12 @@ async function main(): Promise<void> {
   // retried a non-zero morning would otherwise run straight into the no-retry
   // rule. An invocation that never finished — a registry that would not
   // parse, say — is reported the same way as a broken sandbox: cleanly, and
-  // non-zero.
+  // non-zero. A summary that could not be published joins them: it is an
+  // infrastructure failure of the reporting channel itself.
   const failed =
     report.outcome === "invocation-failed" ||
-    report.iterations.some(failedOnInfrastructure);
+    report.iterations.some(failedOnInfrastructure) ||
+    report.summaryFailure !== undefined;
   if (failed) {
     process.exitCode = 1;
   }
@@ -280,6 +287,40 @@ async function closeJournalRecord(
       `morning-run: the journal could not be closed: ${errorMessage(error)}`,
     );
   }
+}
+
+/**
+ * Writes a summary that could not be published down into the manager home,
+ * readable beside the journal, so the one write meant to report the morning
+ * does not also cost the developer the text it had already composed.
+ * Returns where it landed; `undefined` when nothing failed to publish, or —
+ * said on stderr instead — the write itself failed. Never changes the exit
+ * code beyond what the publish failure already set: recording never fails
+ * the invocation further.
+ */
+async function keepFailedSummary(
+  report: InvocationReport,
+): Promise<string | undefined> {
+  const { summaryFailure } = report;
+  if (summaryFailure === undefined) {
+    return undefined;
+  }
+  const file = path.join(MANAGER_HOME, summaryFileName(report.startedAt));
+  try {
+    await mkdir(MANAGER_HOME, { recursive: true });
+    await writeFile(file, summaryFailure.body, "utf8");
+    return file;
+  } catch (error: unknown) {
+    console.error(
+      `morning-run: the summary could not be kept: ${errorMessage(error)}`,
+    );
+    return undefined;
+  }
+}
+
+/** `startedAt` as a filename-safe instant: `summary-2026-09-18T08-00-00-000Z.txt`. */
+function summaryFileName(startedAt: Date): string {
+  return `summary-${startedAt.toISOString().replace(/[:.]/g, "-")}.txt`;
 }
 
 main().catch((error: unknown) => {

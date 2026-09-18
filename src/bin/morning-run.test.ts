@@ -4,6 +4,7 @@ import {
   access,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   writeFile,
 } from "node:fs/promises";
@@ -274,6 +275,65 @@ describe("the morning-run command", () => {
       await readFile(path.join(directory, "journal.json"), "utf8"),
     );
     assert.equal(journal.records[0]?.outcome, "invocation-failed");
+  });
+
+  it("names where a published summary landed in the journal record", async (t) => {
+    await emptyBacklogGh(t);
+
+    const directory = await home();
+
+    await run(directory);
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    assert.equal(
+      journal.records[0]?.summaryLocation,
+      "https://github.com/nadav-alon/side-projects-manager/issues/0",
+    );
+  });
+
+  it("keeps a summary that could not be published, readable in the manager home, and names it in the journal record", async (t) => {
+    const directory = await home();
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue list") echo "[]" ;;`,
+        `  "issue create") echo "gh: rate limited" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const { stdout, code } = await run(directory).then(
+      (result) => ({ ...result, code: 0 }),
+      (error: { stdout: string; stderr: string; code: number }) => error,
+    );
+
+    // A summary that cannot be published is an infrastructure failure of the
+    // reporting channel, and joins the exit codes that already say so.
+    assert.equal(code, 1);
+    assert.match(stdout, /nothing to do/i);
+    assert.match(stdout, /summary issue could not be published/);
+
+    const kept = (await readdir(directory)).find((file) =>
+      /^summary-.*\.txt$/.test(file),
+    );
+    assert.ok(kept, "the composed summary is kept in the manager home");
+    const body = await readFile(path.join(directory, kept as string), "utf8");
+    assert.match(body, /nothing to do/i);
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    const [record] = journal.records;
+    assert.match(record.summaryFailure.reason, /rate limited/);
+    assert.equal(
+      record.summaryFailure.keptAt,
+      path.join(directory, kept as string),
+    );
+    assert.equal(record.summaryLocation, undefined);
   });
 
   it("keeps running, and says nothing but stderr, when the journal cannot be written", async (t) => {
