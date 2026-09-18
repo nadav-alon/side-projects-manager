@@ -19,7 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+# The CLI version is a build argument so the layer's cache key carries it.
+# Installed unversioned, the command text never changes, so docker reuses the
+# layer and a rebuild keeps whatever CLI the first build fetched, while the
+# build reports success. `npm run sandbox:build` passes npm's current release,
+# so a rebuild after a CLI release reinstalls, and one before it stays cached.
+# `latest` is only the fallback for a bare `docker build`, which caches the old way.
+ARG CLAUDE_CODE_VERSION=latest
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
 
 # Everything from here down belongs to a non-root user, and the harness with
 # it. Two reasons, and either alone would be enough:
