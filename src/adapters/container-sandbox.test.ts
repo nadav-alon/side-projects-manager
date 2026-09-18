@@ -6,16 +6,19 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { REASON_QUOTED } from "../handback-comment.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,
   containerSandbox,
   dockerCommand,
   dockerNeverRan,
+  dockerNeverRanMessage,
   pullRequestHeadFrom,
   pushableRemote,
   readAgentRun,
   readExitedRun,
+  TICKET_GIST_TAG,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
@@ -379,6 +382,108 @@ describe("containerSandbox", () => {
     assert.equal(result.tokensUsed, tokenCount(42_000));
   });
 
+  it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.ok(asked.includes(TICKET_GIST_TAG));
+  });
+
+  it("carries a well-formed ticket gist off the last line of a finished run", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries the gist even when the agent echoes the prompt's own backticks", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n\`${TICKET_GIST_TAG} Add retries to the flaky upload step.\``,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries no gist when the agent gave none", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(agentCommitting([], 0, "implemented the thing"));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the tagged line is empty", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist when the agent gave more than one line", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        `${TICKET_GIST_TAG} Add retries to the flaky upload step.\nOne more line after it.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.gist, undefined);
+  });
+
+  it("carries no gist on a run that gave up, even one tagged like a finished run's", async () => {
+    const directory = await project();
+    const commit = agentCommitting(
+      ["one.txt"],
+      0,
+      `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    );
+    const sandbox = containerSandbox(async (options) => {
+      await commit(options);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished"), undefined);
+    assert.equal(result.kind, "gave-up");
+  });
+
   it("takes the clone away and leaves the branch behind", async () => {
     const directory = await project();
     let clone = "";
@@ -570,7 +675,10 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
+    assert.equal(
+      variant(result, "gave-up")?.reason,
+      `the command exited with code 1: ${MODEL_REFUSAL_STDERR.trim()}`,
+    );
   });
 
   /**
@@ -1906,6 +2014,76 @@ describe("pullRequestHeadFrom", () => {
   }
 });
 
+describe("readExitedRun", () => {
+  /**
+   * What `execFile` rejects with when a command exits `code` having written
+   * `stdout`/`stderr` — its `message` shaped exactly as Node's own rejection is,
+   * `Command failed: <argv>` with the whole command line, the agent's prompt
+   * included.
+   */
+  function exitedCommand(
+    code: number,
+    { stdout = "", stderr = "" }: { stdout?: string; stderr?: string } = {},
+  ): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout, stderr },
+    );
+  }
+
+  it("reports the exit code", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("reports the tail of stderr", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /tests failed/);
+  });
+
+  it("bounds the stderr it reports well under what a hand-back comment quotes again, keeping the exit code and the tail (not the head) of stderr", () => {
+    const stderr = `${"x".repeat(10_000)}last line`;
+
+    const agent = readExitedRun(exitedCommand(1, { stderr }));
+
+    assert.ok((agent.failure ?? "").length < REASON_QUOTED);
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+    assert.match(agent.failure ?? "", /last line$/);
+  });
+
+  it("never reports the command line or the prompt it ran", () => {
+    const agent = readExitedRun(
+      exitedCommand(1, { stderr: "tests failed" }),
+    );
+
+    assert.doesNotMatch(agent.failure ?? "", /docker run/);
+    assert.doesNotMatch(agent.failure ?? "", /whole-prompt/);
+  });
+
+  it("still says it failed and gives the exit code when there is no stderr", () => {
+    const agent = readExitedRun(exitedCommand(1));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("names the signal that killed a container with no exit code of its own", () => {
+    const killed = Object.assign(new Error("Command failed"), {
+      code: null,
+      signal: "SIGKILL",
+      stdout: "",
+      stderr: "",
+    });
+
+    const agent = readExitedRun(killed);
+
+    assert.match(agent.failure ?? "", /killed by SIGKILL/);
+  });
+});
+
 describe("readAgentRun", () => {
   it("reads a model refusal off stderr, in the words of the CLI's result", () => {
     const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
@@ -2046,6 +2224,35 @@ describe("readAgentRun", () => {
     });
 
     assert.equal(readAgentRun(stdout).output, "done");
+  });
+
+  /**
+   * `withDiagnostics` appends stderr and the denied-tools note after the
+   * agent's own text, so a gist that reads correctly off the raw result must
+   * not be lost once those are appended to `output`.
+   */
+  it("still carries a well-formed ticket gist once stderr is appended after it", () => {
+    const stdout = JSON.stringify({
+      result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    });
+
+    const agent = readAgentRun(stdout, "npm warn deprecated foo@1.0.0\n");
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /npm warn deprecated/);
+  });
+
+  it("still carries a well-formed ticket gist once a denied-tools note is appended after it", () => {
+    const stdout = JSON.stringify({
+      is_error: false,
+      result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      permission_denials: [{ tool_name: "Bash" }],
+    });
+
+    const agent = readAgentRun(stdout);
+
+    assert.equal(agent.gist, "Add retries to the flaky upload step.");
+    assert.match(agent.output, /refused these tools/);
   });
 });
 
@@ -2348,5 +2555,28 @@ describe("dockerNeverRan", () => {
     assert.equal(dockerNeverRan(new Error("no code")), false);
     assert.equal(dockerNeverRan("a string"), false);
     assert.equal(dockerNeverRan(null), false);
+  });
+});
+
+describe("dockerNeverRanMessage", () => {
+  /** What `execFile` rejects with when docker itself exits `code`. */
+  function dockerRejection(code: number | string, stderr = ""): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout: "", stderr },
+    );
+  }
+
+  it("reports the exit code and the tail of stderr, never the command line or the prompt", () => {
+    const message = dockerNeverRanMessage(
+      dockerRejection(125, "no such image"),
+    );
+
+    assert.match(message, /\bcode 125\b/);
+    assert.match(message, /no such image/);
+    assert.doesNotMatch(message, /docker run/);
+    assert.doesNotMatch(message, /whole-prompt/);
   });
 });

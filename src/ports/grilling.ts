@@ -1,3 +1,5 @@
+import type { Checkout } from "./checkout.ts";
+
 /**
  * What a grilling is opened to talk about: the checkout it runs in, and
  * whether the codebase in that checkout predates the manager.
@@ -10,7 +12,7 @@
  */
 export interface GrillingSubject {
   /** The project checkout the session runs in. */
-  directory: string;
+  directory: Checkout;
   /** Whether the repo predates the manager rather than being created for it. */
   existing: boolean;
 }

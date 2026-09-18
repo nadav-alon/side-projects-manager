@@ -80,7 +80,7 @@ export const DEFAULT_BUDGET: Budget = {
   weeklyAllowance: tokenCount(500_000_000),
   reserveFraction: reserveFraction(0.5),
   fiveHourReserveFraction: reserveFraction(0),
-  spendCeiling: usd(5),
+  spendCeiling: usd(10),
   maxConcurrentIterations: iterationLimit(1),
   sizes: {
     S: tokenCount(500_000),

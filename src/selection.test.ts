@@ -1301,7 +1301,7 @@ describe("invocationSelection", () => {
       assert.equal(chosen?.ticket.number, 7);
     });
 
-    it("reads a project whose only ticket was worked today as having no eligible tickets", async () => {
+    it("reads a project whose only ticket was worked today as already worked today", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
@@ -1313,7 +1313,24 @@ describe("invocationSelection", () => {
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
-        [PILOT, "no-eligible-tickets"],
+        [PILOT, "already-worked-today"],
+      ]);
+    });
+
+    it("reads a project as already worked today even when a blocked ticket is also left in its backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(55), title: "The blocker" });
+      tracker.addBlockedTicket(PILOT, { number: issueNumber(56), title: "Waits on #55" }, 1);
+      store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(55) });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen, undefined);
+      assert.deepEqual(verdicts(selection.verdicts()), [
+        [PILOT, "already-worked-today"],
       ]);
     });
 

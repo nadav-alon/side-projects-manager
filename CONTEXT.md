@@ -34,11 +34,11 @@ No registered project had an eligible ticket. A normal quiet morning, reported e
 _Avoid_: empty queue, no work, nothing found
 
 **Worked today**:
-The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes them over until the next day, even while they still carry ready-for-agent — a hand-back the tracker refused, a review the loop could not close, a finished run whose relabel failed — so a loop firing every hour does not spend a run on one every hour. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. A run that was an infrastructure failure or a limit refusal says nothing about its ticket, so the ticket comes off the record again and a later firing the same day may select it. A record for any other day reads as nothing worked today.
+The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes them over until the next day, even while they still carry ready-for-agent — a hand-back the tracker refused, a review the loop could not close, a finished run whose relabel failed — so a loop firing every hour does not spend a run on one every hour. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. A run that was an infrastructure failure, a provider failure or a limit refusal says nothing about its ticket, so the ticket comes off the record again and a later firing the same day may select it. A record for any other day reads as nothing worked today.
 _Avoid_: seen, attempted, cooldown
 
 **Stand down**:
-What the loop does when the budget gate refuses, when the provider limit refuses a run already started, or when the developer stops an invocation by hand: no further iteration starts, iterations already in progress are not cancelled and finish on their own, and it says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
+What the loop does when the budget gate refuses, when a run already started is cut off, or when the developer stops an invocation by hand: no further iteration starts, iterations already in progress are not cancelled and finish on their own, and it says so. A second interrupt from the developer is not a stand-down: the invocation ends at once, and whatever was in progress is lost.
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
@@ -48,7 +48,7 @@ _Avoid_: report, digest, changelog
 ### Triggers
 
 **Trigger**:
-Whatever calls `morningLoop`: the daily schedule, the logon guard, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
+Whatever calls `morningLoop`: the daily schedule, the logon guard, a manual `npm run morning-run`, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
@@ -117,6 +117,10 @@ _Avoid_: prompt, system prompt, rules file
 An interactive session that turns a conversation with the developer into tickets in a project's tracker, and into the vocabulary the project uses to talk about itself. Interactive by design: what comes out of it is what the mornings after it build. The new-project command opens a project's first one; it is not the only one a project gets, and later grillings are where more of its work comes from.
 _Avoid_: interview, kickoff, brainstorm, planning session
 
+**Recap**:
+The one line the new-project command prints when it finishes: where the checkout landed, whether the registry now knows the project, where its harness got to, and whether the grilling opened. Not a **Summary**: that is the loop's own report of an invocation, not one command's.
+_Avoid_: summary, report, digest, changelog
+
 ### Work
 
 **Ticket**:
@@ -148,7 +152,7 @@ The triage label a ticket carries once the loop has stopped working on it. Alway
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
-What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows, or, for a rebase ticket, whose pull request the repo host never settles as conflicting or not: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
+What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows, or, for a rebase ticket, whose pull request the repo host never settles as conflicting or not: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, a provider failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
@@ -156,12 +160,16 @@ A run whose agent ran and stopped short — it said it could not, left the tests
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Infrastructure failure**:
-A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. The invocation carries on.
-_Avoid_: outage, crash, system error
+A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. What an implementation agent that did start left is salvaged, wherever it can still be reached. The invocation carries on.
+_Avoid_: outage (a provider failure, if the provider was down), crash, system error
 
 **Discard**:
-What becomes of a failed run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
+What becomes of a gave-up run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
 _Avoid_: clean up, prune, delete
+
+**Salvage**:
+What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, or an infrastructure failure after the agent started: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch. Nothing about the ticket changes. A run that continues on a salvage and then gives up is discarded, salvage and all.
+_Avoid_: leftover, WIP branch, partial run, resume branch
 
 **Backlog**:
 One project's eligible tickets.
@@ -265,12 +273,20 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, an implementation run's work is salvaged, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
 A run, implementation, review, apply-review or rebase, that the agent CLI would not start on the model it was given, because the name is unknown or unavailable. Carries the model name and the CLI's own words. The ticket's model is the problem — its model label, or the model defaults for its kind — not the agent, which never gave up, and not the setup, so it is neither gave up nor an infrastructure failure.
 _Avoid_: bad model, model error, invalid model
+
+**Provider failure**:
+A run, implementation, review, apply-review or rebase, that the agent started but the provider never answered: down, overloaded or unreachable. The provider is the problem, not the ticket, the agent or the setup, so it is neither gave up nor an infrastructure failure, and never handed back: its ticket is left exactly as it was, for a later firing to select again.
+_Avoid_: outage, API error, provider down
+
+**Cut off**:
+A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way.
+_Avoid_: interrupted, killed, aborted
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate.

@@ -13,9 +13,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import {
+  fileInvocationLease,
+  LEASE_FILE,
+} from "../adapters/file-invocation-lease.ts";
 import { localDay } from "../ports/index.ts";
 import {
   callWith,
+  deadPid,
   emptyBacklogGh,
   recordingGh,
   type RecordedGh,
@@ -46,6 +51,64 @@ async function home(registry?: unknown): Promise<string> {
 }
 
 describe("the morning-run command", () => {
+  describe("the invocation lease", () => {
+    it("refuses, without running the loop, while a live invocation holds the lease", async (t) => {
+      const gh = await emptyBacklogGh(t);
+      const directory = await home();
+      const held = fileInvocationLease(directory);
+      await held.acquire();
+
+      const { stdout } = await run(directory);
+
+      assert.match(stdout, /already running/i);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 0, "the held invocation never ran");
+    });
+
+    it("runs again once an earlier invocation has released the lease", async (t) => {
+      await emptyBacklogGh(t);
+      const directory = await home();
+
+      await run(directory);
+      const { stdout } = await run(directory);
+
+      assert.doesNotMatch(
+        stdout,
+        /already running/i,
+        "the lease was released",
+      );
+      assert.match(stdout, /nothing to do/i);
+    });
+
+    it("is not blocked by a lease a dead process left behind", async (t) => {
+      const gh = await emptyBacklogGh(t);
+      const directory = await home();
+      await writeFile(path.join(directory, LEASE_FILE), String(deadPid()));
+
+      const { stdout } = await run(directory);
+
+      assert.doesNotMatch(stdout, /already running/i);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 1, "the invocation went ahead");
+    });
+
+    it("still runs for a manager home it hasn't seen before", async (t) => {
+      const gh = await emptyBacklogGh(t);
+
+      await run(await home());
+      await run(await home());
+
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 2, "each home has its own lease");
+    });
+  });
+
   it("exits successfully and says there was nothing to do", async (t) => {
     await emptyBacklogGh(t);
 

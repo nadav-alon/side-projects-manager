@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Registers the two triggers docs/specs/morning-loop.md calls for: a daily
 # schedule (cron) and a first-logon-of-the-day guard (a shell rc snippet).
-# Both just call guarded-morning-run.ts (src/bin/guarded-morning-run.ts); the
-# invocation lease inside it is what stops them double-firing, so neither
-# registration here needs to know about the other.
+# Both just call morning-run.ts (src/bin/morning-run.ts); the invocation lease
+# inside it is what stops them double-firing — with a manual `npm run
+# morning-run` too — so neither registration here needs to know about the
+# other.
 #
 # Idempotent: re-running leaves an up-to-date registration alone, and rewrites
 # an rc block left behind by an older version of this script, so this is safe
@@ -15,7 +16,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TRIGGER_SCRIPT="$REPO_DIR/src/bin/guarded-morning-run.ts"
+TRIGGER_SCRIPT="$REPO_DIR/src/bin/morning-run.ts"
 LOG_FILE="${SIDE_PROJECTS_MANAGER_HOME:-$REPO_DIR}/trigger.log"
 NODE_BIN="$(command -v node)"
 SCHEDULE_HOUR=8
@@ -35,14 +36,19 @@ RC_BLOCK="$RC_BEGIN
 $RC_END"
 
 install_cron() {
-  local existing
+  local existing without_ours
   existing="$(crontab -l 2>/dev/null || true)"
-  if grep -qF "$CRON_MARKER" <<<"$existing"; then
+  if grep -qxF "$CRON_LINE" <<<"$existing"; then
     echo "cron: already installed, leaving it alone."
     return
   fi
-  { printf '%s\n' "$existing" | grep -v '^$' || true; echo "$CRON_LINE"; } | crontab -
-  echo "cron: installed, firing daily at ${SCHEDULE_HOUR}:00."
+  without_ours="$(grep -vF "$CRON_MARKER" <<<"$existing" | grep -v '^$' || true)"
+  { printf '%s\n' "$without_ours"; echo "$CRON_LINE"; } | crontab -
+  if grep -qF "$CRON_MARKER" <<<"$existing"; then
+    echo "cron: updated to the current schedule line."
+  else
+    echo "cron: installed, firing daily at ${SCHEDULE_HOUR}:00."
+  fi
 }
 
 # The marked block as it currently stands in $1, markers included, so an

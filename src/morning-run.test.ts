@@ -387,6 +387,20 @@ describe("morningLoop", () => {
       });
     });
 
+    it("says a project whose only eligible ticket was already worked today, not that it has none", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
+
+      const report = await morningLoop(ports);
+
+      assert.match(report.message, /nadav-alon\/pilot \(already worked today\)/);
+    });
+
     it("frees the ticket for a later firing today when the sandbox could not run it", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);
@@ -3929,13 +3943,26 @@ describe("morningLoop", () => {
 
       it("carries the local time to the minute in the summary title", async () => {
         const ports = fakePorts();
-        ports.clock = new FakeClock(new Date("2026-03-05T14:37:00.000Z"));
+        const startedAt = new Date("2026-03-05T14:37:00.000Z");
+        ports.clock = new FakeClock(startedAt);
 
         await morningLoop(ports);
 
+        const local = Object.fromEntries(
+          new Intl.DateTimeFormat("en-CA", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          })
+            .formatToParts(startedAt)
+            .map((part) => [part.type, part.value]),
+        );
         assert.equal(
           ports.tracker.summaries[0]?.title,
-          "Morning loop summary — 2026-03-05 14:37",
+          `Morning loop summary — ${local.year}-${local.month}-${local.day} ${local.hour}:${local.minute}`,
         );
       });
     });

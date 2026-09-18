@@ -9,7 +9,6 @@
   },
   "bin": {
     "morning-run": "./dist/bin/morning-run.js",
-    "guarded-morning-run": "./dist/bin/guarded-morning-run.js",
     "new-project": "./dist/bin/new-project.js"
   },
   "files": [
@@ -21,7 +20,6 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
     "morning-run": "node src/bin/morning-run.ts",
-    "guarded-morning-run": "node src/bin/guarded-morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
     "sandbox:build": "docker build --label side-projects-sandbox.inputs=$(node scripts/sandbox-inputs-digest.ts) -t side-projects-sandbox:latest .",
