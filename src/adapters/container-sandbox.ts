@@ -39,7 +39,6 @@ import {
   isTicketGist,
   remoteUrl,
   reviewFindingTemplate,
-  ticketGist,
   tokenCount,
   type TicketGist,
   type TokenCount,
@@ -849,7 +848,7 @@ function gistFrom(output: string): TicketGist | undefined {
     return undefined;
   }
   const text = last.slice(TICKET_GIST_TAG.length).trim();
-  return isTicketGist(text) ? ticketGist(text) : undefined;
+  return isTicketGist(text) ? text : undefined;
 }
 
 /**
