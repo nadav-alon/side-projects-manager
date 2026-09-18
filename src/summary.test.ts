@@ -176,6 +176,34 @@ describe("waitingSection", () => {
       `- ${REPO} #182: still ready-for-agent — its findings are on ${PULL_REQUEST}, but it could not be closed: the tracker was unreachable; close it yourself`,
     ]);
   });
+
+  it("does not split the list in two when an infrastructure failure's reason ends in a newline", () => {
+    const first: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(189),
+      kind: "failed",
+      failure: { kind: "infrastructure", reason: "docker died\n" },
+    };
+    const second: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(190),
+      kind: "failed",
+      failure: { kind: "infrastructure", reason: "disk full" },
+    };
+
+    const body = summaryBody(facts([first, second]), "line");
+    const section = body.slice(body.indexOf("## Waiting on you"));
+
+    assert.doesNotMatch(section, /\n\n/);
+    assert.deepEqual(
+      section.split("\n").filter((line) => line !== ""),
+      [
+        "## Waiting on you",
+        `- ${REPO} #189: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
+        `- ${REPO} #190: still ready-for-agent — the sandbox or checkout failed, so fix the setup: disk full`,
+      ],
+    );
+  });
 });
 
 describe("summaryLine", () => {
@@ -208,5 +236,93 @@ describe("summaryLine", () => {
     const line = summaryLine(facts([iteration]));
 
     assert.match(line, /the run would not start on #184/);
+  });
+
+  it("does not double a closing period when the quoted reason already ends in one", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(185),
+      kind: "failed",
+      failure: {
+        kind: "gave-up",
+        reason: "left the tests red at 2168fc2c.",
+        handedBack: true,
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /left the tests red at 2168fc2c\. Handed back for a human\./);
+    assert.doesNotMatch(line, /\.\./);
+  });
+
+  it("trims a trailing newline from a quoted reason before the closing period", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(186),
+      kind: "failed",
+      failure: {
+        kind: "gave-up",
+        reason: "left the branch on finding-shape\n",
+        handedBack: true,
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /left the branch on finding-shape\. Handed back for a human\./);
+  });
+
+  it("keeps a quoted reason's own ellipsis instead of eating it as trailing punctuation", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(187),
+      kind: "failed",
+      failure: {
+        kind: "gave-up",
+        reason: "left the tests red at 2168fc2c...",
+        handedBack: true,
+      },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, /left the tests red at 2168fc2c\.\.\.\s*Handed back for a human\./);
+  });
+
+  it("does not double a closing period on an invocation failure that already ends in one", () => {
+    const line = summaryLine({
+      projects: [],
+      iterations: [],
+      standDown: undefined,
+      invocationFailure: "the process crashed.",
+    });
+
+    assert.match(line, /The invocation did not finish: the process crashed\./);
+    assert.doesNotMatch(line, /\.\./);
+  });
+
+  it("trims a trailing newline from a hand-back failure before the em dash that follows it", () => {
+    const finished: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(188),
+      kind: "finished",
+      run: {
+        kind: "finished",
+        branch: branch("agent/188"),
+        commits: [commitSha("a".repeat(40))],
+        tokensUsed: tokenCount(1000),
+        output: "done",
+      },
+      tokensUsed: tokenCount(1000),
+      handbackFailure: "the tracker was unreachable\n",
+    };
+
+    const line = summaryLine(facts([finished]));
+
+    assert.match(
+      line,
+      /could not be handed back: the tracker was unreachable — still ready-for-agent/,
+    );
   });
 });

@@ -6,12 +6,14 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { REASON_QUOTED } from "../handback-comment.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,
   containerSandbox,
   dockerCommand,
   dockerNeverRan,
+  dockerNeverRanMessage,
   pullRequestHeadFrom,
   pushableRemote,
   readAgentRun,
@@ -570,7 +572,10 @@ describe("containerSandbox", () => {
     });
 
     assert.equal(result.kind, "gave-up");
-    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
+    assert.equal(
+      variant(result, "gave-up")?.reason,
+      `the command exited with code 1: ${MODEL_REFUSAL_STDERR.trim()}`,
+    );
   });
 
   /**
@@ -1906,6 +1911,76 @@ describe("pullRequestHeadFrom", () => {
   }
 });
 
+describe("readExitedRun", () => {
+  /**
+   * What `execFile` rejects with when a command exits `code` having written
+   * `stdout`/`stderr` — its `message` shaped exactly as Node's own rejection is,
+   * `Command failed: <argv>` with the whole command line, the agent's prompt
+   * included.
+   */
+  function exitedCommand(
+    code: number,
+    { stdout = "", stderr = "" }: { stdout?: string; stderr?: string } = {},
+  ): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout, stderr },
+    );
+  }
+
+  it("reports the exit code", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("reports the tail of stderr", () => {
+    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
+
+    assert.match(agent.failure ?? "", /tests failed/);
+  });
+
+  it("bounds the stderr it reports well under what a hand-back comment quotes again, keeping the exit code and the tail (not the head) of stderr", () => {
+    const stderr = `${"x".repeat(10_000)}last line`;
+
+    const agent = readExitedRun(exitedCommand(1, { stderr }));
+
+    assert.ok((agent.failure ?? "").length < REASON_QUOTED);
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+    assert.match(agent.failure ?? "", /last line$/);
+  });
+
+  it("never reports the command line or the prompt it ran", () => {
+    const agent = readExitedRun(
+      exitedCommand(1, { stderr: "tests failed" }),
+    );
+
+    assert.doesNotMatch(agent.failure ?? "", /docker run/);
+    assert.doesNotMatch(agent.failure ?? "", /whole-prompt/);
+  });
+
+  it("still says it failed and gives the exit code when there is no stderr", () => {
+    const agent = readExitedRun(exitedCommand(1));
+
+    assert.match(agent.failure ?? "", /\bcode 1\b/);
+  });
+
+  it("names the signal that killed a container with no exit code of its own", () => {
+    const killed = Object.assign(new Error("Command failed"), {
+      code: null,
+      signal: "SIGKILL",
+      stdout: "",
+      stderr: "",
+    });
+
+    const agent = readExitedRun(killed);
+
+    assert.match(agent.failure ?? "", /killed by SIGKILL/);
+  });
+});
+
 describe("readAgentRun", () => {
   it("reads a model refusal off stderr, in the words of the CLI's result", () => {
     const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
@@ -2348,5 +2423,28 @@ describe("dockerNeverRan", () => {
     assert.equal(dockerNeverRan(new Error("no code")), false);
     assert.equal(dockerNeverRan("a string"), false);
     assert.equal(dockerNeverRan(null), false);
+  });
+});
+
+describe("dockerNeverRanMessage", () => {
+  /** What `execFile` rejects with when docker itself exits `code`. */
+  function dockerRejection(code: number | string, stderr = ""): Error {
+    return Object.assign(
+      new Error(
+        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
+      ),
+      { code, stdout: "", stderr },
+    );
+  }
+
+  it("reports the exit code and the tail of stderr, never the command line or the prompt", () => {
+    const message = dockerNeverRanMessage(
+      dockerRejection(125, "no such image"),
+    );
+
+    assert.match(message, /\bcode 125\b/);
+    assert.match(message, /no such image/);
+    assert.doesNotMatch(message, /docker run/);
+    assert.doesNotMatch(message, /whole-prompt/);
   });
 });

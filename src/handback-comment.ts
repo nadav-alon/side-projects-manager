@@ -24,6 +24,7 @@ import {
   READY_FOR_AGENT_LABEL,
   ticketKind,
 } from "./ports/index.ts";
+import { tail } from "./tail.ts";
 
 /**
  * What became of a failed run's branch when the loop discarded it, so that the
@@ -52,7 +53,12 @@ export type Discard =
  * only by cutting the fence off with it.
  */
 const OUTPUT_QUOTED = 20_000;
-const REASON_QUOTED = 4_000;
+/**
+ * Exported so a bound built for a failure reason elsewhere (`container-sandbox.ts`'s
+ * `FAILURE_STDERR_TAIL`) can stay comfortably under it, rather than agreeing
+ * with it only by coincidence.
+ */
+export const REASON_QUOTED = 4_000;
 
 /**
  * What a ticket whose agent gave up is told about the morning that failed on
@@ -369,9 +375,4 @@ function quote(output: string): string {
   );
   const fence = "`".repeat(Math.max(3, longest + 1));
   return `${fence}\n${said}\n${fence}`;
-}
-
-/** The last `limit` characters of `text`, marked as a tail when it is one. */
-function tail(text: string, limit: number): string {
-  return text.length <= limit ? text : `…${text.slice(-limit)}`;
 }

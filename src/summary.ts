@@ -38,6 +38,8 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
       return "paused";
     case "no-eligible-tickets":
       return "no ready-for-agent tickets";
+    case "already-worked-today":
+      return "already worked today";
     case "deferred":
       return "outranked this morning";
     case "selected":
@@ -72,6 +74,21 @@ function numbers(tickets: Ticket[]): string {
 }
 
 /**
+ * An error or reason, trimmed of trailing whitespace and then of at most one
+ * trailing `.` it already ends with. Every call site interpolates this
+ * either right before punctuation of its own, mid-sentence before more text,
+ * or at the end of a bullet joined with others by `\n`; an error that
+ * already ends in a period would otherwise read as `..` next to that
+ * punctuation, and one ending in a newline would otherwise break the line
+ * ahead of the rest of the sentence, or split a bullet list in two. Strips
+ * only one trailing `.`, not a whole run, so a reason ending in an ellipsis
+ * keeps it.
+ */
+function withoutTrailingStop(text: string): string {
+  return text.trim().replace(/\.$/, "");
+}
+
+/**
  * Everything the summary is built from: the outcome of every registered
  * project, every attempt this invocation made, why it stood down, if it did,
  * and whether the invocation itself broke before finishing. One type rather
@@ -88,7 +105,7 @@ export interface SummaryFacts {
 /** The summary in one line: the invocation's `message`, and the body's opening. */
 export function summaryLine(facts: SummaryFacts): string {
   if (facts.invocationFailure !== undefined) {
-    return `The invocation did not finish: ${facts.invocationFailure}.`;
+    return `The invocation did not finish: ${withoutTrailingStop(facts.invocationFailure)}.`;
   }
 
   const { projects, iterations, standDown } = facts;
@@ -141,7 +158,7 @@ function whyStoodDown(
   }
   if (standDown.reason === "provider-limit") {
     const { ticket, limitRefusal } = standDown;
-    return `${limitRefusal}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+    return `${withoutTrailingStop(limitRefusal)}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
   }
   const ready =
     when === "next" ? "was ready to work next" : "was ready to work";
@@ -367,14 +384,14 @@ function waitingOnFailure(
 ): string {
   switch (failure.kind) {
     case "infrastructure":
-      return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${failure.reason}`;
+      return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(failure.reason)}`;
     case "gave-up":
       return failure.handedBack
         ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`
         : stillEligibleLine({ repo, ticket });
     case "handover-failed":
       return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${failure.reason}`
+        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${withoutTrailingStop(failure.reason)}`
         : stillEligibleLine({ repo, ticket });
     case "model-refused":
       return failure.handedBack
@@ -421,7 +438,7 @@ function describeIteration(iteration: IterationOutcome): string {
     case "limit-refused": {
       const kept =
         iteration.discard.kind === "kept"
-          ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${iteration.discard.reason}.`
+          ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${withoutTrailingStop(iteration.discard.reason)}.`
           : "";
       return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${kept}`;
     }
@@ -455,7 +472,7 @@ function handbackNote(finished: Finished): string {
   if (finished.handbackFailure === undefined) {
     return "";
   }
-  return ` The ticket could not be handed back: ${finished.handbackFailure} — still ${READY_FOR_AGENT_LABEL} and will come round again; relabel it yourself.`;
+  return ` The ticket could not be handed back: ${withoutTrailingStop(finished.handbackFailure)} — still ${READY_FOR_AGENT_LABEL} and will come round again; relabel it yourself.`;
 }
 
 /**
@@ -470,9 +487,9 @@ function reviewSummary(
     case undefined:
       return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
     case "check-failed":
-      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
+      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
     case "close-failed":
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
 }
 
@@ -484,9 +501,9 @@ function notClosedLine(
   const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed.kind) {
     case "check-failed":
-      return `${still} — ${ticket.pullRequest.url} could not be checked for its findings: ${notClosed.error}; check it and close the ticket yourself`;
+      return `${still} — ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}; check it and close the ticket yourself`;
     case "close-failed":
-      return `${still} — its findings are on ${ticket.pullRequest.url}, but it could not be closed: ${notClosed.error}; close it yourself`;
+      return `${still} — its findings are on ${ticket.pullRequest.url}, but it could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }
 }
 
@@ -514,11 +531,11 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
     case undefined:
       return `${applied}: ${answered(iteration)}, now ready for review.`;
     case "check-failed":
-      return `${applied}, but ${pullRequest} could not be checked for its answers: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
+      return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
     case "ready-failed":
-      return `${applied}: ${answered(iteration)}, but it could not be marked ready for review: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: mark ${pullRequest} ready and close the ticket yourself.`;
+      return `${applied}: ${answered(iteration)}, but it could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: mark ${pullRequest} ready and close the ticket yourself.`;
     case "close-failed":
-      return `${applied}: ${answered(iteration)}, now ready for review, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+      return `${applied}: ${answered(iteration)}, now ready for review, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
 }
 
@@ -531,11 +548,11 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string {
     case undefined:
       return `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":
-      return `${still} — ${pullRequest} could not be checked for its answers: ${notClosed.error}; check it, mark it ready and close the ticket yourself`;
+      return `${still} — ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
     case "ready-failed":
-      return `${still} — ${pullRequest} could not be marked ready for review: ${notClosed.error}; mark it ready and close the ticket yourself`;
+      return `${still} — ${pullRequest} could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}; mark it ready and close the ticket yourself`;
     case "close-failed":
-      return `${still} — ${pullRequest} is ready for review, but the ticket could not be closed: ${notClosed.error}; close it yourself`;
+      return `${still} — ${pullRequest} is ready for review, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }
 }
 
@@ -565,9 +582,9 @@ function rebasedSummary(iteration: RebasedIteration): string {
     case undefined:
       return `${clean}.`;
     case "check-failed":
-      return `${what}, but ${pullRequest} could not be checked for conflicts: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: check it and close the ticket yourself.`;
+      return `${what}, but ${pullRequest} could not be checked for conflicts: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check it and close the ticket yourself.`;
     case "close-failed":
-      return `${clean}, but the ticket could not be closed: ${notClosed.error}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+      return `${clean}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
 }
 
@@ -582,9 +599,9 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
         ? `- ${repo}: ${pullRequest} — already on its base`
         : `- ${repo}: ${pullRequest} — rebased onto its base`;
     case "check-failed":
-      return `${still} — ${pullRequest} could not be checked for conflicts: ${notClosed.error}; check it and close the ticket yourself`;
+      return `${still} — ${pullRequest} could not be checked for conflicts: ${withoutTrailingStop(notClosed.error)}; check it and close the ticket yourself`;
     case "close-failed":
-      return `${still} — ${pullRequest} no longer conflicts, but the ticket could not be closed: ${notClosed.error}; close it yourself`;
+      return `${still} — ${pullRequest} no longer conflicts, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }
 }
 
@@ -611,7 +628,7 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
       failure.tokensUsed === undefined
         ? `the run would not start on ${which}`
         : `the sandbox failed on ${which} after the agent had already run`;
-    return `${what}: ${failure.reason}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
+    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and
@@ -621,15 +638,15 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
     : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
   switch (failure.kind) {
     case "gave-up":
-      return `the agent gave up on ${which}: ${failure.reason}. ${now}`;
+      return `the agent gave up on ${which}: ${withoutTrailingStop(failure.reason)}. ${now}`;
     case "handover-failed":
-      return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${failure.reason}. ${now}`;
+      return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${withoutTrailingStop(failure.reason)}. ${now}`;
     case "model-refused":
-      return `${which} was not worked, because ${failure.reason}. ${now}`;
+      return `${which} was not worked, because ${withoutTrailingStop(failure.reason)}. ${now}`;
     case "unsettled-mergeability":
     case "conflicting-model-labels":
     case "unusable-model-label":
-      return `${which} was not run, because ${failure.reason}. ${now}`;
+      return `${which} was not run, because ${withoutTrailingStop(failure.reason)}. ${now}`;
   }
 }
 

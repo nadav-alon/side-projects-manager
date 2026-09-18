@@ -253,7 +253,7 @@ function parseRegistry(
 
 /**
  * `{ "fiveHourAllowance": 50000000, "weeklyAllowance": 500000000,
- *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 5,
+ *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 10,
  *    "sizes": { "S": 500000 }, "unsizedCountsAs": "M" }`
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
