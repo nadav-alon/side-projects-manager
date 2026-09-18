@@ -387,6 +387,20 @@ describe("morningLoop", () => {
       });
     });
 
+    it("says a project whose only eligible ticket was already worked today, not that it has none", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
+
+      const report = await morningLoop(ports);
+
+      assert.match(report.message, /nadav-alon\/pilot \(already worked today\)/);
+    });
+
     it("frees the ticket for a later firing today when the sandbox could not run it", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);
