@@ -116,6 +116,10 @@ _Avoid_: prompt, system prompt, rules file
 An interactive session that turns a conversation with the developer into tickets in a project's tracker, and into the vocabulary the project uses to talk about itself. Interactive by design: what comes out of it is what the mornings after it build. The new-project command opens a project's first one; it is not the only one a project gets, and later grillings are where more of its work comes from.
 _Avoid_: interview, kickoff, brainstorm, planning session
 
+**Recap**:
+The one line the new-project command prints when it finishes: where the checkout landed, whether the registry now knows the project, where its harness got to, and whether the grilling opened. Not a **Summary**: that is the loop's own report of an invocation, not one command's.
+_Avoid_: summary, report, digest, changelog
+
 ### Work
 
 **Ticket**:
