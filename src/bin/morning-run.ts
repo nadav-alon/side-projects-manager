@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { containerSandbox } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
+import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import {
@@ -15,6 +16,7 @@ import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing } from "../journal-record.ts";
 import { morningLoop, type InvocationReport } from "../morning-run.ts";
 import { processId, type OpenInvocation, type Store } from "../ports/index.ts";
+import { invokeExclusively } from "../trigger-guard.ts";
 import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
 
 /**
@@ -28,9 +30,13 @@ const INTERRUPTED = 130;
 
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
- * trigger is a caller of `morningLoop`, exactly like this one — including
- * `guarded-morning-run.ts`, which is what the daily schedule and the logon
- * guard actually call; this file stays the direct, unguarded entry point.
+ * trigger — the daily schedule, the logon guard, and a developer running
+ * `npm run morning-run` by hand — calls this file directly, and the
+ * invocation lease here (`../trigger-guard.ts`) is what stops two of them
+ * overlapping: whichever acquires it runs the loop, and every other firing,
+ * however long that one takes, is a no-op that says an invocation is already
+ * running. `morningLoop` itself carries none of this — it stays callable with
+ * no lease at all.
  *
  * Runs the loop in a child shielded from the terminal's Ctrl+C (see
  * `runShielded`), so an interrupt can stop the morning without killing what it
@@ -42,11 +48,10 @@ const INTERRUPTED = 130;
  */
 async function main(): Promise<void> {
   if (process.env[LOOP_PROCESS] === undefined) {
-    const code = await runShielded([import.meta.filename], {
-      ...process.env,
-      [LOOP_PROCESS]: "1",
-    });
-    process.exitCode = code ?? 1;
+    const invoked = await invokeExclusively(fileInvocationLease(), invokeLoop);
+    if (!invoked) {
+      console.log("an invocation is already running.");
+    }
     return;
   }
 
@@ -100,6 +105,21 @@ async function main(): Promise<void> {
   if (failed) {
     process.exitCode = 1;
   }
+}
+
+/**
+ * Runs the loop itself in a shielded child, once the lease is held: so a
+ * Ctrl+C reaches the loop once, passed on from `stopOnInterrupt`, rather than
+ * once from the terminal's whole foreground group and again from here.
+ */
+async function invokeLoop(): Promise<void> {
+  const code = await runShielded([import.meta.filename], {
+    ...process.env,
+    [LOOP_PROCESS]: "1",
+  });
+  // The child already reported its own failure; passing its exit code
+  // through is all this wrapper owes whoever is watching it run.
+  process.exitCode = code ?? 1;
 }
 
 /**

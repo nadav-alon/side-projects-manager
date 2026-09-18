@@ -48,7 +48,7 @@ _Avoid_: report, digest, changelog
 ### Triggers
 
 **Trigger**:
-Whatever calls `morningLoop`: the daily schedule, the logon guard, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
+Whatever calls `morningLoop`: the daily schedule, the logon guard, a manual `npm run morning-run`, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:

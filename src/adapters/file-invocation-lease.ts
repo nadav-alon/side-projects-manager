@@ -4,7 +4,8 @@ import path from "node:path";
 import type { InvocationLease } from "../trigger-guard.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
-const LEASE_FILE = "invocation.lease";
+/** The lease file's name under the manager home, exported for tests that plant one directly. */
+export const LEASE_FILE = "invocation.lease";
 const TAKEOVER_FILE = "invocation.lease.takeover";
 
 /**

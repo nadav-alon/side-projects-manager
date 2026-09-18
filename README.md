@@ -24,22 +24,21 @@ invocation, an iteration and a run are three different things.
 the outside world only through six injected ports — issue tracker, repo host, sandbox, usage ledger,
 clock and store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
 ([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the daily schedule,
-the logon guard and any future cloud trigger are callers of `morningLoop` exactly like it is.
+the logon guard, a manual `npm run morning-run` and any future cloud trigger are callers of
+`morningLoop` exactly like it is.
 
 ## Triggers
 
-Two triggers fire the loop: a daily schedule and a guard that catches a day the machine was off
-overnight by firing on first logon instead. Both call
-[`src/bin/guarded-morning-run.ts`](src/bin/guarded-morning-run.ts) rather than `morning-run.ts`
-directly — it wraps the same entry point in an invocation lease
-([`src/trigger-guard.ts`](src/trigger-guard.ts)), so whichever firing acquires it runs the loop and
-every other firing, however long the first one takes, is a no-op that says an invocation is already
-running. The lease is a single file holding the holder's pid
+Three triggers fire the loop: a daily schedule, a guard that catches a day the machine was off
+overnight by firing on first logon instead, and a manual `npm run morning-run`. All three call
+[`src/bin/morning-run.ts`](src/bin/morning-run.ts), which wraps the loop in an invocation lease
+([`src/trigger-guard.ts`](src/trigger-guard.ts)): whichever firing acquires it runs the loop and every
+other firing, however long the first one takes, is a no-op that says an invocation is already running.
+The lease is a single file holding the holder's pid
 ([`src/adapters/file-invocation-lease.ts`](src/adapters/file-invocation-lease.ts)), created
 exclusively so two firings racing for it can't both believe they won; a lease whose holder's pid is
 no longer alive is stale and is taken over, so a process killed mid-run doesn't stop the loop for
-good. `morning-run.ts` itself carries none of this — it stays directly callable, unguarded, exactly as
-before.
+good. `morningLoop` itself carries none of this — it stays callable directly, with no lease at all.
 
 `npm run triggers:install` ([`scripts/install-triggers.sh`](scripts/install-triggers.sh)) registers
 both on the current machine: a cron line for the schedule, and a snippet appended to `~/.bashrc` and

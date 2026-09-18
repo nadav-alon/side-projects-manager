@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import { describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
 
-import { tempHome } from "../testing/index.ts";
-import { fileInvocationLease } from "./file-invocation-lease.ts";
+import { deadPid, tempHome } from "../testing/index.ts";
+import { fileInvocationLease, LEASE_FILE } from "./file-invocation-lease.ts";
 
-const LEASE_FILE = "invocation.lease";
 const ADAPTER_URL = pathToFileURL(
   path.join(import.meta.dirname, "file-invocation-lease.ts"),
 ).href;
@@ -50,15 +49,6 @@ function acquireInChildProcess(directory: string): Racer {
 
 async function home(): Promise<string> {
   return tempHome("invocation-lease");
-}
-
-/** A pid guaranteed no longer alive: a child process that has already exited. */
-function deadPid(): number {
-  const child = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-  if (child.pid === undefined) {
-    throw new Error("failed to spawn a child process for its pid");
-  }
-  return child.pid;
 }
 
 describe("the file invocation lease", () => {
