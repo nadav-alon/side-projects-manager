@@ -178,13 +178,13 @@ describe("waitingSection", () => {
     ]);
   });
 
-  it("renders nothing for a review an overlapping run had already closed, not even the queue line", () => {
+  it("still renders the pull request as queued for review when an overlapping run had already closed the review ticket", () => {
     const lines = waitingLines([
       finishedWithHandover(implementationTicket(190), 191),
       reviewFailedAlreadyClosed(191),
     ]);
 
-    assert.deepEqual(lines, []);
+    assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as #191`]);
   });
 
   it("renders the review's own still-open line, not a second line from its handover, when it ran but could not close its ticket", () => {

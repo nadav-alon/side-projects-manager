@@ -338,19 +338,27 @@ function workedReviewOutcomes(
 
 /**
  * The Waiting-on-you lines for a finished run's handover: zero or one. A
- * review not yet worked this invocation is still queued; one that ran and
- * closed its ticket cleanly needs a line here naming the pull request as
- * reviewed, since the `reviewed` case has none to add for that outcome; one
- * that failed, or ran but could not close its ticket, already has its own
- * line from that iteration's own case, so nothing is added here — a second
- * line would only repeat it.
+ * review not yet worked this invocation is still queued, the same as one an
+ * overlapping run closed out from under before this invocation's own attempt
+ * on it could do anything — its own case names nothing for a ticket it found
+ * already closed, so the queued pull request would otherwise vanish with it.
+ * One that ran and closed its ticket cleanly needs a line here naming the
+ * pull request as reviewed, since the `reviewed` case has none to add for
+ * that outcome; one that failed some other way, or ran but could not close
+ * its ticket, already has its own line from that iteration's own case, so
+ * nothing is added here — a second line would only repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
   handover: Handover,
   reviewOutcome: IterationOutcome | undefined,
 ): string[] {
-  if (reviewOutcome === undefined) {
+  if (
+    reviewOutcome === undefined ||
+    (reviewOutcome.kind === "failed" &&
+      reviewOutcome.failure.kind !== "infrastructure" &&
+      reviewOutcome.failure.handedBack === "already-closed")
+  ) {
     return [
       `- ${repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
     ];
