@@ -410,6 +410,24 @@ describe("containerSandbox", () => {
     );
   });
 
+  it("carries the gist even when the agent echoes the prompt's own backticks", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(
+      agentCommitting(
+        [],
+        0,
+        "Implemented the thing.\n`TICKET GIST: Add retries to the flaky upload step.`",
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
   it("carries no gist when the agent gave none", async () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting([], 0, "implemented the thing"));

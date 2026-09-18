@@ -837,10 +837,15 @@ function promptFor(ticket: Ticket): string {
  * more after the tag has made the gist span more than one line, which is
  * indistinguishable here from an agent that tagged nothing at all, and both
  * come back absent rather than guessed at.
+ *
+ * Backticks are stripped before the prefix test: `promptFor` shows the tag
+ * wrapped in backticks (as `BRANCH_MOVED`'s own prompt does for its line),
+ * and an agent that echoes that formatting verbatim must not lose its gist
+ * over it.
  */
 function gistFrom(output: string): TicketGist | undefined {
   const lines = output.trimEnd().split("\n");
-  const last = lines[lines.length - 1] ?? "";
+  const last = (lines.at(-1) ?? "").replace(/`/g, "");
   if (!last.startsWith(TICKET_GIST_TAG)) {
     return undefined;
   }
