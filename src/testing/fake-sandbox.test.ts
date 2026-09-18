@@ -116,7 +116,7 @@ describe("FakeSandbox", () => {
     });
   });
 
-  it("returns a finished run's configured gist verbatim, and none when unset", async () => {
+  it("returns a finished run's configured gist verbatim", async () => {
     const sandbox = new FakeSandbox();
     const worked = branch("issue-7-do-the-thing");
     const gist = ticketGist("Add retries to the flaky upload step.");
@@ -131,8 +131,19 @@ describe("FakeSandbox", () => {
 
     const withGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
 
-    assert.equal((withGist as { gist?: unknown }).gist, gist);
+    assert.deepEqual(withGist, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      gist,
+    });
+  });
 
+  it("returns a finished run with no gist when none was configured", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
     sandbox.result = () => ({
       kind: "finished",
       branch: worked,
@@ -143,7 +154,13 @@ describe("FakeSandbox", () => {
 
     const withoutGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
 
-    assert.equal((withoutGist as { gist?: unknown }).gist, undefined);
+    assert.deepEqual(withoutGist, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+    });
   });
 
   it("returns a review's configured result verbatim, detecting nothing itself", async () => {

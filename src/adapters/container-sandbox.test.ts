@@ -478,8 +478,8 @@ describe("containerSandbox", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
+    assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
-    assert.equal((result as { gist?: unknown }).gist, undefined);
   });
 
   it("takes the clone away and leaves the branch behind", async () => {
