@@ -51,10 +51,13 @@ export type RunFailure =
 /** A failure whose ticket the loop hands back: every kind but the setup's. */
 export type HandedBackFailure = Exclude<RunFailure, InfrastructureFailure>;
 
-/** The agent ran and stopped short: it said it could not, or left the tests red. */
-export interface GaveUp {
-  kind: "gave-up";
-  reason: string;
+/**
+ * Carries what became of the loop's own attempt to give a failed run's
+ * ticket back to the developer. Every `HandedBackFailure` extends this
+ * rather than declaring the field itself, so the one doc comment below
+ * covers all five and a change to what the field means is a one-line edit.
+ */
+interface HandedBack {
   /**
    * What became of the attempt to give the ticket back to the developer.
    * `"refused"` says the loop could not comment or relabel, so the ticket is
@@ -66,6 +69,12 @@ export interface GaveUp {
   handedBack: HandBackAttempt;
 }
 
+/** The agent ran and stopped short: it said it could not, or left the tests red. */
+export interface GaveUp extends HandedBack {
+  kind: "gave-up";
+  reason: string;
+}
+
 /**
  * A run that finished and committed, whose work could not be handed over: the
  * branch would not push or no draft pull request would open for it, or the
@@ -74,15 +83,13 @@ export interface GaveUp {
  * Handed back all the same, since the work exists and running the ticket again
  * would only make it twice. The branch is kept, not discarded: it is the work.
  */
-export interface HandoverFailed {
+export interface HandoverFailed extends HandedBack {
   kind: "handover-failed";
   reason: string;
   /** Where the run's commits are. */
   branch: Branch;
   /** How far the branch got, and so where the developer finds the work. */
   where: HandoverReach;
-  /** As `GaveUp.handedBack`. */
-  handedBack: HandBackAttempt;
 }
 
 /** How far a failed handover's branch got before the handover failed. */
@@ -105,14 +112,12 @@ export type ModelSource = "model label" | "model defaults";
  * given. The ticket's model is the problem, so the ticket is handed back —
  * but the agent never gave up, and the setup did its part.
  */
-export interface ModelRefused {
+export interface ModelRefused extends HandedBack {
   kind: "model-refused";
   reason: string;
   refusal: ModelRefusal;
   /** What named the refused model: the ticket's model label or the model defaults. */
   source: ModelSource;
-  /** As `GaveUp.handedBack`. */
-  handedBack: HandBackAttempt;
 }
 
 /**
@@ -120,13 +125,11 @@ export interface ModelRefused {
  * disagree, or one naming no usable model — caught at selection, so nothing
  * was cloned, run or spent.
  */
-export interface UnusableModelLabel {
+export interface UnusableModelLabel extends HandedBack {
   kind: "conflicting-model-labels" | "unusable-model-label";
   reason: string;
   /** The model labels at fault, as the ticket carries them. */
   labels: readonly string[];
-  /** As `GaveUp.handedBack`. */
-  handedBack: HandBackAttempt;
 }
 
 /**
@@ -136,11 +139,9 @@ export interface UnusableModelLabel {
  * problem, not the setup, so the ticket is handed back: left eligible, it
  * would come round every firing ahead of the project's other work.
  */
-export interface UnsettledMergeability {
+export interface UnsettledMergeability extends HandedBack {
   kind: "unsettled-mergeability";
   reason: string;
-  /** As `GaveUp.handedBack`. */
-  handedBack: HandBackAttempt;
 }
 
 /**
