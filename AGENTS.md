@@ -38,5 +38,5 @@ review thread on it. See `.github/workflows/apply-review.yml`.
 
 ### Rebase
 
-Commenting `/rebase` on a draft pull request opens a ticket asking an agent to rebase it. See
-`.github/workflows/rebase.yml`.
+Commenting `/rebase` on a draft pull request opens a ticket asking an agent to rebase it, and labels
+the pull request `needs-rebase`. See `.github/workflows/rebase.yml`.
