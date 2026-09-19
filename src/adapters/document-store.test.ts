@@ -8,6 +8,7 @@ import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
   day,
+  exitCode,
   issueNumber,
   modelName,
   priority,
@@ -902,6 +903,25 @@ describe("the journal document", () => {
     );
   });
 
+  it("records an exit code when the invocation never reported", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "never-reported",
+      projects: [],
+      exitCode: exitCode(7),
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(record?.outcome, "never-reported");
+    assert.equal(record?.exitCode, 7);
+  });
+
   it("rejects closing a record that was never opened", async () => {
     const store = documentStore(await home());
 
@@ -995,6 +1015,27 @@ describe("the journal document", () => {
     );
 
     await assert.rejects(store.loadJournal(), /"outcome"/);
+  });
+
+  it("rejects a record naming an exit code outside 0 to 255", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "never-reported",
+              projects: [],
+              exitCode: 256,
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"exitCode"/);
   });
 
   it("rejects a field it does not recognise, naming the file", async () => {

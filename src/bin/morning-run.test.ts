@@ -39,6 +39,56 @@ async function run(home: string): Promise<{ stdout: string; stderr: string }> {
   });
 }
 
+/**
+ * Puts a `docker` on PATH that kills whatever ran it with `signal`, for the
+ * length of the test.
+ *
+ * The loop process inspects the sandbox image before it opens its journal
+ * record, so this ends the real loop exactly where one that never got as far
+ * as reporting itself ends: nothing in the journal, and nobody but the
+ * trigger that spawned it left to say so.
+ */
+async function loopKilledBeforeItRecords(
+  t: { after: (fn: () => void) => void },
+  signal: NodeJS.Signals,
+): Promise<void> {
+  const previous = process.env["PATH"];
+  const bin = await mkdtemp(path.join(tmpdir(), "docker-killing-"));
+  await writeFile(
+    path.join(bin, "docker"),
+    // Named without its `SIG` prefix, which is what a POSIX shell takes.
+    `#!/bin/sh\nkill -s ${signal.replace("SIG", "")} "$PPID"\n`,
+    { mode: 0o755 },
+  );
+  process.env["PATH"] = `${bin}:${previous ?? ""}`;
+  t.after(() => {
+    process.env["PATH"] = previous;
+  });
+}
+
+/**
+ * Runs the command with the loop it spawns killed by `signal` before it can
+ * record anything. Settles rather than rejects even on a non-zero exit, so a
+ * test can read the exit code back without unpacking an error.
+ */
+async function runWithBrokenLoop(
+  t: { after: (fn: () => void) => void },
+  directory: string,
+  signal: NodeJS.Signals,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  await loopKilledBeforeItRecords(t, signal);
+  return run(directory).then(
+    (result) => ({ ...result, code: 0 }),
+    (error: { stdout: string; stderr: string; code: number }) => error,
+  );
+}
+
+async function journal(directory: string): Promise<{ records: unknown[] }> {
+  return JSON.parse(
+    await readFile(path.join(directory, "journal.json"), "utf8"),
+  );
+}
+
 async function home(registry?: unknown): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "morning-run-bin-"));
   if (registry !== undefined) {
@@ -65,6 +115,9 @@ describe("the morning-run command", () => {
         (call) => call[0] === "issue" && call[1] === "create",
       );
       assert.equal(creates.length, 0, "the held invocation never ran");
+      // A day that was not claimed still runs nothing and records nothing: no
+      // journal document was ever written for it.
+      await assert.rejects(readFile(path.join(directory, "journal.json")));
     });
 
     it("runs again once an earlier invocation has released the lease", async (t) => {
@@ -200,6 +253,8 @@ describe("the morning-run command", () => {
     const journal = JSON.parse(
       await readFile(path.join(directory, "journal.json"), "utf8"),
     );
+    // One record and not two: the loop opened its own, so nothing extra is
+    // recorded for it having never reported.
     assert.equal(journal.records.length, 1);
     const [record] = journal.records;
     assert.equal(typeof record.process, "number");
@@ -266,6 +321,49 @@ describe("the morning-run command", () => {
     );
     assert.equal(journal.records.length, 1);
     assert.equal(journal.records[0].closedAt, undefined);
+  });
+
+  it("records that the loop never reported when its process leaves no journal record", async (t) => {
+    const directory = await home();
+
+    const { code } = await runWithBrokenLoop(t, directory, "SIGKILL");
+
+    // 128 plus the signal that ended it, as a shell reports it.
+    assert.equal(code, 137, "the loop's own exit code is passed through");
+    const { records } = await journal(directory);
+    assert.equal(records.length, 1);
+    const [record] = records as [
+      {
+        outcome: string;
+        exitCode: number;
+        openedAt: string;
+        closedAt: string;
+        projects: unknown[];
+      },
+    ];
+    assert.equal(record.outcome, "never-reported");
+    assert.equal(record.exitCode, 137);
+    assert.deepEqual(record.projects, []);
+    assert.ok(
+      new Date(record.openedAt).getTime() <=
+        new Date(record.closedAt).getTime(),
+    );
+  });
+
+  it("says on stderr, and leaves the exit code alone, when the never-reported record cannot be written", async (t) => {
+    const directory = await home();
+    // A file where the journal expects to write a directory forces every
+    // journal write to fail.
+    await mkdir(path.join(directory, "journal.json"));
+
+    const { stderr, code } = await runWithBrokenLoop(t, directory, "SIGTERM");
+
+    assert.equal(
+      code,
+      143,
+      "the exit code is unaffected by the journal write failing",
+    );
+    assert.match(stderr, /journal could not be read/i);
   });
 
   describe("interrupted", () => {

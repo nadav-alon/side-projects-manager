@@ -1,3 +1,4 @@
+import type { ExitCode } from "./exit-code.ts";
 import type { ProcessId } from "./process-id.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -5,20 +6,23 @@ import type { TokenCount } from "./token-count.ts";
 /**
  * What became of an invocation, once it is known.
  *
- * Deliberately its own copy of the four variants `morningLoop` reports,
+ * The first four are their own copy of the variants `morningLoop` reports,
  * rather than an import from it: the store port must not depend on the loop's
- * own module, and a string union costs nothing to duplicate.
+ * own module, and a string union costs nothing to duplicate. `never-reported`
+ * is the journal's own fifth: the loop's process left no record at all, so the
+ * trigger that spawned it wrote one in its place — see `bin/morning-run.ts`.
  */
 export const INVOCATION_OUTCOMES = [
   "dry-queue",
   "stood-down",
   "work-selected",
   "invocation-failed",
+  "never-reported",
 ] as const;
 
 export type InvocationOutcome = (typeof INVOCATION_OUTCOMES)[number];
 
-/** Whether `value` is one of the four invocation outcomes. */
+/** Whether `value` is one of the five invocation outcomes. */
 export function isInvocationOutcome(
   value: string,
 ): value is InvocationOutcome {
@@ -51,6 +55,13 @@ export interface InvocationClosing {
   projects: JournaledProject[];
   /** Why the invocation stood down, absent when it did not. */
   standDownReason?: string;
+  /**
+   * The exit code the loop's process gave the trigger that spawned it.
+   * Expected only on a `never-reported` record — the one outcome a record
+   * never carries for itself, since it is written by the trigger rather than
+   * by the loop — though nothing here enforces that pairing.
+   */
+  exitCode?: ExitCode;
 }
 
 /**

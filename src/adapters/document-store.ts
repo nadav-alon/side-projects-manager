@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
   Budget,
   Day,
+  ExitCode,
   InvocationClosing,
   InvocationOutcome,
   InvocationRecord,
@@ -32,8 +33,10 @@ import {
   MODEL_NAME_SHAPE,
   SIZES,
   TICKET_KINDS,
+  exitCode,
   findInvocationRecord,
   isDay,
+  isExitCode,
   isInvocationOutcome,
   isIssueNumber,
   isIterationLimit,
@@ -689,6 +692,7 @@ const RECORD_FIELDS = [
   "outcome",
   "projects",
   "standDownReason",
+  "exitCode",
 ] as const;
 
 /**
@@ -741,6 +745,7 @@ function parseInvocationRecord(
     outcome: outcomeField(fieldOf(record, "outcome", where), where),
     projects: journaledProjectsField(fieldOf(record, "projects", where), where),
     ...standDownReasonField(fieldOf(record, "standDownReason", where), where),
+    ...exitCodeField(fieldOf(record, "exitCode", where), where),
   };
 }
 
@@ -795,6 +800,18 @@ function standDownReasonField(
   return { standDownReason: value };
 }
 
+function exitCodeField(value: unknown, where: string): { exitCode?: ExitCode } {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value !== "number" || !isExitCode(value)) {
+    throw new Error(
+      `${where}: "exitCode" must be a whole number from 0 to 255: ${JSON.stringify(value)}`,
+    );
+  }
+  return { exitCode: exitCode(value) };
+}
+
 /** Indented and newline-terminated: the document is read in diffs. */
 function formatJournal(journal: Journal): string {
   const records = journal.records.map((record) => ({
@@ -810,6 +827,7 @@ function formatJournal(journal: Journal): string {
       ...(record.standDownReason !== undefined && {
         standDownReason: record.standDownReason,
       }),
+      ...(record.exitCode !== undefined && { exitCode: record.exitCode }),
     }),
   }));
 
