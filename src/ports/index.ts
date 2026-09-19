@@ -87,6 +87,13 @@ export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isProcessId, processId } from "./process-id.ts";
 export type { ProcessId } from "./process-id.ts";
+export {
+  APPLIED_REVIEW_LABEL,
+  REVIEWED_LABEL,
+  isPullRequestLabel,
+  pullRequestLabel,
+} from "./pull-request-label.ts";
+export type { PullRequestLabel } from "./pull-request-label.ts";
 export { isPullRequestUrl, pullRequestUrl } from "./pull-request-url.ts";
 export type { PullRequestUrl } from "./pull-request-url.ts";
 export { isRemoteUrl, remoteUrl } from "./remote-url.ts";

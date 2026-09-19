@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { MergeabilityUnknown, pullRequestUrl, type MergeStatus } from "../ports/index.ts";
+import {
+  APPLIED_REVIEW_LABEL,
+  MergeabilityUnknown,
+  pullRequestUrl,
+  REVIEWED_LABEL,
+  type MergeStatus,
+} from "../ports/index.ts";
 import { FakeRepoHost } from "./fake-repo-host.ts";
 
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
@@ -49,6 +55,18 @@ describe("FakeRepoHost apply-review answers", () => {
     await host.markPullRequestReady(PULL_REQUEST);
 
     assert.deepEqual(host.readyMarked, [PULL_REQUEST]);
+  });
+
+  it("records every label added, in order", async () => {
+    const host = new FakeRepoHost();
+
+    await host.labelPullRequest(PULL_REQUEST, REVIEWED_LABEL);
+    await host.labelPullRequest(OTHER, APPLIED_REVIEW_LABEL);
+
+    assert.deepEqual(host.labelled, [
+      { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
+      { pullRequest: OTHER, label: APPLIED_REVIEW_LABEL },
+    ]);
   });
 });
 

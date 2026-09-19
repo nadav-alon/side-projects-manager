@@ -13,6 +13,7 @@ import type {
   MergeStatus,
   Milliseconds,
   Proposal,
+  PullRequestLabel,
   PullRequestState,
   PullRequestUrl,
   RepoHost,
@@ -397,6 +398,22 @@ export function githubRepoHost(
         return;
       }
       await run("gh", ["pr", "ready", pullRequest]);
+    },
+
+    async labelPullRequest(
+      pullRequest: PullRequestUrl,
+      label: PullRequestLabel,
+    ): Promise<void> {
+      // Named by the pull request's own URL, not the cwd: `clone`'s managed
+      // location may hold a different repo, or none, by the time this runs.
+      const { owner, repo } = pullRequestParts(pullRequest);
+      try {
+        await run("gh", ["label", "create", label, "--repo", `${owner}/${repo}`]);
+      } catch {
+        // Best effort: most commonly the label is already there, which is
+        // not a reason to fail a call whose real work is the add below.
+      }
+      await run("gh", ["pr", "edit", pullRequest, "--add-label", label]);
     },
 
     async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
