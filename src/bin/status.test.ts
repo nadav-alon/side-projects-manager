@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { localDay } from "../ports/index.ts";
 import { tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -46,7 +47,7 @@ describe("the status command", () => {
 
   it("reports today claimed from the state document", async () => {
     const home = await tempHome("status-bin");
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay(new Date());
     await writeJournal(home, {
       records: [
         {
