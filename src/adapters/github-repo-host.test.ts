@@ -1328,6 +1328,22 @@ describe("labelling a pull request", () => {
     );
   });
 
+  it("does not reject when the pull request already carries the label", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL);
+    await assert.doesNotReject(
+      githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL),
+    );
+
+    assert.equal(
+      (await gh.calls()).filter(
+        (call) => call[0] === "pr" && call[1] === "edit",
+      ).length,
+      2,
+    );
+  });
+
   it("rejects with gh's own error when creating the label fails for a reason other than it already existing", async (t) => {
     await recordingGh(
       t,
