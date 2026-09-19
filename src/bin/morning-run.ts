@@ -138,13 +138,19 @@ async function invokeLoop(): Promise<void> {
   // Noted before the child even exists, so a record it opens the instant it
   // starts still counts as its own — the comparison below is `>=`.
   const openedAt = systemClock.now();
-  const code = await runShielded([LOOP_ENTRY_POINT], {
+  // `runShielded` rejects rather than resolving when the process could not
+  // even be spawned — the purest case of the loop never having started, so
+  // it is read the same as any other failure to report: exit code 1, and a
+  // record saying so.
+  const exit = await runShielded([LOOP_ENTRY_POINT], {
     ...process.env,
     [LOOP_PROCESS]: "1",
-  });
-  // The child already reported its own failure; passing its exit code
-  // through is all this wrapper owes whoever is watching it run.
-  const exit = code ?? 1;
+  }).then(
+    // The child already reported its own failure; passing its exit code
+    // through is all this wrapper owes whoever is watching it run.
+    (code) => code ?? 1,
+    () => 1,
+  );
   await recordIfNeverReported(store, openedAt, exit);
   process.exitCode = exit;
 }
