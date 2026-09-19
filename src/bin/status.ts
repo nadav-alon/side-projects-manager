@@ -3,7 +3,7 @@ import { documentStore } from "../adapters/document-store.ts";
 import { isProcessAlive } from "../adapters/process-alive.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { errorMessage } from "../error-message.ts";
-import { localDay } from "../ports/index.ts";
+import { isClosedInvocation, localDay } from "../ports/index.ts";
 import { statusReport, type StatusJournal, type StatusRecord } from "../status-report.ts";
 
 /**
@@ -24,9 +24,9 @@ async function main(): Promise<void> {
   const resolved: StatusJournal = {
     records: journal.records.map(
       (record): StatusRecord =>
-        record.closedAt === undefined
-          ? { ...record, alive: isProcessAlive(record.process) }
-          : record,
+        isClosedInvocation(record)
+          ? record
+          : { openedAt: record.openedAt, process: record.process, alive: isProcessAlive(record.process) },
     ),
   };
   const todayClaimed = state.announcedOn === localDay(now);

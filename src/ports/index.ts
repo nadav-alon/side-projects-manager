@@ -56,6 +56,7 @@ export {
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
   findInvocationRecord,
+  isClosedInvocation,
   isInvocationOutcome,
 } from "./journal.ts";
 export type {

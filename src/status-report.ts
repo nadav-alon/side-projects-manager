@@ -1,16 +1,23 @@
-import type { Day, InvocationClosing, InvocationRecord } from "./ports/index.ts";
+import type { Day, InvocationClosing, OpenInvocation } from "./ports/index.ts";
 import { localDay } from "./ports/index.ts";
 
 /**
- * One invocation record as the status command reads it: a record with no
- * `closedAt` carries whether the process that opened it is still alive, the
- * one concession to liveness in a journal that is otherwise all domain
- * state.
+ * An invocation record still in flight, as the status command reads it:
+ * whether the process that opened it is still alive, the one concession to
+ * liveness in a journal that is otherwise all domain state.
  */
-export interface StatusRecord extends InvocationRecord {
-  /** Present only when `closedAt` is absent. */
-  alive?: boolean;
+export interface OpenStatusRecord extends OpenInvocation {
+  alive: boolean;
 }
+
+/** An invocation record that has closed, as the status command reads it. */
+export interface ClosedStatusRecord extends OpenInvocation, InvocationClosing {}
+
+/**
+ * One invocation record as the status command reads it: either still in
+ * flight, with `alive` resolved, or closed, with no `alive` to ask about.
+ */
+export type StatusRecord = OpenStatusRecord | ClosedStatusRecord;
 
 /** The journal as the status command reads it, oldest record first. */
 export interface StatusJournal {
@@ -78,7 +85,7 @@ function claimLine(
   if (record === undefined) {
     return `Today (${today}) has not been claimed yet: the loop has not run today.`;
   }
-  if (record.closedAt === undefined) {
+  if (!isClosed(record)) {
     return `Today (${today}) has not been claimed yet: today's invocation is still in flight — see below.`;
   }
   return `Today (${today}) has not been claimed: today's invocation finished but its summary never published. Check the tracker is reachable and re-run the loop by hand.`;
@@ -88,12 +95,12 @@ function mostRecentLine(latest: StatusRecord): string {
   return `Most recent invocation: opened ${describeAt(latest.openedAt)} — ${describeRecord(latest)}.`;
 }
 
-/** Every record with no `closedAt`, named as still running or died. */
+/** Every record still in flight, named as still running or died. */
 function inFlightCallouts(records: readonly StatusRecord[]): string[] {
   return records
-    .filter((record) => record.closedAt === undefined)
+    .filter((record): record is OpenStatusRecord => !isClosed(record))
     .map((record) =>
-      record.alive === true
+      record.alive
         ? `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} is still running.`
         : `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} has died without closing its record. Check trigger.log for what it last did, then re-run the loop by hand.`,
     );
@@ -131,10 +138,8 @@ function historyLines(records: readonly StatusRecord[]): string[] {
   ];
 }
 
-function isClosed(
-  record: StatusRecord,
-): record is StatusRecord & InvocationClosing {
-  return record.closedAt !== undefined;
+function isClosed(record: StatusRecord): record is ClosedStatusRecord {
+  return "closedAt" in record;
 }
 
 /** One record, however it stands: in flight, or what it came to once closed. */
