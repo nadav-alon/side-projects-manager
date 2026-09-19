@@ -141,6 +141,7 @@ export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";
 export {
+  hasAnnouncedOn,
   recordRun,
   recordWorked,
   ticketKey,

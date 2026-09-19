@@ -35,6 +35,7 @@ import type {
 } from "./ports/index.ts";
 import {
   MergeabilityUnknown,
+  hasAnnouncedOn,
   isApplyReviewTicket,
   isRebaseTicket,
   isReviewTicket,
@@ -486,7 +487,7 @@ export async function morningLoop(
   // nothing has been announced yet today, so a firing every hour reports one
   // quiet morning rather than up to twenty-four.
   let publishFailure: string | undefined;
-  if (outcome === "work-selected" || announcedOn !== today) {
+  if (outcome === "work-selected" || !hasAnnouncedOn(announcedOn, today)) {
     // Last, so a morning that worked something still gets its state recorded
     // above even if the tracker refuses this. Never thrown: a summary issue
     // that could not be written must not cost the developer the account of
