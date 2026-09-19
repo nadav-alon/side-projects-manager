@@ -22,6 +22,14 @@ describe("isPullRequestLabel", () => {
     assert.equal(isPullRequestLabel("a".repeat(51)), false);
     assert.equal(isPullRequestLabel("a".repeat(50)), true);
   });
+
+  it("rejects a label carrying a comma, which gh pr edit --add-label would split into two", () => {
+    assert.equal(isPullRequestLabel("a,b"), false);
+  });
+
+  it("rejects a label that is only whitespace", () => {
+    assert.equal(isPullRequestLabel(" "), false);
+  });
 });
 
 describe("pullRequestLabel", () => {
