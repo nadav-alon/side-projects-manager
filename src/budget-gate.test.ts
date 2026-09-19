@@ -639,25 +639,28 @@ describe("budgetGate", () => {
     });
 
     it("still names the later reset when one window is spent and the other only refuses on the estimate", () => {
-      const b = budget({
+      const bothWindows = budget({
         weeklyAllowance: tokenCount(100),
         reserveFraction: reserveFraction(0),
         fiveHourAllowance: tokenCount(ESTIMATE + 100),
         fiveHourReserveFraction: reserveFraction(0),
       });
+      // The weekly window is spent outright; the 5-hour one is only pushed
+      // over by the estimate. Its reset is pinned after the weekly one's, so
+      // the tie-break has to reach past the spent window to find it — proving
+      // an estimate-caused reason can win the tie-break, not only survive it.
       const windows: UsageWindows = {
         weekly: { ...NO_USAGE.weekly, tokensUsed: tokenCount(101) },
-        fiveHour: { ...NO_USAGE.fiveHour, tokensUsed: tokenCount(101) },
+        fiveHour: {
+          ...NO_USAGE.fiveHour,
+          tokensUsed: tokenCount(101),
+          resetsAt: new Date("2026-01-05T00:00:00.000Z"),
+        },
       };
 
-      const refusal = budgetGate(windows, b, [], SIZED_TICKET, []);
+      const refusal = budgetGate(windows, bothWindows, [], SIZED_TICKET, []);
 
-      assert.equal(
-        refusal?.reason,
-        NO_USAGE.fiveHour.resetsAt > NO_USAGE.weekly.resetsAt
-          ? "five-hour-window-estimate"
-          : "weekly-reserve",
-      );
+      assert.equal(refusal?.reason, "five-hour-window-estimate");
     });
   });
 });
