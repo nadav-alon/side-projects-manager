@@ -36,9 +36,9 @@ jobs:
 
       - run: npm run build
 
-      # Twice, under two zones on opposite sides of UTC, so a test that
+      # Twice, once in UTC and once in a zone offset from it, so a test that
       # silently assumes the runner's zone fails here rather than only on a
-      # contributor's machine (#371).
+      # contributor's machine.
       - name: Test under TZ=UTC
         run: npm test
         env:
