@@ -332,6 +332,7 @@ function workedReviewOutcomes(
     }
     if (
       iteration.kind === "reviewed" ||
+      iteration.kind === "pull-request-resolved" ||
       (iteration.kind === "failed" && iteration.failure.kind !== "infrastructure")
     ) {
       outcomes.set(ticketKey(iteration.repo, iteration.ticket.number), iteration);
@@ -348,9 +349,11 @@ function workedReviewOutcomes(
  * already closed, so the queued pull request would otherwise vanish with it.
  * One that ran and closed its ticket cleanly needs a line here naming the
  * pull request as reviewed, since the `reviewed` case has none to add for
- * that outcome; one that failed some other way, or ran but could not close
- * its ticket, already has its own line from that iteration's own case, so
- * nothing is added here — a second line would only repeat it.
+ * that outcome; one that failed some other way, ran but could not close its
+ * ticket, or closed instead of running because its own pull request had
+ * already resolved, already has its own line — or none — from that
+ * iteration's own case, so nothing is added here — a second line would only
+ * repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
