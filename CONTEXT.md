@@ -42,8 +42,16 @@ What the loop does when the budget gate refuses, when a run already started is c
 _Avoid_: abort, bail, skip, fail
 
 **Summary**:
-The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer. An invocation that worked something always publishes one; a quiet or broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none has been published yet that local calendar day, recorded in the state document with that day once the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather than up to twenty-four. The title carries the local time to the minute beside the date, since more than one summary can land on one day.
+The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and what now needs the developer. An invocation that worked something always publishes one; a quiet or broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none has been published yet that local calendar day, recorded in the state document with that day once the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather than up to twenty-four. The title carries the local time to the minute beside the date, since more than one summary can land on one day. A summary the invocation composed but could not publish is a summary failure instead.
 _Avoid_: report, digest, changelog
+
+**Summary failure**:
+Why a composed summary could not be published, and the body it had already composed, carried on the invocation report as its own field rather than only as prose in the report's message. Named in the invocation record along with where the kept summary landed, so what would otherwise be lost to the publish failure is still readable and accounted for.
+_Avoid_: publish failure, error
+
+**Kept summary**:
+The composed text of a summary failure, written into the manager home as its own plain text file, named for the local day and time the invocation started, and gitignored like `trigger.log` rather than committed. Absent from the invocation record when that write itself also failed — the reason the publish failed is still worth recording even then.
+_Avoid_: failed summary, backup
 
 ### Triggers
 
@@ -304,7 +312,7 @@ records outcomes rather than capturing output.
 _Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
 
 **Invocation record**:
-One journal entry. Opened before the loop runs, closed with the report.
+One journal entry. Opened before the loop runs, closed with the report — including where a published summary landed, or a summary failure and where its kept summary landed.
 _Avoid_: entry, row, event
 
 **In flight**:
