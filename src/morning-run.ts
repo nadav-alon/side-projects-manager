@@ -1077,41 +1077,41 @@ async function attemptRun(
 }
 
 /**
- * Whether `ticket`'s own pull request is already merged or closed, read
- * before anything else a pull request ticket's iteration would otherwise do.
- * Undefined for one still open, which is every ticket's iteration reads as
- * today.
+ * Checked before anything else a pull request ticket's iteration would
+ * otherwise do: whether `ticket`'s own pull request is already merged or
+ * closed, and if so, closes it with `close` and returns the outcome.
+ * `close` is the ticket kind's own close call — `closeReviewTicket`,
+ * `closeApplyReviewTicket` or `closeRebaseTicket` — already bound to
+ * `ticket`, since each answers to its own port method.
+ *
+ * Undefined when the pull request is still open, which every ticket's
+ * iteration then handles as it always has. A repo host that could not answer
+ * is an infrastructure failure, read the same way here as anywhere else a
+ * run never got to start; a close that then fails is reported on the
+ * iteration instead, the ticket left open — still ready-for-agent, due to
+ * come round again.
  */
-async function pullRequestResolution(
+async function resolvedPullRequestOutcome(
   ports: MorningLoopPorts,
   ticket: PullRequestTicket,
-): Promise<Exclude<PullRequestState, "open"> | undefined> {
-  const state = await ports.repoHost.pullRequestState(ticket.pullRequest.url);
-  return state === "open" ? undefined : state;
-}
-
-/**
- * Closes a pull request ticket whose own pull request `resolution` already
- * settled, with a comment naming which: no run was started, so there is
- * nothing else here to report. `close` is the ticket kind's own close call —
- * `closeReviewTicket`, `closeApplyReviewTicket` or `closeRebaseTicket` —
- * already bound to `ticket`, since each answers to its own port method.
- *
- * Never throws: a close that fails is reported on the iteration, and the
- * ticket left open — still ready-for-agent, due to come round again.
- */
-async function closeResolvedPullRequestTicket(
-  ticket: PullRequestTicket,
-  resolution: Exclude<PullRequestState, "open">,
   close: (comment: string) => Promise<void>,
-): Promise<PullRequestResolved> {
+): Promise<PullRequestResolved | Failed | undefined> {
+  let state: PullRequestState;
   try {
-    await close(pullRequestResolvedComment(ticket.pullRequest.url, resolution));
-    return { kind: "pull-request-resolved", resolution };
+    state = await ports.repoHost.pullRequestState(ticket.pullRequest.url);
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+  if (state === "open") {
+    return undefined;
+  }
+  try {
+    await close(pullRequestResolvedComment(ticket.pullRequest.url, state));
+    return { kind: "pull-request-resolved", resolution: state };
   } catch (error: unknown) {
     return {
       kind: "pull-request-resolved",
-      resolution,
+      resolution: state,
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
@@ -1149,16 +1149,11 @@ async function runReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<Reviewed | LimitRefused | Failed | PullRequestResolved> {
-  let resolution: Exclude<PullRequestState, "open"> | undefined;
-  try {
-    resolution = await pullRequestResolution(ports, ticket);
-  } catch (error: unknown) {
-    return infrastructureFailure(error);
-  }
-  if (resolution !== undefined) {
-    return closeResolvedPullRequestTicket(ticket, resolution, (comment) =>
-      ports.tracker.closeReviewTicket(ticket, comment),
-    );
+  const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
+    ports.tracker.closeReviewTicket(ticket, comment),
+  );
+  if (resolved !== undefined) {
+    return resolved;
   }
 
   const startedAt = ports.clock.now();
@@ -1288,16 +1283,11 @@ async function runApplyReview(
 ): Promise<AppliedReview | LimitRefused | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
 
-  let resolution: Exclude<PullRequestState, "open"> | undefined;
-  try {
-    resolution = await pullRequestResolution(ports, ticket);
-  } catch (error: unknown) {
-    return infrastructureFailure(error);
-  }
-  if (resolution !== undefined) {
-    return closeResolvedPullRequestTicket(ticket, resolution, (comment) =>
-      ports.tracker.closeApplyReviewTicket(ticket, comment),
-    );
+  const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
+    ports.tracker.closeApplyReviewTicket(ticket, comment),
+  );
+  if (resolved !== undefined) {
+    return resolved;
   }
 
   const startedAt = ports.clock.now();
@@ -1471,16 +1461,11 @@ async function runRebase(
 ): Promise<Rebased | LimitRefused | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
 
-  let resolution: Exclude<PullRequestState, "open"> | undefined;
-  try {
-    resolution = await pullRequestResolution(ports, ticket);
-  } catch (error: unknown) {
-    return infrastructureFailure(error);
-  }
-  if (resolution !== undefined) {
-    return closeResolvedPullRequestTicket(ticket, resolution, (comment) =>
-      ports.tracker.closeRebaseTicket(ticket, comment),
-    );
+  const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
+    ports.tracker.closeRebaseTicket(ticket, comment),
+  );
+  if (resolved !== undefined) {
+    return resolved;
   }
 
   let needsRebase: boolean;
