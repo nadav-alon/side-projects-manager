@@ -93,5 +93,8 @@ function standDownReason(standDown: InvocationStandDown): string {
   if (standDown.reason === "provider-limit") {
     return standDown.limitRefusal;
   }
+  if (standDown.reason === "provider-failure") {
+    return standDown.providerFailure;
+  }
   return `${standDown.reason}: ${standDown.tokensUsed} of ${standDown.spendable} tokens used, ${standDown.estimateCharged} charged as the run estimate, resets ${standDown.resetsAt.toISOString()}`;
 }

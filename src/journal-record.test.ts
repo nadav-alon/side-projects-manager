@@ -11,7 +11,12 @@ import {
   repoSlug,
   tokenCount,
 } from "./ports/index.ts";
-import { LIMIT_REFUSAL, fakePorts, spent } from "./testing/index.ts";
+import {
+  LIMIT_REFUSAL,
+  PROVIDER_FAILURE_PROSE,
+  fakePorts,
+  spent,
+} from "./testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
@@ -215,6 +220,30 @@ describe("invocationClosing", () => {
     const closing = invocationClosing(report, CLOSED_AT);
 
     assert.equal(closing.standDownReason, LIMIT_REFUSAL);
+    assert.deepEqual(closing.projects, [
+      { repo: PILOT, tokensUsed: tokenCount(1_500) },
+    ]);
+  });
+
+  it("records a provider failure's own words as the stand-down reason", async () => {
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    ports.tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "First",
+    });
+    ports.sandbox.result = () => ({
+      kind: "provider-failed",
+      branch: branch("issue-7"),
+      commits: [],
+      words: PROVIDER_FAILURE_PROSE,
+      tokensUsed: tokenCount(1_500),
+    });
+
+    const report = await morningLoop(ports);
+    const closing = invocationClosing(report, CLOSED_AT);
+
+    assert.equal(closing.standDownReason, PROVIDER_FAILURE_PROSE);
     assert.deepEqual(closing.projects, [
       { repo: PILOT, tokensUsed: tokenCount(1_500) },
     ]);

@@ -1,5 +1,9 @@
 import type { StandDown } from "./budget-gate.ts";
-import { pullRequestResolutionPhrase, workLocation } from "./handback-comment.ts";
+import {
+  pullRequestResolutionPhrase,
+  workLocation,
+  type Discard,
+} from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type AppliedReview,
@@ -145,7 +149,9 @@ export function summaryLine(facts: SummaryFacts): string {
  * Why the invocation stood down, and what that left waiting. The gate names
  * the project it turned away and when the window resets; a limit refusal
  * names the ticket it refused, which is still eligible, and quotes the reset
- * the provider gave. A developer's stop names nothing: they already know why.
+ * the provider gave. A provider failure, as a limit refusal, names the ticket
+ * it stopped and quotes what the provider said. A developer's stop names
+ * nothing: they already know why.
  *
  * `when` is whether any run came before the stand-down, which only changes
  * how the gate's refused project, or a developer's stop, is introduced.
@@ -162,6 +168,10 @@ function whyStoodDown(
   if (standDown.reason === "provider-limit") {
     const { ticket, limitRefusal } = standDown;
     return `${withoutTrailingStop(limitRefusal)}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+  }
+  if (standDown.reason === "provider-failure") {
+    const { ticket, providerFailure } = standDown;
+    return `${withoutTrailingStop(providerFailure)}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
   }
   const ready =
     when === "next" ? "was ready to work next" : "was ready to work";
@@ -268,8 +278,10 @@ function waitingSection(
         return iteration.notClosed === undefined
           ? []
           : [pullRequestResolvedWaitingLine(iteration, iteration.notClosed)];
-      // A limit refusal's ticket waits on the provider, not the developer.
+      // A limit refusal's or a provider failure's ticket waits on the
+      // provider, not the developer.
       case "limit-refused":
+      case "provider-failed":
         return [];
       case "failed":
         return waitingOnFailure(iteration.repo, iteration.ticket, iteration.failure);
@@ -466,20 +478,25 @@ function ranNothing(iteration: IterationOutcome): boolean {
     case "finished":
     case "reviewed":
     case "limit-refused":
+    case "provider-failed":
       return false;
   }
+}
+
+/** What a cut-off iteration says about a branch its discard could not throw away. Empty when there was none, or it went cleanly. */
+function keptBranchNote(iteration: { run?: { branch: string }; discard: Discard }): string {
+  return iteration.discard.kind === "kept"
+    ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${withoutTrailingStop(iteration.discard.reason)}.`
+    : "";
 }
 
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */
 function describeIteration(iteration: IterationOutcome): string {
   switch (iteration.kind) {
-    case "limit-refused": {
-      const kept =
-        iteration.discard.kind === "kept"
-          ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${withoutTrailingStop(iteration.discard.reason)}.`
-          : "";
-      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${kept}`;
-    }
+    case "limit-refused":
+      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}`;
+    case "provider-failed":
+      return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}`;
     case "failed": {
       const { repo, ticket, failure } = iteration;
       // Named as a rebase, since a rebase ticket's own title says nothing a

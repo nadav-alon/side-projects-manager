@@ -17,6 +17,7 @@ import type {
   RunFinished,
   RunLimitRefused,
   RunOutcome,
+  RunProviderFailed,
   Ticket,
   TokenCount,
 } from "./ports/index.ts";
@@ -182,7 +183,8 @@ export type Iteration =
   | AppliedReview
   | Rebased
   | PullRequestResolved
-  | LimitRefused;
+  | LimitRefused
+  | ProviderFailed;
 
 /**
  * A limit refusal: an implementation, review, apply-review or rebase run the
@@ -198,6 +200,24 @@ export interface LimitRefused {
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
+  /** What became of any branch the run left, discarded as a failed run's is. */
+  discard: Discard;
+}
+
+/**
+ * A provider failure: an implementation, review, apply-review or rebase run
+ * the provider itself cut off — down, overloaded or unreachable. As
+ * `LimitRefused`: not a failure, so the ticket is nobody's problem, and stays
+ * eligible for a later firing.
+ */
+export interface ProviderFailed {
+  kind: "provider-failed";
+  /** What the CLI said, word for word. */
+  providerFailure: string;
+  /** What ran spent before the provider stopped answering. Always set — a provider failure has spent. */
+  tokensUsed: TokenCount;
+  /** What the implementation run left behind. Absent for a review. */
+  run?: RunProviderFailed;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
@@ -276,7 +296,8 @@ export type IterationOutcome =
   | (Attempt<ApplyReviewTicket> & AppliedReview)
   | (Attempt<RebaseTicket> & Rebased)
   | (Attempt<PullRequestTicket> & PullRequestResolved)
-  | (Attempt & LimitRefused);
+  | (Attempt & LimitRefused)
+  | (Attempt & ProviderFailed);
 
 /**
  * A review ticket's own run that finished without the agent giving up. There

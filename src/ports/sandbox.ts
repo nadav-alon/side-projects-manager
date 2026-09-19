@@ -164,6 +164,23 @@ export interface ReviewLimitRefused extends Ended {
   words: string;
 }
 
+/**
+ * The provider itself failed the run: the agent started but the provider
+ * never answered — down, overloaded, or otherwise unreachable — so the agent
+ * CLI exited without an answer to give.
+ */
+export interface RunProviderFailed extends Ended, Worked {
+  kind: "provider-failed";
+  /** What the CLI said, word for word — the envelope's `result`, or its prose line. */
+  words: string;
+}
+
+/** As `RunProviderFailed`, for a review. */
+export interface ReviewProviderFailed extends Ended {
+  kind: "provider-failed";
+  words: string;
+}
+
 /** `RunRequest.model` was refused by the agent CLI rather than run. */
 export interface RunModelRefused extends Ended, Worked {
   kind: "model-refused";
@@ -204,6 +221,7 @@ export type RunOutcome =
   | RunGaveUp
   | RunLimitRefused
   | RunModelRefused
+  | RunProviderFailed
   | RunSandboxFailed;
 
 /** As `RunOutcome`, for a review — with no branch or commits on any variant. */
@@ -211,7 +229,8 @@ export type ReviewOutcome =
   | ReviewFinished
   | ReviewGaveUp
   | ReviewLimitRefused
-  | ReviewModelRefused;
+  | ReviewModelRefused
+  | ReviewProviderFailed;
 
 /**
  * As `ReviewGaveUp`, for an apply-review or a rebase run — either of which
@@ -240,7 +259,8 @@ export type ApplyReviewOutcome =
   | ReviewFinished
   | ApplyReviewGaveUp
   | ReviewLimitRefused
-  | ReviewModelRefused;
+  | ReviewModelRefused
+  | ReviewProviderFailed;
 
 /** A rebase run that ran to completion: a review's shape, named for what ran. */
 export type RebaseFinished = ReviewFinished;
@@ -257,7 +277,8 @@ export type RebaseOutcome =
   | RebaseFinished
   | RebaseGaveUp
   | ReviewLimitRefused
-  | ReviewModelRefused;
+  | ReviewModelRefused
+  | ReviewProviderFailed;
 
 /**
  * Runs a coding agent against one ticket, in a container, on a checkout of its

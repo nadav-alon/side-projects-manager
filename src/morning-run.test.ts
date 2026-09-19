@@ -40,6 +40,7 @@ import {
   FakeRepoHost,
   HANGS,
   LIMIT_REFUSAL,
+  PROVIDER_FAILURE_PROSE,
   gate,
   type FakePorts,
   fakePorts,
@@ -437,6 +438,29 @@ describe("morningLoop", () => {
         branch: branch(`fake/${ticket.repo}/${ticket.number}`),
         commits: [],
         words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("frees the ticket for a later firing today when a provider failure cut off its run", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.sandbox.result = (ticket) => ({
+        kind: "provider-failed",
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        words: PROVIDER_FAILURE_PROSE,
         tokensUsed: tokenCount(0),
       });
 
@@ -1842,6 +1866,27 @@ describe("morningLoop", () => {
       assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
     });
 
+    it("stands down on a provider failure, leaving the ticket exactly as it was", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "provider-failed",
+        words: PROVIDER_FAILURE_PROSE,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "provider-failed");
+      assert.equal(report.standDown?.reason, "provider-failure");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
     it("names the pull request and the applied and declined counts in the summary line", async () => {
       const ports = fakePorts();
       queued(ports, 3);
@@ -2158,6 +2203,27 @@ describe("morningLoop", () => {
 
       assert.equal(report.iterations[0]?.kind, "limit-refused");
       assert.equal(report.standDown?.reason, "provider-limit");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      const { tickets: backlog } = backlogIn(
+        await ports.tracker.listOpenIssues(PILOT),
+      );
+      assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
+    it("stands down on a provider failure, leaving the ticket exactly as it was", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.rebaseResult = () => ({
+        kind: "provider-failed",
+        words: PROVIDER_FAILURE_PROSE,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "provider-failed");
+      assert.equal(report.standDown?.reason, "provider-failure");
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       const { tickets: backlog } = backlogIn(
@@ -3078,6 +3144,17 @@ describe("morningLoop", () => {
       };
     }
 
+    /** A costless, empty run on `ticket` a provider failure cut off. */
+    function providerFailedOn(ticket: Ticket): RunOutcome {
+      return {
+        kind: "provider-failed",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        words: PROVIDER_FAILURE_PROSE,
+        tokensUsed: tokenCount(0),
+      };
+    }
+
     /** The numbers of `items`, each a ticket or something run on one. */
     function numbersOf(
       items: ({ number: number } | { ticket: { number: number } })[],
@@ -3209,6 +3286,54 @@ describe("morningLoop", () => {
 
       assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2, 3]);
       assert.ok(report.standDown?.reason === "provider-limit");
+      assert.equal(report.standDown.ticket.number, 2);
+    });
+
+    it("stands down on a provider failure, letting the others in progress finish", HANGS, async () => {
+      const ports = backlogOf(4, 3);
+      ports.sandbox.result = (ticket) =>
+        ticket.number === 2 ? providerFailedOn(ticket) : resultOf(ticket);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(3);
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(3));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2, 3]);
+      assert.deepEqual(
+        report.iterations.map((i) => [i.ticket.number, i.kind]),
+        [
+          [1, "finished"],
+          [2, "provider-failed"],
+          [3, "finished"],
+        ],
+      );
+      assert.equal(report.standDown?.reason, "provider-failure");
+      assert.match(report.message, /pilot #2 is still ready-for-agent/);
+      assert.match(report.message, new RegExp(PROVIDER_FAILURE_PROSE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      const [summary] = ports.tracker.summaries;
+      assert.ok(summary !== undefined);
+      assert.doesNotMatch(summary.body, /## Waiting on you[\s\S]*#2\b/);
+    });
+
+    it("stands down on the first provider failure, not a later one", HANGS, async () => {
+      const ports = backlogOf(4, 3);
+      ports.sandbox.result = (ticket) =>
+        ticket.number >= 2 ? providerFailedOn(ticket) : resultOf(ticket);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(3);
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(3));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2, 3]);
+      assert.ok(report.standDown?.reason === "provider-failure");
       assert.equal(report.standDown.ticket.number, 2);
     });
 

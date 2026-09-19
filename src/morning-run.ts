@@ -28,6 +28,7 @@ import type {
   RunLimitRefused,
   RunModelRefused,
   RunOutcome,
+  RunProviderFailed,
   Sandbox,
   State,
   Store,
@@ -85,6 +86,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
@@ -232,6 +234,19 @@ export interface ProviderLimitStandDown {
 }
 
 /**
+ * A stand-down the gate never saw coming either: a provider failure — down,
+ * overloaded or unreachable. As `ProviderLimitStandDown`, every run after the
+ * first would be stopped the same way.
+ */
+export interface ProviderFailureStandDown {
+  reason: "provider-failure";
+  /** What the CLI said, word for word. */
+  providerFailure: string;
+  /** The ticket whose run it stopped, left eligible exactly as it was. */
+  ticket: Ticket;
+}
+
+/**
  * A stand-down the developer asked for, by stopping the invocation by hand.
  * Nothing about the budget or any ticket: every ticket not yet started is left
  * exactly as it was.
@@ -244,6 +259,7 @@ export interface DeveloperStandDown {
 export type InvocationStandDown =
   | GateStandDown
   | ProviderLimitStandDown
+  | ProviderFailureStandDown
   | DeveloperStandDown;
 
 /** What a trigger may hand the loop beyond its ports. */
@@ -441,9 +457,10 @@ export async function morningLoop(
                 ...iteration,
               } as IterationOutcome;
 
-              // An infrastructure failure or a limit refusal says nothing
-              // about the ticket, so it is left free for a later firing today
-              // — one that finds the setup fixed or the provider limit reset.
+              // An infrastructure failure, a limit refusal or a provider
+              // failure says nothing about the ticket, so it is left free for
+              // a later firing today — one that finds the setup fixed, the
+              // provider limit reset, or the provider answering again.
               if (leavesTicketUntouched(iteration)) {
                 worked.unrecord(ticket);
               }
@@ -455,6 +472,15 @@ export async function morningLoop(
                 standDown ??= {
                   reason: "provider-limit",
                   limitRefusal: iteration.limitRefusal,
+                  ticket,
+                };
+              }
+              // A provider failure stops every run after it the same way, for
+              // the same reason a limit refusal does.
+              if (iteration.kind === "provider-failed") {
+                standDown ??= {
+                  reason: "provider-failure",
+                  providerFailure: iteration.providerFailure,
                   ticket,
                 };
               }
@@ -653,13 +679,15 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 }
 
 /**
- * Whether `iteration` was one of the two that say nothing about its ticket —
- * an infrastructure failure or a limit refusal — and so, as `work` leaves it,
- * leaves the ticket exactly as it was.
+ * Whether `iteration` was one of the three that say nothing about its ticket —
+ * an infrastructure failure, a limit refusal or a provider failure — and so,
+ * as `work` leaves it, leaves the ticket exactly as it was.
  */
 function leavesTicketUntouched(iteration: Iteration): boolean {
   return (
-    iteration.kind === "limit-refused" || failedOnInfrastructure(iteration)
+    iteration.kind === "limit-refused" ||
+    iteration.kind === "provider-failed" ||
+    failedOnInfrastructure(iteration)
   );
 }
 
@@ -667,12 +695,12 @@ function leavesTicketUntouched(iteration: Iteration): boolean {
  * The second step: run the selected ticket and record what that cost. An
  * implementation ticket hands its work over as a draft pull request with a
  * review queued against it, or — when the agent gave up — puts the ticket back
- * in the developer's hands. An infrastructure failure or a limit refusal
- * leaves the ticket untouched. A review ticket's own run posts its findings
- * itself and is closed once it has; an apply-review ticket's pushes and
- * replies itself, and is closed once the repo host shows every thread
- * answered; a rebase ticket's force-pushes itself, and is closed once the repo
- * host no longer reports its pull request conflicting.
+ * in the developer's hands. An infrastructure failure, a limit refusal or a
+ * provider failure leaves the ticket untouched. A review ticket's own run
+ * posts its findings itself and is closed once it has; an apply-review
+ * ticket's pushes and replies itself, and is closed once the repo host shows
+ * every thread answered; a rebase ticket's force-pushes itself, and is closed
+ * once the repo host no longer reports its pull request conflicting.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -750,6 +778,15 @@ async function work(
     return {
       kind: "limit-refused",
       limitRefusal: run.words,
+      tokensUsed: run.tokensUsed,
+      run,
+      discard: await discardBranch(ports, checkout, run),
+    };
+  }
+  if (run.kind === "provider-failed") {
+    return {
+      kind: "provider-failed",
+      providerFailure: run.words,
       tokensUsed: run.tokensUsed,
       run,
       discard: await discardBranch(ports, checkout, run),
@@ -1000,7 +1037,7 @@ async function handTicketBack(
 async function discardBranch(
   ports: MorningLoopPorts,
   checkout: Checkout,
-  run: RunGaveUp | RunLimitRefused | RunModelRefused,
+  run: RunGaveUp | RunLimitRefused | RunModelRefused | RunProviderFailed,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -1179,7 +1216,7 @@ async function runReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Reviewed | LimitRefused | Failed | PullRequestResolved> {
+): Promise<Reviewed | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
   );
@@ -1205,6 +1242,14 @@ async function runReview(
     return {
       kind: "limit-refused",
       limitRefusal: review.words,
+      tokensUsed: review.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+  if (review.kind === "provider-failed") {
+    return {
+      kind: "provider-failed",
+      providerFailure: review.words,
       tokensUsed: review.tokensUsed,
       discard: { kind: "none" },
     };
@@ -1311,7 +1356,7 @@ async function runApplyReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<AppliedReview | LimitRefused | Failed | PullRequestResolved> {
+): Promise<AppliedReview | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -1356,6 +1401,14 @@ async function runApplyReview(
     return {
       kind: "limit-refused",
       limitRefusal: run.words,
+      tokensUsed: run.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+  if (run.kind === "provider-failed") {
+    return {
+      kind: "provider-failed",
+      providerFailure: run.words,
       tokensUsed: run.tokensUsed,
       discard: { kind: "none" },
     };
@@ -1489,7 +1542,7 @@ async function runRebase(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Rebased | LimitRefused | Failed | PullRequestResolved> {
+): Promise<Rebased | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -1543,6 +1596,14 @@ async function runRebase(
     return {
       kind: "limit-refused",
       limitRefusal: run.words,
+      tokensUsed: run.tokensUsed,
+      discard: { kind: "none" },
+    };
+  }
+  if (run.kind === "provider-failed") {
+    return {
+      kind: "provider-failed",
+      providerFailure: run.words,
       tokensUsed: run.tokensUsed,
       discard: { kind: "none" },
     };

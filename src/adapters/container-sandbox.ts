@@ -89,6 +89,12 @@ export interface AgentRun {
    */
   modelRefused?: string;
   /**
+   * The CLI's own words saying the provider never answered — down,
+   * overloaded, or otherwise unreachable — absent unless the run's ending
+   * matches one of the two shapes `providerFailureOf` recognises.
+   */
+  providerFailure?: string;
+  /**
    * The ticket gist off the agent's own last line, read before `output` gains
    * any diagnostics appended after it — see `gistFrom`. Absent when the agent
    * gave none.
@@ -431,6 +437,59 @@ const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
 
 /**
+ * How a provider outage reads when the agent CLI never got as far as a JSON
+ * envelope at all: prose starting with "API Error:", which is the whole of
+ * what the CLI said. Anchored to the start of the output, the same reason
+ * `LIMIT_REFUSAL` is: an agent that quotes the wording anywhere but the very
+ * start of its own output is not mistaken for one refused.
+ */
+const API_ERROR_PROSE = /^API Error:[^\n]*/;
+
+/**
+ * The five hundreds, `api_error_status` may report — a provider that is down,
+ * overloaded (529 included) or otherwise failing — plus `null` or absent,
+ * which is what a bare timeout carries. Any other status, 4xx included, is
+ * the ticket's problem, not the provider's, and reads as `"gave-up"`.
+ */
+function isProviderFailureStatus(status: unknown): boolean {
+  return (
+    status === null ||
+    status === undefined ||
+    (typeof status === "number" && status >= 500 && status < 600)
+  );
+}
+
+/**
+ * The one place a provider failure's shape is known, as `LIMIT_REFUSAL` and
+ * `MODEL_REFUSAL` are each the one place theirs is: `envelope`'s own
+ * `is_error`, `terminal_reason` and `api_error_status` when the CLI's answer
+ * parsed as JSON, or `API_ERROR_PROSE` against `stdout` when it did not —
+ * captured from a forced timeout (`API_TIMEOUT_MS=1`) and a real outage,
+ * respectively. What is quoted back is the envelope's own `result`, prose
+ * meant for a reader, or the matched line itself when there was no envelope
+ * to read one from.
+ */
+function providerFailureOf(stdout: string, envelope: unknown): string | undefined {
+  if (typeof envelope !== "object" || envelope === null) {
+    return API_ERROR_PROSE.exec(stdout)?.[0].trim();
+  }
+  const { is_error, terminal_reason, api_error_status, result } = envelope as {
+    is_error?: unknown;
+    terminal_reason?: unknown;
+    api_error_status?: unknown;
+    result?: unknown;
+  };
+  if (
+    is_error !== true ||
+    terminal_reason !== "api_error" ||
+    !isProviderFailureStatus(api_error_status)
+  ) {
+    return undefined;
+  }
+  return typeof result === "string" ? result.trim() : "the provider never answered";
+}
+
+/**
  * What `agent` carries once told apart from a finished agent: refused by the
  * model it was asked to run on, refused by the provider limit, or stopped for
  * a ticket reason. `RunOutcome` and `ReviewOutcome` differ only in whether a
@@ -440,13 +499,17 @@ const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
  * The model check comes first and only applies when `model` was actually
  * asked for and the CLI exited non-zero: a refused model is the ticket's
  * problem, not the agent's or the setup's, so it must not read as either, and
- * naming the model needs the request, not just the CLI's own words.
+ * naming the model needs the request, not just the CLI's own words. The
+ * provider failure comes after the limit refusal, since both are cut off the
+ * same way but told apart by different wording — a limit refusal is the
+ * provider's own worded refusal, a provider failure is silence.
  */
 type Ending =
   | { kind: "finished"; output: string }
   | { kind: "gave-up"; output: string; reason: string }
   | { kind: "limit-refused"; words: string }
-  | { kind: "model-refused"; refusal: ModelRefusal };
+  | { kind: "model-refused"; refusal: ModelRefusal }
+  | { kind: "provider-failed"; words: string };
 
 function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
   if (
@@ -459,6 +522,9 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
   const refusal = LIMIT_REFUSAL.exec(agent.output)?.[0];
   if (refusal !== undefined) {
     return { kind: "limit-refused", words: refusal.trim() };
+  }
+  if (agent.providerFailure !== undefined) {
+    return { kind: "provider-failed", words: agent.providerFailure };
   }
   return agent.failure === undefined
     ? { kind: "finished", output: agent.output }
@@ -473,6 +539,8 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
  * agent that gave up on its own account, since `endingOf` reads both as
  * `"gave-up"`; `agent.crashed` is `attempt`'s own record of which one this
  * was.
+ *
+ * TODO[#242]: a provider failure is cut off too, and is not salvaged here.
  */
 function wasCutOff(ending: Ending, agent: AgentRun): boolean {
   return ending.kind === "limit-refused" || agent.crashed === true;
@@ -1403,10 +1471,12 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     const gist = gistFrom(stdout);
+    const providerFailure = providerFailureOf(stdout, envelope);
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
+      ...(providerFailure !== undefined && { providerFailure }),
       ...(gist !== undefined && { gist }),
     };
   }
@@ -1417,12 +1487,14 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   };
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
+  const providerFailure = providerFailureOf(stdout, envelope);
   return {
     output: withDiagnostics(output, stderr, deniedTools(envelope)),
     tokensUsed: totalTokens(usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
+    ...(providerFailure !== undefined && { providerFailure }),
     ...(gist !== undefined && { gist }),
   };
 }
