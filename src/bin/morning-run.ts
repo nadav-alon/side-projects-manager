@@ -131,7 +131,7 @@ async function invokeLoop(): Promise<void> {
   const store = documentStore();
   // Noted before the child even exists, so a record it opens the instant it
   // starts still counts as its own — the comparison below is `>=`.
-  const notedAt = systemClock.now();
+  const openedAt = systemClock.now();
   const code = await runShielded([LOOP_ENTRY_POINT], {
     ...process.env,
     [LOOP_PROCESS]: "1",
@@ -139,14 +139,14 @@ async function invokeLoop(): Promise<void> {
   // The child already reported its own failure; passing its exit code
   // through is all this wrapper owes whoever is watching it run.
   const exit = code ?? 1;
-  await recordIfNeverReported(store, notedAt, exit);
+  await recordIfNeverReported(store, openedAt, exit);
   process.exitCode = exit;
 }
 
 /**
  * Appends a closed record saying the invocation never reported, carrying
  * `exit`, when the loop's process left no record of its own opened at or
- * after `notedAt`. The loop records everything that happens once it is
+ * after `openedAt`. The loop records everything that happens once it is
  * running; this is the one thing it cannot record for itself — never having
  * started at all.
  *
@@ -160,19 +160,19 @@ async function invokeLoop(): Promise<void> {
  */
 async function recordIfNeverReported(
   store: Store,
-  notedAt: Date,
+  openedAt: Date,
   exit: number,
 ): Promise<void> {
   try {
     const { records } = await store.loadJournal();
     const reported = records.some(
-      (record) => record.openedAt.getTime() >= notedAt.getTime(),
+      (record) => record.openedAt.getTime() >= openedAt.getTime(),
     );
     if (reported) {
       return;
     }
     const opened = await store.openInvocation({
-      openedAt: notedAt,
+      openedAt,
       process: processId(process.pid),
     });
     await store.closeInvocation(opened, {
