@@ -1,6 +1,7 @@
 import type { InvocationReport, InvocationStandDown } from "./morning-run.ts";
 import { handedBackForModelLabels } from "./iteration-outcome.ts";
 import type {
+  ExitCode,
   InvocationClosing,
   JournaledProject,
   RepoSlug,
@@ -28,6 +29,20 @@ export function invocationClosing(
       standDownReason: standDownReason(report.standDown),
     }),
   };
+}
+
+/**
+ * How the guarded trigger closes a record for itself, when the loop's
+ * process left none of its own: the invocation never reported, carrying the
+ * exit code that process gave the trigger. The only `InvocationClosing`
+ * authored outside the loop's own report — everything else here is `report`
+ * as the journal records it.
+ */
+export function neverReportedClosing(
+  closedAt: Date,
+  exit: ExitCode,
+): InvocationClosing {
+  return { closedAt, outcome: "never-reported", projects: [], exitCode: exit };
 }
 
 /**

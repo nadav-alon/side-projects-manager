@@ -13,7 +13,7 @@ import { systemClock } from "../adapters/system-clock.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
-import { invocationClosing } from "../journal-record.ts";
+import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
 import { morningLoop } from "../morning-run.ts";
 import {
   exitCode,
@@ -180,12 +180,11 @@ async function recordIfNeverReported(
     return;
   }
   const opened = await openJournalRecord(store, openedAt);
-  await closeJournalRecord(store, opened, {
-    closedAt: systemClock.now(),
-    outcome: "never-reported",
-    projects: [],
-    exitCode: exitCode(exit),
-  });
+  await closeJournalRecord(
+    store,
+    opened,
+    neverReportedClosing(systemClock.now(), exitCode(exit)),
+  );
 }
 
 /**
