@@ -195,7 +195,10 @@ jobs:
           fi
 
           # The ticket is open by now regardless of what follows: a refused
-          # label is reported below, never undoes it.
+          # label is reported below, never undoes it. When PULL_REQUEST_REPO
+          # differs from REPO — the review-ticket branch above — github.token
+          # is scoped to REPO only, so the label is refused every time, not
+          # just on occasion.
           label_note=""
           label_err="${RUNNER_TEMP}/rebase-label-err.txt"
           # Best effort: refused where the label already exists, which is the
