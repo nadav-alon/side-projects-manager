@@ -172,6 +172,21 @@ function verdictOf(body: string): "applied" | "declined" | undefined {
 export type MergeStatus = "conflicting" | "clean" | "unknown";
 
 /**
+ * Whether a pull request is still open, merged, or closed without merging —
+ * settled the instant it is asked, unlike {@link MergeStatus}, which GitHub
+ * computes lazily.
+ */
+export type PullRequestState = "open" | "merged" | "closed";
+
+/**
+ * How a pull request settled, once it no longer reads `"open"`: `{@link
+ * PullRequestState}` with that case excluded, named so a pull request ticket
+ * whose own pull request already settled has one word for it rather than an
+ * `Exclude` spelled out anew at each site that needs it.
+ */
+export type PullRequestResolution = Exclude<PullRequestState, "open">;
+
+/**
  * How many times total {@link resolveNeedsRebase} calls `read` — the first
  * try plus every retry after an `"unknown"` — before it gives up. Bounded
  * rather than unbounded, so a pull request whose mergeability never finishes
@@ -424,4 +439,14 @@ export interface RepoHost {
    * see {@link resolveNeedsRebase} for how an unsettled `"unknown"` is handled.
    */
   needsRebase(pullRequest: PullRequestUrl): Promise<boolean>;
+  /**
+   * Whether `pullRequest` is still open, merged, or closed without merging.
+   *
+   * What a pull request ticket's run checks before it does anything else: a
+   * pull request already merged or closed has nothing left to review, apply a
+   * review to, or rebase, and its branch is commonly gone with it — a run
+   * started on it would only fail on checkout, the same way, every morning
+   * after.
+   */
+  pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState>;
 }

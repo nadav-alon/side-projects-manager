@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { Finished, IterationOutcome, Reviewed } from "./iteration-outcome.ts";
+import type {
+  Finished,
+  IterationOutcome,
+  PullRequestResolved,
+  Reviewed,
+} from "./iteration-outcome.ts";
 import type { GateStandDown } from "./morning-run.ts";
 import {
   branch,
@@ -66,6 +71,15 @@ function reviewedButNotClosed(number: number): IterationOutcome {
     notClosed: { kind: "close-failed", error: "the tracker was unreachable" },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
+/** A review ticket's own run that found its pull request already resolved, and closed it. */
+function reviewResolved(number: number): IterationOutcome {
+  const resolved: PullRequestResolved = {
+    kind: "pull-request-resolved",
+    resolution: "merged",
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...resolved };
 }
 
 /** A review ticket's own run that gave up and was handed back. */
@@ -185,6 +199,15 @@ describe("waitingSection", () => {
     ]);
 
     assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as #191`]);
+  });
+
+  it("renders nothing for a review ticket closed this invocation because its own pull request had already resolved", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(192), 193),
+      reviewResolved(193),
+    ]);
+
+    assert.deepEqual(lines, []);
   });
 
   it("renders the review's own still-open line, not a second line from its handover, when it ran but could not close its ticket", () => {

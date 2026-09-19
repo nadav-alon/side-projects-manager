@@ -109,6 +109,8 @@ export type {
   DraftPullRequestOpening,
   MergeStatus,
   Proposal,
+  PullRequestResolution,
+  PullRequestState,
   RepoHost,
   ReviewFinding,
 } from "./repo-host.ts";

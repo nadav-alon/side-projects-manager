@@ -1344,3 +1344,58 @@ describe("whether a pull request's branch needs a rebase", () => {
     assert.ok(calls[0]?.includes(PULL_REQUEST));
   });
 });
+
+describe("whether a pull request is open, merged or closed", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("reads an open pull request", async (t) => {
+    await recordingGh(t, "echo OPEN");
+
+    assert.equal(
+      await githubRepoHost().pullRequestState(PULL_REQUEST),
+      "open",
+    );
+  });
+
+  it("reads a merged pull request", async (t) => {
+    await recordingGh(t, "echo MERGED");
+
+    assert.equal(
+      await githubRepoHost().pullRequestState(PULL_REQUEST),
+      "merged",
+    );
+  });
+
+  it("reads a pull request closed without merging", async (t) => {
+    await recordingGh(t, "echo CLOSED");
+
+    assert.equal(
+      await githubRepoHost().pullRequestState(PULL_REQUEST),
+      "closed",
+    );
+  });
+
+  it("asks gh pr view for the pull request's own state", async (t) => {
+    const gh = await recordingGh(t, "echo OPEN");
+
+    await githubRepoHost().pullRequestState(PULL_REQUEST);
+
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call.slice(0, 2)),
+      [["pr", "view"]],
+    );
+    assert.ok(calls[0]?.includes(PULL_REQUEST));
+  });
+
+  it("throws, naming the pull request and the answer, when gh answers with neither OPEN, MERGED nor CLOSED", async (t) => {
+    await recordingGh(t, "echo DRAFT");
+
+    await assert.rejects(
+      githubRepoHost().pullRequestState(PULL_REQUEST),
+      /DRAFT/,
+    );
+  });
+});

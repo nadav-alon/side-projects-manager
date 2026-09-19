@@ -547,14 +547,21 @@ export interface IssueTracker {
    * for an agent. Best effort on the label alone — the close is what makes
    * the ticket un-selectable, so a caller told this failed still finds it
    * closed and just missing the label.
+   *
+   * `comment` is absent for a review that posted its findings straight to the
+   * pull request, which needs nothing further said on the ticket itself; a
+   * review closed for a pull request already merged or closed carries one
+   * naming why.
    */
-  closeReviewTicket(ticket: ReviewTicket): Promise<void>;
+  closeReviewTicket(ticket: ReviewTicket, comment?: string): Promise<void>;
 
   /**
    * Closes `ticket` with `comment`, once every thread on its pull request is
    * answered — or none was open to answer — and the pull request is marked
-   * ready for review. The comment says which, since an apply-review ticket
-   * that closed with nothing applied reads, without one, like work lost.
+   * ready for review, or once the pull request itself was already merged or
+   * closed, in which case nothing is marked. The comment says which, since an
+   * apply-review ticket that closed with nothing applied reads, without one,
+   * like work lost.
    */
   closeApplyReviewTicket(
     ticket: ApplyReviewTicket,
@@ -563,10 +570,11 @@ export interface IssueTracker {
 
   /**
    * Closes `ticket` with `comment`, once its pull request no longer needs a
-   * rebase — or needed none when the run started. Its own call rather than
-   * `closeApplyReviewTicket` reused: what the comment says differs, a rebase
-   * promotes nothing, and a rebase ticket is never the one an apply-review
-   * close's promotion is about.
+   * rebase — or needed none when the run started — or once the pull request
+   * itself was already merged or closed, in which case mergeability is never
+   * asked. Its own call rather than `closeApplyReviewTicket` reused: what the
+   * comment says differs, a rebase promotes nothing, and a rebase ticket is
+   * never the one an apply-review close's promotion is about.
    */
   closeRebaseTicket(ticket: RebaseTicket, comment: string): Promise<void>;
 }

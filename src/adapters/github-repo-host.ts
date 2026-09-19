@@ -13,6 +13,7 @@ import type {
   MergeStatus,
   Milliseconds,
   Proposal,
+  PullRequestState,
   PullRequestUrl,
   RepoHost,
   RepoSlug,
@@ -404,6 +405,33 @@ export function githubRepoHost(
         () => mergeStatusOf(pullRequest),
         rebaseRetryWait,
       );
+    },
+
+    async pullRequestState(
+      pullRequest: PullRequestUrl,
+    ): Promise<PullRequestState> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "state",
+        "--jq",
+        ".state",
+      ]);
+      const state = stdout.trim();
+      switch (state) {
+        case "OPEN":
+          return "open";
+        case "MERGED":
+          return "merged";
+        case "CLOSED":
+          return "closed";
+        default:
+          throw new Error(
+            `gh pr view ${pullRequest}: "state" was none of OPEN, MERGED or CLOSED: ${JSON.stringify(state)}`,
+          );
+      }
     },
   };
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
+import { exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
 import { statusReport, type StatusJournal, type StatusRecord } from "./status-report.ts";
 
 const NOW = new Date("2026-09-17T09:00:00.000Z");
@@ -216,6 +216,23 @@ describe("statusReport", () => {
       lines[historyIndex + 2]!,
       new RegExp(`${localDay(oldest)}.*dry queue`),
     );
+  });
+
+  it("lists a record the trigger closed for a loop that never reported, with its exit code", () => {
+    const lines = statusReport(
+      journal(
+        closed("2026-09-16T08:00:00.000Z", {
+          outcome: "never-reported",
+          exitCode: exitCode(137),
+        }),
+        closed("2026-09-17T08:00:00.000Z"),
+      ),
+      true,
+      NOW,
+    );
+
+    const historyIndex = lines.indexOf("History:");
+    assert.match(lines[historyIndex + 1]!, /never reported \(exit code 137\)/);
   });
 
   it("prints no history for a journal with only one record", () => {

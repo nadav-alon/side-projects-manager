@@ -1,5 +1,5 @@
 import type { StandDown } from "./budget-gate.ts";
-import { workLocation } from "./handback-comment.ts";
+import { pullRequestResolutionPhrase, workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type AppliedReview,
@@ -8,6 +8,7 @@ import {
   type Handover,
   type IterationOutcome,
   type NotClosed,
+  type PullRequestResolved,
   type Rebased,
   type Reviewed,
   type RunFailure,
@@ -16,6 +17,7 @@ import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type {
   ApplyReviewTicket,
+  PullRequestTicket,
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
@@ -259,6 +261,13 @@ function waitingSection(
         return [appliedReviewWaitingLine(iteration)];
       case "rebased":
         return [rebasedWaitingLine(iteration)];
+      // Closed outright, so nothing here waits on the developer — unless the
+      // close itself failed, which leaves the ticket eligible and waiting the
+      // same way a review or a rebase left open does.
+      case "pull-request-resolved":
+        return iteration.notClosed === undefined
+          ? []
+          : [pullRequestResolvedWaitingLine(iteration, iteration.notClosed)];
       // A limit refusal's ticket waits on the provider, not the developer.
       case "limit-refused":
         return [];
@@ -335,6 +344,7 @@ function workedReviewOutcomes(
     }
     if (
       iteration.kind === "reviewed" ||
+      iteration.kind === "pull-request-resolved" ||
       (iteration.kind === "failed" && iteration.failure.kind !== "infrastructure")
     ) {
       outcomes.set(ticketKey(iteration.repo, iteration.ticket.number), iteration);
@@ -351,9 +361,11 @@ function workedReviewOutcomes(
  * already closed, so the queued pull request would otherwise vanish with it.
  * One that ran and closed its ticket cleanly needs a line here naming the
  * pull request as reviewed, since the `reviewed` case has none to add for
- * that outcome; one that failed some other way, or ran but could not close
- * its ticket, already has its own line from that iteration's own case, so
- * nothing is added here — a second line would only repeat it.
+ * that outcome; one that failed some other way, ran but could not close its
+ * ticket, or closed instead of running because its own pull request had
+ * already resolved, already has its own line — or none — from that
+ * iteration's own case, so nothing is added here — a second line would only
+ * repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
@@ -444,6 +456,8 @@ function ranNothing(iteration: IterationOutcome): boolean {
       return iteration.review === undefined;
     case "rebased":
       return iteration.rebase === undefined;
+    case "pull-request-resolved":
+      return true;
     case "failed":
       return (
         handedBackForModelLabels(iteration) ||
@@ -481,6 +495,8 @@ function describeIteration(iteration: IterationOutcome): string {
       return appliedReviewSummary(iteration);
     case "rebased":
       return rebasedSummary(iteration);
+    case "pull-request-resolved":
+      return pullRequestResolvedSummary(iteration);
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
   }
@@ -627,6 +643,35 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
     case "close-failed":
       return `${still} — ${pullRequest} no longer conflicts, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }
+}
+
+/** A pull request ticket iteration, with the ticket it worked. */
+type PullRequestResolvedIteration = Attempt<PullRequestTicket> &
+  PullRequestResolved;
+
+/**
+ * How a pull request ticket's iteration reads to the developer when its own
+ * pull request was already merged or closed: closed with no run, or why the
+ * loop could not close it.
+ */
+function pullRequestResolvedSummary(
+  iteration: PullRequestResolvedIteration,
+): string {
+  const { repo, ticket, resolution, notClosed } = iteration;
+  const pullRequest = ticket.pullRequest.url;
+  const what = pullRequestResolutionPhrase(resolution);
+  if (notClosed === undefined) {
+    return `Closed ${repo} #${ticket.number}: ${pullRequest} was already ${what}, so no run started.`;
+  }
+  return `${repo} #${ticket.number}: ${pullRequest} was already ${what}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+}
+
+/** The Waiting-on-you line for a pull request ticket the loop found already resolved but could not close. */
+function pullRequestResolvedWaitingLine(
+  { repo, ticket }: PullRequestResolvedIteration,
+  notClosed: NotClosed & { kind: "close-failed" },
+): string {
+  return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — its pull request is already resolved, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
 }
 
 /**
