@@ -329,6 +329,22 @@ describe("ghIssueTracker.publishSummary", () => {
       /expected the new issue's URL, got: not-a-url/,
     );
   });
+
+  it("reads the URL off stdout even when gh prints something ahead of it", async (t) => {
+    await recordingGh(
+      t,
+      `echo "Creating issue in nadav-alon/side-projects-manager"\necho ${SUMMARY_URL}`,
+    );
+
+    const url = await ghIssueTracker().publishSummary(
+      "Morning loop summary — 2026-01-01",
+      "Nothing to do.",
+    );
+
+    // A banner ahead of the URL must not turn an issue that was created into
+    // one this reports as failed to publish.
+    assert.equal(url, SUMMARY_URL);
+  });
 });
 
 /**
