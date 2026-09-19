@@ -1,0 +1,40 @@
+# Verifies correctness on a pull request (CONTEXT.md: Draft pull request):
+# the loop only reads a draft pull request's diff, never whether this run
+# passed, so this workflow informs a human reviewer rather than gating a merge.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  verify:
+    name: Typecheck, build, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      # Twice, under two zones on opposite sides of UTC, so a test that
+      # silently assumes the runner's zone fails here rather than only on a
+      # contributor's machine (#371).
+      - name: Test under TZ=UTC
+        run: npm test
+        env:
+          TZ: UTC
+
+      - name: Test under TZ=Asia/Jerusalem
+        run: npm test
+        env:
+          TZ: Asia/Jerusalem
