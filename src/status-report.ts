@@ -66,12 +66,12 @@ function openedOn(
 }
 
 /**
- * Whether today has been claimed: a summary has already been announced
- * today, the surviving half of what the once-per-day lock used to decide
- * before it was replaced by the invocation lease. When it has not, this
- * names why — nothing has run yet, today's invocation is still going, or it
- * finished without ever announcing, which is the one case worth calling out
- * by name: the summary never published.
+ * Today is claimed when a summary has already been announced today, i.e.
+ * `state.announcedOn === localDay(now)` — the rule the caller applies and
+ * `todayClaimed` carries. When it has not, this names why — nothing has run
+ * yet, today's invocation is still going, it failed before it could finish,
+ * or it finished without ever announcing, which is the one case worth
+ * calling out by name: the summary never published.
  */
 function claimLine(
   records: readonly StatusRecord[],
