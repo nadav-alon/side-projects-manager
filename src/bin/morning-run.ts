@@ -14,10 +14,12 @@ import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usag
 import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing } from "../journal-record.ts";
-import { morningLoop, type InvocationReport } from "../morning-run.ts";
+import { morningLoop } from "../morning-run.ts";
 import {
   exitCode,
   processId,
+  type InvocationClosing,
+  type Journal,
   type OpenInvocation,
   type Store,
 } from "../ports/index.ts";
@@ -88,7 +90,7 @@ async function main(): Promise<void> {
   }
 
   const store = documentStore();
-  const opened = await openJournalRecord(store);
+  const opened = await openJournalRecord(store, systemClock.now());
 
   const report = await morningLoop(
     {
@@ -103,7 +105,11 @@ async function main(): Promise<void> {
   );
 
   console.log(report.message);
-  await closeJournalRecord(store, opened, report);
+  await closeJournalRecord(
+    store,
+    opened,
+    invocationClosing(report, systemClock.now()),
+  );
 
   // A broken setup exits non-zero even though it reported cleanly: whatever
   // triggers the loop reads a morning by its exit code, and a sandbox that is
@@ -163,28 +169,38 @@ async function recordIfNeverReported(
   openedAt: Date,
   exit: number,
 ): Promise<void> {
+  const journal = await readJournal(store);
+  if (journal === undefined) {
+    return;
+  }
+  const reported = journal.records.some(
+    (record) => record.openedAt.getTime() >= openedAt.getTime(),
+  );
+  if (reported) {
+    return;
+  }
+  const opened = await openJournalRecord(store, openedAt);
+  await closeJournalRecord(store, opened, {
+    closedAt: systemClock.now(),
+    outcome: "never-reported",
+    projects: [],
+    exitCode: exitCode(exit),
+  });
+}
+
+/**
+ * The journal as it stands, or `undefined` when it could not be read — said
+ * on stderr and nothing more, the same policy as opening and closing a
+ * record, so a journal nobody can read is never what fails an invocation.
+ */
+async function readJournal(store: Store): Promise<Journal | undefined> {
   try {
-    const { records } = await store.loadJournal();
-    const reported = records.some(
-      (record) => record.openedAt.getTime() >= openedAt.getTime(),
-    );
-    if (reported) {
-      return;
-    }
-    const opened = await store.openInvocation({
-      openedAt,
-      process: processId(process.pid),
-    });
-    await store.closeInvocation(opened, {
-      closedAt: systemClock.now(),
-      outcome: "never-reported",
-      projects: [],
-      exitCode: exitCode(exit),
-    });
+    return await store.loadJournal();
   } catch (error: unknown) {
     console.error(
-      `morning-run: the journal could not be written: ${errorMessage(error)}`,
+      `morning-run: the journal could not be read: ${errorMessage(error)}`,
     );
+    return undefined;
   }
 }
 
@@ -232,17 +248,18 @@ function stopOnInterrupt(): AbortSignal {
 }
 
 /**
- * Opens the invocation's journal record, naming this process and the instant
- * it started. `undefined` when the journal could not be written — said on
- * stderr and nothing more, since observability must never be the thing that
- * fails a morning, and an invocation with no handle simply closes nothing.
+ * Opens the invocation's journal record, naming this process and `openedAt`,
+ * the instant it started. `undefined` when the journal could not be written —
+ * said on stderr and nothing more, since observability must never be the thing
+ * that fails a morning, and an invocation with no handle simply closes nothing.
  */
 async function openJournalRecord(
   store: Store,
+  openedAt: Date,
 ): Promise<OpenInvocation | undefined> {
   try {
     return await store.openInvocation({
-      openedAt: systemClock.now(),
+      openedAt,
       process: processId(process.pid),
     });
   } catch (error: unknown) {
@@ -253,20 +270,17 @@ async function openJournalRecord(
   }
 }
 
-/** Closes `opened` with what `report` came to, the same silent-on-stderr policy as opening. */
+/** Closes `opened` with `closing`, the same silent-on-stderr policy as opening. */
 async function closeJournalRecord(
   store: Store,
   opened: OpenInvocation | undefined,
-  report: InvocationReport,
+  closing: InvocationClosing,
 ): Promise<void> {
   if (opened === undefined) {
     return;
   }
   try {
-    await store.closeInvocation(
-      opened,
-      invocationClosing(report, systemClock.now()),
-    );
+    await store.closeInvocation(opened, closing);
   } catch (error: unknown) {
     console.error(
       `morning-run: the journal could not be closed: ${errorMessage(error)}`,

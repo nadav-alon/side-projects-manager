@@ -343,7 +343,7 @@ describe("the morning-run command", () => {
       3,
       "the exit code is unaffected by the journal write failing",
     );
-    assert.match(stderr, /journal/i);
+    assert.match(stderr, /journal could not be read/i);
   });
 
   describe("interrupted", () => {
