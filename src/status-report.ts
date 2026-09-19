@@ -88,6 +88,9 @@ function claimLine(
   if (!isClosed(record)) {
     return `Today (${today}) has not been claimed yet: today's invocation is still in flight — see below.`;
   }
+  if (record.outcome === "invocation-failed") {
+    return `Today (${today}) has not been claimed: today's invocation failed before it could finish. Check trigger.log for what it last did, then re-run the loop by hand.`;
+  }
   return `Today (${today}) has not been claimed: today's invocation finished but its summary never published. Check the tracker is reachable and re-run the loop by hand.`;
 }
 

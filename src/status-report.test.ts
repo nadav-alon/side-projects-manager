@@ -71,6 +71,18 @@ describe("statusReport", () => {
     assert.match(lines[0]!, /finished but its summary never published/);
   });
 
+  it("calls out today's invocation failing, naming what to do, rather than blaming the tracker", () => {
+    const lines = statusReport(
+      journal(closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" })),
+      false,
+      NOW,
+    );
+
+    assert.match(lines[0]!, /today's invocation failed before it could finish/);
+    assert.match(lines[0]!, /trigger\.log/);
+    assert.doesNotMatch(lines[0]!, /tracker/);
+  });
+
   it("reports a record in flight whose process is alive as still running", () => {
     const lines = statusReport(
       journal(inFlight("2026-09-17T08:55:00.000Z", true)),
