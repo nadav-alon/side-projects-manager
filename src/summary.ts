@@ -685,7 +685,7 @@ function standDownReason(standDown: StandDown): string {
     case "five-hour-window":
       return `the 5-hour window is spent (${spent})`;
     case "five-hour-window-estimate":
-      return `the 5-hour window is within ${spent}, but the run estimate would spend it (${estimate})`;
+      return `the 5-hour window has ${spent} spent, but the run estimate would spend the rest (${estimate})`;
   }
 }
 
