@@ -1,0 +1,54 @@
+# Verifies correctness on a pull request and on a push to master: the loop
+# only reads a draft pull request's diff, never whether these checks passed,
+# so this workflow informs a human reviewer rather than gating a merge.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  issues: read
+
+# One build per ref is enough; a burst of pushes to a draft pull request
+# should not queue several runs of the same thing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, build, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      # Twice, once in UTC and once in a zone offset from it, so a test that
+      # silently assumes the runner's zone fails here rather than only on a
+      # contributor's machine.
+      - name: Test under TZ=UTC
+        run: npm test
+        env:
+          TZ: UTC
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Test under TZ=Asia/Jerusalem
+        if: always()
+        run: npm test
+        env:
+          TZ: Asia/Jerusalem
+          GH_TOKEN: ${{ github.token }}
