@@ -106,12 +106,25 @@ function inFlightCallouts(records: readonly StatusRecord[]): string[] {
     );
 }
 
-/** A callout naming a run of consecutive invocation failures, if the most recent two or more closed records are all one. */
+/**
+ * A callout naming a run of consecutive invocation failures, if the most
+ * recent two or more are all one. A record still running breaks the streak
+ * — the pattern is not yet settled — but a record that died without closing
+ * counts toward it: that is a failure too, just one that never got to write
+ * its outcome.
+ */
 function consecutiveFailureCallout(records: readonly StatusRecord[]): string[] {
-  const closed = records.filter(isClosed);
   let streak = 0;
-  for (let i = closed.length - 1; i >= 0; i -= 1) {
-    if (closed[i]!.outcome !== "invocation-failed") {
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const record = records[i]!;
+    if (!isClosed(record)) {
+      if (record.alive) {
+        break;
+      }
+      streak += 1;
+      continue;
+    }
+    if (record.outcome !== "invocation-failed") {
       break;
     }
     streak += 1;

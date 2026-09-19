@@ -110,6 +110,34 @@ describe("statusReport", () => {
     assert.match(lines.join("\n"), /3 invocations in a row have failed/);
   });
 
+  it("does not extend a failure streak across a record that's still running", () => {
+    const lines = statusReport(
+      journal(
+        closed("2026-09-15T08:00:00.000Z", { outcome: "invocation-failed" }),
+        inFlight("2026-09-16T08:00:00.000Z", true),
+        closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" }),
+      ),
+      false,
+      NOW,
+    );
+
+    assert.doesNotMatch(lines.join("\n"), /in a row/);
+  });
+
+  it("counts a died-without-closing record toward a failure streak", () => {
+    const lines = statusReport(
+      journal(
+        closed("2026-09-15T08:00:00.000Z", { outcome: "invocation-failed" }),
+        inFlight("2026-09-16T08:00:00.000Z", false),
+        closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" }),
+      ),
+      false,
+      NOW,
+    );
+
+    assert.match(lines.join("\n"), /3 invocations in a row have failed/);
+  });
+
   it("does not call out a single failure as a streak", () => {
     const lines = statusReport(
       journal(
