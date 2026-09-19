@@ -89,6 +89,11 @@ COPY --chown=node:node .claude/skills/rebase-pr/SKILL.md $HOME/.claude/skills/re
 # identity. Set in the image rather than per run, so every run's commits are
 # attributable to the manager rather than to whoever built the image.
 #
+# Kept in step with SANDBOX_GIT_IDENTITY in src/adapters/container-sandbox.ts,
+# which the sandbox's own salvage commits use — the two cannot share one
+# constant across a Dockerfile and TypeScript, so change one and change the
+# other.
+#
 # safe.directory: the clone arrives as a bind mount owned by whoever owns it on
 # the host, which need not be the user in here — the manager's pin makes the
 # two match, but a run without one (a host that reports no uid, or a bare

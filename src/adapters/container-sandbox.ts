@@ -1026,6 +1026,18 @@ export const SALVAGE_COMMIT_MESSAGE =
   "Sandbox salvage: committed by the sandbox after the run was cut off. May not build or pass tests.";
 
 /**
+ * The manager's own git identity, the same one `Dockerfile` gives every
+ * agent commit — kept as one constant so the two copies (this one, and the
+ * `git config` lines `Dockerfile` sets the image up with) are at least one
+ * grep apart rather than two: change either and the other's comment names
+ * where to look.
+ */
+const SANDBOX_GIT_IDENTITY = {
+  name: "side-projects-manager",
+  email: "manager@side-projects.invalid",
+} as const;
+
+/**
  * Commits everything left uncommitted in `clone` as one commit, marked as a
  * salvage rather than the agent's own work — see `Salvage` in CONTEXT.md. A
  * no-op when the agent left nothing uncommitted, tracked or not: a cut-off run
@@ -1036,8 +1048,7 @@ export const SALVAGE_COMMIT_MESSAGE =
  * and `add --all` stages exactly what it lists — an untracked file the agent
  * created is included, one the project ignores is not.
  *
- * Committed under the manager's own identity, the same one the image gives
- * every agent commit (`Dockerfile`), rather than the host's ambient git
+ * Committed under `SANDBOX_GIT_IDENTITY` rather than the host's ambient git
  * config: the agent never asked for this commit, and it is the sandbox's
  * doing, not the developer's.
  */
@@ -1051,9 +1062,9 @@ async function salvageUncommitted(clone: Checkout): Promise<void> {
     "-C",
     clone,
     "-c",
-    "user.name=side-projects-manager",
+    `user.name=${SANDBOX_GIT_IDENTITY.name}`,
     "-c",
-    "user.email=manager@side-projects.invalid",
+    `user.email=${SANDBOX_GIT_IDENTITY.email}`,
     "commit",
     "--message",
     SALVAGE_COMMIT_MESSAGE,
