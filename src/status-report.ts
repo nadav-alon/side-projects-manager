@@ -30,10 +30,9 @@ export interface StatusJournal {
  * history of the ones before it.
  *
  * A pure function of the journal, whether today has already been announced,
- * and the instant it is asked at — tested directly rather than by capturing
- * a real run's stdout. Nothing here reads the clock or a live process
- * itself: `now` is the caller's clock reading, and a record's `alive` is
- * already resolved onto it by the caller.
+ * and the instant it is asked at. Nothing here reads the clock or a live
+ * process itself: `now` is the caller's clock reading, and a record's
+ * `alive` is already resolved onto it by the caller.
  */
 export function statusReport(
   journal: StatusJournal,
