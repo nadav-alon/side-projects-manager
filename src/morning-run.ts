@@ -525,14 +525,17 @@ export async function morningLoop(
         summaryTitle(startedAt),
         body,
       );
-      // Recorded only now that the publish is known to have succeeded, and
-      // only when there is a state document to fold it back into.
-      if (stateToSave !== undefined) {
-        announcedOn = today;
-        await ports.store.saveState(stateToSave());
-      }
     } catch (error: unknown) {
       summaryFailure = { reason: errorMessage(error), body };
+    }
+    // Recorded only now that the publish is known to have succeeded, and
+    // only when there is a state document to fold it back into. Kept out of
+    // the try above: a fault here is the state document's, not the
+    // publish's, and must never read back as a publish that failed when the
+    // summary in fact went out.
+    if (summaryLocation !== undefined && stateToSave !== undefined) {
+      announcedOn = today;
+      await ports.store.saveState(stateToSave());
     }
   }
 
