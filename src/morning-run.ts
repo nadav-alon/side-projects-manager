@@ -794,6 +794,7 @@ async function handOver(
     checkout,
     run.branch,
     ticket,
+    run.gist,
   );
   if (opening.kind === "unpushed") {
     return handoverFailed(

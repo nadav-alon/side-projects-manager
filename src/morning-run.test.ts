@@ -18,6 +18,7 @@ import {
   pullRequestUrl,
   reserveFraction,
   reviewTitle,
+  ticketGist,
   tokenCount,
   usd,
   type ApplyReviewTicket,
@@ -655,7 +656,11 @@ describe("morningLoop", () => {
      */
     function ran(
       ports: FakePorts,
-      run: { commits?: CommitSha[]; failure?: string } = {},
+      run: {
+        commits?: CommitSha[];
+        failure?: string;
+        gist?: RunFinished["gist"];
+      } = {},
     ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
@@ -670,6 +675,7 @@ describe("morningLoop", () => {
               commits: run.commits ?? [commitSha("c0ffee1")],
               output: "",
               tokensUsed: tokenCount(42_000),
+              ...(run.gist !== undefined && { gist: run.gist }),
             }
           : {
               kind: "gave-up",
@@ -693,6 +699,23 @@ describe("morningLoop", () => {
           directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           branch: BRANCH,
           ticket,
+        },
+      ]);
+    });
+
+    it("is opened with the run's ticket gist, when it carried one", async () => {
+      const ports = fakePorts();
+      const gist = ticketGist("Added the thing to the widget.");
+      const ticket = ran(ports, { gist });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: BRANCH,
+          ticket,
+          gist,
         },
       ]);
     });
