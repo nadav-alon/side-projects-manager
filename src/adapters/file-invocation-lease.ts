@@ -4,6 +4,7 @@ import path from "node:path";
 import type { ProcessId } from "../ports/index.ts";
 import { isProcessId } from "../ports/index.ts";
 import type { InvocationLease } from "../trigger-guard.ts";
+import { isErrorWithCode } from "./error-code.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { isProcessAlive } from "./process-alive.ts";
 
@@ -115,8 +116,4 @@ function isAlreadyExists(error: unknown): boolean {
 
 function isMissing(error: unknown): boolean {
   return isErrorWithCode(error, "ENOENT");
-}
-
-function isErrorWithCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }

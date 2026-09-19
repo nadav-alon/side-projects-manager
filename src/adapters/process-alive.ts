@@ -1,4 +1,5 @@
 import type { ProcessId } from "../ports/index.ts";
+import { isErrorWithCode } from "./error-code.ts";
 
 /**
  * Whether `pid` names a process still running. Shared by the invocation
@@ -22,8 +23,4 @@ export function isProcessAlive(pid: ProcessId): boolean {
     }
     throw error;
   }
-}
-
-function isErrorWithCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }
