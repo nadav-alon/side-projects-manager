@@ -227,4 +227,26 @@ describe("statusReport", () => {
 
     assert.doesNotMatch(lines.join("\n"), /History:/);
   });
+
+  it("caps history to a screen's worth, naming how many earlier records it left out", () => {
+    const lines = statusReport(
+      journal(
+        closed("2026-09-10T08:00:00.000Z"),
+        closed("2026-09-11T08:00:00.000Z"),
+        closed("2026-09-12T08:00:00.000Z"),
+        closed("2026-09-13T08:00:00.000Z"),
+        closed("2026-09-14T08:00:00.000Z"),
+        closed("2026-09-15T08:00:00.000Z"),
+        closed("2026-09-16T08:00:00.000Z"),
+        closed("2026-09-17T08:00:00.000Z"),
+      ),
+      true,
+      NOW,
+    );
+
+    const historyIndex = lines.indexOf("History:");
+    const historyLines = lines.slice(historyIndex + 1);
+    assert.equal(historyLines.length, 6);
+    assert.equal(historyLines[5], "… and 2 earlier");
+  });
 });

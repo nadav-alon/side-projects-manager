@@ -140,17 +140,22 @@ function consecutiveFailureCallout(records: readonly StatusRecord[]): string[] {
   ];
 }
 
-/** Every record but the most recent, newest first. */
+/** The most recent `HISTORY_LIMIT` records before the latest, newest first — enough to see a pattern, not the whole journal. */
+const HISTORY_LIMIT = 5;
+
 function historyLines(records: readonly StatusRecord[]): string[] {
   const rest = records.slice(0, -1).reverse();
   if (rest.length === 0) {
     return [];
   }
+  const shown = rest.slice(0, HISTORY_LIMIT);
+  const omitted = rest.length - shown.length;
   return [
     "History:",
-    ...rest.map(
+    ...shown.map(
       (record) => `- ${describeAt(record.openedAt)} — ${describeRecord(record)}`,
     ),
+    ...(omitted > 0 ? [`… and ${omitted} earlier`] : []),
   ];
 }
 
