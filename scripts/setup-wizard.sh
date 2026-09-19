@@ -209,7 +209,7 @@ _install_rc_env() {
 # _crontab_upsert_var NAME VALUE: sets NAME=VALUE as a crontab-level
 # environment line (applies to every job below it), replacing any existing
 # line for NAME. Cron reads neither .bashrc nor .zshrc, so this is the only
-# way the daily schedule sees these credentials.
+# way the hourly schedule sees these credentials.
 _crontab_upsert_var() {
   local name="$1" value="$2" existing
   existing="$(crontab -l 2>/dev/null || true)"
@@ -333,10 +333,9 @@ else
   SKIPPED+=("docker image — run 'npm run sandbox:build && npm run sandbox:verify' before the first morning loop invocation")
 fi
 
-# ── Stage 5: the daily schedule + logon guard ──────────────────────────────
+# ── Stage 5: the hourly schedule ────────────────────────────────────────────
 stage "Triggers"
-say "A daily cron schedule at 08:00, plus a logon guard for mornings the"
-say "machine was off overnight — both installed by the repo's own idempotent"
+say "An hourly cron schedule, installed by the repo's own idempotent"
 say "installer, safe to run again later."
 if confirm "Run 'npm run triggers:install' now?"; then
   if (cd "$REPO_DIR" && npm run triggers:install); then

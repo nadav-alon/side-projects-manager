@@ -15,7 +15,7 @@ scripts/setup-wizard.sh
 
 ## The morning loop
 
-One job, run once a day, that picks a side project with available work and moves it forward.
+One job, run every hour, that picks a side project with available work and moves it forward.
 The full spec is [`docs/specs/morning-loop.md`](docs/specs/morning-loop.md), and
 [`CONTEXT.md`](CONTEXT.md) is the glossary the code and the tickets are both written in — an
 invocation, an iteration and a run are three different things.
@@ -23,14 +23,14 @@ invocation, an iteration and a run are three different things.
 `morningLoop` ([`src/morning-run.ts`](src/morning-run.ts)) is the loop's single entry point. It reaches
 the outside world only through six injected ports — issue tracker, repo host, sandbox, usage ledger,
 clock and store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
-([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the daily schedule,
-the logon guard, a manual `npm run morning-run` and any future cloud trigger are callers of
-`morningLoop` exactly like it is.
+([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the hourly
+schedule, a manual `npm run morning-run` and any future cloud trigger are callers of `morningLoop`
+exactly like it is.
 
 ## Triggers
 
-Three triggers fire the loop: a daily schedule, a guard that catches a day the machine was off
-overnight by firing on first logon instead, and a manual `npm run morning-run`. All three call
+Two triggers fire the loop: an hourly schedule, which starts with the machine rather than waiting on
+a login, and a manual `npm run morning-run`. Both call
 [`src/bin/morning-run.ts`](src/bin/morning-run.ts), which wraps the loop in an invocation lease
 ([`src/trigger-guard.ts`](src/trigger-guard.ts)): whichever firing acquires it runs the loop and every
 other firing, however long the first one takes, is a no-op that says an invocation is already running.
@@ -41,16 +41,10 @@ no longer alive is stale and is taken over, so a process killed mid-run doesn't 
 good. `morningLoop` itself carries none of this — it stays callable directly, with no lease at all.
 
 `npm run triggers:install` ([`scripts/install-triggers.sh`](scripts/install-triggers.sh)) registers
-both on the current machine: a cron line for the schedule, and a snippet appended to `~/.bashrc` and
-`~/.zshrc` for the logon guard. It edits the developer's own crontab and shell rc files, so nothing in
-this repo runs it automatically — it's a command the developer runs once, and it's safe to run again
-after a checkout moves. Re-running also rewrites an rc snippet left behind by an older version of the
-script, so a fix to the snippet reaches machines that already have it installed.
-
-The snippet backgrounds the guard inside a subshell — `( … & )` rather than a bare `&`. An rc file
-that backgrounds a job directly makes interactive zsh print `[1] <pid>` over the prompt at every
-login; `disown` can't suppress that, because the line is printed when the job is created, before
-`disown` runs.
+the cron line on the current machine. It edits the developer's own crontab, so nothing in this repo
+runs it automatically — it's a command the developer runs once, and it's safe to run again, including
+after a checkout moves: re-running replaces a stale registration — a leftover daily cron line, a
+logon-guard rc snippet, or a cron line pointing at the old checkout path — with the current one.
 
 ## Running a ticket
 
