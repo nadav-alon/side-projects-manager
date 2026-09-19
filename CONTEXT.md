@@ -312,6 +312,13 @@ An invocation record that was opened and never closed. The invocation is either 
 died before it could close.
 _Avoid_: open, pending, stuck, orphaned
 
+**Never reported**:
+The invocation outcome the guarded trigger writes for itself, rather than the loop writing it, when
+the loop's process left no invocation record open at or after the instant it was spawned. Carries
+the exit code that process gave the trigger — the one field no other outcome carries, since every
+other outcome is the loop reporting on itself.
+_Avoid_: missing, silent failure, unreported
+
 **Armed**:
 A trigger that is registered on this machine and still points at this manager home. Registration
 alone is not armed: a cron line naming a path that no longer exists is registered and not armed.
