@@ -42,9 +42,9 @@ good. `morningLoop` itself carries none of this — it stays callable directly, 
 
 `npm run triggers:install` ([`scripts/install-triggers.sh`](scripts/install-triggers.sh)) registers
 the cron line on the current machine. It edits the developer's own crontab, so nothing in this repo
-runs it automatically — it's a command the developer runs once, and it's safe to run again after a
-checkout moves. Run on a machine with the old daily cron line and logon-guard rc snippet, it replaces
-the former with the hourly line and strips the latter, so upgrading is the same one command.
+runs it automatically — it's a command the developer runs once, and it's safe to run again, including
+after a checkout moves: re-running replaces a stale registration — a leftover daily cron line, a
+logon-guard rc snippet, or a cron line pointing at the old checkout path — with the current one.
 
 ## Running a ticket
 

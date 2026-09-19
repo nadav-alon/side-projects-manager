@@ -4,10 +4,10 @@
 # The invocation lease inside it is what stops two firings overlapping — with
 # a manual `npm run morning-run` too.
 #
-# Idempotent: re-running leaves an up-to-date registration alone. Running it
-# on a machine with the old daily cron line and logon-guard rc blocks
-# replaces the former with the hourly line and strips the latter, so this is
-# safe to run again after upgrading from an older version of this script.
+# Idempotent: re-running leaves an up-to-date registration alone, and
+# replaces a stale one — whether that's a leftover daily cron line, a cron
+# line pointing at a checkout that has since moved, or a logon-guard rc
+# block — with the current registration.
 #
 # Not run automatically by anything in this repo — it edits the developer's
 # own crontab and shell rc files, which is the developer's call to make, not
@@ -27,22 +27,26 @@ RC_BEGIN="# >>> side-projects-manager: logon guard >>>"
 RC_END="# <<< side-projects-manager: logon guard <<<"
 
 install_cron() {
-  local existing without_ours
+  local existing status
   existing="$(crontab -l 2>/dev/null || true)"
-  if grep -qxF "$CRON_LINE" <<<"$existing"; then
+  if grep -qxF "$CRON_LINE" <<<"$existing" && ! grep -qF "$CRON_MARKER_OLD" <<<"$existing"; then
     echo "cron: already installed, leaving it alone."
     return
   fi
-  without_ours="$(grep -vF "$CRON_MARKER_OLD" <<<"$existing" \
-    | grep -vF "$CRON_MARKER" | grep -v '^$' || true)"
-  { printf '%s\n' "$without_ours"; echo "$CRON_LINE"; } | crontab -
   if grep -qF "$CRON_MARKER_OLD" <<<"$existing"; then
-    echo "cron: replaced the daily line with the hourly one."
+    status="cron: replaced the daily line with the hourly one."
   elif grep -qF "$CRON_MARKER" <<<"$existing"; then
-    echo "cron: updated to the current schedule line."
+    status="cron: updated the hourly line."
   else
-    echo "cron: installed, firing hourly."
+    status="cron: installed, firing hourly."
   fi
+  {
+    if [ -n "$existing" ]; then
+      printf '%s\n' "$existing" | grep -vF "$CRON_MARKER_OLD" | grep -vF "$CRON_MARKER" || true
+    fi
+    echo "$CRON_LINE"
+  } | crontab -
+  echo "$status"
 }
 
 # Removes the marked logon-guard block from $1, if present, leaving the rest
