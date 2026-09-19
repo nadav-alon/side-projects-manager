@@ -699,37 +699,63 @@ describe("containerSandbox", () => {
     assert.equal(variant(result, "limit-refused")?.commits.length, 0);
   });
 
-  it("makes no salvage commit for a finished run's uncommitted changes", async () => {
-    const directory = await project();
-    const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (options) => {
-      const agent = await commit(options);
-      await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
-      return agent;
+  /**
+   * Only a run cut off rather than ended by its own agent gets a salvage
+   * commit: a limit refusal (above) or a container that crashed once the
+   * agent had started. A run that finished or gave up through its own exit
+   * ended on its own terms, and keeps `leftover.txt` uncommitted, exactly as
+   * the agent left it.
+   */
+  for (const [name, mode, expectedCommits, expectedKind] of [
+    ["finished", "finished", 1, "finished"],
+    ["gave up through its own exit", "gave-up", 1, "gave-up"],
+    ["was cut off by a container that crashed after it started", "crashed", 2, "gave-up"],
+  ] as const) {
+    it(`makes ${expectedCommits > 1 ? "a salvage commit" : "no salvage commit"} for a run that ${name}`, async () => {
+      const directory = await project();
+      const commit = agentCommitting(["one.txt"]);
+      const sandbox = containerSandbox(async (options) => {
+        const agent = await commit(options);
+        await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
+        if (mode === "crashed") {
+          throw new Error("the container crashed");
+        }
+        return mode === "gave-up" ? { ...agent, failure: "the agent gave up" } : agent;
+      });
+
+      const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+      assert.equal(result.kind, expectedKind);
+      assert.equal(variant(result, expectedKind)?.commits.length, expectedCommits);
     });
+  }
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    const finished = variant(result, "finished");
-    assert.equal(finished?.commits.length, 1);
-    assert.equal(await subjectOf(directory, finished?.branch ?? ""), "Add one.txt");
-  });
-
-  it("makes no salvage commit for a gave-up run's uncommitted changes", async () => {
+  /**
+   * A container that crashes after the agent has started leaves the clone
+   * just as intact as a limit refusal does: see `Salvage` in CONTEXT.md. The
+   * run still reads as `"gave-up"` — the sandbox cannot tell it apart from an
+   * agent that gave up on its own once it happens through the same
+   * `Container` contract — but its uncommitted work is not dropped with the
+   * clone, and its branch still reaches the checkout.
+   */
+  it("salvages a crashed run's uncommitted changes as one commit, and fetches its branch back", async () => {
     const directory = await project();
     const commit = agentCommitting(["one.txt"]);
     const sandbox = containerSandbox(async (options) => {
-      const agent = await commit(options);
+      await commit(options);
       await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
-      return { ...agent, failure: "the agent gave up" };
+      throw new Error("the container crashed");
     });
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
     const gaveUp = variant(result, "gave-up");
-    assert.equal(gaveUp?.commits.length, 1);
-    assert.equal(await subjectOf(directory, gaveUp?.branch ?? ""), "Add one.txt");
+    assert.equal(gaveUp?.commits.length, 2);
+    assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+    assert.equal(await headOf(directory, BRANCH), gaveUp?.commits.at(-1));
+    assert.equal(await subjectOf(directory, BRANCH), SALVAGE_COMMIT_MESSAGE);
+    assert.ok((await filesOn(directory, BRANCH)).includes("leftover.txt"));
   });
 
   it("reports a failure while salvaging as the sandbox's own failure, keeping the spend", async () => {

@@ -94,6 +94,15 @@ export interface AgentRun {
    * gave none.
    */
   gist?: TicketGist;
+  /**
+   * Set only by `attempt`, when the container itself threw once the agent had
+   * already started, rather than the agent's own exit setting `failure` the
+   * normal way. `attempt` is the only place that can tell the two apart —
+   * once it returns, a container that crashed and an agent that gave up on
+   * its own look the same — so this is how `wasCutOff` recovers it. Never set
+   * by a `Container` implementation's own return.
+   */
+  crashed?: true;
 }
 
 /**
@@ -298,14 +307,18 @@ async function runOnClone(
         { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
         model,
       );
-      const ending = endingOf(agent, model);
 
       try {
-        // Salvaged before the commits are counted, so a limit refusal's own
+        const ending = endingOf(agent, model);
+
+        // Salvaged before the commits are counted, so a cut-off run's own
         // uncommitted work is not dropped with the clone: see `Salvage` in
-        // CONTEXT.md. A run that finished, gave up or was refused its model
-        // ended on its own terms, and keeps nothing uncommitted.
-        if (ending.kind === "limit-refused") {
+        // CONTEXT.md. `wasCutOff` covers a limit refusal and a container that
+        // crashed once the agent had started — the two ways a run stops
+        // without the agent itself ending it. A run that finished, gave up on
+        // its own account, or was refused its model ended on its own terms,
+        // and keeps nothing uncommitted.
+        if (wasCutOff(ending, agent)) {
           await salvageUncommitted(clone);
         }
 
@@ -356,7 +369,10 @@ async function runOnClone(
  * it managed before it stopped are still work, its output is what says what
  * went wrong, and the tokens it spent were spent. Losing all three because the
  * process exited non-zero is the silent failure this adapter exists to avoid,
- * so the throw becomes a result the loop can record and report.
+ * so the throw becomes a result the loop can record and report — marked
+ * `crashed`, since this is the one place that knows the container itself
+ * threw rather than the agent's own exit reporting a failure, and `wasCutOff`
+ * needs that to decide whether the run left anything to salvage.
  *
  * Except a container that never started the agent. That has none of the three
  * to lose, and reporting it as a run would post "the agent gave up" on a ticket
@@ -380,6 +396,7 @@ async function attempt(
       output: errorMessage(error),
       tokensUsed: tokenCount(0),
       failure: errorMessage(error),
+      crashed: true,
     };
   }
 }
@@ -445,6 +462,19 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
   return agent.failure === undefined
     ? { kind: "finished", output: agent.output }
     : { kind: "gave-up", output: agent.output, reason: agent.failure };
+}
+
+/**
+ * Whether an implementation run was cut off rather than ended by its own
+ * agent — a limit refusal, or a container that crashed once the agent had
+ * started — and so left uncommitted work worth salvaging: see `Salvage` in
+ * CONTEXT.md. `ending` alone cannot tell a crashed container apart from an
+ * agent that gave up on its own account, since `endingOf` reads both as
+ * `"gave-up"`; `agent.crashed` is `attempt`'s own record of which one this
+ * was.
+ */
+function wasCutOff(ending: Ending, agent: AgentRun): boolean {
+  return ending.kind === "limit-refused" || agent.crashed === true;
 }
 
 /**
