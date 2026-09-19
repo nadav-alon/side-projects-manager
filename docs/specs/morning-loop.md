@@ -15,7 +15,7 @@ without the machine quietly eating the Claude quota I need for the thinking half
 
 ## Solution
 
-A manager repo that owns a **morning loop**: one job, run once a day, that picks a single side
+A manager repo that owns a **morning loop**: one job, run every hour, that picks a single side
 project with available work, implements one ticket inside a sandboxed agent, opens a draft PR, and
 queues a separate review of that PR to run in a fresh context.
 
