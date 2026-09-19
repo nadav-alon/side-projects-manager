@@ -9,6 +9,15 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+
+# One build per ref is enough; a burst of pushes to a draft pull request
+# should not queue several runs of the same thing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     name: Typecheck, build, and test
