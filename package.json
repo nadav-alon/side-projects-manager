@@ -10,7 +10,7 @@
   "bin": {
     "morning-run": "./dist/bin/morning-run.js",
     "new-project": "./dist/bin/new-project.js",
-    "status": "./dist/bin/status.js"
+    "loop-status": "./dist/bin/status.js"
   },
   "files": [
     "dist",
