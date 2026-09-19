@@ -1,8 +1,12 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { ProcessId } from "../ports/index.ts";
+import { isProcessId } from "../ports/index.ts";
 import type { InvocationLease } from "../trigger-guard.ts";
+import { isErrorWithCode } from "./error-code.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
+import { isProcessAlive } from "./process-alive.ts";
 
 /** The lease file's name under the manager home, exported for tests that plant one directly. */
 export const LEASE_FILE = "invocation.lease";
@@ -76,7 +80,7 @@ async function create(file: string): Promise<boolean> {
 
 async function heldByLiveProcess(file: string): Promise<boolean> {
   const pid = await readPid(file);
-  return pid !== undefined && isAlive(pid);
+  return pid !== undefined && isProcessAlive(pid);
 }
 
 async function removeStale(file: string): Promise<void> {
@@ -89,10 +93,15 @@ async function removeStale(file: string): Promise<void> {
   }
 }
 
-async function readPid(file: string): Promise<Pid | undefined> {
+/**
+ * A process id read back from a lease file, so a file truncated to `0` or a
+ * negative number by a crash mid-write cannot read as every process's own
+ * process group and be reported alive forever.
+ */
+async function readPid(file: string): Promise<ProcessId | undefined> {
   try {
     const parsed = Number.parseInt(await readFile(file, "utf8"), 10);
-    return isPid(parsed) ? parsed : undefined;
+    return isProcessId(parsed) ? parsed : undefined;
   } catch (error) {
     if (isMissing(error)) {
       return undefined;
@@ -101,48 +110,10 @@ async function readPid(file: string): Promise<Pid | undefined> {
   }
 }
 
-/** Whether `pid` names a process still running — pid reuse after a reboot is accepted as negligible. */
-function isAlive(pid: Pid): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (isNoSuchProcess(error)) {
-      return false;
-    }
-    if (isErrorWithCode(error, "EPERM")) {
-      return true;
-    }
-    throw error;
-  }
-}
-
-declare const pidBrand: unique symbol;
-
-/**
- * A process id read back from a lease file: a positive integer, so a file
- * truncated to `0` or a negative number by a crash mid-write cannot read as
- * every process's own process group and be reported alive forever.
- */
-type Pid = number & { readonly [pidBrand]: true };
-
-/** The guard, for a pid parsed from a lease file. */
-function isPid(value: number): value is Pid {
-  return Number.isInteger(value) && value > 0;
-}
-
 function isAlreadyExists(error: unknown): boolean {
   return isErrorWithCode(error, "EEXIST");
 }
 
 function isMissing(error: unknown): boolean {
   return isErrorWithCode(error, "ENOENT");
-}
-
-function isNoSuchProcess(error: unknown): boolean {
-  return isErrorWithCode(error, "ESRCH");
-}
-
-function isErrorWithCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }

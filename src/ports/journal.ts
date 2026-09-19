@@ -67,6 +67,13 @@ export interface Journal {
   records: InvocationRecord[];
 }
 
+/** Whether `record` has been closed. */
+export function isClosedInvocation(
+  record: InvocationRecord,
+): record is InvocationRecord & InvocationClosing {
+  return record.closedAt !== undefined;
+}
+
 /**
  * The record in `records` opened at `opened`'s instant by `opened`'s
  * process, whatever its closed state. Same `openedAt` instant, same process

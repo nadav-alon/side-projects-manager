@@ -130,6 +130,18 @@ export interface State {
 }
 
 /**
+ * Whether `day` is already claimed: a summary has been announced on it. A
+ * read-only query onto `announcedOn` — asking never claims a day, and every
+ * caller that claims one still does it by setting `announcedOn` itself.
+ */
+export function hasAnnouncedOn(
+  announcedOn: Day | undefined,
+  day: Day,
+): boolean {
+  return announcedOn === day;
+}
+
+/**
  * Reads the developer's registry, budget and model defaults, and reads and
  * writes the state document alongside them.
  *

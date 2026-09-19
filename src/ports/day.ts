@@ -35,3 +35,10 @@ export function localDay(at: Date): Day {
   const date = `${at.getDate()}`.padStart(2, "0");
   return day(`${year}-${month}-${date}`);
 }
+
+/** `at`'s local time, as `HH:MM`. */
+export function localTimeOfMinute(at: Date): string {
+  const hours = `${at.getHours()}`.padStart(2, "0");
+  const minutes = `${at.getMinutes()}`.padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
