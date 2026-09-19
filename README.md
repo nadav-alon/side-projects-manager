@@ -268,16 +268,18 @@ defaults to `M`.
 as `--max-budget-usd`, which stops the run from inside. It is dollars because that flag is, not
 because anything is billed — on a subscription the CLI prices the run's own token usage at API rates
 and stops when the priced total crosses the figure, so this is a token ceiling stated in the CLI's
-units. The gate decides whether a run starts; the ceiling bounds how far a run that has started can
-go. The gate does not subtract the cost of the run it is about to authorise, so a run started at the
-boundary spends its ceiling out of the reserve — the ceiling is the size of that accepted overshoot.
-It is recorded in `state.json` either way, so the next morning's gate counts it.
+units. The gate decides whether a run starts, charging the run estimate its ticket's size names
+before authorising it; the ceiling still bounds how far a run that has started can go, in dollars
+rather than the tokens the gate reasons in, and the two are allowed to disagree. An estimate set low
+still leaves room for a run to spend past it, up to the ceiling, before the next consultation catches
+up. What a run actually spent is recorded in `state.json` either way, so the next morning's gate
+counts the real figure, not the estimate.
 
 `maxConcurrentIterations` is the most iterations one invocation may have in progress at once: a
-whole number, 1 or more, defaulting to `1`. Know what it costs before raising it. The gate does not
-count iterations still in progress, so up to `maxConcurrentIterations` runs can start at the boundary together, and the
-accepted overshoot grows from one spend ceiling to that many. Raising it is a reason to lower the
-allowances or raise the reserve.
+whole number, 1 or more, defaulting to `1`. Know what it costs before raising it: the gate charges
+every iteration still in progress its own run estimate, so raising this does not multiply an
+unaccounted overshoot the way it once did, but an estimate set too low still lets that many runs
+overshoot it together. Raising it is a reason to lower the allowances or raise the reserve.
 
 `observedResetAt` is the one field with no default, and most `budget.json` files never carry it. It
 is a 5-hour reset instant you read off Claude's own display, written as ISO 8601 with a zone —

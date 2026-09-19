@@ -161,7 +161,7 @@ function runsRecorded(
  * ticket about to start and for every ticket still in progress (ADR 0004),
  * which is what stops a run authorised at the boundary from spending its
  * whole spend ceiling out of the reserve, and a run in progress from
- * overshooting unaccounted for (ADR 0003, which this supersedes). A window
+ * overshooting unaccounted for (ADR 0004, which supersedes ADR 0003). A window
  * whose consumption alone already exceeds what is spendable refuses for that
  * reason alone; one within it that the estimate would push over refuses for
  * the estimate instead — told apart so the developer knows which is true.
