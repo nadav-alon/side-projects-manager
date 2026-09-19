@@ -235,6 +235,14 @@ _Avoid_: review task, review job, QA ticket
 A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same. One whose own pull request is already merged or closed closes the same way, with no run and nothing marked ready.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
+**Reviewed label**:
+The label the manager adds to a draft pull request once its review ticket finishes, so the developer can see the pull request's progress from the pull request list. Added as a best-effort last step, after the ticket closes; a refusal never reopens the ticket, and the summary says the label is missing instead. Only added, never removed.
+_Avoid_: review label, QA label
+
+**Applied-review label**:
+The label the manager adds to a draft pull request once its apply-review ticket finishes and the pull request is marked ready, so the developer can see the pull request's progress from the pull request list. Added as a best-effort last step; a refusal never reopens the ticket, and the summary says the label is missing instead. A pull request carrying this alongside the reviewed label is expected, not a conflict: labels are only added, never removed.
+_Avoid_: apply-review tag, done label
+
 ### Budget
 
 **Budget gate**:

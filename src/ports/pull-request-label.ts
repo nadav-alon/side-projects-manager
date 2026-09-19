@@ -9,8 +9,8 @@ declare const pullRequestLabelBrand: unique symbol;
  * Branded, so a free-text string cannot stand in for a value the host is
  * actually going to be asked to apply. Values enter through
  * `pullRequestLabel` or `isPullRequestLabel`. {@link REVIEWED_LABEL} and
- * {@link APPLIED_REVIEW_LABEL} are the two the loop applies today, per
- * `CONTEXT.md`'s "Review ticket" and "Apply-review ticket".
+ * {@link APPLIED_REVIEW_LABEL} are the two the loop applies, per
+ * `CONTEXT.md`'s "Reviewed label" and "Applied-review label".
  */
 export type PullRequestLabel = string & {
   readonly [pullRequestLabelBrand]: true;
