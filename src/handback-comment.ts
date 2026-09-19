@@ -189,6 +189,27 @@ export function rebasedComment(
   return [what, `Its draft state was left as it was.`].join("\n\n");
 }
 
+/**
+ * What a pull request ticket is told when its own pull request is already
+ * merged or closed by the time the loop looks: there is nothing left to
+ * review, apply a review to, or rebase, so no run was started. Closed rather
+ * than handed back, so the comment says that too, instead of pointing at
+ * ready-for-agent the way `notRetried` does for a ticket left eligible.
+ */
+export function pullRequestResolvedComment(
+  pullRequest: PullRequestUrl,
+  resolution: "merged" | "closed",
+): string {
+  const what =
+    resolution === "merged"
+      ? `${pullRequest} has already been merged`
+      : `${pullRequest} has been closed without merging`;
+  return [
+    `The morning loop did not run this ticket: ${what}, so there is nothing left to do.`,
+    `This ticket is closed rather than handed back: it will not come round again.`,
+  ].join("\n\n");
+}
+
 /** The layout every gave-up comment shares, with `notes` before the last line. */
 function gaveUpComment(
   failure: GaveUp,

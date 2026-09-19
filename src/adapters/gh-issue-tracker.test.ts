@@ -1966,6 +1966,26 @@ describe("ghIssueTracker.closeReviewTicket", () => {
     // that already is.
     await ghIssueTracker().closeReviewTicket(REVIEW);
   });
+
+  it("closes with a comment when given one, for a review whose pull request already resolved", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeReviewTicket(REVIEW, "already merged");
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close);
+    assert.equal(valueOf(close, "--comment"), "already merged");
+  });
+
+  it("closes without a --comment flag when given none", async (t) => {
+    const gh = await recordingGh(t, ": ");
+
+    await ghIssueTracker().closeReviewTicket(REVIEW);
+
+    const close = callWith(await gh.calls(), "issue", "close");
+    assert.ok(close);
+    assert.ok(!close.includes("--comment"));
+  });
 });
 
 describe("ghIssueTracker.closeApplyReviewTicket", () => {

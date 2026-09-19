@@ -124,6 +124,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** The review tickets closed, in the order they were closed. */
   readonly closedReviewTickets: ReviewTicket[] = [];
 
+  /**
+   * The comment a closed review ticket carried, keyed by ticket number — only
+   * a review closed for a pull request already merged or closed carries one.
+   */
+  readonly closedReviewTicketComments = new Map<number, string>();
+
   /** The apply-review tickets closed, in the order closed, with what each was told. */
   readonly closedApplyReviewTickets: {
     ticket: ApplyReviewTicket;
@@ -325,8 +331,14 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * still find it, the way a label query against the real tracker would
    * find a closed issue's labels.
    */
-  async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
+  async closeReviewTicket(
+    ticket: ReviewTicket,
+    comment?: string,
+  ): Promise<void> {
     this.closedReviewTickets.push(ticket);
+    if (comment !== undefined) {
+      this.closedReviewTicketComments.set(ticket.number, comment);
+    }
     this.#close(ticket);
     this.#find(ticket)?.labels.delete(READY_FOR_AGENT_LABEL);
   }

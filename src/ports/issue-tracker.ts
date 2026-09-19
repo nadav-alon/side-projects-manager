@@ -547,8 +547,13 @@ export interface IssueTracker {
    * for an agent. Best effort on the label alone — the close is what makes
    * the ticket un-selectable, so a caller told this failed still finds it
    * closed and just missing the label.
+   *
+   * `comment` is absent for a review that posted its findings straight to the
+   * pull request, which needs nothing further said on the ticket itself; a
+   * review closed for a pull request already merged or closed carries one
+   * naming why.
    */
-  closeReviewTicket(ticket: ReviewTicket): Promise<void>;
+  closeReviewTicket(ticket: ReviewTicket, comment?: string): Promise<void>;
 
   /**
    * Closes `ticket` with `comment`, once every thread on its pull request is

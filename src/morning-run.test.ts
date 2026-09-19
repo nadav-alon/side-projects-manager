@@ -79,7 +79,8 @@ function ranWith(iteration: IterationOutcome | undefined) {
   return iteration === undefined ||
     iteration.kind === "reviewed" ||
     iteration.kind === "applied-review" ||
-    iteration.kind === "rebased"
+    iteration.kind === "rebased" ||
+    iteration.kind === "pull-request-resolved"
     ? undefined
     : iteration.run;
 }
@@ -1522,6 +1523,63 @@ describe("morningLoop", () => {
         new RegExp(`the agent gave up on #${ticket.number}: the agent gave up`, "i"),
       );
     });
+
+    it("closes a review ticket whose pull request is already merged, without running anything", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "merged");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.reviews.length, 0);
+      assert.equal(ports.repoHost.clones.length, 0);
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+      assert.match(
+        ports.tracker.closedReviewTicketComments.get(ticket.number) ?? "",
+        /already been merged/,
+      );
+      assert.match(report.message, /already merged/);
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.doesNotMatch(body, /## Waiting on you/);
+    });
+
+    it("closes a review ticket whose pull request is closed without merging, without running anything", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "closed");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.reviews.length, 0);
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+      assert.match(
+        ports.tracker.closedReviewTicketComments.get(ticket.number) ?? "",
+        /closed without merging/,
+      );
+      assert.match(report.message, /closed without merging/);
+    });
+
+    it("reports a resolved review ticket that cannot be closed, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "merged");
+      t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      assert.match(report.message, /issue is locked/);
+      assert.match(report.message, /close it yourself/);
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(
+        body,
+        new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
+      );
+    });
   });
 
   describe("an apply-review ticket, selected", () => {
@@ -1885,6 +1943,39 @@ describe("morningLoop", () => {
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
       );
     });
+
+    it("closes an apply-review ticket whose pull request is already merged, without running anything", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "merged");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.applyReviews.length, 0);
+      assert.equal(ports.repoHost.clones.length, 0);
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      const [closed] = ports.tracker.closedApplyReviewTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /already been merged/);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.match(report.message, /already merged/);
+    });
+
+    it("closes an apply-review ticket whose pull request is closed without merging, without running anything", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "closed");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.applyReviews.length, 0);
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      const [closed] = ports.tracker.closedApplyReviewTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /closed without merging/);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.match(report.message, /closed without merging/);
+    });
   });
 
   describe("a rebase ticket, selected", () => {
@@ -2246,6 +2337,39 @@ describe("morningLoop", () => {
         attempts(ports),
         new RegExp(`- Attempted a rebase of ${PULL_REQUEST} on ${PILOT}: the agent gave up on #44: .*still conflicts`),
       );
+    });
+
+    it("closes a rebase ticket whose pull request is already merged, without checking mergeability or running anything", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "merged");
+      const needsRebase = t.mock.method(ports.repoHost, "needsRebase");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(needsRebase.mock.callCount(), 0);
+      assert.equal(ports.sandbox.rebases.length, 0);
+      assert.equal(ports.repoHost.clones.length, 0);
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      const [closed] = ports.tracker.closedRebaseTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /already been merged/);
+      assert.match(report.message, /already merged/);
+    });
+
+    it("closes a rebase ticket whose pull request is closed without merging, without running anything", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "closed");
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.sandbox.rebases.length, 0);
+      assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
+      const [closed] = ports.tracker.closedRebaseTickets;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /closed without merging/);
+      assert.match(report.message, /closed without merging/);
     });
   });
 

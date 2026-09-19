@@ -12,6 +12,8 @@ import type {
   ModelName,
   ModelRefusal,
   ProjectState,
+  PullRequestState,
+  PullRequestTicket,
   RebaseFinished,
   RebaseGaveUp,
   RebaseTicket,
@@ -58,6 +60,7 @@ import {
   handoverComment,
   handoverFailureComment,
   modelRefusalComment,
+  pullRequestResolvedComment,
   rebaseHandbackComment,
   rebasedComment,
   reviewHandbackComment,
@@ -81,6 +84,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type PullRequestResolved,
   type Rebased,
   type Reviewed,
   type UnsettledMergeability,
@@ -1073,6 +1077,47 @@ async function attemptRun(
 }
 
 /**
+ * Whether `ticket`'s own pull request is already merged or closed, read
+ * before anything else a pull request ticket's iteration would otherwise do.
+ * Undefined for one still open, which is every ticket's iteration reads as
+ * today.
+ */
+async function pullRequestResolution(
+  ports: MorningLoopPorts,
+  ticket: PullRequestTicket,
+): Promise<Exclude<PullRequestState, "open"> | undefined> {
+  const state = await ports.repoHost.pullRequestState(ticket.pullRequest.url);
+  return state === "open" ? undefined : state;
+}
+
+/**
+ * Closes a pull request ticket whose own pull request `resolution` already
+ * settled, with a comment naming which: no run was started, so there is
+ * nothing else here to report. `close` is the ticket kind's own close call —
+ * `closeReviewTicket`, `closeApplyReviewTicket` or `closeRebaseTicket` —
+ * already bound to `ticket`, since each answers to its own port method.
+ *
+ * Never throws: a close that fails is reported on the iteration, and the
+ * ticket left open — still ready-for-agent, due to come round again.
+ */
+async function closeResolvedPullRequestTicket(
+  ticket: PullRequestTicket,
+  resolution: Exclude<PullRequestState, "open">,
+  close: (comment: string) => Promise<void>,
+): Promise<PullRequestResolved> {
+  try {
+    await close(pullRequestResolvedComment(ticket.pullRequest.url, resolution));
+    return { kind: "pull-request-resolved", resolution };
+  } catch (error: unknown) {
+    return {
+      kind: "pull-request-resolved",
+      resolution,
+      notClosed: { kind: "close-failed", error: errorMessage(error) },
+    };
+  }
+}
+
+/**
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
@@ -1087,6 +1132,10 @@ async function attemptRun(
  * a clean exit that posted nothing — the ticket is handed back, as an
  * implementation ticket's is.
  *
+ * A pull request already merged or closed by the time the iteration starts is
+ * checked for first, before any of that: there is nothing left to review, so
+ * the ticket is closed with a comment naming which, and no run starts.
+ *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
  * as it was, and the invocation carries on. A check or a close that fails
@@ -1099,7 +1148,19 @@ async function runReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Reviewed | LimitRefused | Failed> {
+): Promise<Reviewed | LimitRefused | Failed | PullRequestResolved> {
+  let resolution: Exclude<PullRequestState, "open"> | undefined;
+  try {
+    resolution = await pullRequestResolution(ports, ticket);
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+  if (resolution !== undefined) {
+    return closeResolvedPullRequestTicket(ticket, resolution, (comment) =>
+      ports.tracker.closeReviewTicket(ticket, comment),
+    );
+  }
+
   const startedAt = ports.clock.now();
   const result = await runInSandbox(ports, repo, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
@@ -1211,6 +1272,11 @@ async function handReviewBack(
  * started is an infrastructure failure, and a limit or model refusal reads as
  * for a review. A read, mark or close that fails after the run is reported on
  * the iteration, never raised.
+ *
+ * A pull request already merged or closed by the time the iteration starts is
+ * checked for before any of that: its branch is commonly gone with it, which
+ * is what made a run started on one fail checkout every time. The ticket is
+ * closed with a comment naming which, and no run starts.
  */
 async function runApplyReview(
   ports: MorningLoopPorts,
@@ -1219,8 +1285,21 @@ async function runApplyReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<AppliedReview | LimitRefused | Failed> {
+): Promise<AppliedReview | LimitRefused | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
+
+  let resolution: Exclude<PullRequestState, "open"> | undefined;
+  try {
+    resolution = await pullRequestResolution(ports, ticket);
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+  if (resolution !== undefined) {
+    return closeResolvedPullRequestTicket(ticket, resolution, (comment) =>
+      ports.tracker.closeApplyReviewTicket(ticket, comment),
+    );
+  }
+
   const startedAt = ports.clock.now();
   let before: ApplyReviewAnswers;
   try {
@@ -1370,13 +1449,17 @@ async function handApplyReviewBack(
  *
  * An agent that gave up — a force-push the repo host rejected included — or a
  * run that left the pull request still conflicting is handed back, and so,
- * with no run, is a pull request whose mergeability never settles: that is
- * the pull request's doing, commonly one merged or closed since, and left
- * eligible it would come round every firing ahead of the project's other
- * work. A repo host or sandbox that could not otherwise do its part before
- * the agent started is an infrastructure failure, and a limit or model
- * refusal reads as for an apply-review ticket. A read or close that fails after the run is reported on
- * the iteration, never raised.
+ * with no run, is a pull request whose mergeability never settles once it is
+ * confirmed still open. A repo host or sandbox that could not otherwise do
+ * its part before the agent started is an infrastructure failure, and a
+ * limit or model refusal reads as for an apply-review ticket. A read or close
+ * that fails after the run is reported on the iteration, never raised.
+ *
+ * A pull request already merged or closed by the time the iteration starts is
+ * checked for before any of that, ahead of even asking whether it needs a
+ * rebase: it is commonly the reason mergeability would never have settled,
+ * and its branch is commonly gone too. The ticket is closed with a comment
+ * naming which, and no run starts.
  */
 async function runRebase(
   ports: MorningLoopPorts,
@@ -1385,8 +1468,21 @@ async function runRebase(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Rebased | LimitRefused | Failed> {
+): Promise<Rebased | LimitRefused | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
+
+  let resolution: Exclude<PullRequestState, "open"> | undefined;
+  try {
+    resolution = await pullRequestResolution(ports, ticket);
+  } catch (error: unknown) {
+    return infrastructureFailure(error);
+  }
+  if (resolution !== undefined) {
+    return closeResolvedPullRequestTicket(ticket, resolution, (comment) =>
+      ports.tracker.closeRebaseTicket(ticket, comment),
+    );
+  }
+
   let needsRebase: boolean;
   try {
     needsRebase = await ports.repoHost.needsRebase(pullRequest);

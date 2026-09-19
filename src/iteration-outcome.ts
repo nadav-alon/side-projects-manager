@@ -6,6 +6,8 @@ import type {
   HandBackOutcome,
   ModelName,
   ModelRefusal,
+  PullRequestState,
+  PullRequestTicket,
   PullRequestUrl,
   RebaseFinished,
   RebaseTicket,
@@ -179,6 +181,7 @@ export type Iteration =
   | Reviewed
   | AppliedReview
   | Rebased
+  | PullRequestResolved
   | LimitRefused;
 
 /**
@@ -272,6 +275,7 @@ export type IterationOutcome =
   | (Attempt<ReviewTicket> & Reviewed)
   | (Attempt<ApplyReviewTicket> & AppliedReview)
   | (Attempt<RebaseTicket> & Rebased)
+  | (Attempt<PullRequestTicket> & PullRequestResolved)
   | (Attempt & LimitRefused);
 
 /**
@@ -359,6 +363,28 @@ export interface Rebased {
    * way the ticket is still ready-for-agent.
    */
   notClosed?: NotClosed;
+}
+
+/**
+ * A pull request ticket — review, apply-review or rebase — whose own pull
+ * request the repo host already reports merged or closed, checked before
+ * anything else the ticket's iteration would do: closed with a comment
+ * naming which, and no run started. Its branch is commonly gone with the
+ * pull request, so a run started on it would only fail the same way every
+ * morning after — closed rather than handed back, since coming round again
+ * would find the same pull request in the same state.
+ */
+export interface PullRequestResolved {
+  kind: "pull-request-resolved";
+  /** How the pull request was resolved by the time the loop looked. */
+  resolution: Exclude<PullRequestState, "open">;
+  /** Always absent: no run ever starts, so there is never anything spent. */
+  tokensUsed?: TokenCount;
+  /**
+   * Set when the ticket itself could not be closed. Still ready-for-agent,
+   * and due to come round again.
+   */
+  notClosed?: { kind: "close-failed"; error: string };
 }
 
 /**
