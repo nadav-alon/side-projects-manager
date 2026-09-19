@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawnSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
@@ -26,6 +26,16 @@ async function writeJournal(home: string, journal: unknown): Promise<void> {
 
 async function writeState(home: string, state: unknown): Promise<void> {
   await writeFile(path.join(home, "state.json"), JSON.stringify(state));
+}
+
+/** Every file directly under `home` and its contents, for comparing before and after a run. */
+async function snapshotHome(home: string): Promise<Record<string, string>> {
+  const entries = await readdir(home);
+  const files: Record<string, string> = {};
+  for (const entry of entries) {
+    files[entry] = await readFile(path.join(home, entry), "utf8");
+  }
+  return files;
 }
 
 /** A pid guaranteed no longer alive: a child process that has already exited. */
@@ -89,7 +99,7 @@ describe("the status command", () => {
     assert.match(stdout, /is still running/);
   });
 
-  it("makes no network call and writes nothing back to the manager home", async () => {
+  it("writes nothing back to the manager home, and creates no file there", async () => {
     const home = await tempHome("status-bin");
     await writeJournal(home, {
       records: [
@@ -103,10 +113,16 @@ describe("the status command", () => {
       ],
     });
 
-    const before = await readFile(path.join(home, "journal.json"), "utf8");
+    const before = await snapshotHome(home);
     await run(home);
-    const after = await readFile(path.join(home, "journal.json"), "utf8");
+    const after = await snapshotHome(home);
 
-    assert.equal(before, after);
+    assert.deepEqual(after, before);
+  });
+
+  it("reaches for no port that could make a network call", async () => {
+    const source = await readFile(entryPoint, "utf8");
+
+    assert.doesNotMatch(source, /tracker|repo-host|repoHost/i);
   });
 });
