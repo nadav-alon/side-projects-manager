@@ -85,3 +85,44 @@ describe("FakeRepoHost needsRebase", () => {
     });
   });
 });
+
+describe("FakeRepoHost needs-rebase label", () => {
+  it("does not carry the label by default", () => {
+    const host = new FakeRepoHost();
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), false);
+  });
+
+  it("carries the label once a test labels the pull request", () => {
+    const host = new FakeRepoHost();
+
+    host.labelNeedsRebase(PULL_REQUEST);
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), true);
+  });
+
+  it("no longer carries the label once removed", async () => {
+    const host = new FakeRepoHost();
+    host.labelNeedsRebase(PULL_REQUEST);
+
+    await host.removeNeedsRebaseLabel(PULL_REQUEST);
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), false);
+  });
+
+  it("removes without error from a pull request never labelled", async () => {
+    const host = new FakeRepoHost();
+
+    await host.removeNeedsRebaseLabel(PULL_REQUEST);
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), false);
+  });
+
+  it("keeps each pull request's label to itself", () => {
+    const host = new FakeRepoHost();
+
+    host.labelNeedsRebase(PULL_REQUEST);
+
+    assert.equal(host.hasNeedsRebaseLabel(OTHER), false);
+  });
+});

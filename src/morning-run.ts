@@ -1461,9 +1461,10 @@ async function handApplyReviewBack(
  * A rebase ticket's own run: the agent replays the pull request the ticket
  * names onto its base branch and force-pushes it itself, from a clone on that
  * pull request's branch. Whether it worked is read back from the repo host,
- * never taken from the agent's say-so: the ticket closes only once the pull
- * request no longer conflicts. Its draft state is never touched — a rebase
- * promotes nothing.
+ * never taken from the agent's say-so: the ticket closes, and `needs-rebase`
+ * comes off the pull request, only once it no longer conflicts. Its draft
+ * state is never touched — a rebase promotes nothing, and removing the label
+ * is the whole signal that it no longer needs one.
  *
  * A pull request that needs no rebase when the iteration starts has nothing to
  * rebase, so no run is started: the ticket closes all the same.
@@ -1471,10 +1472,11 @@ async function handApplyReviewBack(
  * An agent that gave up — a force-push the repo host rejected included — or a
  * run that left the pull request still conflicting is handed back, and so,
  * with no run, is a pull request whose mergeability never settles once it is
- * confirmed still open. A repo host or sandbox that could not otherwise do
- * its part before the agent started is an infrastructure failure, and a
- * limit or model refusal reads as for an apply-review ticket. A read or close
- * that fails after the run is reported on the iteration, never raised.
+ * confirmed still open. Either way `needs-rebase` is left on. A repo host or
+ * sandbox that could not otherwise do its part before the agent started is an
+ * infrastructure failure, and a limit or model refusal reads as for an
+ * apply-review ticket. A read, label removal or close that fails after the
+ * run is reported on the iteration, never raised.
  *
  * A pull request already merged or closed by the time the iteration starts is
  * checked for before any of that, ahead of even asking whether it needs a
@@ -1588,18 +1590,32 @@ async function runRebase(
 }
 
 /**
- * Closes `ticket` with a comment saying what `rebased` came to. Never throws:
- * a close that fails is reported on the iteration, and the ticket left open.
+ * Takes `needs-rebase` off `ticket`'s pull request, then closes the ticket
+ * with a comment saying what `rebased` came to. Never throws: whichever step
+ * fails is reported on the iteration, and the ticket left open.
+ *
+ * The label comes off before the ticket closes, and closing is skipped if it
+ * doesn't: a comment claiming the label is gone would be wrong if it were
+ * posted first and the removal then failed.
  */
 async function finishRebase(
   ports: MorningLoopPorts,
   ticket: RebaseTicket,
   rebased: Rebased,
 ): Promise<Rebased> {
+  const pullRequest = ticket.pullRequest.url;
+  try {
+    await ports.repoHost.removeNeedsRebaseLabel(pullRequest);
+  } catch (error: unknown) {
+    return {
+      ...rebased,
+      notClosed: { kind: "label-failed", error: errorMessage(error) },
+    };
+  }
   try {
     await ports.tracker.closeRebaseTicket(
       ticket,
-      rebasedComment(ticket.pullRequest.url, rebased),
+      rebasedComment(pullRequest, rebased),
     );
   } catch (error: unknown) {
     return {

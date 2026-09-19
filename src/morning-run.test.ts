@@ -2061,6 +2061,7 @@ describe("morningLoop", () => {
       const ports = fakePorts();
       const ticket = queued(ports);
       ports.repoHost.mergeStatus = () => "clean";
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
 
       const report = await morningLoop(ports);
 
@@ -2071,6 +2072,8 @@ describe("morningLoop", () => {
       assert.deepEqual(closed?.ticket, ticket);
       assert.ok(closed?.comment.includes(PULL_REQUEST));
       assert.match(closed?.comment ?? "", /already sits on its base/);
+      assert.match(closed?.comment ?? "", /no longer carries needs-rebase/);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), false);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
@@ -2078,9 +2081,24 @@ describe("morningLoop", () => {
       assert.match(attempts(ports), /nothing run/);
     });
 
+    it("closes a ticket whose pull request never carried needs-rebase, with no error", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.mergeStatus = () => "clean";
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      assert.equal(failureOf(report.iterations[0]), undefined);
+      const [closed] = ports.tracker.closedRebaseTickets;
+      assert.match(closed?.comment ?? "", /no longer carries needs-rebase/);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), false);
+    });
+
     it("closes a finished run's ticket once its pull request no longer conflicts, leaving the pull request a draft", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
       rebasing(ports, "clean");
 
       const report = await morningLoop(ports);
@@ -2090,7 +2108,9 @@ describe("morningLoop", () => {
       assert.deepEqual(closed?.ticket, ticket);
       assert.ok(closed?.comment.includes(PULL_REQUEST));
       assert.match(closed?.comment ?? "", /no longer conflicts/);
+      assert.match(closed?.comment ?? "", /no longer carries needs-rebase/);
       assert.match(closed?.comment ?? "", /draft state was left as it was/);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), false);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.equal(ports.repoHost.pullRequests.length, 0);
@@ -2101,6 +2121,7 @@ describe("morningLoop", () => {
     it("hands back a finished run whose pull request still conflicts, and does not close it", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
       rebasing(ports, "conflicting");
 
       const report = await morningLoop(ports);
@@ -2116,12 +2137,14 @@ describe("morningLoop", () => {
       assert.ok(handback?.comment.includes(PULL_REQUEST));
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
       assert.equal(tomorrow.outcome, "dry-queue");
     });
 
     it("hands back a run that gave up, naming a moved head, without closing it", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
       const moved = commitSha("b2".repeat(20));
       ports.sandbox.rebaseResult = () => ({
         kind: "gave-up",
@@ -2140,6 +2163,7 @@ describe("morningLoop", () => {
       assert.match(handback?.comment ?? "", /will not be retried/);
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
     });
 
     it("stands down on a limit refusal, leaving the ticket exactly as it was", async () => {
@@ -2201,6 +2225,7 @@ describe("morningLoop", () => {
     it("hands back, running nothing, a ticket whose pull request's mergeability never settles", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
       t.mock.method(ports.repoHost, "needsRebase", async () => {
         throw new MergeabilityUnknown(PULL_REQUEST, "unknown");
       });
@@ -2220,6 +2245,7 @@ describe("morningLoop", () => {
       assert.match(handback?.comment ?? "", /did not run this ticket/);
       assert.match(handback?.comment ?? "", /never finished computing mergeability/);
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
       assert.equal(later.outcome, "dry-queue");
     });
 
@@ -2299,6 +2325,30 @@ describe("morningLoop", () => {
         await ports.tracker.listOpenIssues(PILOT),
       );
       assert.deepEqual(backlog.map((listed) => listed.number), [ticket.number]);
+    });
+
+    it("reports a ticket whose needs-rebase label cannot be removed, leaving it open and the ticket unclosed", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.repoHost.labelNeedsRebase(PULL_REQUEST);
+      rebasing(ports, "clean");
+      t.mock.method(ports.repoHost, "removeNeedsRebaseLabel", async () => {
+        throw new Error("label locked");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "rebased");
+      assert.notEqual(report.outcome, "invocation-failed");
+      assert.match(report.message, /label locked/);
+      assert.match(report.message, /close the ticket yourself/);
+      assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
+      assert.match(
+        waitingOn(ports),
+        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
     });
 
     it("names the rebased pull request in the summary, distinctly from an applied review", async () => {

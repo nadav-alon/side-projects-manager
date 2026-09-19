@@ -144,6 +144,22 @@ export class FakeRepoHost implements RepoHost {
     this.#existing.add(repo);
   }
 
+  readonly #needsRebaseLabelled = new Set<PullRequestUrl>();
+
+  /**
+   * Marks `pullRequest` as carrying `needs-rebase`, as the `/rebase` workflow
+   * would. Not carrying it, unless a test says otherwise — the same default a
+   * pull request never labelled would read as.
+   */
+  labelNeedsRebase(pullRequest: PullRequestUrl): void {
+    this.#needsRebaseLabelled.add(pullRequest);
+  }
+
+  /** Whether `pullRequest` currently carries `needs-rebase`. */
+  hasNeedsRebaseLabel(pullRequest: PullRequestUrl): boolean {
+    return this.#needsRebaseLabelled.has(pullRequest);
+  }
+
   async exists(repo: RepoSlug): Promise<boolean> {
     return this.#existing.has(repo);
   }
@@ -314,6 +330,10 @@ export class FakeRepoHost implements RepoHost {
       async () => this.mergeStatus(pullRequest),
       async () => {},
     );
+  }
+
+  async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
+    this.#needsRebaseLabelled.delete(pullRequest);
   }
 
   async pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState> {

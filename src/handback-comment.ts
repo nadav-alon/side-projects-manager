@@ -22,6 +22,7 @@ import type {
 import {
   MODEL_LABEL_PREFIX,
   MODEL_NAME_SHAPE,
+  NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   ticketKind,
 } from "./ports/index.ts";
@@ -176,8 +177,9 @@ export function appliedReviewComment(
 /**
  * What a rebase ticket is told as it closes: that its pull request no longer
  * conflicts with its base, or already sat on it so there was nothing to
- * rebase, and that its draft state was left alone — a rebase promotes
- * nothing, and `/rebase` may have been commented on one already marked ready.
+ * rebase, that `needs-rebase` has come off it, and that its draft state was
+ * left alone — a rebase promotes nothing, and `/rebase` may have been
+ * commented on one already marked ready.
  */
 export function rebasedComment(
   pullRequest: PullRequestUrl,
@@ -187,7 +189,11 @@ export function rebasedComment(
     rebased.rebase !== undefined
       ? `The morning loop rebased ${pullRequest}: the repo host reports it no longer conflicts with its base branch.`
       : `The morning loop found ${pullRequest} already sits on its base branch, so there was nothing to rebase.`;
-  return [what, `Its draft state was left as it was.`].join("\n\n");
+  return [
+    what,
+    `It no longer carries ${NEEDS_REBASE_LABEL}.`,
+    `Its draft state was left as it was.`,
+  ].join("\n\n");
 }
 
 /**

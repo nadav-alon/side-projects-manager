@@ -231,6 +231,16 @@ export class MergeabilityUnknown extends Error {
 }
 
 /**
+ * The label the `/rebase` workflow adds to the pull request it opens a
+ * rebase ticket for (`.github/workflows/rebase.yml`, `AGENTS.md`), so that
+ * pull request reads as not mergeable without touching its draft state.
+ * Declared here, beside {@link RepoHost.removeNeedsRebaseLabel}, the one
+ * place that ever takes it back off, so the two agree on the label's name
+ * rather than by coincidence.
+ */
+export const NEEDS_REBASE_LABEL = "needs-rebase";
+
+/**
  * Whether a pull request needs a rebase, read repeatedly through `read` until
  * it settles.
  *
@@ -439,6 +449,18 @@ export interface RepoHost {
    * see {@link resolveNeedsRebase} for how an unsettled `"unknown"` is handled.
    */
   needsRebase(pullRequest: PullRequestUrl): Promise<boolean>;
+  /**
+   * Removes {@link NEEDS_REBASE_LABEL} from `pullRequest`, once a rebase
+   * ticket closes because it no longer needs one.
+   *
+   * A pull request not carrying the label is left exactly as it was, not an
+   * error: one opened before the `/rebase` workflow started labelling pull
+   * requests, or in a project whose workflow predates it, never carried it to
+   * begin with. Draft state is never touched here — removing the label is the
+   * whole signal that the pull request no longer needs a rebase, not a
+   * promotion out of draft.
+   */
+  removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void>;
   /**
    * Whether `pullRequest` is still open, merged, or closed without merging.
    *
