@@ -47,6 +47,9 @@ import {
   verdicts,
 } from "./testing/index.ts";
 
+/** The run estimate an unsized ticket charges under `DEFAULT_BUDGET`. */
+const UNSIZED_ESTIMATE = DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs];
+
 /** The finished half of an iteration outcome — undefined if it ended any other way. */
 function finished(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "finished" ? iteration : undefined;
@@ -2884,7 +2887,10 @@ describe("morningLoop", () => {
 
     it("starts a run while the gate says go", async () => {
       const ports = readyToWork();
-      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
+      // Leaves room for the unsized ticket's own run estimate on top.
+      ports.ledger.reports(
+        spent({ weekly: SPENDABLE_THIS_WEEK - UNSIZED_ESTIMATE - 1 }),
+      );
 
       const report = await morningLoop(ports);
 
@@ -3922,13 +3928,15 @@ describe("morningLoop", () => {
         output: "",
         tokensUsed: tokenCount(42_000),
       });
-      // Just under the run's own cost: the gate lets the implementation
-      // start against an empty state, but refuses the review it queues
-      // before a second iteration can work it — so the review stays queued,
-      // which is the thing being tested.
+      // Room for the implementation ticket's own run estimate, plus just
+      // under the run's actual cost: the gate lets the implementation start
+      // against an empty state, but refuses the review it queues — its own
+      // estimate on top of the 42,000 already spent — before a second
+      // iteration can work it, so the review stays queued, which is the
+      // thing being tested.
       ports.store.budget = {
         ...DEFAULT_BUDGET,
-        weeklyAllowance: tokenCount(40_000),
+        weeklyAllowance: tokenCount(UNSIZED_ESTIMATE + 40_000),
         reserveFraction: reserveFraction(0),
       };
 

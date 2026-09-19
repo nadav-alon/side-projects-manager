@@ -265,8 +265,9 @@ export type RebaseOutcome =
  *
  * Runs and reviews run side by side, on one checkout or several: an
  * implementation does not wait for another implementation, or for a review,
- * to finish first. See ADR-0003 for why the budget gate accepts the
- * overshoot that comes with it, and the container adapter's own doc comment
+ * to finish first. See ADR-0004 for how the budget gate charges each one
+ * still in progress its own run estimate, rather than accepting the
+ * overshoot ADR-0003 once did, and the container adapter's own doc comment
  * for what still serializes on one checkout — the git steps around an
  * agent's work, never the agent itself.
  */

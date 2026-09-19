@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { invocationClosing } from "./journal-record.ts";
 import { morningLoop } from "./morning-run.ts";
 import {
+  DEFAULT_BUDGET,
   branch,
   issueNumber,
   keptSummaryPath,
@@ -15,6 +16,9 @@ import { LIMIT_REFUSAL, fakePorts, spent } from "./testing/index.ts";
 const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
 const CLOSED_AT = new Date("2026-01-01T08:00:00.000Z");
+
+/** The run estimate an unsized ticket charges under `DEFAULT_BUDGET`. */
+const UNSIZED_ESTIMATE = DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs];
 
 describe("invocationClosing", () => {
   it("closes a dry queue with no projects and no stand-down reason", async () => {
@@ -144,8 +148,11 @@ describe("invocationClosing", () => {
       number: issueNumber(3),
       title: "Second",
     });
-    // Leaves only 1,000 tokens of reserve headroom; one run of 2,000 blows it.
-    ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1_000 }));
+    // Leaves room for the first ticket's own run estimate, plus 1,000 tokens
+    // of reserve headroom; one run of 2,000 blows it.
+    ports.ledger.reports(
+      spent({ weekly: SPENDABLE_THIS_WEEK - UNSIZED_ESTIMATE - 1_000 }),
+    );
     ports.sandbox.result = () => ({
       kind: "finished",
       branch: branch("issue-7"),
@@ -162,6 +169,31 @@ describe("invocationClosing", () => {
       { repo: PILOT, tokensUsed: tokenCount(2_000) },
     ]);
     assert.match(closing.standDownReason ?? "", /weekly-reserve/);
+  });
+
+  it("names the estimate charged when only the estimate pushed a window over", async () => {
+    const SPENDABLE_THIS_WEEK = 250_000_000;
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    ports.tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "First",
+    });
+    // Within spendable on its own; the unsized ticket's own estimate is what
+    // pushes it over.
+    ports.ledger.reports(
+      spent({ weekly: SPENDABLE_THIS_WEEK - UNSIZED_ESTIMATE + 1 }),
+    );
+
+    const report = await morningLoop(ports);
+    const closing = invocationClosing(report, CLOSED_AT);
+
+    assert.equal(closing.outcome, "stood-down");
+    assert.match(closing.standDownReason ?? "", /weekly-reserve-estimate/);
+    assert.match(
+      closing.standDownReason ?? "",
+      new RegExp(`${UNSIZED_ESTIMATE} charged as the run estimate`),
+    );
   });
 
   it("records a provider limit refusal's own words as the stand-down reason", async () => {

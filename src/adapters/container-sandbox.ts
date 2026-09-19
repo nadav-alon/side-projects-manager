@@ -185,8 +185,9 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  * from. The steps that do touch that checkout — choosing a branch name,
  * cloning, fetching a branch back — take its checkout lock, held for those git
  * steps and never while an agent works. Nothing here waits for a run to finish
- * before a review is budgeted: see docs/adr/0003 for why the gate accepts the
- * overshoot from runs in progress.
+ * before a review is budgeted: see docs/adr/0004 for how the gate charges
+ * each run in progress its own estimate, in place of the overshoot
+ * docs/adr/0003 once accepted.
  */
 export function containerSandbox(
   container: Container = dockerContainer,

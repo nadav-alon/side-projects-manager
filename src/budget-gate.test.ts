@@ -5,6 +5,7 @@ import { budgetGate, invocationBudgetGate } from "./budget-gate.ts";
 import {
   DEFAULT_BUDGET,
   issueNumber,
+  pullRequestUrl,
   recordRun,
   reserveFraction,
   tokenCount,
@@ -28,6 +29,22 @@ import {
 
 const TICKET: Ticket = { repo: PILOT, number: issueNumber(7), title: "Add the thing" };
 
+/** `TICKET`'s own run estimate: unsized, so `DEFAULT_BUDGET.unsizedCountsAs`'s tokens. */
+const TICKET_ESTIMATE = DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs];
+
+/**
+ * `DEFAULT_BUDGET` with `TICKET`'s size charging nothing, so a test can pin
+ * pure window arithmetic — consumption against what is spendable — without
+ * the run estimate charged on top of it.
+ */
+function noEstimateBudget(overrides: Partial<Budget> = {}): Budget {
+  return {
+    ...DEFAULT_BUDGET,
+    sizes: { ...DEFAULT_BUDGET.sizes, [DEFAULT_BUDGET.unsizedCountsAs]: tokenCount(0) },
+    ...overrides,
+  };
+}
+
 /**
  * One invocation's gate, built the way `morningLoop` builds it: over a
  * snapshot of the state document's projects as the invocation read it.
@@ -44,6 +61,7 @@ async function openGate(
 describe("invocationBudgetGate", () => {
   it("goes ahead while the reserve is intact", async () => {
     const store = new FakeStore();
+    store.budget = noEstimateBudget();
     const ledger = new FakeUsageLedger();
     ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK - 1 }));
     const gate = await openGate(store, ledger);
@@ -145,7 +163,7 @@ describe("invocationBudgetGate", () => {
   it("reads the budget document afresh on every consultation, not once when built", async () => {
     const store = new FakeStore();
     store.budget = {
-      ...DEFAULT_BUDGET,
+      ...noEstimateBudget(),
       weeklyAllowance: tokenCount(1_000),
       reserveFraction: reserveFraction(0.5),
     };
@@ -250,6 +268,7 @@ describe("invocationBudgetGate", () => {
 
     it("leaves a run out of the 5-hour window it predates", async () => {
       const store = new FakeStore();
+      store.budget = noEstimateBudget();
       store.markWorked(PILOT, YESTERDAY, {
         at: YESTERDAY,
         tokensUsed: tokenCount(1),
@@ -279,6 +298,94 @@ describe("invocationBudgetGate", () => {
       assert.equal(refusal?.tokensUsed, SPENDABLE_THIS_WEEK + 1);
     });
   });
+
+  /**
+   * The estimate resolution itself — sizes, `unsizedCountsAs`, and a review
+   * never inheriting its parent's size — proven against `DEFAULT_BUDGET`'s
+   * real sizes, since a zeroed one would prove nothing about them.
+   */
+  describe("the run estimate a consultation charges", () => {
+    it("carries the estimate charged on a go-ahead, since standDown has nothing to carry it on", async () => {
+      const store = new FakeStore();
+      const ledger = new FakeUsageLedger();
+      const gate = await openGate(store, ledger);
+
+      const consultation = await gate.consult(TICKET, []);
+
+      assert.equal(consultation.standDown, undefined);
+      assert.equal(consultation.estimateCharged, TICKET_ESTIMATE);
+    });
+
+    it("carries the same estimate on a refusal", async () => {
+      const store = new FakeStore();
+      const ledger = new FakeUsageLedger();
+      ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
+      const gate = await openGate(store, ledger);
+
+      const consultation = await gate.consult(TICKET, []);
+
+      assert.equal(consultation.standDown?.estimateCharged, TICKET_ESTIMATE);
+      assert.equal(consultation.estimateCharged, TICKET_ESTIMATE);
+    });
+
+    it("charges a sized ticket its size's tokens", async () => {
+      const store = new FakeStore();
+      const ledger = new FakeUsageLedger();
+      const gate = await openGate(store, ledger);
+      const sized: Ticket = {
+        ...TICKET,
+        sizeLabel: { kind: "declared", size: "XL" },
+      };
+
+      const { estimateCharged } = await gate.consult(sized, []);
+
+      assert.equal(estimateCharged, DEFAULT_BUDGET.sizes.XL);
+    });
+
+    for (const kind of ["review", "apply-review", "rebase"] as const) {
+      it(`charges a ${kind} ticket unsizedCountsAs, even carrying its own declared size`, async () => {
+        const store = new FakeStore();
+        const ledger = new FakeUsageLedger();
+        const gate = await openGate(store, ledger);
+        const pullRequestTicket: Ticket = {
+          ...TICKET,
+          pullRequest: {
+            kind,
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
+          sizeLabel: { kind: "declared", size: "XL" },
+        };
+
+        const { estimateCharged } = await gate.consult(pullRequestTicket, []);
+
+        assert.equal(
+          estimateCharged,
+          DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs],
+        );
+      });
+    }
+
+    it("charges the consultation only the selected ticket's own estimate, not the tickets in progress", async () => {
+      const store = new FakeStore();
+      const ledger = new FakeUsageLedger();
+      const gate = await openGate(store, ledger);
+      const first: Ticket = {
+        ...TICKET,
+        number: issueNumber(7),
+        sizeLabel: { kind: "declared", size: "S" },
+      };
+      const second: Ticket = {
+        ...TICKET,
+        number: issueNumber(8),
+        sizeLabel: { kind: "declared", size: "L" },
+      };
+
+      await gate.consult(first, []);
+      const { estimateCharged } = await gate.consult(second, [first]);
+
+      assert.equal(estimateCharged, DEFAULT_BUDGET.sizes.L);
+    });
+  });
 });
 
 /**
@@ -306,14 +413,20 @@ describe("budgetGate", () => {
      * leaves half a token over, and the half goes to the developer.
      */
     it("rounds a reserve that does not divide evenly the developer's way", () => {
-      const week = budget({
+      const week = noEstimateBudget({
         weeklyAllowance: tokenCount(1_001),
         reserveFraction: reserveFraction(0.5),
       });
 
-      assert.equal(budgetGate(weekly(500), week, []), undefined);
-      assert.equal(budgetGate(weekly(501), week, [])?.reason, "weekly-reserve");
-      assert.equal(budgetGate(weekly(501), week, [])?.spendable, 500);
+      assert.equal(budgetGate(weekly(500), week, [], TICKET, []), undefined);
+      assert.equal(
+        budgetGate(weekly(501), week, [], TICKET, [])?.reason,
+        "weekly-reserve",
+      );
+      assert.equal(
+        budgetGate(weekly(501), week, [], TICKET, [])?.spendable,
+        500,
+      );
     });
 
     /**
@@ -330,7 +443,13 @@ describe("budgetGate", () => {
             reserveFraction: reserveFraction(hundredths / 100),
           });
 
-          const spendable = budgetGate(weekly(allowance), week, [])?.spendable;
+          const spendable = budgetGate(
+            weekly(allowance),
+            week,
+            [],
+            TICKET,
+            [],
+          )?.spendable;
 
           assert.ok(
             spendable === undefined || Number.isSafeInteger(spendable),
@@ -341,23 +460,32 @@ describe("budgetGate", () => {
     });
 
     it("lets a window through that has spent exactly what it may", () => {
-      const week = budget({
+      const week = noEstimateBudget({
         weeklyAllowance: tokenCount(1_000),
         reserveFraction: reserveFraction(0.5),
       });
 
-      assert.equal(budgetGate(weekly(500), week, []), undefined);
-      assert.equal(budgetGate(weekly(501), week, [])?.reason, "weekly-reserve");
+      assert.equal(budgetGate(weekly(500), week, [], TICKET, []), undefined);
+      assert.equal(
+        budgetGate(weekly(501), week, [], TICKET, [])?.reason,
+        "weekly-reserve",
+      );
     });
 
     it("holds nothing back at a reserve of 0", () => {
-      const week = budget({
+      const week = noEstimateBudget({
         weeklyAllowance: tokenCount(1_000),
         reserveFraction: reserveFraction(0),
       });
 
-      assert.equal(budgetGate(weekly(1_000), week, []), undefined);
-      assert.equal(budgetGate(weekly(1_001), week, [])?.reason, "weekly-reserve");
+      assert.equal(
+        budgetGate(weekly(1_000), week, [], TICKET, []),
+        undefined,
+      );
+      assert.equal(
+        budgetGate(weekly(1_001), week, [], TICKET, [])?.reason,
+        "weekly-reserve",
+      );
     });
 
     it("reports what was spent against what was spendable", () => {
@@ -366,7 +494,7 @@ describe("budgetGate", () => {
         reserveFraction: reserveFraction(0.5),
       });
 
-      const standDown = budgetGate(weekly(900), week, []);
+      const standDown = budgetGate(weekly(900), week, [], TICKET, []);
 
       assert.equal(standDown?.tokensUsed, 900);
       assert.equal(standDown?.spendable, 500);
@@ -375,23 +503,185 @@ describe("budgetGate", () => {
   });
 
   describe("the 5-hour window", () => {
+    function spentFiveHour(used: number): UsageWindows {
+      return {
+        ...NO_USAGE,
+        fiveHour: { ...NO_USAGE.fiveHour, tokensUsed: tokenCount(used) },
+      };
+    }
+
     /**
-     * The reserve is a share of the week (CONTEXT.md: Reserve), so the block
-     * is measured against its allowance whole rather than against a share of
-     * it: a spent block is a wall, not a supply to ration.
+     * The weekly reserve does not bleed into the 5-hour window: the block is
+     * measured against its own allowance, less its own reserve — which a
+     * machine declaring no `fiveHourReserveFraction` leaves at zero, so the
+     * block is measured against its whole allowance, reserve or no weekly
+     * reserve.
      */
-    it("is measured against the whole allowance, reserve or no reserve", () => {
-      const block = budget({
+    it("is measured against its own allowance, whatever the weekly reserve is", () => {
+      const block = noEstimateBudget({
         fiveHourAllowance: tokenCount(1_000),
         reserveFraction: reserveFraction(0.9),
       });
-      const spent = (used: number): UsageWindows => ({
+
+      assert.equal(
+        budgetGate(spentFiveHour(1_000), block, [], TICKET, []),
+        undefined,
+      );
+      assert.equal(
+        budgetGate(spentFiveHour(1_001), block, [], TICKET, [])?.reason,
+        "five-hour-window",
+      );
+    });
+
+    /**
+     * The 5-hour window shares `spendableOf` with the weekly one, but nothing
+     * above pins that it rounds the reserve up the same way — see the
+     * weekly window's own test above.
+     */
+    it("rounds a reserve that does not divide evenly the developer's way", () => {
+      const block = noEstimateBudget({
+        fiveHourAllowance: tokenCount(1_001),
+        fiveHourReserveFraction: reserveFraction(0.5),
+      });
+
+      assert.equal(
+        budgetGate(spentFiveHour(500), block, [], TICKET, []),
+        undefined,
+      );
+      assert.equal(
+        budgetGate(spentFiveHour(501), block, [], TICKET, [])?.spendable,
+        500,
+      );
+    });
+
+    it("lowers the 5-hour spendable at a non-zero fiveHourReserveFraction", () => {
+      const block = noEstimateBudget({
+        fiveHourAllowance: tokenCount(1_000),
+        fiveHourReserveFraction: reserveFraction(0.1),
+      });
+
+      assert.equal(
+        budgetGate(spentFiveHour(900), block, [], TICKET, []),
+        undefined,
+      );
+      const refusal = budgetGate(spentFiveHour(901), block, [], TICKET, []);
+      assert.equal(refusal?.reason, "five-hour-window");
+      assert.equal(refusal?.spendable, 900);
+    });
+  });
+
+  /**
+   * The estimate arithmetic itself: charged on top of consumption against
+   * both windows, told apart from a window already spent, and still a go
+   * exactly on the boundary.
+   */
+  describe("charging the run estimate", () => {
+    const SIZED_TICKET: Ticket = {
+      ...TICKET,
+      sizeLabel: { kind: "declared", size: "S" },
+    };
+    const ESTIMATE = DEFAULT_BUDGET.sizes.S;
+
+    function budgetSpendable(spendable: number): Budget {
+      return budget({
+        weeklyAllowance: tokenCount(spendable),
+        reserveFraction: reserveFraction(0),
+      });
+    }
+
+    it("is a go when consumption plus the estimate lands exactly on spendable", () => {
+      const week = budgetSpendable(ESTIMATE + 100);
+
+      assert.equal(
+        budgetGate(weekly(100), week, [], SIZED_TICKET, []),
+        undefined,
+      );
+    });
+
+    it("refuses one token past that boundary", () => {
+      const week = budgetSpendable(ESTIMATE + 100);
+
+      const refusal = budgetGate(weekly(101), week, [], SIZED_TICKET, []);
+
+      assert.equal(refusal?.reason, "weekly-reserve-estimate");
+      assert.equal(refusal?.tokensUsed, 101);
+      assert.equal(refusal?.estimateCharged, ESTIMATE);
+    });
+
+    it("counts every ticket in progress toward the same window", () => {
+      const inProgress: Ticket[] = [
+        { ...TICKET, number: issueNumber(8), sizeLabel: { kind: "declared", size: "S" } },
+        { ...TICKET, number: issueNumber(9), sizeLabel: { kind: "declared", size: "S" } },
+      ];
+      const week = budgetSpendable(ESTIMATE * 3);
+
+      assert.equal(
+        budgetGate(weekly(0), week, [], SIZED_TICKET, inProgress),
+        undefined,
+      );
+      const refusal = budgetGate(
+        weekly(1),
+        week,
+        [],
+        SIZED_TICKET,
+        inProgress,
+      );
+      assert.equal(refusal?.reason, "weekly-reserve-estimate");
+      assert.equal(refusal?.estimateCharged, ESTIMATE * 3);
+    });
+
+    it("reports a window already over spendable as spent, not as the estimate", () => {
+      const week = budgetSpendable(100);
+
+      const refusal = budgetGate(weekly(101), week, [], SIZED_TICKET, []);
+
+      assert.equal(refusal?.reason, "weekly-reserve");
+      assert.equal(refusal?.estimateCharged, ESTIMATE);
+    });
+
+    it("charges the same total against the 5-hour window", () => {
+      const block = budget({
+        fiveHourAllowance: tokenCount(ESTIMATE + 100),
+        fiveHourReserveFraction: reserveFraction(0),
+      });
+      const spentFiveHour = (used: number): UsageWindows => ({
         ...NO_USAGE,
         fiveHour: { ...NO_USAGE.fiveHour, tokensUsed: tokenCount(used) },
       });
 
-      assert.equal(budgetGate(spent(1_000), block, []), undefined);
-      assert.equal(budgetGate(spent(1_001), block, [])?.reason, "five-hour-window");
+      assert.equal(
+        budgetGate(spentFiveHour(100), block, [], SIZED_TICKET, []),
+        undefined,
+      );
+      assert.equal(
+        budgetGate(spentFiveHour(101), block, [], SIZED_TICKET, [])?.reason,
+        "five-hour-window-estimate",
+      );
+    });
+
+    it("still names the later reset when one window is spent and the other only refuses on the estimate", () => {
+      const bothWindows = budget({
+        weeklyAllowance: tokenCount(100),
+        reserveFraction: reserveFraction(0),
+        fiveHourAllowance: tokenCount(ESTIMATE + 100),
+        fiveHourReserveFraction: reserveFraction(0),
+      });
+      // The weekly window is spent outright; the 5-hour one is only pushed
+      // over by the estimate. Its reset is pinned after the weekly one's, so
+      // the tie-break has to reach past the spent window to find it — proving
+      // an estimate-caused reason can win the tie-break, not only survive it.
+      const windows: UsageWindows = {
+        weekly: { ...NO_USAGE.weekly, tokensUsed: tokenCount(101) },
+        fiveHour: {
+          ...NO_USAGE.fiveHour,
+          tokensUsed: tokenCount(101),
+          resetsAt: new Date("2026-01-05T00:00:00.000Z"),
+        },
+      };
+
+      const refusal = budgetGate(windows, bothWindows, [], SIZED_TICKET, []);
+
+      assert.equal(refusal?.reason, "five-hour-window-estimate");
     });
   });
 });
