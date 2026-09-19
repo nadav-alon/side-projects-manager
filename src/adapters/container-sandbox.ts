@@ -298,8 +298,17 @@ async function runOnClone(
         { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
         model,
       );
+      const ending = endingOf(agent, model);
 
       try {
+        // Salvaged before the commits are counted, so a limit refusal's own
+        // uncommitted work is not dropped with the clone: see `Salvage` in
+        // CONTEXT.md. A run that finished, gave up or was refused its model
+        // ended on its own terms, and keeps nothing uncommitted.
+        if (ending.kind === "limit-refused") {
+          await salvageUncommitted(clone);
+        }
+
         const commits = await commitsSince(clone, base);
 
         // Only when the agent actually committed: a branch pointing at the
@@ -319,7 +328,7 @@ async function runOnClone(
           );
         }
 
-        return runOutcomeOf(agent, model, onto, commits);
+        return runOutcomeOf(ending, agent, onto, commits);
       } catch (error: unknown) {
         // The agent already ran and spent, whatever became of its commits
         // afterwards — reported rather than thrown, so that spend is not lost
@@ -415,14 +424,13 @@ const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
  * problem, not the agent's or the setup's, so it must not read as either, and
  * naming the model needs the request, not just the CLI's own words.
  */
-function endingOf(
-  agent: AgentRun,
-  model: ModelName | undefined,
-):
+type Ending =
   | { kind: "finished"; output: string }
   | { kind: "gave-up"; output: string; reason: string }
   | { kind: "limit-refused"; words: string }
-  | { kind: "model-refused"; refusal: ModelRefusal } {
+  | { kind: "model-refused"; refusal: ModelRefusal };
+
+function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
   if (
     model !== undefined &&
     agent.failure !== undefined &&
@@ -440,19 +448,18 @@ function endingOf(
 }
 
 /**
- * `endingOf`, with the branch an implementation run worked on and its
- * commits, and — for a finished run — its ticket gist: `agent.gist` when the
- * container already read one off the agent's own text, before any
- * diagnostics were appended to `output`, and only otherwise a best-effort
- * read of `output`'s own last line, for a container that never sets it.
+ * `ending`, with the branch an implementation run worked on and its commits,
+ * and — for a finished run — its ticket gist: `agent.gist` when the container
+ * already read one off the agent's own text, before any diagnostics were
+ * appended to `output`, and only otherwise a best-effort read of `output`'s
+ * own last line, for a container that never sets it.
  */
 function runOutcomeOf(
+  ending: Ending,
   agent: AgentRun,
-  model: ModelName | undefined,
   branch: Branch,
   commits: CommitSha[],
 ): RunOutcome {
-  const ending = endingOf(agent, model);
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
   return {
@@ -975,6 +982,52 @@ async function hasBranch(project: Checkout, of: Branch): Promise<boolean> {
 async function revision(directory: Checkout, of: string): Promise<string> {
   const { stdout } = await run("git", ["-C", directory, "rev-parse", of]);
   return stdout.trim();
+}
+
+/**
+ * What a salvage commit says, so a reader of the branch — or the next run
+ * that continues on it — knows at a glance that it was never the agent's own
+ * word that this state was done. See `Salvage` in CONTEXT.md.
+ *
+ * Exported so a test can assert against the message that ships rather than a
+ * copy of the literal.
+ */
+export const SALVAGE_COMMIT_MESSAGE =
+  "Sandbox salvage: committed by the sandbox after the run was cut off. May not build or pass tests.";
+
+/**
+ * Commits everything left uncommitted in `clone` as one commit, marked as a
+ * salvage rather than the agent's own work — see `Salvage` in CONTEXT.md. A
+ * no-op when the agent left nothing uncommitted, tracked or not: a cut-off run
+ * that had already committed everything gets no empty commit marking a
+ * cut-off that changed nothing.
+ *
+ * `git status --porcelain` already leaves out anything `.gitignore` covers,
+ * and `add --all` stages exactly what it lists — an untracked file the agent
+ * created is included, one the project ignores is not.
+ *
+ * Committed under the manager's own identity, the same one the image gives
+ * every agent commit (`Dockerfile`), rather than the host's ambient git
+ * config: the agent never asked for this commit, and it is the sandbox's
+ * doing, not the developer's.
+ */
+async function salvageUncommitted(clone: Checkout): Promise<void> {
+  const { stdout } = await run("git", ["-C", clone, "status", "--porcelain"]);
+  if (stdout.trim() === "") {
+    return;
+  }
+  await run("git", ["-C", clone, "add", "--all"]);
+  await run("git", [
+    "-C",
+    clone,
+    "-c",
+    "user.name=side-projects-manager",
+    "-c",
+    "user.email=manager@side-projects.invalid",
+    "commit",
+    "--message",
+    SALVAGE_COMMIT_MESSAGE,
+  ]);
 }
 
 /** The commits the agent made, oldest first. Empty when it committed none. */

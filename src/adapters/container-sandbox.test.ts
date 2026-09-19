@@ -18,6 +18,7 @@ import {
   pushableRemote,
   readAgentRun,
   readExitedRun,
+  SALVAGE_COMMIT_MESSAGE,
   TICKET_GIST_TAG,
   type Container,
   type Mount,
@@ -131,6 +132,32 @@ async function exists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The paths tracked on `ref` in `directory`, however they got there. */
+async function filesOn(directory: string, ref: string): Promise<string[]> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "ls-tree",
+    "-r",
+    "--name-only",
+    ref,
+  ]);
+  return stdout.split("\n").filter((line) => line !== "");
+}
+
+/** The subject line of `ref`'s own commit in `directory`. */
+async function subjectOf(directory: string, ref: string): Promise<string> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "log",
+    "--format=%s",
+    "-1",
+    ref,
+  ]);
+  return stdout.trim();
 }
 
 /** An agent that commits `files` and reports having spent `tokensUsed`. */
@@ -614,6 +641,113 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
+  });
+
+  /**
+   * A limit refusal cuts the agent off mid-work: what it had not yet
+   * committed would otherwise be lost with the clone. See `Salvage` in
+   * CONTEXT.md.
+   */
+  it("salvages a limit-refused run's uncommitted changes as one commit, and fetches its branch back", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
+      return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "limit-refused");
+    const limitRefused = variant(result, "limit-refused");
+    assert.equal(limitRefused?.commits.length, 1);
+    assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+    assert.equal(
+      await headOf(directory, BRANCH),
+      limitRefused?.commits.at(-1),
+    );
+    assert.equal(await subjectOf(directory, BRANCH), SALVAGE_COMMIT_MESSAGE);
+    assert.ok((await filesOn(directory, BRANCH)).includes("leftover.txt"));
+  });
+
+  it("leaves a gitignored file out of a limit-refused run's salvage commit", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      await writeFile(path.join(mounted, ".gitignore"), "ignored.txt\n");
+      await writeFile(path.join(mounted, "ignored.txt"), "should not be salvaged\n");
+      await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
+      return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    const files = await filesOn(directory, variant(result, "limit-refused")?.branch ?? "");
+    assert.ok(files.includes("leftover.txt"));
+    assert.ok(files.includes(".gitignore"));
+    assert.ok(!files.includes("ignored.txt"));
+  });
+
+  it("makes no salvage commit for a limit-refused run that left nothing uncommitted", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "limit-refused");
+    assert.equal(variant(result, "limit-refused")?.commits.length, 0);
+  });
+
+  it("makes no salvage commit for a finished run's uncommitted changes", async () => {
+    const directory = await project();
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = containerSandbox(async (options) => {
+      const agent = await commit(options);
+      await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
+      return agent;
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    const finished = variant(result, "finished");
+    assert.equal(finished?.commits.length, 1);
+    assert.equal(await subjectOf(directory, finished?.branch ?? ""), "Add one.txt");
+  });
+
+  it("makes no salvage commit for a gave-up run's uncommitted changes", async () => {
+    const directory = await project();
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = containerSandbox(async (options) => {
+      const agent = await commit(options);
+      await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
+      return { ...agent, failure: "the agent gave up" };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "gave-up");
+    const gaveUp = variant(result, "gave-up");
+    assert.equal(gaveUp?.commits.length, 1);
+    assert.equal(await subjectOf(directory, gaveUp?.branch ?? ""), "Add one.txt");
+  });
+
+  it("reports a failure while salvaging as the sandbox's own failure, keeping the spend", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
+      // The clone itself is gone by the time the salvage commit is
+      // attempted, so `git status` — the salvage's own first step — is what
+      // fails.
+      await rm(mounted, { recursive: true, force: true });
+      return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(7_000) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "sandbox-failed");
+    assert.equal(variant(result, "sandbox-failed")?.tokensUsed, tokenCount(7_000));
+    assert.notEqual(variant(result, "sandbox-failed")?.reason, "");
   });
 
   it("does not mistake a failed agent that quoted the limit for one refused by it", async () => {
