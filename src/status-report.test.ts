@@ -26,7 +26,7 @@ function closed(
   };
 }
 
-function open(openedAt: string, alive: boolean): StatusRecord {
+function inFlight(openedAt: string, alive: boolean): StatusRecord {
   return { openedAt: new Date(openedAt), process: processId(4321), alive };
 }
 
@@ -73,7 +73,7 @@ describe("statusReport", () => {
 
   it("reports a record in flight whose process is alive as still running", () => {
     const lines = statusReport(
-      journal(open("2026-09-17T08:55:00.000Z", true)),
+      journal(inFlight("2026-09-17T08:55:00.000Z", true)),
       false,
       NOW,
     );
@@ -84,7 +84,7 @@ describe("statusReport", () => {
 
   it("reports a record in flight whose process has died as died, naming what to do", () => {
     const lines = statusReport(
-      journal(open("2026-09-17T08:55:00.000Z", false)),
+      journal(inFlight("2026-09-17T08:55:00.000Z", false)),
       false,
       NOW,
     );
