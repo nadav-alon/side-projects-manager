@@ -169,6 +169,31 @@ describe("invocationClosing", () => {
     assert.match(closing.standDownReason ?? "", /weekly-reserve/);
   });
 
+  it("names the estimate charged when only the estimate pushed a window over", async () => {
+    const SPENDABLE_THIS_WEEK = 250_000_000;
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    ports.tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "First",
+    });
+    // Within spendable on its own; the unsized ticket's own estimate is what
+    // pushes it over.
+    ports.ledger.reports(
+      spent({ weekly: SPENDABLE_THIS_WEEK - UNSIZED_ESTIMATE + 1 }),
+    );
+
+    const report = await morningLoop(ports);
+    const closing = invocationClosing(report, CLOSED_AT);
+
+    assert.equal(closing.outcome, "stood-down");
+    assert.match(closing.standDownReason ?? "", /weekly-reserve-estimate/);
+    assert.match(
+      closing.standDownReason ?? "",
+      new RegExp(`${UNSIZED_ESTIMATE} charged as the run estimate`),
+    );
+  });
+
   it("records a provider limit refusal's own words as the stand-down reason", async () => {
     const ports = fakePorts();
     ports.store.register(PILOT);
