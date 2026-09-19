@@ -60,10 +60,16 @@ remove_logon_guard() {
   fi
   tmp="$(mktemp)"
   awk -v begin="$RC_BEGIN" -v end="$RC_END" '
-    $0 == begin { inside = 1; next }
+    function flush() { if (buffered) print buf; buffered = 0 }
+    $0 == begin {
+      if (buffered && buf == "") { buffered = 0 } else { flush() }
+      inside = 1
+      next
+    }
     inside && $0 == end { inside = 0; next }
     inside { next }
-    { print }
+    { flush(); buf = $0; buffered = 1 }
+    END { flush() }
   ' "$rc" >"$tmp"
   cat "$tmp" >"$rc"
   rm -f "$tmp"
