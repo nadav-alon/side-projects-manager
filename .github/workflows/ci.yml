@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 # One build per ref is enough; a burst of pushes to a draft pull request
 # should not queue several runs of the same thing.
@@ -43,8 +44,10 @@ jobs:
         run: npm test
         env:
           TZ: UTC
+          GH_TOKEN: ${{ github.token }}
 
       - name: Test under TZ=Asia/Jerusalem
         run: npm test
         env:
           TZ: Asia/Jerusalem
+          GH_TOKEN: ${{ github.token }}
