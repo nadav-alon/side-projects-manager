@@ -180,6 +180,10 @@ function describeRecord(record: StatusRecord): string {
       return record.projects.length === 0
         ? "worked something"
         : `worked ${record.projects.map((project) => `${project.repo} (${project.tokensUsed} tokens)`).join(", ")}`;
+    case "never-reported":
+      return record.exitCode === undefined
+        ? "never reported"
+        : `never reported (exit code ${record.exitCode})`;
   }
 }
 
