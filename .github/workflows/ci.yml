@@ -47,6 +47,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Test under TZ=Asia/Jerusalem
+        if: always()
         run: npm test
         env:
           TZ: Asia/Jerusalem
