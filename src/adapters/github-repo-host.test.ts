@@ -1327,6 +1327,23 @@ describe("labelling a pull request", () => {
       /label not found/,
     );
   });
+
+  it("rejects with gh's own error when creating the label fails for a reason other than it already existing", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `if [ "$1 $2" = "label create" ]; then`,
+        `  echo 'HTTP 401: Bad credentials' >&2`,
+        `  exit 1`,
+        `fi`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL),
+      /Bad credentials/,
+    );
+  });
 });
 
 describe("whether a pull request's branch needs a rebase", () => {
