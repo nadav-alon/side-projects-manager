@@ -278,6 +278,12 @@ function totalEstimate(
  * declares — a review, an apply-review or a rebase never inherits its
  * parent's size — charges `unsizedCountsAs`'s instead. Never derived from
  * what past runs cost.
+ *
+ * A ticket whose size label names no size the budget document knows falls to
+ * `unsizedCountsAs` the same way, since `sizeLabel?.kind === "declared"` is
+ * false for it too.
+ * TODO[#159]: hand that ticket back ahead of the gate instead of charging it
+ * here.
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
   const size =
