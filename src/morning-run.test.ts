@@ -1535,10 +1535,9 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.clones.length, 0);
       assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
-      assert.match(
-        ports.tracker.closedReviewTicketComments.get(ticket.number) ?? "",
-        /already been merged/,
-      );
+      const [closed] = ports.tracker.closedReviewTicketComments;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /already been merged/);
       assert.match(report.message, /already merged/);
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.doesNotMatch(body, /## Waiting on you/);
@@ -1554,10 +1553,9 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.reviews.length, 0);
       assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
-      assert.match(
-        ports.tracker.closedReviewTicketComments.get(ticket.number) ?? "",
-        /closed without merging/,
-      );
+      const [closed] = ports.tracker.closedReviewTicketComments;
+      assert.deepEqual(closed?.ticket, ticket);
+      assert.match(closed?.comment ?? "", /closed without merging/);
       assert.match(report.message, /closed without merging/);
     });
 

@@ -125,10 +125,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly closedReviewTickets: ReviewTicket[] = [];
 
   /**
-   * The comment a closed review ticket carried, keyed by ticket number — only
-   * a review closed for a pull request already merged or closed carries one.
+   * The comment a closed review ticket carried, in close order — only a
+   * review closed for a pull request already merged or closed carries one.
    */
-  readonly closedReviewTicketComments = new Map<number, string>();
+  readonly closedReviewTicketComments: { ticket: ReviewTicket; comment: string }[] =
+    [];
 
   /** The apply-review tickets closed, in the order closed, with what each was told. */
   readonly closedApplyReviewTickets: {
@@ -337,7 +338,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   ): Promise<void> {
     this.closedReviewTickets.push(ticket);
     if (comment !== undefined) {
-      this.closedReviewTicketComments.set(ticket.number, comment);
+      this.closedReviewTicketComments.push({ ticket, comment });
     }
     this.#close(ticket);
     this.#find(ticket)?.labels.delete(READY_FOR_AGENT_LABEL);
