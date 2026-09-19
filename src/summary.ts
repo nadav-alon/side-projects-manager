@@ -29,6 +29,7 @@ import {
   isRebaseTicket,
   isReviewTicket,
   localDay,
+  localTimeOfMinute,
 } from "./ports/index.ts";
 
 /** How a verdict reads to the developer. A selected project was not skipped. */
@@ -172,13 +173,6 @@ function whyStoodDown(
  */
 export function summaryTitle(startedAt: Date): string {
   return `Morning loop summary — ${localDay(startedAt)} ${localTimeOfMinute(startedAt)}`;
-}
-
-/** `startedAt`'s local time, as `HH:MM`. */
-function localTimeOfMinute(at: Date): string {
-  const hours = `${at.getHours()}`.padStart(2, "0");
-  const minutes = `${at.getMinutes()}`.padStart(2, "0");
-  return `${hours}:${minutes}`;
 }
 
 /**

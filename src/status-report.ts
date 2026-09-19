@@ -1,5 +1,5 @@
 import type { Day, InvocationClosing, OpenInvocation } from "./ports/index.ts";
-import { localDay } from "./ports/index.ts";
+import { localDay, localTimeOfMinute } from "./ports/index.ts";
 
 /**
  * An invocation record still in flight, as the status command reads it:
@@ -185,7 +185,5 @@ function describeRecord(record: StatusRecord): string {
 
 /** `at`'s local day and time to the minute, the same grain the summary's own title carries. */
 function describeAt(at: Date): string {
-  const hours = `${at.getHours()}`.padStart(2, "0");
-  const minutes = `${at.getMinutes()}`.padStart(2, "0");
-  return `${localDay(at)} ${hours}:${minutes}`;
+  return `${localDay(at)} ${localTimeOfMinute(at)}`;
 }

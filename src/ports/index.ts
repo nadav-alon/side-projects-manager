@@ -7,7 +7,7 @@ export type { Checkout } from "./checkout.ts";
 export type { Clock } from "./clock.ts";
 export { commitSha, isCommitSha } from "./commit-sha.ts";
 export type { CommitSha } from "./commit-sha.ts";
-export { day, isDay, localDay } from "./day.ts";
+export { day, isDay, localDay, localTimeOfMinute } from "./day.ts";
 export type { Day } from "./day.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
