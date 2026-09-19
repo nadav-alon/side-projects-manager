@@ -1269,6 +1269,10 @@ describe("labelling a pull request", () => {
     await githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL);
 
     const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call[0]),
+      ["label", "pr"],
+    );
     assert.deepEqual(callWith(calls, "label", "create"), [
       "label",
       "create",
