@@ -53,10 +53,11 @@ export interface Consultation {
    */
   budget: Budget;
   /**
-   * The run estimate this consultation charged: the ticket about to start's
-   * own estimate, plus every ticket still in progress's. Carried on a
-   * go-ahead too, since `standDown` is `undefined` there and has nothing to
-   * carry it on — this is what lets the loop record it on the iteration.
+   * The run estimate `ticket` itself charged, not counting `inProgress`.
+   * Carried on a go-ahead too, since `standDown` is `undefined` there and has
+   * nothing to carry it on.
+   *
+   * TODO[#159]: read by the loop and recorded on the iteration outcome.
    */
   estimateCharged: TokenCount;
 }
@@ -113,7 +114,6 @@ export function invocationBudgetGate(
         ports.clock.now(),
         budget.observedResetAt,
       );
-      const estimateCharged = totalEstimate(ticket, inProgress, budget);
       return {
         standDown: budgetGate(
           windows,
@@ -123,7 +123,7 @@ export function invocationBudgetGate(
           inProgress,
         ),
         budget,
-        estimateCharged,
+        estimateCharged: runEstimate(ticket, budget),
       };
     },
   };

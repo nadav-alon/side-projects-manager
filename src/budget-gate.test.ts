@@ -363,7 +363,7 @@ describe("invocationBudgetGate", () => {
       );
     });
 
-    it("charges the second consultation the second ticket's estimate plus the tickets in progress", async () => {
+    it("charges the consultation only the selected ticket's own estimate, not the tickets in progress", async () => {
       const store = new FakeStore();
       const ledger = new FakeUsageLedger();
       const gate = await openGate(store, ledger);
@@ -381,10 +381,7 @@ describe("invocationBudgetGate", () => {
       await gate.consult(first, []);
       const { estimateCharged } = await gate.consult(second, [first]);
 
-      assert.equal(
-        estimateCharged,
-        DEFAULT_BUDGET.sizes.L + DEFAULT_BUDGET.sizes.S,
-      );
+      assert.equal(estimateCharged, DEFAULT_BUDGET.sizes.L);
     });
   });
 });
