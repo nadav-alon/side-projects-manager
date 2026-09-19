@@ -6,6 +6,7 @@ import type {
   DraftPullRequestOpening,
   MergeStatus,
   Proposal,
+  PullRequestLabel,
   PullRequestState,
   PullRequestUrl,
   RepoHost,
@@ -104,6 +105,10 @@ export class FakeRepoHost implements RepoHost {
 
   /** Every pull request `markPullRequestReady` was called on, in order. */
   readonly readyMarked: PullRequestUrl[] = [];
+
+  /** Every label added to a pull request, in the order `labelPullRequest` was called. */
+  readonly labelled: { pullRequest: PullRequestUrl; label: PullRequestLabel }[] =
+    [];
 
   readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
   readonly #reviewFindings = new Map<PullRequestUrl, FakeReviewFinding[]>();
@@ -303,6 +308,13 @@ export class FakeRepoHost implements RepoHost {
 
   async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
     this.readyMarked.push(pullRequest);
+  }
+
+  async labelPullRequest(
+    pullRequest: PullRequestUrl,
+    label: PullRequestLabel,
+  ): Promise<void> {
+    this.labelled.push({ pullRequest, label });
   }
 
   async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {

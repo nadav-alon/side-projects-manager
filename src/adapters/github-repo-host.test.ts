@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { githubRepoHost, pullRequestFrom } from "./github-repo-host.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_MARKER,
   MergeabilityUnknown,
   branch as toBranch,
@@ -17,6 +18,7 @@ import {
   pullRequestUrl,
   repoSlug,
   REVIEW_FINDING_FIELDS,
+  REVIEWED_LABEL,
   ticketGist,
   type Checkout,
   type Ticket,
@@ -1253,6 +1255,110 @@ describe("marking a pull request ready for review", () => {
     await githubRepoHost().markPullRequestReady(PULL_REQUEST);
 
     assert.equal(callWith(await gh.calls(), "ready"), undefined);
+  });
+});
+
+describe("labelling a pull request", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("creates the label in the pull request's own repo, then adds it", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL);
+
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call[0]),
+      ["label", "pr"],
+    );
+    assert.deepEqual(callWith(calls, "label", "create"), [
+      "label",
+      "create",
+      REVIEWED_LABEL,
+      "--repo",
+      "nadav-alon/pilot",
+    ]);
+    assert.deepEqual(callWith(calls, "pr", "edit"), [
+      "pr",
+      "edit",
+      PULL_REQUEST,
+      "--add-label",
+      REVIEWED_LABEL,
+    ]);
+  });
+
+  it("still adds the label when the repo already has it", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `if [ "$1 $2" = "label create" ]; then`,
+        `  echo 'a label with that name already exists' >&2`,
+        `  exit 1`,
+        `fi`,
+      ].join("\n"),
+    );
+
+    await githubRepoHost().labelPullRequest(PULL_REQUEST, APPLIED_REVIEW_LABEL);
+
+    assert.deepEqual(callWith(await gh.calls(), "pr", "edit"), [
+      "pr",
+      "edit",
+      PULL_REQUEST,
+      "--add-label",
+      APPLIED_REVIEW_LABEL,
+    ]);
+  });
+
+  it("rejects with gh's own error when adding the label fails", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `if [ "$1 $2" = "pr edit" ]; then`,
+        `  echo 'label not found' >&2`,
+        `  exit 1`,
+        `fi`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL),
+      /label not found/,
+    );
+  });
+
+  it("does not reject when the pull request already carries the label", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL);
+    await assert.doesNotReject(
+      githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL),
+    );
+
+    assert.equal(
+      (await gh.calls()).filter(
+        (call) => call[0] === "pr" && call[1] === "edit",
+      ).length,
+      2,
+    );
+  });
+
+  it("rejects with gh's own error when creating the label fails for a reason other than it already existing", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `if [ "$1 $2" = "label create" ]; then`,
+        `  echo 'HTTP 401: Bad credentials' >&2`,
+        `  exit 1`,
+        `fi`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      githubRepoHost().labelPullRequest(PULL_REQUEST, REVIEWED_LABEL),
+      /Bad credentials/,
+    );
   });
 });
 

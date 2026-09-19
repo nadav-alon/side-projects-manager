@@ -2,6 +2,7 @@ import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
+import type { PullRequestLabel } from "./pull-request-label.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TicketGist } from "./ticket-gist.ts";
@@ -432,6 +433,20 @@ export interface RepoHost {
    * pull request was still a draft by then.
    */
   markPullRequestReady(pullRequest: PullRequestUrl): Promise<void>;
+  /**
+   * Adds `label` to `pullRequest`, creating it in the pull request's own repo
+   * first if the repo doesn't have it yet — best effort, so a project never
+   * labelled by hand still works: a "the label already exists" refusal is not
+   * an error, and neither is adding a label `pullRequest` already carries.
+   *
+   * Adds only. There is no verb here that removes a label, the way
+   * {@link markPullRequestReady} is the only one that promotes a pull request:
+   * labelling says something happened to it, and merges nothing.
+   */
+  labelPullRequest(
+    pullRequest: PullRequestUrl,
+    label: PullRequestLabel,
+  ): Promise<void>;
   /**
    * Whether `pullRequest`'s branch needs a rebase onto its base branch.
    *

@@ -13,6 +13,7 @@ import type {
   MergeStatus,
   Milliseconds,
   Proposal,
+  PullRequestLabel,
   PullRequestState,
   PullRequestUrl,
   RepoHost,
@@ -397,6 +398,28 @@ export function githubRepoHost(
         return;
       }
       await run("gh", ["pr", "ready", pullRequest]);
+    },
+
+    async labelPullRequest(
+      pullRequest: PullRequestUrl,
+      label: PullRequestLabel,
+    ): Promise<void> {
+      // Named by the pull request's own URL, not the cwd: `clone`'s managed
+      // location may hold a different repo, or none, by the time this runs.
+      const { owner, repo } = pullRequestParts(pullRequest);
+      try {
+        await run("gh", ["label", "create", label, "--repo", `${owner}/${repo}`]);
+      } catch (error) {
+        // Best effort, but only for the one refusal the ticket scoped this
+        // to: a label already there is not a reason to fail a call whose
+        // real work is the add below. Anything else — an expired token, a
+        // network drop — surfaces here rather than as a confusing failure
+        // on the add.
+        if (!isAlreadyExists(error)) {
+          throw error;
+        }
+      }
+      await run("gh", ["pr", "edit", pullRequest, "--add-label", label]);
     },
 
     async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
@@ -1046,4 +1069,13 @@ function isUnresolvable(error: unknown): boolean {
       ? String(error.stderr)
       : "";
   return /could not resolve to a repository|HTTP 404/i.test(stderr);
+}
+
+/** Whether `gh label create` failed because the label is already there. */
+function isAlreadyExists(error: unknown): boolean {
+  const stderr =
+    typeof error === "object" && error !== null && "stderr" in error
+      ? String(error.stderr)
+      : "";
+  return /already exists/i.test(stderr);
 }
