@@ -35,17 +35,6 @@ const LOOP_PROCESS = "SIDE_PROJECTS_MANAGER_LOOP_PROCESS";
 /** Exit code of a process ended by SIGINT, as a shell reports it. */
 const INTERRUPTED = 130;
 
-// This file again, as the loop process.
-//
-// Overridable so a test can point it at a script that never touches the
-// journal, standing in for the one case that matters here: a loop entry
-// point that has gone missing from under the trigger that spawns it, which
-// is exactly what a moved manager home produces since the triggers hardcode
-// an absolute path to the checkout.
-const LOOP_ENTRY_POINT =
-  process.env["SIDE_PROJECTS_MANAGER_LOOP_ENTRY_POINT"] ||
-  import.meta.filename;
-
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
  * trigger — the hourly schedule and a developer running `npm run morning-run`
@@ -142,7 +131,7 @@ async function invokeLoop(): Promise<void> {
   // even be spawned — the purest case of the loop never having started, so
   // it is read the same as any other failure to report: exit code 1, and a
   // record saying so.
-  const exit = await runShielded([LOOP_ENTRY_POINT], {
+  const exit = await runShielded([import.meta.filename], {
     ...process.env,
     [LOOP_PROCESS]: "1",
   }).then(
