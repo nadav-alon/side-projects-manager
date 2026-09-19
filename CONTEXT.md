@@ -219,16 +219,20 @@ _Avoid_: work, result, outcome
 A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound to one draft pull request.
 _Avoid_: PR ticket, review sub-issue (unqualified)
 
+**Pull request resolved**:
+What a pull request ticket's iteration finds when the repo host already reports its own pull request merged or closed — checked before anything else the iteration would otherwise do, and before even a rebase ticket's own mergeability check. The ticket closes with a comment naming which, and no run starts: its branch is commonly gone with the pull request, so a run started on it would only fail the same way every morning after. Closed rather than handed back, since coming round again would find the same pull request in the same state.
+_Avoid_: resolved, settled, pull request outcome
+
 **Rebase ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving its draft state alone. The run owes tests green along the way; closing itself turns only on what the repo host reports. A pull request the repo host already reports not conflicting when the iteration starts has nothing to rebase: no run starts, and the ticket closes all the same. One whose mergeability the repo host never settles is handed back, with no run.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back on top of its base branch. Opened by a workflow in the project repo when the developer comments `/rebase`, born ready-for-agent, and selected before apply-review tickets. Finished — the repo host reporting the pull request no longer conflicting — it closes, leaving its draft state alone. The run owes tests green along the way; closing itself turns only on what the repo host reports. A pull request the repo host already reports not conflicting when the iteration starts has nothing to rebase: no run starts, and the ticket closes all the same. One whose own pull request is already merged or closed closes the same way, without mergeability ever being asked. One whose mergeability the repo host never settles is handed back, with no run.
 _Avoid_: rebase task, merge ticket, conflict ticket, sync ticket, update-branch ticket
 
 **Review ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket. One whose own pull request is already merged or closed has nothing left to review: the ticket closes the same way, with no run.
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same. One whose own pull request is already merged or closed closes the same way, with no run and nothing marked ready.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 ### Budget

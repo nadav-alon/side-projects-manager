@@ -6,6 +6,7 @@ import type {
   DraftPullRequestOpening,
   MergeStatus,
   Proposal,
+  PullRequestState,
   PullRequestUrl,
   RepoHost,
   RepoSlug,
@@ -126,6 +127,17 @@ export class FakeRepoHost implements RepoHost {
    * Clean, unless a test says otherwise.
    */
   mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
+
+  readonly #pullRequestStates = new Map<PullRequestUrl, PullRequestState>();
+
+  /**
+   * Sets what `pullRequestState` answers for `pullRequest`. Open, unless a
+   * test says otherwise — the same default a pull request just opened would
+   * read as.
+   */
+  setPullRequestState(pullRequest: PullRequestUrl, state: PullRequestState): void {
+    this.#pullRequestStates.set(pullRequest, state);
+  }
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
@@ -302,6 +314,10 @@ export class FakeRepoHost implements RepoHost {
       async () => this.mergeStatus(pullRequest),
       async () => {},
     );
+  }
+
+  async pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState> {
+    return this.#pullRequestStates.get(pullRequest) ?? "open";
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {

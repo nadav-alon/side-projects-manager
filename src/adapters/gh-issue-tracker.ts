@@ -126,7 +126,10 @@ export function ghIssueTracker(
       return { issues: discountPullRequestTickets(issues), truncated };
     },
 
-    async closeReviewTicket(ticket: ReviewTicket): Promise<void> {
+    async closeReviewTicket(
+      ticket: ReviewTicket,
+      comment?: string,
+    ): Promise<void> {
       const args = issueArgs(ticket);
 
       // Close first, because closed is what makes a review un-selectable —
@@ -134,7 +137,12 @@ export function ghIssueTracker(
       // The label removal comes after for what it alone protects: a query for
       // closed reviews, and a reopen, which would otherwise carry the ticket
       // back into the queue.
-      await execFileAsync("gh", ["issue", "close", ...args]);
+      await execFileAsync("gh", [
+        "issue",
+        "close",
+        ...args,
+        ...(comment === undefined ? [] : ["--comment", comment]),
+      ]);
       try {
         await execFileAsync("gh", [
           "issue",
