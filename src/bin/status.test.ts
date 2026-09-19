@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { localDay } from "../ports/index.ts";
-import { tempHome } from "../testing/index.ts";
+import { deadPid, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
@@ -36,15 +36,6 @@ async function snapshotHome(home: string): Promise<Record<string, string>> {
     files[entry] = await readFile(path.join(home, entry), "utf8");
   }
   return files;
-}
-
-/** A pid guaranteed no longer alive: a child process that has already exited. */
-function deadPid(): number {
-  const child = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-  if (child.pid === undefined) {
-    throw new Error("failed to spawn a child process for its pid");
-  }
-  return child.pid;
 }
 
 describe("the status command", () => {
