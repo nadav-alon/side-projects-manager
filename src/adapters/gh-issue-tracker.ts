@@ -6,6 +6,7 @@ import type {
   HandBackOutcome,
   IssueNumber,
   IssueTracker,
+  IssueUrl,
   OpenIssues,
   PullRequestBinding,
   PullRequestUrl,
@@ -21,6 +22,7 @@ import {
   carriesReadyForAgent,
   discountPullRequestTickets,
   isIssueNumber,
+  isIssueUrl,
   isPullRequestUrl,
   isTicketPriority,
   modelLabelOf,
@@ -60,12 +62,13 @@ export function ghIssueTracker(
   home: string = MANAGER_HOME,
 ): IssueTracker & SummaryTracker {
   return {
-    async publishSummary(title: string, body: string): Promise<void> {
-      await execFileAsync(
+    async publishSummary(title: string, body: string): Promise<IssueUrl> {
+      const { stdout } = await execFileAsync(
         "gh",
         ["issue", "create", "--title", title, "--body", body],
         { cwd: home },
       );
+      return issueUrlIn(stdout);
     },
 
     async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
@@ -559,16 +562,35 @@ async function issueIdOf(ticket: Ticket): Promise<IssueId> {
   }
 }
 
-/** `gh issue create` answers with the new issue's URL, and nothing else. */
-function issueNumberIn(stdout: string, repo: RepoSlug): IssueNumber {
-  const url = stdout.trim();
-  const match = /\/issues\/(\d+)$/.exec(url);
-  if (match === null) {
+/**
+ * `gh issue create`'s new issue URL, read out of `stdout` rather than
+ * required to be the whole of it: a wrapper's banner or a `gh` notice ahead
+ * of it must not turn a create that succeeded into one this reports as
+ * failed.
+ */
+function issueUrlIn(stdout: string): IssueUrl {
+  const trimmed = stdout.trim();
+  const match = /\S*\/issues\/\d+$/.exec(trimmed);
+  const url = match?.[0];
+  if (url === undefined || !isIssueUrl(url)) {
     throw new Error(
-      `gh issue create --repo ${repo}: expected the new issue's URL, got: ${url}`,
+      `gh issue create: expected the new issue's URL, got: ${trimmed}`,
     );
   }
-  const number = Number(match[1]);
+  return url;
+}
+
+/** `gh issue create --repo`'s new issue, as its number rather than its URL. */
+function issueNumberIn(stdout: string, repo: RepoSlug): IssueNumber {
+  let url: IssueUrl;
+  try {
+    url = issueUrlIn(stdout);
+  } catch {
+    throw new Error(
+      `gh issue create --repo ${repo}: expected the new issue's URL, got: ${stdout.trim()}`,
+    );
+  }
+  const number = Number(/\/issues\/(\d+)$/.exec(url)![1]);
   if (!isIssueNumber(number)) {
     throw new Error(
       `gh issue create --repo ${repo}: the new issue's URL named a number that is not a positive integer: ${url}`,

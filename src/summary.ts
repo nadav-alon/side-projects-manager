@@ -176,6 +176,18 @@ export function summaryTitle(startedAt: Date): string {
 }
 
 /**
+ * `startedAt` as the filename a kept summary is written under: the same
+ * local day and time to the minute as its title, so a developer finding it
+ * in the manager home does not have to do offset arithmetic to match it back
+ * to the morning it came from. The colon is filesystem-unsafe, so it is
+ * swapped for a dash.
+ */
+export function summaryFileName(startedAt: Date): string {
+  return `summary-${localDay(startedAt)}T${localTimeOfMinute(startedAt).replace(":", "-")}.txt`;
+}
+
+
+/**
  * The summary issue's body: CONTEXT.md's "Summary" entry, written out in
  * full. `message` stays the one line a terminal or a trigger's own log wants;
  * this is the fuller account — every attempt with its cost, and what is now

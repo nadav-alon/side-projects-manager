@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -10,6 +10,8 @@ import {
   day,
   exitCode,
   issueNumber,
+  issueUrl,
+  keptSummaryPath,
   modelName,
   priority,
   processId,
@@ -922,6 +924,134 @@ describe("the journal document", () => {
     assert.equal(record?.exitCode, 7);
   });
 
+  it("records where a published summary landed", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "dry-queue",
+      projects: [],
+      summaryLocation: issueUrl(
+        "https://github.com/nadav-alon/side-projects-manager/issues/1",
+      ),
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(
+      record?.summaryLocation,
+      "https://github.com/nadav-alon/side-projects-manager/issues/1",
+    );
+  });
+
+  it("records why a summary failed to publish, and where its text was kept", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "dry-queue",
+      projects: [],
+      summaryFailure: {
+        reason: "rate limited",
+        keptAt: keptSummaryPath("/home/summary.txt"),
+      },
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.deepEqual(record?.summaryFailure, {
+      reason: "rate limited",
+      keptAt: "/home/summary.txt",
+    });
+  });
+
+  it("records a summary failure with no keptAt, when even that write failed", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "dry-queue",
+      projects: [],
+      summaryFailure: { reason: "rate limited" },
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.deepEqual(record?.summaryFailure, { reason: "rate limited" });
+  });
+
+  it("rejects a record naming a summaryLocation that is not an issue URL", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "dry-queue",
+              projects: [],
+              summaryLocation: "not a url",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"summaryLocation"/);
+  });
+
+  it("rejects a record naming a keptAt that is not an absolute path", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "dry-queue",
+              projects: [],
+              summaryFailure: { reason: "rate limited", keptAt: "relative.txt" },
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"keptAt"/);
+  });
+
+  it("rejects a record whose summaryFailure names no reason", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "dry-queue",
+              projects: [],
+              summaryFailure: {},
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"summaryFailure": "reason"/);
+  });
+
   it("rejects closing a record that was never opened", async () => {
     const store = documentStore(await home());
 
@@ -1107,5 +1237,50 @@ describe("the journal document", () => {
         2,
       )}\n`,
     );
+  });
+});
+
+describe("keeping a summary that could not be published", () => {
+  const STARTED_AT = new Date("2026-01-01T08:00:00.000Z");
+
+  it("writes the body into the manager home and answers with where it landed", async () => {
+    const directory = await home();
+    const store = documentStore(directory);
+
+    const at = await store.keepSummary(STARTED_AT, "Nothing to do.");
+
+    assert.equal(await readFile(at, "utf8"), "Nothing to do.");
+    assert.equal(path.dirname(at), directory);
+  });
+
+  it("leaves the previous document intact when the write is interrupted", async () => {
+    const directory = await home();
+    const store = documentStore(directory);
+    // The write goes through `<pending>` and a rename, the same as every
+    // other manager-home document: a directory sitting at the pending path
+    // forces the write to fail without leaving a half-written file behind.
+    await mkdir(path.join(directory, "summary.txt.pending"));
+
+    await assert.rejects(store.keepSummary(STARTED_AT, "Nothing to do."));
+
+    assert.deepEqual(await readdir(directory), ["summary.txt.pending"]);
+  });
+
+  it("keeps only the most recent kept summaries, oldest deleted first", async () => {
+    const directory = await home();
+    const store = documentStore(directory);
+
+    for (let i = 0; i < 22; i += 1) {
+      await store.keepSummary(
+        new Date(STARTED_AT.getTime() + i * 60_000),
+        `Attempt ${i}.`,
+      );
+    }
+
+    const kept = (await readdir(directory)).filter((entry) =>
+      /^summary-.*\.txt$/.test(entry),
+    );
+    assert.equal(kept.length, 20);
+    assert.deepEqual(kept, [...kept].sort());
   });
 });

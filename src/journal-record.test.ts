@@ -6,6 +6,7 @@ import { morningLoop } from "./morning-run.ts";
 import {
   branch,
   issueNumber,
+  keptSummaryPath,
   repoSlug,
   tokenCount,
 } from "./ports/index.ts";
@@ -23,6 +24,7 @@ describe("invocationClosing", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      summaryLocation: report.summaryLocation,
     });
   });
 
@@ -205,5 +207,46 @@ describe("invocationClosing", () => {
     const closedAt = new Date("2026-06-15T21:00:00.000Z");
 
     assert.deepEqual(invocationClosing(report, closedAt).closedAt, closedAt);
+  });
+
+  it("names where a published summary landed", async () => {
+    const report = await morningLoop(fakePorts());
+
+    assert.equal(
+      invocationClosing(report, CLOSED_AT).summaryLocation,
+      report.summaryLocation,
+    );
+  });
+
+  it("records a summary that could not be published, and where its text was kept", async (t) => {
+    const ports = fakePorts();
+    t.mock.method(ports.tracker, "publishSummary", async () => {
+      throw new Error("rate limited");
+    });
+
+    const report = await morningLoop(ports);
+    const closing = invocationClosing(
+      report,
+      CLOSED_AT,
+      keptSummaryPath("/manager/home/summary-2026-01-01T08-00-00-000Z.txt"),
+    );
+
+    assert.equal(closing.summaryLocation, undefined);
+    assert.deepEqual(closing.summaryFailure, {
+      reason: "rate limited",
+      keptAt: "/manager/home/summary-2026-01-01T08-00-00-000Z.txt",
+    });
+  });
+
+  it("still records why a summary failed to publish, even when its text could not be kept", async (t) => {
+    const ports = fakePorts();
+    t.mock.method(ports.tracker, "publishSummary", async () => {
+      throw new Error("rate limited");
+    });
+
+    const report = await morningLoop(ports);
+    const closing = invocationClosing(report, CLOSED_AT);
+
+    assert.deepEqual(closing.summaryFailure, { reason: "rate limited" });
   });
 });

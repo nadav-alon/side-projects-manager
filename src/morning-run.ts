@@ -7,6 +7,7 @@ import type {
   Day,
   InvocationOutcome as JournaledInvocationOutcome,
   IssueTracker,
+  IssueUrl,
   IterationLimit,
   ModelDefaults,
   ModelName,
@@ -103,7 +104,8 @@ import {
  * tracker's own repo rather than a project's — the manager reports on itself.
  */
 export interface SummaryTracker {
-  publishSummary(title: string, body: string): Promise<void>;
+  /** Publishes the summary issue, and answers with where it landed. */
+  publishSummary(title: string, body: string): Promise<IssueUrl>;
 }
 
 /**
@@ -151,6 +153,18 @@ export interface ResolvedModel {
   source: ModelSource;
 }
 
+/**
+ * A summary the invocation composed but could not publish: why, and the body
+ * it had already put together. Carried as its own field rather than only
+ * folded into `message`'s prose, so the entry point can write the body down
+ * and the journal can record why — the one write meant to report the morning
+ * is not allowed to be the one that loses its account of itself.
+ */
+export interface SummaryFailure {
+  reason: string;
+  body: string;
+}
+
 /** What one invocation did. The summary issue is written from this. */
 export interface InvocationReport {
   /** When the invocation started. */
@@ -179,6 +193,16 @@ export interface InvocationReport {
    * out of work.
    */
   standDown?: InvocationStandDown;
+  /**
+   * Where a published summary landed. Absent when none published this
+   * invocation, or the publish failed.
+   */
+  summaryLocation?: IssueUrl;
+  /**
+   * The composed summary, kept because it could not be published. Absent
+   * when one published, or none was composed this invocation.
+   */
+  summaryFailure?: SummaryFailure;
   /** One line, suitable for printing to a terminal or into the summary issue. */
   message: string;
 }
@@ -486,27 +510,32 @@ export async function morningLoop(
   // one — dry queue, stand-down, invocation failure — publishes only if
   // nothing has been announced yet today, so a firing every hour reports one
   // quiet morning rather than up to twenty-four.
-  let publishFailure: string | undefined;
+  let summaryLocation: IssueUrl | undefined;
+  let summaryFailure: SummaryFailure | undefined;
   if (outcome === "work-selected" || !hasAnnouncedOn(announcedOn, today)) {
+    const body = summaryBody(facts, line);
     // Last, so a morning that worked something still gets its state recorded
     // above even if the tracker refuses this. Never thrown: a summary issue
     // that could not be written must not cost the developer the account of
-    // everything else the invocation did, which is exactly the account this
-    // write exists to carry — said in the message instead, the same way a
-    // tracker that refuses `handBack` is said rather than thrown.
+    // everything else the invocation did — said in the message, and kept
+    // whole in `summaryFailure`, the same way a tracker that refuses
+    // `handBack` is said rather than thrown.
     try {
-      await ports.tracker.publishSummary(
+      summaryLocation = await ports.tracker.publishSummary(
         summaryTitle(startedAt),
-        summaryBody(facts, line),
+        body,
       );
-      // Recorded only now that the publish is known to have succeeded, and
-      // only when there is a state document to fold it back into.
-      if (stateToSave !== undefined) {
-        announcedOn = today;
-        await ports.store.saveState(stateToSave());
-      }
     } catch (error: unknown) {
-      publishFailure = errorMessage(error);
+      summaryFailure = { reason: errorMessage(error), body };
+    }
+    // Recorded only now that the publish is known to have succeeded, and
+    // only when there is a state document to fold it back into. Kept out of
+    // the try above: a fault here is the state document's, not the
+    // publish's, and must never read back as a publish that failed when the
+    // summary in fact went out.
+    if (summaryLocation !== undefined && stateToSave !== undefined) {
+      announcedOn = today;
+      await ports.store.saveState(stateToSave());
     }
   }
 
@@ -516,10 +545,12 @@ export async function morningLoop(
     iterations,
     ...(standDown !== undefined && { standDown }),
     outcome,
+    ...(summaryLocation !== undefined && { summaryLocation }),
+    ...(summaryFailure !== undefined && { summaryFailure }),
     message:
-      publishFailure === undefined
+      summaryFailure === undefined
         ? line
-        : `${line} The summary issue could not be published: ${publishFailure}.`,
+        : `${line} The summary issue could not be published: ${summaryFailure.reason}.`,
   };
 }
 

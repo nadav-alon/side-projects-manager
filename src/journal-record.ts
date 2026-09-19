@@ -4,6 +4,7 @@ import type {
   ExitCode,
   InvocationClosing,
   JournaledProject,
+  KeptSummaryPath,
   RepoSlug,
 } from "./ports/index.ts";
 import { tokenCount } from "./ports/index.ts";
@@ -16,10 +17,16 @@ import { tokenCount } from "./ports/index.ts";
  * Lives beside the loop rather than inside it, the same reason recording
  * itself does: this is the composition root's account of a report the loop
  * already produced, not something the loop needs to know how to write.
+ *
+ * `keptSummaryAt` is where the entry point wrote a failed publish's composed
+ * body, absent both when nothing failed to publish and when that write
+ * itself failed too — the reason is still worth recording either way, so it
+ * is read off `report` rather than gated on `keptSummaryAt` being given.
  */
 export function invocationClosing(
   report: InvocationReport,
   closedAt: Date,
+  keptSummaryAt?: KeptSummaryPath,
 ): InvocationClosing {
   return {
     closedAt,
@@ -27,6 +34,15 @@ export function invocationClosing(
     projects: projectsWorked(report),
     ...(report.standDown !== undefined && {
       standDownReason: standDownReason(report.standDown),
+    }),
+    ...(report.summaryLocation !== undefined && {
+      summaryLocation: report.summaryLocation,
+    }),
+    ...(report.summaryFailure !== undefined && {
+      summaryFailure: {
+        reason: report.summaryFailure.reason,
+        ...(keptSummaryAt !== undefined && { keptAt: keptSummaryAt }),
+      },
     }),
   };
 }

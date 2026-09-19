@@ -3887,6 +3887,29 @@ describe("morningLoop", () => {
       );
     });
 
+    it("carries a summary that could not be published as a structured field, body and all", async (t) => {
+      const ports = fakePorts();
+      t.mock.method(ports.tracker, "publishSummary", async () => {
+        throw new Error("rate limited");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.summaryFailure?.reason, "rate limited");
+      assert.match(report.summaryFailure?.body ?? "", /nothing to do/i);
+      assert.equal(report.summaryLocation, undefined);
+    });
+
+    it("records where a published summary landed, without changing the message", async () => {
+      const ports = fakePorts();
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.summaryLocation, ports.tracker.summaries[0]?.url);
+      assert.equal(report.summaryFailure, undefined);
+      assert.match(report.message, /nothing to do/i);
+    });
+
     it("is still published when the loop itself breaks before a run", async (t) => {
       const ports = fakePorts();
       t.mock.method(ports.store, "loadRegistry", async () => {

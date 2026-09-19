@@ -4,6 +4,7 @@ import type {
   InvocationClosing,
   InvocationRecord,
   Journal,
+  KeptSummaryPath,
   ModelDefaults,
   OpenInvocation,
   Priority,
@@ -19,9 +20,12 @@ import type {
 import {
   DEFAULT_BUDGET,
   JOURNAL_LIMIT,
+  KEPT_SUMMARY_LIMIT,
   findInvocationRecord,
+  keptSummaryPath,
   workedTicket,
 } from "../ports/index.ts";
+import { summaryFileName } from "../summary.ts";
 
 /** What the developer may say about a project when registering it. */
 export interface Registration {
@@ -43,10 +47,16 @@ export class FakeStore implements Store {
   #workedToday: WorkedToday | undefined = undefined;
   #announcedOn: Day | undefined = undefined;
   #journal: InvocationRecord[] = [];
+  #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
   budget: Budget = DEFAULT_BUDGET;
   /** The model the developer named for each kind of ticket; none by default. */
   modelDefaults: ModelDefaults = {};
+
+  /** Every summary kept so far, oldest first, as `keepSummary` recorded it. */
+  get keptSummaries(): readonly { at: KeptSummaryPath; body: string }[] {
+    return this.#keptSummaries;
+  }
 
   /** Registers a project, as the developer hand-editing the registry would. */
   register(repo: RepoSlug, registration: Registration = {}): void {
@@ -156,6 +166,12 @@ export class FakeStore implements Store {
       ...(closing.standDownReason !== undefined && {
         standDownReason: closing.standDownReason,
       }),
+      ...(closing.summaryLocation !== undefined && {
+        summaryLocation: closing.summaryLocation,
+      }),
+      ...(closing.summaryFailure !== undefined && {
+        summaryFailure: { ...closing.summaryFailure },
+      }),
       ...(closing.exitCode !== undefined && { exitCode: closing.exitCode }),
     });
   }
@@ -167,8 +183,19 @@ export class FakeStore implements Store {
         ...(record.projects !== undefined && {
           projects: [...record.projects],
         }),
+        ...(record.summaryFailure !== undefined && {
+          summaryFailure: { ...record.summaryFailure },
+        }),
       })),
     };
+  }
+
+  async keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath> {
+    const at = keptSummaryPath(`/fake-manager-home/${summaryFileName(startedAt)}`);
+    this.#keptSummaries = [...this.#keptSummaries, { at, body }].slice(
+      -KEPT_SUMMARY_LIMIT,
+    );
+    return at;
   }
 }
 

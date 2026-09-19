@@ -1,4 +1,6 @@
 import type { ExitCode } from "./exit-code.ts";
+import type { IssueUrl } from "./issue-url.ts";
+import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ProcessId } from "./process-id.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -46,6 +48,17 @@ export interface OpenInvocation {
   process: ProcessId;
 }
 
+/**
+ * Why a summary could not be published, and where its composed text was
+ * kept so the one write that lost it did not also cost the developer the
+ * account of it. `keptAt` is absent when that write itself failed too — the
+ * reason the publish failed is still worth recording even then.
+ */
+export interface JournaledSummaryFailure {
+  reason: string;
+  keptAt?: KeptSummaryPath;
+}
+
 /** What closing a record adds to it: what the invocation came to. */
 export interface InvocationClosing {
   /** When the invocation ended. */
@@ -55,6 +68,16 @@ export interface InvocationClosing {
   projects: JournaledProject[];
   /** Why the invocation stood down, absent when it did not. */
   standDownReason?: string;
+  /**
+   * Where a published summary landed — the journal's index into the tracker.
+   * Absent when no summary published this invocation, or its publish failed.
+   */
+  summaryLocation?: IssueUrl;
+  /**
+   * Why a summary could not be published, absent when one published, or
+   * none was attempted this invocation.
+   */
+  summaryFailure?: JournaledSummaryFailure;
   /**
    * The exit code the loop's process gave the trigger that spawned it.
    * Expected only on a `never-reported` record — the one outcome a record

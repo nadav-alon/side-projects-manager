@@ -14,12 +14,13 @@ import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usag
 import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
-import { morningLoop } from "../morning-run.ts";
+import { morningLoop, type InvocationReport } from "../morning-run.ts";
 import {
   exitCode,
   processId,
   type InvocationClosing,
   type Journal,
+  type KeptSummaryPath,
   type OpenInvocation,
   type Store,
 } from "../ports/index.ts";
@@ -94,10 +95,11 @@ async function main(): Promise<void> {
   );
 
   console.log(report.message);
+  const keptSummaryAt = await keepFailedSummary(store, report);
   await closeJournalRecord(
     store,
     opened,
-    invocationClosing(report, systemClock.now()),
+    invocationClosing(report, systemClock.now(), keptSummaryAt),
   );
 
   // A broken setup exits non-zero even though it reported cleanly: whatever
@@ -108,10 +110,13 @@ async function main(): Promise<void> {
   // retried a non-zero morning would otherwise run straight into the no-retry
   // rule. An invocation that never finished — a registry that would not
   // parse, say — is reported the same way as a broken sandbox: cleanly, and
-  // non-zero.
+  // non-zero. A summary that could not be published joins them on exit code
+  // alone: it is not itself an infrastructure failure, but the reporting
+  // channel failing is no less something the developer needs to hear about.
   const failed =
     report.outcome === "invocation-failed" ||
-    report.iterations.some(failedOnInfrastructure);
+    report.iterations.some(failedOnInfrastructure) ||
+    report.summaryFailure !== undefined;
   if (failed) {
     process.exitCode = 1;
   }
@@ -279,6 +284,34 @@ async function closeJournalRecord(
     console.error(
       `morning-run: the journal could not be closed: ${errorMessage(error)}`,
     );
+  }
+}
+
+/**
+ * Writes a summary that could not be published down into the manager home,
+ * readable beside the journal, so the one write meant to report the morning
+ * does not also cost the developer the text it had already composed. Behind
+ * the store port, the same as every other manager-home write, rather than
+ * the filesystem directly. Returns where it landed; `undefined` when nothing
+ * failed to publish, or — said on stderr instead — the write itself failed.
+ * Never changes the exit code beyond what the publish failure already set:
+ * recording never fails the invocation further.
+ */
+async function keepFailedSummary(
+  store: Store,
+  report: InvocationReport,
+): Promise<KeptSummaryPath | undefined> {
+  const { summaryFailure } = report;
+  if (summaryFailure === undefined) {
+    return undefined;
+  }
+  try {
+    return await store.keepSummary(report.startedAt, summaryFailure.body);
+  } catch (error: unknown) {
+    console.error(
+      `morning-run: the summary could not be kept: ${errorMessage(error)}`,
+    );
+    return undefined;
   }
 }
 

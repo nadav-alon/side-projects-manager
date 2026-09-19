@@ -1,4 +1,11 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -8,8 +15,11 @@ import type {
   InvocationClosing,
   InvocationOutcome,
   InvocationRecord,
+  IssueUrl,
   Journal,
   JournaledProject,
+  JournaledSummaryFailure,
+  KeptSummaryPath,
   ModelDefaults,
   ModelName,
   OpenInvocation,
@@ -30,6 +40,7 @@ import {
   DEFAULT_BUDGET,
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
+  KEPT_SUMMARY_LIMIT,
   MODEL_NAME_SHAPE,
   SIZES,
   TICKET_KINDS,
@@ -39,12 +50,15 @@ import {
   isExitCode,
   isInvocationOutcome,
   isIssueNumber,
+  isIssueUrl,
   isIterationLimit,
+  isKeptSummaryPath,
   isModelName,
   isPriority,
   isProcessId,
   isRepoSlug,
   isSize,
+  keptSummaryPath,
   workedTicket,
   isReserveFraction,
   isTokenCount,
@@ -52,6 +66,7 @@ import {
 } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
+import { summaryFileName } from "../summary.ts";
 
 const REGISTRY_FILE = "registry.json";
 const BUDGET_FILE = "budget.json";
@@ -144,7 +159,30 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     async loadJournal(): Promise<Journal> {
       return loadJournalDocument(journalFile);
     },
+
+    async keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath> {
+      const file = path.join(home, summaryFileName(startedAt));
+      // A fixed pending name, unlike `writeDocument`'s: the target name is
+      // timestamped rather than one of a handful of fixed document names, so
+      // deriving the pending name from it would make every kept summary's
+      // pending file a different, unpredictable path.
+      const pending = path.join(home, "summary.txt.pending");
+      await mkdir(home, { recursive: true });
+      await writeFile(pending, body, "utf8");
+      await rename(pending, file);
+      await trimKeptSummaries(home);
+      return keptSummaryPath(file);
+    },
   };
+}
+
+/** Keeps at most `KEPT_SUMMARY_LIMIT` kept summaries in `home`, oldest deleted first. */
+async function trimKeptSummaries(home: string): Promise<void> {
+  const kept = (await readdir(home))
+    .filter((entry) => /^summary-.*\.txt$/.test(entry))
+    .sort();
+  const excess = kept.slice(0, Math.max(0, kept.length - KEPT_SUMMARY_LIMIT));
+  await Promise.all(excess.map((entry) => unlink(path.join(home, entry))));
 }
 
 async function loadJournalDocument(journalFile: string): Promise<Journal> {
@@ -692,13 +730,17 @@ const RECORD_FIELDS = [
   "outcome",
   "projects",
   "standDownReason",
+  "summaryLocation",
+  "summaryFailure",
   "exitCode",
 ] as const;
 
 /**
  * `{ "records": [{ "openedAt": "…", "process": 123, "closedAt": "…",
  *    "outcome": "work-selected", "projects": [{ "repo": "owner/repo",
- *    "tokensUsed": 12000 }], "standDownReason": "…" }] }`
+ *    "tokensUsed": 12000 }], "standDownReason": "…",
+ *    "summaryLocation": "https://github.com/owner/repo/issues/1",
+ *    "summaryFailure": { "reason": "…", "keptAt": "…" } }] }`
  *
  * A record with no `closedAt` is in flight, and carries nothing else — the
  * fields closing adds are read only once `closedAt` says they were written.
@@ -745,6 +787,8 @@ function parseInvocationRecord(
     outcome: outcomeField(fieldOf(record, "outcome", where), where),
     projects: journaledProjectsField(fieldOf(record, "projects", where), where),
     ...standDownReasonField(fieldOf(record, "standDownReason", where), where),
+    ...summaryLocationField(fieldOf(record, "summaryLocation", where), where),
+    ...summaryFailureField(fieldOf(record, "summaryFailure", where), where),
     ...exitCodeField(fieldOf(record, "exitCode", where), where),
   };
 }
@@ -800,6 +844,49 @@ function standDownReasonField(
   return { standDownReason: value };
 }
 
+function summaryLocationField(
+  value: unknown,
+  where: string,
+): { summaryLocation?: IssueUrl } {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value !== "string" || !isIssueUrl(value)) {
+    throw new Error(
+      `${where}: "summaryLocation" must be an issue URL: ${JSON.stringify(value)}`,
+    );
+  }
+  return { summaryLocation: value };
+}
+
+function summaryFailureField(
+  value: unknown,
+  where: string,
+): { summaryFailure?: JournaledSummaryFailure } {
+  if (value === undefined) {
+    return {};
+  }
+  const failureWhere = `${where}: "summaryFailure"`;
+  const reason = fieldOf(value, "reason", failureWhere);
+  if (typeof reason !== "string") {
+    throw new Error(
+      `${failureWhere}: "reason" must be a string: ${JSON.stringify(reason)}`,
+    );
+  }
+  const keptAt = fieldOf(value, "keptAt", failureWhere);
+  if (
+    keptAt !== undefined &&
+    (typeof keptAt !== "string" || !isKeptSummaryPath(keptAt))
+  ) {
+    throw new Error(
+      `${failureWhere}: "keptAt" must be an absolute path: ${JSON.stringify(keptAt)}`,
+    );
+  }
+  return {
+    summaryFailure: { reason, ...(keptAt !== undefined && { keptAt }) },
+  };
+}
+
 function exitCodeField(value: unknown, where: string): { exitCode?: ExitCode } {
   if (value === undefined) {
     return {};
@@ -826,6 +913,17 @@ function formatJournal(journal: Journal): string {
       })),
       ...(record.standDownReason !== undefined && {
         standDownReason: record.standDownReason,
+      }),
+      ...(record.summaryLocation !== undefined && {
+        summaryLocation: record.summaryLocation,
+      }),
+      ...(record.summaryFailure !== undefined && {
+        summaryFailure: {
+          reason: record.summaryFailure.reason,
+          ...(record.summaryFailure.keptAt !== undefined && {
+            keptAt: record.summaryFailure.keptAt,
+          }),
+        },
       }),
       ...(record.exitCode !== undefined && { exitCode: record.exitCode }),
     }),
