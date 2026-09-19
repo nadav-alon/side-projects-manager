@@ -209,7 +209,7 @@ _install_rc_env() {
 # _crontab_upsert_var NAME VALUE: sets NAME=VALUE as a crontab-level
 # environment line (applies to every job below it), replacing any existing
 # line for NAME. Cron reads neither .bashrc nor .zshrc, so this is the only
-# way the daily schedule sees these credentials.
+# way the hourly schedule sees these credentials.
 _crontab_upsert_var() {
   local name="$1" value="$2" existing
   existing="$(crontab -l 2>/dev/null || true)"
