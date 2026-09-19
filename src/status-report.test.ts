@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { processId, repoSlug, tokenCount } from "./ports/index.ts";
+import { localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
 import { statusReport, type StatusJournal, type StatusRecord } from "./status-report.ts";
 
 const NOW = new Date("2026-09-17T09:00:00.000Z");
+const TODAY = localDay(NOW);
 const PILOT = repoSlug("nadav-alon/pilot");
 
 function journal(...records: StatusRecord[]): StatusJournal {
@@ -43,7 +44,7 @@ describe("statusReport", () => {
       NOW,
     );
 
-    assert.equal(lines[0], "Today (2026-09-17) is claimed.");
+    assert.equal(lines[0], `Today (${TODAY}) is claimed.`);
     assert.match(lines[1]!, /Most recent invocation:.*a dry queue/);
   });
 
@@ -56,7 +57,7 @@ describe("statusReport", () => {
 
     assert.equal(
       lines[0],
-      "Today (2026-09-17) has not been claimed yet: the loop has not run today.",
+      `Today (${TODAY}) has not been claimed yet: the loop has not run today.`,
     );
   });
 
@@ -151,10 +152,12 @@ describe("statusReport", () => {
   });
 
   it("lists every record but the most recent as history, newest first", () => {
+    const oldest = new Date("2026-09-15T08:00:00.000Z");
+    const middle = new Date("2026-09-16T08:00:00.000Z");
     const lines = statusReport(
       journal(
-        closed("2026-09-15T08:00:00.000Z", { outcome: "dry-queue" }),
-        closed("2026-09-16T08:00:00.000Z", { outcome: "stood-down" }),
+        closed(oldest.toISOString(), { outcome: "dry-queue" }),
+        closed(middle.toISOString(), { outcome: "stood-down" }),
         closed("2026-09-17T08:00:00.000Z", { outcome: "work-selected" }),
       ),
       true,
@@ -163,8 +166,14 @@ describe("statusReport", () => {
 
     const historyIndex = lines.indexOf("History:");
     assert.notEqual(historyIndex, -1);
-    assert.match(lines[historyIndex + 1]!, /2026-09-16.*stood down/);
-    assert.match(lines[historyIndex + 2]!, /2026-09-15.*dry queue/);
+    assert.match(
+      lines[historyIndex + 1]!,
+      new RegExp(`${localDay(middle)}.*stood down`),
+    );
+    assert.match(
+      lines[historyIndex + 2]!,
+      new RegExp(`${localDay(oldest)}.*dry queue`),
+    );
   });
 
   it("prints no history for a journal with only one record", () => {
