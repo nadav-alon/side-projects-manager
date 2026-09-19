@@ -533,6 +533,27 @@ describe("budgetGate", () => {
       );
     });
 
+    /**
+     * The 5-hour window shares `spendableOf` with the weekly one, but nothing
+     * above pins that it rounds the reserve up the same way — see the
+     * weekly window's own test above.
+     */
+    it("rounds a reserve that does not divide evenly the developer's way", () => {
+      const block = noEstimateBudget({
+        fiveHourAllowance: tokenCount(1_001),
+        fiveHourReserveFraction: reserveFraction(0.5),
+      });
+
+      assert.equal(
+        budgetGate(spentFiveHour(500), block, [], TICKET, []),
+        undefined,
+      );
+      assert.equal(
+        budgetGate(spentFiveHour(501), block, [], TICKET, [])?.spendable,
+        500,
+      );
+    });
+
     it("lowers the 5-hour spendable at a non-zero fiveHourReserveFraction", () => {
       const block = noEstimateBudget({
         fiveHourAllowance: tokenCount(1_000),
