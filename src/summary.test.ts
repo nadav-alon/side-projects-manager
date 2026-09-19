@@ -248,7 +248,7 @@ describe("summaryLine", () => {
   describe("a gate refusal", () => {
     const RESETS_AT = new Date("2026-01-04T00:00:00.000Z");
 
-    function weeklyRefusal(overrides: Partial<GateStandDown> = {}): GateStandDown {
+    function gateStandDown(overrides: Partial<GateStandDown> = {}): GateStandDown {
       return {
         reason: "weekly-reserve",
         tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
@@ -270,7 +270,7 @@ describe("summaryLine", () => {
     }
 
     it("says it stood down for the budget, not that there was nothing to do", () => {
-      const line = standDownLine(weeklyRefusal());
+      const line = standDownLine(gateStandDown());
 
       assert.match(line, /stood down/i);
       assert.match(line, /reserve/i);
@@ -278,7 +278,7 @@ describe("summaryLine", () => {
     });
 
     it("says which project was ready and when the window resets", () => {
-      const line = standDownLine(weeklyRefusal());
+      const line = standDownLine(gateStandDown());
 
       assert.match(line, /nadav-alon\/pilot/);
       assert.match(line, new RegExp(RESETS_AT.toISOString()));
@@ -286,16 +286,21 @@ describe("summaryLine", () => {
 
     it("says the 5-hour window when that is what refused", () => {
       const line = standDownLine(
-        weeklyRefusal({ reason: "five-hour-window" }),
+        gateStandDown({ reason: "five-hour-window" }),
       );
 
       assert.match(line, /5-hour/);
     });
 
     it("tells apart a window already spent from one only the estimate pushed over", () => {
-      const spent = standDownLine(weeklyRefusal({ reason: "weekly-reserve" }));
+      const spent = standDownLine(gateStandDown({ reason: "weekly-reserve" }));
       const estimate = standDownLine(
-        weeklyRefusal({ reason: "weekly-reserve-estimate" }),
+        gateStandDown({
+          reason: "weekly-reserve-estimate",
+          // Within spendable on its own, per the reason: only the estimate
+          // charged (still 2,000,000, from the default) pushes it over.
+          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK - 1),
+        }),
       );
 
       assert.match(spent, /reserve/i);
@@ -305,7 +310,10 @@ describe("summaryLine", () => {
 
     it("says the estimate when the 5-hour window is only pushed over by it", () => {
       const line = standDownLine(
-        weeklyRefusal({ reason: "five-hour-window-estimate" }),
+        gateStandDown({
+          reason: "five-hour-window-estimate",
+          tokensUsed: tokenCount(SPENDABLE_THIS_WEEK - 1),
+        }),
       );
 
       assert.match(line, /5-hour/);
