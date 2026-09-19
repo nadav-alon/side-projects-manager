@@ -10,6 +10,7 @@ import {
   modelName,
   pullRequestUrl,
   READY_FOR_AGENT_LABEL,
+  READY_FOR_HUMAN_LABEL,
   repoSlug,
   ticketPriority,
   type ApplyReviewTicket,
@@ -44,9 +45,26 @@ describe("FakeIssueTracker", () => {
       title: "Add the thing",
     });
 
-    await tracker.handBack(ticket, "gave up");
+    const outcome = await tracker.handBack(ticket, "gave up");
 
+    assert.equal(outcome, "handed-back");
     assert.deepEqual(backlogIn(await tracker.listOpenIssues(PILOT)).tickets, []);
+  });
+
+  it("leaves a closed ticket's labels alone and records no comment when handed back", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    tracker.closeOutOfBand(ticket);
+
+    const outcome = await tracker.handBack(ticket, "gave up");
+
+    assert.equal(outcome, "already-closed");
+    assert.deepEqual(tracker.handbacks, []);
+    assert.equal(tracker.carriesLabel(ticket, READY_FOR_AGENT_LABEL), true);
+    assert.equal(tracker.carriesLabel(ticket, READY_FOR_HUMAN_LABEL), false);
   });
 
   it("no longer lists a review ticket, nor carries ready-for-agent on it, once closed", async () => {

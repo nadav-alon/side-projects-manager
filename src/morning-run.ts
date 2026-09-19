@@ -578,14 +578,14 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
         kind: "conflicting-model-labels",
         reason: `it carries more than one model label (${label.labels.join(", ")})`,
         labels: label.labels,
-        handedBack: false,
+        handedBack: "refused",
       };
     case "unusable":
       return {
         kind: "unusable-model-label",
         reason: `its model label names no usable model (${label.labels.join(", ")})`,
         labels: label.labels,
-        handedBack: false,
+        handedBack: "refused",
       };
   }
 }
@@ -612,7 +612,7 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
     reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
     refusal,
     source,
-    handedBack: false,
+    handedBack: "refused",
   };
 }
 
@@ -742,7 +742,7 @@ async function work(
   const failure: GaveUp = {
     kind: "gave-up",
     reason: run.reason,
-    handedBack: false,
+    handedBack: "refused",
   };
   return handTicketBack(
     ports,
@@ -777,7 +777,7 @@ async function handOver(
   ticket: Ticket,
 ): Promise<Finished | Failed> {
   if (run.commits.length === 0) {
-    const handbackFailure = await handFinishedTicketBack(
+    const handback = await handFinishedTicketBack(
       ports,
       ticket,
       committedNothingComment(run),
@@ -786,7 +786,7 @@ async function handOver(
       kind: "finished",
       run,
       tokensUsed: run.tokensUsed,
-      ...(handbackFailure !== undefined && { handbackFailure }),
+      ...handback,
     };
   }
 
@@ -831,7 +831,7 @@ async function handOver(
     );
   }
 
-  const handbackFailure = await handFinishedTicketBack(
+  const handback = await handFinishedTicketBack(
     ports,
     ticket,
     handoverComment(pullRequest, reviewTicket),
@@ -842,7 +842,7 @@ async function handOver(
     run,
     tokensUsed: run.tokensUsed,
     handover: { pullRequest, reviewTicket },
-    ...(handbackFailure !== undefined && { handbackFailure }),
+    ...handback,
   };
 }
 
@@ -862,7 +862,7 @@ async function handoverFailed(
     reason,
     branch: run.branch,
     where,
-    handedBack: false,
+    handedBack: "refused",
   };
   return handTicketBack(
     ports,
@@ -876,7 +876,10 @@ async function handoverFailed(
 /**
  * Takes a finished run's ticket out of the queue: the same comment-and-relabel
  * primitive a failed run's hand-back uses, so a project the developer never
- * triaged by hand still gets ready-for-human created for it.
+ * triaged by hand still gets ready-for-human created for it. The fields
+ * returned fold straight into `Finished`: empty for the common case, the
+ * tracker's own `"already-closed"` when an overlapping run closed the ticket
+ * first, or `"refused"` paired with why when the call itself failed.
  *
  * Never throws. A tracker that refuses the relabel is reported in the
  * summary instead, the same way a refused hand-back is today — the one thing
@@ -887,12 +890,12 @@ async function handFinishedTicketBack(
   ports: MorningLoopPorts,
   ticket: Ticket,
   comment: string,
-): Promise<string | undefined> {
+): Promise<Pick<Finished, "handedBack" | "handbackFailure">> {
   try {
-    await ports.tracker.handBack(ticket, comment);
-    return undefined;
+    const outcome = await ports.tracker.handBack(ticket, comment);
+    return outcome === "handed-back" ? {} : { handedBack: outcome };
   } catch (error: unknown) {
-    return errorMessage(error);
+    return { handedBack: "refused", handbackFailure: errorMessage(error) };
   }
 }
 
@@ -906,7 +909,9 @@ type Spend = { run: RunOutcome } | { tokensUsed: TokenCount };
 /**
  * Puts the ticket of a run that failed on the ticket's account — an agent
  * that gave up, or a model it could not use — back in the developer's hands
- * with `comment`, and says whether it got there.
+ * with `comment`, and says whether it got there: handed back, refused, or
+ * found already closed by an overlapping run that finished it first, in
+ * which case the tracker touched nothing and `failure.handedBack` says so.
  *
  * Never throws. A tracker that could not be reached leaves the ticket eligible,
  * and saying so is the one thing still worth doing.
@@ -926,12 +931,12 @@ async function handTicketBack(
         ? spend.run.tokensUsed
         : spend.tokensUsed;
   try {
-    await ports.tracker.handBack(ticket, comment);
+    const outcome = await ports.tracker.handBack(ticket, comment);
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
       ...(tokensUsed !== undefined && { tokensUsed }),
-      failure: { ...failure, handedBack: true },
+      failure: { ...failure, handedBack: outcome },
     };
   } catch (error: unknown) {
     // The policy itself could not be carried out, which leaves the ticket
@@ -1176,7 +1181,7 @@ async function handReviewBack(
   review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
   return handTicketBack(
     ports,
     ticket,
@@ -1341,7 +1346,7 @@ async function handApplyReviewBack(
   run: ReviewFinished | ApplyReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
   return handTicketBack(
     ports,
     ticket,
@@ -1389,7 +1394,7 @@ async function runRebase(
       const failure: UnsettledMergeability = {
         kind: "unsettled-mergeability",
         reason: errorMessage(error),
-        handedBack: false,
+        handedBack: "refused",
       };
       return handTicketBack(
         ports,
@@ -1502,7 +1507,7 @@ async function handRebaseBack(
   run: RebaseFinished | RebaseGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: false };
+  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
   return handTicketBack(
     ports,
     ticket,

@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
+  HandBackOutcome,
   IssueNumber,
   IssueTracker,
   OpenIssues,
@@ -211,8 +212,16 @@ export function ghIssueTracker(
       return review;
     },
 
-    async handBack(ticket: Ticket, comment: string): Promise<void> {
+    async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
       const args = issueArgs(ticket);
+
+      // Checked first, and before any write: a ticket an overlapping run
+      // already closed is not this run's to comment on or relabel, and a
+      // ready-for-human added after the fact would put a closed ticket back
+      // in front of the developer for work that is already done.
+      if (await isClosed(ticket)) {
+        return "already-closed";
+      }
 
       // Three calls in the order they degrade best, because `gh` gives no way
       // to do them as one and any of them can be the one that fails.
@@ -262,6 +271,7 @@ export function ghIssueTracker(
           `${ticket.repo}#${ticket.number} is out of the queue but not labelled ${READY_FOR_HUMAN_LABEL}: ${errorMessage(error)}`,
         );
       }
+      return "handed-back";
     },
   };
 }
@@ -303,6 +313,45 @@ const LABEL_DESCRIPTIONS = {
  */
 function issueArgs(ticket: Ticket): string[] {
   return [String(ticket.number), "--repo", ticket.repo];
+}
+
+/**
+ * Whether `ticket` is closed on the tracker right now.
+ *
+ * A read that fails outright — a rate limit, a network blip — says nothing
+ * about the ticket, so it is treated as open: `handBack`'s three writes below
+ * are the ones this check must not add a new way to refuse an open ticket's
+ * hand-back on. A read that succeeds is narrowed to the two states `gh`
+ * reports, or thrown on naming the offending value, since a value neither
+ * open nor closed is not something this can safely default either way.
+ */
+async function isClosed(ticket: Ticket): Promise<boolean> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("gh", [
+      "issue",
+      "view",
+      ...issueArgs(ticket),
+      "--json",
+      "state",
+      "--jq",
+      ".state",
+    ]));
+  } catch {
+    return false;
+  }
+
+  const state = stdout.trim();
+  switch (state) {
+    case "OPEN":
+      return false;
+    case "CLOSED":
+      return true;
+    default:
+      throw new Error(
+        `gh issue view ${ticket.repo}#${ticket.number}: "state" was neither OPEN nor CLOSED: ${JSON.stringify(state)}`,
+      );
+  }
 }
 
 /**

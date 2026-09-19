@@ -6,6 +6,7 @@ import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
   MergeabilityUnknown,
+  READY_FOR_HUMAN_LABEL,
   backlogIn,
   branch,
   checkout,
@@ -59,7 +60,7 @@ function gateRefusal(report: InvocationReport) {
     : standDown;
 }
 
-/** Whether an agent that gave up had its ticket handed back — undefined for any other outcome. */
+/** What became of an agent that gave up's own hand-back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
   const failure = failureOf(iteration);
   return failure?.kind === "gave-up" ? failure.handedBack : undefined;
@@ -1040,6 +1041,39 @@ describe("morningLoop", () => {
       assert.equal(reviewTicketOf(report.iterations[0]), undefined);
     });
 
+    it("is still queued when an overlapping run closed the implementation ticket before its own hand-back", async () => {
+      const ports = fakePorts();
+      const ticket = ranSuccessfully(ports);
+      ports.sandbox.result = () => {
+        // Stands in for an overlapping run finishing first: by the time this
+        // run's own hand-back reaches the tracker, the ticket it worked is
+        // already closed — the pull request and its review are real all the
+        // same, so the hand-back finding nothing to do must not take them
+        // down with it.
+        ports.tracker.closeOutOfBand(ticket);
+        return {
+          kind: "finished",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [commitSha("c0ffee1")],
+          output: "",
+          tokensUsed: tokenCount(42_000),
+        };
+      };
+
+      const report = await morningLoop(ports);
+
+      const review = ports.tracker.reviewTickets[0]?.ticket;
+      assert.deepEqual(reviewTicketOf(report.iterations[0]), review);
+      // The implementation ticket itself was never handed back — only its
+      // review, which this same invocation goes on to work, is: the fake
+      // sandbox's own default review posts no finding.
+      assert.equal(
+        ports.tracker.handbacks.some((handback) => handback.ticket.number === ticket.number),
+        false,
+      );
+      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+    });
+
     it("is not opened on a morning that ran nothing", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
@@ -1177,7 +1211,7 @@ describe("morningLoop", () => {
       const tomorrow = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
@@ -1186,6 +1220,36 @@ describe("morningLoop", () => {
       assert.match(handback.comment, /will not be retried/);
       assert.equal(ports.sandbox.reviews.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("leaves a review ticket alone when an overlapping run closed it before this one gave up", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.sandbox.reviewResult = () => {
+        // Stands in for an overlapping run finishing first: by the time this
+        // run's own agent gives up, the ticket it was working is already
+        // closed.
+        ports.tracker.closeOutOfBand(ticket);
+        return {
+          kind: "gave-up",
+          output: "I could not read the diff",
+          tokensUsed: tokenCount(1_000),
+          reason: "the review skill exited 1",
+        };
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), "already-closed");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(
+        ports.tracker.carriesLabel(ticket, READY_FOR_HUMAN_LABEL),
+        false,
+      );
+      const [summary] = ports.tracker.summaries;
+      assert.ok(summary);
+      assert.doesNotMatch(summary.body, /Waiting on you/);
     });
 
     it("hands back a review whose agent finished but posted nothing, naming the pull request", async () => {
@@ -1234,7 +1298,7 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.equal(handedBackOf(report.iterations[0]), false);
+      assert.equal(handedBackOf(report.iterations[0]), "refused");
       assert.match(report.message, /gh is not logged in/);
       assert.match(report.message, /relabel it yourself/);
     });
@@ -1627,7 +1691,7 @@ describe("morningLoop", () => {
       const tomorrow = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback?.comment ?? "", /1 thread left unanswered/);
@@ -1954,7 +2018,7 @@ describe("morningLoop", () => {
       const tomorrow = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
       assert.match(handback?.comment ?? "", /still conflicts/);
@@ -2482,7 +2546,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
-      assert.equal(handedBackOf(report.iterations[0]), false);
+      assert.equal(handedBackOf(report.iterations[0]), "refused");
       assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
       // The one morning the developer has to act on themselves: saying it was
@@ -2502,7 +2566,7 @@ describe("morningLoop", () => {
 
       // Relabelling is the half that stops the ticket costing another
       // morning; a branch git will not delete must not take it down.
-      assert.equal(handedBackOf(report.iterations[0]), true);
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.match(
         ports.tracker.handbacks[0]?.comment ?? "",
         /could not be discarded/,
@@ -2611,6 +2675,37 @@ describe("morningLoop", () => {
       );
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
+    });
+
+    it("leaves a ticket alone when an overlapping run closed it before this one committed nothing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => {
+        // Stands in for an overlapping run finishing first: by the time this
+        // run's own hand-back reaches the tracker, the ticket is already
+        // closed.
+        ports.tracker.closeOutOfBand(ticket);
+        return {
+          kind: "finished",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [],
+          output: "",
+          tokensUsed: tokenCount(0),
+        };
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+      const [summary] = ports.tracker.summaries;
+      assert.ok(summary);
+      assert.doesNotMatch(summary.body, /relabelled/);
+      assert.doesNotMatch(summary.body, /Waiting on you/);
     });
 
     it("takes the ticket out of the queue, so a later invocation does not select it again", async () => {

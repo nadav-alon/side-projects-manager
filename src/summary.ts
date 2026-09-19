@@ -257,15 +257,14 @@ function waitingSection(
       case "limit-refused":
         return [];
       case "failed":
-        return [
-          waitingOnFailure(iteration.repo, iteration.ticket, iteration.failure),
-        ];
+        return waitingOnFailure(iteration.repo, iteration.ticket, iteration.failure);
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
         // name but the relabel itself, and a run whose hand-back — of either
-        // kind — was refused by the tracker.
-        const { handover, handbackFailure } = iteration;
+        // kind — was refused by the tracker. A ticket an overlapping run had
+        // already closed needs neither: it was left exactly as it found it.
+        const { handover, handedBack, handbackFailure } = iteration;
         return [
           ...(handover === undefined
             ? []
@@ -276,7 +275,7 @@ function waitingSection(
               )),
           ...(handbackFailure !== undefined
             ? [stillEligibleLine(iteration)]
-            : handover === undefined
+            : handover === undefined && handedBack !== "already-closed"
               ? [
                   `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
                 ]
@@ -340,19 +339,27 @@ function workedReviewOutcomes(
 
 /**
  * The Waiting-on-you lines for a finished run's handover: zero or one. A
- * review not yet worked this invocation is still queued; one that ran and
- * closed its ticket cleanly needs a line here naming the pull request as
- * reviewed, since the `reviewed` case has none to add for that outcome; one
- * that failed, or ran but could not close its ticket, already has its own
- * line from that iteration's own case, so nothing is added here — a second
- * line would only repeat it.
+ * review not yet worked this invocation is still queued, the same as one an
+ * overlapping run closed out from under before this invocation's own attempt
+ * on it could do anything — its own case names nothing for a ticket it found
+ * already closed, so the queued pull request would otherwise vanish with it.
+ * One that ran and closed its ticket cleanly needs a line here naming the
+ * pull request as reviewed, since the `reviewed` case has none to add for
+ * that outcome; one that failed some other way, or ran but could not close
+ * its ticket, already has its own line from that iteration's own case, so
+ * nothing is added here — a second line would only repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
   handover: Handover,
   reviewOutcome: IterationOutcome | undefined,
 ): string[] {
-  if (reviewOutcome === undefined) {
+  if (
+    reviewOutcome === undefined ||
+    (reviewOutcome.kind === "failed" &&
+      reviewOutcome.failure.kind !== "infrastructure" &&
+      reviewOutcome.failure.handedBack === "already-closed")
+  ) {
     return [
       `- ${repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
     ];
@@ -376,36 +383,47 @@ function reviewLeftOpen(
   return outcome.notClosed !== undefined;
 }
 
-/** What a failed run leaves waiting on the developer. */
+/**
+ * What a failed run leaves waiting on the developer. Empty for a ticket an
+ * overlapping run closed first: hand-back left it exactly as it found it, so
+ * there is nothing here for the developer to do.
+ */
 function waitingOnFailure(
   repo: RepoSlug,
   ticket: Ticket,
   failure: RunFailure,
-): string {
+): string[] {
+  if (failure.kind === "infrastructure") {
+    return [
+      `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(failure.reason)}`,
+    ];
+  }
+  if (failure.handedBack === "already-closed") {
+    return [];
+  }
+  if (failure.handedBack === "refused") {
+    return [stillEligibleLine({ repo, ticket })];
+  }
   switch (failure.kind) {
-    case "infrastructure":
-      return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(failure.reason)}`;
     case "gave-up":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`
-        : stillEligibleLine({ repo, ticket });
+      return [`- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`];
     case "handover-failed":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${withoutTrailingStop(failure.reason)}`
-        : stillEligibleLine({ repo, ticket });
+      return [
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${withoutTrailingStop(failure.reason)}`,
+      ];
     case "model-refused":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`
-        : stillEligibleLine({ repo, ticket });
+      return [
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`,
+      ];
     case "unsettled-mergeability":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`
-        : stillEligibleLine({ repo, ticket });
+      return [
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`,
+      ];
     case "conflicting-model-labels":
     case "unusable-model-label":
-      return failure.handedBack
-        ? `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`
-        : stillEligibleLine({ repo, ticket });
+      return [
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`,
+      ];
   }
 }
 
@@ -632,10 +650,15 @@ function stoppedBecause(failure: RunFailure, ticket: Ticket): string {
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and
-  // cost another morning until somebody relabels it.
-  const now = failure.handedBack
-    ? "Handed back for a human."
-    : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
+  // cost another morning until somebody relabels it. One that was already
+  // closed needs nothing from them at all: an overlapping run finished it
+  // first, and this one's failure is left exactly as it found the ticket.
+  const now =
+    failure.handedBack === "handed-back"
+      ? "Handed back for a human."
+      : failure.handedBack === "already-closed"
+        ? `${which} was already closed by another run, so it was left alone.`
+        : `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — relabel it yourself.`;
   switch (failure.kind) {
     case "gave-up":
       return `the agent gave up on ${which}: ${withoutTrailingStop(failure.reason)}. ${now}`;
