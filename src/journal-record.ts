@@ -4,6 +4,7 @@ import type {
   ExitCode,
   InvocationClosing,
   JournaledProject,
+  KeptSummaryPath,
   RepoSlug,
 } from "./ports/index.ts";
 import { tokenCount } from "./ports/index.ts";
@@ -25,7 +26,7 @@ import { tokenCount } from "./ports/index.ts";
 export function invocationClosing(
   report: InvocationReport,
   closedAt: Date,
-  keptSummaryAt?: string,
+  keptSummaryAt?: KeptSummaryPath,
 ): InvocationClosing {
   return {
     closedAt,

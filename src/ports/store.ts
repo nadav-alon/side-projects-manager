@@ -2,6 +2,7 @@ import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
 import type { InvocationClosing, Journal, OpenInvocation } from "./journal.ts";
+import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -202,4 +203,14 @@ export interface Store {
    * state document.
    */
   loadJournal(): Promise<Journal>;
+  /**
+   * Writes a summary that could not be published into the manager home as a
+   * readable document, named for when the invocation that composed it
+   * started. Answers with where it landed.
+   *
+   * Behind the same port as every other manager-home write, rather than the
+   * entry point reaching the filesystem directly, so the write is atomic
+   * like the rest and exercisable through a fake.
+   */
+  keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath>;
 }

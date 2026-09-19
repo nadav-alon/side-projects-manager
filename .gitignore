@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 /invocation.lease
 /trigger.log
+/summary-*.txt

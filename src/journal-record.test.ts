@@ -6,6 +6,7 @@ import { morningLoop } from "./morning-run.ts";
 import {
   branch,
   issueNumber,
+  keptSummaryPath,
   repoSlug,
   tokenCount,
 } from "./ports/index.ts";
@@ -227,7 +228,7 @@ describe("invocationClosing", () => {
     const closing = invocationClosing(
       report,
       CLOSED_AT,
-      "/manager/home/summary-2026-01-01T08-00-00-000Z.txt",
+      keptSummaryPath("/manager/home/summary-2026-01-01T08-00-00-000Z.txt"),
     );
 
     assert.equal(closing.summaryLocation, undefined);

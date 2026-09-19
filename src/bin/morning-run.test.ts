@@ -311,8 +311,8 @@ describe("the morning-run command", () => {
       (error: { stdout: string; stderr: string; code: number }) => error,
     );
 
-    // A summary that cannot be published is an infrastructure failure of the
-    // reporting channel, and joins the exit codes that already say so.
+    // A summary that cannot be published is not itself an infrastructure
+    // failure, but it still joins the exit codes that already say so.
     assert.equal(code, 1);
     assert.match(stdout, /nothing to do/i);
     assert.match(stdout, /summary issue could not be published/);
@@ -334,6 +334,43 @@ describe("the morning-run command", () => {
       path.join(directory, kept as string),
     );
     assert.equal(record.summaryLocation, undefined);
+  });
+
+  it("says on stderr, and does not change the exit code, when the composed summary cannot be kept", async (t) => {
+    const directory = await home();
+    // Blocks exactly the write `keepSummary` makes: a directory sitting
+    // where its pending file wants to land forces that one write to fail
+    // without touching the state or journal writes made around it — the
+    // same trick the journal-close test below plays on `journal.json.pending`.
+    await mkdir(path.join(directory, "summary.txt.pending"));
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue list") echo "[]" ;;`,
+        `  "issue create") echo "gh: rate limited" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const { stdout, stderr, code } = await run(directory).then(
+      (result) => ({ ...result, code: 0 }),
+      (error: { stdout: string; stderr: string; code: number }) => error,
+    );
+
+    // Still 1, the same as the publish failure alone already set: keeping
+    // the summary failing too must not cost the invocation a second time.
+    assert.equal(code, 1);
+    assert.match(stdout, /summary issue could not be published/);
+    assert.match(stderr, /summary could not be kept/);
+
+    const journal = JSON.parse(
+      await readFile(path.join(directory, "journal.json"), "utf8"),
+    );
+    const [record] = journal.records;
+    assert.match(record.summaryFailure.reason, /rate limited/);
+    assert.equal(record.summaryFailure.keptAt, undefined);
   });
 
   it("keeps running, and says nothing but stderr, when the journal cannot be written", async (t) => {

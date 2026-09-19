@@ -1,5 +1,6 @@
 import type { ExitCode } from "./exit-code.ts";
 import type { IssueUrl } from "./issue-url.ts";
+import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ProcessId } from "./process-id.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -55,7 +56,7 @@ export interface OpenInvocation {
  */
 export interface JournaledSummaryFailure {
   reason: string;
-  keptAt?: string;
+  keptAt?: KeptSummaryPath;
 }
 
 /** What closing a record adds to it: what the invocation came to. */

@@ -18,6 +18,12 @@ export type { IssueNumber } from "./issue-number.ts";
 export { isIssueUrl, issueUrl } from "./issue-url.ts";
 export type { IssueUrl } from "./issue-url.ts";
 export {
+  KEPT_SUMMARY_LIMIT,
+  isKeptSummaryPath,
+  keptSummaryPath,
+} from "./kept-summary-path.ts";
+export type { KeptSummaryPath } from "./kept-summary-path.ts";
+export {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
