@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -34,6 +34,7 @@ import {
   repoSlug,
   reviewFindingTemplate,
   tokenCount,
+  transcriptPath,
   usd,
   type ApplyReviewOutcome,
   type ApplyReviewTicket,
@@ -182,6 +183,23 @@ function agentCommitting(
     }
     return { output, tokensUsed: tokenCount(tokensUsed) };
   };
+}
+
+/**
+ * Writes a session log the way the real agent CLI lays one out under
+ * `TRANSCRIPT_MOUNT`: one directory per project, named for its working
+ * directory (always `/repo` in the container, escaped to `-repo`), holding
+ * one `.jsonl` per session.
+ */
+async function writeTranscript(
+  transcriptDirectory: string,
+  name = "session.jsonl",
+): Promise<string> {
+  const projectDir = path.join(transcriptDirectory, "-repo");
+  await mkdir(projectDir, { recursive: true });
+  const file = path.join(projectDir, name);
+  await writeFile(file, '{"type":"summary"}\n');
+  return file;
 }
 
 /**
@@ -1267,6 +1285,85 @@ describe("containerSandbox", () => {
 
     assert.equal(variant(result, "finished")?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+  });
+});
+
+describe("transcript", () => {
+  it("hands the container a fresh directory to write its session transcript into", async () => {
+    const directory = await project();
+    const seen: (string | undefined)[] = [];
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      seen.push(transcriptDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.notEqual(seen[0], undefined);
+    assert.ok(path.isAbsolute(seen[0] ?? ""));
+  });
+
+  it("reports the transcript a finished run's container wrote", async () => {
+    const directory = await project();
+    let written = "";
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      written = await writeTranscript(transcriptDirectory ?? "");
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    // `attempt` finds the file itself, off disk, rather than trusting
+    // whatever `AgentRun` a container hands back — exactly as it must for
+    // the real container, which has no way to name the file it wrote either.
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.transcript, written);
+    assert.ok(await exists(written));
+  });
+
+  it("gives two runs in progress at once separate transcript directories", async () => {
+    const directory = await project();
+    const held = heldAgents(2, async ({ transcriptDirectory }) => {
+      await writeTranscript(transcriptDirectory ?? "");
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+    const sandbox = containerSandbox(held.container);
+
+    const first = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const second = sandbox.run({
+      ticket: { ...TICKET, number: issueNumber(8) },
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+    await held.allInProgress;
+    held.release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    const firstTranscript = variant(firstResult, "finished")?.transcript;
+    const secondTranscript = variant(secondResult, "finished")?.transcript;
+    assert.notEqual(firstTranscript, undefined);
+    assert.notEqual(secondTranscript, undefined);
+    assert.notEqual(firstTranscript, secondTranscript);
+  });
+
+  it("still gives a reviewer, mounted read-only, a writable transcript location", async () => {
+    const directory = await project();
+    let mount: Mount | undefined;
+    const sandbox = containerSandbox(async (options) => {
+      mount = options.mount;
+      // Written, not merely asserted absolute: a reviewer's read-only clone
+      // mount must not have also made this one read-only.
+      await writeTranscript(options.transcriptDirectory ?? "");
+      return { output: "posted", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(mount, "ro");
+    assert.notEqual(variant(result, "finished")?.transcript, undefined);
   });
 });
 
@@ -2674,6 +2771,43 @@ describe("readAgentRun", () => {
  */
 describe("dockerCommand", () => {
   const CLONE = checkout("/tmp/clone");
+  const TRANSCRIPTS = transcriptPath("/tmp/transcripts");
+
+  it("mounts the transcript directory at the agent CLI's own log location", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
+    });
+
+    assert.ok(command.includes(`${TRANSCRIPTS}:/home/node/.claude/projects`));
+  });
+
+  it("mounts the transcript directory writable even for a read-only review", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "review it",
+      spendCeiling: usd(5),
+      mount: "ro",
+      transcriptDirectory: TRANSCRIPTS,
+    });
+
+    assert.ok(command.includes(`${TRANSCRIPTS}:/home/node/.claude/projects`));
+    assert.ok(command.includes(`${CLONE}:/repo:ro`));
+  });
+
+  it("mounts nothing for the transcript when none is given", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+    });
+
+    assert.ok(!command.some((argument) => argument.includes(".claude/projects")));
+  });
 
   it("passes no model argument when none is asked for", () => {
     const command = dockerCommand({

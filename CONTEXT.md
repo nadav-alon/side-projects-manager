@@ -370,6 +370,10 @@ _Avoid_: box, VM, runner, environment
 The repository one run happens in: cloned from the project's checkout, deleted when the run ends, and never the checkout itself. Shortened to _clone_ where the context is a run.
 _Avoid_: workspace, worktree (it is neither), scratch directory
 
+**Session transcript**:
+The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a host directory made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards.
+_Avoid_: log, session log, output
+
 **Harness**:
 The skills setup: baked into the sandbox image, and scaffolded into each project repo.
 _Avoid_: toolkit, framework, template
