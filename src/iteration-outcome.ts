@@ -6,7 +6,7 @@ import type {
   HandBackOutcome,
   ModelName,
   ModelRefusal,
-  PullRequestState,
+  PullRequestResolution,
   PullRequestTicket,
   PullRequestUrl,
   RebaseFinished,
@@ -377,14 +377,14 @@ export interface Rebased {
 export interface PullRequestResolved {
   kind: "pull-request-resolved";
   /** How the pull request was resolved by the time the loop looked. */
-  resolution: Exclude<PullRequestState, "open">;
+  resolution: PullRequestResolution;
   /** Always absent: no run ever starts, so there is never anything spent. */
   tokensUsed?: TokenCount;
   /**
    * Set when the ticket itself could not be closed. Still ready-for-agent,
    * and due to come round again.
    */
-  notClosed?: { kind: "close-failed"; error: string };
+  notClosed?: NotClosed & { kind: "close-failed" };
 }
 
 /**

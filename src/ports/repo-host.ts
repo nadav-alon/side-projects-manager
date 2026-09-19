@@ -179,6 +179,14 @@ export type MergeStatus = "conflicting" | "clean" | "unknown";
 export type PullRequestState = "open" | "merged" | "closed";
 
 /**
+ * How a pull request settled, once it no longer reads `"open"`: `{@link
+ * PullRequestState}` with that case excluded, named so a pull request ticket
+ * whose own pull request already settled has one word for it rather than an
+ * `Exclude` spelled out anew at each site that needs it.
+ */
+export type PullRequestResolution = Exclude<PullRequestState, "open">;
+
+/**
  * How many times total {@link resolveNeedsRebase} calls `read` — the first
  * try plus every retry after an `"unknown"` — before it gives up. Bounded
  * rather than unbounded, so a pull request whose mergeability never finishes

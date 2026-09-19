@@ -1,5 +1,5 @@
 import type { StandDown } from "./budget-gate.ts";
-import { workLocation } from "./handback-comment.ts";
+import { pullRequestResolutionPhrase, workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type AppliedReview,
@@ -647,7 +647,7 @@ function pullRequestResolvedSummary(
 ): string {
   const { repo, ticket, resolution, notClosed } = iteration;
   const pullRequest = ticket.pullRequest.url;
-  const what = resolution === "merged" ? "merged" : "closed without merging";
+  const what = pullRequestResolutionPhrase(resolution);
   if (notClosed === undefined) {
     return `Closed ${repo} #${ticket.number}: ${pullRequest} was already ${what}, so no run started.`;
   }
@@ -657,7 +657,7 @@ function pullRequestResolvedSummary(
 /** The Waiting-on-you line for a pull request ticket the loop found already resolved but could not close. */
 function pullRequestResolvedWaitingLine(
   { repo, ticket }: PullRequestResolvedIteration,
-  notClosed: NonNullable<PullRequestResolved["notClosed"]>,
+  notClosed: NotClosed & { kind: "close-failed" },
 ): string {
   return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — its pull request is already resolved, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
 }

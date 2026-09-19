@@ -8,6 +8,7 @@ import type {
 } from "./iteration-outcome.ts";
 import type {
   ApplyReviewGaveUp,
+  PullRequestResolution,
   PullRequestUrl,
   RebaseFinished,
   RebaseGaveUp,
@@ -198,16 +199,23 @@ export function rebasedComment(
  */
 export function pullRequestResolvedComment(
   pullRequest: PullRequestUrl,
-  resolution: "merged" | "closed",
+  resolution: PullRequestResolution,
 ): string {
-  const what =
-    resolution === "merged"
-      ? `${pullRequest} has already been merged`
-      : `${pullRequest} has been closed without merging`;
   return [
-    `The morning loop did not run this ticket: ${what}, so there is nothing left to do.`,
+    `The morning loop did not run this ticket: ${pullRequest} has already been ${pullRequestResolutionPhrase(resolution)}, so there is nothing left to do.`,
     `This ticket is closed rather than handed back: it will not come round again.`,
   ].join("\n\n");
+}
+
+/**
+ * How a pull request resolution reads in a sentence: "merged" or "closed
+ * without merging". Shared with `summary.ts`'s own line for the same fact,
+ * so the two read the same way and can only drift on purpose.
+ */
+export function pullRequestResolutionPhrase(
+  resolution: PullRequestResolution,
+): string {
+  return resolution === "merged" ? "merged" : "closed without merging";
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */

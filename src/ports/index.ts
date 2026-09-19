@@ -100,6 +100,7 @@ export type {
   DraftPullRequestOpening,
   MergeStatus,
   Proposal,
+  PullRequestResolution,
   PullRequestState,
   RepoHost,
   ReviewFinding,
