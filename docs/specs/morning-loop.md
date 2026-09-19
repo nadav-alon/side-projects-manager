@@ -87,6 +87,7 @@ the manager leaves every project working.
 35. As a developer, I want a failed ticket relabelled for human attention, so that a too-hard ticket doesn't silently consume budget every morning forever.
 36. As a developer, I want a failed run's branch discarded, so that dead branches don't accumulate.
 37. As a developer, I want a sandbox or infrastructure failure distinguished from an agent giving up, so that I can tell a broken setup from a hard ticket.
+62. As a developer, I want a review, apply-review or rebase ticket closed rather than attempted when its own pull request is already merged or closed, so that a stale ticket doesn't fail the same way every morning.
 
 **Knowing what happened**
 
@@ -243,6 +244,8 @@ faked. This is the highest available seam and carries the bulk of the suite. Beh
   apply-reviews
 - a rebase ticket whose PR needs no rebase closes with no run; one whose run finished closes only
   once the PR no longer conflicts, and is handed back otherwise, the PR left a draft either way
+- a review, apply-review or rebase ticket whose own PR is already merged or closed closes with a
+  comment naming which, and no run starts
 - least-recently-worked ordering, and explicit priority overriding it
 - within a project, ticket priority ordering, oldest-first ties, and reviews still first
 - a truncated backlog appears in the summary's waiting section
