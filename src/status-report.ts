@@ -101,7 +101,7 @@ function inFlightCallouts(records: readonly StatusRecord[]): string[] {
     .filter((record): record is OpenStatusRecord => !isClosed(record))
     .map((record) =>
       record.alive
-        ? `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} is still running.`
+        ? `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} is still running. Watch trigger.log, or check on process ${record.process} — and kill it if it's wedged.`
         : `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} has died without closing its record. Check trigger.log for what it last did, then re-run the loop by hand.`,
     );
 }

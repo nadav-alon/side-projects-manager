@@ -79,7 +79,9 @@ describe("statusReport", () => {
     );
 
     assert.match(lines[0]!, /still in flight/);
-    assert.match(lines.join("\n"), /is still running/);
+    const text = lines.join("\n");
+    assert.match(text, /is still running/);
+    assert.match(text, /trigger\.log/);
   });
 
   it("reports a record in flight whose process has died as died, naming what to do", () => {
