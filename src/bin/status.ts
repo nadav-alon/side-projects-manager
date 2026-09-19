@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { documentStore } from "../adapters/document-store.ts";
+import { MANAGER_HOME } from "../adapters/manager-home.ts";
 import { isProcessAlive } from "../adapters/process-alive.ts";
 import { systemClock } from "../adapters/system-clock.ts";
+import { systemTriggerRegistrations } from "../adapters/system-trigger-registrations.ts";
 import { errorMessage } from "../error-message.ts";
 import { hasAnnouncedOn, isClosedInvocation, localDay } from "../ports/index.ts";
 import { statusReport, type StatusJournal, type StatusRecord } from "../status-report.ts";
@@ -15,9 +17,12 @@ import { statusReport, type StatusJournal, type StatusRecord } from "../status-r
  */
 async function main(): Promise<void> {
   const store = documentStore();
-  const [journal, state] = await Promise.all([
+  const triggers = systemTriggerRegistrations();
+  const [journal, state, schedule, logonGuard] = await Promise.all([
     store.loadJournal(),
     store.loadState(),
+    triggers.schedule(),
+    triggers.logonGuard(),
   ]);
   const now = systemClock.now();
 
@@ -31,7 +36,13 @@ async function main(): Promise<void> {
   };
   const todayClaimed = hasAnnouncedOn(state.announcedOn, localDay(now));
 
-  for (const line of statusReport(resolved, todayClaimed, now)) {
+  for (const line of statusReport(
+    resolved,
+    todayClaimed,
+    now,
+    { schedule, logonGuard },
+    MANAGER_HOME,
+  )) {
     console.log(line);
   }
 }

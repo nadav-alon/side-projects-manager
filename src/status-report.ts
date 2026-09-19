@@ -1,5 +1,9 @@
 import type { Day, InvocationClosing, OpenInvocation } from "./ports/index.ts";
 import { localDay, localTimeOfMinute } from "./ports/index.ts";
+import type {
+  ScheduleRegistration,
+  TriggerRegistration,
+} from "./trigger-registrations.ts";
 
 /**
  * An invocation record still in flight, as the status command reads it:
@@ -24,36 +28,85 @@ export interface StatusJournal {
   records: StatusRecord[];
 }
 
+/** What the status command found registered for the hourly schedule and a logon guard. */
+export interface StatusTriggers {
+  schedule: ScheduleRegistration;
+  logonGuard: TriggerRegistration;
+}
+
 /**
- * The status command's whole report: whether today has been claimed and
- * what came of it, what the most recent invocation came to, and a short
- * history of the ones before it.
+ * The status command's whole report: whether the triggers are armed, whether
+ * today has been claimed and what came of it, what the most recent
+ * invocation came to, and a short history of the ones before it.
  *
- * A pure function of the journal, whether today has already been announced,
- * and the instant it is asked at. Nothing here reads the clock or a live
- * process itself: `now` is the caller's clock reading, and a record's
- * `alive` is already resolved onto it by the caller.
+ * A pure function of the journal, the trigger registrations, this manager's
+ * own home, whether today has already been announced, and the instant it is
+ * asked at. Nothing here reads the clock, a live process, the crontab or the
+ * rc files itself: `now` is the caller's clock reading, a record's `alive` is
+ * already resolved onto it by the caller, and `triggers` is already read
+ * back by the caller too. Comparing a registration's `managerHome` against
+ * `managerHome` — deciding armed (CONTEXT.md: Armed) — happens here, not in
+ * the adapter that read the registration.
  */
 export function statusReport(
   journal: StatusJournal,
   todayClaimed: boolean,
   now: Date,
+  triggers: StatusTriggers,
+  managerHome: string,
 ): string[] {
+  const triggerLines = [
+    scheduleLine(triggers.schedule, managerHome),
+    logonGuardLine(triggers.logonGuard, managerHome),
+  ];
+
   const { records } = journal;
   if (records.length === 0) {
-    return ["No invocation has ever run on this machine."];
+    return [...triggerLines, "No invocation has ever run on this machine."];
   }
 
   const today = localDay(now);
   const latest = records[records.length - 1]!;
 
   return [
+    ...triggerLines,
     claimLine(records, today, todayClaimed),
     mostRecentLine(latest),
     ...inFlightCallouts(records),
     ...consecutiveFailureCallout(records),
     ...historyLines(records),
   ];
+}
+
+const INSTALLER_COMMAND = "npm run triggers:install";
+
+/**
+ * Whether `registration` is armed (CONTEXT.md: Armed): registered, and still
+ * pointing at `managerHome`. Registration alone is not enough — a stale path
+ * is registered but not armed.
+ */
+function isArmed(registration: TriggerRegistration, managerHome: string): boolean {
+  return registration.registered && registration.managerHome === managerHome;
+}
+
+function scheduleLine(schedule: ScheduleRegistration, managerHome: string): string {
+  if (!schedule.registered) {
+    return `Schedule: not registered. Run \`${INSTALLER_COMMAND}\` to arm it.`;
+  }
+  if (!isArmed(schedule, managerHome)) {
+    return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}) — it is firing into a path that no longer exists. Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
+  }
+  return `Schedule: armed, firing every hour at :${(schedule.minute ?? "0").padStart(2, "0")}.`;
+}
+
+function logonGuardLine(guard: TriggerRegistration, managerHome: string): string {
+  if (!guard.registered) {
+    return "Logon guard: not registered — the hourly schedule alone already covers a machine left off overnight.";
+  }
+  if (!isArmed(guard, managerHome)) {
+    return `Logon guard: still registered from an older install, and pointing at ${guard.managerHome} rather than this manager home (${managerHome}). Run \`${INSTALLER_COMMAND}\` to remove it.`;
+  }
+  return `Logon guard: still registered from an older install, though the hourly schedule already covers what it was for. Run \`${INSTALLER_COMMAND}\` to remove it.`;
 }
 
 /** The most recent record, if any, opened on `day`. */

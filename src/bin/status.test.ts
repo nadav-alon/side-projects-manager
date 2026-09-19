@@ -6,14 +6,37 @@ import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { localDay } from "../ports/index.ts";
-import { deadPid, tempHome } from "../testing/index.ts";
+import { deadPid, fakeCrontabBin, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
 
-async function run(home: string): Promise<{ stdout: string; stderr: string }> {
+const CRON_MARKER =
+  "# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)";
+
+function cronLine(home: string): string {
+  return `0 * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${CRON_MARKER}`;
+}
+
+/**
+ * Runs the status command against `home`, with the crontab and the rc files
+ * stubbed so the report is deterministic regardless of what is actually
+ * registered on the machine running the test. `crontabLines`, when given,
+ * stands in for the developer's own crontab; left out, the command sees none.
+ */
+async function run(
+  home: string,
+  crontabLines?: readonly string[],
+): Promise<{ stdout: string; stderr: string }> {
+  const bin = await fakeCrontabBin(crontabLines);
+  const noRcFiles = await tempHome("status-bin-home");
   return execFileAsync(process.execPath, [entryPoint], {
-    env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: home },
+    env: {
+      ...process.env,
+      SIDE_PROJECTS_MANAGER_HOME: home,
+      PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      HOME: noRcFiles,
+    },
   });
 }
 
@@ -115,5 +138,36 @@ describe("the status command", () => {
     const source = await readFile(entryPoint, "utf8");
 
     assert.doesNotMatch(source, /tracker|repo-host|repoHost/i);
+  });
+
+  it("reports the schedule not registered when the crontab carries no marker", async () => {
+    const { stdout } = await run(await tempHome("status-bin"));
+
+    assert.match(stdout, /Schedule: not registered/);
+    assert.match(stdout, /npm run triggers:install/);
+  });
+
+  it("reports the schedule armed when the crontab points at this manager home", async () => {
+    const home = await tempHome("status-bin");
+
+    const { stdout } = await run(home, [cronLine(home)]);
+
+    assert.match(stdout, /Schedule: armed, firing every hour at :00\./);
+  });
+
+  it("reports the schedule as a problem when the crontab points at a different manager home", async () => {
+    const home = await tempHome("status-bin");
+    const moved = await tempHome("status-bin-moved");
+
+    const { stdout } = await run(home, [cronLine(moved)]);
+
+    assert.match(stdout, new RegExp(`pointing at ${moved.replaceAll("/", "\\/")}`));
+    assert.match(stdout, /npm run triggers:install/);
+  });
+
+  it("reports the logon guard not registered as expected rather than as a problem", async () => {
+    const { stdout } = await run(await tempHome("status-bin"));
+
+    assert.match(stdout, /Logon guard: not registered/);
   });
 });
