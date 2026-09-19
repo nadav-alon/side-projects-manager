@@ -1,6 +1,6 @@
-# Verifies correctness on a pull request (CONTEXT.md: Draft pull request):
-# the loop only reads a draft pull request's diff, never whether this run
-# passed, so this workflow informs a human reviewer rather than gating a merge.
+# Verifies correctness on a pull request and on a push to master: the loop
+# only reads a draft pull request's diff, never whether these checks passed,
+# so this workflow informs a human reviewer rather than gating a merge.
 name: CI
 
 on:
