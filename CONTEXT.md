@@ -313,7 +313,7 @@ died before it could close.
 _Avoid_: open, pending, stuck, orphaned
 
 **Never reported**:
-The invocation outcome the guarded trigger writes for itself, rather than the loop writing it, when
+The invocation outcome the trigger writes for itself, rather than the loop writing it, when
 the loop's process left no invocation record open at or after the instant it was spawned. Carries
 the exit code that process gave the trigger — the one field no other outcome carries, since every
 other outcome is the loop reporting on itself.

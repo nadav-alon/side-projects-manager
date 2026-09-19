@@ -4,8 +4,8 @@ declare const exitCodeBrand: unique symbol;
  * The status a process exited with, in the single-byte range every OS
  * reports it in. Branded so it is never confused with a token count or any
  * other plain number a journal record carries; its actual use is what the
- * guarded trigger's invocation record carries when the loop's own process
- * left none of its own.
+ * trigger's invocation record carries when the loop's own process left none
+ * of its own.
  */
 export type ExitCode = number & { readonly [exitCodeBrand]: true };
 

@@ -32,7 +32,7 @@ export function invocationClosing(
 }
 
 /**
- * How the guarded trigger closes a record for itself, when the loop's
+ * How the trigger closes a record for itself, when the loop's
  * process left none of its own: the invocation never reported, carrying the
  * exit code that process gave the trigger. The only `InvocationClosing`
  * authored outside the loop's own report — everything else here is `report`
