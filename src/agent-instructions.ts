@@ -53,6 +53,7 @@ export function agentInstructions(project: ProjectDescription): string {
       " `.github/workflows/apply-review.yml`.",
     "## Rebase",
     "Commenting `/rebase` on a draft pull request opens a ticket asking an" +
-      " agent to rebase it. See `.github/workflows/rebase.yml`.",
+      " agent to rebase it, and labels the pull request `needs-rebase`. See" +
+      " `.github/workflows/rebase.yml`.",
   ].join("\n\n")}\n`;
 }

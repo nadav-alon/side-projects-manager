@@ -1,7 +1,8 @@
 # Turns a developer's `/rebase` comment into a rebase ticket: an issue asking
 # an agent to rebase a draft pull request, linked as a sub-issue of the ticket
 # the pull request closes (CONTEXT.md: Draft pull request, Review ticket,
-# Implementation ticket).
+# Implementation ticket). Also labels that pull request `needs-rebase`, so it
+# reads as not mergeable without touching its draft state.
 name: Rebase
 
 on:
@@ -60,6 +61,18 @@ jobs:
             gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$1" >/dev/null
           }
 
+          # Best effort: refused where the label already exists, which is the
+          # usual case.
+          ensure_label() {  # name, description, repo
+            gh label create "$1" --repo "$3" --description "$2" >/dev/null 2>&1 || true
+          }
+
+          # The error a best-effort call wrote, as one line fit for a comment.
+          flatten_err() {
+            local why; why="$(<"$1")"
+            printf '%s' "${why//$'\n'/ }"
+          }
+
           # GitHub's nine closing keywords up to the `#`, starting at a word
           # boundary. Matched case-insensitively. Written in the ERE subset
           # both grep and jq's regex engine read alike, so one copy serves both.
@@ -79,6 +92,7 @@ jobs:
 
           PULL_REQUEST_NUMBER=""
           PULL_REQUEST_URL=""
+          PULL_REQUEST_REPO=""
           TICKET_NUMBER=""
           FAIL_REASON=""
 
@@ -95,6 +109,7 @@ jobs:
               else
                 PULL_REQUEST_NUMBER="$ISSUE_NUMBER"
                 PULL_REQUEST_URL="$(jq -r .url <<<"$pull_request_json")"
+                PULL_REQUEST_REPO="$REPO"
                 TICKET_NUMBER="$candidate_ticket_number"
               fi
             fi
@@ -122,6 +137,7 @@ jobs:
                 else
                   PULL_REQUEST_NUMBER="$candidate_number"
                   PULL_REQUEST_URL="$(jq -r .url <<<"$pull_request_json")"
+                  PULL_REQUEST_REPO="$candidate_repo"
                   TICKET_NUMBER="$candidate_ticket_number"
                 fi
               fi
@@ -140,6 +156,7 @@ jobs:
             else
               PULL_REQUEST_NUMBER="$(jq -r '.[0].number' <<<"$matches")"
               PULL_REQUEST_URL="$(jq -r '.[0].url' <<<"$matches")"
+              PULL_REQUEST_REPO="$REPO"
             fi
           fi
 
@@ -160,10 +177,7 @@ jobs:
           title="Rebase #$PULL_REQUEST_NUMBER"
           body="$expected_line"
 
-          # Best effort: refused where the label already exists, which is the
-          # usual case.
-          gh label create ready-for-agent --repo "$REPO" \
-            --description "Fully specified, ready for an AFK agent" >/dev/null 2>&1 || true
+          ensure_label ready-for-agent "Fully specified, ready for an AFK agent" "$REPO"
 
           # A refusal here is the failure step's to report, which knows to say
           # nothing was created.
@@ -178,19 +192,30 @@ jobs:
           link_err="${RUNNER_TEMP}/rebase-link-err.txt"
           if ! issue_id="$(gh api "repos/$REPO/issues/$new_number" --jq .id 2>"$link_err")" \
             || ! gh api --method POST "repos/$REPO/issues/$TICKET_NUMBER/sub_issues" -F "sub_issue_id=$issue_id" >/dev/null 2>"$link_err"; then
-            link_why="$(<"$link_err")"
-            link_why="${link_why//$'\n'/ }"
+            link_why="$(flatten_err "$link_err")"
             if gh issue edit "$new_number" --repo "$REPO" --body "Part of #$TICKET_NUMBER."$'\n\n'"$body" >/dev/null 2>"$link_err"; then
               link_note=" It isn't linked as a sub-issue of #$TICKET_NUMBER (${link_why}), so its body opens with \`Part of #$TICKET_NUMBER.\` instead."
             else
-              edit_why="$(<"$link_err")"
-              edit_why="${edit_why//$'\n'/ }"
+              edit_why="$(flatten_err "$link_err")"
               link_note=" It isn't linked to #$TICKET_NUMBER at all: the sub-issue link was refused (${link_why}), and so was adding \`Part of #$TICKET_NUMBER.\` to its body (${edit_why}). Link it by hand."
             fi
           fi
 
+          # The ticket is open by now regardless of what follows: a refused
+          # label is reported below, never undoes it. When PULL_REQUEST_REPO
+          # differs from REPO — the review-ticket branch above — github.token
+          # is scoped to REPO only, so the label is refused every time, not
+          # just on occasion.
+          label_note=""
+          label_err="${RUNNER_TEMP}/rebase-label-err.txt"
+          ensure_label needs-rebase "Not mergeable: waiting on a rebase" "$PULL_REQUEST_REPO"
+          if ! gh pr edit "$PULL_REQUEST_NUMBER" --repo "$PULL_REQUEST_REPO" --add-label needs-rebase >/dev/null 2>"$label_err"; then
+            label_why="$(flatten_err "$label_err")"
+            label_note=" Couldn't label $PULL_REQUEST_URL \`needs-rebase\` (${label_why}). Add it by hand."
+          fi
+
           gh api "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes >/dev/null 2>&1 || true
-          reply "Opened $new_url to rebase.$link_note"
+          reply "Opened $new_url to rebase.$link_note$label_note"
 
       - name: Reply with the failure
         if: failure()
