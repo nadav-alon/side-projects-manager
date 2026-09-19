@@ -1,6 +1,8 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { ProcessId } from "../ports/index.ts";
+import { isProcessId } from "../ports/index.ts";
 import type { InvocationLease } from "../trigger-guard.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { isProcessAlive } from "./process-alive.ts";
@@ -90,30 +92,21 @@ async function removeStale(file: string): Promise<void> {
   }
 }
 
-async function readPid(file: string): Promise<Pid | undefined> {
+/**
+ * A process id read back from a lease file, so a file truncated to `0` or a
+ * negative number by a crash mid-write cannot read as every process's own
+ * process group and be reported alive forever.
+ */
+async function readPid(file: string): Promise<ProcessId | undefined> {
   try {
     const parsed = Number.parseInt(await readFile(file, "utf8"), 10);
-    return isPid(parsed) ? parsed : undefined;
+    return isProcessId(parsed) ? parsed : undefined;
   } catch (error) {
     if (isMissing(error)) {
       return undefined;
     }
     throw error;
   }
-}
-
-declare const pidBrand: unique symbol;
-
-/**
- * A process id read back from a lease file: a positive integer, so a file
- * truncated to `0` or a negative number by a crash mid-write cannot read as
- * every process's own process group and be reported alive forever.
- */
-type Pid = number & { readonly [pidBrand]: true };
-
-/** The guard, for a pid parsed from a lease file. */
-function isPid(value: number): value is Pid {
-  return Number.isInteger(value) && value > 0;
 }
 
 function isAlreadyExists(error: unknown): boolean {

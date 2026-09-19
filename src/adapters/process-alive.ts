@@ -1,3 +1,5 @@
+import type { ProcessId } from "../ports/index.ts";
+
 /**
  * Whether `pid` names a process still running. Shared by the invocation
  * lease, which uses it to decide whether a lease file is stale, and the
@@ -7,7 +9,7 @@
  * Pid reuse after a reboot is accepted as negligible, the same as the
  * invocation lease already accepts of its own holder's pid.
  */
-export function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: ProcessId): boolean {
   try {
     process.kill(pid, 0);
     return true;
