@@ -56,9 +56,10 @@ export interface InvocationClosing {
   /** Why the invocation stood down, absent when it did not. */
   standDownReason?: string;
   /**
-   * The exit code the loop's process gave the guarded trigger, present only
+   * The exit code the loop's process gave the guarded trigger. Expected only
    * on a `never-reported` record — the one outcome a record never carries
-   * for itself, since it is written by the trigger rather than by the loop.
+   * for itself, since it is written by the trigger rather than by the loop —
+   * though nothing here enforces that pairing.
    */
   exitCode?: ExitCode;
 }
