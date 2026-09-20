@@ -1197,8 +1197,8 @@ async function labelClosedPullRequest(
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
- * ticket once that finished — a review that posted needs nobody to close it
- * by hand.
+ * ticket once that finished, then labelling its pull request `reviewed` — a
+ * review that posted needs nobody to close it by hand.
  *
  * Closing rests on the pull request actually carrying a new comment, not on
  * the sandbox process merely exiting clean: an agent can run the review skill
@@ -1214,8 +1214,8 @@ async function labelClosedPullRequest(
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
- * as it was, and the invocation carries on. A check or a close that fails
- * after the review ran is reported on the iteration, never raised.
+ * as it was, and the invocation carries on. A check, a close or a label that
+ * fails after the review ran is reported on the iteration, never raised.
  */
 async function runReview(
   ports: MorningLoopPorts,
@@ -1341,8 +1341,8 @@ async function handReviewBack(
  * that left a thread unanswered is handed back, the pull request left a
  * draft. A repo host or sandbox that could not do its part before the agent
  * started is an infrastructure failure, and a limit or model refusal reads as
- * for a review. A read, mark or close that fails after the run is reported on
- * the iteration, never raised.
+ * for a review. A read, mark, close or label that fails after the run is
+ * reported on the iteration, never raised.
  *
  * A pull request already merged or closed by the time the iteration starts is
  * checked for before any of that: its branch is commonly gone with it, which
