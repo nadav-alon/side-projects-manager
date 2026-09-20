@@ -258,9 +258,11 @@ function stillEligibleLine(iteration: {
  * developer's alone, per `HandBackRecord`'s `"refused"` outcome — a ticket the
  * hand-back itself could not reach, still eligible and due to come round
  * again until somebody relabels it by hand. A review the loop could not
- * close is there for the same reason. A project whose backlog was too long
- * to read in full belongs here too, in registry order, since thinning it is
- * the developer's to do regardless of what else the morning found.
+ * close is there for the same reason, as is a reviewed or applied-review
+ * ticket whose pull request closed cleanly but could not be labelled: the
+ * label is the developer's to add by hand. A project whose backlog was too
+ * long to read in full belongs here too, in registry order, since thinning
+ * it is the developer's to do regardless of what else the morning found.
  */
 function waitingSection(
   iterations: IterationOutcome[],
