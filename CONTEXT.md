@@ -313,7 +313,7 @@ The most a single run may spend, enforced by the agent CLI itself rather than by
 _Avoid_: budget, limit, cap
 
 **Concurrency limit**:
-The most iterations one invocation has in progress at once, `maxConcurrentIterations` in the budget document, defaulting to 1. The gate does not count iterations in progress, so it multiplies the overshoot a spend ceiling allows — by as much as the largest ceiling in play, when the ceiling differs by size.
+The most iterations one invocation has in progress at once, `maxConcurrentIterations` in the budget document, defaulting to 1. The gate charges every iteration still in progress its own run estimate, so raising this does not multiply an unaccounted overshoot — but an estimate set too low still lets that many runs overshoot together, by as much as the largest ceiling in play, when the ceiling differs by size.
 _Avoid_: parallelism, workers, pool size
 
 ### Observability
