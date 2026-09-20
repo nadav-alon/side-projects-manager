@@ -262,6 +262,39 @@ if (!skills.includes(REQUIRED_SKILL)) {
   );
 }
 
+/**
+ * Env vars the Dockerfile pins for the mid-stream byte watchdog that ends a
+ * run whose API response goes quiet (#495), each with what leaving it
+ * unpinned would cost. Checked here the same way the plugin and skills above
+ * are: against the running container's own environment, not against the
+ * Dockerfile text, since a rebuild that drops an `ENV` line would leave the
+ * Dockerfile saying one thing and a run doing another.
+ */
+const PINNED_ENV: { variable: string; pinned: string; consequence: string }[] = [
+  {
+    variable: "CLAUDE_ENABLE_BYTE_WATCHDOG",
+    pinned: "1",
+    consequence:
+      "a stalled response is left to the remote flag `tengu_stream_watchdog_default_on` rather than ending itself",
+  },
+  {
+    // The CLI's own first-party default (180000ms), so pinning it changes a
+    // run's behaviour only where the remote flag above would have moved it.
+    variable: "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS",
+    pinned: "180000",
+    consequence: "a stalled run's idle window is not what the Dockerfile pins",
+  },
+];
+
+for (const { variable, pinned, consequence } of PINNED_ENV) {
+  if (process.env[variable] !== pinned) {
+    fail(
+      `this container's ${variable} is ${JSON.stringify(process.env[variable])}, not ${JSON.stringify(pinned)}, so ${consequence}`,
+      `the Dockerfile's \`ENV ${variable}=${pinned}\` is what pins it`,
+    );
+  }
+}
+
 const usage = claude("--help");
 
 if (!usage.includes(SPEND_CEILING_FLAG)) {
@@ -289,7 +322,10 @@ if (!usage.includes(PERMISSION_MODE)) {
 }
 
 const personalSkillsPresent = PERSONAL_SKILLS.map((skill) => `${skill} present`).join(", ");
+const pinnedEnvPresent = PINNED_ENV.map(({ variable, pinned }) => `${variable}=${pinned}`).join(
+  " and ",
+);
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
 );
