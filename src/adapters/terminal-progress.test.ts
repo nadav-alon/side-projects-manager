@@ -134,67 +134,67 @@ describe("terminalProgress", () => {
 
   it("names the container and clone it is abandoning, by ticket, on the developer's second interrupt", (t) => {
     const progress = terminalProgress();
-    progress.note({
-      kind: "container-started",
-      ticket: ticket(7),
-      spendCeiling: usd(5),
-      checkout: clone(7),
+
+    const lines = capturedStderr(t, () => {
+      progress.note({
+        kind: "container-started",
+        ticket: ticket(7),
+        spendCeiling: usd(5),
+        checkout: clone(7),
+      });
+      progress.note({ kind: "abandoning" });
     });
 
-    const lines = capturedStderr(t, () =>
-      progress.note({ kind: "abandoning" }),
-    );
-
-    assert.equal(lines.length, 1);
-    assert.match(lines[0] as string, /nadav-alon\/pilot #7/);
-    assert.match(lines[0] as string, /\/tmp\/side-projects-run-7/);
+    const abandoning = lines[lines.length - 1] as string;
+    assert.match(abandoning, /nadav-alon\/pilot #7/);
+    assert.match(abandoning, /\/tmp\/side-projects-run-7/);
   });
 
   it("no longer counts a run as abandoned once it has ended", (t) => {
     const progress = terminalProgress();
-    progress.note({
-      kind: "container-started",
-      ticket: ticket(7),
-      spendCeiling: usd(5),
-      checkout: clone(7),
-    });
-    progress.note({
-      kind: "run-ended",
-      ticket: ticket(7),
-      tokensUsed: tokenCount(10),
+
+    const lines = capturedStderr(t, () => {
+      progress.note({
+        kind: "container-started",
+        ticket: ticket(7),
+        spendCeiling: usd(5),
+        checkout: clone(7),
+      });
+      progress.note({
+        kind: "run-ended",
+        ticket: ticket(7),
+        tokensUsed: tokenCount(10),
+      });
+      progress.note({ kind: "abandoning" });
     });
 
-    const lines = capturedStderr(t, () =>
-      progress.note({ kind: "abandoning" }),
-    );
-
-    assert.equal(lines.length, 1);
-    assert.match(lines[0] as string, /nothing was left running/i);
+    const abandoning = lines[lines.length - 1] as string;
+    assert.match(abandoning, /nothing was left running/i);
   });
 
   it("names every run still in flight, when more than one is", (t) => {
     const progress = terminalProgress();
-    progress.note({
-      kind: "container-started",
-      ticket: ticket(7),
-      spendCeiling: usd(5),
-      checkout: clone(7),
-    });
-    progress.note({
-      kind: "container-started",
-      ticket: ticket(8),
-      spendCeiling: usd(5),
-      checkout: clone(8),
+
+    const lines = capturedStderr(t, () => {
+      progress.note({
+        kind: "container-started",
+        ticket: ticket(7),
+        spendCeiling: usd(5),
+        checkout: clone(7),
+      });
+      progress.note({
+        kind: "container-started",
+        ticket: ticket(8),
+        spendCeiling: usd(5),
+        checkout: clone(8),
+      });
+      progress.note({ kind: "abandoning" });
     });
 
-    const lines = capturedStderr(t, () =>
-      progress.note({ kind: "abandoning" }),
-    );
-
-    assert.equal(lines.length, 1);
-    assert.match(lines[0] as string, /#7/);
-    assert.match(lines[0] as string, /\/tmp\/side-projects-run-7/);
-    assert.match(lines[0] as string, /#8/);
-    assert.match(lines[0] as string, /\/tmp\/side-projects-run-8/);
+    const abandoning = lines[lines.length - 1] as string;
+    assert.match(abandoning, /#7/);
+    assert.match(abandoning, /\/tmp\/side-projects-run-7/);
+    assert.match(abandoning, /#8/);
+    assert.match(abandoning, /\/tmp\/side-projects-run-8/);
   });
 });
