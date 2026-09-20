@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 
 import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { localDay } from "../ports/index.ts";
-import { deadPid, fakeCrontabBin, tempHome } from "../testing/index.ts";
+import { crontabStubBin, deadPid, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
@@ -29,7 +29,7 @@ async function run(
   home: string,
   crontabLines?: readonly string[],
 ): Promise<{ stdout: string; stderr: string }> {
-  const bin = await fakeCrontabBin(crontabLines);
+  const bin = await crontabStubBin(crontabLines);
   const noRcFiles = await tempHome("status-bin-home");
   return execFileAsync(process.execPath, [entryPoint], {
     env: {

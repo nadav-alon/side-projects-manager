@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { writeFile } from "node:fs/promises";
 
-import { fakeCrontabBin, tempHome } from "../testing/index.ts";
+import { crontabStubBin, tempHome } from "../testing/index.ts";
 import { systemTriggerRegistrations } from "./system-trigger-registrations.ts";
 
 const CRON_MARKER =
@@ -43,7 +43,7 @@ function withPath(t: { after: (fn: () => void) => void }, bin: string): void {
 
 describe("the schedule registration", () => {
   it("reports not registered when there is no crontab", async (t) => {
-    withPath(t, await fakeCrontabBin());
+    withPath(t, await crontabStubBin());
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: false,
@@ -51,7 +51,7 @@ describe("the schedule registration", () => {
   });
 
   it("reports not registered when nothing in the crontab carries the marker", async (t) => {
-    withPath(t, await fakeCrontabBin(["0 3 * * * /some/other/job"]));
+    withPath(t, await crontabStubBin(["0 3 * * * /some/other/job"]));
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: false,
@@ -60,7 +60,7 @@ describe("the schedule registration", () => {
 
   it("reports not registered for an old daily-marker line, so the installer replaces it", async (t) => {
     const home = await tempHome("trigger-registrations");
-    withPath(t, await fakeCrontabBin([cronLine(home, OLD_CRON_MARKER)]));
+    withPath(t, await crontabStubBin([cronLine(home, OLD_CRON_MARKER)]));
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: false,
@@ -69,7 +69,7 @@ describe("the schedule registration", () => {
 
   it("reports armed with the minute and the manager home it points at", async (t) => {
     const home = await tempHome("trigger-registrations");
-    withPath(t, await fakeCrontabBin([cronLine(home)]));
+    withPath(t, await crontabStubBin([cronLine(home)]));
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: true,
@@ -81,7 +81,7 @@ describe("the schedule registration", () => {
   it("reports registered but pointing at another manager home", async (t) => {
     const home = await tempHome("trigger-registrations");
     const moved = await tempHome("trigger-registrations-moved");
-    withPath(t, await fakeCrontabBin([cronLine(moved)]));
+    withPath(t, await crontabStubBin([cronLine(moved)]));
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: true,
@@ -94,7 +94,7 @@ describe("the schedule registration", () => {
   it("reports not registered for a marked line whose trigger-script path cannot be parsed", async (t) => {
     withPath(
       t,
-      await fakeCrontabBin([`0 * * * * /usr/bin/node /no/quotes/here ${CRON_MARKER}`]),
+      await crontabStubBin([`0 * * * * /usr/bin/node /no/quotes/here ${CRON_MARKER}`]),
     );
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
@@ -106,7 +106,7 @@ describe("the schedule registration", () => {
     const home = await tempHome("trigger-registrations");
     withPath(
       t,
-      await fakeCrontabBin([
+      await crontabStubBin([
         "0 3 * * * /some/other/job",
         cronLine(home),
         "* * * * * /another/job",

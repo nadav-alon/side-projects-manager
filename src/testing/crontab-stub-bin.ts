@@ -7,11 +7,15 @@ import path from "node:path";
  * by newlines, or exiting non-zero — as the real `crontab -l` does when the
  * user has none — when `lines` is undefined.
  *
+ * A stub, not a Fake (CONTEXT.md: Fake) — it stands in for the `crontab`
+ * binary the adapter shells out to, not for a port. `FakeTriggerRegistrations`
+ * is the port's Fake.
+ *
  * Returns the directory to put ahead of `PATH`, for a test that shells out to
  * `crontab` itself, in-process, or in a spawned child.
  */
-export async function fakeCrontabBin(lines?: readonly string[]): Promise<string> {
-  const bin = await mkdtemp(path.join(tmpdir(), "fake-crontab-"));
+export async function crontabStubBin(lines?: readonly string[]): Promise<string> {
+  const bin = await mkdtemp(path.join(tmpdir(), "crontab-stub-"));
   const script =
     lines === undefined
       ? "#!/bin/sh\nexit 1\n"
