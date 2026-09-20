@@ -202,7 +202,7 @@ describe("writing the registry document", () => {
     assert.doesNotMatch(written, /paused|turbo|priority/);
   });
 
-  it("does not rewrite a turbo project to carry turbo: false", async () => {
+  it("keeps a turbo project's flag through a full rewrite", async () => {
     const directory = await home();
 
     await documentStore(directory).saveRegistry([

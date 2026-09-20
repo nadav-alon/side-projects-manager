@@ -77,7 +77,7 @@ describe("starting a new project", () => {
     ]);
   });
 
-  it("leaves an existing project's turbo consent standing when it appends another", async () => {
+  it("does not touch an existing project's turbo consent in memory when it appends another (the write itself surviving a full rewrite is pinned in document-store.test.ts)", async () => {
     const ports = fakeNewProjectPorts();
     ports.store.register(MANAGER, { turbo: true });
 
