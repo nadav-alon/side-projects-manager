@@ -910,6 +910,24 @@ describe("containerSandbox", () => {
     assert.equal(result.kind, "finished");
   });
 
+  it("does not mistake a clean exit for a provider failure, whatever its output opens with", async () => {
+    const directory = await project();
+    // A container's own `AgentRun` can carry `providerFailure` without the
+    // agent having exited non-zero — `readAgentRun` sets it off `stdout`
+    // alone, before the exit code is known. `endingOf` is what must not read
+    // that as a provider failure unless `failure` says the CLI exited
+    // non-zero too.
+    const sandbox = containerSandbox(async () => ({
+      output: PROVIDER_FAILURE_PROSE,
+      tokensUsed: tokenCount(1_000),
+      providerFailure: PROVIDER_FAILURE_PROSE,
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "finished");
+  });
+
   it("reports a model refusal apart from an agent that gave up", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () =>

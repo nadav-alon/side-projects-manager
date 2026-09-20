@@ -171,7 +171,11 @@ export interface ReviewLimitRefused extends Ended {
  */
 export interface RunProviderFailed extends Ended, Worked {
   kind: "provider-failed";
-  /** What the CLI said, word for word — the envelope's `result`, or its prose line. */
+  /**
+   * What the CLI said, word for word — the envelope's `result`, its prose
+   * line, or, when the envelope names a failure but gives no `result` to
+   * quote, a fixed line saying so.
+   */
   words: string;
 }
 

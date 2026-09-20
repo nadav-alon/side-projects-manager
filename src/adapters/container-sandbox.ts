@@ -90,8 +90,9 @@ export interface AgentRun {
   modelRefused?: string;
   /**
    * The CLI's own words saying the provider never answered — down,
-   * overloaded, or otherwise unreachable — absent unless the run's ending
-   * matches one of the two shapes `providerFailureOf` recognises.
+   * overloaded, or otherwise unreachable — or a fixed line saying it gave
+   * none to quote, absent unless the run's ending matches one of the shapes
+   * `providerFailureFromEnvelope` or `providerFailureFromProse` recognise.
    */
   providerFailure?: string;
   /**
@@ -437,21 +438,23 @@ const LIMIT_REFUSAL = /^\s*You['’]ve hit your [\w -]+? limit\b[^\n]*/;
 const MODEL_REFUSAL = /^\[claude-code:unrecognized_model\][^\n]*/m;
 
 /**
- * How a provider outage reads when the agent CLI never got as far as a JSON
+ * How a provider failure reads when the agent CLI never got as far as a JSON
  * envelope at all: prose starting with "API Error:", which is the whole of
  * what the CLI said. Anchored to the start of the output, the same reason
  * `LIMIT_REFUSAL` is: an agent that quotes the wording anywhere but the very
  * start of its own output is not mistaken for one refused.
  */
-const API_ERROR_PROSE = /^API Error:[^\n]*/;
+const PROVIDER_FAILURE_PROSE = /^API Error:[^\n]*/;
 
 /**
- * The five hundreds, `api_error_status` may report — a provider that is down,
- * overloaded (529 included) or otherwise failing — plus `null` or absent,
- * which is what a bare timeout carries. Any other status, 4xx included, is
- * the ticket's problem, not the provider's, and reads as `"gave-up"`.
+ * Whether `status` blames the provider rather than the ticket: one of the
+ * five hundreds `api_error_status` may report — a provider that is down,
+ * overloaded (529 included) or otherwise failing — or `null` or absent, which
+ * is what a bare timeout carries and so counts as unanswered too. Any other
+ * status, 4xx included, is the ticket's problem, not the provider's, and
+ * reads as `"gave-up"`.
  */
-function isProviderFailureStatus(status: unknown): boolean {
+function isUnansweredStatus(status: unknown): boolean {
   return (
     status === null ||
     status === undefined ||
@@ -460,19 +463,16 @@ function isProviderFailureStatus(status: unknown): boolean {
 }
 
 /**
- * The one place a provider failure's shape is known, as `LIMIT_REFUSAL` and
- * `MODEL_REFUSAL` are each the one place theirs is: `envelope`'s own
- * `is_error`, `terminal_reason` and `api_error_status` when the CLI's answer
- * parsed as JSON, or `API_ERROR_PROSE` against `stdout` when it did not —
- * captured from a forced timeout (`API_TIMEOUT_MS=1`) and a real outage,
- * respectively. What is quoted back is the envelope's own `result`, prose
- * meant for a reader, or the matched line itself when there was no envelope
- * to read one from.
+ * A provider failure read off `envelope`'s own fields, once the CLI's answer
+ * parsed as JSON: `is_error`, `terminal_reason` and `api_error_status`,
+ * captured from a forced timeout (`API_TIMEOUT_MS=1`). What is quoted back is
+ * the envelope's own `result`, prose meant for a reader, or a fixed line when
+ * the envelope names a failure but gives no `result` to quote.
+ *
+ * Called only once `readAgentRun` already knows the envelope parsed as an
+ * object — the one place that test is made, rather than repeated here.
  */
-function providerFailureOf(stdout: string, envelope: unknown): string | undefined {
-  if (typeof envelope !== "object" || envelope === null) {
-    return API_ERROR_PROSE.exec(stdout)?.[0].trim();
-  }
+function providerFailureFromEnvelope(envelope: object): string | undefined {
   const { is_error, terminal_reason, api_error_status, result } = envelope as {
     is_error?: unknown;
     terminal_reason?: unknown;
@@ -482,11 +482,25 @@ function providerFailureOf(stdout: string, envelope: unknown): string | undefine
   if (
     is_error !== true ||
     terminal_reason !== "api_error" ||
-    !isProviderFailureStatus(api_error_status)
+    !isUnansweredStatus(api_error_status)
   ) {
     return undefined;
   }
-  return typeof result === "string" ? result.trim() : "the provider never answered";
+  return typeof result === "string"
+    ? result.trim()
+    : "the envelope named a provider failure but gave no message to quote";
+}
+
+/**
+ * A provider failure read off `stdout` when the CLI's answer never parsed as
+ * JSON at all: `PROVIDER_FAILURE_PROSE` against the whole of what it said,
+ * captured from a real provider failure.
+ *
+ * Called only once `readAgentRun` already knows the envelope did not parse as
+ * an object — the one place that test is made, rather than repeated here.
+ */
+function providerFailureFromProse(stdout: string): string | undefined {
+  return PROVIDER_FAILURE_PROSE.exec(stdout)?.[0].trim();
 }
 
 /**
@@ -502,7 +516,10 @@ function providerFailureOf(stdout: string, envelope: unknown): string | undefine
  * naming the model needs the request, not just the CLI's own words. The
  * provider failure comes after the limit refusal, since both are cut off the
  * same way but told apart by different wording — a limit refusal is the
- * provider's own worded refusal, a provider failure is silence.
+ * provider's own worded refusal, a provider failure is silence. It, too, only
+ * applies when the CLI exited non-zero: an agent that finished clean and
+ * merely opens its own output with matching prose said nothing about the
+ * provider failing.
  */
 type Ending =
   | { kind: "finished"; output: string }
@@ -523,7 +540,7 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
   if (refusal !== undefined) {
     return { kind: "limit-refused", words: refusal.trim() };
   }
-  if (agent.providerFailure !== undefined) {
+  if (agent.failure !== undefined && agent.providerFailure !== undefined) {
     return { kind: "provider-failed", words: agent.providerFailure };
   }
   return agent.failure === undefined
@@ -1471,7 +1488,7 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     const gist = gistFrom(stdout);
-    const providerFailure = providerFailureOf(stdout, envelope);
+    const providerFailure = providerFailureFromProse(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
@@ -1487,7 +1504,7 @@ export function readAgentRun(stdout: string, stderr = ""): AgentRun {
   };
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
-  const providerFailure = providerFailureOf(stdout, envelope);
+  const providerFailure = providerFailureFromEnvelope(envelope);
   return {
     output: withDiagnostics(output, stderr, deniedTools(envelope)),
     tokensUsed: totalTokens(usage),
