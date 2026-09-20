@@ -22,9 +22,8 @@ export interface FakePorts extends MorningLoopPorts {
  * usage. Tests arrange from here by putting things into the fakes.
  *
  * `progress` defaults to the no-op adapter, not a fake that could be
- * inspected: almost no test cares what an invocation narrated, so composing
- * silence here is what keeps every one of them unmodified. A test that does
- * care overrides it with `FakeProgress`.
+ * inspected: almost no test cares what an invocation narrated. A test that
+ * does care overrides it with `FakeProgress`.
  */
 export function fakePorts(): FakePorts {
   return {

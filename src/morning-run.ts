@@ -446,9 +446,7 @@ export async function morningLoop(
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
           standDown ??= { ...refusal, refused: chosen.project.repo };
-          // Announced immediately, before any work starts — not only once
-          // the invocation report is written, which is where a stand-down
-          // used to go unheard until the whole morning was already over.
+          // Announced before any work starts, not only in the invocation report.
           notify(ports.progress, {
             kind: "stood-down",
             ticket,
