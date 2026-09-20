@@ -302,8 +302,8 @@ export interface Reviewed {
 }
 
 /**
- * Why a review or a rebase that ran left its ticket open, and the error that
- * stopped it.
+ * Why a review's iteration, or a pull request already resolved, left its
+ * ticket open, and the error that stopped it.
  */
 export interface NotClosed {
   kind: "check-failed" | "close-failed";
