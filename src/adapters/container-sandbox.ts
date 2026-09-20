@@ -394,7 +394,7 @@ async function runOnClone(
         "run",
         {
           directory: clone,
-          prompt: promptFor(ticket, chosen.resuming),
+          prompt: promptFor(ticket, chosen.resuming ? onto : undefined),
           spendCeiling,
           mount: "rw",
         },
@@ -1145,18 +1145,19 @@ export const TICKET_GIST_TAG = "TICKET GIST:";
  * filesystem: `gh` cannot work out which GitHub repo that is, and an agent
  * that cannot read its ticket implements the title and reports success.
  *
- * `resuming` adds the paragraph telling the agent it is continuing a salvaged
- * branch rather than starting fresh — see `Salvage` in CONTEXT.md — and that
- * its last commit may be the sandbox's own possibly-broken one, not the prior
- * agent's, for it to check and fix or rework.
+ * `salvageBranch`, when present, adds the paragraph telling the agent it is
+ * continuing a salvaged branch rather than starting fresh — see `Salvage` in
+ * CONTEXT.md — and that its last commit may be the sandbox's own
+ * possibly-broken one, not the prior agent's, for it to check and fix or
+ * rework.
  */
-function promptFor(ticket: Ticket, resuming: boolean): string {
+function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
   return [
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
     `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
     "first — this clone's origin is a local path, so gh cannot infer the repo",
     "— and follow this repo's own agent instructions and coding standards.",
-    ...(resuming
+    ...(salvageBranch !== undefined
       ? [
           "An earlier run on this ticket was cut off, and its work is already on",
           "the branch you are on. Continue that work rather than starting over.",
