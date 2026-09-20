@@ -1,16 +1,19 @@
-import type { Handover, HandoverReach, ModelSource } from "./iteration-outcome.ts";
 import type {
-  ApplyReviewGaveUp,
+  GaveUp,
+  Handover,
+  HandoverFailed,
+  HandoverReach,
+  ModelRefused,
+  UnsettledMergeability,
+  UnusableModelLabel,
+} from "./iteration-outcome.ts";
+import type {
   Branch,
   Checkout,
+  CommitSha,
   IssueTracker,
-  ModelRefusal,
   PullRequestUrl,
-  RebaseFinished,
-  RebaseGaveUp,
   RepoHost,
-  ReviewFinished,
-  ReviewGaveUp,
   RunFinished,
   RunGaveUp,
   RunLimitRefused,
@@ -61,6 +64,10 @@ export type HandBackRecord =
  * full would be rejected, and a rejected comment is a ticket that never gets
  * handed back. The tail is kept, because it holds whatever the thing was doing
  * when it stopped.
+ *
+ * Trimmed here rather than in the tracker's adapter, because trimming is only
+ * safe before the quote is fenced: an adapter holding a finished comment body
+ * could cut it only by cutting the fence off with it.
  */
 const OUTPUT_QUOTED = 20_000;
 /**
@@ -77,41 +84,52 @@ export interface HandBackPorts {
 }
 
 /**
+ * What a gave-up hand-back's comment needs beyond `GaveUp.reason`, particular
+ * to which kind of ticket gave up — matching `ticketKind`, so a ticket kind
+ * added there is a case this has to answer too. An implementation run always
+ * leaves a branch behind to discard; a review's never does; an apply-review
+ * or rebase run leaves neither, but names the pull request its comment
+ * points at, and may say which head a rejected push found it moved to.
+ */
+type GaveUpContext =
+  | { ticketKind: "implementation"; output: string; checkout: Checkout; run: RunGaveUp }
+  | { ticketKind: "review"; output: string }
+  | {
+      ticketKind: "apply-review";
+      output: string;
+      pullRequest: PullRequestUrl;
+      movedHead?: CommitSha;
+    }
+  | {
+      ticketKind: "rebase";
+      output: string;
+      pullRequest: PullRequestUrl;
+      movedHead?: CommitSha;
+    };
+
+/**
  * How one iteration ended, for the one ticket it selected — everything
  * `handBack` needs to decide the branch, pick the comment and say what
  * happened. Told apart by `kind`, matching the ways CONTEXT.md's Hand back
- * happens: an agent gave up, on an implementation ticket or — without a
- * branch of its own — a review, apply-review or rebase ticket; the agent CLI
- * refused a model; a ticket's model labels named none it could use; a rebase
- * ticket's mergeability never settled; a finished run's handover failed part
- * way; or a run finished, with or without a handover.
+ * happens: an agent gave up, the agent CLI refused a model, a ticket's model
+ * labels named none it could use, a rebase ticket's mergeability never
+ * settled, a finished run's handover failed part way, or a run finished, with
+ * or without a handover.
+ *
+ * Every kind but `"finished"` is exactly the `RunFailure` its own iteration
+ * is built from, plus only what the comment needs beyond `reason` — never a
+ * second description of the same failure a caller has to keep in step with
+ * the one it builds for `Failed.failure`.
  */
 export type HandBackEnding =
-  | { kind: "gave-up"; checkout: Checkout; run: RunGaveUp }
-  | { kind: "review-gave-up"; review: ReviewFinished | ReviewGaveUp; reason: string }
-  | {
-      kind: "apply-review-gave-up";
-      run: ReviewFinished | ApplyReviewGaveUp;
-      reason: string;
-      pullRequest: PullRequestUrl;
-    }
-  | {
-      kind: "rebase-gave-up";
-      run: RebaseFinished | RebaseGaveUp;
-      reason: string;
-      pullRequest: PullRequestUrl;
-    }
-  | {
-      kind: "model-refused";
-      refusal: ModelRefusal;
-      source: ModelSource;
+  | (GaveUp & GaveUpContext)
+  | HandoverFailed
+  | (ModelRefused & {
       /** The branch the refused run left. Present only for an implementation ticket, which is the only kind a model refusal leaves one for. */
       worked?: { checkout: Checkout; run: RunModelRefused };
-    }
-  | { kind: "conflicting-model-labels"; labels: readonly string[] }
-  | { kind: "unusable-model-label"; labels: readonly string[] }
-  | { kind: "unsettled-mergeability"; reason: string; pullRequest: PullRequestUrl }
-  | { kind: "handover-failed"; reason: string; branch: Branch; where: HandoverReach }
+    })
+  | UnusableModelLabel
+  | (UnsettledMergeability & { pullRequest: PullRequestUrl })
   | { kind: "finished"; run: RunFinished; handover?: Handover };
 
 /**
@@ -172,7 +190,7 @@ async function discardIfWorked(
   repoHost: RepoHost,
   ending: HandBackEnding,
 ): Promise<Discard> {
-  if (ending.kind === "gave-up") {
+  if (ending.kind === "gave-up" && ending.ticketKind === "implementation") {
     return discardBranch(repoHost, ending.checkout, ending.run);
   }
   if (ending.kind === "model-refused" && ending.worked !== undefined) {
@@ -185,19 +203,7 @@ async function discardIfWorked(
 function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): string {
   switch (ending.kind) {
     case "gave-up":
-      return gaveUpComment(ending.run.reason, ending.run.output, branchNote(ending.run.branch, discard));
-    case "review-gave-up":
-      return gaveUpComment(ending.reason, ending.review.output, []);
-    case "apply-review-gave-up":
-      return gaveUpComment(ending.reason, ending.run.output, [
-        ...movedHeadNote(ending.run),
-        `${ending.pullRequest} is still a draft.`,
-      ]);
-    case "rebase-gave-up":
-      return gaveUpComment(ending.reason, ending.run.output, [
-        ...movedHeadNote(ending.run),
-        untouchedDraftState(ending.pullRequest),
-      ]);
+      return gaveUpCommentFor(ending, discard);
     case "model-refused":
       return modelRefusalComment(ticket, ending, discard);
     case "conflicting-model-labels":
@@ -211,22 +217,64 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
         "fix or remove it",
       );
     case "unsettled-mergeability":
-      return [
-        `The morning loop did not run this ticket: ${tail(ending.reason, REASON_QUOTED)}`,
-        untouchedDraftState(ending.pullRequest),
-        notRetried(),
-      ].join("\n\n");
+      return unsettledMergeabilityComment(ending);
     case "handover-failed":
-      return [
-        `The morning loop finished this ticket, but could not hand its work over: ${tail(ending.reason, REASON_QUOTED)}`,
-        `Its work is on the branch ${workLocation(ending, (text) => `\`${text}\``)}.`,
-        `This ticket is yours again: it will not be retried.`,
-      ].join("\n\n");
+      return handoverFailedComment(ending);
     case "finished":
       return ending.handover === undefined
         ? committedNothingComment(ending.run)
         : handoverComment(ending.handover.pullRequest, ending.handover.reviewTicket);
   }
+}
+
+/** The gave-up comment for whichever kind of ticket `ending.ticketKind` names. */
+function gaveUpCommentFor(ending: GaveUp & GaveUpContext, discard: Discard): string {
+  const notes = ((): string[] => {
+    switch (ending.ticketKind) {
+      case "implementation":
+        return branchNote(ending.run.branch, discard);
+      case "review":
+        return [];
+      case "apply-review":
+        // A pull request is marked ready for review only once every thread on
+        // it is answered, so a gave-up run — which answered none, or left one
+        // unanswered — always finds it still a draft.
+        return [...movedHeadNote(ending.movedHead), `${ending.pullRequest} is still a draft.`];
+      case "rebase":
+        // Never claims the pull request is a draft, unlike an apply-review's:
+        // `/rebase` can be commented on one already marked ready, and a
+        // rebase leaves its draft state exactly as it found it either way.
+        return [...movedHeadNote(ending.movedHead), untouchedDraftState(ending.pullRequest)];
+    }
+  })();
+  return gaveUpComment(ending.reason, ending.output, notes);
+}
+
+/**
+ * What a ticket is told when a rebase ticket's mergeability never settled: no
+ * run started, so there is nothing to discard and nothing spent.
+ */
+function unsettledMergeabilityComment(
+  ending: UnsettledMergeability & { pullRequest: PullRequestUrl },
+): string {
+  return [
+    `The morning loop did not run this ticket: ${tail(ending.reason, REASON_QUOTED)}`,
+    untouchedDraftState(ending.pullRequest),
+    notRetried(),
+  ].join("\n\n");
+}
+
+/**
+ * What a ticket is told when a finished run's handover failed part way: where
+ * its work is, so the developer picks it up rather than re-running a ticket
+ * whose work already exists.
+ */
+function handoverFailedComment(ending: HandoverFailed): string {
+  return [
+    `The morning loop finished this ticket, but could not hand its work over: ${tail(ending.reason, REASON_QUOTED)}`,
+    `Its work is on the branch ${workLocation(ending, (text) => `\`${text}\``)}.`,
+    `This ticket is yours again: it will not be retried.`,
+  ].join("\n\n");
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */
@@ -241,12 +289,12 @@ function gaveUpComment(reason: string, output: string, notes: string[]): string 
 }
 
 /** Says which head a rejected push found the branch on, when that is why the run gave up. */
-function movedHeadNote(run: ReviewFinished | ApplyReviewGaveUp): string[] {
-  return run.kind === "gave-up" && run.movedHead !== undefined
-    ? [
-        `Its push was rejected: the pull request's branch had moved to \`${run.movedHead}\` on the repo host, so what it committed never reached the pull request.`,
-      ]
-    : [];
+function movedHeadNote(movedHead: CommitSha | undefined): string[] {
+  return movedHead === undefined
+    ? []
+    : [
+        `Its push was rejected: the pull request's branch had moved to \`${movedHead}\` on the repo host, so what it committed never reached the pull request.`,
+      ];
 }
 
 function untouchedDraftState(pullRequest: PullRequestUrl): string {
@@ -261,7 +309,7 @@ function untouchedDraftState(pullRequest: PullRequestUrl): string {
  */
 function modelRefusalComment(
   ticket: Ticket,
-  ending: HandBackEnding & { kind: "model-refused" },
+  ending: ModelRefused & { worked?: { checkout: Checkout; run: RunModelRefused } },
   discard: Discard,
 ): string {
   const model = `\`${ending.refusal.model}\``;
@@ -287,7 +335,11 @@ function labelList(labels: readonly string[]): string {
   return labels.map((label) => `\`${label}\``).join(", ");
 }
 
-/** What a ticket is told when its model labels named no model a run could be started on. */
+/**
+ * What a ticket is told when its model labels named no model a run could be
+ * started on. Said at selection, so there is no run, branch or output to
+ * name.
+ */
 function unusableModelLabelComment(what: string, fix: string): string {
   return [
     `The morning loop did not run this ticket: ${what}. Nothing was run and nothing was spent.`,
@@ -298,7 +350,9 @@ function unusableModelLabelComment(what: string, fix: string): string {
 /**
  * What a finished run's ticket is told once its work is waiting in a draft
  * pull request: where to find it, and that the ticket itself is out of the
- * queue.
+ * queue. Names the review ticket as well as the pull request, since both are
+ * new and the ticket comment is where the developer is most likely to read
+ * them together.
  */
 function handoverComment(pullRequest: PullRequestUrl, reviewTicket: Ticket): string {
   return [

@@ -64,11 +64,17 @@ function eligible<T extends { number: ReturnType<typeof issueNumber>; title: str
 
 describe("handBack", () => {
   describe("an implementation ticket whose agent gave up", () => {
-    const ending = (run: Parameters<typeof gaveUpRun>[0] = {}): HandBackEnding => ({
-      kind: "gave-up",
-      checkout: CHECKOUT,
-      run: gaveUpRun(run),
-    });
+    const ending = (run: Parameters<typeof gaveUpRun>[0] = {}): HandBackEnding => {
+      const built = gaveUpRun(run);
+      return {
+        kind: "gave-up",
+        ticketKind: "implementation",
+        reason: built.reason,
+        output: built.output,
+        checkout: CHECKOUT,
+        run: built,
+      };
+    };
 
     function gaveUpRun(overrides: {
       commits?: ReturnType<typeof commitSha>[];
@@ -187,9 +193,10 @@ describe("handBack", () => {
     const ticket = eligible(tracker, reviewTicket());
 
     const record = await handBack({ tracker, repoHost }, ticket, {
-      kind: "review-gave-up",
-      review: { kind: "gave-up", output: "I could not read the diff", tokensUsed: tokenCount(1), reason: "the review skill exited 1" },
+      kind: "gave-up",
+      ticketKind: "review",
       reason: "the review skill exited 1",
+      output: "I could not read the diff",
     });
 
     assert.deepEqual(record, { outcome: "handed-back" });
@@ -205,10 +212,12 @@ describe("handBack", () => {
     const moved = commitSha("b".repeat(40));
 
     await handBack({ tracker, repoHost }, ticket, {
-      kind: "apply-review-gave-up",
-      run: { kind: "gave-up", output: "pushed", tokensUsed: tokenCount(1), reason: "the push was rejected", movedHead: moved },
+      kind: "gave-up",
+      ticketKind: "apply-review",
       reason: "the push was rejected",
+      output: "pushed",
       pullRequest: PULL_REQUEST,
+      movedHead: moved,
     });
 
     const comment = tracker.handbacks[0]?.comment ?? "";
@@ -221,9 +230,10 @@ describe("handBack", () => {
     const ticket = eligible(tracker, rebaseTicket());
 
     await handBack({ tracker, repoHost }, ticket, {
-      kind: "rebase-gave-up",
-      run: { kind: "gave-up", output: "still conflicts", tokensUsed: tokenCount(1), reason: "still conflicts" },
+      kind: "gave-up",
+      ticketKind: "rebase",
       reason: "still conflicts",
+      output: "still conflicts",
       pullRequest: PULL_REQUEST,
     });
 
@@ -239,6 +249,7 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "model-refused",
+        reason: "the agent CLI refused the model opus (from the model label): unknown model opus",
         refusal: { model: modelName("opus"), words: "unknown model opus" },
         source: "model label",
         worked: {
@@ -265,6 +276,7 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "model-refused",
+        reason: "the agent CLI refused the model haiku (from the model defaults): unknown model haiku",
         refusal: { model: modelName("haiku"), words: "unknown model haiku" },
         source: "model defaults",
       });
@@ -283,6 +295,7 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "conflicting-model-labels",
+        reason: "it carries more than one model label (model:opus, model:haiku)",
         labels: ["model:opus", "model:haiku"],
       });
 
@@ -298,6 +311,7 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "unusable-model-label",
+        reason: "its model label names no usable model (model:)",
         labels: ["model:"],
       });
 

@@ -403,10 +403,7 @@ export async function morningLoop(
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
-          const handedBack = await handBack(ports, ticket, {
-            kind: unusable.kind,
-            labels: unusable.labels,
-          });
+          const handedBack = await handBack(ports, ticket, unusable);
           outcomeSlots.push({
             repo: chosen.project.repo,
             ticket,
@@ -779,7 +776,9 @@ async function work(
 
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
   const handedBack = await handBack(ports, selection.ticket, {
-    kind: "gave-up",
+    ...failure,
+    ticketKind: "implementation",
+    output: run.output,
     checkout,
     run,
   });
@@ -886,12 +885,7 @@ async function handoverFailed(
     branch: run.branch,
     where,
   };
-  const handedBack = await handBack(ports, ticket, {
-    kind: "handover-failed",
-    reason,
-    branch: run.branch,
-    where,
-  });
+  const handedBack = await handBack(ports, ticket, failure);
   return {
     kind: "failed",
     run,
@@ -918,9 +912,7 @@ async function handModelRefusedBack(
 ): Promise<Failed> {
   const failure = modelRefused(ticket, refusal);
   const handedBack = await handBack(ports, ticket, {
-    kind: "model-refused",
-    refusal,
-    source: failure.source,
+    ...failure,
     ...(worked !== undefined && { worked }),
   });
   return {
@@ -1176,9 +1168,9 @@ async function handReviewBack(
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason };
   const handedBack = await handBack(ports, ticket, {
-    kind: "review-gave-up",
-    review,
-    reason,
+    ...failure,
+    ticketKind: "review",
+    output: review.output,
   });
   return {
     kind: "failed",
@@ -1347,10 +1339,11 @@ async function handApplyReviewBack(
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason };
   const handedBack = await handBack(ports, ticket, {
-    kind: "apply-review-gave-up",
-    run,
-    reason,
+    ...failure,
+    ticketKind: "apply-review",
+    output: run.output,
     pullRequest: ticket.pullRequest.url,
+    ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
   });
   return {
     kind: "failed",
@@ -1412,11 +1405,7 @@ async function runRebase(
     if (error instanceof MergeabilityUnknown) {
       const reason = errorMessage(error);
       const failure: UnsettledMergeability = { kind: "unsettled-mergeability", reason };
-      const handedBack = await handBack(ports, ticket, {
-        kind: "unsettled-mergeability",
-        reason,
-        pullRequest,
-      });
+      const handedBack = await handBack(ports, ticket, { ...failure, pullRequest });
       return { kind: "failed", failure, handedBack };
     }
     return infrastructureFailure(error);
@@ -1527,10 +1516,11 @@ async function handRebaseBack(
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason };
   const handedBack = await handBack(ports, ticket, {
-    kind: "rebase-gave-up",
-    run,
-    reason,
+    ...failure,
+    ticketKind: "rebase",
+    output: run.output,
     pullRequest: ticket.pullRequest.url,
+    ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
   });
   return {
     kind: "failed",
