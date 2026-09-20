@@ -305,7 +305,7 @@ A run, implementation, review, apply-review or rebase, that the agent started bu
 _Avoid_: outage, API error, provider down
 
 **Cut off**:
-A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, any branch it left is discarded, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way.
+A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way. An implementation run's branch is discarded on a provider failure, same as any other cut-off run's — but kept, as a salvage, on a limit refusal with commits (see **Salvage**).
 _Avoid_: interrupted, killed, aborted
 
 **Spend ceiling**:

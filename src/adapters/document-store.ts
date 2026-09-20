@@ -29,6 +29,7 @@ import type {
   RegisteredProject,
   RepoSlug,
   RunCost,
+  Salvage,
   Size,
   SpendCeiling,
   State,
@@ -47,6 +48,7 @@ import {
   TICKET_KINDS,
   exitCode,
   findInvocationRecord,
+  isBranch,
   isDay,
   isExitCode,
   isInvocationOutcome,
@@ -601,6 +603,7 @@ function parseState(document: unknown, file: string): State {
   }
   const workedToday = fieldOf(document, "workedToday", file);
   const announcedOn = fieldOf(document, "announcedOn", file);
+  const salvages = fieldOf(document, "salvages", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
@@ -609,7 +612,42 @@ function parseState(document: unknown, file: string): State {
     ...(announcedOn !== undefined && {
       announcedOn: parseDayField(announcedOn, `${file}: "announcedOn"`),
     }),
+    ...(salvages !== undefined && {
+      salvages: parseSalvages(salvages, `${file}: "salvages"`),
+    }),
   };
+}
+
+/**
+ * `[{ "repo": "owner/repo", "number": 7, "branch": "issue-7-salvage",
+ *    "limitRefusals": 1 }]`
+ */
+function parseSalvages(value: unknown, where: string): Salvage[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where} must be a list of salvages.`);
+  }
+  return value.map((salvage, index) =>
+    parseSalvage(salvage, `${where}: salvage ${index + 1}`),
+  );
+}
+
+function parseSalvage(salvage: unknown, where: string): Salvage {
+  const { repo, number } = parseWorkedTicket(salvage, where);
+  const branch = fieldOf(salvage, "branch", where);
+  if (typeof branch !== "string" || !isBranch(branch)) {
+    throw new Error(`${where}: "branch" must be a git branch name: ${JSON.stringify(branch)}`);
+  }
+  const limitRefusals = fieldOf(salvage, "limitRefusals", where);
+  if (
+    typeof limitRefusals !== "number" ||
+    !Number.isInteger(limitRefusals) ||
+    limitRefusals < 0
+  ) {
+    throw new Error(
+      `${where}: "limitRefusals" must be a whole number of 0 or more: ${JSON.stringify(limitRefusals)}`,
+    );
+  }
+  return { repo, number, branch, limitRefusals };
 }
 
 function parseDayField(value: unknown, where: string): Day {
@@ -769,8 +807,10 @@ function formatState(state: State): string {
     tickets: state.workedToday.tickets.map(workedTicket),
   };
 
+  const salvages = state.salvages?.map((salvage) => ({ ...salvage }));
+
   return `${JSON.stringify(
-    { projects, workedToday, announcedOn: state.announcedOn },
+    { projects, workedToday, announcedOn: state.announcedOn, salvages },
     undefined,
     2,
   )}\n`;

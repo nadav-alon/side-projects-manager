@@ -1,3 +1,4 @@
+import type { Branch } from "./branch.ts";
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
@@ -104,6 +105,78 @@ export interface WorkedTicket {
 }
 
 /**
+ * One ticket's salvaged branch, kept in the checkout rather than discarded:
+ * see CONTEXT.md's "Salvage". `limitRefusals` is how many limit refusals in a
+ * row the ticket has had — 1 for the first, one more each time a run on this
+ * same salvage is refused again — and is left unchanged by a post-start
+ * infrastructure failure, which salvages a branch without being one.
+ */
+export interface Salvage extends WorkedTicket {
+  branch: Branch;
+  limitRefusals: number;
+}
+
+/**
+ * `previous` with `ticket`'s salvage recorded as a limit refusal on `branch`:
+ * `limitRefusals` one more than an existing record for `ticket` already
+ * carried, or 1 for a ticket salvaged for the first time.
+ */
+export function recordLimitRefusalSalvage(
+  previous: Salvage[] | undefined,
+  ticket: WorkedTicket,
+  branch: Branch,
+): Salvage[] {
+  const limitRefusals = (salvageFor(previous, ticket)?.limitRefusals ?? 0) + 1;
+  return withSalvage(previous, { ...workedTicket(ticket), branch, limitRefusals });
+}
+
+/**
+ * `previous` with `ticket`'s salvage recorded as a post-start infrastructure
+ * failure on `branch`: `limitRefusals` left exactly as an existing record for
+ * `ticket` already carried, or 0 for a ticket salvaged for the first time —
+ * an infrastructure failure salvages a branch without being a limit refusal.
+ */
+export function recordInfrastructureFailureSalvage(
+  previous: Salvage[] | undefined,
+  ticket: WorkedTicket,
+  branch: Branch,
+): Salvage[] {
+  const limitRefusals = salvageFor(previous, ticket)?.limitRefusals ?? 0;
+  return withSalvage(previous, { ...workedTicket(ticket), branch, limitRefusals });
+}
+
+/** `previous` with `salvage` recorded in place of any earlier one for the same ticket. */
+function withSalvage(previous: Salvage[] | undefined, salvage: Salvage): Salvage[] {
+  return [
+    ...(previous ?? []).filter((recorded) => ticketKey(recorded) !== ticketKey(salvage)),
+    salvage,
+  ];
+}
+
+/**
+ * `previous` with `ticket`'s salvage record taken off it, absent if that
+ * leaves nothing: a run that finished, gave up, or had its model refused
+ * clears the ticket's salvage record, whatever it carried.
+ */
+export function clearSalvage(
+  previous: Salvage[] | undefined,
+  ticket: WorkedTicket,
+): Salvage[] | undefined {
+  const remaining = (previous ?? []).filter(
+    (recorded) => ticketKey(recorded) !== ticketKey(ticket),
+  );
+  return remaining.length > 0 ? remaining : undefined;
+}
+
+/** The salvage record `salvages` carries for `ticket`, absent if it has none. */
+export function salvageFor(
+  salvages: Salvage[] | undefined,
+  ticket: WorkedTicket,
+): Salvage | undefined {
+  return salvages?.find((salvage) => ticketKey(salvage) === ticketKey(ticket));
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.
@@ -128,6 +201,11 @@ export interface State {
    * reads as not yet announced today.
    */
   announcedOn?: Day;
+  /**
+   * Every ticket with a salvaged branch kept in the checkout. Absent when
+   * nothing is salvaged. See CONTEXT.md's "Salvage".
+   */
+  salvages?: Salvage[];
 }
 
 /**

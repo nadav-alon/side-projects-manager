@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
+  branch,
   day,
   exitCode,
   issueNumber,
@@ -857,6 +858,78 @@ describe("the state document", () => {
     );
 
     await assert.rejects(store.loadState(), /announcedOn/);
+  });
+
+  it("reads a document with no salvages as nothing salvaged", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {} }),
+      }),
+    );
+
+    assert.equal((await store.loadState()).salvages, undefined);
+  });
+
+  it("survives a round trip with a ticket's salvaged branch", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      salvages: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          branch: branch("issue-7-salvage"),
+          limitRefusals: 2,
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects a salvage that names no repo slug", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          salvages: [{ number: 7, branch: "issue-7-salvage", limitRefusals: 1 }],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /salvages/);
+  });
+
+  it("rejects a salvage whose branch is not one git would accept", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          salvages: [
+            { repo: PILOT, number: 7, branch: "", limitRefusals: 1 },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"branch" must be a git branch name/);
+  });
+
+  it("rejects a salvage whose limitRefusals is negative", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          salvages: [
+            { repo: PILOT, number: 7, branch: "issue-7-salvage", limitRefusals: -1 },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"limitRefusals" must be a whole number/);
   });
 });
 

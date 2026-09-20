@@ -185,9 +185,13 @@ export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";
 export {
+  clearSalvage,
   hasAnnouncedOn,
+  recordInfrastructureFailureSalvage,
+  recordLimitRefusalSalvage,
   recordRun,
   recordWorked,
+  salvageFor,
   ticketKey,
   unrecordWorked,
   workedTicket,
@@ -196,6 +200,7 @@ export type {
   ProjectState,
   RegisteredProject,
   RunCost,
+  Salvage,
   State,
   Store,
   WorkedTicket,

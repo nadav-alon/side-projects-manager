@@ -35,6 +35,14 @@ export interface RunRequest {
    * whatever names it here is what the run uses, passed through unchanged.
    */
   model?: ModelName;
+  /**
+   * The ticket's own salvage record's branch, absent when it carries none.
+   * See CONTEXT.md's "Salvage": a limit refusal, or a post-start
+   * infrastructure failure, that left commits keeps its branch for the
+   * ticket's next run to continue on. Passed through unchanged — starting the
+   * run on it, rather than a fresh branch, is not this port's job.
+   */
+  salvageBranch?: Branch;
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -108,10 +116,9 @@ interface Ended {
  * The branch an implementation run worked on, and what it committed there.
  * True of every variant but `RunSandboxFailed`: the branch is created before
  * the agent starts, so even a run refused before the agent did anything
- * still leaves one, empty of commits — but a sandbox that fails once the
- * agent has already run may never get as far as fetching that branch back,
- * so `RunSandboxFailed` carries neither. A review has neither for a
- * different reason: it never creates a branch at all.
+ * still leaves one, empty of commits. `RunSandboxFailed` carries both, or
+ * neither — see its own doc comment. A review has neither for a different
+ * reason: it never creates a branch at all.
  */
 interface Worked {
   /** Branch the agent worked on. */
@@ -213,12 +220,17 @@ export interface ReviewModelRefused extends Ended {
  * The agent's spend is real whatever git did afterwards, so it travels with
  * this result instead of being lost to a rejection — a rejection stays
  * reserved for a sandbox that never got the agent running at all.
+ *
+ * `branch` and `commits` carry what `Worked` does, present together exactly
+ * when the branch had already reached the checkout before the failure, so a
+ * caller can still salvage it (see CONTEXT.md's "Salvage") — absent together
+ * otherwise, since a branch never fetched back is gone with the clone.
  */
-export interface RunSandboxFailed extends Ended {
+export type RunSandboxFailed = Ended & {
   kind: "sandbox-failed";
   /** Why the sandbox failed, once the agent had already run. */
   reason: string;
-}
+} & (Worked | { branch?: undefined; commits?: undefined });
 
 /**
  * How a run in the container ended, as exactly one variant: finished, gave

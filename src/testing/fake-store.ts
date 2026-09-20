@@ -1,4 +1,5 @@
 import type {
+  Branch,
   Budget,
   Day,
   InvocationClosing,
@@ -12,6 +13,7 @@ import type {
   RegisteredProject,
   RepoSlug,
   RunCost,
+  Salvage,
   State,
   Store,
   WorkedTicket,
@@ -23,6 +25,8 @@ import {
   KEPT_SUMMARY_LIMIT,
   findInvocationRecord,
   keptSummaryPath,
+  recordLimitRefusalSalvage,
+  ticketKey,
   workedTicket,
 } from "../ports/index.ts";
 import { summaryFileName } from "../summary.ts";
@@ -46,6 +50,7 @@ export class FakeStore implements Store {
   #state = new Map<RepoSlug, ProjectState>();
   #workedToday: WorkedToday | undefined = undefined;
   #announcedOn: Day | undefined = undefined;
+  #salvages: Salvage[] | undefined = undefined;
   #journal: InvocationRecord[] = [];
   #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
@@ -91,6 +96,18 @@ export class FakeStore implements Store {
     this.#announcedOn = day;
   }
 
+  /**
+   * Records `ticket`'s branch as already salvaged, as an earlier invocation's
+   * limit refusal or post-start infrastructure failure would have left it —
+   * replacing whatever salvage record `ticket` already carried.
+   */
+  markSalvaged(ticket: WorkedTicket, branch: Branch, limitRefusals: number): void {
+    this.#salvages = recordLimitRefusalSalvage(this.#salvages, ticket, branch).map(
+      (salvage) =>
+        ticketKey(salvage) === ticketKey(ticket) ? { ...salvage, limitRefusals } : salvage,
+    );
+  }
+
   async loadRegistry(): Promise<RegisteredProject[]> {
     return this.#registry.map((project) => ({ ...project }));
   }
@@ -121,6 +138,9 @@ export class FakeStore implements Store {
       ...(this.#announcedOn !== undefined && {
         announcedOn: this.#announcedOn,
       }),
+      ...(this.#salvages !== undefined && {
+        salvages: this.#salvages.map((salvage) => ({ ...salvage })),
+      }),
     };
   }
 
@@ -136,6 +156,7 @@ export class FakeStore implements Store {
         ? undefined
         : copyWorkedToday(state.workedToday);
     this.#announcedOn = state.announcedOn;
+    this.#salvages = state.salvages?.map((salvage) => ({ ...salvage }));
   }
 
   async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {

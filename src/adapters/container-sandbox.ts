@@ -347,6 +347,11 @@ async function runOnClone(
         model,
       );
 
+      // Set once the branch has actually reached the checkout, so a failure
+      // past that point can still say so: see the "present together" note on
+      // `RunSandboxFailed` in `ports/sandbox.ts`.
+      let fetchedBack: { branch: Branch; commits: CommitSha[] } | undefined;
+
       try {
         const ending = endingOf(agent, model);
 
@@ -378,6 +383,7 @@ async function runOnClone(
               `${branch}:${branch}`,
             ]),
           );
+          fetchedBack = { branch, commits };
         }
 
         return runOutcomeOf(ending, agent, onto, commits);
@@ -391,6 +397,7 @@ async function runOnClone(
             kind: "sandbox-failed",
             reason: errorMessage(error),
             tokensUsed: agent.tokensUsed,
+            ...fetchedBack,
           },
           agent,
         );
