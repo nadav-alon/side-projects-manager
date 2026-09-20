@@ -42,6 +42,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   REVIEWED_LABEL,
+  isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -230,20 +231,51 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
 }
 
 /**
- * One bullet per attempt this invocation made, its outcome, its cost, and the
- * model it was started on. An attempt that started no run names neither.
+ * One bullet per attempt this invocation made, its outcome, its cost beside
+ * its run estimate, and the model it was started on. An attempt that started
+ * no run names neither.
  */
 function attemptsSection(iterations: IterationOutcome[]): string {
   const lines = iterations.map((iteration) => {
     if (ranNothing(iteration)) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
-    const spent = iteration.tokensUsed;
-    const cost =
-      spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
-    return `- ${describeIteration(iteration)}${cost} on ${iteration.model ?? "the image's model"}`;
+    return `- ${describeIteration(iteration)}${costClause(iteration)} on ${iteration.model ?? "the image's model"}`;
   });
   return ["## Attempts", ...lines].join("\n");
+}
+
+/**
+ * What a worked iteration's cost reads as: unknown when nothing recorded it,
+ * beside the run estimate the gate charged, or — when it spent past that
+ * estimate — the same, flagged with the ticket's size, or "unsized", so the
+ * developer knows which figure in the budget document to raise. Per
+ * `CONTEXT.md`'s "Run estimate": nothing here revises the estimate itself.
+ */
+function costClause(iteration: IterationOutcome): string {
+  const spent = iteration.tokensUsed;
+  if (spent === undefined) {
+    return " — cost unknown";
+  }
+  const estimate = iteration.estimateCharged;
+  if (estimate === undefined) {
+    return ` — ${tokens(spent)} tokens`;
+  }
+  const beside = `${tokens(spent)} / ${tokens(estimate)} tokens`;
+  return spent > estimate
+    ? ` — ${beside}, over its ${sizeOf(iteration.ticket)} estimate`
+    : ` — ${beside}`;
+}
+
+/**
+ * The size `ticket` reads as to the developer: its own declared size, or
+ * "unsized" — never a pull request ticket's own size label, which is read
+ * but never counted, per `CONTEXT.md`'s "Size label".
+ */
+function sizeOf(ticket: Ticket): string {
+  return !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
+    ? ticket.sizeLabel.size
+    : "unsized";
 }
 
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */

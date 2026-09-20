@@ -4993,8 +4993,8 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       const body = ports.tracker.summaries[0]?.body ?? "";
-      assert.match(body, /42,000 tokens/);
-      assert.match(body, /3,000 tokens/);
+      assert.match(body, /42,000 \/ 2,000,000 tokens/);
+      assert.match(body, /3,000 \/ 2,000,000 tokens/);
     });
 
     it("lists a queued review as waiting on the developer", async () => {

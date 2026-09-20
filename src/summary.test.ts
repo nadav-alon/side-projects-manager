@@ -93,6 +93,37 @@ function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOu
   return { repo: REPO, ticket, ...finished };
 }
 
+/** A finished run with no handover, spending `tokensUsed` against `estimateCharged`. */
+function finishedCost(
+  ticket: Ticket,
+  tokensUsed: number,
+  estimateCharged: number,
+): IterationOutcome {
+  const finished: Finished = {
+    kind: "finished",
+    run: {
+      kind: "finished",
+      branch: branch("agent/900"),
+      commits: [commitSha("a".repeat(40))],
+      tokensUsed: tokenCount(tokensUsed),
+      output: "done",
+    },
+    tokensUsed: tokenCount(tokensUsed),
+    handedBack: { outcome: "handed-back" },
+  };
+  return {
+    repo: REPO,
+    ticket,
+    estimateCharged: tokenCount(estimateCharged),
+    ...finished,
+  };
+}
+
+/** `implementationTicket(number)`, declaring `size` as its size label. */
+function sizedTicket(number: number, size: "S" | "M" | "L" | "XL"): Ticket {
+  return { ...implementationTicket(number), sizeLabel: { kind: "declared", size } };
+}
+
 /** A review ticket's own run that finished and closed its ticket cleanly. */
 function reviewedCleanly(number: number): IterationOutcome {
   const reviewed: Reviewed = {
@@ -233,6 +264,20 @@ function waitingLines(iterations: IterationOutcome[]): string[] {
     .filter((line) => line.startsWith("- "));
 }
 
+function attemptsLines(iterations: IterationOutcome[]): string[] {
+  const body = summaryBody(facts(iterations), "line");
+  const marker = "## Attempts";
+  const index = body.indexOf(marker);
+  if (index === -1) {
+    return [];
+  }
+  const rest = body.slice(index + marker.length);
+  const end = rest.indexOf("## Waiting on you");
+  return (end === -1 ? rest : rest.slice(0, end))
+    .split("\n")
+    .filter((line) => line.startsWith("- "));
+}
+
 describe("waitingSection", () => {
   it("renders one line naming the pull request as reviewed, when the review ticket was reviewed this invocation", () => {
     const lines = waitingLines([
@@ -369,6 +414,67 @@ describe("waitingSection", () => {
         `- ${REPO} #190: still ready-for-agent — the sandbox or checkout failed, so fix the setup: disk full`,
       ],
     );
+  });
+});
+
+describe("attemptsSection", () => {
+  it("shows tokens spent beside the run estimate with no flag when under it", () => {
+    const lines = attemptsLines([finishedCost(implementationTicket(300), 1_400_000, 2_000_000)]);
+
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] ?? "", /1,400,000 \/ 2,000,000 tokens/);
+    assert.doesNotMatch(lines[0] ?? "", /over its/);
+  });
+
+  it("shows no flag when the run landed exactly on its estimate", () => {
+    const lines = attemptsLines([finishedCost(implementationTicket(301), 2_000_000, 2_000_000)]);
+
+    assert.doesNotMatch(lines[0] ?? "", /over its/);
+  });
+
+  it("flags a run that spent past its estimate, naming its declared size", () => {
+    const lines = attemptsLines([finishedCost(sizedTicket(302, "S"), 600_000, 500_000)]);
+
+    assert.match(lines[0] ?? "", /600,000 \/ 500,000 tokens, over its S estimate/);
+  });
+
+  it("names the flag unsized when the over-estimate ticket carries no size label", () => {
+    const lines = attemptsLines([finishedCost(implementationTicket(303), 2_500_000, 2_000_000)]);
+
+    assert.match(lines[0] ?? "", /2,500,000 \/ 2,000,000 tokens, over its unsized estimate/);
+  });
+
+  it("flags a pull request ticket unsized even when it carries its own size label, since that is never counted", () => {
+    const ticket: ReviewTicket = { ...reviewTicket(304), sizeLabel: { kind: "declared", size: "XL" } };
+    const reviewed: Reviewed = {
+      kind: "reviewed",
+      review: { kind: "finished", tokensUsed: tokenCount(3_000_000), output: "posted" },
+      tokensUsed: tokenCount(3_000_000),
+    };
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket,
+      estimateCharged: tokenCount(2_000_000),
+      ...reviewed,
+    };
+
+    const lines = attemptsLines([iteration]);
+
+    assert.match(lines[0] ?? "", /over its unsized estimate/);
+  });
+
+  it("says cost unknown when nothing recorded what a failed run spent", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(305),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "handed-back" },
+    };
+
+    const lines = attemptsLines([iteration]);
+
+    assert.match(lines[0] ?? "", /cost unknown/);
   });
 });
 
