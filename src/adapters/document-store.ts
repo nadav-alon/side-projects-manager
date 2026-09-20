@@ -33,6 +33,7 @@ import type {
   State,
   Store,
   TicketKind,
+  Usd,
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
@@ -63,6 +64,7 @@ import {
   isReserveFraction,
   isTokenCount,
   isUsd,
+  spendCeilingFor,
 } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
@@ -337,11 +339,9 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "fiveHourReserveFraction" must be at least 0 and less than 1`,
       DEFAULT_BUDGET.fiveHourReserveFraction,
     ),
-    spendCeiling: numberField(
+    spendCeiling: spendCeilingField(
       fieldOf(document, "spendCeiling", file),
-      isUsd,
-      `${file}: "spendCeiling" must be a dollar amount above 0`,
-      DEFAULT_BUDGET.spendCeiling,
+      file,
     ),
     maxConcurrentIterations: numberField(
       fieldOf(document, "maxConcurrentIterations", file),
@@ -358,6 +358,43 @@ function parseBudget(document: unknown, file: string): Budget {
     ),
     ...observedResetField(fieldOf(document, "observedResetAt", file), file),
   };
+}
+
+/**
+ * `10` or `{ "S": 3, "M": 5, "L": 10, "XL": 20 }`
+ *
+ * A number is one ceiling for every size, same as before this field could
+ * name sizes at all. An object is per size, and every size is optional and
+ * falls back to the flat default `DEFAULT_BUDGET.spendCeiling` names for it,
+ * so a document raising just `L` leaves the other three at that flat figure.
+ */
+function spendCeilingField(
+  value: unknown,
+  file: string,
+): Usd | Record<Size, Usd> {
+  if (value === undefined) {
+    return DEFAULT_BUDGET.spendCeiling;
+  }
+  if (typeof value === "number") {
+    if (!isUsd(value)) {
+      throw new Error(
+        `${file}: "spendCeiling" must be a dollar amount above 0: ${JSON.stringify(value)}`,
+      );
+    }
+    return value;
+  }
+  rejectUnknownFields(value, SIZES, "size", `${file}: "spendCeiling"`);
+  return Object.fromEntries(
+    SIZES.map((size) => [
+      size,
+      numberField(
+        fieldOf(value, size, `${file}: "spendCeiling"`),
+        isUsd,
+        `${file}: "spendCeiling.${size}" must be a dollar amount above 0`,
+        spendCeilingFor(size, DEFAULT_BUDGET.spendCeiling),
+      ),
+    ]),
+  ) as Record<Size, Usd>;
 }
 
 /**

@@ -5,14 +5,16 @@ import type {
   RepoSlug,
   ReserveFraction,
   RunCost,
+  Size,
   Store,
   Ticket,
   TokenCount,
   UsageLedger,
   UsageWindow,
   UsageWindows,
+  Usd,
 } from "./ports/index.ts";
-import { isPullRequestTicket, tokenCount } from "./ports/index.ts";
+import { isPullRequestTicket, spendCeilingFor, tokenCount } from "./ports/index.ts";
 
 /** Which window refused a run, and whether consumption alone did it or the estimate tipped it over. */
 export type StandDownReason =
@@ -272,25 +274,40 @@ function totalEstimate(
 }
 
 /**
- * The run estimate `ticket` charges, per `CONTEXT.md`'s "Run estimate": an
- * implementation ticket's own declared size, in the tokens `budget.sizes`
- * gives it. An unsized ticket, and every pull request ticket whatever it
- * declares — a review, an apply-review or a rebase never inherits its
- * parent's size — charges `unsizedCountsAs`'s instead. Never derived from
- * what past runs cost.
+ * The size `ticket` counts as, per `CONTEXT.md`'s "Run estimate": its own
+ * declared size, for an implementation ticket that carries one, or
+ * `unsizedCountsAs` otherwise. An unsized ticket, and every pull request
+ * ticket whatever it declares — a review, an apply-review or a rebase never
+ * inherits its parent's size — falls to `unsizedCountsAs`. So does a ticket
+ * whose size label names no size the budget document knows, since
+ * `sizeLabel?.kind === "declared"` is false for it too.
  *
- * A ticket whose size label names no size the budget document knows falls to
- * `unsizedCountsAs` the same way, since `sizeLabel?.kind === "declared"` is
- * false for it too.
+ * What `runEstimate` charges in tokens and `spendCeilingForTicket` bounds in
+ * dollars are the same size, resolved once here for both.
+ */
+function sizeFor(ticket: Ticket, budget: Budget): Size {
+  return !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
+    ? ticket.sizeLabel.size
+    : budget.unsizedCountsAs;
+}
+
+/**
+ * The run estimate `ticket` charges, in the tokens `budget.sizes` gives its
+ * size. Never derived from what past runs cost.
  * TODO[#159]: hand that ticket back ahead of the gate instead of charging it
  * here.
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
-  const size =
-    !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
-      ? ticket.sizeLabel.size
-      : budget.unsizedCountsAs;
-  return budget.sizes[size];
+  return budget.sizes[sizeFor(ticket, budget)];
+}
+
+/**
+ * The dollar ceiling `ticket`'s run may spend, per `budget.spendCeiling` for
+ * the same size `runEstimate` charges it as. What reaches the sandbox as
+ * `--max-budget-usd`.
+ */
+export function spendCeilingForTicket(ticket: Ticket, budget: Budget): Usd {
+  return spendCeilingFor(sizeFor(ticket, budget), budget.spendCeiling);
 }
 
 /**

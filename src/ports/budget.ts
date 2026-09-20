@@ -21,8 +21,13 @@ export interface Budget {
   reserveFraction: ReserveFraction;
   /** The share of `fiveHourAllowance` held back for the developer. */
   fiveHourReserveFraction: ReserveFraction;
-  /** The most a single run may spend, enforced by the agent CLI itself. */
-  spendCeiling: Usd;
+  /**
+   * The most a single run may spend, enforced by the agent CLI itself: one
+   * dollar figure for every size, or one figure per size, keyed the way
+   * `sizes` is. `spendCeilingFor` resolves whichever form this holds down to
+   * the one figure a given size sees.
+   */
+  spendCeiling: Usd | Record<Size, Usd>;
   /**
    * The most iterations one invocation may have in progress at once. Raising
    * it multiplies the overshoot `spendCeiling` accepts; the README says by how
@@ -90,3 +95,15 @@ export const DEFAULT_BUDGET: Budget = {
   },
   unsizedCountsAs: "M",
 };
+
+/**
+ * The ceiling `spendCeiling` names for `size`: the one figure it declares,
+ * if it declares just one for every size, or that size's own figure if it is
+ * keyed by size.
+ */
+export function spendCeilingFor(
+  size: Size,
+  spendCeiling: Budget["spendCeiling"],
+): Usd {
+  return typeof spendCeiling === "number" ? spendCeiling : spendCeiling[size];
+}

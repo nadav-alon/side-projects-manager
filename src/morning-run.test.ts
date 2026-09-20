@@ -3175,6 +3175,42 @@ describe("morningLoop", () => {
 
       assert.equal(ports.sandbox.runs[0]?.spendCeiling, 2.5);
     });
+
+    it("gives a sized ticket its own size's ceiling, when spendCeiling is per size", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.tracker.addLabel(ticket, "size:L");
+      ports.store.budget = {
+        ...DEFAULT_BUDGET,
+        spendCeiling: { S: usd(3), M: usd(5), L: usd(10), XL: usd(20) },
+      };
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.spendCeiling, 10);
+    });
+
+    it("gives an unsized ticket unsizedCountsAs's ceiling, when spendCeiling is per size", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.store.budget = {
+        ...DEFAULT_BUDGET,
+        spendCeiling: { S: usd(3), M: usd(5), L: usd(10), XL: usd(20) },
+        unsizedCountsAs: "S",
+      };
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.spendCeiling, 3);
+    });
   });
 
   describe("iterations in progress at once", () => {

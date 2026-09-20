@@ -283,11 +283,19 @@ still leaves room for a run to spend past it, up to the ceiling, before the next
 up. What a run actually spent is recorded in `state.json` either way, so the next morning's gate
 counts the real figure, not the estimate.
 
+`spendCeiling` accepts either a number — one ceiling for every ticket, the form above — or an object
+keyed by size, `{ "S": 3, "M": 5, "L": 10, "XL": 20 }`. Any of `S`, `M`, `L` or `XL` may be left out
+of that object, and each missing one falls back to the flat default, the same way `sizes` fills in
+whatever it is not told. A run is given the ceiling its ticket's `size:*` label names, resolved the
+same way `sizes` resolves the run estimate: an unsized ticket, and every review, apply-review or
+rebase ticket whatever it declares, is given `unsizedCountsAs`'s ceiling instead.
+
 `maxConcurrentIterations` is the most iterations one invocation may have in progress at once: a
 whole number, 1 or more, defaulting to `1`. Know what it costs before raising it: the gate charges
 every iteration still in progress its own run estimate, so raising this does not multiply an
 unaccounted overshoot the way it once did, but an estimate set too low still lets that many runs
-overshoot it together. Raising it is a reason to lower the allowances or raise the reserve.
+overshoot it together — by as much as the largest ceiling in play, once `spendCeiling` can differ by
+size. Raising it is a reason to lower the allowances or raise the reserve.
 
 `observedResetAt` is the one field with no default, and most `budget.json` files never carry it. It
 is a 5-hour reset instant you read off Claude's own display, written as ISO 8601 with a zone —

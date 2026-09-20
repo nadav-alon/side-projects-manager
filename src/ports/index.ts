@@ -1,6 +1,6 @@
 export { branch, isBranch } from "./branch.ts";
 export type { Branch } from "./branch.ts";
-export { DEFAULT_BUDGET } from "./budget.ts";
+export { DEFAULT_BUDGET, spendCeilingFor } from "./budget.ts";
 export type { Budget } from "./budget.ts";
 export { checkout, isCheckout } from "./checkout.ts";
 export type { Checkout } from "./checkout.ts";
