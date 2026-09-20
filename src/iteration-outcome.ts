@@ -421,6 +421,13 @@ export interface Reviewed {
    * request and closes it by hand.
    */
   notClosed?: NotClosed;
+  /**
+   * Set when the ticket closed but `REVIEWED_LABEL` could not be added to its
+   * pull request. The last step, tried only once the ticket is already
+   * closed: a refusal here is reported rather than retried, never `notClosed`
+   * — the ticket did close.
+   */
+  notLabelled?: NotLabelled;
 }
 
 /**
@@ -429,6 +436,14 @@ export interface Reviewed {
  */
 export interface NotClosed {
   kind: "check-failed" | "close-failed";
+  error: string;
+}
+
+/**
+ * Why a review or apply-review iteration's closed ticket could not have its
+ * pull request labelled, and the error that stopped it.
+ */
+export interface NotLabelled {
   error: string;
 }
 
@@ -457,6 +472,12 @@ export interface AppliedReview {
    * not be closed. Either way the ticket is still ready-for-agent.
    */
   notClosed?: ApplyReviewNotClosed;
+  /**
+   * Set when the ticket closed but `APPLIED_REVIEW_LABEL` could not be added
+   * to its pull request. As `Reviewed.notLabelled`: the last step, tried only
+   * once the ticket is already closed, and reported rather than retried.
+   */
+  notLabelled?: NotLabelled;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */

@@ -4,9 +4,11 @@ import { describe, it } from "node:test";
 import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   READY_FOR_HUMAN_LABEL,
+  REVIEWED_LABEL,
   backlogIn,
   branch,
   checkout,
@@ -734,6 +736,15 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("adds no reviewed or applied-review label to an implementation run's own pull request", async () => {
+      const ports = fakePorts();
+      ran(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
     it("is opened with the run's ticket gist, when it carried one", async () => {
       const ports = fakePorts();
       const gist = ticketGist("Add the thing to the widget.");
@@ -1262,6 +1273,84 @@ describe("morningLoop", () => {
       assert.deepEqual(backlog, []);
     });
 
+    it("labels the pull request reviewed once the ticket closes", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
+      ]);
+    });
+
+    it("reports a refused label without reopening the review ticket", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.repoHost, "labelPullRequest", async () => {
+        throw new Error("label does not exist");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "reviewed");
+      assert.equal(
+        outcome?.kind === "reviewed" ? outcome.notLabelled?.error : undefined,
+        "label does not exist",
+      );
+      assert.equal(
+        outcome?.kind === "reviewed" ? outcome.notClosed : undefined,
+        undefined,
+      );
+    });
+
+    it("adds no label when the review ticket cannot be closed", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("adds no label to a review whose agent gave up", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not read the diff",
+        tokensUsed: tokenCount(1_000),
+        reason: "the review skill exited 1",
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("adds no label to a review the provider limit refused", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "limit-refused");
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
     it("hands back a review whose agent gave up, rather than leaving it to come round again", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
@@ -1415,6 +1504,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /gh api rate limited/);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       assert.deepEqual(ports.tracker.handbacks.map((h) => h.ticket.number), [7]);
+      assert.deepEqual(ports.repoHost.labelled, []);
       const body = ports.tracker.summaries[0]?.body ?? "";
       const waiting = body.slice(body.indexOf("## Waiting on you"));
       assert.match(waiting, new RegExp(`pilot #${ticket.number}`));
@@ -1755,6 +1845,18 @@ describe("morningLoop", () => {
       assert.deepEqual(backlog, []);
     });
 
+    it("labels the pull request applied-review once a finished run's ticket closes", async () => {
+      const ports = fakePorts();
+      queued(ports, 1);
+      answering(ports, ["applied"]);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: APPLIED_REVIEW_LABEL },
+      ]);
+    });
+
     it("marks the pull request ready even when every thread was declined", async () => {
       const ports = fakePorts();
       queued(ports, 1);
@@ -1823,6 +1925,17 @@ describe("morningLoop", () => {
       assert.match(report.message, /nothing left to apply/i);
     });
 
+    it("labels the pull request applied-review when no thread was open, so nothing ran", async () => {
+      const ports = fakePorts();
+      queued(ports, 0);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: APPLIED_REVIEW_LABEL },
+      ]);
+    });
+
     it("hands back a finished run that left a thread unanswered, leaving the pull request a draft", async () => {
       const ports = fakePorts();
       const ticket = queued(ports, 2);
@@ -1840,6 +1953,16 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("adds no label to an apply-review whose agent gave up", async () => {
+      const ports = fakePorts();
+      queued(ports, 2);
+      answering(ports, ["applied"]);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("hands back a run whose push was rejected because the branch moved, naming the moved head", async () => {
@@ -1939,6 +2062,7 @@ describe("morningLoop", () => {
       assert.equal(report.standDown?.reason, "provider-limit");
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.repoHost.labelled, []);
       const { tickets: backlog } = backlogIn(
         await ports.tracker.listOpenIssues(PILOT),
       );
@@ -2024,6 +2148,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.repoHost.labelled, []);
       assert.match(
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
@@ -2047,6 +2172,7 @@ describe("morningLoop", () => {
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
       );
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("reports a ticket that cannot be closed, rather than raising it", async (t) => {
@@ -2066,6 +2192,35 @@ describe("morningLoop", () => {
       assert.match(
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("reports a refused label without reopening a finished apply-review's ticket", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      answering(ports, ["applied"]);
+      t.mock.method(ports.repoHost, "labelPullRequest", async () => {
+        throw new Error("label does not exist");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket),
+        [ticket],
+      );
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "applied-review");
+      assert.equal(
+        outcome?.kind === "applied-review"
+          ? outcome.notLabelled?.error
+          : undefined,
+        "label does not exist",
+      );
+      assert.equal(
+        outcome?.kind === "applied-review" ? outcome.notClosed : undefined,
+        undefined,
       );
     });
 
@@ -2243,6 +2398,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.pullRequests.length, 0);
       assert.equal(ports.repoHost.discarded.length, 0);
       assert.equal(ports.tracker.reviewTickets.length, 0);
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("hands back a finished run whose pull request still conflicts, and does not close it", async () => {
@@ -4046,6 +4202,7 @@ describe("morningLoop", () => {
         assert.match(ports.tracker.handbacks[0]?.comment ?? "", /haiku/);
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+        assert.deepEqual(ports.repoHost.labelled, []);
       });
 
       it("hands back an apply-review ticket whose model is refused, naming the apply-review model defaults", async () => {
@@ -4075,6 +4232,7 @@ describe("morningLoop", () => {
         assert.match(comment, /model defaults for apply-review tickets/);
         assert.match(comment, /fix the apply-review model in `models\.json`/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+        assert.deepEqual(ports.repoHost.labelled, []);
       });
 
       it("discards any branch the refused run left, and says so", async () => {

@@ -13,8 +13,10 @@ import type {
   ModelName,
   ModelRefusal,
   ProjectState,
+  PullRequestLabel,
   PullRequestState,
   PullRequestTicket,
+  PullRequestUrl,
   RebaseFinished,
   RebaseGaveUp,
   RebaseTicket,
@@ -39,7 +41,9 @@ import type {
   Usd,
 } from "./ports/index.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   MergeabilityUnknown,
+  REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
   isRebaseTicket,
@@ -91,6 +95,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type NotLabelled,
   type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
@@ -1179,11 +1184,33 @@ async function resolvedPullRequestOutcome(
 }
 
 /**
+ * Labels `pullRequest` with `label`, once its ticket has already closed. The
+ * fields returned fold straight into `Reviewed` or `AppliedReview`: empty on
+ * success, `notLabelled` naming the error otherwise.
+ *
+ * Never throws: a refused label is reported rather than raised, since it is
+ * the last step and the ticket closing is what matters. TODO[#407]: render
+ * `notLabelled` to the developer; it is only recorded on the iteration today.
+ */
+async function labelClosedPullRequest(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+  label: PullRequestLabel,
+): Promise<{ notLabelled?: NotLabelled }> {
+  try {
+    await ports.repoHost.labelPullRequest(pullRequest, label);
+    return {};
+  } catch (error: unknown) {
+    return { notLabelled: { error: errorMessage(error) } };
+  }
+}
+
+/**
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
- * ticket once that finished — a review that posted needs nobody to close it
- * by hand.
+ * ticket once that finished, then labelling its pull request `reviewed` — a
+ * review that posted needs nobody to close it by hand.
  *
  * Closing rests on the pull request actually carrying a new comment, not on
  * the sandbox process merely exiting clean: an agent can run the review skill
@@ -1199,8 +1226,8 @@ async function resolvedPullRequestOutcome(
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
- * as it was, and the invocation carries on. A check or a close that fails
- * after the review ran is reported on the iteration, never raised.
+ * as it was, and the invocation carries on. A check, a close or a label that
+ * fails after the review ran is reported on the iteration, never raised.
  */
 async function runReview(
   ports: MorningLoopPorts,
@@ -1284,7 +1311,12 @@ async function runReview(
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
-  return { kind: "reviewed", review, tokensUsed: review.tokensUsed };
+  const labelled = await labelClosedPullRequest(
+    ports,
+    ticket.pullRequest.url,
+    REVIEWED_LABEL,
+  );
+  return { kind: "reviewed", review, tokensUsed: review.tokensUsed, ...labelled };
 }
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */
@@ -1321,8 +1353,8 @@ async function handReviewBack(
  * that left a thread unanswered is handed back, the pull request left a
  * draft. A repo host or sandbox that could not do its part before the agent
  * started is an infrastructure failure, and a limit or model refusal reads as
- * for a review. A read, mark or close that fails after the run is reported on
- * the iteration, never raised.
+ * for a review. A read, mark, close or label that fails after the run is
+ * reported on the iteration, never raised.
  *
  * A pull request already merged or closed by the time the iteration starts is
  * checked for before any of that: its branch is commonly gone with it, which
@@ -1428,9 +1460,11 @@ async function runApplyReview(
 }
 
 /**
- * Marks `ticket`'s pull request ready for review, then closes the ticket with
- * a comment saying what `applied` came to. Never throws: whichever step fails
- * is reported on the iteration, and the ticket is left open.
+ * Marks `ticket`'s pull request ready for review, closes the ticket with a
+ * comment saying what `applied` came to, then labels the pull request
+ * `applied-review`. Never throws: a failure marking it ready or closing the
+ * ticket is reported on the iteration and leaves the ticket open; a refused
+ * label is reported too, but by then the ticket has already closed.
  */
 async function finishApplyReview(
   ports: MorningLoopPorts,
@@ -1457,7 +1491,12 @@ async function finishApplyReview(
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
-  return applied;
+  const labelled = await labelClosedPullRequest(
+    ports,
+    pullRequest,
+    APPLIED_REVIEW_LABEL,
+  );
+  return { ...applied, ...labelled };
 }
 
 /** Hands back an apply-review run that gave up or left a thread unanswered. */
