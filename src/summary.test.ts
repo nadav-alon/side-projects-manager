@@ -266,10 +266,14 @@ describe("waitingSection", () => {
     ]);
   });
 
-  it("lists a reviewed iteration under waiting on you when its pull request could not be labelled, naming the pull request, the label and the error", () => {
-    const lines = waitingLines([reviewedButNotLabelled(183)]);
+  it("renders both the handover's reviewed line and its own waiting line, when a reviewed iteration worked from a handover this invocation could not be labelled", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(182), 183),
+      reviewedButNotLabelled(183),
+    ]);
 
     assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`,
       `- ${REPO} #183: ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself`,
     ]);
   });
