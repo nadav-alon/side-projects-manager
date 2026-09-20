@@ -13,6 +13,7 @@ import {
   type Handover,
   type IterationOutcome,
   type NotClosed,
+  type NotLabelled,
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
@@ -21,7 +22,9 @@ import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type {
   ApplyReviewTicket,
+  PullRequestLabel,
   PullRequestTicket,
+  PullRequestUrl,
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
@@ -31,9 +34,11 @@ import type {
   TranscriptPath,
 } from "./ports/index.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  REVIEWED_LABEL,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -253,9 +258,11 @@ function stillEligibleLine(iteration: {
  * developer's alone, per `HandBackRecord`'s `"refused"` outcome — a ticket the
  * hand-back itself could not reach, still eligible and due to come round
  * again until somebody relabels it by hand. A review the loop could not
- * close is there for the same reason. A project whose backlog was too long
- * to read in full belongs here too, in registry order, since thinning it is
- * the developer's to do regardless of what else the morning found.
+ * close is there for the same reason, as is a reviewed or applied-review
+ * ticket whose pull request closed cleanly but could not be labelled: the
+ * label is the developer's to add by hand. A project whose backlog was too
+ * long to read in full belongs here too, in registry order, since thinning
+ * it is the developer's to do regardless of what else the morning found.
  */
 function waitingSection(
   iterations: IterationOutcome[],
@@ -265,11 +272,22 @@ function waitingSection(
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed":
-        return reviewLeftOpen(iteration)
-          ? [notClosedLine(iteration, iteration.notClosed)]
-          : [];
-      case "applied-review":
-        return [appliedReviewWaitingLine(iteration)];
+        if (reviewLeftOpen(iteration)) {
+          return [notClosedLine(iteration, iteration.notClosed)];
+        }
+        return iteration.notLabelled === undefined
+          ? []
+          : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)];
+      case "applied-review": {
+        const waiting = appliedReviewWaitingLine(iteration);
+        if (!appliedReviewNotLabelled(iteration)) {
+          return [waiting];
+        }
+        return [
+          waiting,
+          notLabelledLine(iteration, APPLIED_REVIEW_LABEL, iteration.notLabelled),
+        ];
+      }
       case "rebased":
         return [rebasedWaitingLine(iteration)];
       // Closed outright, so nothing here waits on the developer — unless the
@@ -373,12 +391,14 @@ function workedReviewOutcomes(
  * on it could do anything — its own case names nothing for a ticket it found
  * already closed, so the queued pull request would otherwise vanish with it.
  * One that ran and closed its ticket cleanly needs a line here naming the
- * pull request as reviewed, since the `reviewed` case has none to add for
- * that outcome; one that failed some other way, ran but could not close its
- * ticket, or closed instead of running because its own pull request had
- * already resolved, already has its own line — or none — from that
- * iteration's own case, so nothing is added here — a second line would only
- * repeat it.
+ * pull request as reviewed: the `reviewed` case adds nothing of its own for
+ * that outcome, except — when the label itself failed — its own line about
+ * the label rather than the review, so the two stand as separate lines
+ * rather than one repeating the other. One that failed some other way, ran
+ * but could not close its ticket, or closed instead of running because its
+ * own pull request had already resolved, already has its own line — or none
+ * — from that iteration's own case, so nothing is added here — a second line
+ * would only repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
@@ -412,6 +432,17 @@ function reviewLeftOpen(
   outcome: Reviewed,
 ): outcome is Reviewed & { notClosed: NotClosed } {
   return outcome.notClosed !== undefined;
+}
+
+/**
+ * Whether an applied-review iteration's ticket closed cleanly but its pull
+ * request could not be labelled — labelling is tried only once the ticket
+ * has closed, so this and `notClosed` never both hold.
+ */
+function appliedReviewNotLabelled(
+  outcome: AppliedReview,
+): outcome is AppliedReview & { notLabelled: NotLabelled } {
+  return outcome.notClosed === undefined && outcome.notLabelled !== undefined;
 }
 
 /**
@@ -551,15 +582,49 @@ function handbackNote(finished: Finished): string {
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, notClosed } = iteration;
+  const { repo, ticket, notClosed, notLabelled } = iteration;
   switch (notClosed?.kind) {
-    case undefined:
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
+    case undefined: {
+      const posted = `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
+      return notLabelled === undefined
+        ? posted
+        : `${posted} ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
+    }
     case "check-failed":
       return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
     case "close-failed":
       return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
+}
+
+/**
+ * The sentence a failed label reads as, wherever it is said: read at
+ * `notLabelledLine`, and inline at the end of `reviewSummary` and
+ * `appliedReviewSummary`'s own clean-outcome sentence — so a refused label is
+ * said one way rather than in three wordings that drift apart from each
+ * other.
+ */
+function notLabelledNote(
+  pullRequest: PullRequestUrl,
+  label: PullRequestLabel,
+  { error }: NotLabelled,
+): string {
+  return `${pullRequest} could not be labelled ${label}: ${withoutTrailingStop(error)}; add the label yourself`;
+}
+
+/**
+ * The Waiting-on-you line for a review or apply-review iteration whose ticket
+ * closed but whose pull request could not be labelled `label`. Read at both
+ * kinds' own case in `waitingSection`, once each has ruled out `notClosed`:
+ * labelling is tried only after the ticket has already closed, so the two
+ * never both apply to the same iteration.
+ */
+function notLabelledLine(
+  { repo, ticket }: { repo: RepoSlug; ticket: PullRequestTicket },
+  label: PullRequestLabel,
+  notLabelled: NotLabelled,
+): string {
+  return `- ${repo} #${ticket.number}: ${notLabelledNote(ticket.pullRequest.url, label, notLabelled)}`;
 }
 
 /** The Waiting-on-you line for a review that ran but left its ticket open. */
@@ -593,12 +658,16 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
  * the loop could not finish the ticket off.
  */
 function appliedReviewSummary(iteration: AppliedReviewIteration): string {
-  const { repo, ticket, notClosed } = iteration;
+  const { repo, ticket, notClosed, notLabelled } = iteration;
   const pullRequest = ticket.pullRequest.url;
   const applied = `Applied review on ${repo} #${ticket.number}`;
   switch (notClosed?.kind) {
-    case undefined:
-      return `${applied}: ${answered(iteration)}, now ready for review.`;
+    case undefined: {
+      const ready = `${applied}: ${answered(iteration)}, now ready for review.`;
+      return notLabelled === undefined
+        ? ready
+        : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
+    }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
     case "ready-failed":
