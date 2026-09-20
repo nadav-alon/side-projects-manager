@@ -2717,19 +2717,37 @@ describe("containerSandbox with the real docker container", () => {
     );
   }
 
-  it("mounts the clone read-write, asks for print mode and JSON output, and hands over the spend ceiling", async (t) => {
-    withCredential(t);
+  /**
+   * Runs `operation` against a docker stub that answers every invocation as
+   * `answer` (built with `dockerAnswering`), under the credential `mount`
+   * implies (a review needs "ro"; everything else needs "rw", the default).
+   * Returns the operation's result and the clone it ran against, alongside
+   * the record of how docker was called.
+   */
+  async function runWithDocker<T>(
+    t: TestContext,
+    answer: string,
+    operation: (sandbox: Sandbox, directory: Checkout) => Promise<T>,
+    mount: Mount = "rw",
+  ): Promise<{ result: T; directory: Checkout; docker: RecordedDocker }> {
+    withCredential(t, mount);
     const directory = await project();
-    const docker = await recordingDocker(
+    const docker = await recordingDocker(t, answer);
+    const result = await operation(containerSandbox(), directory);
+    return { result, directory, docker };
+  }
+
+  it("mounts the clone read-write, asks for print mode and JSON output, and hands over the spend ceiling", async (t) => {
+    const { directory, docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, checkoutDirectory) =>
+        sandbox.run({
+          ticket: TICKET,
+          checkout: checkoutDirectory,
+          spendCeiling: usd(2.5),
+        }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: usd(2.5),
-    });
 
     const [call] = await docker.calls();
     assert.equal(call?.[0], "run");
@@ -2746,38 +2764,30 @@ describe("containerSandbox with the real docker container", () => {
   });
 
   it("passes no model argument when none is asked for", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     assert.ok(!call?.includes("--model"));
   });
 
   it("passes the model to the agent CLI as one argument, whatever it contains", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const name = "opus;rm$(whoami)'x'|&";
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          model: modelName(name),
+        }),
     );
-    const name = "opus;rm$(whoami)'x'|&";
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-      model: modelName(name),
-    });
 
     const [call] = await docker.calls();
     const flag = call?.indexOf("--model") ?? -1;
@@ -2797,19 +2807,18 @@ describe("containerSandbox with the real docker container", () => {
    * `Mount` for the other half, the credential `envFor` forwards alongside it.
    */
   it("mounts a review's clone read-only and passes its model the same way", async (t) => {
-    withCredential(t, "ro");
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({
+          ticket: REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          model: modelName("opus"),
+        }),
+      "ro",
     );
-
-    await containerSandbox().review({
-      ticket: REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-      model: modelName("opus"),
-    });
 
     const [call] = await docker.calls();
     assert.equal(call?.[(call.indexOf("--model") ?? -1) + 1], "opus");
@@ -2817,18 +2826,13 @@ describe("containerSandbox with the real docker container", () => {
   });
 
   it("forwards the same credential names to the container regardless of mount", async (t) => {
-    withCredential(t, "ro");
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
+      "ro",
     );
-
-    await containerSandbox().review({
-      ticket: REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     assert.ok(call?.includes("GH_TOKEN"));
@@ -2842,18 +2846,12 @@ describe("containerSandbox with the real docker container", () => {
    * apart from an agent that looked at the ticket and left it alone.
    */
   it("grants the agent its permissions, since no host is there to be asked", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     const mode = call?.indexOf("--permission-mode") ?? -1;
@@ -2873,18 +2871,12 @@ describe("containerSandbox with the real docker container", () => {
    * afterwards.
    */
   it("pins the container to the uid and gid that started the run", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     const pin = call?.indexOf("--user") ?? -1;
@@ -2930,36 +2922,29 @@ describe("containerSandbox with the real docker container", () => {
   });
 
   it("mounts the transcript directory at the agent CLI's own log location", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
   });
 
   it("mounts the transcript directory writable even for a read-only review", async (t) => {
-    withCredential(t, "ro");
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({
+          ticket: REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+      "ro",
     );
-
-    await containerSandbox().review({
-      ticket: REVIEW_TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
@@ -2976,18 +2961,12 @@ describe("containerSandbox with the real docker container", () => {
    * though each flag's own test still passes on its own.
    */
   it("pins the same user on the container that mounts the transcript directory", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     assert.ok(call?.includes("--user"));
@@ -3001,18 +2980,12 @@ describe("containerSandbox with the real docker container", () => {
    * of the path. Dropped, nothing fails loudly: runs just stall again.
    */
   it("runs the container on the host's network", async (t) => {
-    withCredential(t);
-    const directory = await project();
-    const docker = await recordingDocker(
+    const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
-
-    await containerSandbox().run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-    });
 
     const [call] = await docker.calls();
     const network = call?.indexOf("--network") ?? -1;
@@ -3059,9 +3032,7 @@ describe("containerSandbox with the real docker container", () => {
 
   describe("reading what the agent CLI said", () => {
     it("reads the agent's result and totals every token field", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3074,13 +3045,9 @@ describe("containerSandbox with the real docker container", () => {
             },
           }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(result.kind, "finished");
       assert.equal(variant(result, "finished")?.output, "implemented the thing");
@@ -3088,9 +3055,7 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("counts the fields it was given and no others", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3098,81 +3063,62 @@ describe("containerSandbox with the real docker container", () => {
             usage: { input_tokens: 3, output_tokens: 4 },
           }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(result.tokensUsed, tokenCount(7));
     });
 
     it("keeps output it cannot parse, and charges nothing for it", async (t) => {
-      withCredential(t);
-      const directory = await project();
       const stdout = "claude: command not found";
-      await recordingDocker(t, dockerAnswering(stdout));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(variant(result, "finished")?.output, stdout);
       assert.equal(result.tokensUsed, tokenCount(0));
     });
 
     it("keeps the raw envelope when it carries no result", async (t) => {
-      withCredential(t);
-      const directory = await project();
       const stdout = JSON.stringify({ usage: { input_tokens: 5 } });
-      await recordingDocker(t, dockerAnswering(stdout));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(variant(result, "finished")?.output, stdout);
       assert.equal(result.tokensUsed, tokenCount(5));
     });
 
     it("charges nothing when the envelope reports no usage", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "done" })));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(JSON.stringify({ result: "done" })),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(result.tokensUsed, tokenCount(0));
     });
 
     /** A run that went wrong says so on stderr, and nowhere else. */
     it("keeps the diagnostics a failing run wrote to stderr", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({ result: "gave up" }),
           "Error: no such image\n",
           1,
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       const output = variant(result, "gave-up")?.output ?? "";
       assert.match(output, /gave up/);
@@ -3180,15 +3126,12 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("reports stderr alone when the run said nothing else", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, dockerAnswering("", "docker: command not found\n"));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering("", "docker: command not found\n"),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(
         variant(result, "finished")?.output,
@@ -3204,9 +3147,7 @@ describe("containerSandbox with the real docker container", () => {
      * as a morning where the agent simply found nothing to do.
      */
     it("says which tools the agent was refused", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3219,13 +3160,9 @@ describe("containerSandbox with the real docker container", () => {
             ],
           }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       const output = variant(result, "finished")?.output ?? "";
       assert.match(output, /refused these tools/);
@@ -3237,9 +3174,7 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("names each refused tool once, however often it was refused", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3251,13 +3186,9 @@ describe("containerSandbox with the real docker container", () => {
             ],
           }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       const denials = (variant(result, "finished")?.output ?? "").match(/Bash/g) ?? [];
       assert.equal(denials.length, 1);
@@ -3268,20 +3199,14 @@ describe("containerSandbox with the real docker container", () => {
      * note stays a signal rather than a line on every hand-back comment.
      */
     it("says nothing about refusals when there were none", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({ result: "done", permission_denials: [] }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(variant(result, "finished")?.output, "done");
     });
@@ -3292,9 +3217,7 @@ describe("containerSandbox with the real docker container", () => {
      * once those are appended to the output a caller sees.
      */
     it("still carries a well-formed ticket gist once stderr is appended after it", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3302,13 +3225,9 @@ describe("containerSandbox with the real docker container", () => {
           }),
           "npm warn deprecated foo@1.0.0\n",
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       const finished = variant(result, "finished");
       assert.equal(finished?.gist, "Add retries to the flaky upload step.");
@@ -3316,9 +3235,7 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("still carries a well-formed ticket gist once a denied-tools note is appended after it", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3327,13 +3244,9 @@ describe("containerSandbox with the real docker container", () => {
             permission_denials: [{ tool_name: "Bash" }],
           }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       const finished = variant(result, "finished");
       assert.equal(finished?.gist, "Add retries to the flaky upload step.");
@@ -3341,9 +3254,7 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("reads a limit refusal out of the CLI's JSON envelope", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3356,41 +3267,31 @@ describe("containerSandbox with the real docker container", () => {
           "",
           1,
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
     });
 
     it("reads a limit refusal the CLI printed as plain text rather than an envelope", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, dockerAnswering(`${LIMIT_REFUSAL}\n`, "", 1));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(`${LIMIT_REFUSAL}\n`, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
     });
 
     it("reads a provider failure off the JSON envelope's own is_error and terminal_reason", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, dockerAnswering(PROVIDER_FAILURE_STDOUT, "", 1));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(PROVIDER_FAILURE_STDOUT, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(result.kind, "provider-failed");
       assert.equal(
@@ -3400,15 +3301,12 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("reads a provider failure off prose with no JSON envelope to parse", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, dockerAnswering(PROVIDER_FAILURE_PROSE, "", 1));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(PROVIDER_FAILURE_PROSE, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(result.kind, "provider-failed");
       assert.equal(
@@ -3419,61 +3317,41 @@ describe("containerSandbox with the real docker container", () => {
 
     for (const status of [529, 500]) {
       it(`reads api_error_status ${status} as a provider failure`, async (t) => {
-        withCredential(t);
-        const directory = await project();
-        await recordingDocker(
+        const { result } = await runWithDocker(
           t,
           dockerAnswering(providerFailureStdoutWithStatus(status), "", 1),
+          (sandbox, directory) =>
+            sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
         );
-
-        const result = await containerSandbox().run({
-          ticket: TICKET,
-          checkout: directory,
-          spendCeiling: CEILING,
-        });
 
         assert.equal(result.kind, "provider-failed");
       });
     }
 
     it("reads api_error_status 401 as an agent that gave up, not a provider failure", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(providerFailureStdoutWithStatus(401), "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(result.kind, "gave-up");
     });
 
     it("reads no provider failure from the model-refusal fixture's own api_error_status", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(result.kind, "gave-up");
     });
 
     it("reads no provider failure when is_error is false", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3485,31 +3363,25 @@ describe("containerSandbox with the real docker container", () => {
           "",
           1,
         ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
 
       assert.equal(result.kind, "gave-up");
     });
 
     it("reports a model refusal apart from an agent that gave up", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("this-model-does-not-exist-xyz"),
+          }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-        model: modelName("this-model-does-not-exist-xyz"),
-      });
 
       assert.equal(result.kind, "model-refused");
       assert.deepEqual(variant(result, "model-refused")?.refusal, {
@@ -3519,31 +3391,27 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("does not mistake a finished agent that quotes the model refusal tag for one refused", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
             result: `Matched the CLI's line:\n${MODEL_REFUSAL_STDERR}`,
           }),
         ),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("opus"),
+          }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-        model: modelName("opus"),
-      });
 
       assert.equal(result.kind, "finished");
     });
 
     it("does not mistake an agent that gave up quoting the model refusal tag for one refused", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
@@ -3552,32 +3420,31 @@ describe("containerSandbox with the real docker container", () => {
           "",
           1,
         ),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("opus"),
+          }),
       );
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-        model: modelName("opus"),
-      });
 
       assert.equal(result.kind, "gave-up");
     });
 
     it("reports a model refusal on a review the same way, naming the model and the CLI's words", async (t) => {
-      withCredential(t, "ro");
-      const directory = await project();
-      await recordingDocker(
+      const { result } = await runWithDocker(
         t,
         dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.review({
+            ticket: REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("this-model-does-not-exist-xyz"),
+          }),
+        "ro",
       );
-
-      const result = await containerSandbox().review({
-        ticket: REVIEW_TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-        model: modelName("this-model-does-not-exist-xyz"),
-      });
 
       assert.equal(result.kind, "model-refused");
       assert.deepEqual(variant(result, "model-refused")?.refusal, {
@@ -3600,15 +3467,12 @@ describe("containerSandbox with the real docker container", () => {
       t: TestContext,
       { stderr = "", code = 1 }: { stderr?: string; code?: number } = {},
     ): Promise<string> {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, dockerAnswering("", stderr, code));
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering("", stderr, code),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.equal(result.kind, "gave-up");
       return variant(result, "gave-up")?.reason ?? "";
@@ -3644,15 +3508,12 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     it("names the signal that killed a container with no exit code of its own", async (t) => {
-      withCredential(t);
-      const directory = await project();
-      await recordingDocker(t, "kill -KILL $$");
-
-      const result = await containerSandbox().run({
-        ticket: TICKET,
-        checkout: directory,
-        spendCeiling: CEILING,
-      });
+      const { result } = await runWithDocker(
+        t,
+        "kill -KILL $$",
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
       assert.match(variant(result, "gave-up")?.reason ?? "", /killed by SIGKILL/);
     });
