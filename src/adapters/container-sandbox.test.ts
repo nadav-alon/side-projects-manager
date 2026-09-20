@@ -2377,24 +2377,44 @@ describe("containerSandbox.applyReview", () => {
       assert.equal(started, false);
     });
 
-    it("refuses an answer that names no usable head branch", async (t) => {
+    /**
+     * The guard is `isCrossRepository !== false`, so a `gh --json` output that
+     * silently dropped the field must fail closed the same way a fork does,
+     * not fail open by treating the missing field as `false`.
+     */
+    it("refuses an answer that does not say whether the pull request is from a fork", async (t) => {
       const { directory } = await hostedProject();
-      await recordingGh(
-        t,
-        `echo '${JSON.stringify({ headRefName: 7, isCrossRepository: false })}'`,
-      );
+      await recordingGh(t, `echo '${JSON.stringify({ headRefName: BRANCH })}'`);
       let started = false;
       const sandbox = containerSandbox(async () => {
         started = true;
         return { output: "", tokensUsed: tokenCount(0) };
       });
 
-      await assert.rejects(
-        applyReviewOn(sandbox, directory),
-        /no usable head branch/,
-      );
+      await assert.rejects(applyReviewOn(sandbox, directory), /its own repo/);
       assert.equal(started, false);
     });
+
+    for (const headRefName of [undefined, 7, "not a branch.."]) {
+      it(`refuses a head branch of ${JSON.stringify(headRefName)}`, async (t) => {
+        const { directory } = await hostedProject();
+        await recordingGh(
+          t,
+          `echo '${JSON.stringify({ headRefName, isCrossRepository: false })}'`,
+        );
+        let started = false;
+        const sandbox = containerSandbox(async () => {
+          started = true;
+          return { output: "", tokensUsed: tokenCount(0) };
+        });
+
+        await assert.rejects(
+          applyReviewOn(sandbox, directory),
+          /no usable head branch/,
+        );
+        assert.equal(started, false);
+      });
+    }
   });
 });
 
