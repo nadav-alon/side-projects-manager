@@ -12,6 +12,7 @@ import type {
   ModelDefaults,
   ModelName,
   ModelRefusal,
+  Progress,
   ProjectState,
   PullRequestLabel,
   PullRequestState,
@@ -47,8 +48,10 @@ import {
   isRebaseTicket,
   isReviewTicket,
   localDay,
+  notify,
   recordRun,
   ticketKind,
+  tokenCount,
 } from "./ports/index.ts";
 import { invocationBudgetGate, type StandDown } from "./budget-gate.ts";
 import {
@@ -117,9 +120,10 @@ export interface SummaryTracker {
 }
 
 /**
- * The six outside-world dependencies of the loop. Everything it knows about
+ * The seven outside-world dependencies of the loop. Everything it knows about
  * GitHub, containers, session logs, the filesystem and the wall clock arrives
- * through these.
+ * through these — `progress` alone carries nothing back: the loop only ever
+ * writes through it, and reads nothing.
  */
 export interface MorningLoopPorts {
   tracker: IssueTracker & SummaryTracker;
@@ -128,6 +132,7 @@ export interface MorningLoopPorts {
   ledger: UsageLedger;
   clock: Clock;
   store: Store;
+  progress: Progress;
 }
 
 export type InvocationOutcome =
@@ -401,6 +406,12 @@ export async function morningLoop(
           break;
         }
         const { ticket } = chosen;
+        // Announced as an iteration starts, before the sandbox is ever
+        // invoked — the earliest point there is anything to narrate.
+        notify(ports.progress, {
+          kind: "iteration-selected",
+          ticket,
+        });
 
         // Ahead of the gate as well as of the run: handing a ticket back
         // spends nothing, so a morning the gate refuses still gives the
@@ -430,6 +441,12 @@ export async function morningLoop(
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
           standDown ??= { ...refusal, refused: chosen.project.repo };
+          // Announced before any work starts, not only in the invocation report.
+          notify(ports.progress, {
+            kind: "stood-down",
+            ticket,
+            ...refusal,
+          });
           break;
         }
 
@@ -478,6 +495,17 @@ export async function morningLoop(
               // finish on their own.
               if (isCutOff(iteration)) {
                 standDown ??= cutOffStandDown(iteration, ticket);
+                if (iteration.kind === "limit-refused") {
+                  // Announced the instant the provider refuses, not only once
+                  // the invocation report is written — the developer would
+                  // otherwise hear nothing until every iteration still in
+                  // progress finished on its own.
+                  notify(ports.progress, {
+                    kind: "provider-limited",
+                    ticket,
+                    limitRefusal: iteration.limitRefusal,
+                  });
+                }
               }
             },
             (error: unknown) => {
@@ -952,17 +980,37 @@ interface SandboxResult<Outcome> {
  * carries the `"gave-up"` variant, and a sandbox that failed once the agent
  * had already run carries `"sandbox-failed"`, still spending what `outcome`
  * carries below.
+ *
+ * Narrates the container it starts, naming `spendCeiling`, and the run it
+ * ends, naming what `outcome` spent — the two announcements every kind of
+ * run shares, whatever it goes on to make of its own result.
  */
 async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
   repo: RepoSlug,
+  ticket: Ticket,
+  spendCeiling: Usd,
   state: Map<RepoSlug, ProjectState>,
   sandboxCall: (checkout: Checkout) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
-  let outcome: Outcome;
   try {
     checkout = await ports.repoHost.clone(repo);
+  } catch (error: unknown) {
+    // The clone never happened, so no container was ever announced started
+    // — there is nothing for `run-ended` to close out.
+    return infrastructureFailure(error);
+  }
+  // Announced once the checkout is ready and the container is genuinely
+  // about to start — before `sandboxCall`, never after.
+  notify(ports.progress, {
+    kind: "container-started",
+    ticket,
+    spendCeiling,
+    checkout,
+  });
+  let outcome: Outcome;
+  try {
     outcome = await sandboxCall(checkout);
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
@@ -972,8 +1020,22 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     // failure once the agent has already run comes back as a result instead
     // (`RunOutcome`'s `"sandbox-failed"` case), carrying its spend, so it
     // reaches `recordRun` below like any other.
+    //
+    // The container this started was announced, so it is announced ended
+    // too — with nothing spent, matching what actually came back — rather
+    // than leaving a terminal adapter believing it is still running.
+    notify(ports.progress, {
+      kind: "run-ended",
+      ticket,
+      tokensUsed: tokenCount(0),
+    });
     return infrastructureFailure(error);
   }
+  notify(ports.progress, {
+    kind: "run-ended",
+    ticket,
+    tokensUsed: outcome.tokensUsed,
+  });
 
   state.set(
     repo,
@@ -1009,7 +1071,7 @@ async function attemptRun(
   const { ticket } = selection;
   const repo = selection.project.repo;
 
-  return runInSandbox(ports, repo, state, (checkout) =>
+  return runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1124,7 +1186,7 @@ async function runReview(
   }
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, repo, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
@@ -1269,7 +1331,7 @@ async function runApplyReview(
     return finishApplyReview(ports, ticket, { kind: "applied-review" });
   }
 
-  const result = await runInSandbox(ports, repo, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
@@ -1453,7 +1515,7 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, repo, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
