@@ -9,7 +9,7 @@ const REASON_PHRASES: Readonly<Record<string, string>> = {
 };
 
 /** One run this adapter has announced starting but has not yet announced ending. */
-interface InFlight {
+interface Running {
   repo: string;
   number: number;
 }
@@ -30,7 +30,7 @@ function key(repo: string, ticket: { number: number }): string {
  * told what it is about to abandon, container and clone both, by ticket.
  */
 export function terminalProgress(): Progress {
-  const inFlight = new Map<string, InFlight>();
+  const running = new Map<string, Running>();
 
   return {
     note(event: ProgressEvent): void {
@@ -47,7 +47,7 @@ export function terminalProgress(): Progress {
           );
           return;
         case "container-started":
-          inFlight.set(key(event.repo, event.ticket), {
+          running.set(key(event.repo, event.ticket), {
             repo: event.repo,
             number: event.ticket.number,
           });
@@ -56,13 +56,13 @@ export function terminalProgress(): Progress {
           );
           return;
         case "run-ended":
-          inFlight.delete(key(event.repo, event.ticket));
+          running.delete(key(event.repo, event.ticket));
           line(
             `${event.repo} #${event.ticket.number} spent ${tokens(event.tokensUsed)} tokens.`,
           );
           return;
         case "abandoning":
-          line(abandoningLine([...inFlight.values()]));
+          line(abandoningLine([...running.values()]));
           return;
       }
     },
@@ -81,7 +81,7 @@ function tokens(count: number): string {
   return count.toLocaleString("en-US");
 }
 
-function abandoningLine(running: InFlight[]): string {
+function abandoningLine(running: Running[]): string {
   if (running.length === 0) {
     return "Stopping now: nothing was left running.";
   }
