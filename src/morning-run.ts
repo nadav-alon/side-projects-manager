@@ -83,6 +83,7 @@ import {
   cutOffReviewOutcome,
   cutOffRunOutcome,
   failedOnInfrastructure,
+  handedBackFailure,
   handedBackForModelLabels,
   isCutOff,
   type AppliedReview,
@@ -311,10 +312,14 @@ export interface MorningLoopOptions {
  * selection already honours, since a blocker in progress is still open.
  *
  * A ticket worked today, by this invocation or an earlier one, is not selected
- * again until the next local calendar day, even though nothing here closes it: a failed run's ticket is handed
- * back by relabelling it, but a finished run's is left exactly as it was, so
- * without this an unattended morning with only one project registered would
- * work its one ticket over and over until the budget gate finally stopped it.
+ * again until the next local calendar day — but only for as long as the loop
+ * could not take its eligibility away itself: a hand-back the tracker
+ * refused, or a review, an apply-review, a rebase or a resolved pull request
+ * the loop could not close. Every other outcome either relabels or closes
+ * the ticket, or says nothing about it at all, which already keeps selection
+ * off it on its own; without the record, though, an unattended morning with
+ * only one project registered would work that one write failure over and
+ * over until the budget gate finally stopped it.
  *
  * The summary always publishes when the invocation worked something; a quiet
  * or broken invocation publishes only if none has been announced yet today,
@@ -430,12 +435,18 @@ export async function morningLoop(
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
           const handedBack = await handBack(ports, ticket, unusable);
-          outcomeSlots.push({
-            repo: chosen.project.repo,
-            ticket,
+          const iteration: Failed = {
             kind: "failed",
             failure: unusable,
             handedBack,
+          };
+          if (freesTicketToday(iteration)) {
+            worked.unrecord(ticket);
+          }
+          outcomeSlots.push({
+            repo: chosen.project.repo,
+            ticket,
+            ...iteration,
           });
           continue;
         }
@@ -495,8 +506,12 @@ export async function morningLoop(
               // An infrastructure failure, a limit refusal or a provider
               // failure says nothing about the ticket, so it is left free for
               // a later firing today — one that finds the setup fixed, the
-              // provider limit reset, or the provider answering again.
-              if (leavesTicketUntouched(iteration)) {
+              // provider limit reset, or the provider answering again. So is
+              // a ticket whose own tracker write landed: the loop already
+              // took its eligibility away, so the record has nothing left to
+              // protect, and a developer who re-applies ready-for-agent the
+              // same day gets a later firing rather than silence.
+              if (freesTicketToday(iteration)) {
                 worked.unrecord(ticket);
               }
 
@@ -710,12 +725,38 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 }
 
 /**
- * Whether `iteration` was one of the three that say nothing about its ticket —
- * an infrastructure failure, a limit refusal or a provider failure — and so,
- * as `work` leaves it, leaves the ticket exactly as it was.
+ * Whether `iteration` frees its ticket to be selected again today —
+ * CONTEXT.md's "Worked today" rule: the persisted record protects only the
+ * tickets the loop tried and failed to take off the queue itself.
+ *
+ * An infrastructure failure, a limit refusal or a provider failure says
+ * nothing about the ticket at all, so it always frees it. A finished or a
+ * failed run frees it exactly when its own hand-back landed — `"handed-back"`
+ * or `"already-closed"` — and leaves it recorded when the tracker refused the
+ * call. A review, an apply-review, a rebase or a resolved pull request frees
+ * it exactly when it closed without a `notClosed`, and leaves it recorded
+ * when one is set — the ticket is still ready-for-agent, due to come round
+ * again on its own, so the record still has something to protect.
  */
-function leavesTicketUntouched(iteration: Iteration): boolean {
-  return isCutOff(iteration) || failedOnInfrastructure(iteration);
+function freesTicketToday(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "limit-refused":
+    case "provider-failed":
+      return true;
+    case "finished":
+      return iteration.handedBack.outcome !== "refused";
+    case "failed":
+      return (
+        failedOnInfrastructure(iteration) ||
+        (handedBackFailure(iteration) &&
+          iteration.handedBack.outcome !== "refused")
+      );
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "pull-request-resolved":
+      return iteration.notClosed === undefined;
+  }
 }
 
 /**
