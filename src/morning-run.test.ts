@@ -4524,8 +4524,8 @@ describe("morningLoop", () => {
   /**
    * `fakePorts()` defaults `progress` to the no-op adapter, so every test
    * above this one exercises the loop having said nothing about itself in
-   * between — unmodified, and still passing, is the point. These are the
-   * only tests that swap in `FakeProgress` to see what the loop narrated.
+   * between. These are the only tests that swap in `FakeProgress` to see
+   * what the loop narrated.
    */
   describe("progress", () => {
     /** A project with one thing to do, so the run itself is the only question. */
@@ -4553,10 +4553,9 @@ describe("morningLoop", () => {
     });
 
     /**
-     * The ordering assertion the ticket itself calls out as the behaviour
-     * under test: a line printed after the container exits is exactly the
-     * silence being fixed, so this is pinned directly rather than inferred
-     * from the final order of `progress.events`.
+     * Pinned at the moment the sandbox is entered, not inferred from the
+     * final event order: a line printed after the container exits is the
+     * silence this port exists to fix.
      */
     it("announces the selection and the starting container before the sandbox is ever invoked", async () => {
       const ports = fakePorts();
