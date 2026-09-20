@@ -115,6 +115,18 @@ RUN git config --global user.name "side-projects-manager" \
 # check as a uid the image has never heard of and writes as it.
 RUN chmod -R a+rwX "$HOME"
 
+# A run whose API response goes quiet mid-stream is otherwise unbounded: the
+# CLI's own mid-stream byte watchdog can end it, but whether that watchdog is
+# on by default is the remote flag `tengu_stream_watchdog_default_on` — not
+# ours to leave a three-hour hang to. Pinned on here so it fires whatever that
+# flag says. The idle window is pinned to the CLI's own first-party default
+# (180000ms, i.e. 180s) rather than a homemade number, so this pin changes a
+# run's behaviour only where the remote flag would have moved it anyway.
+# scripts/verify-harness.ts asserts both reach a container started from this
+# image, the same way it asserts everything else the build put there.
+ENV CLAUDE_ENABLE_BYTE_WATCHDOG=1
+ENV CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS=180000
+
 # ENTRYPOINT rather than CMD: `docker run <image> -p "…" …` reads as invoking
 # claude directly, matching how it's invoked outside a container. No ENV for
 # CLAUDE_CODE_OAUTH_TOKEN here — `claude` itself reads it from the environment

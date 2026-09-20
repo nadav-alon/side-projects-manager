@@ -262,6 +262,40 @@ if (!skills.includes(REQUIRED_SKILL)) {
   );
 }
 
+/**
+ * The mid-stream byte watchdog that ends a run whose API response goes quiet
+ * (#495), pinned on in the Dockerfile regardless of what the remote flag
+ * `tengu_stream_watchdog_default_on` says. Checked here the same way the
+ * plugin and skills above are: against the running container's own
+ * environment, not against the Dockerfile text, since a `docker run` that
+ * overrides it or a rebuild that drops the `ENV` line would leave the
+ * Dockerfile saying one thing and a run doing another.
+ */
+const BYTE_WATCHDOG_VAR = "CLAUDE_ENABLE_BYTE_WATCHDOG";
+const BYTE_WATCHDOG_PINNED = "1";
+
+/**
+ * The idle window that watchdog waits out, pinned to the CLI's own
+ * first-party default (180000ms) so pinning it changes a run's behaviour
+ * only where the remote flag above would have moved it.
+ */
+const BYTE_STREAM_IDLE_TIMEOUT_VAR = "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS";
+const BYTE_STREAM_IDLE_TIMEOUT_PINNED = "180000";
+
+if (process.env[BYTE_WATCHDOG_VAR] !== BYTE_WATCHDOG_PINNED) {
+  fail(
+    `this container's ${BYTE_WATCHDOG_VAR} is ${JSON.stringify(process.env[BYTE_WATCHDOG_VAR])}, not ${JSON.stringify(BYTE_WATCHDOG_PINNED)}, so a stalled response is left to the remote flag rather than ending itself`,
+    `the Dockerfile's \`ENV ${BYTE_WATCHDOG_VAR}=${BYTE_WATCHDOG_PINNED}\` is what pins it`,
+  );
+}
+
+if (process.env[BYTE_STREAM_IDLE_TIMEOUT_VAR] !== BYTE_STREAM_IDLE_TIMEOUT_PINNED) {
+  fail(
+    `this container's ${BYTE_STREAM_IDLE_TIMEOUT_VAR} is ${JSON.stringify(process.env[BYTE_STREAM_IDLE_TIMEOUT_VAR])}, not ${JSON.stringify(BYTE_STREAM_IDLE_TIMEOUT_PINNED)}, so a stalled run's idle window is not what the Dockerfile pins`,
+    `the Dockerfile's \`ENV ${BYTE_STREAM_IDLE_TIMEOUT_VAR}=${BYTE_STREAM_IDLE_TIMEOUT_PINNED}\` is what pins it`,
+  );
+}
+
 const usage = claude("--help");
 
 if (!usage.includes(SPEND_CEILING_FLAG)) {
@@ -291,5 +325,5 @@ if (!usage.includes(PERMISSION_MODE)) {
 const personalSkillsPresent = PERSONAL_SKILLS.map((skill) => `${skill} present`).join(", ");
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, ${BYTE_WATCHDOG_VAR}=${BYTE_WATCHDOG_PINNED} and ${BYTE_STREAM_IDLE_TIMEOUT_VAR}=${BYTE_STREAM_IDLE_TIMEOUT_PINNED} pinned, running as uid ${UID} with ${HOME} writable`,
 );
