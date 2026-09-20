@@ -1,13 +1,10 @@
 import type { StandDown } from "./budget-gate.ts";
-import {
-  pullRequestResolutionPhrase,
-  workLocation,
-  type Discard,
-} from "./handback-comment.ts";
+import { pullRequestResolutionPhrase, workLocation } from "./handback-comment.ts";
 import {
   handedBackForModelLabels,
   type AppliedReview,
   type Attempt,
+  type CutOff,
   type Finished,
   type Handover,
   type IterationOutcome,
@@ -165,13 +162,13 @@ function whyStoodDown(
       ? "stopped by hand, so nothing further started."
       : "stopped by hand before any run started.";
   }
-  if (standDown.reason === "provider-limit") {
-    const { ticket, limitRefusal } = standDown;
-    return `${withoutTrailingStop(limitRefusal)}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
-  }
-  if (standDown.reason === "provider-failure") {
-    const { ticket, providerFailure } = standDown;
-    return `${withoutTrailingStop(providerFailure)}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+  if (standDown.reason === "provider-limit" || standDown.reason === "provider-failure") {
+    const { ticket } = standDown;
+    const said =
+      standDown.reason === "provider-limit"
+        ? withoutTrailingStop(standDown.limitRefusal)
+        : `a provider failure stopped it: ${withoutTrailingStop(standDown.providerFailure)}`;
+    return `${said}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
   }
   const ready =
     when === "next" ? "was ready to work next" : "was ready to work";
@@ -484,7 +481,7 @@ function ranNothing(iteration: IterationOutcome): boolean {
 }
 
 /** What a cut-off iteration says about a branch its discard could not throw away. Empty when there was none, or it went cleanly. */
-function keptBranchNote(iteration: { run?: { branch: string }; discard: Discard }): string {
+function keptBranchNote(iteration: CutOff): string {
   return iteration.discard.kind === "kept"
     ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${withoutTrailingStop(iteration.discard.reason)}.`
     : "";
