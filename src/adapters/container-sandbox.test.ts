@@ -3624,6 +3624,13 @@ describe("containerSandbox with the real docker container", () => {
     });
   });
 
+  /**
+   * `dockerNeverRan`'s own guard against a non-object error, or one with no
+   * `code` at all, is not exercised here: `execFile` always rejects with a
+   * coded `Error`, so nothing reaching this adapter through the port can
+   * produce one. Testing it directly was exactly the coupling to
+   * `dockerNeverRan` this ticket removes.
+   */
   describe("when docker itself could not run the agent", () => {
     /** Where `name` resolves on the current `PATH`, to clone onto a restricted one. */
     async function resolveOnPath(name: string): Promise<string> {
