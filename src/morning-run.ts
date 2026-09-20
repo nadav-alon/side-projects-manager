@@ -40,6 +40,7 @@ import type {
   Usd,
 } from "./ports/index.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   MergeabilityUnknown,
   REVIEWED_LABEL,
   hasAnnouncedOn,
@@ -1476,7 +1477,12 @@ async function finishApplyReview(
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
-  return applied;
+  const labelled = await labelClosedPullRequest(
+    ports,
+    pullRequest,
+    APPLIED_REVIEW_LABEL,
+  );
+  return { ...applied, ...labelled };
 }
 
 /** Hands back an apply-review run that gave up or left a thread unanswered. */

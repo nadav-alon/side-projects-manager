@@ -441,6 +441,12 @@ export interface AppliedReview {
    * not be closed. Either way the ticket is still ready-for-agent.
    */
   notClosed?: ApplyReviewNotClosed;
+  /**
+   * Set when the ticket closed but `APPLIED_REVIEW_LABEL` could not be added
+   * to its pull request. As `Reviewed.notLabelled`: the last step, tried only
+   * once the ticket is already closed, and reported rather than retried.
+   */
+  notLabelled?: NotLabelled;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
