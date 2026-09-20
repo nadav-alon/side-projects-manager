@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { isCronMinute } from "../ports/index.ts";
 import type {
   ScheduleRegistration,
   TriggerRegistration,
@@ -58,10 +59,10 @@ export function systemTriggerRegistrations(
         return { registered: false };
       }
       const managerHome = managerHomeIn(line);
-      if (managerHome === undefined) {
+      const minute = line.trim().split(/\s+/)[0]!;
+      if (managerHome === undefined || !isCronMinute(minute)) {
         return { registered: false };
       }
-      const minute = line.trim().split(/\s+/)[0]!;
       return { registered: true, managerHome, minute };
     },
 

@@ -102,6 +102,20 @@ describe("the schedule registration", () => {
     });
   });
 
+  it("reports not registered for a marked line whose minute field is not a single whole number", async (t) => {
+    const home = await tempHome("trigger-registrations");
+    withPath(
+      t,
+      await crontabStubBin([
+        `*/15 * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${CRON_MARKER}`,
+      ]),
+    );
+
+    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+      registered: false,
+    });
+  });
+
   it("finds the marked line among other crontab entries", async (t) => {
     const home = await tempHome("trigger-registrations");
     withPath(

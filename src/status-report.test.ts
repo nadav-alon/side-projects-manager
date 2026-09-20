@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
+import { cronMinute, exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
 import {
   statusReport,
   type StatusJournal,
@@ -15,7 +15,7 @@ const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER_HOME = "/home/dev/side-projects-manager";
 
 const ARMED_TRIGGERS: StatusTriggers = {
-  schedule: { registered: true, managerHome: MANAGER_HOME, minute: "0" },
+  schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
   logonGuard: { registered: false },
 };
 
@@ -270,7 +270,7 @@ describe("statusReport", () => {
 describe("statusReport's trigger lines", () => {
   it("reports the schedule armed, with the minute it fires", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: "0" },
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: false },
     });
 
@@ -289,7 +289,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a schedule registered but pointing elsewhere, distinctly from not registered at all", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: "/old/checkout", minute: "0" },
+      schedule: { registered: true, managerHome: "/old/checkout", minute: cronMinute("0") },
       logonGuard: { registered: false },
     });
 
@@ -301,7 +301,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a logon guard not registered as expected, not as a problem", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: "0" },
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: false },
     });
 
@@ -310,7 +310,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a logon guard still armed as leftover from an older install", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: "0" },
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: true, managerHome: MANAGER_HOME },
     });
 
@@ -320,7 +320,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a logon guard registered but pointing elsewhere, distinctly from one still pointing here", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: "0" },
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: true, managerHome: "/old/checkout" },
     });
 

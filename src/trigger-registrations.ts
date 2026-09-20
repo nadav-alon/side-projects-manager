@@ -1,3 +1,5 @@
+import type { CronMinute } from "./ports/index.ts";
+
 /**
  * What one trigger's registration looks like on this machine, read from
  * whatever `scripts/install-triggers.sh` leaves behind: the crontab marker
@@ -18,7 +20,7 @@ export type TriggerRegistration =
 /** The schedule's registration, additionally carrying the minute it fires each hour when registered. */
 export type ScheduleRegistration =
   | { readonly registered: false }
-  | { readonly registered: true; readonly managerHome: string; readonly minute: string };
+  | { readonly registered: true; readonly managerHome: string; readonly minute: CronMinute };
 
 /** Where the status command reads whether the schedule and a logon guard are registered. */
 export interface TriggerRegistrations {
