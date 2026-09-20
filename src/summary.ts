@@ -22,7 +22,6 @@ import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type {
   ApplyReviewTicket,
-  Branch,
   PullRequestLabel,
   PullRequestTicket,
   PullRequestUrl,
@@ -30,6 +29,7 @@ import type {
   RepoSlug,
   ReviewTicket,
   RunFinished,
+  Salvaged,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -252,12 +252,15 @@ function stillEligibleLine(iteration: {
   return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
 }
 
+/** What the developer may want to do about a ticket that keeps getting cut off — said the same way everywhere it comes up. */
+const CONSIDER_SPLITTING = "consider splitting it or giving it a larger size or model";
+
 /** A limit-refused ticket whose salvage shows it has been cut off repeatedly: worth the developer's attention, since it may need splitting or a larger size or model. */
 function repeatedRefusalWaitingLine(
   iteration: { repo: RepoSlug; ticket: Ticket },
   limitRefusals: number,
 ): string {
-  return `- ${iteration.repo} #${iteration.ticket.number}: cut off ${limitRefusals} times in a row — consider splitting it or giving it a larger size or model`;
+  return `- ${iteration.repo} #${iteration.ticket.number}: cut off ${limitRefusals} times in a row — ${CONSIDER_SPLITTING}`;
 }
 
 /**
@@ -540,33 +543,39 @@ function keptBranchNote(iteration: CutOff): string {
     : "";
 }
 
-/** A cut-off run's salvage: the branch it kept, and its ticket's own count of limit refusals in a row. Undefined when nothing was salvaged. */
-interface Salvaged {
-  branch: Branch;
-  limitRefusals: number;
-}
-
 /** `discard`'s salvage, when it is one — undefined for every other `Discard` kind. */
 function salvageOf(discard: Discard): Salvaged | undefined {
   return discard.kind === "salvaged" ? discard : undefined;
 }
 
 /**
- * The sentence a cut-off iteration's line adds when its branch was salvaged:
+ * The clause a cut-off iteration's line adds when its branch was salvaged:
  * naming it, and that the ticket's next run will continue on it — see
- * CONTEXT.md's "Salvage". At two or more limit refusals in a row it also
- * warns that the ticket keeps getting cut off, since that is worth splitting
- * it or giving it a larger size or model over; at exactly one it stays quiet,
- * a single refusal being unremarkable. Empty when nothing was salvaged.
+ * CONTEXT.md's "Salvage". Empty when nothing was salvaged.
+ */
+function salvagedBranchNote(salvage: Salvaged | undefined): string {
+  return salvage === undefined
+    ? ""
+    : ` Its branch ${salvage.branch} was salvaged: the ticket's next run will continue on it.`;
+}
+
+/**
+ * `salvagedBranchNote`, plus — for a limit refusal only — a warning once its
+ * ticket's own count of limit refusals in a row reaches two, since that is
+ * worth splitting it or giving it a larger size or model over; at exactly one
+ * it stays quiet, a single refusal being unremarkable. An infrastructure
+ * failure never adds the warning here: its own `limitRefusals` only ever
+ * repeats what an earlier limit refusal already recorded, so this line's
+ * count would not be its own (see `InfrastructureFailure.salvage`).
  */
 function salvageNote(salvage: Salvaged | undefined): string {
   if (salvage === undefined) {
     return "";
   }
-  const kept = ` Its branch ${salvage.branch} was salvaged: the ticket's next run will continue on it.`;
+  const kept = salvagedBranchNote(salvage);
   return salvage.limitRefusals < 2
     ? kept
-    : `${kept} This ticket has been cut off ${salvage.limitRefusals} times in a row: consider splitting it or giving it a larger size or model.`;
+    : `${kept} This ticket has been cut off ${salvage.limitRefusals} times in a row: ${CONSIDER_SPLITTING}.`;
 }
 
 /**
@@ -865,7 +874,7 @@ function stoppedBecause(iteration: Attempt & Failed): string {
       failure.tokensUsed === undefined
         ? `the run would not start on ${which}`
         : `the sandbox failed on ${which} after the agent had already run`;
-    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.${salvageNote(failure.salvage)}`;
+    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.${salvagedBranchNote(failure.salvage)}`;
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and

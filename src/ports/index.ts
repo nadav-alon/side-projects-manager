@@ -201,6 +201,7 @@ export type {
   RegisteredProject,
   RunCost,
   Salvage,
+  Salvaged,
   State,
   Store,
   WorkedTicket,

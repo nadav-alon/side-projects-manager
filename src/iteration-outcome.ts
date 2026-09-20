@@ -19,6 +19,7 @@ import type {
   RunLimitRefused,
   RunOutcome,
   RunProviderFailed,
+  Salvaged,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -163,7 +164,7 @@ export interface InfrastructureFailure {
    * rather than raised by an infrastructure failure itself — it only ever
    * repeats what an earlier limit refusal already recorded, or starts at 0.
    */
-  salvage?: { branch: Branch; limitRefusals: number };
+  salvage?: Salvaged;
 }
 
 /**

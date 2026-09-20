@@ -725,12 +725,12 @@ describe("salvage", () => {
     );
   });
 
-  it("warns on a repeatedly cut-off infrastructure failure too, since its count may carry over from an earlier limit refusal", () => {
+  it("adds no repeated-refusal warning on an infrastructure failure, whatever count its salvage carries over from an earlier limit refusal", () => {
     const line = summaryLine(
       facts([infrastructureFailure(226, { branch: branch("issue-226"), limitRefusals: 2 })]),
     );
 
-    assert.match(line, /cut off 2 times in a row/);
+    assert.doesNotMatch(line, /cut off/);
   });
 
   it("lists a limit-refused ticket under waiting on you once it has been cut off two or more times in a row", () => {

@@ -16,10 +16,10 @@ import {
 export interface Salvages {
   /** The salvage record `ticket` carries, absent if it has none. */
   get(ticket: WorkedTicket): Salvage | undefined;
-  /** Records `ticket`'s branch as salvaged from a limit refusal. */
-  recordLimitRefusal(ticket: WorkedTicket, branch: Branch): void;
-  /** Records `ticket`'s branch as salvaged from a post-start infrastructure failure. */
-  recordInfrastructureFailure(ticket: WorkedTicket, branch: Branch): void;
+  /** Records `ticket`'s branch as salvaged from a limit refusal, and returns the record written. */
+  recordLimitRefusal(ticket: WorkedTicket, branch: Branch): Salvage;
+  /** Records `ticket`'s branch as salvaged from a post-start infrastructure failure, and returns the record written. */
+  recordInfrastructureFailure(ticket: WorkedTicket, branch: Branch): Salvage;
   /** Clears `ticket`'s salvage record, absent if it had none. */
   clear(ticket: WorkedTicket): void;
   /** The record as the state document is to keep it; absent if nothing is salvaged. */
@@ -34,9 +34,13 @@ export function salvageRecords(stored: Salvage[] | undefined): Salvages {
     get: (ticket) => salvageFor(record, ticket),
     recordLimitRefusal: (ticket, branch) => {
       record = recordLimitRefusalSalvage(record, ticket, branch);
+      // Just written above, so always present.
+      return salvageFor(record, ticket)!;
     },
     recordInfrastructureFailure: (ticket, branch) => {
       record = recordInfrastructureFailureSalvage(record, ticket, branch);
+      // Just written above, so always present.
+      return salvageFor(record, ticket)!;
     },
     clear: (ticket) => {
       record = clearSalvage(record, ticket);

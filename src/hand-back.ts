@@ -19,6 +19,7 @@ import type {
   RunLimitRefused,
   RunModelRefused,
   RunProviderFailed,
+  Salvaged,
   Ticket,
 } from "./ports/index.ts";
 import {
@@ -51,7 +52,7 @@ export type Discard =
    * limit refusal's branch reaches this type — so no comment this module
    * writes for either ever names it.
    */
-  | { kind: "salvaged"; branch: Branch; limitRefusals: number };
+  | ({ kind: "salvaged" } & Salvaged);
 
 /**
  * What became of the loop's own attempt to give a ticket back to the

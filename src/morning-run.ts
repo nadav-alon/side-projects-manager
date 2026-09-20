@@ -32,6 +32,8 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunProviderFailed,
+  RunSandboxFailed,
+  Salvaged,
   Sandbox,
   State,
   Store,
@@ -877,19 +879,14 @@ async function work(
     // The agent already ran and spent — recorded against the project above,
     // same as any other run — but the sandbox is what failed, so the ticket
     // is left exactly as an infrastructure failure leaves it: not handed
-    // back, and eligible to come round again. Its branch, when it had already
-    // reached the checkout, is salvaged the same way a limit refusal's is —
-    // kept where it landed, its ticket's existing count of limit refusals
-    // left untouched.
-    let salvage: { branch: Branch; limitRefusals: number } | undefined;
-    if (run.branch !== undefined && run.commits !== undefined && run.commits.length > 0) {
-      await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-      salvages.recordInfrastructureFailure(selection.ticket, run.branch);
-      salvage = {
-        branch: run.branch,
-        limitRefusals: salvages.get(selection.ticket)?.limitRefusals ?? 0,
-      };
-    }
+    // back, and eligible to come round again.
+    const salvage = await infrastructureFailureSalvage(
+      ports,
+      checkout,
+      salvages,
+      selection.ticket,
+      run,
+    );
     return {
       kind: "failed",
       tokensUsed: run.tokensUsed,
@@ -974,12 +971,31 @@ async function limitRefusedBranchOutcome(
     return { kind: "none" };
   }
   await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
-  salvages.recordLimitRefusal(ticket, run.branch);
-  return {
-    kind: "salvaged",
-    branch: run.branch,
-    limitRefusals: salvages.get(ticket)?.limitRefusals ?? 1,
-  };
+  const { branch, limitRefusals } = salvages.recordLimitRefusal(ticket, run.branch);
+  return { kind: "salvaged", branch, limitRefusals };
+}
+
+/**
+ * The salvage a post-start infrastructure failure's branch gets, when it had
+ * already reached the checkout and carries commits — kept where it landed,
+ * and recorded against `ticket`'s salvage record with its existing count of
+ * limit refusals left untouched (see CONTEXT.md's "Salvage") — undefined
+ * otherwise, since a branch never fetched back, or one that committed
+ * nothing, left nothing to salvage.
+ */
+async function infrastructureFailureSalvage(
+  ports: MorningLoopPorts,
+  checkout: Checkout,
+  salvages: Salvages,
+  ticket: Ticket,
+  run: RunSandboxFailed,
+): Promise<Salvaged | undefined> {
+  if (run.branch === undefined || run.commits === undefined || run.commits.length === 0) {
+    return undefined;
+  }
+  await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
+  const { branch, limitRefusals } = salvages.recordInfrastructureFailure(ticket, run.branch);
+  return { branch, limitRefusals };
 }
 
 /**
