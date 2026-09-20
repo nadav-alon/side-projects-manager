@@ -378,23 +378,19 @@ function spendCeilingField(
   if (typeof value === "number") {
     if (!isUsd(value)) {
       throw new Error(
-        `${file}: "spendCeiling" must be a dollar amount above 0: ${JSON.stringify(value)}`,
+        `${file}: "spendCeiling" must be a dollar amount above 0, or an object keyed by size (${SIZES.join(", ")}): ${JSON.stringify(value)}`,
       );
     }
     return value;
   }
-  rejectUnknownFields(value, SIZES, "size", `${file}: "spendCeiling"`);
-  return Object.fromEntries(
-    SIZES.map((size) => [
-      size,
-      numberField(
-        fieldOf(value, size, `${file}: "spendCeiling"`),
-        isUsd,
-        `${file}: "spendCeiling.${size}" must be a dollar amount above 0`,
-        spendCeilingFor(size, DEFAULT_BUDGET.spendCeiling),
-      ),
-    ]),
-  ) as Record<Size, Usd>;
+  return perSizeField(
+    value,
+    file,
+    "spendCeiling",
+    isUsd,
+    (size) => `${file}: "spendCeiling.${size}" must be a dollar amount above 0`,
+    (size) => spendCeilingFor(size, DEFAULT_BUDGET.spendCeiling),
+  );
 }
 
 /**
@@ -407,19 +403,42 @@ function sizesField(value: unknown, file: string): Record<Size, TokenCount> {
   if (value === undefined) {
     return DEFAULT_BUDGET.sizes;
   }
-  rejectUnknownFields(value, SIZES, "size", `${file}: "sizes"`);
+  return perSizeField(
+    value,
+    file,
+    "sizes",
+    isTokenCount,
+    (size) => `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
+    (size) => DEFAULT_BUDGET.sizes[size],
+  );
+}
 
+/**
+ * A field keyed by size, each key optional and independently validated by
+ * `is`, falling back to `fallback(size)` when that key is absent.
+ * `spendCeilingField` and `sizesField` are the same shape once the guard, the
+ * per-size message and the per-size fallback are parameters.
+ */
+function perSizeField<T extends number>(
+  value: unknown,
+  file: string,
+  fieldName: string,
+  is: (candidate: number) => candidate is T,
+  message: (size: Size) => string,
+  fallback: (size: Size) => T,
+): Record<Size, T> {
+  rejectUnknownFields(value, SIZES, "size", `${file}: "${fieldName}"`);
   return Object.fromEntries(
     SIZES.map((size) => [
       size,
       numberField(
-        fieldOf(value, size, `${file}: "sizes"`),
-        isTokenCount,
-        `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
-        DEFAULT_BUDGET.sizes[size],
+        fieldOf(value, size, `${file}: "${fieldName}"`),
+        is,
+        message(size),
+        fallback(size),
       ),
     ]),
-  ) as Record<Size, TokenCount>;
+  ) as Record<Size, T>;
 }
 
 /**
