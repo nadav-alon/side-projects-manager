@@ -65,7 +65,7 @@ import {
   type ProjectOutcome,
   type Selection,
 } from "./selection.ts";
-import { salvages, type Salvages } from "./salvages.ts";
+import { salvageRecords, type Salvages } from "./salvages.ts";
 import { workedTickets } from "./worked-today.ts";
 import {
   appliedReviewComment,
@@ -352,10 +352,10 @@ export async function morningLoop(
     announcedOn = stored.announcedOn;
     const projects = new Map(stored.projects);
     const worked = workedTickets(stored.workedToday, today);
-    const salvaged = salvages(stored.salvages);
+    const salvages = salvageRecords(stored.salvages);
     stateToSave = (): State => {
       const workedToday = worked.workedToday();
-      const salvageRecord = salvaged.salvages();
+      const salvageRecord = salvages.record();
       return {
         projects,
         ...(workedToday !== undefined && { workedToday }),
@@ -481,7 +481,7 @@ export async function morningLoop(
           projects,
           spendCeilingForTicket(ticket, budget),
           model,
-          salvaged,
+          salvages,
         )
           .then(
             (iteration) => {
@@ -797,6 +797,7 @@ async function work(
     // kept where it landed, its ticket's existing count of limit refusals
     // left untouched.
     if (run.branch !== undefined && run.commits !== undefined && run.commits.length > 0) {
+      await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
       salvages.recordInfrastructureFailure(selection.ticket, run.branch);
     }
     return {
@@ -812,7 +813,7 @@ async function work(
   if (run.kind === "limit-refused") {
     return cutOffRunOutcome(
       run,
-      await limitRefusedDiscard(ports, salvages, selection.ticket, checkout, run),
+      await limitRefusedBranchOutcome(ports, checkout, salvages, selection.ticket, run),
     );
   }
   if (run.kind === "provider-failed") {
@@ -820,8 +821,9 @@ async function work(
   }
   if (run.kind === "model-refused") {
     // A model refusal ends the ticket's run on its own terms, whatever it
-    // continued from, so it clears the ticket's salvage record: see
-    // CONTEXT.md's "Salvage".
+    // continued from, so it clears the ticket's salvage record — and, via
+    // `discardStaleSalvage`, the branch it names. See CONTEXT.md's "Salvage".
+    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
     return handModelRefusedBack(
       ports,
@@ -833,14 +835,16 @@ async function work(
     );
   }
   if (run.kind === "finished") {
+    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
     return handOver(ports, run, checkout, selection.ticket);
   }
 
-  // A run that gave up ends on its own terms, whatever it continued from, so
-  // it clears the ticket's salvage record — and, once resuming lands, the
-  // branch that record names is discarded with the rest of the run's work, the
-  // same as any other gave-up run's branch. See CONTEXT.md's "Salvage".
+  // A run that gave up ends on its own terms, whatever it continued from: see
+  // CONTEXT.md's "Salvage", which discards a ticket's salvage record — and,
+  // via `discardStaleSalvage`, the branch it names — the same as any other
+  // gave-up run's branch.
+  await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
   salvages.clear(selection.ticket);
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
   const handedBack = await handBack(ports, selection.ticket, {
@@ -868,16 +872,17 @@ async function work(
  * committed nothing left nothing to salvage and says nothing new about an
  * existing record.
  */
-async function limitRefusedDiscard(
+async function limitRefusedBranchOutcome(
   ports: MorningLoopPorts,
+  checkout: Checkout,
   salvages: Salvages,
   ticket: Ticket,
-  checkout: Checkout,
   run: RunLimitRefused,
 ): Promise<Discard> {
   if (run.commits.length === 0) {
-    return discardBranch(ports.repoHost, checkout, run);
+    return { kind: "none" };
   }
+  await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
   salvages.recordLimitRefusal(ticket, run.branch);
   return { kind: "salvaged" };
 }
@@ -1015,6 +1020,37 @@ async function handModelRefusedBack(
   };
 }
 
+/**
+ * Discards `ticket`'s previously salvaged branch, if it names one other than
+ * `keeping` — the branch the run just ending left, salvaged, discarded, or
+ * handed over. Every write to a salvage record replaces or clears the branch
+ * named there, and until a run resumes on its ticket's salvage (TODO[#398])
+ * that is always a fresh branch, so the one it replaces would otherwise sit
+ * in the checkout forever, unreachable by name and never discarded: see
+ * CONTEXT.md's "Salvage". Once a run does resume on its salvage, `keeping`
+ * and the record's own branch are the same, and this discards nothing.
+ *
+ * Best-effort and never throws, like `discardBranch`: a branch git refuses to
+ * delete here is not worth costing the ticket its outcome over.
+ */
+async function discardStaleSalvage(
+  ports: MorningLoopPorts,
+  checkout: Checkout,
+  salvages: Salvages,
+  ticket: Ticket,
+  keeping: Branch,
+): Promise<void> {
+  const stale = salvages.get(ticket)?.branch;
+  if (stale === undefined || stale === keeping) {
+    return;
+  }
+  try {
+    await ports.repoHost.discardBranch(checkout, stale);
+  } catch {
+    // Best-effort cleanup of a branch nothing names any more: see above.
+  }
+}
+
 /** What `runInSandbox` came back with, before its caller reads what kind of outcome it was. */
 interface SandboxResult<Outcome> {
   kind: "ran";
@@ -1119,8 +1155,8 @@ function infrastructureFailure(error: unknown): Failed {
  * the sandbox image itself is pinned to, which can never come back refused.
  *
  * `salvageBranch`, when the ticket carries a salvage record, is passed
- * through to the request unchanged: starting the run on it, rather than a
- * fresh branch, is the sibling issue's job, not this one's.
+ * through to the request unchanged. TODO[#398]: start the run on
+ * `salvageBranch` rather than a fresh branch.
  */
 async function attemptRun(
   ports: MorningLoopPorts,

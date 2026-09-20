@@ -23,11 +23,11 @@ export interface Salvages {
   /** Clears `ticket`'s salvage record, absent if it had none. */
   clear(ticket: WorkedTicket): void;
   /** The record as the state document is to keep it; absent if nothing is salvaged. */
-  salvages(): Salvage[] | undefined;
+  record(): Salvage[] | undefined;
 }
 
 /** Starts from `stored`, the record the state document held. */
-export function salvages(stored: Salvage[] | undefined): Salvages {
+export function salvageRecords(stored: Salvage[] | undefined): Salvages {
   let record = stored;
 
   return {
@@ -41,6 +41,6 @@ export function salvages(stored: Salvage[] | undefined): Salvages {
     clear: (ticket) => {
       record = clearSalvage(record, ticket);
     },
-    salvages: () => record,
+    record: () => record,
   };
 }

@@ -2879,6 +2879,12 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
+      assert.deepEqual(ports.repoHost.discarded, [
+        {
+          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+          branch: branch("issue-7-earlier-salvage"),
+        },
+      ]);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
         { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, limitRefusals: 1 },
@@ -3042,7 +3048,7 @@ describe("morningLoop", () => {
       ]);
     });
 
-    it("discards a salvaged ticket's branch and clears its salvage record when the run gives up", async () => {
+    it("discards both the failed run's own branch and its ticket's earlier salvage, and clears the salvage record", async () => {
       const ports = readyToWork();
       ports.store.markSalvaged(
         { repo: PILOT, number: issueNumber(7) },
@@ -3053,11 +3059,12 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
+      const directory = checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`);
+      // The earlier salvage goes first: `handBack` discards the run's own
+      // branch itself, after the stale one this iteration freed.
       assert.deepEqual(ports.repoHost.discarded, [
-        {
-          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
-          branch: FAILED_BRANCH,
-        },
+        { directory, branch: branch("issue-7-earlier-salvage") },
+        { directory, branch: FAILED_BRANCH },
       ]);
       const state = await ports.store.loadState();
       assert.equal(state.salvages, undefined);
@@ -3164,7 +3171,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.discarded, []);
     });
 
-    it("clears a ticket's salvage record once its run finishes", async () => {
+    it("clears a ticket's salvage record once its run finishes, discarding the earlier salvage's branch", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
@@ -3186,6 +3193,10 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
+      assert.deepEqual(
+        ports.repoHost.discarded.map((discard) => discard.branch),
+        [branch("issue-7-earlier-salvage")],
+      );
       const state = await ports.store.loadState();
       assert.equal(state.salvages, undefined);
     });
@@ -4013,6 +4024,34 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("discards a ticket's earlier salvage branch when a second limit refusal salvages a different one", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const branches = [branch("issue-1"), branch("issue-1-2")];
+      ports.sandbox.result = () => ({
+        kind: "limit-refused",
+        branch: branches.shift() ?? branch("issue-1-2"),
+        commits: [commitSha("c0ffee1")],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, [
+        {
+          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+          branch: branch("issue-1"),
+        },
+      ]);
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1-2"), limitRefusals: 2 },
+      ]);
+    });
+
     it("carries the ticket's salvage branch on the next run request", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
@@ -4390,7 +4429,7 @@ describe("morningLoop", () => {
         );
       });
 
-      it("clears a salvaged ticket's record when its resumed run has its model refused", async () => {
+      it("clears a salvaged ticket's record when its resumed run has its model refused, discarding the earlier salvage's branch", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "model:opus");
         ports.store.markSalvaged(
@@ -4408,6 +4447,10 @@ describe("morningLoop", () => {
 
         await morningLoop(ports);
 
+        assert.deepEqual(
+          ports.repoHost.discarded.map((discard) => discard.branch).sort(),
+          [branch("issue-7-add-the-thing"), branch("issue-7-earlier-salvage")].sort(),
+        );
         const state = await ports.store.loadState();
         assert.equal(state.salvages, undefined);
       });
