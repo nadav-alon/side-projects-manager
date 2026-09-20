@@ -311,7 +311,7 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addSupertaskTicket(
+      tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
         7,
@@ -345,7 +345,7 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addSupertaskTicket(
+      tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
         7,
@@ -371,7 +371,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       store.register(MANAGER);
       store.register(PILOT);
-      tracker.addSupertaskTicket(
+      tracker.addSupertask(
         MANAGER,
         { number: issueNumber(66), title: "Too big for one run" },
         7,
@@ -443,7 +443,7 @@ describe("invocationSelection", () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addSupertaskTicket(
+      tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
         7,
@@ -1211,7 +1211,7 @@ describe("invocationSelection", () => {
         const store = new FakeStore();
         const tracker = new FakeIssueTracker();
         store.register(PILOT);
-        tracker.addSupertaskTicket(
+        tracker.addSupertask(
           PILOT,
           { number: issueNumber(66), title: "Too big for one run" },
           7,

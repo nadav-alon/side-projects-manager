@@ -180,7 +180,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * though it still carries the label, at the loop's own seam rather than
    * against a query string.
    */
-  addSupertaskTicket(
+  addSupertask(
     repo: RepoSlug,
     ticket: Omit<TicketInput, "openSubIssues">,
     openSubIssues: number,

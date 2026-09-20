@@ -173,7 +173,7 @@ describe("FakeIssueTracker", () => {
 
   it("lists a supertask alongside its open sub-issue count", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addSupertaskTicket(
+    tracker.addSupertask(
       PILOT,
       { number: issueNumber(66), title: "Too big for one run" },
       7,
