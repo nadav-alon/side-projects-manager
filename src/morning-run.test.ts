@@ -537,6 +537,24 @@ describe("morningLoop", () => {
       );
     });
 
+    it("frees a ticket handed back for conflicting model labels for a later firing today", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.tracker.addLabel(ticket, "model:opus");
+      ports.tracker.addLabel(ticket, "model:haiku");
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
     it("keeps the ticket on the record for the rest of the day when its hand-back is refused", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);

@@ -425,12 +425,18 @@ export async function morningLoop(
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
           const handedBack = await handBack(ports, ticket, unusable);
-          outcomeSlots.push({
-            repo: chosen.project.repo,
-            ticket,
+          const iteration: Failed = {
             kind: "failed",
             failure: unusable,
             handedBack,
+          };
+          if (freesTicketToday(iteration)) {
+            worked.unrecord(ticket);
+          }
+          outcomeSlots.push({
+            repo: chosen.project.repo,
+            ticket,
+            ...iteration,
           });
           continue;
         }
