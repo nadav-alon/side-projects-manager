@@ -21,6 +21,7 @@ import {
   type ApplyReviewTicket,
   type Branch,
   type ReviewTicket,
+  type Size,
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
@@ -72,55 +73,55 @@ function applyReviewTicket(number: number): ApplyReviewTicket {
   return { repo: REPO, number: issueNumber(number), title: `Apply review ${number}`, pullRequest: { kind: "apply-review", url: PULL_REQUEST } };
 }
 
-/** A finished run that opened a pull request and queued `reviewNumber` to review it. */
-function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOutcome {
-  const finished: Finished = {
-    kind: "finished",
-    run: {
-      kind: "finished",
-      branch: branch("agent/171"),
-      commits: [commitSha("a".repeat(40))],
-      tokensUsed: tokenCount(1000),
-      output: "done",
-    },
-    tokensUsed: tokenCount(1000),
-    handover: {
-      pullRequest: PULL_REQUEST,
-      reviewTicket: reviewTicket(reviewNumber),
-    },
-    handedBack: { outcome: "handed-back" },
-  };
-  return { repo: REPO, ticket, ...finished };
-}
-
-/** A finished run with no handover, spending `tokensUsed` against `estimateCharged`. */
-function finishedCost(
-  ticket: Ticket,
+/** A finished run's own outcome, spending `tokensUsed` on `branchName`, with `handover` if given one. */
+function finishedRun(
   tokensUsed: number,
-  estimateCharged: number,
-): IterationOutcome {
-  const finished: Finished = {
+  branchName: string,
+  handover?: Finished["handover"],
+): Finished {
+  return {
     kind: "finished",
     run: {
       kind: "finished",
-      branch: branch("agent/900"),
+      branch: branch(branchName),
       commits: [commitSha("a".repeat(40))],
       tokensUsed: tokenCount(tokensUsed),
       output: "done",
     },
     tokensUsed: tokenCount(tokensUsed),
+    ...(handover === undefined ? {} : { handover }),
     handedBack: { outcome: "handed-back" },
   };
+}
+
+/** A finished run that opened a pull request and queued `reviewNumber` to review it. */
+function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket,
+    ...finishedRun(1000, "agent/171", {
+      pullRequest: PULL_REQUEST,
+      reviewTicket: reviewTicket(reviewNumber),
+    }),
+  };
+}
+
+/** A finished run with no handover, spending `tokensUsed` against `estimateCharged`. */
+function finishedSpending(
+  ticket: Ticket,
+  tokensUsed: number,
+  estimateCharged: number,
+): IterationOutcome {
   return {
     repo: REPO,
     ticket,
     estimateCharged: tokenCount(estimateCharged),
-    ...finished,
+    ...finishedRun(tokensUsed, "agent/900"),
   };
 }
 
 /** `implementationTicket(number)`, declaring `size` as its size label. */
-function sizedTicket(number: number, size: "S" | "M" | "L" | "XL"): Ticket {
+function sizedTicket(number: number, size: Size): Ticket {
   return { ...implementationTicket(number), sizeLabel: { kind: "declared", size } };
 }
 
@@ -251,31 +252,30 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
   };
 }
 
-function waitingLines(iterations: IterationOutcome[]): string[] {
+/** The bullet lines of the section starting at `marker`, cut off at `until` if given. */
+function sectionLines(
+  iterations: IterationOutcome[],
+  marker: string,
+  until?: string,
+): string[] {
   const body = summaryBody(facts(iterations), "line");
-  const marker = "## Waiting on you";
-  const index = body.indexOf(marker);
-  if (index === -1) {
-    return [];
-  }
-  return body
-    .slice(index + marker.length)
-    .split("\n")
-    .filter((line) => line.startsWith("- "));
-}
-
-function attemptsLines(iterations: IterationOutcome[]): string[] {
-  const body = summaryBody(facts(iterations), "line");
-  const marker = "## Attempts";
   const index = body.indexOf(marker);
   if (index === -1) {
     return [];
   }
   const rest = body.slice(index + marker.length);
-  const end = rest.indexOf("## Waiting on you");
+  const end = until === undefined ? -1 : rest.indexOf(until);
   return (end === -1 ? rest : rest.slice(0, end))
     .split("\n")
     .filter((line) => line.startsWith("- "));
+}
+
+function waitingLines(iterations: IterationOutcome[]): string[] {
+  return sectionLines(iterations, "## Waiting on you");
+}
+
+function attemptsLines(iterations: IterationOutcome[]): string[] {
+  return sectionLines(iterations, "## Attempts", "## Waiting on you");
 }
 
 describe("waitingSection", () => {
@@ -419,7 +419,7 @@ describe("waitingSection", () => {
 
 describe("attemptsSection", () => {
   it("shows tokens spent beside the run estimate with no flag when under it", () => {
-    const lines = attemptsLines([finishedCost(implementationTicket(300), 1_400_000, 2_000_000)]);
+    const lines = attemptsLines([finishedSpending(implementationTicket(300), 1_400_000, 2_000_000)]);
 
     assert.equal(lines.length, 1);
     assert.match(lines[0] ?? "", /1,400,000 \/ 2,000,000 tokens/);
@@ -427,19 +427,19 @@ describe("attemptsSection", () => {
   });
 
   it("shows no flag when the run landed exactly on its estimate", () => {
-    const lines = attemptsLines([finishedCost(implementationTicket(301), 2_000_000, 2_000_000)]);
+    const lines = attemptsLines([finishedSpending(implementationTicket(301), 2_000_000, 2_000_000)]);
 
     assert.doesNotMatch(lines[0] ?? "", /over its/);
   });
 
   it("flags a run that spent past its estimate, naming its declared size", () => {
-    const lines = attemptsLines([finishedCost(sizedTicket(302, "S"), 600_000, 500_000)]);
+    const lines = attemptsLines([finishedSpending(sizedTicket(302, "S"), 600_000, 500_000)]);
 
     assert.match(lines[0] ?? "", /600,000 \/ 500,000 tokens, over its S estimate/);
   });
 
   it("names the flag unsized when the over-estimate ticket carries no size label", () => {
-    const lines = attemptsLines([finishedCost(implementationTicket(303), 2_500_000, 2_000_000)]);
+    const lines = attemptsLines([finishedSpending(implementationTicket(303), 2_500_000, 2_000_000)]);
 
     assert.match(lines[0] ?? "", /2,500,000 \/ 2,000,000 tokens, over its unsized estimate/);
   });
@@ -478,22 +478,10 @@ describe("attemptsSection", () => {
   });
 
   it("says the estimate is unknown, rather than dropping it silently, should a worked run ever carry none", () => {
-    const finished: Finished = {
-      kind: "finished",
-      run: {
-        kind: "finished",
-        branch: branch("agent/306"),
-        commits: [commitSha("a".repeat(40))],
-        tokensUsed: tokenCount(750_000),
-        output: "done",
-      },
-      tokensUsed: tokenCount(750_000),
-      handedBack: { outcome: "handed-back" },
-    };
     const iteration: IterationOutcome = {
       repo: REPO,
       ticket: implementationTicket(306),
-      ...finished,
+      ...finishedRun(750_000, "agent/306"),
     };
 
     const lines = attemptsLines([iteration]);
