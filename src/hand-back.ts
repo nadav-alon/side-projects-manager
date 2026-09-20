@@ -44,8 +44,8 @@ export type Discard =
   /**
    * Kept in the checkout on purpose, and recorded against the ticket: see
    * CONTEXT.md's "Salvage". Never built from a gave-up or model-refused run —
-   * only a limit refusal salvages a branch — so no comment this module
-   * writes for either ever names it.
+   * only a limit refusal's branch reaches this type — so no comment this
+   * module writes for either ever names it.
    */
   | { kind: "salvaged" };
 
