@@ -89,6 +89,23 @@ function numbers(tickets: Ticket[]): string {
 }
 
 /**
+ * Names every ticket a scan found with an open sub-issue that is not a pull
+ * request ticket, yet no supertask label — reported, not skipped, so a
+ * container an agent could otherwise pick up and implement as ordinary work
+ * still gets a developer's attention.
+ */
+function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
+  const flagged = projects.flatMap(({ repo, missingSupertaskLabel }) =>
+    missingSupertaskLabel === undefined
+      ? []
+      : [`${repo} (${numbers(missingSupertaskLabel)})`],
+  );
+  return flagged.length > 0
+    ? ` Check for a missed supertask label: ${flagged.join(", ")}.`
+    : "";
+}
+
+/**
  * An error or reason, trimmed of trailing whitespace and then of at most one
  * trailing `.` it already ends with. Every call site interpolates this
  * either right before punctuation of its own, mid-sentence before more text,
@@ -130,7 +147,8 @@ export function summaryLine(facts: SummaryFacts): string {
   });
 
   const passedOver = passedOverAside(projects);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}`;
+  const missingLabel = missingSupertaskLabelAside(projects);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -150,7 +168,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}`;
 }
 
 /**

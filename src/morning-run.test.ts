@@ -271,6 +271,29 @@ describe("morningLoop", () => {
     assert.match(report.message, /#56 blocked by an open ticket/);
   });
 
+  it("still selects, but flags, a ticket with an open sub-issue that carries no supertask label", async () => {
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    ports.tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(66),
+      title: "Too big for one run",
+    });
+    ports.tracker.addIneligibleTicket(PILOT, {
+      number: issueNumber(67),
+      title: "One of the slices",
+      parent: issueNumber(66),
+    });
+
+    const report = await morningLoop(ports);
+
+    assert.equal(report.outcome, "work-selected");
+    assert.deepEqual(
+      ports.sandbox.runs.map((run) => run.ticket.number),
+      [66],
+    );
+    assert.match(report.message, /Check for a missed supertask label: .*#66/);
+  });
+
   describe("a truncated backlog", () => {
     it("names the truncated project in the waiting section, even when nothing else is waiting", async () => {
       const ports = fakePorts();

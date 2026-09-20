@@ -1,6 +1,7 @@
 import type {
   IssueNumber,
   IssueTracker,
+  OpenIssue,
   Priority,
   ProjectState,
   RegisteredProject,
@@ -13,6 +14,7 @@ import type {
 import {
   backlogIn,
   isBlocked,
+  isPullRequestTicket,
   isSupertask,
   ticketKind,
   ticketPrioritiesIn,
@@ -71,6 +73,15 @@ export interface ProjectOutcome {
    * `supertasks`.
    */
   blocked?: Ticket[];
+  /**
+   * Tickets this scan found carrying ready-for-agent with an open sub-issue
+   * that is not a pull request ticket, yet no supertask label — a likely
+   * missed label, in backlog order. Reported, not skipped: unlike a
+   * supertask or a blocked ticket, a wrong guess here costs one summary
+   * line, not a wrong selection, so the ticket stays exactly as selectable
+   * as it would otherwise be.
+   */
+  missingSupertaskLabel?: Ticket[];
   /**
    * Set when this project's backlog held more eligible tickets than the read
    * kept — regardless of verdict, since a project outranked this morning can
@@ -167,11 +178,14 @@ interface Candidate {
 
 /**
  * What scanning one project's backlog found, whatever its verdict: the
- * tickets passed over, and whether the listing was truncated.
+ * tickets passed over, the tickets flagged for a likely missed supertask
+ * label — never passed over on account of it — and whether the listing was
+ * truncated.
  */
 interface ScanFindings {
   supertasks: Ticket[];
   blocked: Ticket[];
+  missingSupertaskLabel: Ticket[];
   backlogTruncated: boolean;
 }
 
@@ -219,6 +233,7 @@ async function scan(
     const supertasks: Ticket[] = [];
     const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
+    const missingSupertaskLabel: Ticket[] = [];
     for (const ticket of backlog) {
       if (isSupertask(ticket)) {
         supertasks.push(ticket);
@@ -227,8 +242,19 @@ async function scan(
       } else {
         selectable.push(ticket);
       }
+      // Never what excludes a ticket from `selectable`: a wrong guess here
+      // costs one summary line, not a wrong selection, unlike `isSupertask`
+      // itself.
+      if (!isSupertask(ticket) && hasNonPullRequestSubIssue(ticket, open.issues)) {
+        missingSupertaskLabel.push(ticket);
+      }
     }
-    const findings: ScanFindings = { supertasks, blocked, backlogTruncated };
+    const findings: ScanFindings = {
+      supertasks,
+      blocked,
+      missingSupertaskLabel,
+      backlogTruncated,
+    };
     // A review in the same backlog as its parent ticket is worked before it.
     const ticket = bestTicket(selectable, ticketPriorities);
 
@@ -295,6 +321,23 @@ async function scan(
   return winner === undefined
     ? undefined
     : { project: winner.project, ticket: winner.ticket };
+}
+
+/**
+ * Whether `ticket` has an open sub-issue among `issues` that is not a pull
+ * request ticket: the fact behind a likely missed supertask label. Read over
+ * the whole listing rather than `backlog`, since a sub-issue that has not
+ * itself been triaged onto the loop still makes its parent a container.
+ * Narrowed to non-pull-request sub-issues so a handed-back ticket with an
+ * open review — normal, not a missed label — never trips it.
+ */
+function hasNonPullRequestSubIssue(
+  ticket: Ticket,
+  issues: readonly OpenIssue[],
+): boolean {
+  return issues.some(
+    (issue) => issue.parent === ticket.number && !isPullRequestTicket(issue.ticket),
+  );
 }
 
 /**
@@ -434,6 +477,7 @@ function outcome(
   {
     supertasks = [],
     blocked = [],
+    missingSupertaskLabel = [],
     backlogTruncated = false,
   }: Partial<ScanFindings> = {},
 ): ProjectOutcome {
@@ -444,6 +488,7 @@ function outcome(
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
     ...(supertasks.length > 0 && { supertasks }),
     ...(blocked.length > 0 && { blocked }),
+    ...(missingSupertaskLabel.length > 0 && { missingSupertaskLabel }),
     ...(backlogTruncated && { backlogTruncated: true }),
   };
 }

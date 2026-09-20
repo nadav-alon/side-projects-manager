@@ -453,6 +453,100 @@ describe("invocationSelection", () => {
     });
   });
 
+  describe("missing supertask label", () => {
+    it("flags, but still selects, a ticket with an open sub-issue that is not a pull request ticket and carries no supertask label", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Build part of the thing",
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 7);
+      assert.deepEqual(
+        selection.verdicts()[0]?.missingSupertaskLabel?.map((ticket) => ticket.number),
+        [7],
+      );
+    });
+
+    it("does not flag a ticket that already carries the supertask label", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addSupertask(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Build part of the thing",
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
+    });
+
+    it("does not flag a ticket whose only open sub-issue is a review ticket", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const implementation = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(42),
+        title: reviewTitle(implementation),
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
+    });
+
+    it("does not flag a ticket whose only open sub-issue is an apply-review ticket", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(43),
+        title: "Apply the review on #1",
+        pullRequest: {
+          kind: "apply-review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
+    });
+  });
+
   describe("blocked tickets", () => {
     it("never selects a ticket carrying ready-for-agent that an open ticket blocks, even as its project's only ticket", async () => {
       const store = new FakeStore();
