@@ -49,6 +49,7 @@ import {
   notify,
   recordRun,
   ticketKind,
+  tokenCount,
 } from "./ports/index.ts";
 import { invocationBudgetGate, type StandDown } from "./budget-gate.ts";
 import {
@@ -1102,17 +1103,23 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   sandboxCall: (checkout: Checkout) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
-  let outcome: Outcome;
   try {
     checkout = await ports.repoHost.clone(repo);
-    // Announced once the checkout is ready and the container is genuinely
-    // about to start — before `sandboxCall`, never after.
-    notify(ports.progress, {
-      kind: "container-started",
-      repo,
-      ticket,
-      spendCeiling,
-    });
+  } catch (error: unknown) {
+    // The clone never happened, so no container was ever announced started
+    // — there is nothing for `run-ended` to close out.
+    return infrastructureFailure(error);
+  }
+  // Announced once the checkout is ready and the container is genuinely
+  // about to start — before `sandboxCall`, never after.
+  notify(ports.progress, {
+    kind: "container-started",
+    repo,
+    ticket,
+    spendCeiling,
+  });
+  let outcome: Outcome;
+  try {
     outcome = await sandboxCall(checkout);
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
@@ -1122,6 +1129,16 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     // failure once the agent has already run comes back as a result instead
     // (`RunOutcome`'s `"sandbox-failed"` case), carrying its spend, so it
     // reaches `recordRun` below like any other.
+    //
+    // The container this started was announced, so it is announced ended
+    // too — with nothing spent, matching what actually came back — rather
+    // than leaving a terminal adapter believing it is still running.
+    notify(ports.progress, {
+      kind: "run-ended",
+      repo,
+      ticket,
+      tokensUsed: tokenCount(0),
+    });
     return infrastructureFailure(error);
   }
   notify(ports.progress, {

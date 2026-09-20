@@ -4636,6 +4636,42 @@ describe("morningLoop", () => {
       assert.equal(stoodDown?.reason, "weekly-reserve");
     });
 
+    it("announces the run ended, spending nothing, when the sandbox rejects after the container started", async (t) => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("docker is not running");
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        ["iteration-selected", "container-started", "run-ended"],
+      );
+      const ended = progress.events.find((event) => event.kind === "run-ended");
+      assert.equal(ended?.tokensUsed, 0);
+    });
+
+    it("never announces a container started, or a run ended, when the checkout cannot be made", async (t) => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      t.mock.method(ports.repoHost, "clone", async () => {
+        throw new Error("no such remote");
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        ["iteration-selected"],
+      );
+    });
+
     it("never fails the invocation, or changes its exit-worthy outcome, when a progress write throws", async () => {
       const ports = fakePorts();
       readyToWork(ports);
