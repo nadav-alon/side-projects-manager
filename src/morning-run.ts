@@ -72,9 +72,13 @@ import {
 } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
 import {
+  cutOffReviewOutcome,
+  cutOffRunOutcome,
   failedOnInfrastructure,
   handedBackForModelLabels,
+  isCutOff,
   type AppliedReview,
+  type CutOff,
   type Failed,
   type Finished,
   type GaveUp,
@@ -261,6 +265,13 @@ export type InvocationStandDown =
   | ProviderLimitStandDown
   | ProviderFailureStandDown
   | DeveloperStandDown;
+
+/** `iteration`'s own cut-off reason, as the stand-down it triggers. */
+function cutOffStandDown(iteration: CutOff, ticket: Ticket): InvocationStandDown {
+  return iteration.kind === "limit-refused"
+    ? { reason: "provider-limit", limitRefusal: iteration.limitRefusal, ticket }
+    : { reason: "provider-failure", providerFailure: iteration.providerFailure, ticket };
+}
 
 /** What a trigger may hand the loop beyond its ports. */
 export interface MorningLoopOptions {
@@ -465,24 +476,12 @@ export async function morningLoop(
                 worked.unrecord(ticket);
               }
 
-              // The provider limit refuses every run after this one the same
-              // way, so nothing further starts. The iterations already in
-              // progress are left to finish on their own.
-              if (iteration.kind === "limit-refused") {
-                standDown ??= {
-                  reason: "provider-limit",
-                  limitRefusal: iteration.limitRefusal,
-                  ticket,
-                };
-              }
-              // A provider failure stops every run after it the same way, for
-              // the same reason a limit refusal does.
-              if (iteration.kind === "provider-failed") {
-                standDown ??= {
-                  reason: "provider-failure",
-                  providerFailure: iteration.providerFailure,
-                  ticket,
-                };
+              // A cut-off run — a limit refusal or a provider failure —
+              // stops every run after it the same way, so nothing further
+              // starts. The iterations already in progress are left to
+              // finish on their own.
+              if (isCutOff(iteration)) {
+                standDown ??= cutOffStandDown(iteration, ticket);
               }
             },
             (error: unknown) => {
@@ -684,11 +683,7 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
  * as `work` leaves it, leaves the ticket exactly as it was.
  */
 function leavesTicketUntouched(iteration: Iteration): boolean {
-  return (
-    iteration.kind === "limit-refused" ||
-    iteration.kind === "provider-failed" ||
-    failedOnInfrastructure(iteration)
-  );
+  return isCutOff(iteration) || failedOnInfrastructure(iteration);
 }
 
 /**
@@ -774,23 +769,8 @@ async function work(
       },
     };
   }
-  if (run.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: run.words,
-      tokensUsed: run.tokensUsed,
-      run,
-      discard: await discardBranch(ports, checkout, run),
-    };
-  }
-  if (run.kind === "provider-failed") {
-    return {
-      kind: "provider-failed",
-      providerFailure: run.words,
-      tokensUsed: run.tokensUsed,
-      run,
-      discard: await discardBranch(ports, checkout, run),
-    };
+  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+    return cutOffRunOutcome(run, await discardBranch(ports, checkout, run));
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(selection.ticket, run.refusal);
@@ -1238,21 +1218,8 @@ async function runReview(
   }
   const { outcome: review } = result;
 
-  if (review.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: review.words,
-      tokensUsed: review.tokensUsed,
-      discard: { kind: "none" },
-    };
-  }
-  if (review.kind === "provider-failed") {
-    return {
-      kind: "provider-failed",
-      providerFailure: review.words,
-      tokensUsed: review.tokensUsed,
-      discard: { kind: "none" },
-    };
+  if (review.kind === "limit-refused" || review.kind === "provider-failed") {
+    return cutOffReviewOutcome(review);
   }
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
@@ -1397,21 +1364,8 @@ async function runApplyReview(
   }
   const { outcome: run } = result;
 
-  if (run.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: run.words,
-      tokensUsed: run.tokensUsed,
-      discard: { kind: "none" },
-    };
-  }
-  if (run.kind === "provider-failed") {
-    return {
-      kind: "provider-failed",
-      providerFailure: run.words,
-      tokensUsed: run.tokensUsed,
-      discard: { kind: "none" },
-    };
+  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+    return cutOffReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(ticket, run.refusal);
@@ -1592,21 +1546,8 @@ async function runRebase(
   }
   const { outcome: run } = result;
 
-  if (run.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: run.words,
-      tokensUsed: run.tokensUsed,
-      discard: { kind: "none" },
-    };
-  }
-  if (run.kind === "provider-failed") {
-    return {
-      kind: "provider-failed",
-      providerFailure: run.words,
-      tokensUsed: run.tokensUsed,
-      discard: { kind: "none" },
-    };
+  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+    return cutOffReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(ticket, run.refusal);

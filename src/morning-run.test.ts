@@ -3609,6 +3609,35 @@ describe("morningLoop", () => {
     });
   });
 
+  describe("a provider failure", () => {
+    it("discards any branch the cut-off run left, without handing the ticket back", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.sandbox.result = () => ({
+        kind: "provider-failed",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [commitSha("c0ffee1")],
+        words: PROVIDER_FAILURE_PROSE,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, [
+        {
+          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+          branch: branch("issue-7"),
+        },
+      ]);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(ports.repoHost.pullRequests.length, 0);
+    });
+  });
+
   describe("the model a run uses", () => {
     const OPUS = modelName("opus");
     const HAIKU = modelName("haiku");
