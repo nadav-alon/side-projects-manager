@@ -110,7 +110,7 @@ function appliedReviewButNotLabelled(number: number): IterationOutcome {
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
     tokensUsed: tokenCount(500),
     answers: { applied: 2, declined: 1 },
-    notLabelled: { error: "the tracker was unreachable" },
+    notLabelled: { error: "the repo host refused the label" },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
@@ -283,7 +283,7 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — ready for review`,
-      `- ${REPO} #184: ${PULL_REQUEST} could not be labelled applied-review: the tracker was unreachable; add the label yourself`,
+      `- ${REPO} #184: ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself`,
     ]);
   });
 
@@ -346,7 +346,7 @@ describe("reviewSummary and appliedReviewSummary", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the tracker was unreachable; add the label yourself.`,
+      `Applied review on ${REPO} #213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself.`,
     );
   });
 });
