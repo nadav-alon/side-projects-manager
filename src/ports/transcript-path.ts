@@ -1,19 +1,19 @@
-import path from "node:path";
+import { isNormalisedAbsolutePath } from "./normalised-absolute-path.ts";
 
 declare const transcriptPathBrand: unique symbol;
 
 /**
- * An absolute path to a sandboxed run's own session transcript: either the
- * host directory `dockerCommand` mounts into the container for the agent CLI
- * to write one into, or the `.jsonl` file found there once the run has
- * ended — a `RunOutcome`, `ReviewOutcome`, `ApplyReviewOutcome` or
- * `RebaseOutcome` names the latter, so a run that hung or spent oddly can be
- * read back after its container is gone (`--rm` takes everything else with
- * it).
+ * An absolute path to a sandboxed run's own session transcript: the `.jsonl`
+ * file the agent CLI wrote inside its `TranscriptDirectory`, found there once
+ * the run has ended — a `RunOutcome`, `ReviewOutcome`, `ApplyReviewOutcome` or
+ * `RebaseOutcome` names it, so a run that hung or spent oddly can be read
+ * back after its container is gone (`--rm` takes everything else with it).
  *
- * Branded for the same reason `Checkout` is: it travels beside other strings
- * a caller must not swap it for. Values enter through `transcriptPath` or
- * `isTranscriptPath`.
+ * Distinct from `TranscriptDirectory`, the directory it is found in: the two
+ * are different domain concepts — one is mounted into the container before
+ * the run, the other is read off disk after it — and collapsing them into one
+ * brand would let a directory be passed where a transcript file is meant, or
+ * the reverse. Values enter through `transcriptPath` or `isTranscriptPath`.
  */
 export type TranscriptPath = string & { readonly [transcriptPathBrand]: true };
 
@@ -23,13 +23,7 @@ export type TranscriptPath = string & { readonly [transcriptPathBrand]: true };
  * different ones.
  */
 export function isTranscriptPath(value: string): value is TranscriptPath {
-  if (value === "" || !path.isAbsolute(value)) {
-    return false;
-  }
-  if (value.length > 1 && value.endsWith(path.sep)) {
-    return false;
-  }
-  return path.normalize(value) === value;
+  return isNormalisedAbsolutePath(value);
 }
 
 /** Narrows `value` to a `TranscriptPath`, throwing if it is not one. */

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -34,7 +34,7 @@ import {
   repoSlug,
   reviewFindingTemplate,
   tokenCount,
-  transcriptPath,
+  transcriptDirectory,
   usd,
   type ApplyReviewOutcome,
   type ApplyReviewTicket,
@@ -186,7 +186,7 @@ function agentCommitting(
 }
 
 /**
- * Writes a session log the way the real agent CLI lays one out under
+ * Writes a session transcript the way the real agent CLI lays one out under
  * `TRANSCRIPT_MOUNT`: one directory per project, named for its working
  * directory (always `/repo` in the container, escaped to `-repo`), holding
  * one `.jsonl` per session.
@@ -1071,8 +1071,10 @@ describe("containerSandbox", () => {
   it("rejects, rather than reporting a failed agent, when the agent never ran", async () => {
     const directory = await project();
     let clone = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    let transcriptDirectory = "";
+    const sandbox = containerSandbox(async ({ directory: mounted, transcriptDirectory: seen }) => {
       clone = mounted;
+      transcriptDirectory = seen;
       throw new AgentNeverRan("docker is not running");
     });
 
@@ -1082,6 +1084,10 @@ describe("containerSandbox", () => {
     );
     assert.equal(await exists(clone), false);
     assert.deepEqual(await branchesIn(directory), ["main"]);
+    // A container that never reached the CLI never wrote into its transcript
+    // directory either, so nothing is left behind for it — unlike a
+    // transcript directory a run actually used, which is kept forever.
+    assert.equal(await exists(transcriptDirectory), false);
   });
 
   it("refuses to start an agent that has no credential to sign in with", async (t) => {
@@ -1289,25 +1295,30 @@ describe("containerSandbox", () => {
 });
 
 describe("transcript", () => {
-  it("hands the container a fresh directory to write its session transcript into", async () => {
+  it("hands the container a fresh, empty directory to write its session transcript into", async () => {
     const directory = await project();
-    const seen: (string | undefined)[] = [];
+    const seen: string[] = [];
+    const foundInside: string[][] = [];
     const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
       seen.push(transcriptDirectory);
+      // Read before anything is written into it: a directory that was never
+      // created, or one reused from an earlier run, would still pass a bare
+      // "is it defined and absolute" check — only this pins "fresh".
+      foundInside.push(await readdir(transcriptDirectory));
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.notEqual(seen[0], undefined);
     assert.ok(path.isAbsolute(seen[0] ?? ""));
+    assert.deepEqual(foundInside[0], []);
   });
 
   it("reports the transcript a finished run's container wrote", async () => {
     const directory = await project();
     let written = "";
     const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
-      written = await writeTranscript(transcriptDirectory ?? "");
+      written = await writeTranscript(transcriptDirectory);
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
@@ -1323,7 +1334,7 @@ describe("transcript", () => {
   it("gives two runs in progress at once separate transcript directories", async () => {
     const directory = await project();
     const held = heldAgents(2, async ({ transcriptDirectory }) => {
-      await writeTranscript(transcriptDirectory ?? "");
+      await writeTranscript(transcriptDirectory);
       return { output: "", tokensUsed: tokenCount(0) };
     });
     const sandbox = containerSandbox(held.container);
@@ -1352,7 +1363,7 @@ describe("transcript", () => {
       mount = options.mount;
       // Written, not merely asserted absolute: a reviewer's read-only clone
       // mount must not have also made this one read-only.
-      await writeTranscript(options.transcriptDirectory ?? "");
+      await writeTranscript(options.transcriptDirectory);
       return { output: "posted", tokensUsed: tokenCount(0) };
     });
 
@@ -1364,6 +1375,32 @@ describe("transcript", () => {
 
     assert.equal(mount, "ro");
     assert.notEqual(variant(result, "finished")?.transcript, undefined);
+  });
+
+  it("reports the transcript an apply-review run's container wrote", async () => {
+    const { directory } = await hostedProject();
+    let written = "";
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      written = await writeTranscript(transcriptDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.equal(variant(result, "finished")?.transcript, written);
+  });
+
+  it("reports the transcript a rebase run's container wrote", async () => {
+    const { directory } = await hostedProject();
+    let written = "";
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      written = await writeTranscript(transcriptDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.equal(variant(result, "finished")?.transcript, written);
   });
 });
 
@@ -2771,7 +2808,7 @@ describe("readAgentRun", () => {
  */
 describe("dockerCommand", () => {
   const CLONE = checkout("/tmp/clone");
-  const TRANSCRIPTS = transcriptPath("/tmp/transcripts");
+  const TRANSCRIPTS = transcriptDirectory("/tmp/transcripts");
 
   it("mounts the transcript directory at the agent CLI's own log location", () => {
     const command = dockerCommand({
@@ -2798,23 +2835,13 @@ describe("dockerCommand", () => {
     assert.ok(command.includes(`${CLONE}:/repo:ro`));
   });
 
-  it("mounts nothing for the transcript when none is given", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-    });
-
-    assert.ok(!command.some((argument) => argument.includes(".claude/projects")));
-  });
-
   it("passes no model argument when none is asked for", () => {
     const command = dockerCommand({
       directory: CLONE,
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(!command.includes("--model"));
@@ -2827,6 +2854,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
       model: modelName(name),
     });
 
@@ -2842,6 +2870,7 @@ describe("dockerCommand", () => {
       prompt: "review it",
       spendCeiling: usd(5),
       mount: "ro",
+      transcriptDirectory: TRANSCRIPTS,
       model: modelName("opus"),
     });
 
@@ -2855,6 +2884,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(2.5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     const ceiling = command.indexOf("--max-budget-usd");
@@ -2868,6 +2898,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(command.includes("--print"));
@@ -2879,6 +2910,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(command.includes(`${CLONE}:/repo`));
@@ -2890,6 +2922,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(!command.includes(`${CLONE}:/repo:ro`));
@@ -2905,6 +2938,7 @@ describe("dockerCommand", () => {
       prompt: "review it",
       spendCeiling: usd(5),
       mount: "ro",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(command.includes(`${CLONE}:/repo:ro`));
@@ -2916,6 +2950,7 @@ describe("dockerCommand", () => {
       prompt: "review it",
       spendCeiling: usd(5),
       mount: "ro",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(command.includes("GH_TOKEN"));
@@ -2936,6 +2971,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     const mode = command.indexOf("--permission-mode");
@@ -2959,6 +2995,7 @@ describe("dockerCommand", () => {
       prompt: "review it",
       spendCeiling: usd(5),
       mount: "ro",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     assert.ok(command.includes("--permission-mode"));
@@ -2980,6 +3017,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     const pin = command.indexOf("--user");
@@ -2995,6 +3033,28 @@ describe("dockerCommand", () => {
   });
 
   /**
+   * Acceptance criterion 4 (#409): transcript files are owned by the
+   * invoking user, not root. `--user` pins the whole container, not a mount
+   * at a time, so a container pinned this way writes into the transcript
+   * mount as that uid exactly as it does into the clone's — this pins the
+   * two in the same command, so a change that stopped passing `--user`
+   * alongside the transcript volume (or the reverse) would fail here even
+   * though each flag's own test still passes on its own.
+   */
+  it("pins the same user on the container that mounts the transcript directory", () => {
+    const command = dockerCommand({
+      directory: CLONE,
+      prompt: "do the thing",
+      spendCeiling: usd(5),
+      mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
+    });
+
+    assert.ok(command.includes("--user"));
+    assert.ok(command.includes(`${TRANSCRIPTS}:/home/node/.claude/projects`));
+  });
+
+  /**
    * On the bridge network, runs' API connections went silent while staying
    * open (#262) or never answered at all, while the host's own CLI on the
    * same machine was fine. The host's network stack takes docker's NAT out
@@ -3006,6 +3066,7 @@ describe("dockerCommand", () => {
       prompt: "do the thing",
       spendCeiling: usd(5),
       mount: "rw",
+      transcriptDirectory: TRANSCRIPTS,
     });
 
     const network = command.indexOf("--network");
@@ -3039,6 +3100,7 @@ describe("dockerCommand", () => {
             prompt: "do the thing",
             spendCeiling: usd(5),
             mount: "rw",
+            transcriptDirectory: TRANSCRIPTS,
           }),
         AgentNeverRan,
       );
@@ -3068,6 +3130,7 @@ describe("dockerCommand", () => {
         prompt: "do the thing",
         spendCeiling: usd(5),
         mount: "rw",
+        transcriptDirectory: TRANSCRIPTS,
       });
 
       assert.ok(

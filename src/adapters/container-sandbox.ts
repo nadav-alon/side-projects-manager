@@ -27,6 +27,7 @@ import type {
   RunRequest,
   Sandbox,
   Ticket,
+  TranscriptDirectory,
   Usd,
 } from "../ports/index.ts";
 import {
@@ -40,6 +41,7 @@ import {
   remoteUrl,
   reviewFindingTemplate,
   tokenCount,
+  transcriptDirectory,
   transcriptPath,
   type TicketGist,
   type TokenCount,
@@ -179,11 +181,9 @@ export interface RunOptions {
    * The host directory `dockerCommand` mounts at `TRANSCRIPT_MOUNT`, so the
    * agent CLI's own session transcript lands somewhere that outlives the
    * container `--rm` deletes — made fresh per run by `attempt`, so two runs
-   * in progress at once never write into the same one. Absent only in a test
-   * that calls `dockerCommand` directly to inspect its argument list; every
-   * real run sets it.
+   * in progress at once never write into the same one.
    */
-  transcriptDirectory?: TranscriptPath;
+  transcriptDirectory: TranscriptDirectory;
 }
 
 /**
@@ -386,12 +386,14 @@ async function runOnClone(
         // afterwards — reported rather than thrown, so that spend is not lost
         // to a rejection the way it would be before the agent ever started.
         // Its transcript is just as real, and named the same way.
-        return {
-          kind: "sandbox-failed",
-          reason: errorMessage(error),
-          tokensUsed: agent.tokensUsed,
-          ...(agent.transcript !== undefined && { transcript: agent.transcript }),
-        };
+        return withTranscriptField(
+          {
+            kind: "sandbox-failed",
+            reason: errorMessage(error),
+            tokensUsed: agent.tokensUsed,
+          },
+          agent,
+        );
       }
     } finally {
       // If fetched back, the checkout now records the name; otherwise the name
@@ -422,12 +424,18 @@ async function runOnClone(
  * A fresh host directory is made for every attempt, named for `kind` so one
  * left behind says which sort of run wrote it, and handed to `container` as
  * `transcriptDirectory` for `dockerCommand` to mount — see `TRANSCRIPT_MOUNT`.
- * Never deleted, unlike the throwaway clone: the whole point is a transcript
- * that survives the container `--rm` deletes it with. Whatever the container
- * did, the directory is searched for the `.jsonl` the agent CLI left in it,
- * and the result carries that path whichever way it ends — a container that
- * throws after the agent has already run left one exactly as one that
- * returns cleanly did.
+ * Never deleted once the agent has actually run, unlike the throwaway clone:
+ * the whole point is a transcript that survives the container `--rm` deletes
+ * it with. Whatever the container did, the directory is searched for the
+ * `.jsonl` the agent CLI left in it, and the result carries that path
+ * whichever way it ends — a container that throws after the agent has
+ * already run left one exactly as one that returns cleanly did.
+ *
+ * A container that never reached the CLI (`AgentNeverRan`) is the one
+ * exception: nothing was ever written into the directory, so it is removed
+ * before the error is rethrown rather than left behind empty — a directory
+ * `findTranscript` was never even asked to look in, since the caller only
+ * ever sees the thrown error.
  */
 async function attempt(
   container: Container,
@@ -435,18 +443,25 @@ async function attempt(
   options: Omit<RunOptions, "model" | "transcriptDirectory">,
   model: ModelName | undefined,
 ): Promise<AgentRun> {
-  const transcriptDirectory = transcriptPath(
+  const transcriptDir = transcriptDirectory(
     await mkdtemp(path.join(tmpdir(), `side-projects-transcript-${kind}-`)),
   );
   try {
     const agent = await container({
       ...options,
-      transcriptDirectory,
+      transcriptDirectory: transcriptDir,
       ...(model === undefined ? {} : { model }),
     });
-    return withTranscript(agent, await findTranscript(transcriptDirectory));
+    return withTranscript(agent, await findTranscript(transcriptDir));
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
+      await rm(transcriptDir, { recursive: true, force: true }).catch(
+        (cleanupError: unknown) => {
+          console.warn(
+            `Left ${transcriptDir} behind: ${errorMessage(cleanupError)}`,
+          );
+        },
+      );
       throw error;
     }
     return withTranscript(
@@ -456,7 +471,7 @@ async function attempt(
         failure: errorMessage(error),
         crashed: true,
       },
-      await findTranscript(transcriptDirectory),
+      await findTranscript(transcriptDir),
     );
   }
 }
@@ -467,6 +482,21 @@ function withTranscript(
   found: TranscriptPath | undefined,
 ): AgentRun {
   return found === undefined ? agent : { ...agent, transcript: found };
+}
+
+/**
+ * `fields`, with `transcript` added from `agent` when it found one — the one
+ * spread every outcome-building function in this file repeats, so a field
+ * that only ever rides alongside `agent.transcript` is written once here
+ * rather than copied out at each call site.
+ */
+function withTranscriptField<T extends object>(
+  fields: T,
+  agent: AgentRun,
+): T & { transcript?: TranscriptPath } {
+  return agent.transcript === undefined
+    ? fields
+    : { ...fields, transcript: agent.transcript };
 }
 
 /**
@@ -481,7 +511,7 @@ function withTranscript(
  * practice.
  */
 async function findTranscript(
-  directory: string,
+  directory: TranscriptDirectory,
 ): Promise<TranscriptPath | undefined> {
   const projectDirs = await readdir(directory).catch(() => []);
   for (const projectDir of projectDirs) {
@@ -664,14 +694,16 @@ function runOutcomeOf(
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
-  return {
-    ...ending,
-    ...(gist !== undefined && { gist }),
-    ...(agent.transcript !== undefined && { transcript: agent.transcript }),
-    tokensUsed: agent.tokensUsed,
-    branch,
-    commits,
-  };
+  return withTranscriptField(
+    {
+      ...ending,
+      ...(gist !== undefined && { gist }),
+      tokensUsed: agent.tokensUsed,
+      branch,
+      commits,
+    },
+    agent,
+  );
 }
 
 /** `endingOf`, as a review ends it: no branch or commits to carry. */
@@ -679,11 +711,10 @@ function reviewOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
 ): ReviewOutcome {
-  return {
-    ...endingOf(agent, model),
-    ...(agent.transcript !== undefined && { transcript: agent.transcript }),
-    tokensUsed: agent.tokensUsed,
-  };
+  return withTranscriptField(
+    { ...endingOf(agent, model), tokensUsed: agent.tokensUsed },
+    agent,
+  );
 }
 
 /**
@@ -889,20 +920,18 @@ function pushRejectedOutcomeOf(
   ) {
     // Only a full hash is carried: an abbreviation cannot be compared with
     // the head the repo host reports. The push was rejected all the same.
-    return {
-      kind: "gave-up",
-      output: agent.output,
-      reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
-      ...(FULL_HASH.test(moved) ? { movedHead: moved } : {}),
-      ...(agent.transcript !== undefined && { transcript: agent.transcript }),
-      tokensUsed: agent.tokensUsed,
-    };
+    return withTranscriptField(
+      {
+        kind: "gave-up",
+        output: agent.output,
+        reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
+        ...(FULL_HASH.test(moved) ? { movedHead: moved } : {}),
+        tokensUsed: agent.tokensUsed,
+      },
+      agent,
+    );
   }
-  return {
-    ...ending,
-    ...(agent.transcript !== undefined && { transcript: agent.transcript }),
-    tokensUsed: agent.tokensUsed,
-  };
+  return withTranscriptField({ ...ending, tokensUsed: agent.tokensUsed }, agent);
 }
 
 /**
@@ -1460,9 +1489,9 @@ export function dockerNeverRan(error: unknown): boolean {
  * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `mount` —
  * see `Mount` and `envFor` for which credential answers to that name.
  *
- * `transcriptDirectory`, present, is mounted too — see `TRANSCRIPT_MOUNT` —
- * so the agent CLI's own session transcript lands on the host the same way
- * the clone's uid does: pinned to `user`, never root's.
+ * `transcriptDirectory` is mounted too — see `TRANSCRIPT_MOUNT` — so the
+ * agent CLI's own session transcript lands on the host the same way the
+ * clone's uid does: pinned to `user`, never root's.
  *
  * Throws `AgentNeverRan` for a manager running as root, which is a setup no
  * unattended run can happen in — see `hostUser`.
@@ -1499,12 +1528,9 @@ export function dockerCommand({
     // Half the enforcement for a review — see `Mount`.
     `${directory}:/repo${mount === "ro" ? ":ro" : ""}`,
     // Always writable, whatever `mount` is: the transcript is not part of the
-    // clone, so a reviewer's read-only mount says nothing about it. Absent
-    // only when the caller built `RunOptions` by hand with no transcript
-    // directory — see its own doc comment.
-    ...(transcriptDirectory === undefined
-      ? []
-      : ["--volume", `${transcriptDirectory}:${TRANSCRIPT_MOUNT}`]),
+    // clone, so a reviewer's read-only mount says nothing about it.
+    "--volume",
+    `${transcriptDirectory}:${TRANSCRIPT_MOUNT}`,
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "--env",
