@@ -1345,16 +1345,22 @@ async function isCheckedOut(project: Checkout, name: Branch): Promise<boolean> {
 }
 
 /**
- * Where `a` and `b` last shared history in `directory` — used to find the
- * commit a resumed run's salvage branch left the checkout's `HEAD` at, since
- * that `HEAD` may have moved on since (see `runOnClone`'s `base`).
+ * Where `head` and `onto` last shared history in `directory` — used to find
+ * the commit a resumed run's salvage branch left the checkout's `HEAD` at,
+ * since that `HEAD` may have moved on since (see `runOnClone`'s `base`).
  */
 async function mergeBase(
   directory: Checkout,
-  a: string,
-  b: string,
+  head: CommitSha,
+  onto: Branch,
 ): Promise<string> {
-  const { stdout } = await run("git", ["-C", directory, "merge-base", a, b]);
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "merge-base",
+    head,
+    onto,
+  ]);
   return stdout.trim();
 }
 
