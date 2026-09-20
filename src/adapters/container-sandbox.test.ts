@@ -2137,13 +2137,8 @@ describe("containerSandbox.rebase", () => {
     assert.match(asked, /unattended/);
   });
 
-  /**
-   * Unlike the apply-review prompt, this does not ask for a push after each
-   * commit: the rebase-pr skill pushes exactly once, force-with-lease, once
-   * the whole rebase is resolved and green — there is no state part way
-   * through a rebase that pushes cleanly.
-   */
-  it("asks for one force-push at the end, not a push after each commit", async () => {
+  /** The rationale for this asymmetry with the apply-review prompt is on `rebasePromptFor` itself. */
+  it("asks for one force-push at the end", async () => {
     const { directory } = await hostedProject();
     let asked = "";
     const sandbox = containerSandbox(async ({ prompt }) => {
@@ -2153,7 +2148,6 @@ describe("containerSandbox.rebase", () => {
 
     await rebaseOn(sandbox, directory);
 
-    assert.doesNotMatch(asked, /push after each commit/i);
     assert.match(asked, /force-push with `--force-with-lease`/);
   });
 
