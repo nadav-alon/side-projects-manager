@@ -1902,6 +1902,31 @@ async function hostedProject(): Promise<{
 /** The head lookup a hosted project's pull request answers with. */
 const headIsBranch = async () => branch(BRANCH);
 
+/**
+ * Redirects git's fetches of `from` to `to` for the length of the test, by
+ * pointing `GIT_CONFIG_GLOBAL` at a config carrying nothing but that one
+ * `insteadOf` — so a test can prove a URL was rewritten to `from` by making
+ * the real fetch that follows only succeed when it was.
+ */
+async function withInsteadOf(
+  t: TestContext,
+  from: string,
+  to: string,
+): Promise<void> {
+  const dir = await mkdtemp(path.join(tmpdir(), "git-config-"));
+  const config = path.join(dir, "gitconfig");
+  await writeFile(config, `[url "${to}"]\n\tinsteadOf = ${from}\n`);
+  const previous = process.env["GIT_CONFIG_GLOBAL"];
+  process.env["GIT_CONFIG_GLOBAL"] = config;
+  t.after(() => {
+    if (previous === undefined) {
+      delete process.env["GIT_CONFIG_GLOBAL"];
+    } else {
+      process.env["GIT_CONFIG_GLOBAL"] = previous;
+    }
+  });
+}
+
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
 /** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
@@ -1935,6 +1960,36 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(seen[0]?.on, BRANCH);
     assert.equal(seen[0]?.at, headCommit);
   });
+
+  /**
+   * The container holds a token, not an SSH key, so an SSH origin has to
+   * become its HTTPS address before the clone can push through it — see
+   * `pushableRemote` in container-sandbox.ts. Proven by redirecting that
+   * exact HTTPS address to the bare repo standing in for the repo host: the
+   * fetch it drives only lands on the right commit if the rewrite was right.
+   */
+  for (const ssh of [
+    "git@github.com:nadav-alon/pilot.git",
+    "git@github.com:nadav-alon/pilot",
+    "ssh://git@github.com/nadav-alon/pilot.git",
+  ]) {
+    it(`reaches ${ssh} over HTTPS, which the container's token can push to`, async (t) => {
+      const { directory, hosted, headCommit } = await hostedProject();
+      await run("git", ["-C", directory, "remote", "set-url", "origin", ssh]);
+      await withInsteadOf(t, "https://github.com/nadav-alon/pilot.git", hosted);
+      const sandbox = containerSandbox(
+        async ({ directory: mounted }) => ({
+          output: await headOf(mounted),
+          tokensUsed: tokenCount(0),
+        }),
+        headIsBranch,
+      );
+
+      const result = await applyReviewOn(sandbox, directory);
+
+      assert.equal(variant(result, "finished")?.output, headCommit);
+    });
+  }
 
   it("looks the head branch up from the ticket's own pull request", async () => {
     const { directory } = await hostedProject();
