@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type {
+  AppliedReview,
   Finished,
   IterationOutcome,
   PullRequestResolved,
@@ -16,6 +17,7 @@ import {
   repoSlug,
   tokenCount,
   transcriptPath,
+  type ApplyReviewTicket,
   type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
@@ -31,6 +33,10 @@ function implementationTicket(number: number): Ticket {
 
 function reviewTicket(number: number): ReviewTicket {
   return { repo: REPO, number: issueNumber(number), title: `Review ${number}`, pullRequest: { kind: "review", url: PULL_REQUEST } };
+}
+
+function applyReviewTicket(number: number): ApplyReviewTicket {
+  return { repo: REPO, number: issueNumber(number), title: `Apply review ${number}`, pullRequest: { kind: "apply-review", url: PULL_REQUEST } };
 }
 
 /** A finished run that opened a pull request and queued `reviewNumber` to review it. */
@@ -84,6 +90,29 @@ function reviewedButNotLabelled(number: number): IterationOutcome {
     notLabelled: { error: "the label already existed with different case" },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
+/** An apply-review ticket's own run that finished and closed its ticket cleanly. */
+function appliedReviewCleanly(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 1 },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** An apply-review ticket's own run that closed its ticket cleanly but could not label its pull request. */
+function appliedReviewButNotLabelled(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 1 },
+    notLabelled: { error: "the tracker was unreachable" },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
 
 /** A review ticket's own run that found its pull request already resolved, and closed it. */
@@ -245,6 +274,15 @@ describe("waitingSection", () => {
     ]);
   });
 
+  it("lists an applied-review iteration under waiting on you when its pull request could not be labelled, alongside its ready-for-review line", () => {
+    const lines = waitingLines([appliedReviewButNotLabelled(184)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — ready for review`,
+      `- ${REPO} #184: ${PULL_REQUEST} could not be labelled applied-review: the tracker was unreachable; add the label yourself`,
+    ]);
+  });
+
   it("does not split the list in two when an infrastructure failure's reason ends in a newline", () => {
     const first: IterationOutcome = {
       repo: REPO,
@@ -274,7 +312,7 @@ describe("waitingSection", () => {
   });
 });
 
-describe("reviewSummary", () => {
+describe("reviewSummary and appliedReviewSummary", () => {
   it("reads a reviewed iteration exactly as today when notLabelled is absent", () => {
     const line = summaryLine(facts([reviewedCleanly(210)]));
 
@@ -287,6 +325,24 @@ describe("reviewSummary", () => {
     assert.equal(
       line,
       `Reviewed ${REPO} #211: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself.`,
+    );
+  });
+
+  it("reads an applied-review iteration exactly as today when notLabelled is absent", () => {
+    const line = summaryLine(facts([appliedReviewCleanly(212)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO} #212: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+    );
+  });
+
+  it("names the pull request, the applied-review label and the error when an applied-review iteration could not be labelled", () => {
+    const line = summaryLine(facts([appliedReviewButNotLabelled(213)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO} #213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the tracker was unreachable; add the label yourself.`,
     );
   });
 });

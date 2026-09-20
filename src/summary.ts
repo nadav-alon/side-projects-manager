@@ -33,6 +33,7 @@ import type {
   TranscriptPath,
 } from "./ports/index.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
@@ -275,7 +276,12 @@ function waitingSection(
           ? []
           : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)];
       case "applied-review":
-        return [appliedReviewWaitingLine(iteration)];
+        return [
+          appliedReviewWaitingLine(iteration),
+          ...(iteration.notClosed === undefined && iteration.notLabelled !== undefined
+            ? [notLabelledLine(iteration, APPLIED_REVIEW_LABEL, iteration.notLabelled)]
+            : []),
+        ];
       case "rebased":
         return [rebasedWaitingLine(iteration)];
       // Closed outright, so nothing here waits on the developer — unless the
@@ -573,11 +579,11 @@ function reviewSummary(
 }
 
 /**
- * The Waiting-on-you line for a review iteration whose ticket closed but
- * whose pull request could not be labelled `label`. Read at the review case
- * in `waitingSection`, once it has ruled out `notClosed`: labelling is tried
- * only after the ticket has already closed, so the two never both apply to
- * the same iteration.
+ * The Waiting-on-you line for a review or apply-review iteration whose ticket
+ * closed but whose pull request could not be labelled `label`. Read at both
+ * kinds' own case in `waitingSection`, once each has ruled out `notClosed`:
+ * labelling is tried only after the ticket has already closed, so the two
+ * never both apply to the same iteration.
  */
 function notLabelledLine(
   { repo, ticket }: { repo: RepoSlug; ticket: PullRequestTicket },
@@ -618,12 +624,16 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
  * the loop could not finish the ticket off.
  */
 function appliedReviewSummary(iteration: AppliedReviewIteration): string {
-  const { repo, ticket, notClosed } = iteration;
+  const { repo, ticket, notClosed, notLabelled } = iteration;
   const pullRequest = ticket.pullRequest.url;
   const applied = `Applied review on ${repo} #${ticket.number}`;
   switch (notClosed?.kind) {
-    case undefined:
-      return `${applied}: ${answered(iteration)}, now ready for review.`;
+    case undefined: {
+      const ready = `${applied}: ${answered(iteration)}, now ready for review.`;
+      return notLabelled === undefined
+        ? ready
+        : `${ready} ${pullRequest} could not be labelled ${APPLIED_REVIEW_LABEL}: ${withoutTrailingStop(notLabelled.error)}; add the label yourself.`;
+    }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
     case "ready-failed":
