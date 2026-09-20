@@ -382,7 +382,7 @@ export function handedBackFailure<T extends Failed>(
 /**
  * The project and ticket an iteration worked, and the model its run was
  * started on — absent when the sandbox image's pin decided, and when no run
- * was started because the ticket's model labels were unusable.
+ * was started because the ticket's model or size labels were unusable.
  */
 export interface Attempt<T extends Ticket = Ticket> {
   repo: RepoSlug;
@@ -390,9 +390,11 @@ export interface Attempt<T extends Ticket = Ticket> {
   model?: ModelName;
   /**
    * The run estimate the gate's go-ahead charged for this ticket, per
-   * `CONTEXT.md`'s "Run estimate" — what the summary sets a finished run's
-   * cost beside. Absent from a ticket handed back ahead of the gate, for its
-   * model or size labels: the gate never got a chance to charge one.
+   * `CONTEXT.md`'s "Run estimate". Absent from a ticket handed back ahead of
+   * the gate, for its model or size labels: the gate never got a chance to
+   * charge one.
+   *
+   * TODO[#160]: read by the summary, to set a finished run's cost beside it.
    */
   estimateCharged?: TokenCount;
 }
