@@ -284,8 +284,7 @@ function sizeFor(ticket: Ticket, budget: Budget): Size {
  * size. Never derived from what past runs cost.
  *
  * A ticket whose size label names no size the budget document knows never
- * reaches here: the loop hands it back ahead of the gate instead — see
- * `unusableSizeLabel` in `morning-run.ts`.
+ * reaches here: the loop hands it back ahead of the gate instead.
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
   return budget.sizes[sizeFor(ticket, budget)];
