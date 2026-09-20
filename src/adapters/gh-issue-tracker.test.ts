@@ -176,11 +176,13 @@ describe("ghIssueTracker", () => {
     }[];
     // Told apart by title rather than by the body line the adapter reads, so
     // a bug in reading bodies can't make this pass anyway. The titles in this
-    // repo are the ones `reviewTitle` and the apply-review workflow give.
+    // repo are the ones `reviewTitle` and the apply-review and rebase
+    // workflows give — one per pull request ticket kind, so a kind left out
+    // here would be miscounted as work of the parent's own.
     const openSubIssues = (issue: (typeof all)[number]) =>
       issue.subIssues.nodes.filter((sub) => sub.state === "OPEN");
     const isPullRequestTicketTitle = (sub: { title: string }) =>
-      /^(?:Review the draft pull request for|Apply the review on) #\d+$/.test(
+      /^(?:Review the draft pull request for|Apply the review on|Rebase) #\d+$/.test(
         sub.title,
       );
     // Every sub-issue listed, so the titles account for every open one.
