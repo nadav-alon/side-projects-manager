@@ -276,13 +276,16 @@ function waitingSection(
         return iteration.notLabelled === undefined
           ? []
           : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)];
-      case "applied-review":
+      case "applied-review": {
+        const waiting = appliedReviewWaitingLine(iteration);
+        if (!appliedReviewNotLabelled(iteration)) {
+          return [waiting];
+        }
         return [
-          appliedReviewWaitingLine(iteration),
-          ...(iteration.notClosed === undefined && iteration.notLabelled !== undefined
-            ? [notLabelledLine(iteration, APPLIED_REVIEW_LABEL, iteration.notLabelled)]
-            : []),
+          waiting,
+          notLabelledLine(iteration, APPLIED_REVIEW_LABEL, iteration.notLabelled),
         ];
+      }
       case "rebased":
         return [rebasedWaitingLine(iteration)];
       // Closed outright, so nothing here waits on the developer — unless the
@@ -427,6 +430,17 @@ function reviewLeftOpen(
   outcome: Reviewed,
 ): outcome is Reviewed & { notClosed: NotClosed } {
   return outcome.notClosed !== undefined;
+}
+
+/**
+ * Whether an applied-review iteration's ticket closed cleanly but its pull
+ * request could not be labelled — labelling is tried only once the ticket
+ * has closed, so this and `notClosed` never both hold.
+ */
+function appliedReviewNotLabelled(
+  outcome: AppliedReview,
+): outcome is AppliedReview & { notLabelled: NotLabelled } {
+  return outcome.notClosed === undefined && outcome.notLabelled !== undefined;
 }
 
 /**
