@@ -6,7 +6,7 @@ This repo tracks coding related side project shared files. This includes the wor
 `scripts/setup-wizard.sh` walks a fresh machine through everything below: generating the
 `CLAUDE_CODE_OAUTH_TOKEN` and GitHub tokens, persisting them for both an interactive shell and cron
 (which sources neither `.bashrc` nor `.zshrc`), building and verifying the sandbox image, installing
-the triggers, and optionally registering a first project. Re-running it is safe — it remembers what
+the git hooks and the triggers, and optionally registering a first project. Re-running it is safe — it remembers what
 it already captured.
 
 ```sh
@@ -375,6 +375,21 @@ npm run sandbox:build
 That passes npm's current CLI release as `CLAUDE_CODE_VERSION`, so a rebuild picks up a new CLI
 instead of reusing the cached install layer. A bare `docker build -t side-projects-sandbox:latest .`
 installs `latest` once and then keeps whatever that was on every cached rebuild.
+
+Nothing rebuilds the image on its own, so a change to the Dockerfile — or to a skill it bakes in —
+leaves the built image behind the checkout, and a run against it reports a missing skill as `Unknown
+command` rather than as anything that looks like a build problem. Two things watch for that gap: a
+morning prints a warning before its first run, and [`.githooks/post-merge`](.githooks/post-merge)
+prints the same one right after a merge brings the change in. The hook is installed by pointing git
+at the repo's hook directory, once per clone:
+
+```sh
+npm run hooks:install   # git config core.hooksPath .githooks
+```
+
+It stays quiet when the image matches, when docker isn't running, and when the image was never
+built, and it never fails the merge — the merge has already happened by the time it runs.
+`node scripts/check-sandbox-image.ts` makes the same check by hand.
 
 Running the built image does need a credential: a one-year subscription token, generated once with
 `claude setup-token`, kept as the sandbox's long-lived credential and supplied as an environment
