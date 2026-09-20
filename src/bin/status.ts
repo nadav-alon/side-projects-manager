@@ -36,13 +36,11 @@ async function main(): Promise<void> {
   };
   const todayClaimed = hasAnnouncedOn(state.announcedOn, localDay(now));
 
-  for (const line of statusReport(
-    resolved,
-    todayClaimed,
-    now,
-    { schedule, logonGuard },
-    CHECKOUT_ROOT,
-  )) {
+  for (const line of statusReport(resolved, todayClaimed, now, {
+    schedule,
+    logonGuard,
+    managerHome: CHECKOUT_ROOT,
+  })) {
     console.log(line);
   }
 }

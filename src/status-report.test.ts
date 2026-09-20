@@ -17,6 +17,7 @@ const MANAGER_HOME = "/home/dev/side-projects-manager";
 const ARMED_TRIGGERS: StatusTriggers = {
   schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
   logonGuard: { registered: false },
+  managerHome: MANAGER_HOME,
 };
 
 function journal(...records: StatusRecord[]): StatusJournal {
@@ -47,9 +48,8 @@ function report(
   todayClaimed: boolean,
   now: Date = NOW,
   triggers: StatusTriggers = ARMED_TRIGGERS,
-  managerHome: string = MANAGER_HOME,
 ): string[] {
-  return statusReport(j, todayClaimed, now, triggers, managerHome);
+  return statusReport(j, todayClaimed, now, triggers);
 }
 
 /** `lines`, with the two leading trigger lines dropped — the report below them, unaffected by trigger state. */
@@ -272,6 +272,7 @@ describe("statusReport's trigger lines", () => {
     const lines = report(journal(), false, NOW, {
       schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
     });
 
     assert.match(lines[0]!, /^Schedule: armed, firing every hour at :00\.$/);
@@ -281,6 +282,7 @@ describe("statusReport's trigger lines", () => {
     const lines = report(journal(), false, NOW, {
       schedule: { registered: false },
       logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
     });
 
     assert.match(lines[0]!, /^Schedule: not registered\./);
@@ -291,6 +293,7 @@ describe("statusReport's trigger lines", () => {
     const lines = report(journal(), false, NOW, {
       schedule: { registered: true, managerHome: "/old/checkout", minute: cronMinute("0") },
       logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
     });
 
     assert.match(lines[0]!, /registered, but pointing at \/old\/checkout/);
@@ -303,6 +306,7 @@ describe("statusReport's trigger lines", () => {
     const lines = report(journal(), false, NOW, {
       schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
     });
 
     assert.match(lines[1]!, /^Logon guard: not registered/);
@@ -312,6 +316,7 @@ describe("statusReport's trigger lines", () => {
     const lines = report(journal(), false, NOW, {
       schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: true, managerHome: MANAGER_HOME },
+      managerHome: MANAGER_HOME,
     });
 
     assert.match(lines[1]!, /still registered from an older install/);
@@ -322,6 +327,7 @@ describe("statusReport's trigger lines", () => {
     const lines = report(journal(), false, NOW, {
       schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
       logonGuard: { registered: true, managerHome: "/old/checkout" },
+      managerHome: MANAGER_HOME,
     });
 
     assert.match(lines[1]!, /pointing at \/old\/checkout/);
