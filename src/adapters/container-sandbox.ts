@@ -225,7 +225,7 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  */
 export function containerSandbox(
   container: Container = dockerContainer,
-  pullRequestHead: (pullRequest: PullRequestUrl) => Promise<Branch> = ghPullRequestHead,
+  pullRequestHead: PullRequestHead = ghPullRequestHead,
 ): Sandbox {
   function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   function run(
