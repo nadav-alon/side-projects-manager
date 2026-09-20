@@ -507,10 +507,10 @@ describe("the budget document", () => {
     await assert.rejects(store.loadBudget(), /observedResetAt/);
   });
 
-  it("reads a lower-case zone, which is a zone all the same", async () => {
+  it("reads a zone written as an offset from UTC", async () => {
     const store = documentStore(
       await home({
-        budget: JSON.stringify({ observedResetAt: "2026-09-12T08:00:00z" }),
+        budget: JSON.stringify({ observedResetAt: "2026-09-12T11:00:00+03:00" }),
       }),
     );
 
