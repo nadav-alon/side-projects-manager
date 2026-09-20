@@ -3162,6 +3162,8 @@ describe("morningLoop", () => {
   });
 
   describe("the spend ceiling", () => {
+    const PER_SIZE_CEILING = { S: usd(3), M: usd(5), L: usd(10), XL: usd(20) };
+
     it("gives the run the ceiling the budget declares", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
@@ -3186,7 +3188,7 @@ describe("morningLoop", () => {
       ports.tracker.addLabel(ticket, "size:L");
       ports.store.budget = {
         ...DEFAULT_BUDGET,
-        spendCeiling: { S: usd(3), M: usd(5), L: usd(10), XL: usd(20) },
+        spendCeiling: PER_SIZE_CEILING,
       };
 
       await morningLoop(ports);
@@ -3203,7 +3205,7 @@ describe("morningLoop", () => {
       });
       ports.store.budget = {
         ...DEFAULT_BUDGET,
-        spendCeiling: { S: usd(3), M: usd(5), L: usd(10), XL: usd(20) },
+        spendCeiling: PER_SIZE_CEILING,
         unsizedCountsAs: "S",
       };
 
