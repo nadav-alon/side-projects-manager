@@ -18,6 +18,7 @@ import {
   pullRequestUrl,
   reserveFraction,
   reviewTitle,
+  ticketGist,
   tokenCount,
   usd,
   type ApplyReviewTicket,
@@ -29,6 +30,7 @@ import {
   type RunRequest,
   type State,
   type Ticket,
+  type TicketGist,
 } from "./ports/index.ts";
 import {
   FROZEN_NOW,
@@ -654,12 +656,17 @@ describe("morningLoop", () => {
      * A registered project with ticket #7 ready, and a run against it.
      *
      * What separates the cases here is only how the run ended, so that is all
-     * a test says: `ran(ports)` did the work, and the overrides are the two
-     * ways it can leave nothing to hand over.
+     * a test says: `ran(ports)` did the work. `failure` and `commits: []`
+     * are the two ways it can leave nothing to hand over; `gist` is what a
+     * finished run carried away, not how it ended.
      */
     function ran(
       ports: FakePorts,
-      run: { commits?: CommitSha[]; failure?: string } = {},
+      run: {
+        commits?: CommitSha[];
+        failure?: string;
+        gist?: TicketGist;
+      } = {},
     ): Ticket {
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, {
@@ -674,6 +681,7 @@ describe("morningLoop", () => {
               commits: run.commits ?? [commitSha("c0ffee1")],
               output: "",
               tokensUsed: tokenCount(42_000),
+              ...(run.gist !== undefined && { gist: run.gist }),
             }
           : {
               kind: "gave-up",
@@ -697,6 +705,23 @@ describe("morningLoop", () => {
           directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           branch: BRANCH,
           ticket,
+        },
+      ]);
+    });
+
+    it("is opened with the run's ticket gist, when it carried one", async () => {
+      const ports = fakePorts();
+      const gist = ticketGist("Add the thing to the widget.");
+      const ticket = ran(ports, { gist });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: BRANCH,
+          ticket,
+          gist,
         },
       ]);
     });
@@ -745,6 +770,17 @@ describe("morningLoop", () => {
     it("is not opened for a run that committed nothing", async () => {
       const ports = fakePorts();
       ran(ports, { commits: [] });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, []);
+      assert.equal(pullRequestOf(report.iterations[0]), undefined);
+    });
+
+    it("is not opened for a run that committed nothing, gist or not", async () => {
+      const ports = fakePorts();
+      const gist = ticketGist("Add the thing to the widget.");
+      ran(ports, { commits: [], gist });
 
       const report = await morningLoop(ports);
 
