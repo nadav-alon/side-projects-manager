@@ -236,7 +236,9 @@ export class MergeabilityUnknown extends Error {
  * pull request reads as not mergeable without touching its draft state.
  * Declared here, beside {@link RepoHost.removeNeedsRebaseLabel}, the one
  * place that ever takes it back off, so the two agree on the label's name
- * rather than by coincidence.
+ * rather than by coincidence. The workflow that adds the label
+ * (`.github/workflows/rebase.yml`) and `agent-instructions.ts` still spell
+ * it as their own literal.
  */
 export const NEEDS_REBASE_LABEL = "needs-rebase";
 
