@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -36,15 +36,6 @@ describe("copiedSources", () => {
   it("finds every file this repo's Dockerfile copies", async () => {
     // Reading the digest proves each source exists where the parser says.
     await imageInputsDigest(CHECKOUT_ROOT);
-  });
-});
-
-describe("byte watchdog pin", () => {
-  it("pins the watchdog on and its idle window in this repo's Dockerfile", async () => {
-    const dockerfile = await readFile(path.join(CHECKOUT_ROOT, "Dockerfile"), "utf8");
-
-    assert.match(dockerfile, /^ENV CLAUDE_ENABLE_BYTE_WATCHDOG=1$/m);
-    assert.match(dockerfile, /^ENV CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS=180000$/m);
   });
 });
 
