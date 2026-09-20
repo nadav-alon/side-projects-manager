@@ -7,17 +7,10 @@ import { promisify } from "node:util";
 
 import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { localDay } from "../ports/index.ts";
-import { crontabStubBin, deadPid, tempHome } from "../testing/index.ts";
+import { cronLine, crontabStubBin, deadPid, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
-
-const CRON_MARKER =
-  "# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)";
-
-function cronLine(home: string): string {
-  return `0 * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${CRON_MARKER}`;
-}
 
 /**
  * Runs the status command against `home`, with the crontab and the rc files

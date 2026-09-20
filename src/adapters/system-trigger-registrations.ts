@@ -14,13 +14,20 @@ import { isErrorWithCode } from "./error-code.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** Exactly what `scripts/install-triggers.sh` writes at the end of the cron line it manages. */
-const CRON_MARKER =
+/**
+ * Exactly what `scripts/install-triggers.sh` writes at the end of the cron
+ * line it manages. Exported so a test can build a fixture from the same
+ * value this reads by, rather than a copy that can drift from it unnoticed.
+ */
+export const CRON_MARKER =
   "# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)";
 
-/** Exactly what `scripts/install-triggers.sh` delimits a logon-guard block with. */
-const RC_BEGIN = "# >>> side-projects-manager: logon guard >>>";
-const RC_END = "# <<< side-projects-manager: logon guard <<<";
+/**
+ * Exactly what `scripts/install-triggers.sh` delimits a logon-guard block
+ * with. Exported for the same reason as `CRON_MARKER`.
+ */
+export const RC_BEGIN = "# >>> side-projects-manager: logon guard >>>";
+export const RC_END = "# <<< side-projects-manager: logon guard <<<";
 
 /**
  * The tail every registered line quotes the trigger script as —

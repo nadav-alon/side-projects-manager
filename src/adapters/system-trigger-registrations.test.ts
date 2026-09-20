@@ -3,19 +3,16 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { writeFile } from "node:fs/promises";
 
-import { crontabStubBin, tempHome } from "../testing/index.ts";
-import { systemTriggerRegistrations } from "./system-trigger-registrations.ts";
+import { cronLine, crontabStubBin, tempHome } from "../testing/index.ts";
+import {
+  CRON_MARKER,
+  RC_BEGIN,
+  RC_END,
+  systemTriggerRegistrations,
+} from "./system-trigger-registrations.ts";
 
-const CRON_MARKER =
-  "# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)";
 const OLD_CRON_MARKER =
   "# side-projects-manager: daily schedule (see scripts/install-triggers.sh)";
-const RC_BEGIN = "# >>> side-projects-manager: logon guard >>>";
-const RC_END = "# <<< side-projects-manager: logon guard <<<";
-
-function cronLine(home: string, marker: string = CRON_MARKER): string {
-  return `0 * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
-}
 
 /**
  * `guarded-morning-run.ts` by default: what every installer that ever wrote
