@@ -24,6 +24,7 @@ import type {
   ApplyReviewTicket,
   PullRequestLabel,
   PullRequestTicket,
+  PullRequestUrl,
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
@@ -571,13 +572,28 @@ function reviewSummary(
       const posted = `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
       return notLabelled === undefined
         ? posted
-        : `${posted} ${ticket.pullRequest.url} could not be labelled ${REVIEWED_LABEL}: ${withoutTrailingStop(notLabelled.error)}; add the label yourself.`;
+        : `${posted} ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
     }
     case "check-failed":
       return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
     case "close-failed":
       return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
+}
+
+/**
+ * The sentence a failed label reads as, wherever it is said: read at
+ * `notLabelledLine`, and inline at the end of `reviewSummary` and
+ * `appliedReviewSummary`'s own clean-outcome sentence — so a refused label is
+ * said one way rather than in three wordings that drift apart from each
+ * other.
+ */
+function notLabelledNote(
+  pullRequest: PullRequestUrl,
+  label: PullRequestLabel,
+  { error }: NotLabelled,
+): string {
+  return `${pullRequest} could not be labelled ${label}: ${withoutTrailingStop(error)}; add the label yourself`;
 }
 
 /**
@@ -590,9 +606,9 @@ function reviewSummary(
 function notLabelledLine(
   { repo, ticket }: { repo: RepoSlug; ticket: PullRequestTicket },
   label: PullRequestLabel,
-  { error }: NotLabelled,
+  notLabelled: NotLabelled,
 ): string {
-  return `- ${repo} #${ticket.number}: ${ticket.pullRequest.url} could not be labelled ${label}: ${withoutTrailingStop(error)}; add the label yourself`;
+  return `- ${repo} #${ticket.number}: ${notLabelledNote(ticket.pullRequest.url, label, notLabelled)}`;
 }
 
 /** The Waiting-on-you line for a review that ran but left its ticket open. */
@@ -634,7 +650,7 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
       const ready = `${applied}: ${answered(iteration)}, now ready for review.`;
       return notLabelled === undefined
         ? ready
-        : `${ready} ${pullRequest} could not be labelled ${APPLIED_REVIEW_LABEL}: ${withoutTrailingStop(notLabelled.error)}; add the label yourself.`;
+        : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
     }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
