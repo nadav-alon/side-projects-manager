@@ -39,14 +39,17 @@ export interface StatusTriggers {
  * today has been claimed and what came of it, what the most recent
  * invocation came to, and a short history of the ones before it.
  *
- * A pure function of the journal, the trigger registrations, this manager's
- * own home, whether today has already been announced, and the instant it is
+ * A pure function of the journal, the trigger registrations, this checkout's
+ * own root, whether today has already been announced, and the instant it is
  * asked at. Nothing here reads the clock, a live process, the crontab or the
  * rc files itself: `now` is the caller's clock reading, a record's `alive` is
  * already resolved onto it by the caller, and `triggers` is already read
  * back by the caller too. Comparing a registration's `managerHome` against
  * `managerHome` — deciding armed (CONTEXT.md: Armed) — happens here, not in
- * the adapter that read the registration.
+ * the adapter that read the registration. `managerHome` must be the checkout
+ * root the installer itself resolves (`CHECKOUT_ROOT`), not the overridable
+ * `MANAGER_HOME` — the installer never honours that override when it writes
+ * the cron line or rc block.
  */
 export function statusReport(
   journal: StatusJournal,

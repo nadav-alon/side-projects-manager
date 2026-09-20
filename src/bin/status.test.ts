@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { localDay } from "../ports/index.ts";
 import { deadPid, fakeCrontabBin, tempHome } from "../testing/index.ts";
 
@@ -147,10 +148,15 @@ describe("the status command", () => {
     assert.match(stdout, /npm run triggers:install/);
   });
 
-  it("reports the schedule armed when the crontab points at this manager home", async () => {
+  it("reports the schedule armed when the crontab points at this checkout, even with SIDE_PROJECTS_MANAGER_HOME set elsewhere", async () => {
+    // install-triggers.sh always roots the cron line at its own checkout
+    // (REPO_DIR) — never at SIDE_PROJECTS_MANAGER_HOME, which only relocates
+    // where the registry and state document live. `run` below always sets
+    // that variable to a tempHome distinct from CHECKOUT_ROOT, so this is
+    // exactly that case, not just the common one.
     const home = await tempHome("status-bin");
 
-    const { stdout } = await run(home, [cronLine(home)]);
+    const { stdout } = await run(home, [cronLine(CHECKOUT_ROOT)]);
 
     assert.match(stdout, /Schedule: armed, firing every hour at :00\./);
   });

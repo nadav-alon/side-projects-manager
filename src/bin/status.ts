@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { documentStore } from "../adapters/document-store.ts";
-import { MANAGER_HOME } from "../adapters/manager-home.ts";
+import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { isProcessAlive } from "../adapters/process-alive.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { systemTriggerRegistrations } from "../adapters/system-trigger-registrations.ts";
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
     todayClaimed,
     now,
     { schedule, logonGuard },
-    MANAGER_HOME,
+    CHECKOUT_ROOT,
   )) {
     console.log(line);
   }
