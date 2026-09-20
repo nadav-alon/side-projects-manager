@@ -1,9 +1,8 @@
-import type { Discard } from "./handback-comment.ts";
+import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
   Branch,
   Checkout,
-  HandBackOutcome,
   ModelName,
   ModelRefusal,
   PullRequestResolution,
@@ -24,14 +23,6 @@ import type {
   TokenCount,
   TranscriptPath,
 } from "./ports/index.ts";
-
-/**
- * What became of the loop's own attempt to hand a ticket back: the tracker's
- * own `HandBackOutcome`, or `"refused"` where the tracker call itself failed —
- * leaving the ticket still eligible, and due to come round again until a
- * human relabels it by hand.
- */
-export type HandBackAttempt = HandBackOutcome | "refused";
 
 /**
  * Whose problem a failed run is.
@@ -57,26 +48,8 @@ export type RunFailure =
 /** A failure whose ticket the loop hands back: every kind but the setup's. */
 export type HandedBackFailure = Exclude<RunFailure, InfrastructureFailure>;
 
-/**
- * Carries what became of the loop's own attempt to give a failed run's
- * ticket back to the developer. Every `HandedBackFailure` extends this
- * rather than declaring the field itself, so the one doc comment below
- * covers all five and a change to what the field means is a one-line edit.
- */
-interface HandedBack {
-  /**
-   * What became of the attempt to give the ticket back to the developer.
-   * `"refused"` says the loop could not comment or relabel, so the ticket is
-   * still eligible and will be selected again — a morning that needs the
-   * developer to go and look at the ticket themselves. `"already-closed"`
-   * says an overlapping run closed it first, so nothing here needs the
-   * developer at all.
-   */
-  handedBack: HandBackAttempt;
-}
-
 /** The agent ran and stopped short: it said it could not, or left the tests red. */
-export interface GaveUp extends HandedBack {
+export interface GaveUp {
   kind: "gave-up";
   reason: string;
 }
@@ -89,7 +62,7 @@ export interface GaveUp extends HandedBack {
  * Handed back all the same, since the work exists and running the ticket again
  * would only make it twice. The branch is kept, not discarded: it is the work.
  */
-export interface HandoverFailed extends HandedBack {
+export interface HandoverFailed {
   kind: "handover-failed";
   reason: string;
   /** Where the run's commits are. */
@@ -118,7 +91,7 @@ export type ModelSource = "model label" | "model defaults";
  * given. The ticket's model is the problem, so the ticket is handed back —
  * but the agent never gave up, and the setup did its part.
  */
-export interface ModelRefused extends HandedBack {
+export interface ModelRefused {
   kind: "model-refused";
   reason: string;
   refusal: ModelRefusal;
@@ -131,7 +104,7 @@ export interface ModelRefused extends HandedBack {
  * disagree, or one naming no usable model — caught at selection, so nothing
  * was cloned, run or spent.
  */
-export interface UnusableModelLabel extends HandedBack {
+export interface UnusableModelLabel {
   kind: "conflicting-model-labels" | "unusable-model-label";
   reason: string;
   /** The model labels at fault, as the ticket carries them. */
@@ -145,7 +118,7 @@ export interface UnusableModelLabel extends HandedBack {
  * problem, not the setup, so the ticket is handed back: left eligible, it
  * would come round every firing ahead of the project's other work.
  */
-export interface UnsettledMergeability extends HandedBack {
+export interface UnsettledMergeability {
   kind: "unsettled-mergeability";
   reason: string;
 }
@@ -328,17 +301,11 @@ export interface Finished {
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
-   * What became of the ticket's own hand-back, absent exactly when it
-   * succeeded outright as `"handed-back"` — whether or not the run produced a
-   * handover, since a run that committed nothing is given back too, just with
-   * nothing to name in the comment but that. `"already-closed"` says an
-   * overlapping run closed the ticket first, so `handFinishedTicketBack`
-   * wrote nothing and there is nothing further to say about it here.
-   * `"refused"` pairs with `handbackFailure` naming why.
+   * What became of the ticket's own hand-back — whether or not the run
+   * produced a handover, since a run that committed nothing is given back
+   * too, just with nothing to name in the comment but that.
    */
-  handedBack?: Exclude<HandBackAttempt, "handed-back">;
-  /** Present exactly when `handedBack` is `"refused"`: why the tracker call itself failed. */
-  handbackFailure?: string;
+  handedBack: HandBackRecord;
 }
 
 /**
@@ -376,6 +343,12 @@ export interface Failed {
    * reader checks the one field regardless of which kind of run failed.
    */
   transcript?: TranscriptPath;
+  /**
+   * What became of the ticket's own hand-back. Absent exactly for an
+   * infrastructure failure, which is never handed back and leaves the
+   * ticket exactly as it was.
+   */
+  handedBack?: HandBackRecord;
 }
 
 /**

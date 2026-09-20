@@ -48,7 +48,7 @@ import {
   type TranscriptPath,
 } from "../ports/index.ts";
 import { errorMessage } from "../error-message.ts";
-import { REASON_QUOTED } from "../handback-comment.ts";
+import { REASON_QUOTED } from "../hand-back.ts";
 import { tail } from "../tail.ts";
 import {
   isBranchReserved,
@@ -1380,7 +1380,7 @@ export function readExitedRun(error: unknown): AgentRun {
  * How much of stderr a failed command is reported with: the tail, since that
  * is where a process says what stopped it right before it exits, bounded so a
  * command that wrote megabytes to stderr does not carry all of it into a
- * ticket comment — comfortably under `REASON_QUOTED` (`handback-comment.ts`),
+ * ticket comment — comfortably under `REASON_QUOTED` (`hand-back.ts`),
  * which tails the whole failure reason again before it reaches a hand-back
  * comment, so the exit-code prefix below survives that second tail intact.
  */

@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
-import { REASON_QUOTED } from "../handback-comment.ts";
+import { REASON_QUOTED } from "../hand-back.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,

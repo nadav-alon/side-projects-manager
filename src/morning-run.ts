@@ -24,8 +24,6 @@ import type {
   ReviewGaveUp,
   ReviewTicket,
   RunFinished,
-  RunGaveUp,
-  RunLimitRefused,
   RunModelRefused,
   RunOutcome,
   RunProviderFailed,
@@ -57,20 +55,15 @@ import {
 import { workedTickets } from "./worked-today.ts";
 import {
   appliedReviewComment,
-  applyReviewHandbackComment,
-  committedNothingComment,
-  handbackComment,
-  handoverComment,
-  handoverFailureComment,
-  modelRefusalComment,
   pullRequestResolvedComment,
-  rebaseHandbackComment,
   rebasedComment,
-  reviewHandbackComment,
-  unsettledMergeabilityComment,
-  unusableModelLabelComment,
+} from "./close-comment.ts";
+import {
+  discardBranch,
+  handBack,
   type Discard,
-} from "./handback-comment.ts";
+  type HandBackRecord,
+} from "./hand-back.ts";
 import { errorMessage } from "./error-message.ts";
 import {
   cutOffReviewOutcome,
@@ -83,7 +76,6 @@ import {
   type Failed,
   type Finished,
   type GaveUp,
-  type HandedBackFailure,
   type HandoverFailed,
   type HandoverReach,
   type Iteration,
@@ -411,15 +403,16 @@ export async function morningLoop(
         const unusable = unusableModelLabel(ticket);
         if (unusable !== undefined) {
           worked.record(ticket, localDay(ports.clock.now()));
+          const handedBack = await handBack(ports, ticket, {
+            kind: unusable.kind,
+            labels: unusable.labels,
+          });
           outcomeSlots.push({
             repo: chosen.project.repo,
             ticket,
-            ...(await handTicketBack(
-              ports,
-              ticket,
-              unusable,
-              unusableModelLabelComment(unusable),
-            )),
+            kind: "failed",
+            failure: unusable,
+            handedBack,
           });
           continue;
         }
@@ -640,14 +633,12 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
         kind: "conflicting-model-labels",
         reason: `it carries more than one model label (${label.labels.join(", ")})`,
         labels: label.labels,
-        handedBack: "refused",
       };
     case "unusable":
       return {
         kind: "unusable-model-label",
         reason: `its model label names no usable model (${label.labels.join(", ")})`,
         labels: label.labels,
-        handedBack: "refused",
       };
   }
 }
@@ -674,7 +665,6 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
     reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
     refusal,
     source,
-    handedBack: "refused",
   };
 }
 
@@ -771,40 +761,36 @@ async function work(
     };
   }
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return cutOffRunOutcome(run, await discardBranch(ports, checkout, run));
+    return cutOffRunOutcome(run, await discardBranch(ports.repoHost, checkout, run));
   }
   if (run.kind === "model-refused") {
-    const failure = modelRefused(selection.ticket, run.refusal);
-    const discard = await discardBranch(ports, checkout, run);
-    return handTicketBack(
+    return handModelRefusedBack(
       ports,
       selection.ticket,
-      failure,
-      modelRefusalComment(selection.ticket, failure, run, discard),
-      { run },
+      run.refusal,
+      run.tokensUsed,
+      run.transcript,
+      { checkout, run },
     );
   }
   if (run.kind === "finished") {
     return handOver(ports, run, checkout, selection.ticket);
   }
 
-  // The branch goes first, so the comment can say what became of it — but it
-  // cannot cost the ticket its hand-back. Git refuses to delete a branch that
-  // some worktree has checked out, and a ticket left eligible because of that
-  // is the failure this whole policy exists to prevent.
-  const discard = await discardBranch(ports, checkout, run);
-  const failure: GaveUp = {
+  const failure: GaveUp = { kind: "gave-up", reason: run.reason };
+  const handedBack = await handBack(ports, selection.ticket, {
     kind: "gave-up",
-    reason: run.reason,
-    handedBack: "refused",
-  };
-  return handTicketBack(
-    ports,
-    selection.ticket,
+    checkout,
+    run,
+  });
+  return {
+    kind: "failed",
+    run,
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
-    handbackComment(failure, run, discard),
-    { run },
-  );
+    handedBack,
+  };
 }
 
 /**
@@ -831,17 +817,8 @@ async function handOver(
   ticket: Ticket,
 ): Promise<Finished | Failed> {
   if (run.commits.length === 0) {
-    const handback = await handFinishedTicketBack(
-      ports,
-      ticket,
-      committedNothingComment(run),
-    );
-    return {
-      kind: "finished",
-      run,
-      tokensUsed: run.tokensUsed,
-      ...handback,
-    };
+    const handedBack = await handBack(ports, ticket, { kind: "finished", run });
+    return { kind: "finished", run, tokensUsed: run.tokensUsed, handedBack };
   }
 
   const opening = await ports.repoHost.openDraftPullRequest(
@@ -886,19 +863,10 @@ async function handOver(
     );
   }
 
-  const handback = await handFinishedTicketBack(
-    ports,
-    ticket,
-    handoverComment(pullRequest, reviewTicket),
-  );
+  const handover = { pullRequest, reviewTicket };
+  const handedBack = await handBack(ports, ticket, { kind: "finished", run, handover });
 
-  return {
-    kind: "finished",
-    run,
-    tokensUsed: run.tokensUsed,
-    handover: { pullRequest, reviewTicket },
-    ...handback,
-  };
+  return { kind: "finished", run, tokensUsed: run.tokensUsed, handover, handedBack };
 }
 
 /**
@@ -917,133 +885,52 @@ async function handoverFailed(
     reason,
     branch: run.branch,
     where,
-    handedBack: "refused",
   };
-  return handTicketBack(
-    ports,
-    ticket,
+  const handedBack = await handBack(ports, ticket, {
+    kind: "handover-failed",
+    reason,
+    branch: run.branch,
+    where,
+  });
+  return {
+    kind: "failed",
+    run,
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
-    handoverFailureComment(failure),
-    { run },
-  );
+    handedBack,
+  };
 }
 
 /**
- * Takes a finished run's ticket out of the queue: the same comment-and-relabel
- * primitive a failed run's hand-back uses, so a project the developer never
- * triaged by hand still gets ready-for-human created for it. The fields
- * returned fold straight into `Finished`: empty for the common case, the
- * tracker's own `"already-closed"` when an overlapping run closed the ticket
- * first, or `"refused"` paired with why when the call itself failed.
- *
- * Never throws. A tracker that refuses the relabel is reported in the
- * summary instead, the same way a refused hand-back is today — the one thing
- * still worth doing is saying so, since the ticket is left eligible and due
- * to come round again.
+ * Hands a ticket back for a model the agent CLI refused: on an implementation
+ * ticket, `worked` names the branch its run left, so its own hand-back
+ * discards it; a review, apply-review or rebase ticket's own run never
+ * creates one, so `worked` is left out.
  */
-async function handFinishedTicketBack(
+async function handModelRefusedBack(
   ports: MorningLoopPorts,
   ticket: Ticket,
-  comment: string,
-): Promise<Pick<Finished, "handedBack" | "handbackFailure">> {
-  try {
-    const outcome = await ports.tracker.handBack(ticket, comment);
-    return outcome === "handed-back" ? {} : { handedBack: outcome };
-  } catch (error: unknown) {
-    return { handedBack: "refused", handbackFailure: errorMessage(error) };
-  }
-}
-
-/**
- * What a failed ticket's hand-back carries into `Failed`: an implementation
- * run's own outcome, whose `tokensUsed` and `transcript` are taken as the
- * spend too, or — for a review, an apply-review or a rebase run, none of
- * which has a `RunOutcome` of its own — the spend directly.
- */
-type Spend =
-  | { run: RunOutcome }
-  | { tokensUsed: TokenCount; transcript?: TranscriptPath };
-
-/**
- * Puts the ticket of a run that failed on the ticket's account — an agent
- * that gave up, or a model it could not use — back in the developer's hands
- * with `comment`, and says whether it got there: handed back, refused, or
- * found already closed by an overlapping run that finished it first, in
- * which case the tracker touched nothing and `failure.handedBack` says so.
- *
- * Never throws. A tracker that could not be reached leaves the ticket eligible,
- * and saying so is the one thing still worth doing.
- */
-async function handTicketBack(
-  ports: MorningLoopPorts,
-  ticket: Ticket,
-  failure: HandedBackFailure,
-  comment: string,
-  spend?: Spend,
+  refusal: ModelRefusal,
+  tokensUsed: TokenCount,
+  transcript: TranscriptPath | undefined,
+  worked?: { checkout: Checkout; run: RunModelRefused },
 ): Promise<Failed> {
-  const run = spend !== undefined && "run" in spend ? spend.run : undefined;
-  const tokensUsed =
-    spend === undefined
-      ? undefined
-      : "run" in spend
-        ? spend.run.tokensUsed
-        : spend.tokensUsed;
-  const transcript =
-    spend === undefined
-      ? undefined
-      : "run" in spend
-        ? spend.run.transcript
-        : spend.transcript;
-  try {
-    const outcome = await ports.tracker.handBack(ticket, comment);
-    return {
-      kind: "failed",
-      ...(run !== undefined && { run }),
-      ...(tokensUsed !== undefined && { tokensUsed }),
-      ...(transcript !== undefined && { transcript }),
-      failure: { ...failure, handedBack: outcome },
-    };
-  } catch (error: unknown) {
-    // The policy itself could not be carried out, which leaves the ticket
-    // eligible and due to come round again. Saying so is what is left: a
-    // silent failure here is the one that costs a morning every morning.
-    return {
-      kind: "failed",
-      ...(run !== undefined && { run }),
-      ...(tokensUsed !== undefined && { tokensUsed }),
-      ...(transcript !== undefined && { transcript }),
-      failure: {
-        ...failure,
-        reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
-      },
-    };
-  }
-}
-
-/**
- * Throws the failed run's branch away, and says what became of it.
- *
- * Never throws. A branch that will not delete is worth telling the developer
- * about; it is not worth the ticket, which is what refusing to go on would
- * cost.
- */
-async function discardBranch(
-  ports: MorningLoopPorts,
-  checkout: Checkout,
-  run: RunGaveUp | RunLimitRefused | RunModelRefused | RunProviderFailed,
-): Promise<Discard> {
-  // The sandbox fetches a branch back only when the agent committed to it, and
-  // an agent that gave up commonly committed nothing at all.
-  if (run.commits.length === 0) {
-    return { kind: "none" };
-  }
-
-  try {
-    await ports.repoHost.discardBranch(checkout, run.branch);
-    return { kind: "discarded" };
-  } catch (error: unknown) {
-    return { kind: "kept", reason: errorMessage(error) };
-  }
+  const failure = modelRefused(ticket, refusal);
+  const handedBack = await handBack(ports, ticket, {
+    kind: "model-refused",
+    refusal,
+    source: failure.source,
+    ...(worked !== undefined && { worked }),
+  });
+  return {
+    kind: "failed",
+    ...(worked !== undefined && { run: worked.run }),
+    tokensUsed,
+    ...(transcript !== undefined && { transcript }),
+    failure,
+    handedBack,
+  };
 }
 
 /** What `runInSandbox` came back with, before its caller reads what kind of outcome it was. */
@@ -1237,14 +1124,7 @@ async function runReview(
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
   if (review.kind === "model-refused") {
-    const failure = modelRefused(ticket, review.refusal);
-    return handTicketBack(
-      ports,
-      ticket,
-      failure,
-      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      { tokensUsed: review.tokensUsed, ...(review.transcript !== undefined && { transcript: review.transcript }) },
-    );
+    return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
   }
 
   if (review.kind === "gave-up") {
@@ -1294,14 +1174,19 @@ async function handReviewBack(
   review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
-  return handTicketBack(
-    ports,
-    ticket,
+  const failure: GaveUp = { kind: "gave-up", reason };
+  const handedBack = await handBack(ports, ticket, {
+    kind: "review-gave-up",
+    review,
+    reason,
+  });
+  return {
+    kind: "failed",
+    tokensUsed: review.tokensUsed,
+    ...(review.transcript !== undefined && { transcript: review.transcript }),
     failure,
-    reviewHandbackComment(failure, review),
-    { tokensUsed: review.tokensUsed, ...(review.transcript !== undefined && { transcript: review.transcript }) },
-  );
+    handedBack,
+  };
 }
 
 /**
@@ -1381,14 +1266,7 @@ async function runApplyReview(
     return cutOffReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
-    const failure = modelRefused(ticket, run.refusal);
-    return handTicketBack(
-      ports,
-      ticket,
-      failure,
-      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
-    );
+    return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
   }
   if (run.kind === "gave-up") {
     return handApplyReviewBack(ports, ticket, run, run.reason);
@@ -1467,14 +1345,20 @@ async function handApplyReviewBack(
   run: ReviewFinished | ApplyReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
-  return handTicketBack(
-    ports,
-    ticket,
+  const failure: GaveUp = { kind: "gave-up", reason };
+  const handedBack = await handBack(ports, ticket, {
+    kind: "apply-review-gave-up",
+    run,
+    reason,
+    pullRequest: ticket.pullRequest.url,
+  });
+  return {
+    kind: "failed",
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
-    applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
-    { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
-  );
+    handedBack,
+  };
 }
 
 /**
@@ -1526,17 +1410,14 @@ async function runRebase(
     needsRebase = await ports.repoHost.needsRebase(pullRequest);
   } catch (error: unknown) {
     if (error instanceof MergeabilityUnknown) {
-      const failure: UnsettledMergeability = {
+      const reason = errorMessage(error);
+      const failure: UnsettledMergeability = { kind: "unsettled-mergeability", reason };
+      const handedBack = await handBack(ports, ticket, {
         kind: "unsettled-mergeability",
-        reason: errorMessage(error),
-        handedBack: "refused",
-      };
-      return handTicketBack(
-        ports,
-        ticket,
-        failure,
-        unsettledMergeabilityComment(failure, pullRequest),
-      );
+        reason,
+        pullRequest,
+      });
+      return { kind: "failed", failure, handedBack };
     }
     return infrastructureFailure(error);
   }
@@ -1565,14 +1446,7 @@ async function runRebase(
     return cutOffReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
-    const failure = modelRefused(ticket, run.refusal);
-    return handTicketBack(
-      ports,
-      ticket,
-      failure,
-      modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
-    );
+    return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
   }
   if (run.kind === "gave-up") {
     return handRebaseBack(ports, ticket, run, run.reason);
@@ -1651,12 +1525,18 @@ async function handRebaseBack(
   run: RebaseFinished | RebaseGaveUp,
   reason: string,
 ): Promise<Failed> {
-  const failure: GaveUp = { kind: "gave-up", reason, handedBack: "refused" };
-  return handTicketBack(
-    ports,
-    ticket,
+  const failure: GaveUp = { kind: "gave-up", reason };
+  const handedBack = await handBack(ports, ticket, {
+    kind: "rebase-gave-up",
+    run,
+    reason,
+    pullRequest: ticket.pullRequest.url,
+  });
+  return {
+    kind: "failed",
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
-    rebaseHandbackComment(failure, run, ticket.pullRequest.url),
-    { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
-  );
+    handedBack,
+  };
 }
