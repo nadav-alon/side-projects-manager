@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
 import { REASON_QUOTED } from "../hand-back.ts";
@@ -11,13 +19,7 @@ import { withCheckoutLock } from "./checkout-lock.ts";
 import {
   AgentNeverRan,
   containerSandbox,
-  dockerCommand,
-  dockerNeverRan,
   dockerNeverRanMessage,
-  pullRequestHeadFrom,
-  pushableRemote,
-  readAgentRun,
-  readExitedRun,
   SALVAGE_COMMIT_MESSAGE,
   TICKET_GIST_TAG,
   type Container,
@@ -55,6 +57,10 @@ import {
   PROVIDER_FAILURE_JSON_RESULT,
   PROVIDER_FAILURE_PROSE,
   PROVIDER_FAILURE_STDOUT,
+  recordingGh,
+  recordingDocker,
+  valueOf,
+  type RecordedDocker,
 } from "../testing/index.ts";
 
 const run = promisify(execFile);
@@ -262,29 +268,19 @@ const MODEL_REFUSAL_STDOUT = JSON.stringify({
 const MODEL_REFUSAL_STDERR =
   '[claude-code:unrecognized_model] {"model":"this-model-does-not-exist-xyz","query_source":"sdk"}\n';
 
-/** What `execFile` rejects with when `docker run` passes on the refusal's exit 1. */
-const MODEL_REFUSAL_EXIT = Object.assign(
-  new Error("Command failed: docker run"),
-  { code: 1, stdout: MODEL_REFUSAL_STDOUT, stderr: MODEL_REFUSAL_STDERR },
-);
-
 /**
- * What `execFile` rejects with under a forced timeout (`API_TIMEOUT_MS=1`):
- * exit 1, empty stderr, `PROVIDER_FAILURE_STDOUT` on stdout.
+ * What a container hands back once a provider failure cut the run off: the
+ * failure the CLI exited with, and the words it said, which is all
+ * `endingOf` reads. How those words are recognised in what the CLI actually
+ * wrote is the docker container's own half — see the provider-failure tests
+ * under "reading what the agent CLI said".
  */
-const PROVIDER_FAILURE_JSON_EXIT = Object.assign(
-  new Error("Command failed: docker run"),
-  { code: 1, stdout: PROVIDER_FAILURE_STDOUT, stderr: "" },
-);
-
-/**
- * What `execFile` rejects with during a real outage: exit 1, empty stderr,
- * no JSON envelope — the whole of the CLI's answer is the prose line.
- */
-const PROVIDER_FAILURE_PROSE_EXIT = Object.assign(
-  new Error("Command failed: docker run"),
-  { code: 1, stdout: PROVIDER_FAILURE_PROSE, stderr: "" },
-);
+const PROVIDER_FAILED_RUN = {
+  output: PROVIDER_FAILURE_JSON_RESULT,
+  tokensUsed: tokenCount(0),
+  failure: "Command failed: docker run",
+  providerFailure: PROVIDER_FAILURE_JSON_RESULT,
+};
 
 /** `PROVIDER_FAILURE_STDOUT`, with `api_error_status` replaced by `status`. */
 function providerFailureStdoutWithStatus(status: number | null): string {
@@ -678,37 +674,6 @@ describe("containerSandbox", () => {
     });
   }
 
-  it("reads a limit refusal out of the CLI's JSON envelope", async () => {
-    const directory = await project();
-    const stdout = JSON.stringify({
-      type: "result",
-      subtype: "success",
-      is_error: true,
-      result: LIMIT_REFUSAL,
-      usage: { input_tokens: 0, output_tokens: 0 },
-    });
-    const sandbox = containerSandbox(async () => ({
-      ...readAgentRun(stdout),
-      failure: "Command failed: docker run",
-    }));
-
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
-  });
-
-  it("reads a limit refusal the CLI printed as plain text rather than an envelope", async () => {
-    const directory = await project();
-    const sandbox = containerSandbox(async () => ({
-      ...readAgentRun(`${LIMIT_REFUSAL}\n`),
-      failure: "Command failed: docker run",
-    }));
-
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
-  });
-
   /**
    * A limit refusal cuts the agent off mid-work: what it had not yet
    * committed would otherwise be lost with the clone. See `Salvage` in
@@ -868,11 +833,9 @@ describe("containerSandbox", () => {
     assert.equal(result.kind, "finished");
   });
 
-  it("reports a provider failure from a forced timeout's JSON envelope", async () => {
+  it("reports a provider failure apart from an agent that gave up", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
-    );
+    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN);
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
@@ -881,54 +844,6 @@ describe("containerSandbox", () => {
       variant(result, "provider-failed")?.words,
       PROVIDER_FAILURE_JSON_RESULT,
     );
-  });
-
-  it("reports a provider failure from a real outage's prose, with no JSON envelope", async () => {
-    const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(PROVIDER_FAILURE_PROSE_EXIT),
-    );
-
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(result.kind, "provider-failed");
-    assert.equal(variant(result, "provider-failed")?.words, PROVIDER_FAILURE_PROSE);
-  });
-
-  for (const status of [529, 500]) {
-    it(`reads api_error_status ${status} as a provider failure`, async () => {
-      const directory = await project();
-      const sandbox = containerSandbox(async () =>
-        readExitedRun(
-          Object.assign(new Error("Command failed: docker run"), {
-            code: 1,
-            stdout: providerFailureStdoutWithStatus(status),
-            stderr: "",
-          }),
-        ),
-      );
-
-      const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-      assert.equal(result.kind, "provider-failed");
-    });
-  }
-
-  it("reads api_error_status 401 as an agent that gave up, not a provider failure", async () => {
-    const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(
-        Object.assign(new Error("Command failed: docker run"), {
-          code: 1,
-          stdout: providerFailureStdoutWithStatus(401),
-          stderr: "",
-        }),
-      ),
-    );
-
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(result.kind, "gave-up");
   });
 
   it("does not mistake a finished agent that quotes an API error part-way through for a provider failure", async () => {
@@ -963,9 +878,12 @@ describe("containerSandbox", () => {
 
   it("reports a model refusal apart from an agent that gave up", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(MODEL_REFUSAL_EXIT),
-    );
+    const sandbox = containerSandbox(async () => ({
+      output: MODEL_REFUSAL_WORDS,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+      modelRefused: MODEL_REFUSAL_WORDS,
+    }));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -983,9 +901,12 @@ describe("containerSandbox", () => {
 
   it("does not read a model refusal when the request named no model", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(MODEL_REFUSAL_EXIT),
-    );
+    const sandbox = containerSandbox(async () => ({
+      output: MODEL_REFUSAL_WORDS,
+      tokensUsed: tokenCount(0),
+      failure: `the command exited with code 1: ${MODEL_REFUSAL_STDERR.trim()}`,
+      modelRefused: MODEL_REFUSAL_WORDS,
+    }));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1020,48 +941,6 @@ describe("containerSandbox", () => {
     if (result.kind === "model-refused") {
       assert.fail("unreachable: excluded from the overload's own return type");
     }
-  });
-
-  it("does not mistake a finished agent that quotes the model refusal tag for one refused", async () => {
-    const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readAgentRun(
-        JSON.stringify({
-          result: `Matched the CLI's line:\n${MODEL_REFUSAL_STDERR}`,
-        }),
-      ),
-    );
-
-    const result = await sandbox.run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-      model: modelName("opus"),
-    });
-
-    assert.equal(result.kind, "finished");
-  });
-
-  it("does not mistake an agent that gave up quoting the model refusal tag for one refused", async () => {
-    const directory = await project();
-    const sandbox = containerSandbox(async () => ({
-      ...readAgentRun(
-        JSON.stringify({
-          result: `The tests would not go green on:\n${MODEL_REFUSAL_STDERR}`,
-        }),
-      ),
-      failure: "Command failed: docker run",
-    }));
-
-    const result = await sandbox.run({
-      ticket: TICKET,
-      checkout: directory,
-      spendCeiling: CEILING,
-      model: modelName("opus"),
-    });
-
-    assert.equal(result.kind, "gave-up");
-    assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
   });
 
   /**
@@ -1865,9 +1744,7 @@ describe("containerSandbox.review", () => {
 
   it("reports a provider failure apart from a failed reviewer", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
-    );
+    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN);
 
     const result = await sandbox.review({
       ticket: REVIEW_TICKET,
@@ -1884,9 +1761,12 @@ describe("containerSandbox.review", () => {
 
   it("reports a model refusal apart from a reviewer that gave up, naming the model and the CLI's words", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () =>
-      readExitedRun(MODEL_REFUSAL_EXIT),
-    );
+    const sandbox = containerSandbox(async () => ({
+      output: MODEL_REFUSAL_WORDS,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+      modelRefused: MODEL_REFUSAL_WORDS,
+    }));
 
     const result = await sandbox.review({
       ticket: REVIEW_TICKET,
@@ -2022,6 +1902,31 @@ async function hostedProject(): Promise<{
 /** The head lookup a hosted project's pull request answers with. */
 const headIsBranch = async () => branch(BRANCH);
 
+/**
+ * Redirects git's fetches of `from` to `to` for the length of the test, by
+ * pointing `GIT_CONFIG_GLOBAL` at a config carrying nothing but that one
+ * `insteadOf` — so a test can prove a URL was rewritten to `from` by making
+ * the real fetch that follows only succeed when it was.
+ */
+async function withInsteadOf(
+  t: TestContext,
+  from: string,
+  to: string,
+): Promise<void> {
+  const dir = await mkdtemp(path.join(tmpdir(), "git-config-"));
+  const config = path.join(dir, "gitconfig");
+  await writeFile(config, `[url "${to}"]\n\tinsteadOf = ${from}\n`);
+  const previous = process.env["GIT_CONFIG_GLOBAL"];
+  process.env["GIT_CONFIG_GLOBAL"] = config;
+  t.after(() => {
+    if (previous === undefined) {
+      delete process.env["GIT_CONFIG_GLOBAL"];
+    } else {
+      process.env["GIT_CONFIG_GLOBAL"] = previous;
+    }
+  });
+}
+
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
 /** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
@@ -2055,6 +1960,36 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(seen[0]?.on, BRANCH);
     assert.equal(seen[0]?.at, headCommit);
   });
+
+  /**
+   * The container holds a token, not an SSH key, so an SSH origin has to
+   * become its HTTPS address before the clone can push through it — see
+   * `pushableRemote` in container-sandbox.ts. Proven by redirecting that
+   * exact HTTPS address to the bare repo standing in for the repo host: the
+   * fetch it drives only lands on the right commit if the rewrite was right.
+   */
+  for (const ssh of [
+    "git@github.com:nadav-alon/pilot.git",
+    "git@github.com:nadav-alon/pilot",
+    "ssh://git@github.com/nadav-alon/pilot.git",
+  ]) {
+    it(`reaches ${ssh} over HTTPS, which the container's token can push to`, async (t) => {
+      const { directory, hosted, headCommit } = await hostedProject();
+      await run("git", ["-C", directory, "remote", "set-url", "origin", ssh]);
+      await withInsteadOf(t, "https://github.com/nadav-alon/pilot.git", hosted);
+      const sandbox = containerSandbox(
+        async ({ directory: mounted }) => ({
+          output: await headOf(mounted),
+          tokensUsed: tokenCount(0),
+        }),
+        headIsBranch,
+      );
+
+      const result = await applyReviewOn(sandbox, directory);
+
+      assert.equal(variant(result, "finished")?.output, headCommit);
+    });
+  }
 
   it("looks the head branch up from the ticket's own pull request", async () => {
     const { directory } = await hostedProject();
@@ -2275,10 +2210,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reports a provider failure as a review run does", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(
-      async () => readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
-      headIsBranch,
-    );
+    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN, headIsBranch);
 
     const result = await applyReviewOn(sandbox, directory);
 
@@ -2292,7 +2224,12 @@ describe("containerSandbox.applyReview", () => {
   it("reports a model refusal as a review run does, naming the model and the CLI's words", async () => {
     const { directory } = await hostedProject();
     const sandbox = containerSandbox(
-      async () => readExitedRun(MODEL_REFUSAL_EXIT),
+      async () => ({
+        output: MODEL_REFUSAL_WORDS,
+        tokensUsed: tokenCount(0),
+        failure: "Command failed: docker run",
+        modelRefused: MODEL_REFUSAL_WORDS,
+      }),
       headIsBranch,
     );
 
@@ -2389,6 +2326,95 @@ describe("containerSandbox.applyReview", () => {
     await applyReviewOn(sandbox, directory);
 
     assert.equal(await exists(clone), false);
+  });
+
+  /**
+   * `headIsBranch` stands in for the pull request head lookup in every test
+   * above; these three exercise the factory's own default instead — `gh pr
+   * view`, read by the adapter's private `pullRequestHeadFrom` — through a
+   * stubbed `gh` on PATH, the same way the git half of every other run is
+   * tested through the port rather than against the function directly.
+   */
+  describe("looking the head branch up through gh, the factory's own default", () => {
+    it("mounts the branch gh names as the pull request's head", async (t) => {
+      const { directory, headCommit } = await hostedProject();
+      const gh = await recordingGh(
+        t,
+        `echo '${JSON.stringify({ headRefName: BRANCH, isCrossRepository: false })}'`,
+      );
+      let at = "";
+      const sandbox = containerSandbox(async ({ directory: mounted }) => {
+        at = await headOf(mounted);
+        return { output: "", tokensUsed: tokenCount(0) };
+      });
+
+      await applyReviewOn(sandbox, directory);
+
+      const [call] = await gh.calls();
+      assert.deepEqual(call, [
+        "pr",
+        "view",
+        APPLY_REVIEW_TICKET.pullRequest.url,
+        "--json",
+        "headRefName,isCrossRepository",
+      ]);
+      assert.equal(at, headCommit);
+    });
+
+    it("refuses a pull request opened from a fork, whose head the checkout's remote does not have", async (t) => {
+      const { directory } = await hostedProject();
+      await recordingGh(
+        t,
+        `echo '${JSON.stringify({ headRefName: BRANCH, isCrossRepository: true })}'`,
+      );
+      let started = false;
+      const sandbox = containerSandbox(async () => {
+        started = true;
+        return { output: "", tokensUsed: tokenCount(0) };
+      });
+
+      await assert.rejects(applyReviewOn(sandbox, directory), /its own repo/);
+      assert.equal(started, false);
+    });
+
+    /**
+     * The guard is `isCrossRepository !== false`, so a `gh --json` output that
+     * silently dropped the field must fail closed the same way a fork does,
+     * not fail open by treating the missing field as `false`.
+     */
+    it("refuses an answer that does not say whether the pull request is from a fork", async (t) => {
+      const { directory } = await hostedProject();
+      await recordingGh(t, `echo '${JSON.stringify({ headRefName: BRANCH })}'`);
+      let started = false;
+      const sandbox = containerSandbox(async () => {
+        started = true;
+        return { output: "", tokensUsed: tokenCount(0) };
+      });
+
+      await assert.rejects(applyReviewOn(sandbox, directory), /its own repo/);
+      assert.equal(started, false);
+    });
+
+    for (const headRefName of [undefined, 7, "not a branch.."]) {
+      it(`refuses a head branch of ${JSON.stringify(headRefName)}`, async (t) => {
+        const { directory } = await hostedProject();
+        await recordingGh(
+          t,
+          `echo '${JSON.stringify({ headRefName, isCrossRepository: false })}'`,
+        );
+        let started = false;
+        const sandbox = containerSandbox(async () => {
+          started = true;
+          return { output: "", tokensUsed: tokenCount(0) };
+        });
+
+        await assert.rejects(
+          applyReviewOn(sandbox, directory),
+          /no usable head branch/,
+        );
+        assert.equal(started, false);
+      });
+    }
   });
 });
 
@@ -2623,10 +2649,7 @@ describe("containerSandbox.rebase", () => {
 
   it("reports a provider failure as an apply-review run does", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(
-      async () => readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
-      headIsBranch,
-    );
+    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN, headIsBranch);
 
     const result = await rebaseOn(sandbox, directory);
 
@@ -2640,7 +2663,12 @@ describe("containerSandbox.rebase", () => {
   it("reports a model refusal as an apply-review run does, naming the model and the CLI's words, told apart from a limit refusal", async () => {
     const { directory } = await hostedProject();
     const sandbox = containerSandbox(
-      async () => readExitedRun(MODEL_REFUSAL_EXIT),
+      async () => ({
+        output: MODEL_REFUSAL_WORDS,
+        tokensUsed: tokenCount(0),
+        failure: "Command failed: docker run",
+        modelRefused: MODEL_REFUSAL_WORDS,
+      }),
       headIsBranch,
     );
 
@@ -2701,560 +2729,305 @@ describe("containerSandbox.rebase", () => {
   });
 });
 
-describe("pushableRemote", () => {
-  for (const [ssh, https] of [
-    ["git@github.com:nadav-alon/pilot.git", "https://github.com/nadav-alon/pilot.git"],
-    ["git@github.com:nadav-alon/pilot", "https://github.com/nadav-alon/pilot.git"],
-    ["ssh://git@github.com/nadav-alon/pilot.git", "https://github.com/nadav-alon/pilot.git"],
-  ] as const) {
-    it(`reaches ${ssh} over HTTPS, which the container's token can push to`, () => {
-      assert.equal(pushableRemote(remoteUrl(ssh)), https);
-    });
-  }
-
-  it("leaves an HTTPS remote and a local path as they are", () => {
-    assert.equal(
-      pushableRemote(remoteUrl("https://github.com/nadav-alon/pilot.git")),
-      "https://github.com/nadav-alon/pilot.git",
-    );
-    assert.equal(pushableRemote(remoteUrl("/srv/git/pilot")), "/srv/git/pilot");
-  });
-});
-
-describe("pullRequestHeadFrom", () => {
-  const url = APPLY_REVIEW_TICKET.pullRequest.url;
-
-  it("reads the head branch of a pull request from its own repo", () => {
-    const answer = JSON.stringify({ headRefName: BRANCH, isCrossRepository: false });
-
-    assert.equal(pullRequestHeadFrom(answer, url), branch(BRANCH));
-  });
-
-  it("refuses a pull request opened from a fork, whose head the checkout's remote does not have", () => {
-    const answer = JSON.stringify({ headRefName: BRANCH, isCrossRepository: true });
-
-    assert.throws(() => pullRequestHeadFrom(answer, url), /its own repo/);
-  });
-
-  it("refuses an answer that does not say whether the pull request is from a fork", () => {
-    const answer = JSON.stringify({ headRefName: BRANCH });
-
-    assert.throws(() => pullRequestHeadFrom(answer, url), /its own repo/);
-  });
-
-  for (const headRefName of [undefined, 7, "not a branch.."]) {
-    it(`refuses a head branch of ${JSON.stringify(headRefName)}`, () => {
-      const answer = JSON.stringify({ headRefName, isCrossRepository: false });
-
-      assert.throws(() => pullRequestHeadFrom(answer, url), /no usable head branch/);
-    });
-  }
-});
-
-describe("readExitedRun", () => {
-  /**
-   * What `execFile` rejects with when a command exits `code` having written
-   * `stdout`/`stderr` — its `message` shaped exactly as Node's own rejection is,
-   * `Command failed: <argv>` with the whole command line, the agent's prompt
-   * included.
-   */
-  function exitedCommand(
-    code: number,
-    { stdout = "", stderr = "" }: { stdout?: string; stderr?: string } = {},
-  ): Error {
-    return Object.assign(
-      new Error(
-        `Command failed: docker run --rm ... --print the-agent's-whole-prompt-goes-here ...\n${stderr}`,
-      ),
-      { code, stdout, stderr },
-    );
-  }
-
-  it("reports the exit code", () => {
-    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
-
-    assert.match(agent.failure ?? "", /\bcode 1\b/);
-  });
-
-  it("reports the tail of stderr", () => {
-    const agent = readExitedRun(exitedCommand(1, { stderr: "tests failed" }));
-
-    assert.match(agent.failure ?? "", /tests failed/);
-  });
-
-  it("bounds the stderr it reports well under what a hand-back comment quotes again, keeping the exit code and the tail (not the head) of stderr", () => {
-    const stderr = `${"x".repeat(10_000)}last line`;
-
-    const agent = readExitedRun(exitedCommand(1, { stderr }));
-
-    assert.ok((agent.failure ?? "").length < REASON_QUOTED);
-    assert.match(agent.failure ?? "", /\bcode 1\b/);
-    assert.match(agent.failure ?? "", /last line$/);
-  });
-
-  it("never reports the command line or the prompt it ran", () => {
-    const agent = readExitedRun(
-      exitedCommand(1, { stderr: "tests failed" }),
-    );
-
-    assert.doesNotMatch(agent.failure ?? "", /docker run/);
-    assert.doesNotMatch(agent.failure ?? "", /whole-prompt/);
-  });
-
-  it("still says it failed and gives the exit code when there is no stderr", () => {
-    const agent = readExitedRun(exitedCommand(1));
-
-    assert.match(agent.failure ?? "", /\bcode 1\b/);
-  });
-
-  it("names the signal that killed a container with no exit code of its own", () => {
-    const killed = Object.assign(new Error("Command failed"), {
-      code: null,
-      signal: "SIGKILL",
-      stdout: "",
-      stderr: "",
-    });
-
-    const agent = readExitedRun(killed);
-
-    assert.match(agent.failure ?? "", /killed by SIGKILL/);
-  });
-});
-
-describe("readAgentRun", () => {
-  it("reads a model refusal off stderr, in the words of the CLI's result", () => {
-    const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
-
-    assert.equal(agent.modelRefused, MODEL_REFUSAL_WORDS);
-  });
-
-  it("quotes the model refusal tag itself when there is no result to quote", () => {
-    const agent = readAgentRun("", MODEL_REFUSAL_STDERR);
-
-    assert.equal(agent.modelRefused, MODEL_REFUSAL_STDERR.trim());
-  });
-
-  it("reads no model refusal from the agent's own words", () => {
-    const agent = readAgentRun(
-      JSON.stringify({ result: MODEL_REFUSAL_STDERR }),
-    );
-
-    assert.equal(agent.modelRefused, undefined);
-  });
-
-  it("reads a provider failure off the JSON envelope's own is_error and terminal_reason", () => {
-    const agent = readAgentRun(PROVIDER_FAILURE_STDOUT);
-
-    assert.equal(agent.providerFailure, PROVIDER_FAILURE_JSON_RESULT);
-  });
-
-  it("reads a provider failure off prose with no JSON envelope to parse", () => {
-    const agent = readAgentRun(PROVIDER_FAILURE_PROSE);
-
-    assert.equal(agent.providerFailure, PROVIDER_FAILURE_PROSE);
-  });
-
-  it("reads no provider failure from the model-refusal fixture's own api_error_status", () => {
-    const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
-
-    assert.equal(agent.providerFailure, undefined);
-  });
-
-  it("reads no provider failure when is_error is false", () => {
-    const agent = readAgentRun(
-      JSON.stringify({
-        is_error: false,
-        terminal_reason: "api_error",
-        api_error_status: null,
-        result: "not actually a failure",
-      }),
-    );
-
-    assert.equal(agent.providerFailure, undefined);
-  });
-
-  it("reads the agent's result and totals every token field", () => {
-    const stdout = JSON.stringify({
-      result: "implemented the thing",
-      usage: {
-        input_tokens: 1,
-        output_tokens: 2,
-        cache_creation_input_tokens: 4,
-        cache_read_input_tokens: 8,
-      },
-    });
-
-    assert.deepEqual(readAgentRun(stdout), {
-      output: "implemented the thing",
-      tokensUsed: tokenCount(15),
-    });
-  });
-
-  it("counts the fields it was given and no others", () => {
-    const stdout = JSON.stringify({
-      result: "done",
-      usage: { input_tokens: 3, output_tokens: 4 },
-    });
-
-    assert.equal(readAgentRun(stdout).tokensUsed, tokenCount(7));
-  });
-
-  it("keeps output it cannot parse, and charges nothing for it", () => {
-    const stdout = "claude: command not found";
-
-    assert.deepEqual(readAgentRun(stdout), {
-      output: stdout,
-      tokensUsed: tokenCount(0),
-    });
-  });
-
-  it("keeps the raw envelope when it carries no result", () => {
-    const stdout = JSON.stringify({ usage: { input_tokens: 5 } });
-
-    const agent = readAgentRun(stdout);
-
-    assert.equal(agent.output, stdout);
-    assert.equal(agent.tokensUsed, tokenCount(5));
-  });
-
-  it("charges nothing when the envelope reports no usage", () => {
-    const stdout = JSON.stringify({ result: "done" });
-
-    assert.equal(readAgentRun(stdout).tokensUsed, tokenCount(0));
-  });
-
-  /** A run that went wrong says so on stderr, and nowhere else. */
-  it("keeps the diagnostics a failing run wrote to stderr", () => {
-    const stdout = JSON.stringify({ result: "gave up" });
-
-    const agent = readAgentRun(stdout, "Error: no such image\n");
-
-    assert.match(agent.output, /gave up/);
-    assert.match(agent.output, /no such image/);
-  });
-
-  it("reports stderr alone when the run said nothing else", () => {
-    assert.equal(
-      readAgentRun("", "docker: command not found\n").output,
-      "docker: command not found\n",
-    );
-  });
-
-  /**
-   * The envelope a sandbox that grants the agent nothing actually sends back,
-   * trimmed to the fields that matter. Note `is_error: false` and the ordinary
-   * `result`: nothing outside `permission_denials` says the run was refused,
-   * which is why a manager that reads only `result` reports it as a morning
-   * where the agent simply found nothing to do.
-   */
-  it("says which tools the agent was refused", () => {
-    const stdout = JSON.stringify({
-      is_error: false,
-      result: "It looks like the write permission was denied.",
-      usage: { input_tokens: 6, output_tokens: 219 },
-      permission_denials: [
-        { tool_name: "Bash", tool_input: { command: "git commit -m x" } },
-        { tool_name: "Write", tool_input: { file_path: "/repo/probe.txt" } },
-      ],
-    });
-
-    const agent = readAgentRun(stdout);
-
-    assert.match(agent.output, /refused these tools/);
-    assert.match(agent.output, /Bash/);
-    assert.match(agent.output, /Write/);
-    // The agent's own words are kept as well: what it was refused explains
-    // the run, but what it said is still what a developer reads first.
-    assert.match(agent.output, /write permission was denied/);
-  });
-
-  it("names each refused tool once, however often it was refused", () => {
-    const stdout = JSON.stringify({
-      result: "denied",
-      permission_denials: [
-        { tool_name: "Bash" },
-        { tool_name: "Bash" },
-        { tool_name: "Bash" },
-      ],
-    });
-
-    const denials = readAgentRun(stdout).output.match(/Bash/g) ?? [];
-    assert.equal(denials.length, 1);
-  });
-
-  /**
-   * A run nobody refused anything reads exactly as it did before, so the note
-   * stays a signal rather than a line on every hand-back comment.
-   */
-  it("says nothing about refusals when there were none", () => {
-    const stdout = JSON.stringify({
-      result: "done",
-      permission_denials: [],
-    });
-
-    assert.equal(readAgentRun(stdout).output, "done");
-  });
-
-  /**
-   * `withDiagnostics` appends stderr and the denied-tools note after the
-   * agent's own text, so a gist that reads correctly off the raw result must
-   * not be lost once those are appended to `output`.
-   */
-  it("still carries a well-formed ticket gist once stderr is appended after it", () => {
-    const stdout = JSON.stringify({
-      result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
-    });
-
-    const agent = readAgentRun(stdout, "npm warn deprecated foo@1.0.0\n");
-
-    assert.equal(agent.gist, "Add retries to the flaky upload step.");
-    assert.match(agent.output, /npm warn deprecated/);
-  });
-
-  it("still carries a well-formed ticket gist once a denied-tools note is appended after it", () => {
-    const stdout = JSON.stringify({
-      is_error: false,
-      result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
-      permission_denials: [{ tool_name: "Bash" }],
-    });
-
-    const agent = readAgentRun(stdout);
-
-    assert.equal(agent.gist, "Add retries to the flaky upload step.");
-    assert.match(agent.output, /refused these tools/);
-  });
-});
-
 /**
- * The spend ceiling is the only thing standing between one pathological
- * ticket and the whole week, and nothing the manager can observe enforces it:
- * once the container is up, the agent CLI is on its own. So what is asserted
- * here is the argument list itself.
+ * `containerSandbox()`'s own default: `dockerContainer`, plus the four
+ * functions behind it — the command builder, the two readers of what came
+ * back, and the check for whether docker ran at all. None of the four is
+ * exported, since nothing outside this module calls them by name; these
+ * tests reach them the way any real caller does, by leaving the factory's
+ * first argument at its default with a `docker` stubbed onto `PATH`,
+ * recording how it was called and answering however the test needs.
  */
-describe("dockerCommand", () => {
-  const CLONE = checkout("/tmp/clone");
-  const TRANSCRIPTS = transcriptDirectory("/tmp/transcripts");
-
-  it("mounts the transcript directory at the agent CLI's own log location", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
+describe("containerSandbox with the real docker container", () => {
+  /**
+   * Sets the credentials `dockerContainer` checks before it will run docker
+   * at all, restored once the test ends. A review also needs
+   * `GH_REVIEW_TOKEN` — see `Mount` in container-sandbox.ts.
+   */
+  function withCredential(t: TestContext, mount: Mount = "rw"): void {
+    const names =
+      mount === "ro"
+        ? ["CLAUDE_CODE_OAUTH_TOKEN", "GH_REVIEW_TOKEN"]
+        : ["CLAUDE_CODE_OAUTH_TOKEN"];
+    const saved = new Map(names.map((name) => [name, process.env[name]]));
+    for (const name of names) {
+      process.env[name] = "test-token";
+    }
+    t.after(() => {
+      for (const [name, value] of saved) {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      }
     });
+  }
 
-    assert.ok(command.includes(`${TRANSCRIPTS}:/home/node/.claude/projects`));
-  });
+  /** Shell-quotes `text` for embedding in a single-quoted script argument. */
+  function shQuote(text: string): string {
+    return `'${text.replace(/'/g, `'\\''`)}'`;
+  }
 
-  it("mounts the transcript directory writable even for a read-only review", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "review it",
-      spendCeiling: usd(5),
-      mount: "ro",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  /** A `docker` stub script that answers every invocation with `stdout`/`stderr` and exits `code`. */
+  function dockerAnswering(stdout: string, stderr = "", code = 0): string {
+    return [
+      `printf '%s' ${shQuote(stdout)}`,
+      ...(stderr === "" ? [] : [`printf '%s' ${shQuote(stderr)} >&2`]),
+      `exit ${code}`,
+    ].join("\n");
+  }
 
-    assert.ok(command.includes(`${TRANSCRIPTS}:/home/node/.claude/projects`));
-    assert.ok(command.includes(`${CLONE}:/repo:ro`));
-  });
+  /** Every value a `--volume` flag was given in `call`, in the order docker sees them. */
+  function volumesOf(call: string[] | undefined): string[] {
+    return (call ?? []).flatMap((argument, at) =>
+      argument === "--volume" ? [call?.[at + 1] ?? ""] : [],
+    );
+  }
 
-  it("passes no model argument when none is asked for", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  /** Whether `call` mounts anything at the agent CLI's own log location. */
+  function mountsTranscripts(call: string[] | undefined): boolean {
+    return volumesOf(call).some((volume) =>
+      volume.endsWith(":/home/node/.claude/projects"),
+    );
+  }
 
-    assert.ok(!command.includes("--model"));
-  });
+  /**
+   * Runs `operation` against a docker stub that answers every invocation as
+   * `answer` (built with `dockerAnswering`), under the credential `mount`
+   * implies (a review needs "ro"; everything else needs "rw", the default).
+   * Returns the operation's result and the clone it ran against, alongside
+   * the record of how docker was called.
+   */
+  async function runWithDocker<T>(
+    t: TestContext,
+    answer: string,
+    operation: (sandbox: Sandbox, directory: Checkout) => Promise<T>,
+    mount: Mount = "rw",
+  ): Promise<{ result: T; directory: Checkout; docker: RecordedDocker }> {
+    withCredential(t, mount);
+    const directory = await project();
+    const docker = await recordingDocker(t, answer);
+    const result = await operation(containerSandbox(), directory);
+    return { result, directory, docker };
+  }
 
-  it("passes the model to the agent CLI as one argument, whatever it contains", () => {
-    const name = "opus;rm$(whoami)'x'|&";
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-      model: modelName(name),
-    });
+  it("mounts the clone read-write, asks for print mode and JSON output, and hands over the spend ceiling", async (t) => {
+    const { directory, docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, checkoutDirectory) =>
+        sandbox.run({
+          ticket: TICKET,
+          checkout: checkoutDirectory,
+          spendCeiling: usd(2.5),
+        }),
+    );
 
-    const flag = command.indexOf("--model");
-    assert.ok(flag > command.indexOf("--print"), "--model must reach the CLI, not docker");
-    assert.equal(command[flag + 1], name);
-    assert.equal(command.filter((argument) => argument.includes("opus")).length, 1);
-  });
-
-  it("passes a review's model the same way, and still mounts read-only", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "review it",
-      spendCeiling: usd(5),
-      mount: "ro",
-      transcriptDirectory: TRANSCRIPTS,
-      model: modelName("opus"),
-    });
-
-    assert.equal(command[command.indexOf("--model") + 1], "opus");
-    assert.ok(command.includes(`${CLONE}:/repo:ro`));
-  });
-
-  it("hands the agent CLI the run's spend ceiling", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(2.5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
-
-    const ceiling = command.indexOf("--max-budget-usd");
+    const [call] = await docker.calls();
+    assert.equal(call?.[0], "run");
+    assert.ok(call?.includes("--rm"));
+    assert.ok(call?.includes("--print"));
+    assert.equal(call?.[(call.indexOf("--output-format") ?? -1) + 1], "json");
+    const volume = valueOf(call, "--volume") ?? "";
+    const [mounted] = volume.split(":");
+    assert.notEqual(mounted, directory, "must mount the clone, not the checkout");
+    assert.ok(volume.endsWith(":/repo"), "a run mounts read-write, with no :ro suffix");
+    const ceiling = call?.indexOf("--max-budget-usd") ?? -1;
     assert.notEqual(ceiling, -1);
-    assert.equal(command[ceiling + 1], "2.5");
+    assert.equal(call?.[ceiling + 1], "2.5");
   });
 
-  it("asks for print mode, which is the only mode the ceiling applies in", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("passes no model argument when none is asked for", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
 
-    assert.ok(command.includes("--print"));
+    const [call] = await docker.calls();
+    assert.ok(!call?.includes("--model"));
   });
 
-  it("mounts the clone and never the developer's own checkout", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("passes the model to the agent CLI as one argument, whatever it contains", async (t) => {
+    const name = "opus;rm$(whoami)'x'|&";
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          model: modelName(name),
+        }),
+    );
 
-    assert.ok(command.includes(`${CLONE}:/repo`));
-  });
-
-  it("mounts the clone read-write by default", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
-
-    assert.ok(!command.includes(`${CLONE}:/repo:ro`));
+    const [call] = await docker.calls();
+    const flag = call?.indexOf("--model") ?? -1;
+    assert.ok(
+      flag > (call?.indexOf("--print") ?? -1),
+      "--model must reach the CLI, not docker",
+    );
+    assert.equal(call?.[flag + 1], name);
+    assert.equal(
+      call?.filter((argument) => argument.includes("opus")).length,
+      1,
+    );
   });
 
   /**
    * Half the enforcement a reviewer's inability to push relies on — see
    * `Mount` for the other half, the credential `envFor` forwards alongside it.
    */
-  it("mounts the clone read-only when asked to review", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "review it",
-      spendCeiling: usd(5),
-      mount: "ro",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("mounts a review's clone read-only and passes its model the same way", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({
+          ticket: REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          model: modelName("opus"),
+        }),
+      "ro",
+    );
 
-    assert.ok(command.includes(`${CLONE}:/repo:ro`));
+    const [call] = await docker.calls();
+    assert.equal(call?.[(call.indexOf("--model") ?? -1) + 1], "opus");
+    assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(
+      call?.includes("--permission-mode"),
+      "no --permission-mode: a review denied Bash cannot even run gh to post its findings",
+    );
   });
 
-  it("forwards the same credential names to the container regardless of mount", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "review it",
-      spendCeiling: usd(5),
-      mount: "ro",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("forwards the same credential names to the container regardless of mount", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
+      "ro",
+    );
 
-    assert.ok(command.includes("GH_TOKEN"));
-    assert.ok(command.includes("GITHUB_TOKEN"));
+    const [call] = await docker.calls();
+    assert.ok(call?.includes("GH_TOKEN"));
+    assert.ok(call?.includes("GITHUB_TOKEN"));
   });
 
   /**
-   * The other flag that fails silently, and the one that already has: without
-   * it `--print` sends every permission question to a host that is not there —
-   * `execFile` is not one — and the CLI denies the lot. A run so refused still
-   * exits zero, so nothing downstream can tell it apart from an agent that
-   * looked at the ticket and left it alone. The argument list is the only place
-   * this is observable without a container and a credential.
+   * Without `--permission-mode`, `--print` sends every permission question to
+   * a host that is not there — `execFile` is not one — and the CLI denies the
+   * lot. A run so refused still exits zero, so nothing downstream can tell it
+   * apart from an agent that looked at the ticket and left it alone.
    */
-  it("grants the agent its permissions, since no host is there to be asked", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("grants the agent its permissions, since no host is there to be asked", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
 
-    const mode = command.indexOf("--permission-mode");
+    const [call] = await docker.calls();
+    const mode = call?.indexOf("--permission-mode") ?? -1;
     assert.notEqual(
       mode,
       -1,
       "no --permission-mode: every Bash, Write and Edit call would be denied",
     );
-    assert.equal(command[mode + 1], "bypassPermissions");
+    assert.equal(call?.[mode + 1], "bypassPermissions");
   });
 
   /**
-   * A reviewer needs the same grant. What stops it pushing is the read-only
-   * mount and the scoped credential (see `Mount`), not a prompt — and a
-   * reviewer denied Bash cannot run `gh` to post its findings either, which
-   * would fail the same quiet way.
+   * Unpinned, the container runs as the image's own user, and everything the
+   * agent writes through the bind mount is owned by that uid rather than by
+   * whoever started the run — invisible on a host whose developer happens to
+   * be uid 1000, and on any other host a clone the developer cannot delete
+   * afterwards.
    */
-  it("grants a review its permissions too", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "review it",
-      spendCeiling: usd(5),
-      mount: "ro",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("pins the container to the uid and gid that started the run", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
 
-    assert.ok(command.includes("--permission-mode"));
-  });
-
-  /**
-   * The third flag that fails quietly, and the one whose failure depends on
-   * whose machine it is. Unpinned, the container runs as the image's own user,
-   * and everything the agent writes through the bind mount is owned by that
-   * uid rather than by whoever started the run — invisible on a host whose
-   * developer happens to be uid 1000, and on any other host a clone the
-   * developer cannot delete afterwards. The CLI also refuses
-   * `bypassPermissions` outright under uid 0, so an image that regressed to
-   * root would fail every run before the agent made a single call.
-   */
-  it("pins the container to the uid and gid that started the run", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
-
-    const pin = command.indexOf("--user");
+    const [call] = await docker.calls();
+    const pin = call?.indexOf("--user") ?? -1;
     assert.notEqual(
       pin,
       -1,
       "no --user: the agent writes as the image's user rather than the developer's",
     );
-    assert.equal(
-      command[pin + 1],
-      `${process.getuid?.()}:${process.getgid?.()}`,
+    assert.equal(call?.[pin + 1], `${process.getuid?.()}:${process.getgid?.()}`);
+  });
+
+  /**
+   * A manager started with `sudo` would pin the container to root and hand
+   * the CLI a permission mode it refuses under root — arriving as exit 1
+   * rather than one of docker's own codes, so every ticket that morning would
+   * be handed back blaming an agent that never started. Refused outright
+   * instead: the clone a root manager makes is `mkdtemp`'s 0700 and root's,
+   * so uid 1000 could not read it either.
+   */
+  it("refuses to run at all when the manager itself is root", async (t) => {
+    withCredential(t);
+    const directory = await project();
+    const { getuid, getgid } = process;
+    process.getuid = () => 0;
+    process.getgid = () => 0;
+    t.after(() => {
+      if (getuid) {
+        process.getuid = getuid;
+      }
+      if (getgid) {
+        process.getgid = getgid;
+      }
+    });
+
+    await assert.rejects(
+      containerSandbox().run({
+        ticket: TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+      (error: Error) => error instanceof AgentNeverRan && /root/.test(error.message),
     );
+  });
+
+  it("mounts the transcript directory at the agent CLI's own log location", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.ok(mountsTranscripts(call));
+  });
+
+  it("mounts the transcript directory writable even for a read-only review", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({
+          ticket: REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+      "ro",
+    );
+
+    const [call] = await docker.calls();
+    assert.ok(mountsTranscripts(call));
+    assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
   });
 
   /**
@@ -3262,21 +3035,21 @@ describe("dockerCommand", () => {
    * invoking user, not root. `--user` pins the whole container, not a mount
    * at a time, so a container pinned this way writes into the transcript
    * mount as that uid exactly as it does into the clone's — this pins the
-   * two in the same command, so a change that stopped passing `--user`
+   * two in the same invocation, so a change that stopped passing `--user`
    * alongside the transcript volume (or the reverse) would fail here even
    * though each flag's own test still passes on its own.
    */
-  it("pins the same user on the container that mounts the transcript directory", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("pins the same user on the container that mounts the transcript directory", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
 
-    assert.ok(command.includes("--user"));
-    assert.ok(command.includes(`${TRANSCRIPTS}:/home/node/.claude/projects`));
+    const [call] = await docker.calls();
+    assert.ok(call?.includes("--user"));
+    assert.ok(mountsTranscripts(call));
   });
 
   /**
@@ -3285,128 +3058,652 @@ describe("dockerCommand", () => {
    * same machine was fine. The host's network stack takes docker's NAT out
    * of the path. Dropped, nothing fails loudly: runs just stall again.
    */
-  it("runs the container on the host's network", () => {
-    const command = dockerCommand({
-      directory: CLONE,
-      prompt: "do the thing",
-      spendCeiling: usd(5),
-      mount: "rw",
-      transcriptDirectory: TRANSCRIPTS,
-    });
+  it("runs the container on the host's network", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
 
-    const network = command.indexOf("--network");
+    const [call] = await docker.calls();
+    const network = call?.indexOf("--network") ?? -1;
     assert.notEqual(network, -1, "no --network: the run goes through docker's bridge NAT");
-    assert.equal(command[network + 1], "host");
-    assert.ok(network < command.indexOf("--print"), "--network must reach docker, not the CLI");
-  });
-
-  /**
-   * A manager started with `sudo` would pin the container to root and hand the
-   * CLI a permission mode it refuses under root — the very failure this pin
-   * exists downstream of, arriving as exit 1 rather than as one of docker's own
-   * codes, so `dockerNeverRan` would call it an agent that gave up and every
-   * ticket that morning would be handed back quoting a flag nobody passed.
-   *
-   * Refused rather than fixed by falling back to the image's own user: the
-   * clone a root manager makes is `mkdtemp`'s 0700 and root's, so uid 1000
-   * could not read it either. Nothing can run here, which is what
-   * `AgentNeverRan` means.
-   */
-  it("refuses to build a command at all when the manager itself is root", () => {
-    const { getuid, getgid } = process;
-    process.getuid = () => 0;
-    process.getgid = () => 0;
-
-    try {
-      assert.throws(
-        () =>
-          dockerCommand({
-            directory: CLONE,
-            prompt: "do the thing",
-            spendCeiling: usd(5),
-            mount: "rw",
-            transcriptDirectory: TRANSCRIPTS,
-          }),
-        AgentNeverRan,
-      );
-    } finally {
-      if (getuid) {
-        process.getuid = getuid;
-      }
-      if (getgid) {
-        process.getgid = getgid;
-      }
-    }
+    assert.equal(call?.[network + 1], "host");
+    assert.ok(
+      network < (call?.indexOf("--print") ?? -1),
+      "--network must reach docker, not the CLI",
+    );
   });
 
   /**
    * Not every host reports a uid — `process.getuid` is absent on Windows. The
-   * image's own non-root user is a workable answer there; refusing to build a
-   * command at all would turn a portability gap into a morning of failed runs.
+   * image's own non-root user is a workable answer there.
    */
-  it("leaves the image's own user in place where the host exposes no uid", () => {
+  it("leaves the image's own user in place where the host exposes no uid", async (t) => {
+    withCredential(t);
+    const directory = await project();
+    const docker = await recordingDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+    );
     const { getuid, getgid } = process;
     delete process.getuid;
     delete process.getgid;
-
-    try {
-      const command = dockerCommand({
-        directory: CLONE,
-        prompt: "do the thing",
-        spendCeiling: usd(5),
-        mount: "rw",
-        transcriptDirectory: TRANSCRIPTS,
-      });
-
-      assert.ok(
-        !command.includes("--user"),
-        "pinned a user the host never reported",
-      );
-    } finally {
-      // Guarded rather than assigned back unconditionally: on a host that
-      // never had them, there is nothing to put back and the types say so.
+    t.after(() => {
       if (getuid) {
         process.getuid = getuid;
       }
       if (getgid) {
         process.getgid = getgid;
       }
+    });
+
+    await containerSandbox().run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    const [call] = await docker.calls();
+    assert.ok(!call?.includes("--user"), "pinned a user the host never reported");
+  });
+
+  describe("reading what the agent CLI said", () => {
+    it("reads the agent's result and totals every token field", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "implemented the thing",
+            usage: {
+              input_tokens: 1,
+              output_tokens: 2,
+              cache_creation_input_tokens: 4,
+              cache_read_input_tokens: 8,
+            },
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "finished");
+      assert.equal(variant(result, "finished")?.output, "implemented the thing");
+      assert.equal(result.tokensUsed, tokenCount(15));
+    });
+
+    it("counts the fields it was given and no others", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "done",
+            usage: { input_tokens: 3, output_tokens: 4 },
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.tokensUsed, tokenCount(7));
+    });
+
+    it("keeps output it cannot parse, and charges nothing for it", async (t) => {
+      const stdout = "claude: command not found";
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, stdout);
+      assert.equal(result.tokensUsed, tokenCount(0));
+    });
+
+    it("keeps the raw envelope when it carries no result", async (t) => {
+      const stdout = JSON.stringify({ usage: { input_tokens: 5 } });
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, stdout);
+      assert.equal(result.tokensUsed, tokenCount(5));
+    });
+
+    it("charges nothing when the envelope reports no usage", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(JSON.stringify({ result: "done" })),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.tokensUsed, tokenCount(0));
+    });
+
+    /** A run that went wrong says so on stderr, and nowhere else. */
+    it("keeps the diagnostics a failing run wrote to stderr", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({ result: "gave up" }),
+          "Error: no such image\n",
+          1,
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const output = variant(result, "gave-up")?.output ?? "";
+      assert.match(output, /gave up/);
+      assert.match(output, /no such image/);
+    });
+
+    it("reports stderr alone when the run said nothing else", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering("", "docker: command not found\n"),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(
+        variant(result, "finished")?.output,
+        "docker: command not found\n",
+      );
+    });
+
+    /**
+     * The envelope a sandbox that grants the agent nothing actually sends
+     * back, trimmed to the fields that matter. Note `is_error: false` and the
+     * ordinary `result`: nothing outside `permission_denials` says the run
+     * was refused, which is why a manager that reads only `result` reports it
+     * as a morning where the agent simply found nothing to do.
+     */
+    it("says which tools the agent was refused", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            result: "It looks like the write permission was denied.",
+            usage: { input_tokens: 6, output_tokens: 219 },
+            permission_denials: [
+              { tool_name: "Bash", tool_input: { command: "git commit -m x" } },
+              { tool_name: "Write", tool_input: { file_path: "/repo/probe.txt" } },
+            ],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const output = variant(result, "finished")?.output ?? "";
+      assert.match(output, /refused these tools/);
+      assert.match(output, /Bash/);
+      assert.match(output, /Write/);
+      // The agent's own words are kept as well: what it was refused explains
+      // the run, but what it said is still what a developer reads first.
+      assert.match(output, /write permission was denied/);
+    });
+
+    it("names each refused tool once, however often it was refused", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "denied",
+            permission_denials: [
+              { tool_name: "Bash" },
+              { tool_name: "Bash" },
+              { tool_name: "Bash" },
+            ],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const denials = (variant(result, "finished")?.output ?? "").match(/Bash/g) ?? [];
+      assert.equal(denials.length, 1);
+    });
+
+    /**
+     * A run nobody refused anything reads exactly as it did before, so the
+     * note stays a signal rather than a line on every hand-back comment.
+     */
+    it("says nothing about refusals when there were none", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({ result: "done", permission_denials: [] }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, "done");
+    });
+
+    /**
+     * Stderr and the denied-tools note are appended after the agent's own
+     * text, so a gist that reads correctly off the raw result must not be lost
+     * once those are appended to the output a caller sees.
+     */
+    it("still carries a well-formed ticket gist once stderr is appended after it", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+          }),
+          "npm warn deprecated foo@1.0.0\n",
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const finished = variant(result, "finished");
+      assert.equal(finished?.gist, "Add retries to the flaky upload step.");
+      assert.match(finished?.output ?? "", /npm warn deprecated/);
+    });
+
+    it("still carries a well-formed ticket gist once a denied-tools note is appended after it", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+            permission_denials: [{ tool_name: "Bash" }],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const finished = variant(result, "finished");
+      assert.equal(finished?.gist, "Add retries to the flaky upload step.");
+      assert.match(finished?.output ?? "", /refused these tools/);
+    });
+
+    it("reads a limit refusal out of the CLI's JSON envelope", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            type: "result",
+            subtype: "success",
+            is_error: true,
+            result: LIMIT_REFUSAL,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          }),
+          "",
+          1,
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
+    });
+
+    it("reads a limit refusal the CLI printed as plain text rather than an envelope", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(`${LIMIT_REFUSAL}\n`, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
+    });
+
+    it("reads a provider failure off the JSON envelope's own is_error and terminal_reason", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(PROVIDER_FAILURE_STDOUT, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "provider-failed");
+      assert.equal(
+        variant(result, "provider-failed")?.words,
+        PROVIDER_FAILURE_JSON_RESULT,
+      );
+    });
+
+    it("reads a provider failure off prose with no JSON envelope to parse", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(PROVIDER_FAILURE_PROSE, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "provider-failed");
+      assert.equal(
+        variant(result, "provider-failed")?.words,
+        PROVIDER_FAILURE_PROSE,
+      );
+    });
+
+    for (const status of [529, 500]) {
+      it(`reads api_error_status ${status} as a provider failure`, async (t) => {
+        const { result } = await runWithDocker(
+          t,
+          dockerAnswering(providerFailureStdoutWithStatus(status), "", 1),
+          (sandbox, directory) =>
+            sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        );
+
+        assert.equal(result.kind, "provider-failed");
+      });
     }
+
+    it("reads api_error_status 401 as an agent that gave up, not a provider failure", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(providerFailureStdoutWithStatus(401), "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "gave-up");
+    });
+
+    it("reads no provider failure from the model-refusal fixture's own api_error_status", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "gave-up");
+    });
+
+    it("reads no provider failure when is_error is false", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            terminal_reason: "api_error",
+            api_error_status: null,
+            result: "not actually a failure",
+          }),
+          "",
+          1,
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "gave-up");
+    });
+
+    it("reports a model refusal apart from an agent that gave up", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("this-model-does-not-exist-xyz"),
+          }),
+      );
+
+      assert.equal(result.kind, "model-refused");
+      assert.deepEqual(variant(result, "model-refused")?.refusal, {
+        model: modelName("this-model-does-not-exist-xyz"),
+        words: MODEL_REFUSAL_WORDS,
+      });
+    });
+
+    /**
+     * A refusal's words are the envelope's `result` when there is one to
+     * quote, or the stderr tag itself when there isn't — the realistic case,
+     * since a CLI that refused the model often never gets as far as printing
+     * an envelope at all.
+     */
+    it("falls back to the stderr tag when a model refusal printed no envelope to quote", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering("", MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("this-model-does-not-exist-xyz"),
+          }),
+      );
+
+      assert.equal(result.kind, "model-refused");
+      assert.deepEqual(variant(result, "model-refused")?.refusal, {
+        model: modelName("this-model-does-not-exist-xyz"),
+        words: MODEL_REFUSAL_STDERR.trim(),
+      });
+    });
+
+    it("does not mistake a finished agent that quotes the model refusal tag for one refused", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: `Matched the CLI's line:\n${MODEL_REFUSAL_STDERR}`,
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("opus"),
+          }),
+      );
+
+      assert.equal(result.kind, "finished");
+    });
+
+    it("does not mistake an agent that gave up quoting the model refusal tag for one refused", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: `The tests would not go green on:\n${MODEL_REFUSAL_STDERR}`,
+          }),
+          "",
+          1,
+        ),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("opus"),
+          }),
+      );
+
+      assert.equal(result.kind, "gave-up");
+    });
+
+    it("reports a model refusal on a review the same way, naming the model and the CLI's words", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.review({
+            ticket: REVIEW_TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("this-model-does-not-exist-xyz"),
+          }),
+        "ro",
+      );
+
+      assert.equal(result.kind, "model-refused");
+      assert.deepEqual(variant(result, "model-refused")?.refusal, {
+        model: modelName("this-model-does-not-exist-xyz"),
+        words: MODEL_REFUSAL_WORDS,
+      });
+    });
   });
-});
 
-describe("dockerNeverRan", () => {
-  /** What `execFile` rejects with when the command exits `code`. */
-  function exited(code: number | string): Error {
-    return Object.assign(new Error(`Command failed with ${code}`), { code });
-  }
+  /**
+   * What a caller is told when the agent command itself exited non-zero. The
+   * reason reaches a hand-back comment, which quotes it again, so it has to
+   * carry the exit code and enough of stderr to explain the run without
+   * carrying the command line — whose argument list is the agent's whole
+   * prompt.
+   */
+  describe("when the agent command exited non-zero", () => {
+    /** The reason a run that failed with `stderr` and `code` comes back with. */
+    async function reasonFor(
+      t: TestContext,
+      { stderr = "", code = 1 }: { stderr?: string; code?: number } = {},
+    ): Promise<string> {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering("", stderr, code),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
 
-  it("counts docker's own exit codes as the agent never having run", () => {
-    // 125: the daemon, or the image. 126 and 127: the entrypoint.
-    for (const code of [125, 126, 127]) {
-      assert.equal(dockerNeverRan(exited(code)), true, `exit ${code}`);
+      assert.equal(result.kind, "gave-up");
+      return variant(result, "gave-up")?.reason ?? "";
     }
+
+    it("reports the exit code", async (t) => {
+      assert.match(await reasonFor(t, { stderr: "tests failed" }), /\bcode 1\b/);
+    });
+
+    it("reports the tail of stderr", async (t) => {
+      assert.match(await reasonFor(t, { stderr: "tests failed" }), /tests failed/);
+    });
+
+    it("bounds the stderr it reports well under what a hand-back comment quotes again, keeping the exit code and the tail (not the head) of stderr", async (t) => {
+      const reason = await reasonFor(t, {
+        stderr: `${"x".repeat(10_000)}last line`,
+      });
+
+      assert.ok(reason.length < REASON_QUOTED);
+      assert.match(reason, /\bcode 1\b/);
+      assert.match(reason, /last line$/);
+    });
+
+    it("never reports the command line or the prompt it ran", async (t) => {
+      const reason = await reasonFor(t, { stderr: "tests failed" });
+
+      assert.doesNotMatch(reason, /docker run/);
+      assert.doesNotMatch(reason, new RegExp(TICKET.title));
+    });
+
+    it("still says it failed and gives the exit code when there is no stderr", async (t) => {
+      assert.match(await reasonFor(t), /\bcode 1\b/);
+    });
+
+    it("names the signal that killed a container with no exit code of its own", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        "kill -KILL $$",
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.match(variant(result, "gave-up")?.reason ?? "", /killed by SIGKILL/);
+    });
   });
 
-  it("counts docker not being installed as the agent never having run", () => {
-    assert.equal(dockerNeverRan(exited("ENOENT")), true);
-  });
-
-  it("leaves every other exit to the agent, killed containers included", () => {
-    // 1: the agent gave up. 137: killed, say for memory, mid-run.
-    for (const code of [1, 2, 137]) {
-      assert.equal(dockerNeverRan(exited(code)), false, `exit ${code}`);
+  /**
+   * `dockerNeverRan`'s own guard against a non-object error, or one with no
+   * `code` at all, is not exercised here: `execFile` always rejects with a
+   * coded `Error`, so nothing reaching this adapter through the port can
+   * produce one. Testing it directly was exactly the coupling to
+   * `dockerNeverRan` this ticket removes.
+   */
+  describe("when docker itself could not run the agent", () => {
+    /** Where `name` resolves on the current `PATH`, to clone onto a restricted one. */
+    async function resolveOnPath(name: string): Promise<string> {
+      for (const dir of (process.env["PATH"] ?? "").split(path.delimiter)) {
+        const candidate = path.join(dir, name);
+        if (await stat(candidate).then(
+          () => true,
+          () => false,
+        )) {
+          return candidate;
+        }
+      }
+      throw new Error(`${name} not found on PATH`);
     }
-  });
 
-  it("leaves the CLI's refusal of a model to the agent", () => {
-    assert.equal(dockerNeverRan(MODEL_REFUSAL_EXIT), false);
-  });
+    it("rejects on docker's own exit codes: the daemon or image (125), or the entrypoint (126, 127)", async (t) => {
+      withCredential(t);
+      for (const code of [125, 126, 127]) {
+        const directory = await project();
+        await recordingDocker(t, dockerAnswering("", "", code));
 
-  it("does not mistake something thrown without a code for docker", () => {
-    assert.equal(dockerNeverRan(new Error("no code")), false);
-    assert.equal(dockerNeverRan("a string"), false);
-    assert.equal(dockerNeverRan(null), false);
+        await assert.rejects(
+          containerSandbox().run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+          }),
+          (error: Error) =>
+            error instanceof AgentNeverRan &&
+            /docker could not start the agent/.test(error.message),
+          `exit ${code}`,
+        );
+      }
+    });
+
+    it("rejects when docker is not installed", async (t) => {
+      withCredential(t);
+      const directory = await project();
+      const bin = await mkdtemp(path.join(tmpdir(), "no-docker-"));
+      await symlink(await resolveOnPath("git"), path.join(bin, "git"));
+      const path_ = process.env["PATH"];
+      process.env["PATH"] = bin;
+      t.after(() => {
+        process.env["PATH"] = path_;
+      });
+
+      await assert.rejects(
+        containerSandbox().run({
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+        (error: Error) =>
+          error instanceof AgentNeverRan &&
+          /docker could not start the agent/.test(error.message),
+      );
+    });
+
+    it("leaves every other exit to the agent, killed containers included", async (t) => {
+      withCredential(t);
+      for (const code of [1, 2, 137]) {
+        const directory = await project();
+        await recordingDocker(t, dockerAnswering("", "", code));
+
+        const result = await containerSandbox().run({
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        });
+
+        assert.equal(result.kind, "gave-up", `exit ${code}`);
+      }
+    });
   });
 });
 
