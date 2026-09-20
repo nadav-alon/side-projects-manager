@@ -1549,6 +1549,31 @@ describe("ghIssueTracker.listOpenIssues — size labels", () => {
   });
 });
 
+/**
+ * Whether a ticket is a supertask, per `isSupertask`: declared by the
+ * supertask label, read from the same listing as every other label, never
+ * inferred from a sub-issue count.
+ */
+describe("ghIssueTracker.listOpenIssues — supertask label", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("reads a ticket carrying the supertask label as a supertask", async (t) => {
+    await recordingGh(t, listing([issue(7, ["supertask"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(isSupertask(issues[0]!.ticket), true);
+  });
+
+  it("does not read an ordinary ticket as a supertask", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(isSupertask(issues[0]!.ticket), false);
+  });
+});
+
 describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 

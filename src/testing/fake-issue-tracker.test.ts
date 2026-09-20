@@ -6,6 +6,7 @@ import {
   isApplyReviewTicket,
   isRebaseTicket,
   isReviewTicket,
+  isSupertask,
   issueNumber,
   modelName,
   pullRequestUrl,
@@ -171,17 +172,16 @@ describe("FakeIssueTracker", () => {
     assert.equal(issues[0]?.parent, undefined);
   });
 
-  it("lists a supertask alongside its open sub-issue count", async () => {
+  it("lists a supertask carrying the supertask label", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addSupertask(
-      PILOT,
-      { number: issueNumber(66), title: "Too big for one run" },
-      7,
-    );
+    tracker.addSupertask(PILOT, {
+      number: issueNumber(66),
+      title: "Too big for one run",
+    });
 
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
 
-    assert.equal(backlog[0]?.openSubIssues, 7);
+    assert.equal(isSupertask(backlog[0] as Ticket), true);
   });
 
   describe("pull request tickets", () => {

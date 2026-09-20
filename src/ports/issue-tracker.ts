@@ -209,13 +209,17 @@ export interface PullRequestBinding {
  * ticket, which is what selection reads to choose which kind of run to
  * start.
  *
- * `openSubIssues` is the fact `isSupertask` reads: how many of the ticket's
- * sub-issues are still open and are not pull request tickets, straight from
- * the same listing that already carries the labels selection filters on, so
- * it costs no extra tracker call.
- * Absent or zero means the ticket has none open — indistinguishable from a
- * ticket with no sub-issues at all, since neither is workable any
- * differently from the other.
+ * `openSubIssues` counts how many of the ticket's sub-issues are still open
+ * and are not pull request tickets, straight from the same listing that
+ * already carries the labels selection filters on, so it costs no extra
+ * tracker call. Absent or zero means the ticket has none open —
+ * indistinguishable from a ticket with no sub-issues at all, since neither is
+ * workable any differently from the other.
+ *
+ * `supertask` is the fact `isSupertask` reads: whether the ticket carries the
+ * supertask label, from that same listing. Declared, not inferred — per
+ * `CONTEXT.md`'s "Supertask", a ticket's sub-issue count says nothing about
+ * whether it is a container. Absent, never `false`, where it carries none.
  *
  * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
  * marked as blocking this one are still open, from that same listing. Absent
@@ -241,6 +245,7 @@ export interface Ticket {
   title: string;
   pullRequest?: PullRequestBinding;
   openSubIssues?: number;
+  supertask?: true;
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
@@ -258,14 +263,34 @@ export function isBlocked(ticket: Ticket): boolean {
 }
 
 /**
- * Whether `ticket` is a supertask: its work sits in sub-issues that are
- * still open — a container for that work rather than work of its own, per
- * `CONTEXT.md`'s "Supertask". The tracker only reports the count; this is
- * the judgment selection makes from it, so it can be exercised against the
- * fake rather than buried in an adapter's query string.
+ * The label that declares a ticket a supertask, per `CONTEXT.md`'s
+ * "Supertask". The one place the literal lives; every adapter reads it from
+ * here.
+ */
+export const SUPERTASK_LABEL = "supertask";
+
+/**
+ * Whether `labels` include the supertask label. Beside the port so the real
+ * tracker and the fake read it alike; matched without regard to case, as
+ * GitHub matches label names.
+ */
+export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
+  for (const label of labels) {
+    if (label.toLowerCase() === SUPERTASK_LABEL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether `ticket` is a supertask: declared by the supertask label, per
+ * `CONTEXT.md`'s "Supertask", never inferred from its sub-issue count — a
+ * container for its work rather than work of its own until the ticket
+ * itself is closed.
  */
 export function isSupertask(ticket: Ticket): boolean {
-  return (ticket.openSubIssues ?? 0) > 0;
+  return ticket.supertask === true;
 }
 
 /**

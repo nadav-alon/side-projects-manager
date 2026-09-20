@@ -20,6 +20,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
+  carriesSupertaskLabel,
   discountPullRequestTickets,
   isIssueNumber,
   isIssueUrl,
@@ -105,11 +106,13 @@ export function ghIssueTracker(
           const modelLabel = modelLabelOf(labels);
           const priority = priorityLabelIn(labels);
           const sizeLabel = sizeLabelOf(labels);
+          const supertask = carriesSupertaskLabel(labels);
           return {
             ticket: {
               repo,
               ...issue,
               ...(openSubIssues > 0 && { openSubIssues }),
+              ...(supertask && { supertask }),
               ...(openBlockers > 0 && { openBlockers }),
               ...(pullRequest !== undefined && { pullRequest }),
               ...(modelLabel !== undefined && { modelLabel }),

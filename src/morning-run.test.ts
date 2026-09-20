@@ -231,7 +231,6 @@ describe("morningLoop", () => {
     ports.tracker.addSupertask(
       PILOT,
       { number: issueNumber(66), title: "Too big for one run" },
-      7,
     );
     ports.tracker.addEligibleTicket(PILOT, {
       number: issueNumber(67),
@@ -279,7 +278,6 @@ describe("morningLoop", () => {
       ports.tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       ports.tracker.truncateBacklog(PILOT);
 
@@ -307,14 +305,12 @@ describe("morningLoop", () => {
       ports.tracker.addSupertask(
         MANAGER,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       ports.tracker.truncateBacklog(MANAGER);
       ports.store.register(PILOT);
       ports.tracker.addSupertask(
         PILOT,
         { number: issueNumber(67), title: "Also too big" },
-        8,
       );
       ports.tracker.truncateBacklog(PILOT);
 
@@ -347,7 +343,6 @@ describe("morningLoop", () => {
       ports.tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
 
       await morningLoop(ports);
