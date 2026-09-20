@@ -334,6 +334,38 @@ describe("handBack", () => {
     });
   });
 
+  describe("an unusable size label", () => {
+    it("quotes the size labels as written and names the sizes the budget document knows", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "unusable-size-label",
+        reason: "its size label names no size the budget document knows (size:XXL)",
+        labels: ["size:XXL"],
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /`size:XXL`/);
+      assert.match(comment, /S, M, L, XL/);
+    });
+
+    it("names nothing was run or spent, since it is caught ahead of the gate", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "unusable-size-label",
+        reason: "its size label names no size the budget document knows (size:XXL)",
+        labels: ["size:XXL"],
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /did not run this ticket/);
+      assert.match(comment, /Nothing was run and nothing was spent/);
+    });
+  });
+
   it("hands a rebase ticket back whose mergeability never settled, leaving its draft state alone", async () => {
     const { tracker, repoHost } = ports();
     const ticket = eligible(tracker, rebaseTicket());

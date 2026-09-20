@@ -43,7 +43,8 @@ export type RunFailure =
   | InfrastructureFailure
   | ModelRefused
   | UnsettledMergeability
-  | UnusableModelLabel;
+  | UnusableModelLabel
+  | UnusableSizeLabel;
 
 /** A failure whose ticket the loop hands back: every kind but the setup's. */
 export type HandedBackFailure = Exclude<RunFailure, InfrastructureFailure>;
@@ -110,6 +111,20 @@ export interface UnusableModelLabel {
   /** The model labels at fault, as the ticket carries them. */
   labels: readonly string[];
 }
+
+/**
+ * A ticket whose size label names no size the budget document knows —
+ * caught at selection, so nothing was cloned, run or spent.
+ */
+export interface UnusableSizeLabel {
+  kind: "unusable-size-label";
+  reason: string;
+  /** The size labels at fault, as the ticket carries them. */
+  labels: readonly string[];
+}
+
+/** A ticket handed back ahead of the gate, for unusable model or size labels. */
+export type AheadOfGateFailure = UnusableModelLabel | UnusableSizeLabel;
 
 /**
  * A rebase ticket whose pull request the repo host never settled as
@@ -370,12 +385,21 @@ export function handedBackFailure<T extends Failed>(
 /**
  * The project and ticket an iteration worked, and the model its run was
  * started on — absent when the sandbox image's pin decided, and when no run
- * was started because the ticket's model labels were unusable.
+ * was started because the ticket's model or size labels were unusable.
  */
 export interface Attempt<T extends Ticket = Ticket> {
   repo: RepoSlug;
   ticket: T;
   model?: ModelName;
+  /**
+   * The run estimate the gate's go-ahead charged for this ticket, per
+   * `CONTEXT.md`'s "Run estimate". Absent from a ticket handed back ahead of
+   * the gate, for its model or size labels: the gate never got a chance to
+   * charge one.
+   *
+   * TODO[#160]: read by the summary, to set a finished run's cost beside it.
+   */
+  estimateCharged?: TokenCount;
 }
 
 /** One iteration's outcome, and the project and ticket that earned it. */
@@ -528,21 +552,23 @@ export interface PullRequestResolved {
 }
 
 /**
- * Whether `iteration` handed its ticket back for its model labels, and so
- * never started a run: nothing was spent, and on no model.
+ * Whether `iteration` handed its ticket back ahead of the gate — for
+ * unusable model labels, or a size label naming no size the budget document
+ * knows — and so never started a run: nothing was spent, and on no model.
  */
-export function handedBackForModelLabels(
+export function handedBackAheadOfGate(
   iteration: IterationOutcome,
 ): boolean {
-  return iteration.kind === "failed" && isModelLabelFailure(iteration.failure);
+  return iteration.kind === "failed" && isAheadOfGateFailure(iteration.failure);
 }
 
-function isModelLabelFailure(
+function isAheadOfGateFailure(
   failure: RunFailure,
-): failure is UnusableModelLabel {
+): failure is AheadOfGateFailure {
   return (
     failure.kind === "conflicting-model-labels" ||
-    failure.kind === "unusable-model-label"
+    failure.kind === "unusable-model-label" ||
+    failure.kind === "unusable-size-label"
   );
 }
 

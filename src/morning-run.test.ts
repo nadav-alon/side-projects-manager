@@ -3648,6 +3648,48 @@ describe("morningLoop", () => {
         assert.equal(report.standDown?.reason, "weekly-reserve");
       });
     });
+
+    describe("the run estimate charged", () => {
+      it("carries the estimate the gate charged for the ticket, beside what the run spent", async () => {
+        const ports = readyToWork();
+
+        const report = await morningLoop(ports);
+
+        assert.equal(finished(report.iterations[0])?.estimateCharged, UNSIZED_ESTIMATE);
+      });
+
+      it("charges a sized ticket its own size's estimate", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const ticket = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        ports.tracker.addLabel(ticket, "size:L");
+
+        const report = await morningLoop(ports);
+
+        assert.equal(
+          finished(report.iterations[0])?.estimateCharged,
+          DEFAULT_BUDGET.sizes.L,
+        );
+      });
+
+      it("is absent from a ticket handed back ahead of the gate, since the gate never charged one", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const ticket = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.tracker.addLabel(ticket, "model:haiku");
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.estimateCharged, undefined);
+      });
+    });
   });
 
   describe("the spend ceiling", () => {
@@ -4528,6 +4570,70 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.sandbox.runs, []);
       // The comment's own wording is covered by hand-back.test.ts.
       assert.equal(ports.tracker.handbacks.length, 1);
+    });
+
+    describe("a ticket whose size label names no size the budget document knows", () => {
+      it("is handed back before the gate, and never run", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.sandbox.runs, []);
+        assert.deepEqual(ports.repoHost.clones, []);
+        // The comment's exact wording is covered by hand-back.test.ts; here
+        // it is enough that it quotes the offending label.
+        assert.equal(ports.tracker.handbacks.length, 1);
+        assert.match(ports.tracker.handbacks[0]?.comment ?? "", /size:XXL/);
+        assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
+        assert.equal(failureOf(report.iterations[0])?.kind, "unusable-size-label");
+      });
+
+      it("is recorded as worked today, so a later firing the same day does not select it again", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [8],
+        );
+      });
+
+      it("is handed back even when the gate then stands the morning down, which still reads as a stand-down", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
+        ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.handbacks.length, 1);
+        assert.deepEqual(ports.sandbox.runs, []);
+        assert.equal(report.outcome, "stood-down");
+      });
+
+      it("never hands back a pull request ticket over one, since runEstimate ignores its size label", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const review = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(42),
+          title: reviewTitle({ repo: PILOT, number: issueNumber(6), title: "Earlier" }),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+          },
+        });
+        ports.tracker.addLabel(review, "size:XXL");
+
+        await morningLoop(ports);
+
+        // Ahead of the gate is caught before the sandbox is ever asked to
+        // run anything, so reaching the sandbox proves it was not caught.
+        assert.equal(ports.sandbox.reviews.length, 1);
+      });
     });
 
     describe("a model the agent CLI refuses", () => {
