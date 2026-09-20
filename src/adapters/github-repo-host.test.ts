@@ -10,6 +10,7 @@ import { withCheckoutLock } from "./checkout-lock.ts";
 import { githubRepoHost, pullRequestFrom } from "./github-repo-host.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   APPLY_REVIEW_MARKER,
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
@@ -1256,6 +1257,35 @@ describe("marking a pull request ready for review", () => {
     await githubRepoHost().markPullRequestReady(PULL_REQUEST);
 
     assert.equal(callWith(await gh.calls(), "ready"), undefined);
+  });
+});
+
+describe("posting a comment on a pull request", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("posts the comment's body on the pull request named by its own URL", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().postComment(PULL_REQUEST, APPLY_REVIEW_COMMENT);
+
+    assert.deepEqual(callWith(await gh.calls(), "pr", "comment"), [
+      "pr",
+      "comment",
+      PULL_REQUEST,
+      "--body",
+      APPLY_REVIEW_COMMENT,
+    ]);
+  });
+
+  it("rejects with gh's own error when the comment could not be posted", async (t) => {
+    await recordingGh(t, "echo 'pull request is locked' >&2\nexit 1");
+
+    await assert.rejects(
+      githubRepoHost().postComment(PULL_REQUEST, APPLY_REVIEW_COMMENT),
+      /pull request is locked/,
+    );
   });
 });
 

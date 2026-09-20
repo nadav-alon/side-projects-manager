@@ -401,6 +401,10 @@ export function githubRepoHost(
       await run("gh", ["pr", "ready", pullRequest]);
     },
 
+    async postComment(pullRequest: PullRequestUrl, body: string): Promise<void> {
+      await run("gh", ["pr", "comment", pullRequest, "--body", body]);
+    },
+
     async labelPullRequest(
       pullRequest: PullRequestUrl,
       label: PullRequestLabel,

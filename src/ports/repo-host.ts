@@ -27,6 +27,17 @@ export const APPLIED_REPLY_PREFIX = "Applied in ";
 export const DECLINED_REPLY_PREFIX = "Declined: ";
 
 /**
+ * The bare comment turbo mode posts on a pull request once its review ticket
+ * closes, standing in for the developer typing `/apply-review` themselves.
+ * `.github/workflows/apply-review.yml` matches a comment's trimmed body
+ * against this exactly, so any marker or trailing note here would silently
+ * stop the chain; a named constant beside the port is what keeps the
+ * manager's spelling and the workflow's from drifting apart unnoticed. See
+ * CONTEXT.md's "Turbo" and ADR 0006.
+ */
+export const APPLY_REVIEW_COMMENT = "/apply-review";
+
+/**
  * One finding a review posts, in the shape the reviewer is told to post it
  * (`reviewPromptFor` in `container-sandbox.ts`, via {@link reviewFindingTemplate})
  * and {@link RepoHost.hasReviewFindings} checks a pull request for: an inline
@@ -445,6 +456,17 @@ export interface RepoHost {
    * pull request was still a draft by then.
    */
   markPullRequestReady(pullRequest: PullRequestUrl): Promise<void>;
+  /**
+   * Posts `body` as a comment on `pullRequest`.
+   *
+   * The port's first comment verb, kept as narrow as the write verbs above
+   * it: turbo mode (CONTEXT.md's "Turbo", ADR 0006) is the one caller, and it
+   * only ever posts {@link APPLY_REVIEW_COMMENT}, once a review ticket
+   * closes, standing in for the developer typing it themselves. Nothing here
+   * reads a comment back — see `container-sandbox.ts`'s note by the
+   * reviewer's own prompt for why that stays true regardless.
+   */
+  postComment(pullRequest: PullRequestUrl, body: string): Promise<void>;
   /**
    * Adds `label` to `pullRequest`, creating it in the pull request's own repo
    * first if the repo doesn't have it yet — best effort, so a project never

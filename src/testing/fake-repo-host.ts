@@ -110,6 +110,9 @@ export class FakeRepoHost implements RepoHost {
   readonly labelled: { pullRequest: PullRequestUrl; label: PullRequestLabel }[] =
     [];
 
+  /** Every comment posted to a pull request, in the order `postComment` was called. */
+  readonly comments: { pullRequest: PullRequestUrl; body: string }[] = [];
+
   readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
   readonly #reviewFindings = new Map<PullRequestUrl, FakeReviewFinding[]>();
 
@@ -331,6 +334,10 @@ export class FakeRepoHost implements RepoHost {
     label: PullRequestLabel,
   ): Promise<void> {
     this.labelled.push({ pullRequest, label });
+  }
+
+  async postComment(pullRequest: PullRequestUrl, body: string): Promise<void> {
+    this.comments.push({ pullRequest, body });
   }
 
   async needsRebase(pullRequest: PullRequestUrl): Promise<boolean> {
