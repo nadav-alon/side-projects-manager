@@ -31,6 +31,7 @@ import type {
   ReviewTicket,
   RunFinished,
   Salvaged,
+  Size,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -42,7 +43,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   REVIEWED_LABEL,
-  isPullRequestTicket,
+  declaredSize,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -248,9 +249,11 @@ function attemptsSection(iterations: IterationOutcome[]): string {
 /**
  * What a worked iteration's cost reads as: unknown when nothing recorded it,
  * beside the run estimate the gate charged, or — when it spent past that
- * estimate — the same, flagged with the ticket's size, or "unsized", so the
- * developer knows which figure in the budget document to raise. Per
- * `CONTEXT.md`'s "Run estimate": nothing here revises the estimate itself.
+ * estimate — the same, flagged with the ticket's own size label, or
+ * "unsized" where it names none, so the developer knows whether to raise the
+ * ticket's own size in the budget document or, for "unsized", the size
+ * `unsizedCountsAs` names there. Per `CONTEXT.md`'s "Run estimate": nothing
+ * here revises the estimate itself.
  */
 function costClause(iteration: IterationOutcome): string {
   const spent = iteration.tokensUsed;
@@ -263,7 +266,7 @@ function costClause(iteration: IterationOutcome): string {
   }
   const beside = `${tokens(spent)} / ${tokens(estimate)} tokens`;
   return spent > estimate
-    ? ` — ${beside}, over its ${sizeOf(iteration.ticket)} estimate`
+    ? ` — ${beside}, over its ${sizeFlag(iteration.ticket)} estimate`
     : ` — ${beside}`;
 }
 
@@ -272,10 +275,8 @@ function costClause(iteration: IterationOutcome): string {
  * "unsized" — never a pull request ticket's own size label, which is read
  * but never counted, per `CONTEXT.md`'s "Size label".
  */
-function sizeOf(ticket: Ticket): string {
-  return !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
-    ? ticket.sizeLabel.size
-    : "unsized";
+function sizeFlag(ticket: Ticket): Size | "unsized" {
+  return declaredSize(ticket) ?? "unsized";
 }
 
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
