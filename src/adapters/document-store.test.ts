@@ -268,6 +268,52 @@ describe("the budget document", () => {
     await assert.rejects(store.loadBudget(), /spendCeiling/);
   });
 
+  it("reads a spend ceiling declared per size", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({
+          spendCeiling: { S: 3, M: 5, L: 10, XL: 20 },
+        }),
+      }),
+    );
+
+    assert.deepEqual((await store.loadBudget()).spendCeiling, {
+      S: 3,
+      M: 5,
+      L: 10,
+      XL: 20,
+    });
+  });
+
+  it("completes a partial per-size spend ceiling from the flat default", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ spendCeiling: { L: 8 } }) }),
+    );
+
+    assert.deepEqual((await store.loadBudget()).spendCeiling, {
+      S: DEFAULT_BUDGET.spendCeiling,
+      M: DEFAULT_BUDGET.spendCeiling,
+      L: 8,
+      XL: DEFAULT_BUDGET.spendCeiling,
+    });
+  });
+
+  it("refuses a per-size spend ceiling of nothing, the same as the flat form", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ spendCeiling: { S: 0 } }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /spendCeiling\.S/);
+  });
+
+  it("refuses a per-size spend ceiling naming a size the four labels do not", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ spendCeiling: { XS: 3 } }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /no such size: XS/);
+  });
+
   /**
    * Every field is optional, so a misspelling is indistinguishable from a
    * field left out — and reads as a budget the developer never set.

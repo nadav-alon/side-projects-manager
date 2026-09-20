@@ -30,6 +30,7 @@ import type {
   RepoSlug,
   RunCost,
   Size,
+  SpendCeiling,
   State,
   Store,
   TicketKind,
@@ -63,6 +64,7 @@ import {
   isReserveFraction,
   isTokenCount,
   isUsd,
+  spendCeilingFor,
 } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
@@ -337,11 +339,9 @@ function parseBudget(document: unknown, file: string): Budget {
       `${file}: "fiveHourReserveFraction" must be at least 0 and less than 1`,
       DEFAULT_BUDGET.fiveHourReserveFraction,
     ),
-    spendCeiling: numberField(
+    spendCeiling: spendCeilingField(
       fieldOf(document, "spendCeiling", file),
-      isUsd,
-      `${file}: "spendCeiling" must be a dollar amount above 0`,
-      DEFAULT_BUDGET.spendCeiling,
+      file,
     ),
     maxConcurrentIterations: numberField(
       fieldOf(document, "maxConcurrentIterations", file),
@@ -361,6 +361,36 @@ function parseBudget(document: unknown, file: string): Budget {
 }
 
 /**
+ * `10` or `{ "S": 3, "M": 5, "L": 10, "XL": 20 }`
+ *
+ * A number is one ceiling for every size. An object is per size, and every
+ * size is optional and falls back to the flat default
+ * `DEFAULT_BUDGET.spendCeiling` names for it, so a document raising just `L`
+ * leaves the other three at that flat figure.
+ */
+function spendCeilingField(value: unknown, file: string): SpendCeiling {
+  if (value === undefined) {
+    return DEFAULT_BUDGET.spendCeiling;
+  }
+  if (typeof value === "number") {
+    if (!isUsd(value)) {
+      throw new Error(
+        `${file}: "spendCeiling" must be a dollar amount above 0, or an object keyed by size (${SIZES.join(", ")}): ${JSON.stringify(value)}`,
+      );
+    }
+    return value;
+  }
+  return perSizeField(
+    value,
+    file,
+    "spendCeiling",
+    isUsd,
+    (size) => `${file}: "spendCeiling.${size}" must be a dollar amount above 0`,
+    (size) => spendCeilingFor(size, DEFAULT_BUDGET.spendCeiling),
+  );
+}
+
+/**
  * `{ "S": 500000, "M": 2000000 }`
  *
  * Every size is optional and falls back to the default for that size alone,
@@ -370,19 +400,42 @@ function sizesField(value: unknown, file: string): Record<Size, TokenCount> {
   if (value === undefined) {
     return DEFAULT_BUDGET.sizes;
   }
-  rejectUnknownFields(value, SIZES, "size", `${file}: "sizes"`);
+  return perSizeField(
+    value,
+    file,
+    "sizes",
+    isTokenCount,
+    (size) => `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
+    (size) => DEFAULT_BUDGET.sizes[size],
+  );
+}
 
+/**
+ * A field keyed by size, each key optional and independently validated by
+ * `is`, falling back to `fallback(size)` when that key is absent.
+ * `spendCeilingField` and `sizesField` are the same shape once the guard, the
+ * per-size message and the per-size fallback are parameters.
+ */
+function perSizeField<T extends number>(
+  value: unknown,
+  file: string,
+  fieldName: string,
+  is: (candidate: number) => candidate is T,
+  message: (size: Size) => string,
+  fallback: (size: Size) => T,
+): Record<Size, T> {
+  rejectUnknownFields(value, SIZES, "size", `${file}: "${fieldName}"`);
   return Object.fromEntries(
     SIZES.map((size) => [
       size,
       numberField(
-        fieldOf(value, size, `${file}: "sizes"`),
-        isTokenCount,
-        `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
-        DEFAULT_BUDGET.sizes[size],
+        fieldOf(value, size, `${file}: "${fieldName}"`),
+        is,
+        message(size),
+        fallback(size),
       ),
     ]),
-  ) as Record<Size, TokenCount>;
+  ) as Record<Size, T>;
 }
 
 /**

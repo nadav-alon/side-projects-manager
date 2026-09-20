@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { budgetGate, invocationBudgetGate } from "./budget-gate.ts";
+import {
+  budgetGate,
+  invocationBudgetGate,
+  spendCeilingForTicket,
+} from "./budget-gate.ts";
 import {
   DEFAULT_BUDGET,
   issueNumber,
@@ -9,6 +13,7 @@ import {
   recordRun,
   reserveFraction,
   tokenCount,
+  usd,
   type Budget,
   type Ticket,
   type UsageWindows,
@@ -386,6 +391,60 @@ describe("invocationBudgetGate", () => {
       assert.equal(estimateCharged, DEFAULT_BUDGET.sizes.L);
     });
   });
+});
+
+/**
+ * `spendCeilingForTicket` resolves the same size `runEstimate` charges, so
+ * these pin the size resolution against a per-size ceiling rather than
+ * re-proving it: sizes, `unsizedCountsAs`, and a review never inheriting its
+ * parent's size.
+ */
+describe("spendCeilingForTicket", () => {
+  const PER_SIZE_CEILING = { S: usd(3), M: usd(5), L: usd(10), XL: usd(20) };
+
+  it("gives the flat ceiling to every size, when spendCeiling is one number", () => {
+    const budget: Budget = { ...DEFAULT_BUDGET, spendCeiling: usd(2.5) };
+    const sized: Ticket = { ...TICKET, sizeLabel: { kind: "declared", size: "XL" } };
+
+    assert.equal(spendCeilingForTicket(sized, budget), 2.5);
+  });
+
+  it("gives a sized ticket its own size's ceiling", () => {
+    const budget: Budget = { ...DEFAULT_BUDGET, spendCeiling: PER_SIZE_CEILING };
+    const sized: Ticket = { ...TICKET, sizeLabel: { kind: "declared", size: "L" } };
+
+    assert.equal(spendCeilingForTicket(sized, budget), 10);
+  });
+
+  it("gives an unsized ticket unsizedCountsAs's ceiling", () => {
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      spendCeiling: PER_SIZE_CEILING,
+      unsizedCountsAs: "S",
+    };
+
+    assert.equal(spendCeilingForTicket(TICKET, budget), 3);
+  });
+
+  for (const kind of ["review", "apply-review", "rebase"] as const) {
+    it(`gives a ${kind} ticket unsizedCountsAs's ceiling, even carrying its own declared size`, () => {
+      const budget: Budget = {
+        ...DEFAULT_BUDGET,
+        spendCeiling: PER_SIZE_CEILING,
+        unsizedCountsAs: "M",
+      };
+      const pullRequestTicket: Ticket = {
+        ...TICKET,
+        pullRequest: {
+          kind,
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        sizeLabel: { kind: "declared", size: "XL" },
+      };
+
+      assert.equal(spendCeilingForTicket(pullRequestTicket, budget), 5);
+    });
+  }
 });
 
 /**

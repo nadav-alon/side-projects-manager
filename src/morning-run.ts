@@ -53,7 +53,11 @@ import {
   ticketKind,
   tokenCount,
 } from "./ports/index.ts";
-import { invocationBudgetGate, type StandDown } from "./budget-gate.ts";
+import {
+  invocationBudgetGate,
+  spendCeilingForTicket,
+  type StandDown,
+} from "./budget-gate.ts";
 import {
   invocationSelection,
   type ProjectOutcome,
@@ -469,7 +473,7 @@ export async function morningLoop(
           ports,
           chosen,
           projects,
-          budget.spendCeiling,
+          spendCeilingForTicket(ticket, budget),
           model,
         )
           .then(
