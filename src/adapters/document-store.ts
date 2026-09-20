@@ -363,10 +363,10 @@ function parseBudget(document: unknown, file: string): Budget {
 /**
  * `10` or `{ "S": 3, "M": 5, "L": 10, "XL": 20 }`
  *
- * A number is one ceiling for every size, same as before this field could
- * name sizes at all. An object is per size, and every size is optional and
- * falls back to the flat default `DEFAULT_BUDGET.spendCeiling` names for it,
- * so a document raising just `L` leaves the other three at that flat figure.
+ * A number is one ceiling for every size. An object is per size, and every
+ * size is optional and falls back to the flat default
+ * `DEFAULT_BUDGET.spendCeiling` names for it, so a document raising just `L`
+ * leaves the other three at that flat figure.
  */
 function spendCeilingField(
   value: unknown,
