@@ -305,6 +305,21 @@ describe("handBack", () => {
       assert.match(comment, /keep one/i);
     });
 
+    it("names the labels as the ticket carries them, rather than normalizing their case", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "conflicting-model-labels",
+        reason: "it carries more than one model label (Model:Opus, model:haiku)",
+        labels: ["Model:Opus", "model:haiku"],
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /`Model:Opus`/);
+      assert.doesNotMatch(comment, /`model:Opus`/);
+    });
+
     it("names a model label naming no usable model", async () => {
       const { tracker, repoHost } = ports();
       const ticket = eligible(tracker, implementationTicket());

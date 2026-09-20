@@ -951,12 +951,10 @@ describe("morningLoop", () => {
       const checkoutPath = `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`;
       assert.match(report.message, /not pushed/);
       assert.match(report.message, new RegExp(checkoutPath));
+      // The comment's own wording — naming the branch and checkout — is
+      // covered by hand-back.test.ts; here it is enough that the hand back
+      // happened, for the ticket this iteration selected.
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /not pushed/);
-      assert.match(
-        ports.tracker.handbacks[0]?.comment ?? "",
-        new RegExp(checkoutPath),
-      );
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1279,11 +1277,11 @@ describe("morningLoop", () => {
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
       assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      // The comment's own wording is covered by hand-back.test.ts; here it is
+      // enough that the hand back happened, for the ticket this iteration
+      // selected.
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
-      assert.match(handback.comment, /the review skill exited 1/);
-      assert.match(handback.comment, /I could not read the diff/);
-      assert.match(handback.comment, /will not be retried/);
       assert.equal(ports.sandbox.reviews.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
     });
@@ -3871,25 +3869,11 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.sandbox.runs, []);
         assert.deepEqual(ports.repoHost.clones, []);
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, without a run.
         assert.equal(ports.tracker.handbacks.length, 1);
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /model:opus/);
-        assert.match(comment, /model:haiku/);
-        assert.match(comment, /keep one/i);
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "conflicting-model-labels");
-      });
-
-      it("names the labels as the ticket carries them", async () => {
-        const { ports, ticket } = oneTicket();
-        ports.tracker.addLabel(ticket, "Model:Opus");
-        ports.tracker.addLabel(ticket, "model:haiku");
-
-        await morningLoop(ports);
-
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /`Model:Opus`/);
-        assert.doesNotMatch(comment, /`model:Opus`/);
       });
 
       it("spends nothing, and the invocation carries on to the next ticket", async () => {
@@ -3923,14 +3907,15 @@ describe("morningLoop", () => {
       });
     });
 
-    it("hands back a ticket whose model label names no usable model, quoting it, and never runs it", async () => {
+    it("hands back a ticket whose model label names no usable model, and never runs it", async () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:");
 
       await morningLoop(ports);
 
       assert.deepEqual(ports.sandbox.runs, []);
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /`model:`/);
+      // The comment's own wording is covered by hand-back.test.ts.
+      assert.equal(ports.tracker.handbacks.length, 1);
     });
 
     describe("a model the agent CLI refuses", () => {
@@ -3947,12 +3932,10 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, for the failure this
+        // iteration reports.
         assert.equal(ports.tracker.handbacks.length, 1);
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /opus/);
-        assert.match(comment, /model label/);
-        assert.match(comment, /refused model opus/);
-        assert.doesNotMatch(comment, /gave up/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
       });
