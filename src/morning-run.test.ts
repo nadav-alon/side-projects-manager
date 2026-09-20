@@ -4598,6 +4598,20 @@ describe("morningLoop", () => {
       assert.equal(started?.spendCeiling, 3);
     });
 
+    it("names the throwaway clone a starting container runs against", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const started = progress.events.find(
+        (event) => event.kind === "container-started",
+      );
+      assert.equal(started?.checkout, await ports.repoHost.clone(PILOT));
+    });
+
     it("announces what a run cost once it ends", async () => {
       const ports = fakePorts();
       readyToWork(ports);

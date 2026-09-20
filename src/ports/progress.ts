@@ -1,3 +1,4 @@
+import type { Checkout } from "./checkout.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import type { StandDownReason } from "./stand-down-reason.ts";
 import type { TokenCount } from "./token-count.ts";
@@ -30,11 +31,16 @@ export interface StoodDown {
   estimateCharged: TokenCount;
 }
 
-/** A container is starting `ticket`'s run, held to `spendCeiling`. */
+/**
+ * A container is starting `ticket`'s run, held to `spendCeiling`, on the
+ * throwaway `checkout` it runs against — the path an `abandoning` event
+ * would otherwise have nowhere to name.
+ */
 export interface ContainerStarted {
   kind: "container-started";
   ticket: Ticket;
   spendCeiling: Usd;
+  checkout: Checkout;
 }
 
 /**

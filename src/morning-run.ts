@@ -1114,6 +1114,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     kind: "container-started",
     ticket,
     spendCeiling,
+    checkout,
   });
   let outcome: Outcome;
   try {

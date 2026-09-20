@@ -1,3 +1,4 @@
+import type { Checkout } from "../ports/checkout.ts";
 import type { Progress, ProgressEvent } from "../ports/progress.ts";
 import type { StandDownReason } from "../ports/stand-down-reason.ts";
 import { ticketKey } from "../ports/store.ts";
@@ -15,6 +16,7 @@ const REASON_PHRASES: Readonly<Record<StandDownReason, string>> = {
 interface Running {
   repo: string;
   number: number;
+  checkout: Checkout;
 }
 
 /**
@@ -48,6 +50,7 @@ export function terminalProgress(): Progress {
           running.set(ticketKey(event.ticket), {
             repo: event.ticket.repo,
             number: event.ticket.number,
+            checkout: event.checkout,
           });
           line(
             `Starting a container for ${event.ticket.repo} #${event.ticket.number}, held to $${event.spendCeiling}.`,
@@ -83,6 +86,8 @@ function abandoningLine(running: Running[]): string {
   if (running.length === 0) {
     return "Stopping now: nothing was left running.";
   }
-  const named = running.map((run) => `${run.repo} #${run.number}`).join(", ");
+  const named = running
+    .map((run) => `${run.repo} #${run.number} (${run.checkout})`)
+    .join(", ");
   return `Stopping now: abandoning ${named} — their containers and clones are left behind.`;
 }

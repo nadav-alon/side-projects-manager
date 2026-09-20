@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 
 import {
+  checkout,
   issueNumber,
   repoSlug,
   tokenCount,
   usd,
+  type Checkout,
   type Ticket,
 } from "../ports/index.ts";
 import { terminalProgress } from "./terminal-progress.ts";
@@ -14,6 +16,10 @@ const PILOT = repoSlug("nadav-alon/pilot");
 
 function ticket(number: number, title = "Add the thing"): Ticket {
   return { repo: PILOT, number: issueNumber(number), title };
+}
+
+function clone(number: number): Checkout {
+  return checkout(`/tmp/side-projects-run-${number}`);
 }
 
 /** Every line `console.error` was called with, in order, while `run` executes. */
@@ -74,6 +80,7 @@ describe("terminalProgress", () => {
         kind: "container-started",
         ticket: ticket(7),
         spendCeiling: usd(5),
+        checkout: clone(7),
       }),
     );
 
@@ -115,6 +122,7 @@ describe("terminalProgress", () => {
       kind: "container-started",
       ticket: ticket(7),
       spendCeiling: usd(5),
+      checkout: clone(7),
     });
 
     const lines = capturedStderr(t, () =>
@@ -123,6 +131,7 @@ describe("terminalProgress", () => {
 
     assert.equal(lines.length, 1);
     assert.match(lines[0] as string, /nadav-alon\/pilot #7/);
+    assert.match(lines[0] as string, /\/tmp\/side-projects-run-7/);
   });
 
   it("no longer counts a run as abandoned once it has ended", (t) => {
@@ -131,6 +140,7 @@ describe("terminalProgress", () => {
       kind: "container-started",
       ticket: ticket(7),
       spendCeiling: usd(5),
+      checkout: clone(7),
     });
     progress.note({
       kind: "run-ended",
@@ -152,11 +162,13 @@ describe("terminalProgress", () => {
       kind: "container-started",
       ticket: ticket(7),
       spendCeiling: usd(5),
+      checkout: clone(7),
     });
     progress.note({
       kind: "container-started",
       ticket: ticket(8),
       spendCeiling: usd(5),
+      checkout: clone(8),
     });
 
     const lines = capturedStderr(t, () =>
@@ -165,6 +177,8 @@ describe("terminalProgress", () => {
 
     assert.equal(lines.length, 1);
     assert.match(lines[0] as string, /#7/);
+    assert.match(lines[0] as string, /\/tmp\/side-projects-run-7/);
     assert.match(lines[0] as string, /#8/);
+    assert.match(lines[0] as string, /\/tmp\/side-projects-run-8/);
   });
 });
