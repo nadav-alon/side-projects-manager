@@ -11,17 +11,14 @@
  * `managerHome` against the manager's own home is the status report's job,
  * not this port's or its adapter's.
  */
-export interface TriggerRegistration {
-  readonly registered: boolean;
-  /** The manager home the registration points at. Present only when registered. */
-  readonly managerHome?: string;
-}
+export type TriggerRegistration =
+  | { readonly registered: false }
+  | { readonly registered: true; readonly managerHome: string };
 
-/** The schedule's registration, additionally carrying the minute it fires each hour. */
-export interface ScheduleRegistration extends TriggerRegistration {
-  /** The minute of every hour it fires, e.g. `"0"`. Present only when registered. */
-  readonly minute?: string;
-}
+/** The schedule's registration, additionally carrying the minute it fires each hour when registered. */
+export type ScheduleRegistration =
+  | { readonly registered: false }
+  | { readonly registered: true; readonly managerHome: string; readonly minute: string };
 
 /** Where the status command reads whether the schedule and a logon guard are registered. */
 export interface TriggerRegistrations {

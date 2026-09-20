@@ -91,6 +91,17 @@ describe("the schedule registration", () => {
     assert.notEqual(moved, home);
   });
 
+  it("reports not registered for a marked line whose trigger-script path cannot be parsed", async (t) => {
+    withPath(
+      t,
+      await fakeCrontabBin([`0 * * * * /usr/bin/node /no/quotes/here ${CRON_MARKER}`]),
+    );
+
+    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+      registered: false,
+    });
+  });
+
   it("finds the marked line among other crontab entries", async (t) => {
     const home = await tempHome("trigger-registrations");
     withPath(
@@ -158,6 +169,16 @@ describe("the logon guard registration", () => {
     assert.deepEqual(await systemTriggerRegistrations([rc]).logonGuard(), {
       registered: true,
       managerHome: directory,
+    });
+  });
+
+  it("reports not registered for a block whose trigger-script path cannot be parsed", async () => {
+    const directory = await tempHome("trigger-registrations");
+    const rc = path.join(directory, ".bashrc");
+    await writeFile(rc, `${[RC_BEGIN, "( /usr/bin/node /no/quotes/here & )", RC_END].join("\n")}\n`);
+
+    assert.deepEqual(await systemTriggerRegistrations([rc]).logonGuard(), {
+      registered: false,
     });
   });
 

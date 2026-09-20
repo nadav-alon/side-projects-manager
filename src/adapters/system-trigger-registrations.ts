@@ -57,13 +57,12 @@ export function systemTriggerRegistrations(
       if (line === undefined) {
         return { registered: false };
       }
-      const minute = line.trim().split(/\s+/)[0];
       const managerHome = managerHomeIn(line);
-      return {
-        registered: true,
-        ...(minute !== undefined && { minute }),
-        ...(managerHome !== undefined && { managerHome }),
-      };
+      if (managerHome === undefined) {
+        return { registered: false };
+      }
+      const minute = line.trim().split(/\s+/)[0]!;
+      return { registered: true, managerHome, minute };
     },
 
     async logonGuard(): Promise<TriggerRegistration> {
@@ -77,10 +76,9 @@ export function systemTriggerRegistrations(
           continue;
         }
         const managerHome = managerHomeIn(block);
-        return {
-          registered: true,
-          ...(managerHome !== undefined && { managerHome }),
-        };
+        return managerHome === undefined
+          ? { registered: false }
+          : { registered: true, managerHome };
       }
       return { registered: false };
     },

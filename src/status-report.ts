@@ -99,7 +99,7 @@ function scheduleLine(schedule: ScheduleRegistration, managerHome: string): stri
   if (!isArmed(schedule, managerHome)) {
     return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}) — it is firing into a path that no longer exists. Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
   }
-  return `Schedule: armed, firing every hour at :${(schedule.minute ?? "0").padStart(2, "0")}.`;
+  return `Schedule: armed, firing every hour at :${schedule.minute.padStart(2, "0")}.`;
 }
 
 function logonGuardLine(guard: TriggerRegistration, managerHome: string): string {
