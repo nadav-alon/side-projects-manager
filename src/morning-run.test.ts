@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
+import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
@@ -69,7 +69,9 @@ function gateRefusal(report: InvocationReport) {
 
 /** What became of a failed iteration's own hand-back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
-  return iteration?.kind === "failed" ? iteration.handedBack?.outcome : undefined;
+  return iteration?.kind === "failed" && handedBackFailure(iteration)
+    ? iteration.handedBack.outcome
+    : undefined;
 }
 
 function pullRequestOf(iteration: IterationOutcome | undefined) {

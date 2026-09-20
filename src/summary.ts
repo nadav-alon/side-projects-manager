@@ -4,9 +4,11 @@ import type { HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
   handedBackForModelLabels,
+  handedBackFailure,
   type AppliedReview,
   type Attempt,
   type CutOff,
+  type Failed,
   type Finished,
   type Handover,
   type IterationOutcome,
@@ -14,7 +16,6 @@ import {
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
-  type RunFailure,
 } from "./iteration-outcome.ts";
 import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
@@ -284,12 +285,7 @@ function waitingSection(
       case "provider-failed":
         return [];
       case "failed":
-        return waitingOnFailure(
-          iteration.repo,
-          iteration.ticket,
-          iteration.failure,
-          iteration.handedBack,
-        );
+        return waitingOnFailure(iteration);
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
@@ -392,7 +388,8 @@ function handoverLines(
   if (
     reviewOutcome === undefined ||
     (reviewOutcome.kind === "failed" &&
-      reviewOutcome.handedBack?.outcome === "already-closed")
+      handedBackFailure(reviewOutcome) &&
+      reviewOutcome.handedBack.outcome === "already-closed")
   ) {
     return [
       `- ${repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
@@ -422,21 +419,18 @@ function reviewLeftOpen(
  * overlapping run closed first: hand-back left it exactly as it found it, so
  * there is nothing here for the developer to do.
  */
-function waitingOnFailure(
-  repo: RepoSlug,
-  ticket: Ticket,
-  failure: RunFailure,
-  handedBack: HandBackRecord | undefined,
-): string[] {
-  if (failure.kind === "infrastructure") {
+function waitingOnFailure(iteration: Attempt & Failed): string[] {
+  const { repo, ticket } = iteration;
+  if (!handedBackFailure(iteration)) {
     return [
-      `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(failure.reason)}`,
+      `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(iteration.failure.reason)}`,
     ];
   }
-  if (handedBack?.outcome === "already-closed") {
+  const { failure, handedBack } = iteration;
+  if (handedBack.outcome === "already-closed") {
     return [];
   }
-  if (handedBack?.outcome === "refused") {
+  if (handedBack.outcome === "refused") {
     return [stillEligibleLine({ repo, ticket })];
   }
   switch (failure.kind) {
@@ -513,13 +507,13 @@ function describeIteration(iteration: IterationOutcome): string {
     case "provider-failed":
       return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
     case "failed": {
-      const { repo, ticket, failure, handedBack } = iteration;
+      const { repo, ticket } = iteration;
       // Named as a rebase, since a rebase ticket's own title says nothing a
       // reader of the summary would tell apart from an apply-review's.
       const attempted = isRebaseTicket(ticket)
         ? `a rebase of ${ticket.pullRequest.url} on ${repo}`
         : repo;
-      return `Attempted ${attempted}: ${stoppedBecause(failure, ticket, handedBack)}${transcriptNote(iteration.transcript)}`;
+      return `Attempted ${attempted}: ${stoppedBecause(iteration)}${transcriptNote(iteration.transcript)}`;
     }
     case "reviewed":
       return `${reviewSummary(iteration)}${transcriptNote(iteration.review.transcript)}`;
@@ -723,20 +717,16 @@ function queued(finished: Finished): string {
 /**
  * The clause naming what became of a failed ticket's own hand-back: handed
  * back for a human, left alone because an overlapping run had already closed
- * it, or still eligible because the hand-back itself failed. `undefined`
- * never reaches here past `stoppedBecause`'s own infrastructure check, which
- * is the one failure a hand-back is never attempted for.
+ * it, or still eligible because the hand-back itself failed.
  */
-function handedBackNow(which: string, handedBack: HandBackRecord | undefined): string {
-  switch (handedBack?.outcome) {
+function handedBackNow(which: string, handedBack: HandBackRecord): string {
+  switch (handedBack.outcome) {
     case "handed-back":
       return "Handed back for a human.";
     case "already-closed":
       return `${which} was already closed by another run, so it was left alone.`;
     case "refused":
       return `${which} is still ${READY_FOR_AGENT_LABEL} and will come round again — the hand-back itself failed: ${withoutTrailingStop(handedBack.reason)}; relabel it yourself.`;
-    case undefined:
-      return "";
   }
 }
 
@@ -746,13 +736,10 @@ function handedBackNow(which: string, handedBack: HandBackRecord | undefined): s
  * Names the ticket, because the developer's next move is to open it: the whole
  * of what happened is in the comment waiting there.
  */
-function stoppedBecause(
-  failure: RunFailure,
-  ticket: Ticket,
-  handedBack: HandBackRecord | undefined,
-): string {
-  const which = `#${ticket.number}`;
-  if (failure.kind === "infrastructure") {
+function stoppedBecause(iteration: Attempt & Failed): string {
+  const which = `#${iteration.ticket.number}`;
+  if (!handedBackFailure(iteration)) {
+    const { failure } = iteration;
     const what =
       failure.tokensUsed === undefined
         ? `the run would not start on ${which}`
@@ -764,6 +751,7 @@ function stoppedBecause(
   // cost another morning until somebody relabels it. One that was already
   // closed needs nothing from them at all: an overlapping run finished it
   // first, and this one's failure is left exactly as it found the ticket.
+  const { failure, handedBack } = iteration;
   const now = handedBackNow(which, handedBack);
   switch (failure.kind) {
     case "gave-up":

@@ -320,10 +320,15 @@ export interface Handover {
 /**
  * An iteration whose run did not finish: an agent that gave up, whose ticket
  * is handed back, or an infrastructure failure, whose ticket is left as it was.
+ *
+ * Split on `failure`'s kind, rather than carrying `handedBack` as one
+ * optional field, so whether a ticket was handed back is recorded one way for
+ * every kind of failure: a `HandedBackFailure` always carries the record of
+ * its hand-back, and an `InfrastructureFailure` — never handed back — can
+ * never be built with one.
  */
-export interface Failed {
+export type Failed = {
   kind: "failed";
-  failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: RunOutcome;
   /**
@@ -343,12 +348,23 @@ export interface Failed {
    * reader checks the one field regardless of which kind of run failed.
    */
   transcript?: TranscriptPath;
-  /**
-   * What became of the ticket's own hand-back. Absent exactly for an
-   * infrastructure failure, which is never handed back and leaves the
-   * ticket exactly as it was.
-   */
-  handedBack?: HandBackRecord;
+} & (
+  | { failure: InfrastructureFailure }
+  /** What became of the ticket's own hand-back. */
+  | { failure: HandedBackFailure; handedBack: HandBackRecord }
+);
+
+/**
+ * Narrows `failed` to the branch that carries its own hand-back — every kind
+ * but an infrastructure failure, which is never handed back. Checking
+ * `failed.failure.kind` directly does not narrow `failed.handedBack` itself,
+ * since the two live in different members of the intersection; this says so
+ * once, as a type predicate, rather than at every reader of `Failed`.
+ */
+export function handedBackFailure<T extends Failed>(
+  failed: T,
+): failed is T & { failure: HandedBackFailure; handedBack: HandBackRecord } {
+  return failed.failure.kind !== "infrastructure";
 }
 
 /**
