@@ -308,11 +308,11 @@ export interface MorningLoopOptions {
  * again until the next local calendar day — but only for as long as the loop
  * could not take its eligibility away itself: a hand-back the tracker
  * refused, or a review, an apply-review, a rebase or a resolved pull request
- * the loop could not close. Every other outcome relabels or closes the
- * ticket, which already keeps selection off it on its own; without the
- * record, though, an unattended morning with only one project registered
- * would work that one write failure over and over until the budget gate
- * finally stopped it.
+ * the loop could not close. Every other outcome either relabels or closes
+ * the ticket, or says nothing about it at all, which already keeps selection
+ * off it on its own; without the record, though, an unattended morning with
+ * only one project registered would work that one write failure over and
+ * over until the budget gate finally stopped it.
  *
  * The summary always publishes when the invocation worked something; a quiet
  * or broken invocation publishes only if none has been announced yet today,
