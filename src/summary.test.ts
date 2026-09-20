@@ -665,7 +665,7 @@ describe("summaryLine", () => {
       assert.match(line, /estimate/i);
     });
 
-    it("shows what was used, the estimate charged, what was spendable and when it resets, for an estimate-caused stand-down", () => {
+    it("shows what was used, the estimate charged, what was spendable and when it resets, for a weekly-reserve estimate-caused stand-down", () => {
       const used = tokenCount(SPENDABLE_THIS_WEEK - 1);
       const line = standDownLine(
         gateStandDown({
@@ -676,7 +676,30 @@ describe("summaryLine", () => {
 
       assert.match(line, new RegExp(used.toLocaleString("en-US")));
       assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
-      assert.match(line, /2,000,000 tokens charged as the run estimate/);
+      assert.match(
+        line,
+        /2,000,000 tokens charged as the run estimate/,
+      );
+      assert.match(line, /run estimate \(plus any in-progress estimates\)/);
+      assert.match(line, new RegExp(RESETS_AT.toISOString()));
+    });
+
+    it("shows what was used, the estimate charged, what was spendable and when it resets, for a 5-hour-window estimate-caused stand-down", () => {
+      const used = tokenCount(SPENDABLE_THIS_WEEK - 1);
+      const line = standDownLine(
+        gateStandDown({
+          reason: "five-hour-window-estimate",
+          tokensUsed: used,
+        }),
+      );
+
+      assert.match(line, new RegExp(used.toLocaleString("en-US")));
+      assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
+      assert.match(
+        line,
+        /2,000,000 tokens charged as the run estimate/,
+      );
+      assert.match(line, /run estimate \(plus any in-progress estimates\)/);
       assert.match(line, new RegExp(RESETS_AT.toISOString()));
     });
   });

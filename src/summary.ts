@@ -1003,11 +1003,11 @@ function standDownReason(standDown: StandDown): string {
     case "weekly-reserve":
       return `spending more of the week would eat into the reserve (${spent} spendable this week)`;
     case "weekly-reserve-estimate":
-      return `${spent} spendable this week, but the run estimate would eat into the reserve (${estimate})`;
+      return `${spent} spendable this week, but the run estimate (plus any in-progress estimates) would eat into the reserve (${estimate})`;
     case "five-hour-window":
       return `the 5-hour window is spent (${spent})`;
     case "five-hour-window-estimate":
-      return `the 5-hour window has ${spent} spent, but the run estimate would spend the rest (${estimate})`;
+      return `the 5-hour window has ${spent} spent, but the run estimate (plus any in-progress estimates) would spend the rest (${estimate})`;
   }
 }
 
