@@ -1335,6 +1335,21 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.labelled, []);
     });
 
+    it("adds no label to a review the provider limit refused", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "limit-refused");
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
     it("hands back a review whose agent gave up, rather than leaving it to come round again", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
@@ -2003,6 +2018,7 @@ describe("morningLoop", () => {
       assert.equal(report.standDown?.reason, "provider-limit");
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.repoHost.labelled, []);
       const { tickets: backlog } = backlogIn(
         await ports.tracker.listOpenIssues(PILOT),
       );
@@ -4120,6 +4136,7 @@ describe("morningLoop", () => {
         assert.match(ports.tracker.handbacks[0]?.comment ?? "", /haiku/);
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+        assert.deepEqual(ports.repoHost.labelled, []);
       });
 
       it("hands back an apply-review ticket whose model is refused, naming the apply-review model defaults", async () => {
@@ -4149,6 +4166,7 @@ describe("morningLoop", () => {
         assert.match(comment, /model defaults for apply-review tickets/);
         assert.match(comment, /fix the apply-review model in `models\.json`/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+        assert.deepEqual(ports.repoHost.labelled, []);
       });
 
       it("discards any branch the refused run left, and says so", async () => {
