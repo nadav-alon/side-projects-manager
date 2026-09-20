@@ -3465,6 +3465,32 @@ describe("containerSandbox with the real docker container", () => {
       });
     });
 
+    /**
+     * A refusal's words are the envelope's `result` when there is one to
+     * quote, or the stderr tag itself when there isn't — the realistic case,
+     * since a CLI that refused the model often never gets as far as printing
+     * an envelope at all.
+     */
+    it("falls back to the stderr tag when a model refusal printed no envelope to quote", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering("", MODEL_REFUSAL_STDERR, 1),
+        (sandbox, directory) =>
+          sandbox.run({
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            model: modelName("this-model-does-not-exist-xyz"),
+          }),
+      );
+
+      assert.equal(result.kind, "model-refused");
+      assert.deepEqual(variant(result, "model-refused")?.refusal, {
+        model: modelName("this-model-does-not-exist-xyz"),
+        words: MODEL_REFUSAL_STDERR.trim(),
+      });
+    });
+
     it("does not mistake a finished agent that quotes the model refusal tag for one refused", async (t) => {
       const { result } = await runWithDocker(
         t,
