@@ -62,6 +62,11 @@ export function terminalProgress(): Progress {
             `${event.ticket.repo} #${event.ticket.number} spent ${tokens(event.tokensUsed)} tokens.`,
           );
           return;
+        case "provider-limited":
+          line(
+            `Stood down on ${event.ticket.repo} #${event.ticket.number}: the provider refused to run any more — ${event.limitRefusal}`,
+          );
+          return;
         case "abandoning":
           line(abandoningLine([...running.values()]));
           return;

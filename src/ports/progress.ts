@@ -54,6 +54,19 @@ export interface RunEnded {
 }
 
 /**
+ * The provider itself refused `ticket`'s run mid-invocation — a stand-down
+ * the gate never saw coming, so it carries the provider's own words rather
+ * than `stood-down`'s budget-window facts. Every run after this one would be
+ * refused the same way, so nothing further starts; announced immediately
+ * rather than left for the iterations already in progress to finish first.
+ */
+export interface ProviderLimited {
+  kind: "provider-limited";
+  ticket: Ticket;
+  limitRefusal: string;
+}
+
+/**
  * The developer's second interrupt: whatever is still running is about to be
  * killed outright rather than left to finish, its container and clone left
  * behind rather than cleaned up. Carries nothing of its own — an adapter
@@ -70,6 +83,7 @@ export type ProgressEvent =
   | StoodDown
   | ContainerStarted
   | RunEnded
+  | ProviderLimited
   | Abandoning;
 
 /**

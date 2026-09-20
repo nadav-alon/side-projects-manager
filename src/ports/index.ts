@@ -96,6 +96,7 @@ export type {
   IterationSelected,
   Progress,
   ProgressEvent,
+  ProviderLimited,
   RunEnded,
   StoodDown,
 } from "./progress.ts";

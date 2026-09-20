@@ -502,6 +502,17 @@ export async function morningLoop(
               // finish on their own.
               if (isCutOff(iteration)) {
                 standDown ??= cutOffStandDown(iteration, ticket);
+                if (iteration.kind === "limit-refused") {
+                  // Announced the instant the provider refuses, not only once
+                  // the invocation report is written — the developer would
+                  // otherwise hear nothing until every iteration still in
+                  // progress finished on its own.
+                  notify(ports.progress, {
+                    kind: "provider-limited",
+                    ticket,
+                    limitRefusal: iteration.limitRefusal,
+                  });
+                }
               }
             },
             (error: unknown) => {

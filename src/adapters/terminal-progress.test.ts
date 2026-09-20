@@ -105,6 +105,22 @@ describe("terminalProgress", () => {
     assert.match(lines[0] as string, /4,242/);
   });
 
+  it("announces a provider-limit stand-down, naming the provider's own words", (t) => {
+    const progress = terminalProgress();
+
+    const lines = capturedStderr(t, () =>
+      progress.note({
+        kind: "provider-limited",
+        ticket: ticket(7),
+        limitRefusal: "5-hour limit reached ∙ resets 2pm",
+      }),
+    );
+
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] as string, /#7/);
+    assert.match(lines[0] as string, /5-hour limit reached/);
+  });
+
   it("says nothing was left running when the developer's second interrupt finds nothing in flight", (t) => {
     const progress = terminalProgress();
 

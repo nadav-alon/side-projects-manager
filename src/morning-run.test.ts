@@ -4650,6 +4650,37 @@ describe("morningLoop", () => {
       assert.equal(stoodDown?.reason, "weekly-reserve");
     });
 
+    it("announces a provider-limit stand-down the instant a run is refused, not only when the invocation ends", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.standDown?.reason, "provider-limit");
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        [
+          "iteration-selected",
+          "container-started",
+          "run-ended",
+          "provider-limited",
+        ],
+      );
+      const limited = progress.events.find(
+        (event) => event.kind === "provider-limited",
+      );
+      assert.equal(limited?.limitRefusal, LIMIT_REFUSAL);
+    });
+
     it("announces the run ended, spending nothing, when the sandbox rejects after the container started", async (t) => {
       const ports = fakePorts();
       readyToWork(ports);
