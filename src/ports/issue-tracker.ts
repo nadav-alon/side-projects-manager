@@ -258,11 +258,11 @@ export function isBlocked(ticket: Ticket): boolean {
 }
 
 /**
- * Whether `ticket`'s work has been broken out into sub-issues that are still
- * open — a container for that work rather than work of its own, per
- * `CONTEXT.md`'s "Supertask". The tracker only reports the count;
- * this is the judgment selection makes from it, so it can be exercised
- * against the fake rather than buried in an adapter's query string.
+ * Whether `ticket` is a supertask: its work sits in sub-issues that are
+ * still open — a container for that work rather than work of its own, per
+ * `CONTEXT.md`'s "Supertask". The tracker only reports the count; this is
+ * the judgment selection makes from it, so it can be exercised against the
+ * fake rather than buried in an adapter's query string.
  */
 export function isSupertask(ticket: Ticket): boolean {
   return (ticket.openSubIssues ?? 0) > 0;
