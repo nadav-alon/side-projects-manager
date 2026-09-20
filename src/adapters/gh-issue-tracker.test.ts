@@ -55,28 +55,53 @@ async function fetchIssue(repo: string, number: number): Promise<RawIssue> {
   return JSON.parse(stdout) as RawIssue;
 }
 
+/**
+ * The manager's own issues matching `filters`, as `gh issue list` answers
+ * them. Each caller passes its own `--state` and `--limit`, since what makes
+ * a usable fixture window differs per assertion.
+ */
+async function listManagerIssues(filters: string[]): Promise<RawIssue[]> {
+  const { stdout } = await execFileAsync("gh", [
+    "issue",
+    "list",
+    "--repo",
+    MANAGER,
+    ...filters,
+    "--json",
+    "number,title,state,labels",
+  ]);
+  return JSON.parse(stdout) as RawIssue[];
+}
+
 describe("ghIssueTracker", () => {
   it("returns the repo's open issues, eligible exactly where they carry ready-for-agent", async () => {
-    const { stdout } = await execFileAsync("gh", [
-      "issue",
-      "list",
-      "--repo",
-      MANAGER,
+    // Asked for as two listings rather than one over `--state all`, because
+    // `gh issue list` answers newest-first up to `--limit` and the two
+    // fixtures sit at opposite ends of the repo's history: the closed,
+    // labelled one is whatever a morning finished most recently, while an
+    // open, untriaged one can be arbitrarily old. One listing wide enough to
+    // hold both would have to read the whole repo, and one that is not wide
+    // enough finds no open fixture on a busy week — failing the assertion
+    // below for a reason that says nothing about the adapter.
+    const [closedButLabelled] = await listManagerIssues([
       "--state",
-      "all",
-      "--json",
-      "number,title,state,labels",
+      "closed",
+      "--label",
+      READY_FOR_AGENT_LABEL,
+      "--limit",
+      "1",
     ]);
-    const all = JSON.parse(stdout) as RawIssue[];
-
-    const closedButLabelled = all.find(
+    const openButUnlabelled = (
+      await listManagerIssues([
+        "--state",
+        "open",
+        // The same newest 300 the adapter reads (OPEN_ISSUE_READ_LIMIT), so an
+        // issue found here is one the adapter was given the chance to list.
+        "--limit",
+        "300",
+      ])
+    ).find(
       (issue) =>
-        issue.state === "CLOSED" &&
-        issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
-    );
-    const openButUnlabelled = all.find(
-      (issue) =>
-        issue.state === "OPEN" &&
         !issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
     );
     // The fixture repo must actually exercise both cases, or the assertions
