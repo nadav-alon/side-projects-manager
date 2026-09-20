@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# After a merge — `git pull` included — says whether the sandbox image the
+# next run would use still matches the checkout the merge just changed.
+#
+# The image is built by hand (`npm run sandbox:build`), so a merge that brings
+# in a new Dockerfile, or a new version of a skill the image bakes in, leaves
+# the built image behind without touching it. Nothing fails loudly when it
+# does: a skill that only exists in the checkout is simply absent from the
+# container, and the run that tries to invoke it answers "Unknown command" —
+# which reads downstream as an agent that ignored its ticket. A morning says
+# so before its first run (`staleImageWarning`); this says so at the moment
+# the merge opened the gap, while the developer is still at the keyboard.
+#
+# Installed by pointing git at this directory, which `npm run hooks:install`
+# does: git reads `.git/hooks` until `core.hooksPath` says otherwise.
+#
+# Never fails the merge. The merge has already happened by the time a
+# post-merge hook runs, so there is nothing for a non-zero exit to protect —
+# a machine without node, or with docker stopped, gets silence rather than a
+# failure printed under a merge that in fact succeeded.
+set -u
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -n "$repo" ] || exit 0
+command -v node >/dev/null 2>&1 || exit 0
+
+node "$repo/scripts/check-sandbox-image.ts" || true
+exit 0

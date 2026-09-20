@@ -333,6 +333,19 @@ else
   SKIPPED+=("docker image — run 'npm run sandbox:build && npm run sandbox:verify' before the first morning loop invocation")
 fi
 
+echo
+say "The image is built by hand, so a merge that changes the Dockerfile or a"
+say "skill it bakes in leaves it stale. A post-merge hook says so on the spot."
+if confirm "Install the repo's git hooks (npm run hooks:install)?"; then
+  if (cd "$REPO_DIR" && npm run hooks:install); then
+    note "installed: a merge that outdates the image now says so."
+  else
+    SKIPPED+=("hooks:install failed — investigate, then re-run 'npm run hooks:install'")
+  fi
+else
+  SKIPPED+=("git hooks — run 'npm run hooks:install' from $REPO_DIR to be warned when a merge outdates the sandbox image")
+fi
+
 # ── Stage 5: the hourly schedule ────────────────────────────────────────────
 stage "Triggers"
 say "An hourly cron schedule, installed by the repo's own idempotent"
