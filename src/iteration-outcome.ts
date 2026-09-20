@@ -22,6 +22,7 @@ import type {
   RunProviderFailed,
   Ticket,
   TokenCount,
+  TranscriptPath,
 } from "./ports/index.ts";
 
 /**
@@ -202,6 +203,14 @@ export interface LimitRefused {
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
+  /**
+   * Where the refused run's session transcript landed, absent when none was
+   * ever found. Carried here rather than read off `run`, which is absent for
+   * a review, an apply-review or a rebase run's own limit refusal: every kind
+   * of run can still leave a transcript behind, so this is the one field a
+   * reader checks regardless of which kind refused.
+   */
+  transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
@@ -227,6 +236,13 @@ export interface ProviderFailed {
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunProviderFailed;
+  /**
+   * Where the cut-off run's session transcript landed, absent when none was
+   * ever found. Carried and read exactly as `LimitRefused.transcript` is:
+   * every kind of run leaves one behind whichever way the provider stopped
+   * it.
+   */
+  transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
@@ -253,11 +269,14 @@ export function cutOffRunOutcome(
   run: RunLimitRefused | RunProviderFailed,
   discard: Discard,
 ): CutOff {
+  const transcript =
+    run.transcript === undefined ? {} : { transcript: run.transcript };
   return run.kind === "limit-refused"
     ? {
         kind: "limit-refused",
         limitRefusal: run.words,
         tokensUsed: run.tokensUsed,
+        ...transcript,
         run,
         discard,
       }
@@ -265,6 +284,7 @@ export function cutOffRunOutcome(
         kind: "provider-failed",
         providerFailure: run.words,
         tokensUsed: run.tokensUsed,
+        ...transcript,
         run,
         discard,
       };
@@ -277,17 +297,21 @@ export function cutOffRunOutcome(
 export function cutOffReviewOutcome(
   review: ReviewLimitRefused | ReviewProviderFailed,
 ): CutOff {
+  const transcript =
+    review.transcript === undefined ? {} : { transcript: review.transcript };
   return review.kind === "limit-refused"
     ? {
         kind: "limit-refused",
         limitRefusal: review.words,
         tokensUsed: review.tokensUsed,
+        ...transcript,
         discard: { kind: "none" },
       }
     : {
         kind: "provider-failed",
         providerFailure: review.words,
         tokensUsed: review.tokensUsed,
+        ...transcript,
         discard: { kind: "none" },
       };
 }
@@ -345,6 +369,13 @@ export interface Failed {
    * which is where that distinction is actually told apart.
    */
   tokensUsed?: TokenCount;
+  /**
+   * Where the failed run's session transcript landed, absent when none was
+   * ever found. As `tokensUsed`, carried here rather than read off `run` —
+   * which is absent for a review, an apply-review or a rebase run — so a
+   * reader checks the one field regardless of which kind of run failed.
+   */
+  transcript?: TranscriptPath;
 }
 
 /**

@@ -25,6 +25,7 @@ import type {
   RunFinished,
   Ticket,
   TokenCount,
+  TranscriptPath,
 } from "./ports/index.ts";
 import {
   NEEDS_REBASE_LABEL,
@@ -488,13 +489,23 @@ function keptBranchNote(iteration: CutOff): string {
     : "";
 }
 
+/**
+ * The transcript a run left, said as its own clause — empty when none was
+ * found. The ticket this reports for (#409): after any sandboxed run exits,
+ * its session transcript exists on the host, and the run's own outcome or
+ * summary says where — this is the summary half of that.
+ */
+function transcriptNote(transcript: TranscriptPath | undefined): string {
+  return transcript === undefined ? "" : ` Transcript: ${transcript}.`;
+}
+
 /** One line for one iteration: what it landed, why it did not finish, or what it found. */
 function describeIteration(iteration: IterationOutcome): string {
   switch (iteration.kind) {
     case "limit-refused":
-      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}`;
+      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
     case "provider-failed":
-      return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}`;
+      return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
     case "failed": {
       const { repo, ticket, failure } = iteration;
       // Named as a rebase, since a rebase ticket's own title says nothing a
@@ -502,18 +513,18 @@ function describeIteration(iteration: IterationOutcome): string {
       const attempted = isRebaseTicket(ticket)
         ? `a rebase of ${ticket.pullRequest.url} on ${repo}`
         : repo;
-      return `Attempted ${attempted}: ${stoppedBecause(failure, ticket)}`;
+      return `Attempted ${attempted}: ${stoppedBecause(failure, ticket)}${transcriptNote(iteration.transcript)}`;
     }
     case "reviewed":
-      return reviewSummary(iteration);
+      return `${reviewSummary(iteration)}${transcriptNote(iteration.review.transcript)}`;
     case "applied-review":
-      return appliedReviewSummary(iteration);
+      return `${appliedReviewSummary(iteration)}${transcriptNote(iteration.review?.transcript)}`;
     case "rebased":
-      return rebasedSummary(iteration);
+      return `${rebasedSummary(iteration)}${transcriptNote(iteration.rebase?.transcript)}`;
     case "pull-request-resolved":
       return pullRequestResolvedSummary(iteration);
     case "finished":
-      return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}`;
+      return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
   }
 }
 
