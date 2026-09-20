@@ -497,6 +497,10 @@ describe("the morning-run command", () => {
       child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
         stdout += chunk;
       });
+      let stderr = "";
+      child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+        stderr += chunk;
+      });
       const closed = new Promise<number | null>((resolve) => {
         child.on("close", (code) => resolve(code));
       });
@@ -506,6 +510,7 @@ describe("the morning-run command", () => {
         interrupt: () => signal("SIGINT"),
         signal,
         stdout: () => stdout,
+        stderr: () => stderr,
         closed,
       };
     }
@@ -558,6 +563,22 @@ describe("the morning-run command", () => {
         (call) => call[0] === "issue" && call[1] === "create",
       );
       assert.equal(creates.length, 0);
+    });
+
+    it("says on stderr, before it kills anything, what a second interrupt is abandoning", async (t) => {
+      const { morning } = await interruptedMidListing(t);
+      await until(() => /Stopping/.test(morning.stdout()));
+      morning.interrupt();
+
+      await morning.closed;
+
+      // Nothing had started a container yet — the listing itself was still
+      // in progress — so there is nothing to name, but the line is said all
+      // the same: a developer relying on it to know what was left behind
+      // must be able to trust it appears every time, not only when
+      // something was actually running.
+      assert.match(morning.stderr(), /Stopping now/);
+      assert.doesNotMatch(morning.stdout(), /Stopping now/);
     });
 
     it("stops as a first interrupt does when its terminal hangs up", async (t) => {

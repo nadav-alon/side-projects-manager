@@ -89,6 +89,16 @@ export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isProcessId, processId } from "./process-id.ts";
 export type { ProcessId } from "./process-id.ts";
+export { notify } from "./progress.ts";
+export type {
+  Abandoning,
+  ContainerStarted,
+  IterationSelected,
+  Progress,
+  ProgressEvent,
+  RunEnded,
+  StoodDown,
+} from "./progress.ts";
 export {
   APPLIED_REVIEW_LABEL,
   REVIEWED_LABEL,

@@ -10,6 +10,7 @@ import {
   staleImageWarning,
 } from "../adapters/sandbox-image.ts";
 import { systemClock } from "../adapters/system-clock.ts";
+import { terminalProgress } from "../adapters/terminal-progress.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { errorMessage } from "../error-message.ts";
 import { failedOnInfrastructure } from "../iteration-outcome.ts";
@@ -17,11 +18,13 @@ import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
 import { morningLoop, type InvocationReport } from "../morning-run.ts";
 import {
   exitCode,
+  notify,
   processId,
   type InvocationClosing,
   type Journal,
   type KeptSummaryPath,
   type OpenInvocation,
+  type Progress,
   type Store,
 } from "../ports/index.ts";
 import { invokeExclusively } from "../trigger-guard.ts";
@@ -81,6 +84,7 @@ async function main(): Promise<void> {
 
   const store = documentStore();
   const opened = await openJournalRecord(store, systemClock.now());
+  const progress = terminalProgress();
 
   const report = await morningLoop(
     {
@@ -90,8 +94,9 @@ async function main(): Promise<void> {
       ledger: sessionLogUsageLedger,
       clock: systemClock,
       store,
+      progress,
     },
-    { stop: stopOnInterrupt() },
+    { stop: stopOnInterrupt(progress) },
   );
 
   console.log(report.message);
@@ -207,9 +212,11 @@ async function readJournal(store: Store): Promise<Journal | undefined> {
  * Aborted by the first stop signal, so the loop starts nothing further but
  * finishes what it has in progress and publishes its summary. A second stop
  * signal is the developer unwilling to wait: the morning ends at once, as an
- * unshielded Ctrl+C would have ended it.
+ * unshielded Ctrl+C would have ended it — whatever is still running is
+ * abandoned rather than finished, which `progress` is told before anything
+ * is killed, so it can name what is being left behind.
  */
-function stopOnInterrupt(): AbortSignal {
+function stopOnInterrupt(progress: Progress): AbortSignal {
   const controller = new AbortController();
   const onStop = (): void => {
     if (!controller.signal.aborted) {
@@ -222,6 +229,9 @@ function stopOnInterrupt(): AbortSignal {
     for (const signal of STOP_SIGNALS) {
       process.off(signal, onStop);
     }
+    // Named before anything is killed: once the group below is signalled,
+    // nothing is left to say what it took with it.
+    notify(progress, { kind: "abandoning" });
     // The whole group, as Ctrl+C would have signalled it unshielded: each
     // docker client passes SIGINT on to its container, which is the only
     // thing that stops an agent mid-run.

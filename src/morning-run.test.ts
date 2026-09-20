@@ -40,6 +40,7 @@ import {
   SPENDABLE_THIS_WEEK,
   YESTERDAY,
   FakeClock,
+  FakeProgress,
   FakeRepoHost,
   HANGS,
   LIMIT_REFUSAL,
@@ -4517,6 +4518,137 @@ describe("morningLoop", () => {
           `Morning loop summary — ${local.year}-${local.month}-${local.day} ${local.hour}:${local.minute}`,
         );
       });
+    });
+  });
+
+  /**
+   * `fakePorts()` defaults `progress` to the no-op adapter, so every test
+   * above this one exercises the loop having said nothing about itself in
+   * between — unmodified, and still passing, is the point. These are the
+   * only tests that swap in `FakeProgress` to see what the loop narrated.
+   */
+  describe("progress", () => {
+    /** A project with one thing to do, so the run itself is the only question. */
+    function readyToWork(ports: FakePorts): void {
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+    }
+
+    it("announces the project and ticket it selected", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const selected = progress.events.find(
+        (event) => event.kind === "iteration-selected",
+      );
+      assert.equal(selected?.repo, PILOT);
+      assert.equal(selected?.ticket.number, 7);
+    });
+
+    /**
+     * The ordering assertion the ticket itself calls out as the behaviour
+     * under test: a line printed after the container exits is exactly the
+     * silence being fixed, so this is pinned directly rather than inferred
+     * from the final order of `progress.events`.
+     */
+    it("announces the selection and the starting container before the sandbox is ever invoked", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+      let seenBeforeRun: string[] | undefined;
+      ports.sandbox.result = (ticket) => {
+        seenBeforeRun = progress.events.map((event) => event.kind);
+        return {
+          kind: "finished",
+          branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+          commits: [],
+          output: "",
+          tokensUsed: tokenCount(0),
+        };
+      };
+
+      await morningLoop(ports);
+
+      assert.deepEqual(seenBeforeRun, [
+        "iteration-selected",
+        "container-started",
+      ]);
+    });
+
+    it("names the spend ceiling the container was given", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.store.budget = { ...DEFAULT_BUDGET, spendCeiling: usd(3) };
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const started = progress.events.find(
+        (event) => event.kind === "container-started",
+      );
+      assert.equal(started?.spendCeiling, 3);
+    });
+
+    it("announces what a run cost once it ends", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.sandbox.result = (ticket) => ({
+        kind: "finished",
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        output: "",
+        tokensUsed: tokenCount(4242),
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const ended = progress.events.find((event) => event.kind === "run-ended");
+      assert.equal(ended?.tokensUsed, 4242);
+    });
+
+    it("announces the gate's refusal the instant it refuses, before the invocation ends", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        ["iteration-selected", "stood-down"],
+      );
+      const stoodDown = progress.events.find(
+        (event) => event.kind === "stood-down",
+      );
+      assert.equal(stoodDown?.reason, "weekly-reserve");
+    });
+
+    it("never fails the invocation, or changes its exit-worthy outcome, when a progress write throws", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.progress = {
+        note: () => {
+          throw new Error("the terminal hung up");
+        },
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(ports.sandbox.runs.length, 1);
     });
   });
 });

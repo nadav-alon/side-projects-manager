@@ -351,7 +351,7 @@ _Avoid_: installed, enabled, active, live
 ### The seam
 
 **Port**:
-One of the six injected dependencies the loop reaches the outside world through: issue tracker, repo host, sandbox, usage ledger, clock, store.
+One of the seven injected dependencies the loop reaches the outside world through: issue tracker, repo host, sandbox, usage ledger, clock, store, progress. All but progress carry something back; progress is written to only, never read.
 _Avoid_: service, client, interface, dependency
 
 **Adapter**:
@@ -361,6 +361,10 @@ _Avoid_: driver, provider, backend
 **Fake**:
 A working in-memory implementation of a port, used to exercise the loop in tests.
 _Avoid_: mock, double, spy
+
+**Progress**:
+What the loop reports about an invocation while it runs, the instant something happens — an iteration's selection, the gate's verdict, a container starting, a run ending. Written through its own port, never read back, and never the reason an invocation fails: distinct from the summary, which is the durable record an invocation writes once it is done, and would otherwise have to be either chatty or terse to double as both.
+_Avoid_: log, terminal output, streaming
 
 **Sandbox**:
 The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run brings no branch back either, as an apply-review run does not — it force-pushes to the pull request's branch from inside the container. The clone is not kept.
