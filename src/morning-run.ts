@@ -2,6 +2,7 @@ import type {
   ApplyReviewAnswers,
   ApplyReviewGaveUp,
   ApplyReviewTicket,
+  Branch,
   Checkout,
   Clock,
   Day,
@@ -27,6 +28,7 @@ import type {
   ReviewGaveUp,
   ReviewTicket,
   RunFinished,
+  RunLimitRefused,
   RunModelRefused,
   RunOutcome,
   RunProviderFailed,
@@ -63,6 +65,7 @@ import {
   type ProjectOutcome,
   type Selection,
 } from "./selection.ts";
+import { salvages, type Salvages } from "./salvages.ts";
 import { workedTickets } from "./worked-today.ts";
 import {
   appliedReviewComment,
@@ -349,12 +352,15 @@ export async function morningLoop(
     announcedOn = stored.announcedOn;
     const projects = new Map(stored.projects);
     const worked = workedTickets(stored.workedToday, today);
+    const salvaged = salvages(stored.salvages);
     stateToSave = (): State => {
       const workedToday = worked.workedToday();
+      const salvageRecord = salvaged.salvages();
       return {
         projects,
         ...(workedToday !== undefined && { workedToday }),
         ...(announcedOn !== undefined && { announcedOn }),
+        ...(salvageRecord !== undefined && { salvages: salvageRecord }),
       };
     };
     const modelDefaults = await ports.store.loadModelDefaults();
@@ -475,6 +481,7 @@ export async function morningLoop(
           projects,
           spendCeilingForTicket(ticket, budget),
           model,
+          salvaged,
         )
           .then(
             (iteration) => {
@@ -731,6 +738,7 @@ async function work(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
+  salvages: Salvages,
 ): Promise<Iteration> {
   if (isRebaseTicket(selection.ticket)) {
     return await runRebase(
@@ -769,6 +777,7 @@ async function work(
     state,
     spendCeiling,
     model,
+    salvages.get(selection.ticket)?.branch,
   );
   // An infrastructure failure says nothing about the ticket, so the ticket is
   // left exactly as it was: the summary names the setup to fix instead.
@@ -783,7 +792,13 @@ async function work(
     // The agent already ran and spent — recorded against the project above,
     // same as any other run — but the sandbox is what failed, so the ticket
     // is left exactly as an infrastructure failure leaves it: not handed
-    // back, and eligible to come round again.
+    // back, and eligible to come round again. Its branch, when it had already
+    // reached the checkout, is salvaged the same way a limit refusal's is —
+    // kept where it landed, its ticket's existing count of limit refusals
+    // left untouched.
+    if (run.branch !== undefined && run.commits !== undefined && run.commits.length > 0) {
+      salvages.recordInfrastructureFailure(selection.ticket, run.branch);
+    }
     return {
       kind: "failed",
       tokensUsed: run.tokensUsed,
@@ -794,10 +809,20 @@ async function work(
       },
     };
   }
-  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+  if (run.kind === "limit-refused") {
+    return cutOffRunOutcome(
+      run,
+      await limitRefusedDiscard(ports, salvages, selection.ticket, checkout, run),
+    );
+  }
+  if (run.kind === "provider-failed") {
     return cutOffRunOutcome(run, await discardBranch(ports.repoHost, checkout, run));
   }
   if (run.kind === "model-refused") {
+    // A model refusal ends the ticket's run on its own terms, whatever it
+    // continued from, so it clears the ticket's salvage record: see
+    // CONTEXT.md's "Salvage".
+    salvages.clear(selection.ticket);
     return handModelRefusedBack(
       ports,
       selection.ticket,
@@ -808,9 +833,15 @@ async function work(
     );
   }
   if (run.kind === "finished") {
+    salvages.clear(selection.ticket);
     return handOver(ports, run, checkout, selection.ticket);
   }
 
+  // A run that gave up ends on its own terms, whatever it continued from, so
+  // it clears the ticket's salvage record — and, once resuming lands, the
+  // branch that record names is discarded with the rest of the run's work, the
+  // same as any other gave-up run's branch. See CONTEXT.md's "Salvage".
+  salvages.clear(selection.ticket);
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
   const handedBack = await handBack(ports, selection.ticket, {
     ...failure,
@@ -827,6 +858,28 @@ async function work(
     failure,
     handedBack,
   };
+}
+
+/**
+ * The discard a limit-refused run's branch gets: salvaged, when it carries
+ * commits — kept in the checkout, and recorded against `ticket`'s salvage
+ * record, so its next run can continue on it (see CONTEXT.md's "Salvage") —
+ * or discarded as any other cut-off run's branch otherwise, since a run that
+ * committed nothing left nothing to salvage and says nothing new about an
+ * existing record.
+ */
+async function limitRefusedDiscard(
+  ports: MorningLoopPorts,
+  salvages: Salvages,
+  ticket: Ticket,
+  checkout: Checkout,
+  run: RunLimitRefused,
+): Promise<Discard> {
+  if (run.commits.length === 0) {
+    return discardBranch(ports.repoHost, checkout, run);
+  }
+  salvages.recordLimitRefusal(ticket, run.branch);
+  return { kind: "salvaged" };
 }
 
 /**
@@ -1064,6 +1117,10 @@ function infrastructureFailure(error: unknown): Failed {
  * An implementation run: works `selection`'s ticket in the sandbox, held to
  * `spendCeiling` and started on `model` — or, given none, on whatever model
  * the sandbox image itself is pinned to, which can never come back refused.
+ *
+ * `salvageBranch`, when the ticket carries a salvage record, is passed
+ * through to the request unchanged: starting the run on it, rather than a
+ * fresh branch, is the sibling issue's job, not this one's.
  */
 async function attemptRun(
   ports: MorningLoopPorts,
@@ -1071,6 +1128,7 @@ async function attemptRun(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
+  salvageBranch: Branch | undefined,
 ): Promise<SandboxResult<RunOutcome> | Failed> {
   const { ticket } = selection;
   const repo = selection.project.repo;
@@ -1082,8 +1140,19 @@ async function attemptRun(
     // model refusal, and only a call whose own argument is plainly one shape
     // or the other resolves to the right overload.
     model === undefined
-      ? ports.sandbox.run({ ticket, checkout, spendCeiling })
-      : ports.sandbox.run({ ticket, checkout, spendCeiling, model: model.name }),
+      ? ports.sandbox.run({
+          ticket,
+          checkout,
+          spendCeiling,
+          ...(salvageBranch !== undefined && { salvageBranch }),
+        })
+      : ports.sandbox.run({
+          ticket,
+          checkout,
+          spendCeiling,
+          model: model.name,
+          ...(salvageBranch !== undefined && { salvageBranch }),
+        }),
   );
 }
 

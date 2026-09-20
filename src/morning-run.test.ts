@@ -2862,6 +2862,43 @@ describe("morningLoop", () => {
       assert.match(report.message, new RegExp(reason));
     });
 
+    it("salvages a post-start infrastructure failure's branch when it had already reached the checkout, without raising the count", async () => {
+      const ports = readyToWork();
+      ports.store.markSalvaged(
+        { repo: PILOT, number: issueNumber(7) },
+        branch("issue-7-earlier-salvage"),
+        1,
+      );
+      ports.sandbox.result = () => ({
+        kind: "sandbox-failed",
+        reason: "git could not read the ticket gist off the agent's output",
+        tokensUsed: tokenCount(42_000),
+        branch: FAILED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, limitRefusals: 1 },
+      ]);
+    });
+
+    it("records no salvage from a post-start infrastructure failure whose branch never reached the checkout", async () => {
+      const ports = readyToWork();
+      ports.sandbox.result = () => ({
+        kind: "sandbox-failed",
+        reason: "git could not fetch the branch back into the checkout",
+        tokensUsed: tokenCount(42_000),
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.salvages, undefined);
+    });
+
     it("hands the ticket back", async () => {
       const ports = readyToWork();
       agentGivesUp(ports);
@@ -3005,6 +3042,27 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("discards a salvaged ticket's branch and clears its salvage record when the run gives up", async () => {
+      const ports = readyToWork();
+      ports.store.markSalvaged(
+        { repo: PILOT, number: issueNumber(7) },
+        branch("issue-7-earlier-salvage"),
+        1,
+      );
+      agentGivesUp(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, [
+        {
+          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+          branch: FAILED_BRANCH,
+        },
+      ]);
+      const state = await ports.store.loadState();
+      assert.equal(state.salvages, undefined);
+    });
+
     it("has no branch to discard when the sandbox never got as far as one", async (t) => {
       const ports = readyToWork();
       t.mock.method(ports.sandbox, "run", async () => {
@@ -3104,6 +3162,32 @@ describe("morningLoop", () => {
 
       assert.equal(failureOf(report.iterations[0]), undefined);
       assert.deepEqual(ports.repoHost.discarded, []);
+    });
+
+    it("clears a ticket's salvage record once its run finishes", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.store.markSalvaged(
+        { repo: PILOT, number: issueNumber(7) },
+        branch("issue-7-earlier-salvage"),
+        1,
+      );
+      ports.sandbox.result = () => ({
+        kind: "finished",
+        branch: branch("issue-7-add-the-thing"),
+        commits: [commitSha("c0ffee1")],
+        output: "done",
+        tokensUsed: tokenCount(5_000),
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.salvages, undefined);
     });
 
     it("hands the ticket back, with a comment saying it committed nothing", async () => {
@@ -3857,7 +3941,7 @@ describe("morningLoop", () => {
       assert.equal(runs.length, 2);
     });
 
-    it("discards any branch the refused run left, without handing the ticket back", async () => {
+    it("salvages a refused run's branch with commits, rather than discarding it, without handing the ticket back", async () => {
       const ports = threeTickets();
       ports.sandbox.result = (ticket) => ({
         kind: "limit-refused",
@@ -3869,14 +3953,86 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.repoHost.discarded, [
-        {
-          directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
-          branch: branch("issue-1"),
-        },
-      ]);
+      assert.deepEqual(ports.repoHost.discarded, []);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.equal(ports.repoHost.pullRequests.length, 0);
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), limitRefusals: 1 },
+      ]);
+    });
+
+    it("discards a refused run's branch when it carries no commits, and leaves any existing salvage record unchanged", async () => {
+      const ports = threeTickets();
+      ports.store.markSalvaged(
+        { repo: PILOT, number: issueNumber(1) },
+        branch("issue-1-earlier-salvage"),
+        1,
+      );
+      ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, []);
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        {
+          repo: PILOT,
+          number: issueNumber(1),
+          branch: branch("issue-1-earlier-salvage"),
+          limitRefusals: 1,
+        },
+      ]);
+    });
+
+    it("raises the count on a second limit refusal of the same ticket's salvage, keeping the same branch", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const SALVAGED_BRANCH = branch("issue-1");
+      ports.sandbox.result = () => ({
+        kind: "limit-refused",
+        branch: SALVAGED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, limitRefusals: 2 },
+      ]);
+    });
+
+    it("carries the ticket's salvage branch on the next run request", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const SALVAGED_BRANCH = branch("issue-1-salvage");
+      ports.store.markSalvaged({ repo: PILOT, number: issueNumber(1) }, SALVAGED_BRANCH, 1);
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.salvageBranch, SALVAGED_BRANCH);
+    });
+
+    it("leaves the run request's salvage branch absent when the ticket carries no salvage record", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.salvageBranch, undefined);
     });
 
     it("stands down just the same when it refuses a review, leaving the review open", async () => {
@@ -4232,6 +4388,28 @@ describe("morningLoop", () => {
           ports.tracker.handbacks[0]?.comment ?? "",
           /has been discarded/,
         );
+      });
+
+      it("clears a salvaged ticket's record when its resumed run has its model refused", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.store.markSalvaged(
+          { repo: PILOT, number: issueNumber(7) },
+          branch("issue-7-earlier-salvage"),
+          1,
+        );
+        ports.sandbox.result = () => ({
+          kind: "model-refused",
+          branch: branch("issue-7-add-the-thing"),
+          commits: [commitSha("c0ffee1")],
+          tokensUsed: tokenCount(0),
+          refusal: { model: OPUS, words: "refused model opus" },
+        });
+
+        await morningLoop(ports);
+
+        const state = await ports.store.loadState();
+        assert.equal(state.salvages, undefined);
       });
 
       it("reports it apart from an agent that gave up and from an infrastructure failure", async () => {

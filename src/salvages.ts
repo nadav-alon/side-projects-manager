@@ -1,0 +1,46 @@
+import type { Branch, Salvage, WorkedTicket } from "./ports/index.ts";
+import {
+  clearSalvage,
+  recordInfrastructureFailureSalvage,
+  recordLimitRefusalSalvage,
+  salvageFor,
+} from "./ports/index.ts";
+
+/**
+ * What one invocation knows of tickets' salvaged branches: the record the
+ * state document is to keep, updated in place as runs land. See CONTEXT.md's
+ * "Salvage": a limit-refused run, or a post-start infrastructure failure,
+ * that leaves commits on its branch keeps that branch rather than discarding
+ * it, and this is where the loop remembers which ticket it belongs to.
+ */
+export interface Salvages {
+  /** The salvage record `ticket` carries, absent if it has none. */
+  get(ticket: WorkedTicket): Salvage | undefined;
+  /** Records `ticket`'s branch as salvaged from a limit refusal. */
+  recordLimitRefusal(ticket: WorkedTicket, branch: Branch): void;
+  /** Records `ticket`'s branch as salvaged from a post-start infrastructure failure. */
+  recordInfrastructureFailure(ticket: WorkedTicket, branch: Branch): void;
+  /** Clears `ticket`'s salvage record, absent if it had none. */
+  clear(ticket: WorkedTicket): void;
+  /** The record as the state document is to keep it; absent if nothing is salvaged. */
+  salvages(): Salvage[] | undefined;
+}
+
+/** Starts from `stored`, the record the state document held. */
+export function salvages(stored: Salvage[] | undefined): Salvages {
+  let record = stored;
+
+  return {
+    get: (ticket) => salvageFor(record, ticket),
+    recordLimitRefusal: (ticket, branch) => {
+      record = recordLimitRefusalSalvage(record, ticket, branch);
+    },
+    recordInfrastructureFailure: (ticket, branch) => {
+      record = recordInfrastructureFailureSalvage(record, ticket, branch);
+    },
+    clear: (ticket) => {
+      record = clearSalvage(record, ticket);
+    },
+    salvages: () => record,
+  };
+}

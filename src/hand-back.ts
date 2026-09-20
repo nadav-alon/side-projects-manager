@@ -40,7 +40,14 @@ export type Discard =
   /** Thrown away, as a failed run's branch should be. */
   | { kind: "discarded" }
   /** Still in the checkout, because git would not delete it. */
-  | { kind: "kept"; reason: string };
+  | { kind: "kept"; reason: string }
+  /**
+   * Kept in the checkout on purpose, and recorded against the ticket: see
+   * CONTEXT.md's "Salvage". Never built from a gave-up or model-refused run —
+   * only a limit refusal salvages a branch — so no comment this module
+   * writes for either ever names it.
+   */
+  | { kind: "salvaged" };
 
 /**
  * What became of the loop's own attempt to give a ticket back to the
@@ -423,6 +430,11 @@ function branchNote(branchName: Branch | undefined, discard: Discard): string[] 
       return [
         `Its branch \`${branchName ?? ""}\` could not be discarded, so it is still in the checkout: ${tail(discard.reason, REASON_QUOTED)}`,
       ];
+    // Unreachable from here: the comments this module writes are a gave-up
+    // run's and a model refusal's, and neither ever salvages a branch. Kept
+    // for the switch to stay exhaustive against every `Discard`.
+    case "salvaged":
+      return [];
   }
 }
 
