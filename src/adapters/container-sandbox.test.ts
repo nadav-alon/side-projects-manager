@@ -1385,6 +1385,39 @@ describe("containerSandbox.run salvage", () => {
     );
   });
 
+  it("updates the salvage branch in place even when the agent reworks its possibly-broken last commit", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const sandbox = containerSandbox(async ({ directory: cloneDirectory }) => {
+      await identify(cloneDirectory);
+      await writeFile(
+        path.join(cloneDirectory, "salvaged.txt"),
+        "reworked\n",
+      );
+      await run("git", ["-C", cloneDirectory, "add", "."]);
+      await run("git", [
+        "-C",
+        cloneDirectory,
+        "commit",
+        "--amend",
+        "--message",
+        "Reworked salvage",
+      ]);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.equal(variant(result, "finished")?.branch, SALVAGE_BRANCH);
+    assert.deepEqual(await branchesIn(directory), [SALVAGE_BRANCH, "main"]);
+    assert.equal(await subjectOf(directory, SALVAGE_BRANCH), "Reworked salvage");
+  });
+
   it("starts fresh, without error, when the named salvage branch is missing from the checkout", async () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));

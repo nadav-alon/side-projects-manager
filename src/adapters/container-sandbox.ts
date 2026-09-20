@@ -414,6 +414,12 @@ async function runOnClone(
         // collect one for every morning that came to nothing.
         if (commits.length > 0) {
           const branch = onto;
+          // Forced: a resumed run's branch already exists in `project`, and
+          // the prompt (see `promptFor`) invites the agent to rework its
+          // salvaged last commit, which makes this fetch a non-fast-forward
+          // one. Without `+`, git rejects it and every commit the run made is
+          // lost with it — a fresh run's branch never exists yet, so this
+          // never had a fast-forward to lose for that case.
           await withCheckoutLock(project, () =>
             run("git", [
               "-C",
@@ -421,7 +427,7 @@ async function runOnClone(
               "fetch",
               "--no-tags",
               clone,
-              `${branch}:${branch}`,
+              `+${branch}:${branch}`,
             ]),
           );
           fetchedBack = { branch, commits };
