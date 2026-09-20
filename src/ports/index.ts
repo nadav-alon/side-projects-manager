@@ -104,6 +104,7 @@ export {
   DECLINED_REPLY_PREFIX,
   isMarkedReply,
   MergeabilityUnknown,
+  NEEDS_REBASE_LABEL,
   resolveNeedsRebase,
   REVIEW_FINDING_FIELDS,
   reviewFindingTemplate,

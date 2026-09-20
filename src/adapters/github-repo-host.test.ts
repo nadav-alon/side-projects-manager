@@ -12,6 +12,7 @@ import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_MARKER,
   MergeabilityUnknown,
+  NEEDS_REBASE_LABEL,
   branch as toBranch,
   checkout as toCheckout,
   issueNumber,
@@ -1448,6 +1449,53 @@ describe("whether a pull request's branch needs a rebase", () => {
       [["pr", "view"]],
     );
     assert.ok(calls[0]?.includes(PULL_REQUEST));
+  });
+});
+
+describe("removing needs-rebase from a pull request", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  /** A `gh` that reports the pull request as carrying exactly `labels`. */
+  const reportingLabels = (...labels: string[]) =>
+    `if [ "$2" = view ]; then ${
+      labels.length === 0
+        ? "true"
+        : `printf '%s\\n' ${labels.map((label) => `"${label}"`).join(" ")}`
+    }; fi`;
+
+  it("removes needs-rebase from a pull request that carries it", async (t) => {
+    const gh = await recordingGh(
+      t,
+      reportingLabels(NEEDS_REBASE_LABEL, "enhancement"),
+    );
+
+    await githubRepoHost().removeNeedsRebaseLabel(PULL_REQUEST);
+
+    assert.deepEqual(callWith(await gh.calls(), "--remove-label"), [
+      "pr",
+      "edit",
+      PULL_REQUEST,
+      "--remove-label",
+      NEEDS_REBASE_LABEL,
+    ]);
+  });
+
+  it("leaves a pull request carrying other labels but not this one as it was, without an error", async (t) => {
+    const gh = await recordingGh(t, reportingLabels("enhancement"));
+
+    await githubRepoHost().removeNeedsRebaseLabel(PULL_REQUEST);
+
+    assert.equal(callWith(await gh.calls(), "--remove-label"), undefined);
+  });
+
+  it("leaves a pull request carrying no labels at all as it was, without an error", async (t) => {
+    const gh = await recordingGh(t, reportingLabels());
+
+    await githubRepoHost().removeNeedsRebaseLabel(PULL_REQUEST);
+
+    assert.equal(callWith(await gh.calls(), "--remove-label"), undefined);
   });
 });
 

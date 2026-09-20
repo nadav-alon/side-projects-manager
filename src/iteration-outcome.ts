@@ -302,8 +302,8 @@ export interface Reviewed {
 }
 
 /**
- * Why a review or a rebase that ran left its ticket open, and the error that
- * stopped it.
+ * Why a review's iteration, or a pull request already resolved, left its
+ * ticket open, and the error that stopped it.
  */
 export interface NotClosed {
   kind: "check-failed" | "close-failed";
@@ -347,9 +347,10 @@ export interface ApplyReviewNotClosed {
  * A rebase ticket's own iteration whose pull request no longer needs a
  * rebase: its run finished and the repo host no longer reports the pull
  * request conflicting, or it needed none when the iteration started, so no
- * run was needed. Either way the ticket is closed and the pull request's
- * draft state left alone. A run that gave up, or left the pull request still
- * conflicting, is `Failed` instead.
+ * run was needed. Either way the ticket is closed, `needs-rebase` is taken
+ * off the pull request, and its draft state is left alone. A run that gave
+ * up, or left the pull request still conflicting, is `Failed` instead, and
+ * leaves the label on.
  */
 export interface Rebased {
   kind: "rebased";
@@ -359,10 +360,17 @@ export interface Rebased {
   tokensUsed?: TokenCount;
   /**
    * Set when the loop could not finish the ticket off: the pull request could
-   * not be read back after the run, or the ticket could not be closed. Either
-   * way the ticket is still ready-for-agent.
+   * not be read back after the run, `needs-rebase` could not be taken off it,
+   * or the ticket could not be closed. Either way the ticket is still
+   * ready-for-agent.
    */
-  notClosed?: NotClosed;
+  notClosed?: RebaseNotClosed;
+}
+
+/** Why a rebase iteration left its ticket open, and the error that stopped it. */
+export interface RebaseNotClosed {
+  kind: "check-failed" | "label-failed" | "close-failed";
+  error: string;
 }
 
 /**

@@ -26,6 +26,7 @@ import type {
   TokenCount,
 } from "./ports/index.ts";
 import {
+  NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isRebaseTicket,
@@ -623,6 +624,8 @@ function rebasedSummary(iteration: RebasedIteration): string {
       return `${clean}.`;
     case "check-failed":
       return `${what}, but ${pullRequest} could not be checked for conflicts: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check it and close the ticket yourself.`;
+    case "label-failed":
+      return `${clean}, but ${NEEDS_REBASE_LABEL} could not be taken off it: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: take the label off and close the ticket yourself.`;
     case "close-failed":
       return `${clean}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
   }
@@ -640,6 +643,8 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
         : `- ${repo}: ${pullRequest} — rebased onto its base`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for conflicts: ${withoutTrailingStop(notClosed.error)}; check it and close the ticket yourself`;
+    case "label-failed":
+      return `${still} — ${NEEDS_REBASE_LABEL} could not be taken off ${pullRequest}: ${withoutTrailingStop(notClosed.error)}; take it off and close the ticket yourself`;
     case "close-failed":
       return `${still} — ${pullRequest} no longer conflicts, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }

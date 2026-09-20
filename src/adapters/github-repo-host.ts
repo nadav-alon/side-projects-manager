@@ -27,6 +27,7 @@ import {
   isBranch,
   isMarkedReply,
   isPullRequestUrl,
+  NEEDS_REBASE_LABEL,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
@@ -428,6 +429,34 @@ export function githubRepoHost(
         () => mergeStatusOf(pullRequest),
         rebaseRetryWait,
       );
+    },
+
+    async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
+      // Checked first, so a pull request that never carried the label — one
+      // opened before the workflow labelled it, or in a project whose
+      // workflow predates it — is left alone by this check rather than by
+      // however `gh pr edit --remove-label` chooses to answer a label that
+      // may not even exist on the repo yet.
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "labels",
+        "--jq",
+        ".labels[].name",
+      ]);
+      const labels = stdout.split("\n").map((line) => line.trim());
+      if (!labels.includes(NEEDS_REBASE_LABEL)) {
+        return;
+      }
+      await run("gh", [
+        "pr",
+        "edit",
+        pullRequest,
+        "--remove-label",
+        NEEDS_REBASE_LABEL,
+      ]);
     },
 
     async pullRequestState(
