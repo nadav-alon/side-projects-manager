@@ -1418,6 +1418,24 @@ describe("containerSandbox.run salvage", () => {
     assert.equal(await subjectOf(directory, SALVAGE_BRANCH), "Reworked salvage");
   });
 
+  it("starts fresh instead of resuming a salvage branch the project checkout currently has checked out", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
+    await run("git", ["-C", directory, "checkout", SALVAGE_BRANCH]);
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.equal(variant(result, "finished")?.branch, BRANCH);
+    assert.equal(await headOf(directory, SALVAGE_BRANCH), salvageCommit);
+  });
+
   it("starts fresh, without error, when the named salvage branch is missing from the checkout", async () => {
     const directory = await project();
     const sandbox = containerSandbox(agentCommitting(["one.txt"]));

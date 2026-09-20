@@ -326,12 +326,25 @@ async function runOnClone(
     try {
       const chosen = await withCheckoutLock(project, async () => {
         // A salvage branch is resumed rather than started over — see
-        // `Salvage` in CONTEXT.md — but only when it is still there and free:
-        // the developer may have deleted it, and another run in progress
-        // already holds a reservation for one just fetched back.
+        // `Salvage` in CONTEXT.md — but only when it is still there, free,
+        // and safe to fetch back into: the developer may have deleted it,
+        // another run in progress already holds a reservation for one just
+        // fetched back, or the developer has it checked out in `project`
+        // itself, which git refuses to fetch into no matter what. Skipping
+        // the resume rather than starting the agent and losing its work at
+        // the fetch-back keeps the failure cheap.
+        const checkedOut =
+          salvageBranch !== undefined &&
+          (await isCheckedOut(project, salvageBranch));
+        if (checkedOut) {
+          console.warn(
+            `${project} has ${salvageBranch} checked out; ${ticket.repo}#${ticket.number} starts fresh instead of resuming it.`,
+          );
+        }
         const resuming =
           salvageBranch !== undefined &&
           !isBranchReserved(project, salvageBranch) &&
+          !checkedOut &&
           (await hasBranch(project, salvageBranch));
         const branchName = resuming
           ? salvageBranch
@@ -1307,6 +1320,27 @@ async function hasBranch(project: Checkout, of: Branch): Promise<boolean> {
 async function revision(directory: Checkout, of: string): Promise<string> {
   const { stdout } = await run("git", ["-C", directory, "rev-parse", of]);
   return stdout.trim();
+}
+
+/**
+ * Whether `project`'s working tree currently has `name` as its checked-out
+ * branch — the one case a fetch can never land in, force or not, so a
+ * resumed run must not pick it as the branch to fetch back into.
+ */
+async function isCheckedOut(project: Checkout, name: Branch): Promise<boolean> {
+  try {
+    const { stdout } = await run("git", [
+      "-C",
+      project,
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "HEAD",
+    ]);
+    return stdout.trim() === name;
+  } catch {
+    return false;
+  }
 }
 
 /**
