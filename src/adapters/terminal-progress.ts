@@ -1,7 +1,8 @@
 import type { Progress, ProgressEvent } from "../ports/progress.ts";
+import type { StandDownReason } from "../ports/stand-down-reason.ts";
 
 /** How each stand-down reason reads to a person watching, rather than the token `StandDown.reason` carries. */
-const REASON_PHRASES: Readonly<Record<string, string>> = {
+const REASON_PHRASES: Readonly<Record<StandDownReason, string>> = {
   "weekly-reserve": "the weekly reserve",
   "weekly-reserve-estimate": "the weekly reserve",
   "five-hour-window": "the 5-hour window",
@@ -73,8 +74,8 @@ function line(text: string): void {
   console.error(text);
 }
 
-function reasonPhrase(reason: string): string {
-  return REASON_PHRASES[reason] ?? reason;
+function reasonPhrase(reason: StandDownReason): string {
+  return REASON_PHRASES[reason];
 }
 
 function tokens(count: number): string {

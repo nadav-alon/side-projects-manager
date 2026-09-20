@@ -140,6 +140,7 @@ export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
 export { isSize, largerSize, SIZES } from "./size.ts";
 export type { Size } from "./size.ts";
+export type { StandDownReason } from "./stand-down-reason.ts";
 export type {
   ApplyReviewGaveUp,
   ApplyReviewOutcome,

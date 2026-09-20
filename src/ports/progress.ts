@@ -1,5 +1,6 @@
 import type { Ticket } from "./issue-tracker.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { StandDownReason } from "./stand-down-reason.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
 
@@ -25,7 +26,7 @@ export interface StoodDown {
   kind: "stood-down";
   repo: RepoSlug;
   ticket: Ticket;
-  reason: string;
+  reason: StandDownReason;
   tokensUsed: TokenCount;
   spendable: TokenCount;
   resetsAt: Date;
