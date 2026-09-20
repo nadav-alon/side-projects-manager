@@ -875,7 +875,10 @@ export function pullRequestHeadFrom(
 /**
  * What the apply-review agent is asked to do: invoke the skill on the pull
  * request, named explicitly since nothing in the prompt otherwise says which.
- * The skill says how.
+ * The skill says how, with one exception: push cadence. Pushing after each
+ * commit, rather than once at the end as the skill's own step ordering has
+ * it, is what keeps a cut-off run's finished commits on the pull request, so
+ * this prompt states it directly rather than leaving it to the skill.
  *
  * The run is unattended, as a review's is, so a pass that stops to ask has
  * answered nothing. A rejected push is asked for as one fixed line naming the
