@@ -225,7 +225,7 @@ describe("invocationClosing", () => {
     ]);
   });
 
-  it("records a provider failure's own words as the stand-down reason", async () => {
+  it("records that a provider failure stood the invocation down, quoting the CLI's words", async () => {
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addEligibleTicket(PILOT, {
@@ -243,7 +243,10 @@ describe("invocationClosing", () => {
     const report = await morningLoop(ports);
     const closing = invocationClosing(report, CLOSED_AT);
 
-    assert.equal(closing.standDownReason, PROVIDER_FAILURE_PROSE);
+    assert.equal(
+      closing.standDownReason,
+      `a provider failure: ${PROVIDER_FAILURE_PROSE}`,
+    );
     assert.deepEqual(closing.projects, [
       { repo: PILOT, tokensUsed: tokenCount(1_500) },
     ]);
