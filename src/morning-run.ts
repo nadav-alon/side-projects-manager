@@ -13,8 +13,10 @@ import type {
   ModelName,
   ModelRefusal,
   ProjectState,
+  PullRequestLabel,
   PullRequestState,
   PullRequestTicket,
+  PullRequestUrl,
   RebaseFinished,
   RebaseGaveUp,
   RebaseTicket,
@@ -39,6 +41,7 @@ import type {
 } from "./ports/index.ts";
 import {
   MergeabilityUnknown,
+  REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
   isRebaseTicket,
@@ -90,6 +93,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type NotLabelled,
   type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
@@ -1167,6 +1171,28 @@ async function resolvedPullRequestOutcome(
 }
 
 /**
+ * Labels `pullRequest` with `label`, once its ticket has already closed. The
+ * fields returned fold straight into `Reviewed` or `AppliedReview`: empty on
+ * success, `notLabelled` naming the error otherwise.
+ *
+ * Never throws: a refused label is reported rather than raised, since it is
+ * the last step and the ticket closing is what matters — the developer is
+ * told the label is missing instead.
+ */
+async function labelClosedPullRequest(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+  label: PullRequestLabel,
+): Promise<{ notLabelled?: NotLabelled }> {
+  try {
+    await ports.repoHost.labelPullRequest(pullRequest, label);
+    return {};
+  } catch (error: unknown) {
+    return { notLabelled: { error: errorMessage(error) } };
+  }
+}
+
+/**
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
@@ -1272,7 +1298,12 @@ async function runReview(
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
   }
-  return { kind: "reviewed", review, tokensUsed: review.tokensUsed };
+  const labelled = await labelClosedPullRequest(
+    ports,
+    ticket.pullRequest.url,
+    REVIEWED_LABEL,
+  );
+  return { kind: "reviewed", review, tokensUsed: review.tokensUsed, ...labelled };
 }
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */

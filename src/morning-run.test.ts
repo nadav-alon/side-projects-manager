@@ -7,6 +7,7 @@ import {
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   READY_FOR_HUMAN_LABEL,
+  REVIEWED_LABEL,
   backlogIn,
   branch,
   checkout,
@@ -1259,6 +1260,69 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.deepEqual(backlog, []);
+    });
+
+    it("labels the pull request reviewed once the ticket closes", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
+      ]);
+    });
+
+    it("reports a refused label without reopening the review ticket", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.repoHost, "labelPullRequest", async () => {
+        throw new Error("label does not exist");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "reviewed");
+      assert.equal(
+        outcome?.kind === "reviewed" ? outcome.notLabelled?.error : undefined,
+        "label does not exist",
+      );
+      assert.equal(
+        outcome?.kind === "reviewed" ? outcome.notClosed : undefined,
+        undefined,
+      );
+    });
+
+    it("adds no label when the review ticket cannot be closed", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("adds no label to a review whose agent gave up", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not read the diff",
+        tokensUsed: tokenCount(1_000),
+        reason: "the review skill exited 1",
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("hands back a review whose agent gave up, rather than leaving it to come round again", async () => {
