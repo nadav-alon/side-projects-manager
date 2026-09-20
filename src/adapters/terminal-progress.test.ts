@@ -33,7 +33,6 @@ describe("terminalProgress", () => {
     const lines = capturedStderr(t, () =>
       progress.note({
         kind: "iteration-selected",
-        repo: PILOT,
         ticket: ticket(7),
       }),
     );
@@ -50,7 +49,6 @@ describe("terminalProgress", () => {
     const lines = capturedStderr(t, () =>
       progress.note({
         kind: "stood-down",
-        repo: PILOT,
         ticket: ticket(7),
         reason: "weekly-reserve",
         tokensUsed: tokenCount(900),
@@ -74,7 +72,6 @@ describe("terminalProgress", () => {
     const lines = capturedStderr(t, () =>
       progress.note({
         kind: "container-started",
-        repo: PILOT,
         ticket: ticket(7),
         spendCeiling: usd(5),
       }),
@@ -91,7 +88,6 @@ describe("terminalProgress", () => {
     const lines = capturedStderr(t, () =>
       progress.note({
         kind: "run-ended",
-        repo: PILOT,
         ticket: ticket(7),
         tokensUsed: tokenCount(4242),
       }),
@@ -117,7 +113,6 @@ describe("terminalProgress", () => {
     const progress = terminalProgress();
     progress.note({
       kind: "container-started",
-      repo: PILOT,
       ticket: ticket(7),
       spendCeiling: usd(5),
     });
@@ -134,13 +129,11 @@ describe("terminalProgress", () => {
     const progress = terminalProgress();
     progress.note({
       kind: "container-started",
-      repo: PILOT,
       ticket: ticket(7),
       spendCeiling: usd(5),
     });
     progress.note({
       kind: "run-ended",
-      repo: PILOT,
       ticket: ticket(7),
       tokensUsed: tokenCount(10),
     });
@@ -157,13 +150,11 @@ describe("terminalProgress", () => {
     const progress = terminalProgress();
     progress.note({
       kind: "container-started",
-      repo: PILOT,
       ticket: ticket(7),
       spendCeiling: usd(5),
     });
     progress.note({
       kind: "container-started",
-      repo: PILOT,
       ticket: ticket(8),
       spendCeiling: usd(5),
     });

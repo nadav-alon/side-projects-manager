@@ -1,5 +1,6 @@
 import type { Progress, ProgressEvent } from "../ports/progress.ts";
 import type { StandDownReason } from "../ports/stand-down-reason.ts";
+import { ticketKey } from "../ports/store.ts";
 
 /** How each stand-down reason reads to a person watching, rather than the token `StandDown.reason` carries. */
 const REASON_PHRASES: Readonly<Record<StandDownReason, string>> = {
@@ -13,11 +14,6 @@ const REASON_PHRASES: Readonly<Record<StandDownReason, string>> = {
 interface Running {
   repo: string;
   number: number;
-}
-
-/** Keys a ticket's run, so a `container-started` and its `run-ended` can be paired up. */
-function key(repo: string, ticket: { number: number }): string {
-  return `${repo}#${ticket.number}`;
 }
 
 /**
@@ -37,29 +33,29 @@ export function terminalProgress(): Progress {
     note(event: ProgressEvent): void {
       switch (event.kind) {
         case "iteration-selected":
-          line(`Working ${event.repo} #${event.ticket.number}.`);
+          line(`Working ${event.ticket.repo} #${event.ticket.number}.`);
           return;
         case "stood-down":
           line(
-            `Stood down on ${event.repo} #${event.ticket.number}: ${reasonPhrase(event.reason)} ` +
+            `Stood down on ${event.ticket.repo} #${event.ticket.number}: ${reasonPhrase(event.reason)} ` +
               `(${tokens(event.tokensUsed)} of ${tokens(event.spendable)} tokens spendable, ` +
               `${tokens(event.estimateCharged)} charged as the run estimate). ` +
               `Resets ${event.resetsAt.toISOString()}.`,
           );
           return;
         case "container-started":
-          running.set(key(event.repo, event.ticket), {
-            repo: event.repo,
+          running.set(ticketKey(event.ticket), {
+            repo: event.ticket.repo,
             number: event.ticket.number,
           });
           line(
-            `Starting a container for ${event.repo} #${event.ticket.number}, held to $${event.spendCeiling}.`,
+            `Starting a container for ${event.ticket.repo} #${event.ticket.number}, held to $${event.spendCeiling}.`,
           );
           return;
         case "run-ended":
-          running.delete(key(event.repo, event.ticket));
+          running.delete(ticketKey(event.ticket));
           line(
-            `${event.repo} #${event.ticket.number} spent ${tokens(event.tokensUsed)} tokens.`,
+            `${event.ticket.repo} #${event.ticket.number} spent ${tokens(event.tokensUsed)} tokens.`,
           );
           return;
         case "abandoning":

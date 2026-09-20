@@ -1,5 +1,4 @@
 import type { Ticket } from "./issue-tracker.ts";
-import type { RepoSlug } from "./repo-slug.ts";
 import type { StandDownReason } from "./stand-down-reason.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
@@ -11,7 +10,6 @@ import type { Usd } from "./usd.ts";
  */
 export interface IterationSelected {
   kind: "iteration-selected";
-  repo: RepoSlug;
   ticket: Ticket;
 }
 
@@ -24,7 +22,6 @@ export interface IterationSelected {
  */
 export interface StoodDown {
   kind: "stood-down";
-  repo: RepoSlug;
   ticket: Ticket;
   reason: StandDownReason;
   tokensUsed: TokenCount;
@@ -36,7 +33,6 @@ export interface StoodDown {
 /** A container is starting `ticket`'s run, held to `spendCeiling`. */
 export interface ContainerStarted {
   kind: "container-started";
-  repo: RepoSlug;
   ticket: Ticket;
   spendCeiling: Usd;
 }
@@ -47,7 +43,6 @@ export interface ContainerStarted {
  */
 export interface RunEnded {
   kind: "run-ended";
-  repo: RepoSlug;
   ticket: Ticket;
   tokensUsed: TokenCount;
 }

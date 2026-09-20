@@ -4548,7 +4548,7 @@ describe("morningLoop", () => {
       const selected = progress.events.find(
         (event) => event.kind === "iteration-selected",
       );
-      assert.equal(selected?.repo, PILOT);
+      assert.equal(selected?.ticket.repo, PILOT);
       assert.equal(selected?.ticket.number, 7);
     });
 

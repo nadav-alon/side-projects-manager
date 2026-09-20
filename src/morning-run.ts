@@ -413,7 +413,6 @@ export async function morningLoop(
         // invoked — the earliest point there is anything to narrate.
         notify(ports.progress, {
           kind: "iteration-selected",
-          repo: chosen.project.repo,
           ticket,
         });
 
@@ -452,7 +451,6 @@ export async function morningLoop(
           // used to go unheard until the whole morning was already over.
           notify(ports.progress, {
             kind: "stood-down",
-            repo: chosen.project.repo,
             ticket,
             ...refusal,
           });
@@ -1114,7 +1112,6 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   // about to start — before `sandboxCall`, never after.
   notify(ports.progress, {
     kind: "container-started",
-    repo,
     ticket,
     spendCeiling,
   });
@@ -1135,7 +1132,6 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     // than leaving a terminal adapter believing it is still running.
     notify(ports.progress, {
       kind: "run-ended",
-      repo,
       ticket,
       tokensUsed: tokenCount(0),
     });
@@ -1143,7 +1139,6 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   }
   notify(ports.progress, {
     kind: "run-ended",
-    repo,
     ticket,
     tokensUsed: outcome.tokensUsed,
   });
