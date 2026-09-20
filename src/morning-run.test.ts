@@ -4530,6 +4530,49 @@ describe("morningLoop", () => {
       assert.equal(ports.tracker.handbacks.length, 1);
     });
 
+    describe("a ticket whose size label names no size the budget document knows", () => {
+      it("is handed back before the gate, and never run", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.sandbox.runs, []);
+        assert.deepEqual(ports.repoHost.clones, []);
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, without a run.
+        assert.equal(ports.tracker.handbacks.length, 1);
+        assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
+        assert.equal(failureOf(report.iterations[0])?.kind, "unusable-size-label");
+      });
+
+      it("is recorded as worked today, so a later firing the same day does not select it again", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [8],
+        );
+      });
+
+      it("is handed back even when the gate then stands the morning down, which still reads as a stand-down", async () => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+        ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Next" });
+        ports.ledger.reports(spent({ weekly: DEFAULT_BUDGET.weeklyAllowance }));
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.handbacks.length, 1);
+        assert.deepEqual(ports.sandbox.runs, []);
+        assert.equal(report.outcome, "stood-down");
+      });
+    });
+
     describe("a model the agent CLI refuses", () => {
       it("hands the ticket back naming the model, its model label, and the CLI's words", async () => {
         const { ports, ticket } = oneTicket();

@@ -66,7 +66,7 @@ import {
   type Selection,
 } from "./selection.ts";
 import { salvageRecords, type Salvages } from "./salvages.ts";
-import { workedTickets } from "./worked-today.ts";
+import { workedTickets, type WorkedTickets } from "./worked-today.ts";
 import {
   appliedReviewComment,
   pullRequestResolvedComment,
@@ -83,8 +83,8 @@ import {
   cutOffReviewOutcome,
   cutOffRunOutcome,
   failedOnInfrastructure,
+  handedBackAheadOfGate,
   handedBackFailure,
-  handedBackForModelLabels,
   isCutOff,
   type AppliedReview,
   type CutOff,
@@ -105,6 +105,7 @@ import {
   type Reviewed,
   type UnsettledMergeability,
   type UnusableModelLabel,
+  type UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import {
   summaryBody,
@@ -431,23 +432,18 @@ export async function morningLoop(
         // Ahead of the gate as well as of the run: handing a ticket back
         // spends nothing, so a morning the gate refuses still gives the
         // developer the ticket they need to fix.
-        const unusable = unusableModelLabel(ticket);
-        if (unusable !== undefined) {
-          worked.record(ticket, localDay(ports.clock.now()));
-          const handedBack = await handBack(ports, ticket, unusable);
-          const iteration: Failed = {
-            kind: "failed",
-            failure: unusable,
-            handedBack,
-          };
-          if (freesTicketToday(iteration)) {
-            worked.unrecord(ticket);
-          }
-          outcomeSlots.push({
-            repo: chosen.project.repo,
-            ticket,
-            ...iteration,
-          });
+        const unusableLabel =
+          unusableModelLabel(ticket) ?? unusableSizeLabel(ticket);
+        if (unusableLabel !== undefined) {
+          outcomeSlots.push(
+            await handBackAheadOfGate(
+              ports,
+              chosen.project.repo,
+              ticket,
+              unusableLabel,
+              worked,
+            ),
+          );
           continue;
         }
 
@@ -641,12 +637,13 @@ function outcomeOf(
   if (invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  // A ticket handed back for its model labels was never run, so it does not
-  // count as work when the morning then stood down: a stand-down that ran
-  // nothing reads as one, whatever was handed back before it. Without a
-  // stand-down, that hand-back is still work an iteration selected.
+  // A ticket handed back ahead of the gate — for its model or size labels —
+  // was never run, so it does not count as work when the morning then stood
+  // down: a stand-down that ran nothing reads as one, whatever was handed
+  // back before it. Without a stand-down, that hand-back is still work an
+  // iteration selected.
   const worked = iterations.some(
-    (iteration) => !handedBackForModelLabels(iteration),
+    (iteration) => !handedBackAheadOfGate(iteration),
   );
   if (worked) {
     return "work-selected";
@@ -697,6 +694,48 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
         labels: label.labels,
       };
   }
+}
+
+/**
+ * Why no run can be started on `ticket`'s size label, absent when it names a
+ * recognised size or none. Never falls back to `unsizedCountsAs`: the
+ * developer named a size, and running the ticket as though it were unsized is
+ * not what they asked for.
+ */
+function unusableSizeLabel(ticket: Ticket): UnusableSizeLabel | undefined {
+  const label = ticket.sizeLabel;
+  if (label?.kind !== "unusable") {
+    return undefined;
+  }
+  return {
+    kind: "unusable-size-label",
+    reason: `its size label names no size the budget document knows (${label.labels.join(", ")})`,
+    labels: label.labels,
+  };
+}
+
+/**
+ * Hands `ticket` back ahead of the gate, for `ending`: unusable model labels,
+ * or a size label naming no size the budget document knows. Recorded as
+ * worked today before the hand-back, so a hand-back the tracker refuses still
+ * keeps a later firing the same day from selecting the ticket again, and one
+ * that landed frees it per `freesTicketToday`. Nothing is cloned or spent,
+ * since no run ever starts.
+ */
+async function handBackAheadOfGate(
+  ports: MorningLoopPorts,
+  repo: RepoSlug,
+  ticket: Ticket,
+  ending: UnusableModelLabel | UnusableSizeLabel,
+  worked: WorkedTickets,
+): Promise<IterationOutcome> {
+  worked.record(ticket, localDay(ports.clock.now()));
+  const handedBack = await handBack(ports, ticket, ending);
+  const iteration: Failed = { kind: "failed", failure: ending, handedBack };
+  if (freesTicketToday(iteration)) {
+    worked.unrecord(ticket);
+  }
+  return { repo, ticket, ...iteration };
 }
 
 /**

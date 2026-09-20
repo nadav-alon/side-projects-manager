@@ -6,6 +6,7 @@ import type {
   ModelRefused,
   UnsettledMergeability,
   UnusableModelLabel,
+  UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import type {
   Branch,
@@ -25,6 +26,8 @@ import {
   MODEL_LABEL_PREFIX,
   MODEL_NAME_SHAPE,
   READY_FOR_AGENT_LABEL,
+  SIZE_LABEL_PREFIX,
+  SIZES,
   ticketKind,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
@@ -136,6 +139,7 @@ export type HandBackEnding =
       worked?: { checkout: Checkout; run: RunModelRefused };
     })
   | UnusableModelLabel
+  | UnusableSizeLabel
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
   | { kind: "finished"; run: RunFinished; handover?: Handover };
 
@@ -214,13 +218,18 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
     case "model-refused":
       return modelRefusalComment(ticket, ending, discard);
     case "conflicting-model-labels":
-      return unusableModelLabelComment(
+      return notRunAheadOfGateComment(
         `it carries more than one model label (${labelList(ending.labels)}), and there is no telling which model it should run on`,
         "keep one of them",
       );
     case "unusable-model-label":
-      return unusableModelLabelComment(
+      return notRunAheadOfGateComment(
         `its model label names no model a run could be started on (${labelList(ending.labels)}): a model label is \`${MODEL_LABEL_PREFIX}<name>\`, with ${MODEL_NAME_SHAPE}`,
+        "fix or remove it",
+      );
+    case "unusable-size-label":
+      return notRunAheadOfGateComment(
+        `its size label names no size the budget document knows (${labelList(ending.labels)}): a size label is \`${SIZE_LABEL_PREFIX}<size>\`, one of ${SIZES.join(", ")}`,
         "fix or remove it",
       );
     case "unsettled-mergeability":
@@ -343,11 +352,12 @@ function labelList(labels: readonly string[]): string {
 }
 
 /**
- * What a ticket is told when its model labels named no model a run could be
- * started on. Said at selection, so there is no run, branch or output to
- * name.
+ * What a ticket is told when it is handed back ahead of the gate: its model
+ * labels named no model a run could be started on, or its size label names no
+ * size the budget document knows. Said at selection, so there is no run,
+ * branch or output to name.
  */
-function unusableModelLabelComment(what: string, fix: string): string {
+function notRunAheadOfGateComment(what: string, fix: string): string {
   return [
     `The morning loop did not run this ticket: ${what}. Nothing was run and nothing was spent.`,
     notRetried(fix),

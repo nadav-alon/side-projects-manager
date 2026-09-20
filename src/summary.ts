@@ -3,7 +3,7 @@ import { pullRequestResolutionPhrase } from "./close-comment.ts";
 import type { HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
-  handedBackForModelLabels,
+  handedBackAheadOfGate,
   handedBackFailure,
   type AppliedReview,
   type Attempt,
@@ -484,6 +484,10 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
       return [
         `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`,
       ];
+    case "unusable-size-label":
+      return [
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its size label (${failure.labels.join(", ")})`,
+      ];
   }
 }
 
@@ -502,7 +506,7 @@ function ranNothing(iteration: IterationOutcome): boolean {
       return true;
     case "failed":
       return (
-        handedBackForModelLabels(iteration) ||
+        handedBackAheadOfGate(iteration) ||
         iteration.failure.kind === "unsettled-mergeability"
       );
     case "finished":
@@ -835,6 +839,7 @@ function stoppedBecause(iteration: Attempt & Failed): string {
     case "unsettled-mergeability":
     case "conflicting-model-labels":
     case "unusable-model-label":
+    case "unusable-size-label":
       return `${which} was not run, because ${withoutTrailingStop(failure.reason)}. ${now}`;
   }
 }

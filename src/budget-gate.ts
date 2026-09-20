@@ -269,9 +269,7 @@ function totalEstimate(
  * declared size, for an implementation ticket that carries one, or
  * `unsizedCountsAs` otherwise. An unsized ticket, and every pull request
  * ticket whatever it declares — a review, an apply-review or a rebase never
- * inherits its parent's size — falls to `unsizedCountsAs`. So does a ticket
- * whose size label names no size the budget document knows, since
- * `sizeLabel?.kind === "declared"` is false for it too.
+ * inherits its parent's size — falls to `unsizedCountsAs`.
  *
  * What `runEstimate` charges in tokens and `spendCeilingForTicket` bounds in
  * dollars are the same size, resolved once here for both.
@@ -285,8 +283,10 @@ function sizeFor(ticket: Ticket, budget: Budget): Size {
 /**
  * The run estimate `ticket` charges, in the tokens `budget.sizes` gives its
  * size. Never derived from what past runs cost.
- * TODO[#159]: hand that ticket back ahead of the gate instead of charging it
- * here.
+ *
+ * A ticket whose size label names no size the budget document knows never
+ * reaches here: the loop hands it back ahead of the gate instead — see
+ * `unusableSizeLabel` in `morning-run.ts`.
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
   return budget.sizes[sizeFor(ticket, budget)];
