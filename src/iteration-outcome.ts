@@ -123,6 +123,9 @@ export interface UnusableSizeLabel {
   labels: readonly string[];
 }
 
+/** A ticket handed back ahead of the gate, for unusable model or size labels. */
+export type AheadOfGateFailure = UnusableModelLabel | UnusableSizeLabel;
+
 /**
  * A rebase ticket whose pull request the repo host never settled as
  * conflicting or not — commonly one merged or closed since — caught before
@@ -561,7 +564,7 @@ export function handedBackAheadOfGate(
 
 function isAheadOfGateFailure(
   failure: RunFailure,
-): failure is UnusableModelLabel | UnusableSizeLabel {
+): failure is AheadOfGateFailure {
   return (
     failure.kind === "conflicting-model-labels" ||
     failure.kind === "unusable-model-label" ||

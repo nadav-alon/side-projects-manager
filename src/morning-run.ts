@@ -87,6 +87,7 @@ import {
   handedBackAheadOfGate,
   handedBackFailure,
   isCutOff,
+  type AheadOfGateFailure,
   type AppliedReview,
   type CutOff,
   type Failed,
@@ -730,7 +731,7 @@ async function handBackAheadOfGate(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: Ticket,
-  ending: UnusableModelLabel | UnusableSizeLabel,
+  ending: AheadOfGateFailure,
   worked: WorkedTickets,
 ): Promise<IterationOutcome> {
   worked.record(ticket, localDay(ports.clock.now()));

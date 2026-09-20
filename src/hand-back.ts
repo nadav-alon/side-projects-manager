@@ -1,12 +1,11 @@
 import type {
+  AheadOfGateFailure,
   GaveUp,
   Handover,
   HandoverFailed,
   HandoverReach,
   ModelRefused,
   UnsettledMergeability,
-  UnusableModelLabel,
-  UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import type {
   Branch,
@@ -138,8 +137,7 @@ export type HandBackEnding =
       /** The branch the refused run left. Present only for an implementation ticket, which is the only kind a model refusal leaves one for. */
       worked?: { checkout: Checkout; run: RunModelRefused };
     })
-  | UnusableModelLabel
-  | UnusableSizeLabel
+  | AheadOfGateFailure
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
   | { kind: "finished"; run: RunFinished; handover?: Handover };
 
