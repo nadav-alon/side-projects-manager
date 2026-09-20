@@ -715,8 +715,8 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 
 /**
  * Whether `iteration` frees its ticket to be selected again today —
- * CONTEXT.md's narrowed "Worked today" rule: the persisted record protects
- * only the tickets the loop tried and failed to take off the queue itself.
+ * CONTEXT.md's "Worked today" rule: the persisted record protects only the
+ * tickets the loop tried and failed to take off the queue itself.
  *
  * An infrastructure failure, a limit refusal or a provider failure says
  * nothing about the ticket at all, so it always frees it. A finished or a
