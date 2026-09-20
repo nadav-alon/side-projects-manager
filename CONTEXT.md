@@ -363,7 +363,7 @@ A working in-memory implementation of a port, used to exercise the loop in tests
 _Avoid_: mock, double, spy
 
 **Progress**:
-What the loop reports about an invocation while it runs, the instant something happens — an iteration's selection, the gate's verdict, a container starting, a run ending. Written through its own port, never read back, and never the reason an invocation fails: distinct from the summary, which is the durable record an invocation writes once it is done, and would otherwise have to be either chatty or terse to double as both.
+What the loop reports about an invocation while it runs, the instant something happens — an iteration's selection, the gate's verdict, a container starting, a run ending, the provider refusing mid-invocation, or a second interrupt abandoning what is still running. Written through its own port, never read back, and never the reason an invocation fails: distinct from the summary, which is the durable record an invocation writes once it is done, and would otherwise have to be either chatty or terse to double as both.
 _Avoid_: log, terminal output, streaming
 
 **Sandbox**:
