@@ -701,4 +701,53 @@ describe("salvage", () => {
 
     assert.doesNotMatch(line, /salvaged/);
   });
+
+  it("adds no repeated-refusal warning at one limit refusal in a row", () => {
+    const line = summaryLine(
+      facts([
+        limitRefused(224, { kind: "salvaged", branch: branch("issue-224"), limitRefusals: 1 }),
+      ]),
+    );
+
+    assert.doesNotMatch(line, /cut off/);
+  });
+
+  it("warns that a ticket has been cut off repeatedly at two or more limit refusals in a row", () => {
+    const line = summaryLine(
+      facts([
+        limitRefused(225, { kind: "salvaged", branch: branch("issue-225"), limitRefusals: 3 }),
+      ]),
+    );
+
+    assert.match(
+      line,
+      /This ticket has been cut off 3 times in a row: consider splitting it or giving it a larger size or model\./,
+    );
+  });
+
+  it("warns on a repeatedly cut-off infrastructure failure too, since its count may carry over from an earlier limit refusal", () => {
+    const line = summaryLine(
+      facts([infrastructureFailure(226, { branch: branch("issue-226"), limitRefusals: 2 })]),
+    );
+
+    assert.match(line, /cut off 2 times in a row/);
+  });
+
+  it("lists a limit-refused ticket under waiting on you once it has been cut off two or more times in a row", () => {
+    const lines = waitingLines([
+      limitRefused(227, { kind: "salvaged", branch: branch("issue-227"), limitRefusals: 2 }),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #227: cut off 2 times in a row — consider splitting it or giving it a larger size or model`,
+    ]);
+  });
+
+  it("does not list a limit-refused ticket under waiting on you at one refusal", () => {
+    const lines = waitingLines([
+      limitRefused(228, { kind: "salvaged", branch: branch("issue-228"), limitRefusals: 1 }),
+    ]);
+
+    assert.deepEqual(lines, []);
+  });
 });

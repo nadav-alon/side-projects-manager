@@ -252,6 +252,14 @@ function stillEligibleLine(iteration: {
   return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
 }
 
+/** A limit-refused ticket whose salvage shows it has been cut off repeatedly: worth the developer's attention, since it may need splitting or a larger size or model. */
+function repeatedRefusalWaitingLine(
+  iteration: { repo: RepoSlug; ticket: Ticket },
+  limitRefusals: number,
+): string {
+  return `- ${iteration.repo} #${iteration.ticket.number}: cut off ${limitRefusals} times in a row — consider splitting it or giving it a larger size or model`;
+}
+
 /**
  * What now needs the developer: a draft pull request to review, a ticket
  * relabelled for human attention, a setup that broke under a ticket it left
@@ -299,8 +307,15 @@ function waitingSection(
           ? []
           : [pullRequestResolvedWaitingLine(iteration, iteration.notClosed)];
       // A limit refusal's or a provider failure's ticket waits on the
-      // provider, not the developer.
-      case "limit-refused":
+      // provider, not the developer — unless a limit refusal's salvage shows
+      // the ticket has been cut off repeatedly, which the developer may want
+      // to act on by splitting it or giving it a larger size or model.
+      case "limit-refused": {
+        const salvage = salvageOf(iteration.discard);
+        return salvage !== undefined && salvage.limitRefusals >= 2
+          ? [repeatedRefusalWaitingLine(iteration, salvage.limitRefusals)]
+          : [];
+      }
       case "provider-failed":
         return [];
       case "failed":
@@ -539,12 +554,19 @@ function salvageOf(discard: Discard): Salvaged | undefined {
 /**
  * The sentence a cut-off iteration's line adds when its branch was salvaged:
  * naming it, and that the ticket's next run will continue on it — see
- * CONTEXT.md's "Salvage". Empty when nothing was salvaged.
+ * CONTEXT.md's "Salvage". At two or more limit refusals in a row it also
+ * warns that the ticket keeps getting cut off, since that is worth splitting
+ * it or giving it a larger size or model over; at exactly one it stays quiet,
+ * a single refusal being unremarkable. Empty when nothing was salvaged.
  */
 function salvageNote(salvage: Salvaged | undefined): string {
-  return salvage === undefined
-    ? ""
-    : ` Its branch ${salvage.branch} was salvaged: the ticket's next run will continue on it.`;
+  if (salvage === undefined) {
+    return "";
+  }
+  const kept = ` Its branch ${salvage.branch} was salvaged: the ticket's next run will continue on it.`;
+  return salvage.limitRefusals < 2
+    ? kept
+    : `${kept} This ticket has been cut off ${salvage.limitRefusals} times in a row: consider splitting it or giving it a larger size or model.`;
 }
 
 /**
