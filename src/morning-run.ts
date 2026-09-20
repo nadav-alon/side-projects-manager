@@ -1109,11 +1109,11 @@ async function handModelRefusedBack(
  * Discards `ticket`'s previously salvaged branch, if it names one other than
  * `keeping` — the branch the run just ending left, salvaged, discarded, or
  * handed over. Every write to a salvage record replaces or clears the branch
- * named there, and until a run resumes on its ticket's salvage (TODO[#398])
- * that is always a fresh branch, so the one it replaces would otherwise sit
- * in the checkout forever, unreachable by name and never discarded: see
- * CONTEXT.md's "Salvage". Once a run does resume on its salvage, `keeping`
- * and the record's own branch are the same, and this discards nothing.
+ * named there. A run that resumes on its ticket's salvage keeps `keeping` and
+ * the record's own branch the same, and this discards nothing; a run that
+ * could not resume it — started fresh, or the salvage itself gave up —
+ * leaves the record's old branch unreachable by name, so it would otherwise
+ * sit in the checkout forever: see CONTEXT.md's "Salvage".
  *
  * Best-effort and never throws, like `discardBranch`: a branch git refuses to
  * delete here is not worth costing the ticket its outcome over.
@@ -1240,8 +1240,8 @@ function infrastructureFailure(error: unknown): Failed {
  * the sandbox image itself is pinned to, which can never come back refused.
  *
  * `salvageBranch`, when the ticket carries a salvage record, is passed
- * through to the request unchanged. TODO[#398]: start the run on
- * `salvageBranch` rather than a fresh branch.
+ * through to the request unchanged — the sandbox resumes the run on it
+ * rather than a fresh branch, per CONTEXT.md's "Salvage".
  */
 async function attemptRun(
   ports: MorningLoopPorts,

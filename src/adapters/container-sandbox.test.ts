@@ -38,6 +38,7 @@ import {
   usd,
   type ApplyReviewOutcome,
   type ApplyReviewTicket,
+  type Branch,
   type Checkout,
   type RebaseOutcome,
   type RebaseTicket,
@@ -1291,6 +1292,230 @@ describe("containerSandbox", () => {
 
     assert.equal(variant(result, "finished")?.branch, BRANCH);
     assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+  });
+});
+
+/** The name a salvage branch left behind by an earlier cut-off run carries in these tests. */
+const SALVAGE_BRANCH = branch(`${BRANCH}-2`);
+
+/**
+ * Leaves `name` in `directory` as an earlier cut-off run's salvage would:
+ * branched off `main`, carrying one commit marked as `SALVAGE_COMMIT_MESSAGE`
+ * — see `Salvage` in CONTEXT.md. Leaves the checkout back on `main`, exactly
+ * as a real run's clone is fetched into an otherwise-untouched checkout.
+ */
+async function leaveSalvageBranch(directory: string, name: Branch): Promise<void> {
+  await run("git", ["-C", directory, "branch", name, "main"]);
+  await run("git", ["-C", directory, "checkout", name]);
+  await writeFile(path.join(directory, "salvaged.txt"), "salvaged\n");
+  await run("git", ["-C", directory, "add", "."]);
+  await run("git", ["-C", directory, "commit", "--message", SALVAGE_COMMIT_MESSAGE]);
+  await run("git", ["-C", directory, "checkout", "main"]);
+}
+
+describe("containerSandbox.run salvage", () => {
+  it("resumes an existing salvage branch instead of a suffixed new one", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.equal(variant(result, "finished")?.branch, SALVAGE_BRANCH);
+    assert.deepEqual(await branchesIn(directory), [SALVAGE_BRANCH, "main"]);
+  });
+
+  it("carries the salvage's own commits on a resumed run, not only what this run adds", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    const finished = variant(result, "finished");
+    assert.equal(finished?.commits.length, 2);
+    assert.equal(finished?.commits[0], salvageCommit);
+    assert.equal(await subjectOf(directory, SALVAGE_BRANCH), "Add one.txt");
+  });
+
+  it("still yields a handover for a resumed run that adds no commits of its own", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
+    const sandbox = containerSandbox(agentCommitting([]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    const finished = variant(result, "finished");
+    assert.deepEqual(finished?.commits, [salvageCommit]);
+    assert.equal(finished?.branch, SALVAGE_BRANCH);
+  });
+
+  it("updates the salvage branch in place rather than fetching back under a new name", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.deepEqual(await branchesIn(directory), [SALVAGE_BRANCH, "main"]);
+    assert.equal(
+      await headOf(directory, SALVAGE_BRANCH),
+      variant(result, "finished")?.commits.at(-1),
+    );
+  });
+
+  it("updates the salvage branch in place even when the agent reworks its possibly-broken last commit", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const sandbox = containerSandbox(async ({ directory: cloneDirectory }) => {
+      await identify(cloneDirectory);
+      await writeFile(
+        path.join(cloneDirectory, "salvaged.txt"),
+        "reworked\n",
+      );
+      await run("git", ["-C", cloneDirectory, "add", "."]);
+      await run("git", [
+        "-C",
+        cloneDirectory,
+        "commit",
+        "--amend",
+        "--message",
+        "Reworked salvage",
+      ]);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.equal(variant(result, "finished")?.branch, SALVAGE_BRANCH);
+    assert.deepEqual(await branchesIn(directory), [SALVAGE_BRANCH, "main"]);
+    assert.equal(await subjectOf(directory, SALVAGE_BRANCH), "Reworked salvage");
+  });
+
+  it("starts fresh instead of resuming a salvage branch the project checkout currently has checked out", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
+    await run("git", ["-C", directory, "checkout", SALVAGE_BRANCH]);
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.equal(variant(result, "finished")?.branch, BRANCH);
+    assert.equal(await headOf(directory, SALVAGE_BRANCH), salvageCommit);
+  });
+
+  it("starts fresh, without error, when the named salvage branch is missing from the checkout", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.equal(variant(result, "finished")?.branch, BRANCH);
+    assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+  });
+
+  it("tells a resumed run's agent to continue the salvaged work and warns its last commit may be broken", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    assert.match(asked, /earlier run on this ticket was cut off/);
+    assert.match(asked, /Continue that work rather than starting over/);
+    assert.match(asked, /possibly-broken commit made by the sandbox/);
+  });
+
+  it("says nothing about a cut-off run, and picks a branch the ordinary way, when no salvage branch is named", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.doesNotMatch(asked, /earlier run on this ticket was cut off/);
+    assert.doesNotMatch(asked, /Continue that work rather than starting over/);
+    assert.equal(variant(result, "finished")?.branch, BRANCH);
+  });
+
+  it("reserves a resumed salvage branch, so two runs in progress at once do not both resume it", HANGS, async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const held = heldAgents(2, agentCommitting(["one.txt"]));
+    const sandbox = containerSandbox(held.container);
+
+    const runs = Promise.all([
+      sandbox.run({
+        ticket: TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+        salvageBranch: SALVAGE_BRANCH,
+      }),
+      sandbox.run({
+        ticket: TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+        salvageBranch: SALVAGE_BRANCH,
+      }),
+    ]);
+    await held.allInProgress;
+    held.release();
+    const finished = (await runs).map((result) => variant(result, "finished"));
+
+    assert.deepEqual(
+      finished.map((result) => result?.branch).sort(),
+      [BRANCH, SALVAGE_BRANCH].sort(),
+    );
   });
 });
 

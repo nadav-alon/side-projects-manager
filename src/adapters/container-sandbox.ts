@@ -318,32 +318,86 @@ async function runOnClone(
   container: Container,
   request: RunRequest,
 ): Promise<RunOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+  const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
   return withThrowawayClone("run", async (clone) => {
     let onto: Branch | undefined;
 
     try {
-      onto = await withCheckoutLock(project, async () => {
-        const free = await freeBranch(project, branchFor(ticket));
+      const chosen = await withCheckoutLock(project, async () => {
+        // A salvage branch is resumed rather than started over — see
+        // `Salvage` in CONTEXT.md — but only when it is still there, free,
+        // and safe to fetch back into: the developer may have deleted it,
+        // another run in progress already holds a reservation for one just
+        // fetched back, or the developer has it checked out in `project`
+        // itself, which git refuses to fetch into no matter what. Skipping
+        // the resume rather than starting the agent and losing its work at
+        // the fetch-back keeps the failure cheap.
+        const checkedOut =
+          salvageBranch !== undefined &&
+          (await isCheckedOut(project, salvageBranch));
+        if (checkedOut) {
+          console.warn(
+            `${project} has ${salvageBranch} checked out; ${ticket.repo}#${ticket.number} starts fresh instead of resuming it.`,
+          );
+        }
+        const resuming =
+          salvageBranch !== undefined &&
+          !isBranchReserved(project, salvageBranch) &&
+          !checkedOut &&
+          (await hasBranch(project, salvageBranch));
+        const branchName = resuming
+          ? salvageBranch
+          : await freeBranch(project, branchFor(ticket));
         // `--no-hardlinks`: the clone is handed to an agent nobody is watching,
         // and nothing it does should be able to reach an object file the
         // developer's own checkout is still using. The container runs as the
         // developer's own uid (`dockerCommand`), so the filesystem would not
         // stop it — the copy is what does.
         await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
-        reserveBranch(project, free);
-        return free;
+        reserveBranch(project, branchName);
+        return { branchName, resuming };
       });
+      onto = chosen.branchName;
       // Branded before the agent starts: a clone whose hashes this cannot read
       // fails the sandbox's set-up, not a run whose work is already done.
-      const base = commitSha(await revision(clone, "HEAD"));
-      await run("git", ["-C", clone, "switch", "--create", onto]);
+      const head = commitSha(await revision(clone, "HEAD"));
+      if (chosen.resuming) {
+        // The clone only ever gets a local branch for the checkout's default
+        // one; `onto` is resumed from the remote-tracking ref the clone made
+        // for every other branch project has.
+        await run("git", [
+          "-C",
+          clone,
+          "switch",
+          "--quiet",
+          "--track",
+          "--force-create",
+          onto,
+          `origin/${onto}`,
+        ]);
+      } else {
+        await run("git", ["-C", clone, "switch", "--create", onto]);
+      }
+      // A resumed run's commits are everything on the branch since it left
+      // the checkout's HEAD, not only what this run adds — so a resumed run
+      // that commits nothing more still has the salvage's own commits, and
+      // still gets a handover. `head` may not be the salvage branch's own
+      // parent any more if the checkout moved on since it was left, so the
+      // merge-base, not `head` itself, is what commits are counted from.
+      const base = chosen.resuming
+        ? commitSha(await mergeBase(clone, head, onto))
+        : head;
 
       const agent = await attempt(
         container,
         "run",
-        { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+        {
+          directory: clone,
+          prompt: promptFor(ticket, chosen.resuming ? onto : undefined),
+          spendCeiling,
+          mount: "rw",
+        },
         model,
       );
 
@@ -373,6 +427,12 @@ async function runOnClone(
         // collect one for every morning that came to nothing.
         if (commits.length > 0) {
           const branch = onto;
+          // Forced: a resumed run's branch already exists in `project`, and
+          // the prompt (see `promptFor`) invites the agent to rework its
+          // salvaged last commit, which makes this fetch a non-fast-forward
+          // one. Without `+`, git rejects it and every commit the run made is
+          // lost with it — a fresh run's branch never exists yet, so this
+          // never had a fast-forward to lose for that case.
           await withCheckoutLock(project, () =>
             run("git", [
               "-C",
@@ -380,7 +440,7 @@ async function runOnClone(
               "fetch",
               "--no-tags",
               clone,
-              `${branch}:${branch}`,
+              `+${branch}:${branch}`,
             ]),
           );
           fetchedBack = { branch, commits };
@@ -1084,13 +1144,28 @@ export const TICKET_GIST_TAG = "TICKET GIST:";
  * `--repo` is spelled out because the clone's `origin` is a path on the host
  * filesystem: `gh` cannot work out which GitHub repo that is, and an agent
  * that cannot read its ticket implements the title and reports success.
+ *
+ * `salvageBranch`, when present, adds the paragraph telling the agent it is
+ * continuing a salvaged branch rather than starting fresh — see `Salvage` in
+ * CONTEXT.md — and that its last commit may be the sandbox's own
+ * possibly-broken one, not the prior agent's, for it to check and fix or
+ * rework.
  */
-function promptFor(ticket: Ticket): string {
+function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
   return [
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
     `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
     "first — this clone's origin is a local path, so gh cannot infer the repo",
     "— and follow this repo's own agent instructions and coding standards.",
+    ...(salvageBranch !== undefined
+      ? [
+          "An earlier run on this ticket was cut off, and its work is already on",
+          "the branch you are on. Continue that work rather than starting over.",
+          "Its last commit may be a possibly-broken commit made by the sandbox",
+          "itself rather than by an agent, once the earlier run was cut off —",
+          "check it, and fix or rework it as needed.",
+        ]
+      : []),
     "Commit each behavior as its own commit, its test and its code together, as",
     "soon as that behavior's test passes, rather than one commit at the end —",
     "a run cut off part way should still leave reviewable progress on the",
@@ -1245,6 +1320,47 @@ async function hasBranch(project: Checkout, of: Branch): Promise<boolean> {
 
 async function revision(directory: Checkout, of: string): Promise<string> {
   const { stdout } = await run("git", ["-C", directory, "rev-parse", of]);
+  return stdout.trim();
+}
+
+/**
+ * Whether `project`'s working tree currently has `name` as its checked-out
+ * branch — the one case a fetch can never land in, force or not, so a
+ * resumed run must not pick it as the branch to fetch back into.
+ */
+async function isCheckedOut(project: Checkout, name: Branch): Promise<boolean> {
+  try {
+    const { stdout } = await run("git", [
+      "-C",
+      project,
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "HEAD",
+    ]);
+    return stdout.trim() === name;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where `head` and `onto` last shared history in `directory` — used to find
+ * the commit a resumed run's salvage branch left the checkout's `HEAD` at,
+ * since that `HEAD` may have moved on since (see `runOnClone`'s `base`).
+ */
+async function mergeBase(
+  directory: Checkout,
+  head: CommitSha,
+  onto: Branch,
+): Promise<string> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "merge-base",
+    head,
+    onto,
+  ]);
   return stdout.trim();
 }
 
