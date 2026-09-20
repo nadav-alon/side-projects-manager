@@ -149,27 +149,30 @@ else's clone stops the command rather than being scaffolded into. The clones you
 elsewhere are never touched.
 
 `new-project` rewrites `registry.json` in full when it appends, from the fields it models (`repo`,
-`paused`, `priority`). Anything else you put in that file does not survive the write.
+`paused`, `turbo`, `priority`). Anything else you put in that file does not survive the write.
 
 ## Registering a project
 
 [`registry.json`](registry.json) is yours to edit — `new-project` appends to it, and nothing else
-writes it. It says which projects exist, which are paused, and which has the mornings:
+writes it. It says which projects exist, which are paused, which are turbo, and which has the
+mornings:
 
 ```json
 {
   "projects": [
     { "repo": "nadav-alon/side-projects-manager" },
     { "repo": "nadav-alon/pilot", "priority": 1 },
-    { "repo": "nadav-alon/on-ice", "paused": true }
+    { "repo": "nadav-alon/on-ice", "paused": true },
+    { "repo": "nadav-alon/fast-thing", "turbo": true }
   ]
 }
 ```
 
 A project is named by its repo slug, `owner/repo`. `paused` keeps it registered but never
-considered; `priority` is a whole number from 1 upwards, the smaller worked first, and a project
-without one is worked least-recently-first. Both are optional, and a paused project is never
-selected however high its priority.
+considered; `turbo` is standing consent to post `/apply-review` on a pull request itself once its
+review ticket closes, in place of you typing it; `priority` is a whole number from 1 upwards, the
+smaller worked first, and a project without one is worked least-recently-first. All three are
+optional, and a paused project is never selected however high its priority.
 
 Selection picks one project and one ticket per iteration: a review ticket before any
 implementation ticket, then explicit priority, then least recently worked. An invocation keeps

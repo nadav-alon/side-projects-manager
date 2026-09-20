@@ -247,10 +247,11 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
- * `{ "projects": [{ "repo": "owner/repo", "paused": true, "priority": 1 }] }`
+ * `{ "projects": [{ "repo": "owner/repo", "paused": true, "turbo": true, "priority": 1 }] }`
  *
- * `paused` and `priority` are optional: a project is registered active and
- * without an explicit priority unless the developer says otherwise.
+ * `paused`, `turbo` and `priority` are optional: a project is registered
+ * active, without standing consent to apply its own reviews, and without an
+ * explicit priority unless the developer says otherwise.
  */
 function parseRegistry(
   document: unknown,
@@ -283,16 +284,21 @@ function parseRegistry(
       throw new Error(`${where}: "paused" must be true or false.`);
     }
 
+    const turbo = fieldOf(entry, "turbo", where) ?? false;
+    if (typeof turbo !== "boolean") {
+      throw new Error(`${where}: "turbo" must be true or false.`);
+    }
+
     const priority = fieldOf(entry, "priority", where);
     if (priority === undefined) {
-      return { repo, paused };
+      return { repo, paused, turbo };
     }
     if (typeof priority !== "number" || !isPriority(priority)) {
       throw new Error(
         `${where}: "priority" must be a whole number of 1 or more: ${JSON.stringify(priority)}`,
       );
     }
-    return { repo, paused, priority };
+    return { repo, paused, turbo, priority };
   });
 }
 
@@ -772,13 +778,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * The registry as the developer would have written it by hand: defaults left
- * out, so a project they never paused and never prioritised stays the one
- * field it started as.
+ * out, so a project they never paused, never made turbo and never
+ * prioritised stays the one field it started as.
  */
 function formatRegistry(projects: RegisteredProject[]): string {
   const entries = projects.map((project) => ({
     repo: project.repo,
     ...(project.paused && { paused: true }),
+    ...(project.turbo && { turbo: true }),
     ...(project.priority !== undefined && { priority: project.priority }),
   }));
 

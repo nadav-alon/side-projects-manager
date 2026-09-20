@@ -65,8 +65,8 @@ describe("the registry document", () => {
     );
 
     assert.deepEqual(await store.loadRegistry(), [
-      { repo: MANAGER, paused: false },
-      { repo: PILOT, paused: false },
+      { repo: MANAGER, paused: false, turbo: false },
+      { repo: PILOT, paused: false, turbo: false },
     ]);
   });
 
@@ -80,8 +80,33 @@ describe("the registry document", () => {
     );
 
     assert.deepEqual(await store.loadRegistry(), [
-      { repo: PILOT, paused: true, priority: priority(2) },
+      { repo: PILOT, paused: true, turbo: false, priority: priority(2) },
     ]);
+  });
+
+  it("reads turbo, defaulting to false when absent", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({
+          projects: [{ repo: MANAGER, turbo: true }, { repo: PILOT }],
+        }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadRegistry(), [
+      { repo: MANAGER, paused: false, turbo: true },
+      { repo: PILOT, paused: false, turbo: false },
+    ]);
+  });
+
+  it("rejects a turbo that is not true or false, naming the field", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({ projects: [{ repo: PILOT, turbo: "yes" }] }),
+      }),
+    );
+
+    await assert.rejects(store.loadRegistry(), /"turbo"/);
   });
 
   it("registers nothing when the document does not exist", async () => {
@@ -132,13 +157,13 @@ describe("writing the registry document", () => {
     const store = documentStore(await home());
 
     await store.saveRegistry([
-      { repo: MANAGER, paused: false },
-      { repo: PILOT, paused: true, priority: priority(2) },
+      { repo: MANAGER, paused: false, turbo: false },
+      { repo: PILOT, paused: true, turbo: false, priority: priority(2) },
     ]);
 
     assert.deepEqual(await store.loadRegistry(), [
-      { repo: MANAGER, paused: false },
-      { repo: PILOT, paused: true, priority: priority(2) },
+      { repo: MANAGER, paused: false, turbo: false },
+      { repo: PILOT, paused: true, turbo: false, priority: priority(2) },
     ]);
   });
 
@@ -146,8 +171,8 @@ describe("writing the registry document", () => {
     const directory = await home();
 
     await documentStore(directory).saveRegistry([
-      { repo: PILOT, paused: false },
-      { repo: MANAGER, paused: true, priority: priority(1) },
+      { repo: PILOT, paused: false, turbo: false },
+      { repo: MANAGER, paused: true, turbo: true, priority: priority(1) },
     ]);
 
     const written = await readFile(path.join(directory, "registry.json"), "utf8");
@@ -157,7 +182,7 @@ describe("writing the registry document", () => {
         {
           projects: [
             { repo: PILOT },
-            { repo: MANAGER, paused: true, priority: 1 },
+            { repo: MANAGER, paused: true, turbo: true, priority: 1 },
           ],
         },
         undefined,
@@ -169,10 +194,26 @@ describe("writing the registry document", () => {
   it("keeps the comments-free defaults out, so an untouched project stays one line", async () => {
     const directory = await home();
 
-    await documentStore(directory).saveRegistry([{ repo: PILOT, paused: false }]);
+    await documentStore(directory).saveRegistry([
+      { repo: PILOT, paused: false, turbo: false },
+    ]);
 
     const written = await readFile(path.join(directory, "registry.json"), "utf8");
-    assert.doesNotMatch(written, /paused|priority/);
+    assert.doesNotMatch(written, /paused|turbo|priority/);
+  });
+
+  it("does not rewrite a turbo project to carry turbo: false", async () => {
+    const directory = await home();
+
+    await documentStore(directory).saveRegistry([
+      { repo: PILOT, paused: false, turbo: true },
+    ]);
+
+    const written = await readFile(path.join(directory, "registry.json"), "utf8");
+    assert.equal(
+      written,
+      `${JSON.stringify({ projects: [{ repo: PILOT, turbo: true }] }, undefined, 2)}\n`,
+    );
   });
 
   it("replaces what was registered before", async () => {
@@ -180,9 +221,11 @@ describe("writing the registry document", () => {
       await home({ registry: JSON.stringify({ projects: [{ repo: MANAGER }] }) }),
     );
 
-    await store.saveRegistry([{ repo: PILOT, paused: false }]);
+    await store.saveRegistry([{ repo: PILOT, paused: false, turbo: false }]);
 
-    assert.deepEqual(await store.loadRegistry(), [{ repo: PILOT, paused: false }]);
+    assert.deepEqual(await store.loadRegistry(), [
+      { repo: PILOT, paused: false, turbo: false },
+    ]);
   });
 });
 
@@ -548,7 +591,7 @@ describe("the budget document", () => {
     });
     const store = documentStore(directory);
 
-    await store.saveRegistry([{ repo: MANAGER, paused: false }]);
+    await store.saveRegistry([{ repo: MANAGER, paused: false, turbo: false }]);
 
     assert.equal((await store.loadBudget()).reserveFraction, 0.75);
   });
@@ -630,7 +673,7 @@ describe("the model defaults document", () => {
     });
     const store = documentStore(directory);
 
-    await store.saveRegistry([{ repo: MANAGER, paused: false }]);
+    await store.saveRegistry([{ repo: MANAGER, paused: false, turbo: false }]);
 
     assert.deepEqual(await store.loadModelDefaults(), {
       review: modelName("opus"),
