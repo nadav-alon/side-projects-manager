@@ -188,7 +188,7 @@ describe("ghIssueTracker", () => {
       openSubIssues(issue).length ===
       issue.subIssuesSummary.total - issue.subIssuesSummary.completed;
 
-    const brokenOut = all.find(
+    const supertask = all.find(
       (issue) =>
         listsEveryOpenSubIssue(issue) &&
         openSubIssues(issue).some((sub) => !isPullRequestTicketTitle(sub)),
@@ -205,7 +205,7 @@ describe("ghIssueTracker", () => {
     // The fixture repo must exercise all three, or the assertions below would
     // pass whether or not the adapter reads sub-issues at all.
     assert.ok(
-      brokenOut,
+      supertask,
       "fixture repo needs an open issue with an open sub-issue that is not a pull request ticket",
     );
     assert.ok(
@@ -219,10 +219,10 @@ describe("ghIssueTracker", () => {
 
     const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
 
-    const brokenOutIssue = issues.find((i) => i.ticket.number === brokenOut.number);
+    const supertaskIssue = issues.find((i) => i.ticket.number === supertask.number);
     assert.equal(
-      brokenOutIssue?.ticket.openSubIssues,
-      openSubIssues(brokenOut).filter((sub) => !isPullRequestTicketTitle(sub)).length,
+      supertaskIssue?.ticket.openSubIssues,
+      openSubIssues(supertask).filter((sub) => !isPullRequestTicketTitle(sub)).length,
     );
 
     const reviewedOnlyIssue = issues.find(
