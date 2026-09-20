@@ -305,10 +305,14 @@ export interface MorningLoopOptions {
  * selection already honours, since a blocker in progress is still open.
  *
  * A ticket worked today, by this invocation or an earlier one, is not selected
- * again until the next local calendar day, even though nothing here closes it: a failed run's ticket is handed
- * back by relabelling it, but a finished run's is left exactly as it was, so
- * without this an unattended morning with only one project registered would
- * work its one ticket over and over until the budget gate finally stopped it.
+ * again until the next local calendar day — but only for as long as the loop
+ * could not take its eligibility away itself: a hand-back the tracker
+ * refused, or a review, an apply-review, a rebase or a resolved pull request
+ * the loop could not close. Every other outcome relabels or closes the
+ * ticket, which already keeps selection off it on its own; without the
+ * record, though, an unattended morning with only one project registered
+ * would work that one write failure over and over until the budget gate
+ * finally stopped it.
  *
  * The summary always publishes when the invocation worked something; a quiet
  * or broken invocation publishes only if none has been announced yet today,
