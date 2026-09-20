@@ -199,9 +199,9 @@ _Avoid_: ticket priority (the rank worked out from the labels), priority tag
 A project with more open issues than the loop reads in one morning. Every open issue is read, not only eligible tickets, since ticket priority can reach a ticket through issues that are not themselves eligible; the newest are the ones read, since a new ticket given a priority label costs more to miss than an old one. An issue not read neither is selected nor passes on its priority label. The summary names the project so the developer can thin it.
 _Avoid_: overflow, capped backlog, full queue
 
-**Broken-out ticket**:
-A ticket with one or more open sub-issues that are not pull request tickets: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any such sub-issue is open — the tracker reports how many of those are open, and selection is what reads it. A handed-back ticket with an open review ticket is not broken out. Selectable again, like any other ticket, once every such sub-issue has closed. Its ticket priority carries into its sub-issues.
-_Avoid_: parent ticket, container ticket, epic, spec ticket
+**Supertask**:
+A ticket with one or more open sub-issues that are not pull request tickets: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any such sub-issue is open — the tracker reports how many of those are open, and selection is what reads it. A handed-back ticket with an open review ticket is not a supertask. Selectable again, like any other ticket, once every such sub-issue has closed. Its ticket priority carries into its sub-issues.
+_Avoid_: parent ticket, container ticket, epic, spec ticket, broken-out ticket
 
 **Blocked ticket**:
 A ticket the tracker marks as blocked by one or more tickets that are still open: its work builds on work not yet done. Still carries ready-for-agent, but is not selected while any blocker is open — the tracker reports the open count, and selection is what reads it. Selectable again once every blocker has closed. Its ticket priority carries into each blocker still open.

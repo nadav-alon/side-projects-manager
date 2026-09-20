@@ -13,7 +13,7 @@ import type {
 import {
   backlogIn,
   isBlocked,
-  isBrokenOut,
+  isSupertask,
   ticketKind,
   ticketPrioritiesIn,
 } from "./ports/index.ts";
@@ -34,7 +34,7 @@ export type ProjectVerdict =
   /**
    * Considered, and at least one eligible ticket in its backlog was already
    * worked today, with nothing selectable left over — whatever remains is
-   * blocked or broken out. Distinct from `no-eligible-tickets` because a
+   * blocked or a supertask. Distinct from `no-eligible-tickets` because a
    * backlog is not empty just because nothing in it is pickable today.
    */
   | "already-worked-today"
@@ -60,15 +60,15 @@ export interface ProjectOutcome {
   lastWorkedAt?: Date;
   /**
    * Tickets this scan found carrying ready-for-agent but passed over for
-   * being broken out, in backlog order. What makes a backlog that looked
+   * being a supertask, in backlog order. What makes a backlog that looked
    * full but yielded nothing explicable, rather than indistinguishable from
    * one that was simply empty.
    */
-  brokenOut?: Ticket[];
+  supertasks?: Ticket[];
   /**
    * Tickets this scan found carrying ready-for-agent but passed over because
    * an open ticket blocks them, in backlog order — for the same reason as
-   * `brokenOut`.
+   * `supertasks`.
    */
   blocked?: Ticket[];
   /**
@@ -170,7 +170,7 @@ interface Candidate {
  * tickets passed over, and whether the listing was truncated.
  */
 interface ScanFindings {
-  brokenOut: Ticket[];
+  supertasks: Ticket[];
   blocked: Ticket[];
   backlogTruncated: boolean;
 }
@@ -185,7 +185,7 @@ interface ScanFindings {
  * because paused means never considered. A project left with no selectable
  * ticket reads as already worked today when at least one eligible ticket is
  * in `worked`, and reads the same as an empty backlog otherwise — including
- * when every ticket left is merely blocked or broken out.
+ * when every ticket left is merely blocked or a supertask.
  */
 async function scan(
   ports: SelectionPorts,
@@ -216,26 +216,26 @@ async function scan(
     // the rule can be exercised against the fake and the summary can still
     // name what it passed over. A ticket an open ticket blocks is set aside
     // the same way: its work builds on work not yet done.
-    const brokenOut: Ticket[] = [];
+    const supertasks: Ticket[] = [];
     const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
     for (const ticket of backlog) {
-      if (isBrokenOut(ticket)) {
-        brokenOut.push(ticket);
+      if (isSupertask(ticket)) {
+        supertasks.push(ticket);
       } else if (isBlocked(ticket)) {
         blocked.push(ticket);
       } else {
         selectable.push(ticket);
       }
     }
-    const findings: ScanFindings = { brokenOut, blocked, backlogTruncated };
+    const findings: ScanFindings = { supertasks, blocked, backlogTruncated };
     // A review in the same backlog as its parent ticket is worked before it.
     const ticket = bestTicket(selectable, ticketPriorities);
 
     if (ticket === undefined) {
       // Nothing here is selectable, but that is only "already worked today"
       // when `worked` is why: at least one eligible ticket this scan found is
-      // in it. A backlog left with nothing but blocked or broken-out tickets,
+      // in it. A backlog left with nothing but blocked tickets or supertasks,
       // none of them in `worked`, reads the same as an empty one.
       const verdict =
         tickets.length > backlog.length
@@ -432,7 +432,7 @@ function outcome(
   verdict: ProjectVerdict,
   state: ProjectState | undefined,
   {
-    brokenOut = [],
+    supertasks = [],
     blocked = [],
     backlogTruncated = false,
   }: Partial<ScanFindings> = {},
@@ -442,7 +442,7 @@ function outcome(
     repo,
     verdict,
     ...(lastWorkedAt !== undefined && { lastWorkedAt }),
-    ...(brokenOut.length > 0 && { brokenOut }),
+    ...(supertasks.length > 0 && { supertasks }),
     ...(blocked.length > 0 && { blocked }),
     ...(backlogTruncated && { backlogTruncated: true }),
   };
