@@ -1,6 +1,6 @@
 import type { StandDown } from "./budget-gate.ts";
 import { pullRequestResolutionPhrase } from "./close-comment.ts";
-import type { HandBackRecord } from "./hand-back.ts";
+import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
   handedBackAheadOfGate,
@@ -22,6 +22,7 @@ import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type {
   ApplyReviewTicket,
+  Branch,
   PullRequestLabel,
   PullRequestTicket,
   PullRequestUrl,
@@ -524,6 +525,28 @@ function keptBranchNote(iteration: CutOff): string {
     : "";
 }
 
+/** A cut-off run's salvage: the branch it kept, and its ticket's own count of limit refusals in a row. Undefined when nothing was salvaged. */
+interface Salvaged {
+  branch: Branch;
+  limitRefusals: number;
+}
+
+/** `discard`'s salvage, when it is one — undefined for every other `Discard` kind. */
+function salvageOf(discard: Discard): Salvaged | undefined {
+  return discard.kind === "salvaged" ? discard : undefined;
+}
+
+/**
+ * The sentence a cut-off iteration's line adds when its branch was salvaged:
+ * naming it, and that the ticket's next run will continue on it — see
+ * CONTEXT.md's "Salvage". Empty when nothing was salvaged.
+ */
+function salvageNote(salvage: Salvaged | undefined): string {
+  return salvage === undefined
+    ? ""
+    : ` Its branch ${salvage.branch} was salvaged: the ticket's next run will continue on it.`;
+}
+
 /**
  * The transcript a run left, said as its own clause — empty when none was
  * found. The ticket this reports for (#409): after any sandboxed run exits,
@@ -538,7 +561,7 @@ function transcriptNote(transcript: TranscriptPath | undefined): string {
 function describeIteration(iteration: IterationOutcome): string {
   switch (iteration.kind) {
     case "limit-refused":
-      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
+      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
     case "provider-failed":
       return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
     case "failed": {
@@ -820,7 +843,7 @@ function stoppedBecause(iteration: Attempt & Failed): string {
       failure.tokensUsed === undefined
         ? `the run would not start on ${which}`
         : `the sandbox failed on ${which} after the agent had already run`;
-    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
+    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.${salvageNote(failure.salvage)}`;
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and

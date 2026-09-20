@@ -881,9 +881,14 @@ async function work(
     // reached the checkout, is salvaged the same way a limit refusal's is —
     // kept where it landed, its ticket's existing count of limit refusals
     // left untouched.
+    let salvage: { branch: Branch; limitRefusals: number } | undefined;
     if (run.branch !== undefined && run.commits !== undefined && run.commits.length > 0) {
       await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
       salvages.recordInfrastructureFailure(selection.ticket, run.branch);
+      salvage = {
+        branch: run.branch,
+        limitRefusals: salvages.get(selection.ticket)?.limitRefusals ?? 0,
+      };
     }
     return {
       kind: "failed",
@@ -892,6 +897,7 @@ async function work(
         kind: "infrastructure",
         reason: run.reason,
         tokensUsed: run.tokensUsed,
+        ...(salvage !== undefined && { salvage }),
       },
     };
   }
@@ -969,7 +975,11 @@ async function limitRefusedBranchOutcome(
   }
   await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
   salvages.recordLimitRefusal(ticket, run.branch);
-  return { kind: "salvaged" };
+  return {
+    kind: "salvaged",
+    branch: run.branch,
+    limitRefusals: salvages.get(ticket)?.limitRefusals ?? 1,
+  };
 }
 
 /**

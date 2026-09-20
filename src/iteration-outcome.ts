@@ -156,6 +156,14 @@ export interface InfrastructureFailure {
    * its own reason.
    */
   tokensUsed?: TokenCount;
+  /**
+   * The branch and the ticket's own count of limit refusals in a row, present
+   * exactly when the failure's branch had already reached the checkout and
+   * was kept as a salvage: see CONTEXT.md's "Salvage". The count is carried
+   * rather than raised by an infrastructure failure itself — it only ever
+   * repeats what an earlier limit refusal already recorded, or starts at 0.
+   */
+  salvage?: { branch: Branch; limitRefusals: number };
 }
 
 /**
