@@ -735,6 +735,15 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("adds no reviewed or applied-review label to an implementation run's own pull request", async () => {
+      const ports = fakePorts();
+      ran(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
     it("is opened with the run's ticket gist, when it carried one", async () => {
       const ports = fakePorts();
       const gist = ticketGist("Add the thing to the widget.");
@@ -2328,6 +2337,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.pullRequests.length, 0);
       assert.equal(ports.repoHost.discarded.length, 0);
       assert.equal(ports.tracker.reviewTickets.length, 0);
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("hands back a finished run whose pull request still conflicts, and does not close it", async () => {
