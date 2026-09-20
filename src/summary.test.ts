@@ -316,7 +316,7 @@ describe("waitingSection", () => {
   });
 });
 
-describe("reviewSummary and appliedReviewSummary", () => {
+describe("summaryLine", () => {
   it("reads a reviewed iteration exactly as today when notLabelled is absent", () => {
     const line = summaryLine(facts([reviewedCleanly(210)]));
 
@@ -349,9 +349,7 @@ describe("reviewSummary and appliedReviewSummary", () => {
       `Applied review on ${REPO} #213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself.`,
     );
   });
-});
 
-describe("summaryLine", () => {
   it("says the sandbox failed after the agent had already run when the infrastructure failure carries spend", () => {
     const iteration: IterationOutcome = {
       repo: REPO,
