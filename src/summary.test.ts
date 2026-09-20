@@ -478,6 +478,39 @@ describe("attemptsSection", () => {
   });
 });
 
+describe("a ticket handed back for an unusable size label", () => {
+  function unusableSizeLabel(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: {
+        kind: "unusable-size-label",
+        reason: "size:XXL names no size the budget document knows",
+        labels: ["size:XXL"],
+      },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  it("says the ticket was not run and why, in the one-line summary", () => {
+    const line = summaryLine(facts([unusableSizeLabel(306)]));
+
+    assert.match(
+      line,
+      /#306 was not run, because size:XXL names no size the budget document knows\. Handed back for a human\./,
+    );
+  });
+
+  it("lists it under waiting on you, quoting its size labels — like an unusable model label", () => {
+    const lines = waitingLines([unusableSizeLabel(307)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #307: relabelled ready-for-human — fix its size label (size:XXL)`,
+    ]);
+  });
+});
+
 describe("summaryLine", () => {
   it("reads a reviewed iteration exactly as today when notLabelled is absent", () => {
     const line = summaryLine(facts([reviewedCleanly(210)]));
@@ -630,6 +663,21 @@ describe("summaryLine", () => {
 
       assert.match(line, /5-hour/);
       assert.match(line, /estimate/i);
+    });
+
+    it("shows what was used, the estimate charged, what was spendable and when it resets, for an estimate-caused stand-down", () => {
+      const used = tokenCount(SPENDABLE_THIS_WEEK - 1);
+      const line = standDownLine(
+        gateStandDown({
+          reason: "weekly-reserve-estimate",
+          tokensUsed: used,
+        }),
+      );
+
+      assert.match(line, new RegExp(used.toLocaleString("en-US")));
+      assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
+      assert.match(line, /2,000,000 tokens charged as the run estimate/);
+      assert.match(line, new RegExp(RESETS_AT.toISOString()));
     });
   });
 
