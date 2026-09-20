@@ -891,6 +891,8 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
     "`git push` lands on the pull request. Name the repo explicitly wherever gh needs one.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "work every thread, push and reply without asking for confirmation.",
+    "Push after each commit rather than once at the end — a run cut off part way should still",
+    "leave its finished commits on the pull request.",
     "If the push is rejected because the branch moved, stop, and end your report with the line",
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
@@ -907,6 +909,12 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
  * rejected push is asked for as the same fixed line naming the moved head
  * (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
  * refused from one that finished.
+ *
+ * Unlike `applyReviewPromptFor`, this does not ask for a push after each
+ * commit: the rebase skill (`rebase-pr`) pushes exactly once, with
+ * `--force-with-lease`, after the whole rebase is resolved and green — a
+ * half-rebased branch has no state that pushes cleanly part way through, so
+ * there is nothing for an earlier push to land.
  */
 function rebasePromptFor(ticket: RebaseTicket): string {
   const url = ticket.pullRequest.url;
@@ -946,8 +954,11 @@ function promptFor(ticket: Ticket): string {
     `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
     "first — this clone's origin is a local path, so gh cannot infer the repo",
     "— and follow this repo's own agent instructions and coding standards.",
-    "Commit your work to the branch you are on; do not push, and do not open a",
-    "pull request.",
+    "Commit each behavior as its own commit, its test and its code together, as",
+    "soon as that behavior's test passes, rather than one commit at the end —",
+    "a run cut off part way should still leave reviewable progress on the",
+    "branch. Commit your work to the branch you are on; do not push, and do",
+    "not open a pull request.",
     `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
     "followed by one sentence saying what the ticket asked for — not what",
     "your diff did; the run is complete either way.",

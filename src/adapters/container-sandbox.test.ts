@@ -329,6 +329,20 @@ describe("containerSandbox", () => {
     assert.match(asked, /gh issue view 7 --repo nadav-alon\/pilot/);
   });
 
+  it("asks for one commit per behavior, made as soon as that behavior's test passes, and still forbids pushing and opening a pull request", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /Commit each behavior as its own commit.*as\s+soon as that behavior's test passes/);
+    assert.match(asked, /do not push, and do\s+not open a pull request/);
+  });
+
   it("asks docker for no model when the request names none", async () => {
     const directory = await project();
     let seen: string | undefined = "unset";
@@ -1750,6 +1764,19 @@ describe("containerSandbox.applyReview", () => {
     assert.match(asked, /unattended/);
   });
 
+  it("asks the agent to push after each commit rather than once at the end", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.match(asked, /Push after each commit rather than once at the end/);
+  });
+
   it("passes the model to the agent CLI", async () => {
     const { directory } = await hostedProject();
     let seen: string | undefined;
@@ -2108,6 +2135,26 @@ describe("containerSandbox.rebase", () => {
     assert.ok(asked.includes(`/rebase-pr ${REBASE_TICKET.pullRequest.url}`), asked);
     assert.match(asked, new RegExp(`already checked out on ${REBASE_TICKET.pullRequest.url}'s head branch, tracking it`));
     assert.match(asked, /unattended/);
+  });
+
+  /**
+   * Unlike the apply-review prompt, this does not ask for a push after each
+   * commit: the rebase-pr skill pushes exactly once, force-with-lease, once
+   * the whole rebase is resolved and green — there is no state part way
+   * through a rebase that pushes cleanly.
+   */
+  it("asks for one force-push at the end, not a push after each commit", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = containerSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.doesNotMatch(asked, /push after each commit/i);
+    assert.match(asked, /force-push with `--force-with-lease`/);
   });
 
   it("passes the model to the agent CLI", async () => {
