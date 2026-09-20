@@ -97,7 +97,7 @@ function scheduleLine(schedule: ScheduleRegistration, managerHome: string): stri
     return `Schedule: not registered. Run \`${INSTALLER_COMMAND}\` to arm it.`;
   }
   if (!isArmed(schedule, managerHome)) {
-    return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}) — it is firing into a path that no longer exists. Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
+    return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}). Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
   }
   return `Schedule: armed, firing every hour at :${schedule.minute.padStart(2, "0")}.`;
 }
