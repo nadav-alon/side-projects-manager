@@ -38,6 +38,7 @@ import {
   usd,
   type ApplyReviewOutcome,
   type ApplyReviewTicket,
+  type Branch,
   type Checkout,
   type RebaseOutcome,
   type RebaseTicket,
@@ -1303,7 +1304,7 @@ const SALVAGE_BRANCH = branch(`${BRANCH}-2`);
  * — see `Salvage` in CONTEXT.md. Leaves the checkout back on `main`, exactly
  * as a real run's clone is fetched into an otherwise-untouched checkout.
  */
-async function leaveSalvageBranch(directory: string, name: string): Promise<void> {
+async function leaveSalvageBranch(directory: string, name: Branch): Promise<void> {
   await run("git", ["-C", directory, "branch", name, "main"]);
   await run("git", ["-C", directory, "checkout", name]);
   await writeFile(path.join(directory, "salvaged.txt"), "salvaged\n");
