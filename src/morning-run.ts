@@ -712,7 +712,10 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
  * nothing about the ticket at all, so it always frees it. A finished or a
  * failed run frees it exactly when its own hand-back landed — `"handed-back"`
  * or `"already-closed"` — and leaves it recorded when the tracker refused the
- * call.
+ * call. A review, an apply-review, a rebase or a resolved pull request frees
+ * it exactly when it closed without a `notClosed`, and leaves it recorded
+ * when one is set — the ticket is still ready-for-agent, due to come round
+ * again on its own, so the record still has something to protect.
  */
 function freesTicketToday(iteration: Iteration): boolean {
   if (isCutOff(iteration) || failedOnInfrastructure(iteration)) {
@@ -726,7 +729,7 @@ function freesTicketToday(iteration: Iteration): boolean {
       handedBackFailure(iteration) && iteration.handedBack.outcome !== "refused"
     );
   }
-  return false;
+  return iteration.notClosed === undefined;
 }
 
 /**
