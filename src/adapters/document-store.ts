@@ -632,13 +632,7 @@ function parseSalvages(value: unknown, where: string): Salvage[] {
 }
 
 function parseSalvage(salvage: unknown, where: string): Salvage {
-  const repo = repoSlugField(salvage, where);
-  const number = fieldOf(salvage, "number", where);
-  if (typeof number !== "number" || !isIssueNumber(number)) {
-    throw new Error(
-      `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
-    );
-  }
+  const { repo, number } = parseWorkedTicket(salvage, where);
   const branch = fieldOf(salvage, "branch", where);
   if (typeof branch !== "string" || !isBranch(branch)) {
     throw new Error(`${where}: "branch" must be a git branch name: ${JSON.stringify(branch)}`);
