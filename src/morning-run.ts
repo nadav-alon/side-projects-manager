@@ -1448,9 +1448,11 @@ async function runApplyReview(
 }
 
 /**
- * Marks `ticket`'s pull request ready for review, then closes the ticket with
- * a comment saying what `applied` came to. Never throws: whichever step fails
- * is reported on the iteration, and the ticket is left open.
+ * Marks `ticket`'s pull request ready for review, closes the ticket with a
+ * comment saying what `applied` came to, then labels the pull request
+ * `applied-review`. Never throws: a failure marking it ready or closing the
+ * ticket is reported on the iteration and leaves the ticket open; a refused
+ * label is reported too, but by then the ticket has already closed.
  */
 async function finishApplyReview(
   ports: MorningLoopPorts,
