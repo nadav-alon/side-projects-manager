@@ -49,6 +49,7 @@ export type Discard =
 export type HandBackRecord =
   | { outcome: "handed-back" }
   | { outcome: "already-closed" }
+  /** The tracker call itself failed, carrying why: the ticket is left exactly as it was, still ready-for-agent, and comes round again until somebody relabels it by hand. */
   | { outcome: "refused"; reason: string };
 
 /**
@@ -331,6 +332,13 @@ export function workLocation(
  * What a finished run's ticket is told when the run left nothing to review:
  * the agent finished without committing anything, so there is no pull
  * request and no review to name.
+ *
+ * Quotes what the agent said, as `gaveUpComment` does for an agent that gave
+ * up. A run that commits nothing is precisely the run whose output nobody can
+ * infer any other way: there is no branch to read and no pull request to
+ * open, so the output is the whole of the evidence — a sandbox refusing the
+ * agent every tool it had once went unnoticed across eighteen tickets in a
+ * row because their comments said only that nothing was committed.
  */
 function committedNothingComment(run: RunFinished): string {
   return [

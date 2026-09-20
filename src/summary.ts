@@ -249,7 +249,7 @@ function stillEligibleLine(iteration: {
  * What now needs the developer: a draft pull request to review, a ticket
  * relabelled for human attention, a setup that broke under a ticket it left
  * eligible, or — the one case a failed run can leave behind that is the
- * developer's alone, per `HandBackRecord`'s own note — a ticket the
+ * developer's alone, per `HandBackRecord`'s `"refused"` outcome — a ticket the
  * hand-back itself could not reach, still eligible and due to come round
  * again until somebody relabels it by hand. A review the loop could not
  * close is there for the same reason. A project whose backlog was too long
