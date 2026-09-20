@@ -43,6 +43,7 @@ import type {
 } from "./ports/index.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
   REVIEWED_LABEL,
   hasAnnouncedOn,
@@ -100,6 +101,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type NotCommented,
   type NotLabelled,
   type ProviderFailed,
   type PullRequestResolved,
@@ -853,6 +855,7 @@ async function work(
       state,
       spendCeiling,
       model,
+      selection.project.turbo,
     );
   }
 
@@ -1341,6 +1344,28 @@ async function labelClosedPullRequest(
 }
 
 /**
+ * Posts `APPLY_REVIEW_COMMENT` on `pullRequest`, once a turbo project's
+ * review ticket has already closed — CONTEXT.md's "Turbo", ADR 0006. The
+ * fields returned fold straight into `Reviewed`: empty on success,
+ * `notCommented` naming the error otherwise.
+ *
+ * Never throws, same as `labelClosedPullRequest`: best effort, tried whether
+ * or not the label itself landed, since the ticket having closed is what
+ * matters. `summary.ts` renders `notCommented` to the developer.
+ */
+async function postTurboComment(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+): Promise<{ notCommented?: NotCommented }> {
+  try {
+    await ports.repoHost.postComment(pullRequest, APPLY_REVIEW_COMMENT);
+    return {};
+  } catch (error: unknown) {
+    return { notCommented: { error: errorMessage(error) } };
+  }
+}
+
+/**
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
@@ -1371,6 +1396,7 @@ async function runReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
+  turbo: boolean,
 ): Promise<Reviewed | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
@@ -1444,7 +1470,16 @@ async function runReview(
     ticket.pullRequest.url,
     REVIEWED_LABEL,
   );
-  return { kind: "reviewed", review, tokensUsed: review.tokensUsed, ...labelled };
+  const commented = turbo
+    ? await postTurboComment(ports, ticket.pullRequest.url)
+    : {};
+  return {
+    kind: "reviewed",
+    review,
+    tokensUsed: review.tokensUsed,
+    ...labelled,
+    ...commented,
+  };
 }
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */

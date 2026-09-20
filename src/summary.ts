@@ -13,6 +13,7 @@ import {
   type Handover,
   type IterationOutcome,
   type NotClosed,
+  type NotCommented,
   type NotLabelled,
   type PullRequestResolved,
   type Rebased,
@@ -35,6 +36,7 @@ import type {
 } from "./ports/index.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
@@ -271,13 +273,19 @@ function waitingSection(
   const reviewOutcomes = workedReviewOutcomes(iterations);
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
-      case "reviewed":
+      case "reviewed": {
         if (reviewLeftOpen(iteration)) {
           return [notClosedLine(iteration, iteration.notClosed)];
         }
-        return iteration.notLabelled === undefined
-          ? []
-          : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)];
+        return [
+          ...(iteration.notLabelled === undefined
+            ? []
+            : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)]),
+          ...(iteration.notCommented === undefined
+            ? []
+            : [notCommentedLine(iteration, iteration.notCommented)]),
+        ];
+      }
       case "applied-review": {
         const waiting = appliedReviewWaitingLine(iteration);
         if (!appliedReviewNotLabelled(iteration)) {
@@ -586,13 +594,19 @@ function handbackNote(finished: Finished): string {
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, notClosed, notLabelled } = iteration;
+  const { repo, ticket, notClosed, notLabelled, notCommented } = iteration;
   switch (notClosed?.kind) {
     case undefined: {
       const posted = `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
-      return notLabelled === undefined
-        ? posted
-        : `${posted} ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
+      const labelNote =
+        notLabelled === undefined
+          ? ""
+          : ` ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
+      const commentNote =
+        notCommented === undefined
+          ? ""
+          : ` ${notCommentedNote(ticket.pullRequest.url, notCommented)}.`;
+      return `${posted}${labelNote}${commentNote}`;
     }
     case "check-failed":
       return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
@@ -629,6 +643,34 @@ function notLabelledLine(
   notLabelled: NotLabelled,
 ): string {
   return `- ${repo} #${ticket.number}: ${notLabelledNote(ticket.pullRequest.url, label, notLabelled)}`;
+}
+
+/**
+ * The sentence a turbo project's refused comment reads as, wherever it is
+ * said: read at `notCommentedLine`, and inline at the end of `reviewSummary`'s
+ * clean-outcome sentence — so a refused comment is said one way rather than
+ * in two wordings that drift apart from each other. CONTEXT.md's "Turbo",
+ * ADR 0006.
+ */
+function notCommentedNote(
+  pullRequest: PullRequestUrl,
+  { error }: NotCommented,
+): string {
+  return `${pullRequest} could not be posted ${APPLY_REVIEW_COMMENT} on: ${withoutTrailingStop(error)}; comment it yourself`;
+}
+
+/**
+ * The Waiting-on-you line for a turbo review iteration whose closed ticket's
+ * pull request could not be commented on. Read at the `reviewed` case in
+ * `waitingSection`, once it has ruled out `notClosed`: the comment is tried
+ * only after the ticket has already closed, so the two never both apply to
+ * the same iteration.
+ */
+function notCommentedLine(
+  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
+  notCommented: NotCommented,
+): string {
+  return `- ${repo} #${ticket.number}: ${notCommentedNote(ticket.pullRequest.url, notCommented)}`;
 }
 
 /** The Waiting-on-you line for a review that ran but left its ticket open. */

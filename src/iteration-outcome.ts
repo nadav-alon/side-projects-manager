@@ -441,6 +441,23 @@ export interface Reviewed {
    * — the ticket did close.
    */
   notLabelled?: NotLabelled;
+  /**
+   * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006) and the
+   * repo host refused `APPLY_REVIEW_COMMENT` on the pull request. Tried after
+   * the label step, whatever became of it — a refused label does not stop
+   * turbo, only a `notClosed` does — so this is absent both for a project
+   * that is not turbo and for one whose comment posted fine.
+   */
+  notCommented?: NotCommented;
+}
+
+/**
+ * Why turbo's own `APPLY_REVIEW_COMMENT` could not be posted on a review
+ * ticket's pull request, and the error that stopped it. As `NotLabelled`: a
+ * refusal here is reported rather than retried, and never reopens the ticket.
+ */
+export interface NotCommented {
+  error: string;
 }
 
 /**
