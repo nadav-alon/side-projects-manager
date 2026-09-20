@@ -385,12 +385,14 @@ function workedReviewOutcomes(
  * on it could do anything — its own case names nothing for a ticket it found
  * already closed, so the queued pull request would otherwise vanish with it.
  * One that ran and closed its ticket cleanly needs a line here naming the
- * pull request as reviewed, since the `reviewed` case has none to add for
- * that outcome; one that failed some other way, ran but could not close its
- * ticket, or closed instead of running because its own pull request had
- * already resolved, already has its own line — or none — from that
- * iteration's own case, so nothing is added here — a second line would only
- * repeat it.
+ * pull request as reviewed: the `reviewed` case adds nothing of its own for
+ * that outcome, except — when the label itself failed — its own line about
+ * the label rather than the review, so the two stand as separate lines
+ * rather than one repeating the other. One that failed some other way, ran
+ * but could not close its ticket, or closed instead of running because its
+ * own pull request had already resolved, already has its own line — or none
+ * — from that iteration's own case, so nothing is added here — a second line
+ * would only repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
