@@ -728,18 +728,24 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
  * again on its own, so the record still has something to protect.
  */
 function freesTicketToday(iteration: Iteration): boolean {
-  if (isCutOff(iteration) || failedOnInfrastructure(iteration)) {
-    return true;
+  switch (iteration.kind) {
+    case "limit-refused":
+    case "provider-failed":
+      return true;
+    case "finished":
+      return iteration.handedBack.outcome !== "refused";
+    case "failed":
+      return (
+        failedOnInfrastructure(iteration) ||
+        (handedBackFailure(iteration) &&
+          iteration.handedBack.outcome !== "refused")
+      );
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "pull-request-resolved":
+      return iteration.notClosed === undefined;
   }
-  if (iteration.kind === "finished") {
-    return iteration.handedBack.outcome !== "refused";
-  }
-  if (iteration.kind === "failed") {
-    return (
-      handedBackFailure(iteration) && iteration.handedBack.outcome !== "refused"
-    );
-  }
-  return iteration.notClosed === undefined;
 }
 
 /**
