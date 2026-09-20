@@ -200,7 +200,7 @@ describe("morningLoop", () => {
   it("selects a sibling ticket instead, when one in the same backlog is a supertask", async () => {
     const ports = fakePorts();
     ports.store.register(PILOT);
-    ports.tracker.addBrokenOutTicket(
+    ports.tracker.addSupertaskTicket(
       PILOT,
       { number: issueNumber(66), title: "Too big for one run" },
       7,
@@ -248,7 +248,7 @@ describe("morningLoop", () => {
     it("names the truncated project in the waiting section, even when nothing else is waiting", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addBrokenOutTicket(
+      ports.tracker.addSupertaskTicket(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
         7,
@@ -276,14 +276,14 @@ describe("morningLoop", () => {
     it("names truncated projects in registry order", async () => {
       const ports = fakePorts();
       ports.store.register(MANAGER);
-      ports.tracker.addBrokenOutTicket(
+      ports.tracker.addSupertaskTicket(
         MANAGER,
         { number: issueNumber(66), title: "Too big for one run" },
         7,
       );
       ports.tracker.truncateBacklog(MANAGER);
       ports.store.register(PILOT);
-      ports.tracker.addBrokenOutTicket(
+      ports.tracker.addSupertaskTicket(
         PILOT,
         { number: issueNumber(67), title: "Also too big" },
         8,
@@ -316,7 +316,7 @@ describe("morningLoop", () => {
     it("adds no waiting section when no project is truncated", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.tracker.addBrokenOutTicket(
+      ports.tracker.addSupertaskTicket(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
         7,

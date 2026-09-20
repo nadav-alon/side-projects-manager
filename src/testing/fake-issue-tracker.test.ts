@@ -171,9 +171,9 @@ describe("FakeIssueTracker", () => {
     assert.equal(issues[0]?.parent, undefined);
   });
 
-  it("lists a broken-out ticket alongside its open sub-issue count", async () => {
+  it("lists a supertask alongside its open sub-issue count", async () => {
     const tracker = new FakeIssueTracker();
-    tracker.addBrokenOutTicket(
+    tracker.addSupertaskTicket(
       PILOT,
       { number: issueNumber(66), title: "Too big for one run" },
       7,
