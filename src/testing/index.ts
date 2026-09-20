@@ -17,6 +17,11 @@ export {
 export { FakeSandbox } from "./fake-sandbox.ts";
 export { LIMIT_REFUSAL } from "./limit-refusal.ts";
 export {
+  PROVIDER_FAILURE_JSON_RESULT,
+  PROVIDER_FAILURE_PROSE,
+  PROVIDER_FAILURE_STDOUT,
+} from "./provider-failure.ts";
+export {
   callWith,
   emptyBacklogGh,
   recordingGh,

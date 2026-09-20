@@ -46,7 +46,14 @@ import {
   type Sandbox,
   type Ticket,
 } from "../ports/index.ts";
-import { gate, HANGS, LIMIT_REFUSAL } from "../testing/index.ts";
+import {
+  gate,
+  HANGS,
+  LIMIT_REFUSAL,
+  PROVIDER_FAILURE_JSON_RESULT,
+  PROVIDER_FAILURE_PROSE,
+  PROVIDER_FAILURE_STDOUT,
+} from "../testing/index.ts";
 
 const run = promisify(execFile);
 
@@ -241,6 +248,32 @@ const MODEL_REFUSAL_EXIT = Object.assign(
   new Error("Command failed: docker run"),
   { code: 1, stdout: MODEL_REFUSAL_STDOUT, stderr: MODEL_REFUSAL_STDERR },
 );
+
+/**
+ * What `execFile` rejects with under a forced timeout (`API_TIMEOUT_MS=1`):
+ * exit 1, empty stderr, `PROVIDER_FAILURE_STDOUT` on stdout.
+ */
+const PROVIDER_FAILURE_JSON_EXIT = Object.assign(
+  new Error("Command failed: docker run"),
+  { code: 1, stdout: PROVIDER_FAILURE_STDOUT, stderr: "" },
+);
+
+/**
+ * What `execFile` rejects with during a real outage: exit 1, empty stderr,
+ * no JSON envelope — the whole of the CLI's answer is the prose line.
+ */
+const PROVIDER_FAILURE_PROSE_EXIT = Object.assign(
+  new Error("Command failed: docker run"),
+  { code: 1, stdout: PROVIDER_FAILURE_PROSE, stderr: "" },
+);
+
+/** `PROVIDER_FAILURE_STDOUT`, with `api_error_status` replaced by `status`. */
+function providerFailureStdoutWithStatus(status: number | null): string {
+  return JSON.stringify({
+    ...JSON.parse(PROVIDER_FAILURE_STDOUT),
+    api_error_status: status,
+  });
+}
 
 describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
@@ -795,6 +828,99 @@ describe("containerSandbox", () => {
     const sandbox = containerSandbox(async () => ({
       output: `Implemented the stand-down. The CLI says:\n${LIMIT_REFUSAL}`,
       tokensUsed: tokenCount(1_000),
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "finished");
+  });
+
+  it("reports a provider failure from a forced timeout's JSON envelope", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "provider-failed");
+    assert.equal(
+      variant(result, "provider-failed")?.words,
+      PROVIDER_FAILURE_JSON_RESULT,
+    );
+  });
+
+  it("reports a provider failure from a real outage's prose, with no JSON envelope", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(PROVIDER_FAILURE_PROSE_EXIT),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "provider-failed");
+    assert.equal(variant(result, "provider-failed")?.words, PROVIDER_FAILURE_PROSE);
+  });
+
+  for (const status of [529, 500]) {
+    it(`reads api_error_status ${status} as a provider failure`, async () => {
+      const directory = await project();
+      const sandbox = containerSandbox(async () =>
+        readExitedRun(
+          Object.assign(new Error("Command failed: docker run"), {
+            code: 1,
+            stdout: providerFailureStdoutWithStatus(status),
+            stderr: "",
+          }),
+        ),
+      );
+
+      const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+      assert.equal(result.kind, "provider-failed");
+    });
+  }
+
+  it("reads api_error_status 401 as an agent that gave up, not a provider failure", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(
+        Object.assign(new Error("Command failed: docker run"), {
+          code: 1,
+          stdout: providerFailureStdoutWithStatus(401),
+          stderr: "",
+        }),
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "gave-up");
+  });
+
+  it("does not mistake a finished agent that quotes an API error part-way through for a provider failure", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: `Implemented the retry. The CLI once said:\n${PROVIDER_FAILURE_PROSE}`,
+      tokensUsed: tokenCount(1_000),
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "finished");
+  });
+
+  it("does not mistake a clean exit for a provider failure, whatever its output opens with", async () => {
+    const directory = await project();
+    // A container's own `AgentRun` can carry `providerFailure` without the
+    // agent having exited non-zero — `readAgentRun` sets it off `stdout`
+    // alone, before the exit code is known. `endingOf` is what must not read
+    // that as a provider failure unless `failure` says the CLI exited
+    // non-zero too.
+    const sandbox = containerSandbox(async () => ({
+      output: PROVIDER_FAILURE_PROSE,
+      tokensUsed: tokenCount(1_000),
+      providerFailure: PROVIDER_FAILURE_PROSE,
     }));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
@@ -1364,6 +1490,25 @@ describe("containerSandbox.review", () => {
     assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
 
+  it("reports a provider failure apart from a failed reviewer", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () =>
+      readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
+    );
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.kind, "provider-failed");
+    assert.equal(
+      variant(result, "provider-failed")?.words,
+      PROVIDER_FAILURE_JSON_RESULT,
+    );
+  });
+
   it("reports a model refusal apart from a reviewer that gave up, naming the model and the CLI's words", async () => {
     const directory = await project();
     const sandbox = containerSandbox(async () =>
@@ -1742,6 +1887,22 @@ describe("containerSandbox.applyReview", () => {
     });
   });
 
+  it("reports a provider failure as a review run does", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(
+      async () => readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
+      headIsBranch,
+    );
+
+    const result = await applyReviewOn(sandbox, directory);
+
+    assert.deepEqual(result, {
+      kind: "provider-failed",
+      words: PROVIDER_FAILURE_JSON_RESULT,
+      tokensUsed: tokenCount(0),
+    });
+  });
+
   it("reports a model refusal as a review run does, naming the model and the CLI's words", async () => {
     const { directory } = await hostedProject();
     const sandbox = containerSandbox(
@@ -2060,6 +2221,22 @@ describe("containerSandbox.rebase", () => {
     });
   });
 
+  it("reports a provider failure as an apply-review run does", async () => {
+    const { directory } = await hostedProject();
+    const sandbox = containerSandbox(
+      async () => readExitedRun(PROVIDER_FAILURE_JSON_EXIT),
+      headIsBranch,
+    );
+
+    const result = await rebaseOn(sandbox, directory);
+
+    assert.deepEqual(result, {
+      kind: "provider-failed",
+      words: PROVIDER_FAILURE_JSON_RESULT,
+      tokensUsed: tokenCount(0),
+    });
+  });
+
   it("reports a model refusal as an apply-review run does, naming the model and the CLI's words, told apart from a limit refusal", async () => {
     const { directory } = await hostedProject();
     const sandbox = containerSandbox(
@@ -2264,6 +2441,38 @@ describe("readAgentRun", () => {
 
     assert.equal(agent.modelRefused, undefined);
   });
+
+  it("reads a provider failure off the JSON envelope's own is_error and terminal_reason", () => {
+    const agent = readAgentRun(PROVIDER_FAILURE_STDOUT);
+
+    assert.equal(agent.providerFailure, PROVIDER_FAILURE_JSON_RESULT);
+  });
+
+  it("reads a provider failure off prose with no JSON envelope to parse", () => {
+    const agent = readAgentRun(PROVIDER_FAILURE_PROSE);
+
+    assert.equal(agent.providerFailure, PROVIDER_FAILURE_PROSE);
+  });
+
+  it("reads no provider failure from the model-refusal fixture's own api_error_status", () => {
+    const agent = readAgentRun(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR);
+
+    assert.equal(agent.providerFailure, undefined);
+  });
+
+  it("reads no provider failure when is_error is false", () => {
+    const agent = readAgentRun(
+      JSON.stringify({
+        is_error: false,
+        terminal_reason: "api_error",
+        api_error_status: null,
+        result: "not actually a failure",
+      }),
+    );
+
+    assert.equal(agent.providerFailure, undefined);
+  });
+
   it("reads the agent's result and totals every token field", () => {
     const stdout = JSON.stringify({
       result: "implemented the thing",

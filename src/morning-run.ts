@@ -28,6 +28,7 @@ import type {
   RunLimitRefused,
   RunModelRefused,
   RunOutcome,
+  RunProviderFailed,
   Sandbox,
   State,
   Store,
@@ -71,9 +72,13 @@ import {
 } from "./handback-comment.ts";
 import { errorMessage } from "./error-message.ts";
 import {
+  cutOffReviewOutcome,
+  cutOffRunOutcome,
   failedOnInfrastructure,
   handedBackForModelLabels,
+  isCutOff,
   type AppliedReview,
+  type CutOff,
   type Failed,
   type Finished,
   type GaveUp,
@@ -85,6 +90,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
@@ -232,6 +238,19 @@ export interface ProviderLimitStandDown {
 }
 
 /**
+ * A stand-down the gate never saw coming either: a provider failure — down,
+ * overloaded or unreachable. As `ProviderLimitStandDown`, every run after the
+ * first would be stopped the same way.
+ */
+export interface ProviderFailureStandDown {
+  reason: "provider-failure";
+  /** What the CLI said, word for word. */
+  providerFailure: string;
+  /** The ticket whose run it stopped, left eligible exactly as it was. */
+  ticket: Ticket;
+}
+
+/**
  * A stand-down the developer asked for, by stopping the invocation by hand.
  * Nothing about the budget or any ticket: every ticket not yet started is left
  * exactly as it was.
@@ -244,7 +263,15 @@ export interface DeveloperStandDown {
 export type InvocationStandDown =
   | GateStandDown
   | ProviderLimitStandDown
+  | ProviderFailureStandDown
   | DeveloperStandDown;
+
+/** `iteration`'s own cut-off reason, as the stand-down it triggers. */
+function cutOffStandDown(iteration: CutOff, ticket: Ticket): InvocationStandDown {
+  return iteration.kind === "limit-refused"
+    ? { reason: "provider-limit", limitRefusal: iteration.limitRefusal, ticket }
+    : { reason: "provider-failure", providerFailure: iteration.providerFailure, ticket };
+}
 
 /** What a trigger may hand the loop beyond its ports. */
 export interface MorningLoopOptions {
@@ -441,22 +468,20 @@ export async function morningLoop(
                 ...iteration,
               } as IterationOutcome;
 
-              // An infrastructure failure or a limit refusal says nothing
-              // about the ticket, so it is left free for a later firing today
-              // — one that finds the setup fixed or the provider limit reset.
+              // An infrastructure failure, a limit refusal or a provider
+              // failure says nothing about the ticket, so it is left free for
+              // a later firing today — one that finds the setup fixed, the
+              // provider limit reset, or the provider answering again.
               if (leavesTicketUntouched(iteration)) {
                 worked.unrecord(ticket);
               }
 
-              // The provider limit refuses every run after this one the same
-              // way, so nothing further starts. The iterations already in
-              // progress are left to finish on their own.
-              if (iteration.kind === "limit-refused") {
-                standDown ??= {
-                  reason: "provider-limit",
-                  limitRefusal: iteration.limitRefusal,
-                  ticket,
-                };
+              // A cut-off run — a limit refusal or a provider failure —
+              // stops every run after it the same way, so nothing further
+              // starts. The iterations already in progress are left to
+              // finish on their own.
+              if (isCutOff(iteration)) {
+                standDown ??= cutOffStandDown(iteration, ticket);
               }
             },
             (error: unknown) => {
@@ -653,26 +678,24 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 }
 
 /**
- * Whether `iteration` was one of the two that say nothing about its ticket —
- * an infrastructure failure or a limit refusal — and so, as `work` leaves it,
- * leaves the ticket exactly as it was.
+ * Whether `iteration` was one of the three that say nothing about its ticket —
+ * an infrastructure failure, a limit refusal or a provider failure — and so,
+ * as `work` leaves it, leaves the ticket exactly as it was.
  */
 function leavesTicketUntouched(iteration: Iteration): boolean {
-  return (
-    iteration.kind === "limit-refused" || failedOnInfrastructure(iteration)
-  );
+  return isCutOff(iteration) || failedOnInfrastructure(iteration);
 }
 
 /**
  * The second step: run the selected ticket and record what that cost. An
  * implementation ticket hands its work over as a draft pull request with a
  * review queued against it, or — when the agent gave up — puts the ticket back
- * in the developer's hands. An infrastructure failure or a limit refusal
- * leaves the ticket untouched. A review ticket's own run posts its findings
- * itself and is closed once it has; an apply-review ticket's pushes and
- * replies itself, and is closed once the repo host shows every thread
- * answered; a rebase ticket's force-pushes itself, and is closed once the repo
- * host no longer reports its pull request conflicting.
+ * in the developer's hands. An infrastructure failure, a limit refusal or a
+ * provider failure leaves the ticket untouched. A review ticket's own run
+ * posts its findings itself and is closed once it has; an apply-review
+ * ticket's pushes and replies itself, and is closed once the repo host shows
+ * every thread answered; a rebase ticket's force-pushes itself, and is closed
+ * once the repo host no longer reports its pull request conflicting.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -746,14 +769,8 @@ async function work(
       },
     };
   }
-  if (run.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: run.words,
-      tokensUsed: run.tokensUsed,
-      run,
-      discard: await discardBranch(ports, checkout, run),
-    };
+  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+    return cutOffRunOutcome(run, await discardBranch(ports, checkout, run));
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(selection.ticket, run.refusal);
@@ -1001,7 +1018,7 @@ async function handTicketBack(
 async function discardBranch(
   ports: MorningLoopPorts,
   checkout: Checkout,
-  run: RunGaveUp | RunLimitRefused | RunModelRefused,
+  run: RunGaveUp | RunLimitRefused | RunModelRefused | RunProviderFailed,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -1180,7 +1197,7 @@ async function runReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Reviewed | LimitRefused | Failed | PullRequestResolved> {
+): Promise<Reviewed | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
   );
@@ -1202,13 +1219,8 @@ async function runReview(
   }
   const { outcome: review } = result;
 
-  if (review.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: review.words,
-      tokensUsed: review.tokensUsed,
-      discard: { kind: "none" },
-    };
+  if (review.kind === "limit-refused" || review.kind === "provider-failed") {
+    return cutOffReviewOutcome(review);
   }
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
@@ -1312,7 +1324,7 @@ async function runApplyReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<AppliedReview | LimitRefused | Failed | PullRequestResolved> {
+): Promise<AppliedReview | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -1353,13 +1365,8 @@ async function runApplyReview(
   }
   const { outcome: run } = result;
 
-  if (run.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: run.words,
-      tokensUsed: run.tokensUsed,
-      discard: { kind: "none" },
-    };
+  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+    return cutOffReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(ticket, run.refusal);
@@ -1492,7 +1499,7 @@ async function runRebase(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Rebased | LimitRefused | Failed | PullRequestResolved> {
+): Promise<Rebased | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -1542,13 +1549,8 @@ async function runRebase(
   }
   const { outcome: run } = result;
 
-  if (run.kind === "limit-refused") {
-    return {
-      kind: "limit-refused",
-      limitRefusal: run.words,
-      tokensUsed: run.tokensUsed,
-      discard: { kind: "none" },
-    };
+  if (run.kind === "limit-refused" || run.kind === "provider-failed") {
+    return cutOffReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
     const failure = modelRefused(ticket, run.refusal);
