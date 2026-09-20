@@ -423,7 +423,7 @@ describe("summaryLine", () => {
     assert.doesNotMatch(line, /\.\./);
   });
 
-  it("trims a trailing newline from a hand-back failure before the em dash that follows it", () => {
+  it("trims a trailing newline from a hand-back failure before the semicolon that follows it", () => {
     const finished: IterationOutcome = {
       repo: REPO,
       ticket: implementationTicket(188),
@@ -443,7 +443,7 @@ describe("summaryLine", () => {
 
     assert.match(
       line,
-      /could not be handed back: the tracker was unreachable — still ready-for-agent/,
+      /still ready-for-agent and will come round again — the hand-back itself failed: the tracker was unreachable;/,
     );
   });
 

@@ -3031,7 +3031,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.match(report.message, /could not be handed back/);
+      assert.match(report.message, /the hand-back itself failed/);
       assert.match(report.message, /gh is not logged in/);
     });
   });

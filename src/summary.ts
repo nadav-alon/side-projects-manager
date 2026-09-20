@@ -533,12 +533,15 @@ function describeIteration(iteration: IterationOutcome): string {
  * ticket out of the queue — was refused. Empty when it succeeded, since
  * `landed` and `queued` already say what became of the run itself, and a
  * ticket successfully handed back needs nothing more said about it here.
+ *
+ * Reads through `handedBackNow`, the same function a failed iteration's own
+ * `stoppedBecause` reads, so a refused hand-back is said one way rather than
+ * in two wordings that drift apart from each other.
  */
 function handbackNote(finished: Finished): string {
-  if (finished.handedBack.outcome !== "refused") {
-    return "";
-  }
-  return ` The ticket could not be handed back: ${withoutTrailingStop(finished.handedBack.reason)} — still ${READY_FOR_AGENT_LABEL} and will come round again; relabel it yourself.`;
+  return finished.handedBack.outcome !== "refused"
+    ? ""
+    : ` ${handedBackNow("The ticket", finished.handedBack)}`;
 }
 
 /**
