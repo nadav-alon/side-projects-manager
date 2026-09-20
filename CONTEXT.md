@@ -60,7 +60,7 @@ Whatever calls `morningLoop`: the hourly schedule, a manual `npm run morning-run
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
-A trigger that once fired on every new interactive shell, dropped once the hourly schedule made it redundant: cron starts with the machine, so nothing a shell launch would catch is missed anymore. `scripts/install-triggers.sh` no longer installs one, only strips one left behind by an older install, and the status command still checks for it — a rc block an upgrade hasn't cleared yet is still armed and still firing.
+A trigger that once fired on every new interactive shell, dropped once the hourly schedule made it redundant: cron starts with the machine, so nothing a shell launch would catch is missed anymore. `scripts/install-triggers.sh` no longer installs one, only strips one left behind by an older install, and the status command still checks for it — an rc block an upgrade hasn't cleared yet is still armed and still firing.
 _Avoid_: startup hook, login script
 
 **Invocation lease**:
