@@ -75,6 +75,17 @@ function reviewedButNotClosed(number: number): IterationOutcome {
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
+/** A review ticket's own run that closed its ticket cleanly but could not label its pull request. */
+function reviewedButNotLabelled(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    notLabelled: { error: "the label already existed with different case" },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
 /** A review ticket's own run that found its pull request already resolved, and closed it. */
 function reviewResolved(number: number): IterationOutcome {
   const resolved: PullRequestResolved = {
@@ -226,6 +237,14 @@ describe("waitingSection", () => {
     ]);
   });
 
+  it("lists a reviewed iteration under waiting on you when its pull request could not be labelled, naming the pull request, the label and the error", () => {
+    const lines = waitingLines([reviewedButNotLabelled(183)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #183: ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself`,
+    ]);
+  });
+
   it("does not split the list in two when an infrastructure failure's reason ends in a newline", () => {
     const first: IterationOutcome = {
       repo: REPO,
@@ -251,6 +270,23 @@ describe("waitingSection", () => {
         `- ${REPO} #189: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
         `- ${REPO} #190: still ready-for-agent — the sandbox or checkout failed, so fix the setup: disk full`,
       ],
+    );
+  });
+});
+
+describe("reviewSummary", () => {
+  it("reads a reviewed iteration exactly as today when notLabelled is absent", () => {
+    const line = summaryLine(facts([reviewedCleanly(210)]));
+
+    assert.equal(line, `Reviewed ${REPO} #210: posted findings on ${PULL_REQUEST}.`);
+  });
+
+  it("names the pull request, the reviewed label and the error when a reviewed iteration could not be labelled", () => {
+    const line = summaryLine(facts([reviewedButNotLabelled(211)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO} #211: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself.`,
     );
   });
 });
