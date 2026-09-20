@@ -1,6 +1,7 @@
 import type { Progress, ProgressEvent } from "../ports/progress.ts";
 import type { StandDownReason } from "../ports/stand-down-reason.ts";
 import { ticketKey } from "../ports/store.ts";
+import type { TokenCount } from "../ports/token-count.ts";
 
 /** How each stand-down reason reads to a person watching, rather than the token `StandDown.reason` carries. */
 const REASON_PHRASES: Readonly<Record<StandDownReason, string>> = {
@@ -74,7 +75,7 @@ function reasonPhrase(reason: StandDownReason): string {
   return REASON_PHRASES[reason];
 }
 
-function tokens(count: number): string {
+function tokens(count: TokenCount): string {
   return count.toLocaleString("en-US");
 }
 
