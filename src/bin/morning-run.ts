@@ -220,7 +220,9 @@ function stopOnInterrupt(progress: Progress): AbortSignal {
   const controller = new AbortController();
   const onStop = (): void => {
     if (!controller.signal.aborted) {
-      console.log(
+      // stderr, not stdout: this is the invocation's own conduct, not
+      // report.message, which piping the summary reads.
+      console.error(
         "Stopping: nothing further will start. Runs in progress will finish and the summary will publish. Interrupt again to stop now, losing them.",
       );
       controller.abort();

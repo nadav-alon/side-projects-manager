@@ -543,7 +543,7 @@ describe("the morning-run command", () => {
       // The listing in progress was not killed by the interrupt: had it been,
       // the invocation would have failed and exited non-zero.
       assert.equal(code, 0);
-      assert.match(morning.stdout(), /Stopping/);
+      assert.match(morning.stderr(), /Stopping/);
       assert.match(morning.stdout(), /no ready-for-agent tickets/);
       const creates = (await gh.calls()).filter(
         (call) => call[0] === "issue" && call[1] === "create",
@@ -553,7 +553,7 @@ describe("the morning-run command", () => {
 
     it("stops at once on a second interrupt, publishing nothing", async (t) => {
       const { gh, morning } = await interruptedMidListing(t);
-      await until(() => /Stopping/.test(morning.stdout()));
+      await until(() => /Stopping/.test(morning.stderr()));
       morning.interrupt();
 
       const code = await morning.closed;
@@ -567,7 +567,7 @@ describe("the morning-run command", () => {
 
     it("says on stderr, before it kills anything, what a second interrupt is abandoning", async (t) => {
       const { morning } = await interruptedMidListing(t);
-      await until(() => /Stopping/.test(morning.stdout()));
+      await until(() => /Stopping/.test(morning.stderr()));
       morning.interrupt();
 
       await morning.closed;
@@ -587,7 +587,7 @@ describe("the morning-run command", () => {
       const code = await morning.closed;
 
       assert.equal(code, 0);
-      assert.match(morning.stdout(), /Stopping/);
+      assert.match(morning.stderr(), /Stopping/);
       const creates = (await gh.calls()).filter(
         (call) => call[0] === "issue" && call[1] === "create",
       );
@@ -600,7 +600,7 @@ describe("the morning-run command", () => {
       // Closed only once the loop, which shares the output pipe, has ended too.
       await morning.closed;
 
-      assert.match(morning.stdout(), /Stopping/);
+      assert.match(morning.stderr(), /Stopping/);
       assert.match(morning.stdout(), /no ready-for-agent tickets/);
       const creates = (await gh.calls()).filter(
         (call) => call[0] === "issue" && call[1] === "create",
