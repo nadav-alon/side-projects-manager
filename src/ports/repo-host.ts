@@ -459,12 +459,12 @@ export interface RepoHost {
   /**
    * Posts `body` as a comment on `pullRequest`.
    *
-   * The port's first comment verb, kept as narrow as the write verbs above
-   * it: turbo mode (CONTEXT.md's "Turbo", ADR 0006) is the one caller, and it
-   * only ever posts {@link APPLY_REVIEW_COMMENT}, once a review ticket
-   * closes, standing in for the developer typing it themselves. Nothing here
-   * reads a comment back — see `container-sandbox.ts`'s note by the
-   * reviewer's own prompt for why that stays true regardless.
+   * Kept as narrow as the write verbs above it: turbo mode (CONTEXT.md's
+   * "Turbo", ADR 0006) is the one caller, and it only ever posts
+   * {@link APPLY_REVIEW_COMMENT}, once a review ticket closes, standing in
+   * for the developer typing it themselves. Nothing here reads a comment
+   * back — see `container-sandbox.ts`'s note by the reviewer's own prompt for
+   * why that stays true regardless.
    */
   postComment(pullRequest: PullRequestUrl, body: string): Promise<void>;
   /**
