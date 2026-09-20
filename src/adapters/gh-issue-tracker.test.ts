@@ -9,7 +9,7 @@ import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
-  isBrokenOut,
+  isSupertask,
   issueNumber,
   modelLabelOf,
   modelName,
@@ -1653,7 +1653,7 @@ describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
     const ticket = await ticket7();
     assert.ok(ticket);
     assert.equal(ticket.openSubIssues, undefined);
-    assert.equal(isBrokenOut(ticket), false);
+    assert.equal(isSupertask(ticket), false);
   });
 
   it("does not count an apply-review ticket among a ticket's open sub-issues", async (t) => {

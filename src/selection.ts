@@ -13,7 +13,7 @@ import type {
 import {
   backlogIn,
   isBlocked,
-  isBrokenOut,
+  isSupertask,
   ticketKind,
   ticketPrioritiesIn,
 } from "./ports/index.ts";
@@ -220,7 +220,7 @@ async function scan(
     const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
     for (const ticket of backlog) {
-      if (isBrokenOut(ticket)) {
+      if (isSupertask(ticket)) {
         brokenOut.push(ticket);
       } else if (isBlocked(ticket)) {
         blocked.push(ticket);

@@ -36,7 +36,7 @@ export {
   discountPullRequestTickets,
   isApplyReviewTicket,
   isBlocked,
-  isBrokenOut,
+  isSupertask,
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,

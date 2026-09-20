@@ -209,7 +209,7 @@ export interface PullRequestBinding {
  * ticket, which is what selection reads to choose which kind of run to
  * start.
  *
- * `openSubIssues` is the fact `isBrokenOut` reads: how many of the ticket's
+ * `openSubIssues` is the fact `isSupertask` reads: how many of the ticket's
  * sub-issues are still open and are not pull request tickets, straight from
  * the same listing that already carries the labels selection filters on, so
  * it costs no extra tracker call.
@@ -260,18 +260,18 @@ export function isBlocked(ticket: Ticket): boolean {
 /**
  * Whether `ticket`'s work has been broken out into sub-issues that are still
  * open — a container for that work rather than work of its own, per
- * `CONTEXT.md`'s "Broken-out ticket". The tracker only reports the count;
+ * `CONTEXT.md`'s "Supertask". The tracker only reports the count;
  * this is the judgment selection makes from it, so it can be exercised
  * against the fake rather than buried in an adapter's query string.
  */
-export function isBrokenOut(ticket: Ticket): boolean {
+export function isSupertask(ticket: Ticket): boolean {
   return (ticket.openSubIssues ?? 0) > 0;
 }
 
 /**
  * `issues`, each ticket's `openSubIssues` taken from counting every open
  * sub-issue the tracker knows of to counting only those that are not pull
- * request tickets — the ones `CONTEXT.md`'s "Broken-out ticket" counts. A
+ * request tickets — the ones `CONTEXT.md`'s "Supertask" counts. A
  * pull request ticket is recognised among `issues` themselves, by its
  * `parent`, so the bodies that say what it is come from the same read.
  *
