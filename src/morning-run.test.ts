@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
+import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   APPLIED_REVIEW_LABEL,
@@ -69,10 +69,11 @@ function gateRefusal(report: InvocationReport) {
     : standDown;
 }
 
-/** What became of an agent that gave up's own hand-back — undefined for any other outcome. */
+/** What became of a failed iteration's own hand-back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
-  const failure = failureOf(iteration);
-  return failure?.kind === "gave-up" ? failure.handedBack : undefined;
+  return iteration?.kind === "failed" && handedBackFailure(iteration)
+    ? iteration.handedBack.outcome
+    : undefined;
 }
 
 function pullRequestOf(iteration: IterationOutcome | undefined) {
@@ -961,12 +962,10 @@ describe("morningLoop", () => {
       const checkoutPath = `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`;
       assert.match(report.message, /not pushed/);
       assert.match(report.message, new RegExp(checkoutPath));
+      // The comment's own wording — naming the branch and checkout — is
+      // covered by hand-back.test.ts; here it is enough that the hand back
+      // happened, for the ticket this iteration selected.
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /not pushed/);
-      assert.match(
-        ports.tracker.handbacks[0]?.comment ?? "",
-        new RegExp(checkoutPath),
-      );
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1147,7 +1146,7 @@ describe("morningLoop", () => {
         ports.tracker.handbacks.some((handback) => handback.ticket.number === ticket.number),
         false,
       );
-      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+      assert.equal(finished(report.iterations[0])?.handedBack.outcome, "already-closed");
     });
 
     it("is not opened on a morning that ran nothing", async () => {
@@ -1367,11 +1366,11 @@ describe("morningLoop", () => {
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
       assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      // The comment's own wording is covered by hand-back.test.ts; here it is
+      // enough that the hand back happened, for the ticket this iteration
+      // selected.
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
-      assert.match(handback.comment, /the review skill exited 1/);
-      assert.match(handback.comment, /I could not read the diff/);
-      assert.match(handback.comment, /will not be retried/);
       assert.equal(ports.sandbox.reviews.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
     });
@@ -2862,19 +2861,14 @@ describe("morningLoop", () => {
       assert.match(report.message, new RegExp(reason));
     });
 
-    describe("the comment it leaves", () => {
-      it("says why the agent stopped, and what it said before it did", async () => {
-        const ports = readyToWork();
-        agentGivesUp(ports);
+    it("hands the ticket back", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
 
-        await morningLoop(ports);
+      await morningLoop(ports);
 
-        const [handback] = ports.tracker.handbacks;
-        assert.equal(handback?.ticket.number, 7);
-        assert.match(handback.comment, new RegExp(GAVE_UP));
-        assert.match(handback.comment, new RegExp(SAID));
-      });
-
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, 7);
     });
 
     describe("when the sandbox itself breaks", () => {
@@ -3044,7 +3038,6 @@ describe("morningLoop", () => {
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
       assert.equal(handedBackOf(report.iterations[0]), "refused");
-      assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
       // The one morning the developer has to act on themselves: saying it was
       // handed back would be the opposite of what happened.
@@ -3064,13 +3057,9 @@ describe("morningLoop", () => {
       // Relabelling is the half that stops the ticket costing another
       // morning; a branch git will not delete must not take it down.
       assert.equal(handedBackOf(report.iterations[0]), "handed-back");
-      assert.match(
-        ports.tracker.handbacks[0]?.comment ?? "",
-        /could not be discarded/,
-      );
     });
 
-    it("does not claim a branch was discarded when the agent committed nothing", async () => {
+    it("does not discard a branch when the agent committed nothing", async () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
         kind: "gave-up",
@@ -3084,44 +3073,6 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, []);
-      assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /discard/);
-    });
-
-    it("keeps the comment small enough for a tracker to accept it", async () => {
-      const ports = readyToWork();
-      ports.sandbox.result = () => ({
-        kind: "gave-up",
-        branch: FAILED_BRANCH,
-        commits: [commitSha("c0ffee1")],
-        output: "x".repeat(200_000),
-        tokensUsed: tokenCount(42_000),
-        // A failed `execFile` carries every byte the command wrote to stderr.
-        reason: "y".repeat(200_000),
-      });
-
-      await morningLoop(ports);
-
-      // GitHub's own limit on a comment body. A comment it rejects is a
-      // ticket that never gets handed back.
-      assert.ok((ports.tracker.handbacks[0]?.comment.length ?? 0) < 65_536);
-    });
-
-    it("quotes output that contains code fences without breaking out of the quote", async () => {
-      const ports = readyToWork();
-      ports.sandbox.result = () => ({
-        kind: "gave-up",
-        branch: FAILED_BRANCH,
-        commits: [commitSha("c0ffee1")],
-        output: "I tried:\n```ts\nconst x = 1;\n```\nand it broke",
-        tokensUsed: tokenCount(42_000),
-        reason: GAVE_UP,
-      });
-
-      await morningLoop(ports);
-
-      // A fence longer than any run of backticks inside, or the rest of the
-      // output renders as Markdown and its `#123`s become cross-references.
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /````\n/);
     });
 
     it("reports the run alongside the failure, so its commits are still visible", async () => {
@@ -3198,7 +3149,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.deepEqual(ports.tracker.handbacks, []);
-      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+      assert.equal(finished(report.iterations[0])?.handedBack.outcome, "already-closed");
       const [summary] = ports.tracker.summaries;
       assert.ok(summary);
       assert.doesNotMatch(summary.body, /relabelled/);
@@ -3234,7 +3185,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.match(report.message, /could not be handed back/);
+      assert.match(report.message, /the hand-back itself failed/);
       assert.match(report.message, /gh is not logged in/);
     });
   });
@@ -4074,25 +4025,11 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.sandbox.runs, []);
         assert.deepEqual(ports.repoHost.clones, []);
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, without a run.
         assert.equal(ports.tracker.handbacks.length, 1);
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /model:opus/);
-        assert.match(comment, /model:haiku/);
-        assert.match(comment, /keep one/i);
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "conflicting-model-labels");
-      });
-
-      it("names the labels as the ticket carries them", async () => {
-        const { ports, ticket } = oneTicket();
-        ports.tracker.addLabel(ticket, "Model:Opus");
-        ports.tracker.addLabel(ticket, "model:haiku");
-
-        await morningLoop(ports);
-
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /`Model:Opus`/);
-        assert.doesNotMatch(comment, /`model:Opus`/);
       });
 
       it("spends nothing, and the invocation carries on to the next ticket", async () => {
@@ -4126,14 +4063,15 @@ describe("morningLoop", () => {
       });
     });
 
-    it("hands back a ticket whose model label names no usable model, quoting it, and never runs it", async () => {
+    it("hands back a ticket whose model label names no usable model, and never runs it", async () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:");
 
       await morningLoop(ports);
 
       assert.deepEqual(ports.sandbox.runs, []);
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /`model:`/);
+      // The comment's own wording is covered by hand-back.test.ts.
+      assert.equal(ports.tracker.handbacks.length, 1);
     });
 
     describe("a model the agent CLI refuses", () => {
@@ -4150,12 +4088,10 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, for the failure this
+        // iteration reports.
         assert.equal(ports.tracker.handbacks.length, 1);
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /opus/);
-        assert.match(comment, /model label/);
-        assert.match(comment, /refused model opus/);
-        assert.doesNotMatch(comment, /gave up/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
       });
