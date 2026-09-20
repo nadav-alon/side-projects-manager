@@ -59,6 +59,7 @@ import {
   PROVIDER_FAILURE_STDOUT,
   recordingGh,
   recordingDocker,
+  valueOf,
   type RecordedDocker,
 } from "../testing/index.ts";
 
@@ -2702,12 +2703,6 @@ describe("containerSandbox with the real docker container", () => {
     ].join("\n");
   }
 
-  /** The value docker's `--volume` flag was given in `call`. */
-  function volumeOf(call: string[] | undefined): string | undefined {
-    const at = call?.indexOf("--volume") ?? -1;
-    return at === -1 ? undefined : call?.[at + 1];
-  }
-
   /** Every value a `--volume` flag was given in `call`, in the order docker sees them. */
   function volumesOf(call: string[] | undefined): string[] {
     return (call ?? []).flatMap((argument, at) =>
@@ -2741,7 +2736,7 @@ describe("containerSandbox with the real docker container", () => {
     assert.ok(call?.includes("--rm"));
     assert.ok(call?.includes("--print"));
     assert.equal(call?.[(call.indexOf("--output-format") ?? -1) + 1], "json");
-    const volume = volumeOf(call) ?? "";
+    const volume = valueOf(call, "--volume") ?? "";
     const [mounted] = volume.split(":");
     assert.notEqual(mounted, directory, "must mount the clone, not the checkout");
     assert.ok(volume.endsWith(":/repo"), "a run mounts read-write, with no :ro suffix");
@@ -2818,7 +2813,7 @@ describe("containerSandbox with the real docker container", () => {
 
     const [call] = await docker.calls();
     assert.equal(call?.[(call.indexOf("--model") ?? -1) + 1], "opus");
-    assert.ok(volumeOf(call)?.endsWith(":/repo:ro"));
+    assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
   });
 
   it("forwards the same credential names to the container regardless of mount", async (t) => {
@@ -2968,7 +2963,7 @@ describe("containerSandbox with the real docker container", () => {
 
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
-    assert.ok(volumeOf(call)?.endsWith(":/repo:ro"));
+    assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
   });
 
   /**
