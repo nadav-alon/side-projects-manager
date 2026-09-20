@@ -226,11 +226,11 @@ export interface ReviewModelRefused extends Ended {
  * caller can still salvage it (see CONTEXT.md's "Salvage") — absent together
  * otherwise, since a branch never fetched back is gone with the clone.
  */
-export interface RunSandboxFailed extends Ended, Partial<Worked> {
+export type RunSandboxFailed = Ended & {
   kind: "sandbox-failed";
   /** Why the sandbox failed, once the agent had already run. */
   reason: string;
-}
+} & (Worked | { branch?: undefined; commits?: undefined });
 
 /**
  * How a run in the container ended, as exactly one variant: finished, gave
