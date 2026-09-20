@@ -2898,6 +2898,10 @@ describe("containerSandbox with the real docker container", () => {
     const [call] = await docker.calls();
     assert.equal(call?.[(call.indexOf("--model") ?? -1) + 1], "opus");
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(
+      call?.includes("--permission-mode"),
+      "no --permission-mode: a review denied Bash cannot even run gh to post its findings",
+    );
   });
 
   it("forwards the same credential names to the container regardless of mount", async (t) => {
