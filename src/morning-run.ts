@@ -1369,8 +1369,10 @@ async function postTurboComment(
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
- * ticket once that finished, then labelling its pull request `reviewed` — a
- * review that posted needs nobody to close it by hand.
+ * ticket once that finished, then labelling its pull request `reviewed`
+ * and, for a turbo project (CONTEXT.md's "Turbo", ADR 0006), posting
+ * `/apply-review` on it as the developer would have typed — a review that
+ * posted needs nobody to close it, or act on it, by hand.
  *
  * Closing rests on the pull request actually carrying a new comment, not on
  * the sandbox process merely exiting clean: an agent can run the review skill
@@ -1386,8 +1388,11 @@ async function postTurboComment(
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
- * as it was, and the invocation carries on. A check, a close or a label that
- * fails after the review ran is reported on the iteration, never raised.
+ * as it was, and the invocation carries on. A check, a close, a label or a
+ * turbo comment that fails after the review ran is reported on the
+ * iteration, never raised — the turbo comment is tried whether or not the
+ * label landed, since it is the ticket having closed that matters, but it is
+ * never tried when closing itself failed.
  */
 async function runReview(
   ports: MorningLoopPorts,
