@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
@@ -360,7 +360,33 @@ describe("morningLoop", () => {
   describe("tickets worked today", () => {
     const TODAY = localDay(FROZEN_NOW);
 
-    it("records a ticket it works as worked today, dropping an earlier day's record", async () => {
+    /**
+     * Runs the invocation, returning the state as it was saved the instant
+     * the ticket's own run started — before the invocation could go on to
+     * hand the ticket back cleanly and free it again, which is a different
+     * behaviour most callers of this are not about.
+     *
+     * Reimplements `FakeSandbox.run` rather than delegating to the bound
+     * original: `Sandbox.run` is overloaded on whether `model` is present,
+     * and neither `.bind` nor a mock replacement keeps that shape, so a
+     * request typed as the general `RunRequest` has no original overload left
+     * to call through to.
+     */
+    async function savedWhenRunStarted(
+      ports: FakePorts,
+      t: TestContext,
+    ): Promise<State | undefined> {
+      let saved: State | undefined;
+      t.mock.method(ports.sandbox, "run", async (request: RunRequest) => {
+        saved = await ports.store.loadState();
+        ports.sandbox.runs.push(request);
+        return ports.sandbox.result(request.ticket);
+      });
+      await morningLoop(ports);
+      return saved;
+    }
+
+    it("records a ticket it works as worked today, dropping an earlier day's record", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
@@ -372,15 +398,15 @@ describe("morningLoop", () => {
         number: issueNumber(3),
       });
 
-      await morningLoop(ports);
+      const saved = await savedWhenRunStarted(ports, t);
 
-      assert.deepEqual((await ports.store.loadState()).workedToday, {
+      assert.deepEqual(saved?.workedToday, {
         day: TODAY,
         tickets: [{ repo: PILOT, number: issueNumber(7) }],
       });
     });
 
-    it("keeps the tickets an earlier invocation worked today", async () => {
+    it("keeps the tickets an earlier invocation worked today", async (t) => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
@@ -389,9 +415,9 @@ describe("morningLoop", () => {
       });
       ports.store.markWorkedOn(TODAY, { repo: MANAGER, number: issueNumber(3) });
 
-      await morningLoop(ports);
+      const saved = await savedWhenRunStarted(ports, t);
 
-      assert.deepEqual((await ports.store.loadState()).workedToday, {
+      assert.deepEqual(saved?.workedToday, {
         day: TODAY,
         tickets: [
           { repo: MANAGER, number: issueNumber(3) },
@@ -486,24 +512,56 @@ describe("morningLoop", () => {
         number: issueNumber(7),
         title: "Add the thing",
       });
-      let savedWhenRunStarted: State | undefined;
-      // Reimplements `FakeSandbox.run` rather than delegating to the bound
-      // original: `Sandbox.run` is overloaded on whether `model` is present,
-      // and neither `.bind` nor a mock replacement keeps that shape, so a
-      // request typed as the general `RunRequest` has no original overload
-      // left to call through to.
-      t.mock.method(ports.sandbox, "run", async (request: RunRequest) => {
-        savedWhenRunStarted = await ports.store.loadState();
-        ports.sandbox.runs.push(request);
-        return ports.sandbox.result(request.ticket);
+
+      const saved = await savedWhenRunStarted(ports, t);
+
+      assert.deepEqual(saved?.workedToday, {
+        day: TODAY,
+        tickets: [{ repo: PILOT, number: issueNumber(7) }],
+      });
+    });
+
+    it("frees the ticket for a later firing today once a finished run's hand-back lands", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
       });
 
       await morningLoop(ports);
 
-      assert.deepEqual(savedWhenRunStarted?.workedToday, {
-        day: TODAY,
-        tickets: [{ repo: PILOT, number: issueNumber(7) }],
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("keeps the ticket on the record for the rest of the day when its hand-back is refused", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
       });
+      ports.sandbox.result = () => ({
+        kind: "gave-up",
+        branch: branch("issue-7-add-the-thing"),
+        commits: [],
+        output: "I could not find the thing",
+        tokensUsed: tokenCount(1_000),
+        reason: "the tests stayed red",
+      });
+      t.mock.method(ports.tracker, "handBack", async () => {
+        throw new Error("the tracker is unreachable");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [{ repo: PILOT, number: issueNumber(7) }],
+      );
     });
   });
 

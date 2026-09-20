@@ -76,6 +76,7 @@ import {
   cutOffReviewOutcome,
   cutOffRunOutcome,
   failedOnInfrastructure,
+  handedBackFailure,
   handedBackForModelLabels,
   isCutOff,
   type AppliedReview,
@@ -484,8 +485,12 @@ export async function morningLoop(
               // An infrastructure failure, a limit refusal or a provider
               // failure says nothing about the ticket, so it is left free for
               // a later firing today — one that finds the setup fixed, the
-              // provider limit reset, or the provider answering again.
-              if (leavesTicketUntouched(iteration)) {
+              // provider limit reset, or the provider answering again. So is
+              // a ticket whose own tracker write landed: the loop already
+              // took its eligibility away, so the record has nothing left to
+              // protect, and a developer who re-applies ready-for-agent the
+              // same day gets a later firing rather than silence.
+              if (freesTicketToday(iteration)) {
                 worked.unrecord(ticket);
               }
 
@@ -699,12 +704,29 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
 }
 
 /**
- * Whether `iteration` was one of the three that say nothing about its ticket —
- * an infrastructure failure, a limit refusal or a provider failure — and so,
- * as `work` leaves it, leaves the ticket exactly as it was.
+ * Whether `iteration` frees its ticket to be selected again today —
+ * CONTEXT.md's narrowed "Worked today" rule: the persisted record protects
+ * only the tickets the loop tried and failed to take off the queue itself.
+ *
+ * An infrastructure failure, a limit refusal or a provider failure says
+ * nothing about the ticket at all, so it always frees it. A finished or a
+ * failed run frees it exactly when its own hand-back landed — `"handed-back"`
+ * or `"already-closed"` — and leaves it recorded when the tracker refused the
+ * call.
  */
-function leavesTicketUntouched(iteration: Iteration): boolean {
-  return isCutOff(iteration) || failedOnInfrastructure(iteration);
+function freesTicketToday(iteration: Iteration): boolean {
+  if (isCutOff(iteration) || failedOnInfrastructure(iteration)) {
+    return true;
+  }
+  if (iteration.kind === "finished") {
+    return iteration.handedBack.outcome !== "refused";
+  }
+  if (iteration.kind === "failed") {
+    return (
+      handedBackFailure(iteration) && iteration.handedBack.outcome !== "refused"
+    );
+  }
+  return false;
 }
 
 /**
