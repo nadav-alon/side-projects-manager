@@ -1482,6 +1482,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /gh api rate limited/);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       assert.deepEqual(ports.tracker.handbacks.map((h) => h.ticket.number), [7]);
+      assert.deepEqual(ports.repoHost.labelled, []);
       const body = ports.tracker.summaries[0]?.body ?? "";
       const waiting = body.slice(body.indexOf("## Waiting on you"));
       assert.match(waiting, new RegExp(`pilot #${ticket.number}`));
@@ -2104,6 +2105,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.repoHost.labelled, []);
       assert.match(
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
