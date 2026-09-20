@@ -5,15 +5,32 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { localDay } from "../ports/index.ts";
-import { deadPid, tempHome } from "../testing/index.ts";
+import { cronLine, crontabStubBin, deadPid, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
 
-async function run(home: string): Promise<{ stdout: string; stderr: string }> {
+/**
+ * Runs the status command against `home`, with the crontab and the rc files
+ * stubbed so the report is deterministic regardless of what is actually
+ * registered on the machine running the test. `crontabLines`, when given,
+ * stands in for the developer's own crontab; left out, the command sees none.
+ */
+async function run(
+  home: string,
+  crontabLines?: readonly string[],
+): Promise<{ stdout: string; stderr: string }> {
+  const bin = await crontabStubBin(crontabLines);
+  const noRcFiles = await tempHome("status-bin-home");
   return execFileAsync(process.execPath, [entryPoint], {
-    env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: home },
+    env: {
+      ...process.env,
+      SIDE_PROJECTS_MANAGER_HOME: home,
+      PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      HOME: noRcFiles,
+    },
   });
 }
 
@@ -115,5 +132,41 @@ describe("the status command", () => {
     const source = await readFile(entryPoint, "utf8");
 
     assert.doesNotMatch(source, /tracker|repo-host|repoHost/i);
+  });
+
+  it("reports the schedule not registered when the crontab carries no marker", async () => {
+    const { stdout } = await run(await tempHome("status-bin"));
+
+    assert.match(stdout, /Schedule: not registered/);
+    assert.match(stdout, /npm run triggers:install/);
+  });
+
+  it("reports the schedule armed when the crontab points at this checkout, even with SIDE_PROJECTS_MANAGER_HOME set elsewhere", async () => {
+    // install-triggers.sh always roots the cron line at its own checkout
+    // (REPO_DIR) — never at SIDE_PROJECTS_MANAGER_HOME, which only relocates
+    // where the registry and state document live. `run` below always sets
+    // that variable to a tempHome distinct from CHECKOUT_ROOT, so this is
+    // exactly that case, not just the common one.
+    const home = await tempHome("status-bin");
+
+    const { stdout } = await run(home, [cronLine(CHECKOUT_ROOT)]);
+
+    assert.match(stdout, /Schedule: armed, firing every hour at :00\./);
+  });
+
+  it("reports the schedule as a problem when the crontab points at a different manager home", async () => {
+    const home = await tempHome("status-bin");
+    const moved = await tempHome("status-bin-moved");
+
+    const { stdout } = await run(home, [cronLine(moved)]);
+
+    assert.match(stdout, new RegExp(`pointing at ${moved.replaceAll("/", "\\/")}`));
+    assert.match(stdout, /npm run triggers:install/);
+  });
+
+  it("reports the logon guard not registered as expected rather than as a problem", async () => {
+    const { stdout } = await run(await tempHome("status-bin"));
+
+    assert.match(stdout, /Logon guard: not registered/);
   });
 });

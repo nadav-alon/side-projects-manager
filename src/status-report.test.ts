@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
-import { statusReport, type StatusJournal, type StatusRecord } from "./status-report.ts";
+import { cronMinute, exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
+import {
+  statusReport,
+  type StatusJournal,
+  type StatusRecord,
+  type StatusTriggers,
+} from "./status-report.ts";
 
 const NOW = new Date("2026-09-17T09:00:00.000Z");
 const TODAY = localDay(NOW);
 const PILOT = repoSlug("nadav-alon/pilot");
+const MANAGER_HOME = "/home/dev/side-projects-manager";
+
+const ARMED_TRIGGERS: StatusTriggers = {
+  schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+  logonGuard: { registered: false },
+  managerHome: MANAGER_HOME,
+};
 
 function journal(...records: StatusRecord[]): StatusJournal {
   return { records };
@@ -30,78 +42,78 @@ function inFlight(openedAt: string, alive: boolean): StatusRecord {
   return { openedAt: new Date(openedAt), process: processId(4321), alive };
 }
 
+/** `statusReport`, armed and pointing at `MANAGER_HOME` unless a test says otherwise. */
+function report(
+  j: StatusJournal,
+  todayClaimed: boolean,
+  now: Date = NOW,
+  triggers: StatusTriggers = ARMED_TRIGGERS,
+): string[] {
+  return statusReport(j, todayClaimed, now, triggers);
+}
+
+/** `lines`, with the two leading trigger lines dropped — the report below them, unaffected by trigger state. */
+function body(lines: string[]): string[] {
+  return lines.slice(2);
+}
+
 describe("statusReport", () => {
   it("says nothing has ever run on a machine with an empty journal", () => {
-    const lines = statusReport(journal(), false, NOW);
+    const lines = report(journal(), false);
 
-    assert.deepEqual(lines, ["No invocation has ever run on this machine."]);
+    assert.deepEqual(body(lines), ["No invocation has ever run on this machine."]);
   });
 
   it("reports today claimed, and the most recent invocation, on a healthy morning", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(closed("2026-09-16T08:00:00.000Z"), closed("2026-09-17T08:00:00.000Z")),
       true,
-      NOW,
     );
 
-    assert.equal(lines[0], `Today (${TODAY}) is claimed.`);
-    assert.match(lines[1]!, /Most recent invocation:.*a dry queue/);
+    assert.equal(body(lines)[0], `Today (${TODAY}) is claimed.`);
+    assert.match(body(lines)[1]!, /Most recent invocation:.*a dry queue/);
   });
 
   it("says today has not been claimed yet when the loop has not run today", () => {
-    const lines = statusReport(
-      journal(closed("2026-09-16T08:00:00.000Z")),
-      false,
-      NOW,
-    );
+    const lines = report(journal(closed("2026-09-16T08:00:00.000Z")), false);
 
     assert.equal(
-      lines[0],
+      body(lines)[0],
       `Today (${TODAY}) has not been claimed yet: the loop has not run today.`,
     );
   });
 
   it("calls out today's summary never publishing when today ran but was not claimed", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(closed("2026-09-17T08:00:00.000Z", { outcome: "work-selected", projects: [] })),
       false,
-      NOW,
     );
 
-    assert.match(lines[0]!, /finished but its summary never published/);
+    assert.match(body(lines)[0]!, /finished but its summary never published/);
   });
 
   it("calls out today's invocation failing, naming what to do, rather than blaming the tracker", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" })),
       false,
-      NOW,
     );
 
-    assert.match(lines[0]!, /today's invocation failed before it could finish/);
-    assert.match(lines[0]!, /trigger\.log/);
-    assert.doesNotMatch(lines[0]!, /tracker/);
+    assert.match(body(lines)[0]!, /today's invocation failed before it could finish/);
+    assert.match(body(lines)[0]!, /trigger\.log/);
+    assert.doesNotMatch(body(lines)[0]!, /tracker/);
   });
 
   it("reports a record in flight whose process is alive as still running", () => {
-    const lines = statusReport(
-      journal(inFlight("2026-09-17T08:55:00.000Z", true)),
-      false,
-      NOW,
-    );
+    const lines = report(journal(inFlight("2026-09-17T08:55:00.000Z", true)), false);
 
-    assert.match(lines[0]!, /still in flight/);
+    assert.match(body(lines)[0]!, /still in flight/);
     const text = lines.join("\n");
     assert.match(text, /is still running/);
     assert.match(text, /trigger\.log/);
   });
 
   it("reports a record in flight whose process has died as died, naming what to do", () => {
-    const lines = statusReport(
-      journal(inFlight("2026-09-17T08:55:00.000Z", false)),
-      false,
-      NOW,
-    );
+    const lines = report(journal(inFlight("2026-09-17T08:55:00.000Z", false)), false);
 
     const text = lines.join("\n");
     assert.match(text, /has died without closing its record/);
@@ -109,62 +121,58 @@ describe("statusReport", () => {
   });
 
   it("calls out a run of consecutive failures", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-15T08:00:00.000Z", { outcome: "invocation-failed" }),
         closed("2026-09-16T08:00:00.000Z", { outcome: "invocation-failed" }),
         closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" }),
       ),
       false,
-      NOW,
     );
 
     assert.match(lines.join("\n"), /3 invocations in a row have failed/);
   });
 
   it("does not extend a failure streak across a record that's still running", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-15T08:00:00.000Z", { outcome: "invocation-failed" }),
         inFlight("2026-09-16T08:00:00.000Z", true),
         closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" }),
       ),
       false,
-      NOW,
     );
 
-    assert.doesNotMatch(lines.join("\n"), /in a row/);
+    assert.doesNotMatch(body(lines).join("\n"), /in a row/);
   });
 
   it("counts a died-without-closing record toward a failure streak", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-15T08:00:00.000Z", { outcome: "invocation-failed" }),
         inFlight("2026-09-16T08:00:00.000Z", false),
         closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" }),
       ),
       false,
-      NOW,
     );
 
     assert.match(lines.join("\n"), /3 invocations in a row have failed/);
   });
 
   it("does not call out a single failure as a streak", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-16T08:00:00.000Z", { outcome: "dry-queue" }),
         closed("2026-09-17T08:00:00.000Z", { outcome: "invocation-failed" }),
       ),
       false,
-      NOW,
     );
 
-    assert.doesNotMatch(lines.join("\n"), /in a row/);
+    assert.doesNotMatch(body(lines).join("\n"), /in a row/);
   });
 
   it("names the stand-down reason for a stood-down invocation", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-17T08:00:00.000Z", {
           outcome: "stood-down",
@@ -172,14 +180,13 @@ describe("statusReport", () => {
         }),
       ),
       true,
-      NOW,
     );
 
-    assert.match(lines[1]!, /stood down: weekly-reserve/);
+    assert.match(body(lines)[1]!, /stood down: weekly-reserve/);
   });
 
   it("names every project a work-selected invocation worked, with its cost", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-17T08:00:00.000Z", {
           outcome: "work-selected",
@@ -187,23 +194,21 @@ describe("statusReport", () => {
         }),
       ),
       true,
-      NOW,
     );
 
-    assert.match(lines[1]!, /nadav-alon\/pilot \(2000 tokens\)/);
+    assert.match(body(lines)[1]!, /nadav-alon\/pilot \(2000 tokens\)/);
   });
 
   it("lists every record but the most recent as history, newest first", () => {
     const oldest = new Date("2026-09-15T08:00:00.000Z");
     const middle = new Date("2026-09-16T08:00:00.000Z");
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed(oldest.toISOString(), { outcome: "dry-queue" }),
         closed(middle.toISOString(), { outcome: "stood-down" }),
         closed("2026-09-17T08:00:00.000Z", { outcome: "work-selected" }),
       ),
       true,
-      NOW,
     );
 
     const historyIndex = lines.indexOf("History:");
@@ -219,7 +224,7 @@ describe("statusReport", () => {
   });
 
   it("lists a record the trigger closed for a loop that never reported, with its exit code", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-16T08:00:00.000Z", {
           outcome: "never-reported",
@@ -228,7 +233,6 @@ describe("statusReport", () => {
         closed("2026-09-17T08:00:00.000Z"),
       ),
       true,
-      NOW,
     );
 
     const historyIndex = lines.indexOf("History:");
@@ -236,17 +240,13 @@ describe("statusReport", () => {
   });
 
   it("prints no history for a journal with only one record", () => {
-    const lines = statusReport(
-      journal(closed("2026-09-17T08:00:00.000Z")),
-      true,
-      NOW,
-    );
+    const lines = report(journal(closed("2026-09-17T08:00:00.000Z")), true);
 
-    assert.doesNotMatch(lines.join("\n"), /History:/);
+    assert.doesNotMatch(body(lines).join("\n"), /History:/);
   });
 
   it("caps history to a screen's worth, naming how many earlier records it left out", () => {
-    const lines = statusReport(
+    const lines = report(
       journal(
         closed("2026-09-10T08:00:00.000Z"),
         closed("2026-09-11T08:00:00.000Z"),
@@ -258,12 +258,79 @@ describe("statusReport", () => {
         closed("2026-09-17T08:00:00.000Z"),
       ),
       true,
-      NOW,
     );
 
     const historyIndex = lines.indexOf("History:");
     const historyLines = lines.slice(historyIndex + 1);
     assert.equal(historyLines.length, 6);
     assert.equal(historyLines[5], "… and 2 earlier");
+  });
+});
+
+describe("statusReport's trigger lines", () => {
+  it("reports the schedule armed, with the minute it fires", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[0]!, /^Schedule: armed, firing every hour at :00\.$/);
+  });
+
+  it("reports the schedule not registered as a problem naming the installer", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: false },
+      logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[0]!, /^Schedule: not registered\./);
+    assert.match(lines[0]!, /npm run triggers:install/);
+  });
+
+  it("reports a schedule registered but pointing elsewhere, distinctly from not registered at all", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: true, managerHome: "/old/checkout", minute: cronMinute("0") },
+      logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[0]!, /registered, but pointing at \/old\/checkout/);
+    assert.match(lines[0]!, new RegExp(MANAGER_HOME.replaceAll("/", "\\/")));
+    assert.match(lines[0]!, /npm run triggers:install/);
+    assert.doesNotMatch(lines[0]!, /^Schedule: not registered/);
+  });
+
+  it("reports a logon guard not registered as expected, not as a problem", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[1]!, /^Logon guard: not registered/);
+  });
+
+  it("reports a logon guard still armed as leftover from an older install", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      logonGuard: { registered: true, managerHome: MANAGER_HOME },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[1]!, /still registered from an older install/);
+    assert.match(lines[1]!, /npm run triggers:install/);
+  });
+
+  it("reports a logon guard registered but pointing elsewhere, distinctly from one still pointing here", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      logonGuard: { registered: true, managerHome: "/old/checkout" },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[1]!, /pointing at \/old\/checkout/);
+    assert.match(lines[1]!, /npm run triggers:install/);
   });
 });

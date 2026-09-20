@@ -30,6 +30,8 @@ export {
 } from "./recording-gh.ts";
 export { FakeStore, type Registration } from "./fake-store.ts";
 export { FakeInvocationLease } from "./fake-invocation-lease.ts";
+export { cronLine, crontabStubBin } from "./crontab-stub-bin.ts";
+export { FakeTriggerRegistrations } from "./fake-trigger-registrations.ts";
 export { deadPid } from "./dead-pid.ts";
 export { tempHome } from "./temp-home.ts";
 export {

@@ -59,6 +59,10 @@ _Avoid_: failed summary, backup
 Whatever calls `morningLoop`: the hourly schedule, a manual `npm run morning-run`, or any future cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never knows which one called it.
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
+**Logon guard**:
+A trigger that once fired on every new interactive shell, dropped once the hourly schedule made it redundant: cron starts with the machine, so nothing a shell launch would catch is missed anymore. `scripts/install-triggers.sh` no longer installs one, only strips one left behind by an older install, and the status command still checks for it — an rc block an upgrade hasn't cleared yet is still armed and still firing.
+_Avoid_: startup hook, login script
+
 **Invocation lease**:
 What stops two invocations overlapping, however long one runs: a file under the manager home, created exclusively and holding the holder's pid. Acquired before the loop is invoked and released once it ends, including when it throws, so a firing that cannot acquire it does nothing and says an invocation is already running. A lease whose holder's pid is no longer alive is stale and is taken over by whichever firing next asks, so a process killed mid-run does not stop the loop for good; PID reuse after a reboot is accepted as negligible.
 _Avoid_: mutex, semaphore, debounce, once-per-day lock

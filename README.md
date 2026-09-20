@@ -202,11 +202,15 @@ before the loop runs and closes it with the report, so an invocation that dies p
 in-flight record — one with no `closedAt` — rather than no trace at all. It keeps only the 50 most
 recent records, oldest dropped first, and is committed alongside `state.json`.
 
-`npm run status` answers "is the loop alive?" without reading source: whether today has been claimed
-and what came of it, what the most recent invocation came to, and a short history of the ones before
-it. A record still in flight is reported as still running or as died, a summary that never published
-is called out by name, and a run of consecutive failures is called out too — each naming what to do
-about it. It only reads `journal.json` and `state.json`: no network call, and nothing written back.
+`npm run status` answers "is the loop alive?" without reading source: whether the triggers are armed,
+whether today has been claimed and what came of it, what the most recent invocation came to, and a
+short history of the ones before it. A record still in flight is reported as still running or as died,
+a summary that never published is called out by name, and a run of consecutive failures is called out
+too — each naming what to do about it. Armed ([`CONTEXT.md`](CONTEXT.md): Armed) means registered on
+this machine and still pointing at this manager home; a registration pointing elsewhere is reported as
+a problem, distinctly from one not registered at all, and each names `npm run triggers:install` as the
+fix. It reads `journal.json` and `state.json`, the crontab, and the shell rc files a logon guard from
+an older install may still leave behind: no network call, and nothing written back.
 
 ```sh
 npm run status
