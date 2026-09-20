@@ -78,7 +78,7 @@ How a project is named everywhere, as `owner/repo`.
 _Avoid_: repo name, full name, project id, url
 
 **Registry**:
-The hand-edited document of developer intent: which projects exist, which are paused, which has explicit priority. `registry.json` in the manager home.
+The hand-edited document of developer intent: which projects exist, which are paused, which are turbo, which has explicit priority. `registry.json` in the manager home.
 _Avoid_: config, settings, projects file
 
 **State**:
@@ -88,6 +88,10 @@ _Avoid_: cache, database, history file
 **Paused**:
 Registered but never considered.
 _Avoid_: disabled, archived, muted
+
+**Turbo**:
+Standing consent, carried by a project in the registry, to apply a review without the developer asking for it each time: for a project registered turbo, the manager posts `/apply-review` itself once a review ticket closes, in place of the developer typing it on the pull request. Absent means off, so a registry that never mentions it reads as it always did. Says nothing about who reviews or what a review finds — only about when the developer's yes is given, per pull request or once. See ADR 0006.
+_Avoid_: auto mode, fast mode, autopilot, unattended
 
 **Priority**:
 The explicit rank a project may carry in the registry, overriding least-recently-worked ordering. A whole number from 1 upwards, smaller worked first; a project without one sorts after every project with one. Always a project's; the rank a ticket carries is ticket priority.
