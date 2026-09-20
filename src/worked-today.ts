@@ -8,9 +8,9 @@ import { recordWorked, ticketKey, unrecordWorked } from "./ports/index.ts";
  * The two are kept together because they deliberately differ. Selection
  * passes over every ticket the record held when the invocation started and
  * every ticket it recorded since, for the whole invocation. The record, by
- * contrast, loses a ticket taken back off it — a run that was an
- * infrastructure failure or a limit refusal frees its ticket for a later
- * firing — and starts over when the local day turns mid-invocation.
+ * contrast, loses a ticket taken back off it — whenever the loop's own
+ * tracker write for it landed, freeing its ticket for a later firing — and
+ * starts over when the local day turns mid-invocation.
  */
 export interface WorkedTickets {
   /** Whether selection passes `ticket` over for the rest of this invocation. */
