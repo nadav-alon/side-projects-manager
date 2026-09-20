@@ -57,17 +57,17 @@ function skipReason(verdict: ProjectVerdict): string | undefined {
 }
 
 /**
- * Names every ticket a scan passed over for being broken out or blocked,
+ * Names every ticket a scan passed over for being a supertask or blocked,
  * whatever its project's verdict: a project can be selected for one ticket
  * while another in its backlog is passed over, and a backlog that looks full
  * but yields nothing is only explicable if the summary says so.
  */
 function passedOverAside(projects: ProjectOutcome[]): string {
-  const passedOver = projects.flatMap(({ repo, brokenOut, blocked }) => {
+  const passedOver = projects.flatMap(({ repo, supertasks, blocked }) => {
     const reasons = [
-      ...(brokenOut === undefined
+      ...(supertasks === undefined
         ? []
-        : [`${numbers(brokenOut)} broken out into sub-issues`]),
+        : [`${numbers(supertasks)} broken out into sub-issues`]),
       ...(blocked === undefined
         ? []
         : [`${numbers(blocked)} blocked by an open ticket`]),

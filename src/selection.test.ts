@@ -306,7 +306,7 @@ describe("invocationSelection", () => {
     });
   });
 
-  describe("broken-out tickets", () => {
+  describe("supertasks", () => {
     it("never selects a ticket carrying ready-for-agent with an open sub-issue, even as its project's only ticket", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
@@ -341,7 +341,7 @@ describe("invocationSelection", () => {
       assert.equal(chosen?.ticket.number, 66);
     });
 
-    it("selects a sibling ticket instead, when one in the same backlog is broken out", async () => {
+    it("selects a sibling ticket instead, when one in the same backlog is a supertask", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
@@ -361,12 +361,12 @@ describe("invocationSelection", () => {
       assert.equal(chosen?.ticket.number, 67);
       // Selected for #67, yet the verdict still names #66 as passed over.
       assert.deepEqual(
-        selection.verdicts()[0]?.brokenOut?.map((ticket) => ticket.number),
+        selection.verdicts()[0]?.supertasks?.map((ticket) => ticket.number),
         [66],
       );
     });
 
-    it("reads a backlog that is only broken-out tickets as having no eligible tickets, not an error", async () => {
+    it("reads a backlog that is only supertasks as having no eligible tickets, not an error", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(MANAGER);
@@ -439,7 +439,7 @@ describe("invocationSelection", () => {
       assert.equal(chosen?.ticket.number, 7);
     });
 
-    it("names a passed-over ticket as broken out, so a full-looking backlog is explicable", async () => {
+    it("names a passed-over ticket as a supertask, so a full-looking backlog is explicable", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
@@ -453,7 +453,7 @@ describe("invocationSelection", () => {
       await selection.next();
 
       assert.deepEqual(
-        selection.verdicts()[0]?.brokenOut?.map((ticket) => ticket.number),
+        selection.verdicts()[0]?.supertasks?.map((ticket) => ticket.number),
         [66],
       );
     });

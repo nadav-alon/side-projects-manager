@@ -197,7 +197,7 @@ describe("morningLoop", () => {
     );
   });
 
-  it("selects a sibling ticket instead, when one in the same backlog is broken out", async () => {
+  it("selects a sibling ticket instead, when one in the same backlog is a supertask", async () => {
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addBrokenOutTicket(
