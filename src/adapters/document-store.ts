@@ -30,10 +30,10 @@ import type {
   RepoSlug,
   RunCost,
   Size,
+  SpendCeiling,
   State,
   Store,
   TicketKind,
-  Usd,
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
@@ -368,10 +368,7 @@ function parseBudget(document: unknown, file: string): Budget {
  * `DEFAULT_BUDGET.spendCeiling` names for it, so a document raising just `L`
  * leaves the other three at that flat figure.
  */
-function spendCeilingField(
-  value: unknown,
-  file: string,
-): Usd | Record<Size, Usd> {
+function spendCeilingField(value: unknown, file: string): SpendCeiling {
   if (value === undefined) {
     return DEFAULT_BUDGET.spendCeiling;
   }

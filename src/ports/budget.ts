@@ -12,6 +12,13 @@ import { usd, type Usd } from "./usd.ts";
  * calibrates against the run costs the state document accumulates. Being
  * wrong is safe in one direction only, which is why the reserve exists.
  */
+/**
+ * `spendCeiling`'s shape: one dollar figure for every size, or one figure per
+ * size, keyed the way `sizes` is. `CONTEXT.md`'s "Spend ceiling" names the
+ * concept this is.
+ */
+export type SpendCeiling = Usd | Record<Size, Usd>;
+
 export interface Budget {
   /** Tokens the 5-hour window is assumed to hold. */
   fiveHourAllowance: TokenCount;
@@ -27,7 +34,7 @@ export interface Budget {
    * `sizes` is. `spendCeilingFor` resolves whichever form this holds down to
    * the one figure a given size sees.
    */
-  spendCeiling: Usd | Record<Size, Usd>;
+  spendCeiling: SpendCeiling;
   /**
    * The most iterations one invocation may have in progress at once. Raising
    * it multiplies the overshoot `spendCeiling` accepts; the README says by how
@@ -101,9 +108,6 @@ export const DEFAULT_BUDGET: Budget = {
  * if it declares just one for every size, or that size's own figure if it is
  * keyed by size.
  */
-export function spendCeilingFor(
-  size: Size,
-  spendCeiling: Budget["spendCeiling"],
-): Usd {
+export function spendCeilingFor(size: Size, spendCeiling: SpendCeiling): Usd {
   return typeof spendCeiling === "number" ? spendCeiling : spendCeiling[size];
 }
