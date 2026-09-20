@@ -162,6 +162,13 @@ export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
 export type { TicketPriority } from "./ticket-priority.ts";
 export { isTokenCount, tokenCount } from "./token-count.ts";
 export type { TokenCount } from "./token-count.ts";
+export {
+  isTranscriptDirectory,
+  transcriptDirectory,
+} from "./transcript-directory.ts";
+export type { TranscriptDirectory } from "./transcript-directory.ts";
+export { isTranscriptPath, transcriptPath } from "./transcript-path.ts";
+export type { TranscriptPath } from "./transcript-path.ts";
 export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";

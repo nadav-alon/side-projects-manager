@@ -15,6 +15,7 @@ import {
   pullRequestUrl,
   repoSlug,
   tokenCount,
+  transcriptPath,
   type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
@@ -468,5 +469,71 @@ describe("summaryLine", () => {
     assert.match(line, /#191 was already closed by another run, so it was left alone/);
     assert.doesNotMatch(line, /Handed back for a human/);
     assert.doesNotMatch(line, /still ready-for-agent/);
+  });
+});
+
+describe("transcript", () => {
+  const TRANSCRIPT = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+
+  it("names a finished run's transcript", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(200),
+      kind: "finished",
+      run: {
+        kind: "finished",
+        branch: branch("agent/200"),
+        commits: [commitSha("a".repeat(40))],
+        tokensUsed: tokenCount(1000),
+        output: "done",
+        transcript: TRANSCRIPT,
+      },
+      tokensUsed: tokenCount(1000),
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
+  });
+
+  it("names a failed run's transcript", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(201),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red", handedBack: "handed-back" },
+      transcript: TRANSCRIPT,
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
+  });
+
+  it("names nothing when no transcript was ever found", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(202),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red", handedBack: "handed-back" },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.doesNotMatch(line, /Transcript:/);
+  });
+
+  it("names a reviewed ticket's transcript", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: reviewTicket(203),
+      kind: "reviewed",
+      review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted", transcript: TRANSCRIPT },
+      tokensUsed: tokenCount(500),
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
   });
 });

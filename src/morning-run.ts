@@ -34,6 +34,7 @@ import type {
   Store,
   Ticket,
   TokenCount,
+  TranscriptPath,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -955,10 +956,13 @@ async function handFinishedTicketBack(
 
 /**
  * What a failed ticket's hand-back carries into `Failed`: an implementation
- * run's own outcome, whose `tokensUsed` is taken as the spend too, or — for a
- * review, which has no `RunOutcome` of its own — the spend directly.
+ * run's own outcome, whose `tokensUsed` and `transcript` are taken as the
+ * spend too, or — for a review, an apply-review or a rebase run, none of
+ * which has a `RunOutcome` of its own — the spend directly.
  */
-type Spend = { run: RunOutcome } | { tokensUsed: TokenCount };
+type Spend =
+  | { run: RunOutcome }
+  | { tokensUsed: TokenCount; transcript?: TranscriptPath };
 
 /**
  * Puts the ticket of a run that failed on the ticket's account — an agent
@@ -984,12 +988,19 @@ async function handTicketBack(
       : "run" in spend
         ? spend.run.tokensUsed
         : spend.tokensUsed;
+  const transcript =
+    spend === undefined
+      ? undefined
+      : "run" in spend
+        ? spend.run.transcript
+        : spend.transcript;
   try {
     const outcome = await ports.tracker.handBack(ticket, comment);
     return {
       kind: "failed",
       ...(run !== undefined && { run }),
       ...(tokensUsed !== undefined && { tokensUsed }),
+      ...(transcript !== undefined && { transcript }),
       failure: { ...failure, handedBack: outcome },
     };
   } catch (error: unknown) {
@@ -1000,6 +1011,7 @@ async function handTicketBack(
       kind: "failed",
       ...(run !== undefined && { run }),
       ...(tokensUsed !== undefined && { tokensUsed }),
+      ...(transcript !== undefined && { transcript }),
       failure: {
         ...failure,
         reason: `${failure.reason} — and the ticket could not be handed back: ${errorMessage(error)}`,
@@ -1231,7 +1243,7 @@ async function runReview(
       ticket,
       failure,
       modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      { tokensUsed: review.tokensUsed },
+      { tokensUsed: review.tokensUsed, ...(review.transcript !== undefined && { transcript: review.transcript }) },
     );
   }
 
@@ -1288,7 +1300,7 @@ async function handReviewBack(
     ticket,
     failure,
     reviewHandbackComment(failure, review),
-    { tokensUsed: review.tokensUsed },
+    { tokensUsed: review.tokensUsed, ...(review.transcript !== undefined && { transcript: review.transcript }) },
   );
 }
 
@@ -1375,7 +1387,7 @@ async function runApplyReview(
       ticket,
       failure,
       modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      { tokensUsed: run.tokensUsed },
+      { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
     );
   }
   if (run.kind === "gave-up") {
@@ -1461,7 +1473,7 @@ async function handApplyReviewBack(
     ticket,
     failure,
     applyReviewHandbackComment(failure, run, ticket.pullRequest.url),
-    { tokensUsed: run.tokensUsed },
+    { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
   );
 }
 
@@ -1559,7 +1571,7 @@ async function runRebase(
       ticket,
       failure,
       modelRefusalComment(ticket, failure, undefined, { kind: "none" }),
-      { tokensUsed: run.tokensUsed },
+      { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
     );
   }
   if (run.kind === "gave-up") {
@@ -1645,6 +1657,6 @@ async function handRebaseBack(
     ticket,
     failure,
     rebaseHandbackComment(failure, run, ticket.pullRequest.url),
-    { tokensUsed: run.tokensUsed },
+    { tokensUsed: run.tokensUsed, ...(run.transcript !== undefined && { transcript: run.transcript }) },
   );
 }

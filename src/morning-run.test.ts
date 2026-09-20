@@ -20,6 +20,7 @@ import {
   reviewTitle,
   ticketGist,
   tokenCount,
+  transcriptPath,
   usd,
   type ApplyReviewTicket,
   type CommitSha,
@@ -1353,6 +1354,27 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("carries the review's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not read the diff",
+        tokensUsed: tokenCount(1_000),
+        reason: "the review skill exited 1",
+        transcript,
+      });
+
+      const report = await morningLoop(ports);
+
+      const iteration = report.iterations[0];
+      assert.equal(
+        iteration?.kind === "failed" ? iteration.transcript : undefined,
+        transcript,
+      );
+    });
+
     it("says a review's hand-back itself failed, leaving the ticket for the developer to relabel", async (t) => {
       const ports = fakePorts();
       queued(ports);
@@ -1843,6 +1865,27 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
     });
 
+    it("carries the run's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not answer every thread",
+        reason: "left a thread unanswered",
+        tokensUsed: tokenCount(2_000),
+        transcript,
+      });
+
+      const report = await morningLoop(ports);
+
+      const iteration = report.iterations[0];
+      assert.equal(
+        iteration?.kind === "failed" ? iteration.transcript : undefined,
+        transcript,
+      );
+    });
+
     it("leaves the ticket eligible when the sandbox breaks, naming it under what is waiting on the developer", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
@@ -2248,6 +2291,27 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
+    });
+
+    it("carries the run's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.rebaseResult = () => ({
+        kind: "gave-up",
+        output: "I could not resolve the conflict",
+        reason: "left the pull request still conflicting",
+        tokensUsed: tokenCount(2_000),
+        transcript,
+      });
+
+      const report = await morningLoop(ports);
+
+      const iteration = report.iterations[0];
+      assert.equal(
+        iteration?.kind === "failed" ? iteration.transcript : undefined,
+        transcript,
+      );
     });
 
     it("stands down on a limit refusal, leaving the ticket exactly as it was", async () => {

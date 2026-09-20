@@ -1,4 +1,4 @@
-import path from "node:path";
+import { isNormalisedAbsolutePath } from "./normalised-absolute-path.ts";
 
 declare const checkoutBrand: unique symbol;
 
@@ -18,16 +18,7 @@ export type Checkout = string & { readonly [checkoutBrand]: true };
  * read as two different checkouts.
  */
 export function isCheckout(value: string): value is Checkout {
-  if (value === "" || !path.isAbsolute(value)) {
-    return false;
-  }
-  // `normalize` keeps a trailing separator, and `/projects/pilot/` is the same
-  // directory as `/projects/pilot` — so it is refused here rather than left to
-  // read as a second checkout.
-  if (value.length > 1 && value.endsWith(path.sep)) {
-    return false;
-  }
-  return path.normalize(value) === value;
+  return isNormalisedAbsolutePath(value);
 }
 
 /** Narrows `value` to a `Checkout`, throwing if it is not one. */
