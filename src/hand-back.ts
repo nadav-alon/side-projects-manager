@@ -44,9 +44,7 @@ export type Discard =
  * developer: relabelled ready-for-human, found already closed by an
  * overlapping run, or the tracker call itself refused — carrying why. One
  * shape, for a failed iteration and a finished one alike, so whether a
- * ticket was handed back is never recorded two different ways, and never
- * built as a placeholder the loop then has to overwrite once the tracker has
- * actually answered.
+ * ticket was handed back is never recorded two different ways.
  */
 export type HandBackRecord =
   | { outcome: "handed-back" }
