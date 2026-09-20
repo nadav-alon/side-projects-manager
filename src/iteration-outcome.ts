@@ -13,6 +13,8 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewFinished,
+  ReviewLimitRefused,
+  ReviewProviderFailed,
   ReviewTicket,
   RunFinished,
   RunLimitRefused,
@@ -212,14 +214,82 @@ export interface LimitRefused {
  */
 export interface ProviderFailed {
   kind: "provider-failed";
-  /** What the CLI said, word for word. */
+  /**
+   * What the CLI said, word for word — or, when it gave no message to quote,
+   * a fixed line saying so; see `RunProviderFailed.words`.
+   */
   providerFailure: string;
-  /** What ran spent before the provider stopped answering. Always set — a provider failure has spent. */
+  /**
+   * What ran spent before the provider stopped answering. Always set, though
+   * possibly zero: a run cut off before any usage block existed to read has
+   * nothing to report.
+   */
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunProviderFailed;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
+}
+
+/**
+ * A run the provider stopped before it finished — CONTEXT.md's "Cut off": a
+ * limit refusal or a provider failure. Neither is a failure: the ticket is
+ * left exactly as it was, and the invocation stands down, since every run
+ * after it would be stopped the same way.
+ */
+export type CutOff = LimitRefused | ProviderFailed;
+
+/** Whether `iteration` is cut off — CONTEXT.md's "Cut off" — rather than any other kind of ending. */
+export function isCutOff(iteration: Iteration): iteration is CutOff {
+  return iteration.kind === "limit-refused" || iteration.kind === "provider-failed";
+}
+
+/**
+ * `run`'s own cut-off kind, as the iteration it comes to: the one place an
+ * implementation run's limit refusal and provider failure are each built,
+ * rather than a parallel copy for every ticket kind that can hit one.
+ */
+export function cutOffRunOutcome(
+  run: RunLimitRefused | RunProviderFailed,
+  discard: Discard,
+): CutOff {
+  return run.kind === "limit-refused"
+    ? {
+        kind: "limit-refused",
+        limitRefusal: run.words,
+        tokensUsed: run.tokensUsed,
+        run,
+        discard,
+      }
+    : {
+        kind: "provider-failed",
+        providerFailure: run.words,
+        tokensUsed: run.tokensUsed,
+        run,
+        discard,
+      };
+}
+
+/**
+ * As `cutOffRunOutcome`, for a review, apply-review or rebase run: none of
+ * those ever creates a branch, so there is never one to discard.
+ */
+export function cutOffReviewOutcome(
+  review: ReviewLimitRefused | ReviewProviderFailed,
+): CutOff {
+  return review.kind === "limit-refused"
+    ? {
+        kind: "limit-refused",
+        limitRefusal: review.words,
+        tokensUsed: review.tokensUsed,
+        discard: { kind: "none" },
+      }
+    : {
+        kind: "provider-failed",
+        providerFailure: review.words,
+        tokensUsed: review.tokensUsed,
+        discard: { kind: "none" },
+      };
 }
 
 /** An iteration whose run finished, and how its work reached the developer. */
