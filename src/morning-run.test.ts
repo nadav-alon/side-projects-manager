@@ -3648,6 +3648,48 @@ describe("morningLoop", () => {
         assert.equal(report.standDown?.reason, "weekly-reserve");
       });
     });
+
+    describe("the run estimate charged", () => {
+      it("carries the estimate the gate charged for the ticket, beside what the run spent", async () => {
+        const ports = readyToWork();
+
+        const report = await morningLoop(ports);
+
+        assert.equal(finished(report.iterations[0])?.estimateCharged, UNSIZED_ESTIMATE);
+      });
+
+      it("charges a sized ticket its own size's estimate", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const ticket = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        ports.tracker.addLabel(ticket, "size:L");
+
+        const report = await morningLoop(ports);
+
+        assert.equal(
+          finished(report.iterations[0])?.estimateCharged,
+          DEFAULT_BUDGET.sizes.L,
+        );
+      });
+
+      it("is absent from a ticket handed back ahead of the gate, since the gate never charged one", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const ticket = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        ports.tracker.addLabel(ticket, "model:opus");
+        ports.tracker.addLabel(ticket, "model:haiku");
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.estimateCharged, undefined);
+      });
+    });
   });
 
   describe("the spend ceiling", () => {

@@ -450,7 +450,7 @@ export async function morningLoop(
         // Asked immediately before this run and never earlier, so the
         // windows it reads are the ones in force when the run would start,
         // not the state the invocation opened with.
-        const { standDown: refusal, budget } = await gate.consult(
+        const { standDown: refusal, budget, estimateCharged } = await gate.consult(
           ticket,
           [...inProgress.values()],
         );
@@ -496,6 +496,7 @@ export async function morningLoop(
                 repo,
                 ticket,
                 ...(model !== undefined && { model: model.name }),
+                estimateCharged,
                 ...iteration,
               } as IterationOutcome;
 

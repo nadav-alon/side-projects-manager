@@ -48,9 +48,8 @@ export interface Consultation {
   /**
    * The run estimate `ticket` itself charged, not counting `inProgress`.
    * Carried on a go-ahead too, since `standDown` is `undefined` there and has
-   * nothing to carry it on.
-   *
-   * TODO[#159]: read by the loop and recorded on the iteration outcome.
+   * nothing to carry it on. Recorded on the iteration outcome by the loop,
+   * beside what the run went on to spend.
    */
   estimateCharged: TokenCount;
 }
