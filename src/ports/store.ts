@@ -116,6 +116,9 @@ export interface Salvage extends WorkedTicket {
   limitRefusals: number;
 }
 
+/** `Salvage`'s own fields, without the ticket — what a discard or a failure names once the ticket it belongs to is known from context. */
+export type Salvaged = Pick<Salvage, "branch" | "limitRefusals">;
+
 /**
  * `previous` with `ticket`'s salvage recorded as a limit refusal on `branch`:
  * `limitRefusals` one more than an existing record for `ticket` already

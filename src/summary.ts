@@ -1,6 +1,6 @@
 import type { StandDown } from "./budget-gate.ts";
 import { pullRequestResolutionPhrase } from "./close-comment.ts";
-import type { HandBackRecord } from "./hand-back.ts";
+import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
   handedBackAheadOfGate,
@@ -29,6 +29,7 @@ import type {
   RepoSlug,
   ReviewTicket,
   RunFinished,
+  Salvaged,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -251,6 +252,17 @@ function stillEligibleLine(iteration: {
   return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
 }
 
+/** What the developer may want to do about a ticket that keeps getting cut off — said the same way everywhere it comes up. */
+const CONSIDER_SPLITTING = "consider splitting it or giving it a larger size or model";
+
+/** A limit-refused ticket whose salvage shows it has been cut off repeatedly: worth the developer's attention, since it may need splitting or a larger size or model. */
+function repeatedRefusalWaitingLine(
+  iteration: { repo: RepoSlug; ticket: Ticket },
+  limitRefusals: number,
+): string {
+  return `- ${iteration.repo} #${iteration.ticket.number}: cut off ${limitRefusals} times in a row — ${CONSIDER_SPLITTING}`;
+}
+
 /**
  * What now needs the developer: a draft pull request to review, a ticket
  * relabelled for human attention, a setup that broke under a ticket it left
@@ -298,8 +310,15 @@ function waitingSection(
           ? []
           : [pullRequestResolvedWaitingLine(iteration, iteration.notClosed)];
       // A limit refusal's or a provider failure's ticket waits on the
-      // provider, not the developer.
-      case "limit-refused":
+      // provider, not the developer — unless a limit refusal's salvage shows
+      // the ticket has been cut off repeatedly, which the developer may want
+      // to act on by splitting it or giving it a larger size or model.
+      case "limit-refused": {
+        const salvage = salvageOf(iteration.discard);
+        return salvage !== undefined && salvage.limitRefusals >= 2
+          ? [repeatedRefusalWaitingLine(iteration, salvage.limitRefusals)]
+          : [];
+      }
       case "provider-failed":
         return [];
       case "failed":
@@ -524,6 +543,41 @@ function keptBranchNote(iteration: CutOff): string {
     : "";
 }
 
+/** `discard`'s salvage, when it is one — undefined for every other `Discard` kind. */
+function salvageOf(discard: Discard): Salvaged | undefined {
+  return discard.kind === "salvaged" ? discard : undefined;
+}
+
+/**
+ * The clause a cut-off iteration's line adds when its branch was salvaged:
+ * naming it, and that the ticket's next run will continue on it — see
+ * CONTEXT.md's "Salvage". Empty when nothing was salvaged.
+ */
+function salvagedBranchNote(salvage: Salvaged | undefined): string {
+  return salvage === undefined
+    ? ""
+    : ` Its branch ${salvage.branch} was salvaged: the ticket's next run will continue on it.`;
+}
+
+/**
+ * `salvagedBranchNote`, plus — for a limit refusal only — a warning once its
+ * ticket's own count of limit refusals in a row reaches two, since that is
+ * worth splitting it or giving it a larger size or model over; at exactly one
+ * it stays quiet, a single refusal being unremarkable. An infrastructure
+ * failure never adds the warning here: its own `limitRefusals` only ever
+ * repeats what an earlier limit refusal already recorded, so this line's
+ * count would not be its own (see `InfrastructureFailure.salvage`).
+ */
+function salvageNote(salvage: Salvaged | undefined): string {
+  if (salvage === undefined) {
+    return "";
+  }
+  const kept = salvagedBranchNote(salvage);
+  return salvage.limitRefusals < 2
+    ? kept
+    : `${kept} This ticket has been cut off ${salvage.limitRefusals} times in a row: ${CONSIDER_SPLITTING}.`;
+}
+
 /**
  * The transcript a run left, said as its own clause — empty when none was
  * found. The ticket this reports for (#409): after any sandboxed run exits,
@@ -538,7 +592,7 @@ function transcriptNote(transcript: TranscriptPath | undefined): string {
 function describeIteration(iteration: IterationOutcome): string {
   switch (iteration.kind) {
     case "limit-refused":
-      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
+      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
     case "provider-failed":
       return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
     case "failed": {
@@ -820,7 +874,7 @@ function stoppedBecause(iteration: Attempt & Failed): string {
       failure.tokensUsed === undefined
         ? `the run would not start on ${which}`
         : `the sandbox failed on ${which} after the agent had already run`;
-    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.`;
+    return `${what}: ${withoutTrailingStop(failure.reason)}. ${which} is still ${READY_FOR_AGENT_LABEL}; fix the setup and it will come round again.${salvagedBranchNote(failure.salvage)}`;
   }
   // A ticket that could not be handed back is the one thing here the developer
   // has to act on themselves: it is still eligible, so it will come round and

@@ -19,6 +19,7 @@ import type {
   RunLimitRefused,
   RunModelRefused,
   RunProviderFailed,
+  Salvaged,
   Ticket,
 } from "./ports/index.ts";
 import {
@@ -45,11 +46,13 @@ export type Discard =
   | { kind: "kept"; reason: string }
   /**
    * Kept in the checkout on purpose, and recorded against the ticket: see
-   * CONTEXT.md's "Salvage". Never built from a gave-up or model-refused run —
-   * only a limit refusal's branch reaches this type — so no comment this
-   * module writes for either ever names it.
+   * CONTEXT.md's "Salvage". Carries the branch and the ticket's own count of
+   * limit refusals in a row, the salvage record's own fields, so the summary
+   * can name both. Never built from a gave-up or model-refused run — only a
+   * limit refusal's branch reaches this type — so no comment this module
+   * writes for either ever names it.
    */
-  | { kind: "salvaged" };
+  | ({ kind: "salvaged" } & Salvaged);
 
 /**
  * What became of the loop's own attempt to give a ticket back to the

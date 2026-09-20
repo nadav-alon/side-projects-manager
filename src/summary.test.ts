@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { Discard } from "./hand-back.ts";
 import type {
   AppliedReview,
   Finished,
@@ -18,17 +19,49 @@ import {
   tokenCount,
   transcriptPath,
   type ApplyReviewTicket,
+  type Branch,
   type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
-import { SPENDABLE_THIS_WEEK } from "./testing/index.ts";
+import { LIMIT_REFUSAL, SPENDABLE_THIS_WEEK } from "./testing/index.ts";
 
 const REPO = repoSlug("nadav-alon/pilot");
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/171");
 
 function implementationTicket(number: number): Ticket {
   return { repo: REPO, number: issueNumber(number), title: `Ticket ${number}` };
+}
+
+/** An implementation ticket's own run the provider limit refused, discarding or salvaging its branch as `discard` says. */
+function limitRefused(number: number, discard: Discard): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    kind: "limit-refused",
+    limitRefusal: LIMIT_REFUSAL,
+    tokensUsed: tokenCount(500),
+    discard,
+  };
+}
+
+/** An implementation ticket's own run that failed post-start, salvaging its branch when `salvage` is given. */
+function infrastructureFailure(
+  number: number,
+  salvage?: { branch: Branch; limitRefusals: number },
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    kind: "failed",
+    tokensUsed: tokenCount(42_000),
+    failure: {
+      kind: "infrastructure",
+      reason: "git could not fetch the branch back into the checkout",
+      tokensUsed: tokenCount(42_000),
+      ...(salvage !== undefined && { salvage }),
+    },
+  };
 }
 
 function reviewTicket(number: number): ReviewTicket {
@@ -624,5 +657,97 @@ describe("transcript", () => {
     const line = summaryLine(facts([iteration]));
 
     assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
+  });
+});
+
+describe("salvage", () => {
+  it("names a salvaged limit refusal's branch and says the next run will continue on it", () => {
+    const line = summaryLine(
+      facts([
+        limitRefused(220, { kind: "salvaged", branch: branch("issue-220"), limitRefusals: 1 }),
+      ]),
+    );
+
+    assert.match(
+      line,
+      /Its branch issue-220 was salvaged: the ticket's next run will continue on it\./,
+    );
+  });
+
+  it("reads a limit refusal exactly as today when nothing was salvaged", () => {
+    const line = summaryLine(facts([limitRefused(221, { kind: "none" })]));
+
+    assert.equal(
+      line,
+      `The provider limit refused the run on ${REPO} #221.`,
+    );
+  });
+
+  it("names a salvaged infrastructure failure's branch and says the next run will continue on it", () => {
+    const line = summaryLine(
+      facts([
+        infrastructureFailure(222, { branch: branch("issue-222"), limitRefusals: 1 }),
+      ]),
+    );
+
+    assert.match(
+      line,
+      /Its branch issue-222 was salvaged: the ticket's next run will continue on it\./,
+    );
+  });
+
+  it("names nothing salvaged for an infrastructure failure whose branch never reached the checkout", () => {
+    const line = summaryLine(facts([infrastructureFailure(223)]));
+
+    assert.doesNotMatch(line, /salvaged/);
+  });
+
+  it("adds no repeated-refusal warning at one limit refusal in a row", () => {
+    const line = summaryLine(
+      facts([
+        limitRefused(224, { kind: "salvaged", branch: branch("issue-224"), limitRefusals: 1 }),
+      ]),
+    );
+
+    assert.doesNotMatch(line, /cut off/);
+  });
+
+  it("warns that a ticket has been cut off repeatedly at two or more limit refusals in a row", () => {
+    const line = summaryLine(
+      facts([
+        limitRefused(225, { kind: "salvaged", branch: branch("issue-225"), limitRefusals: 3 }),
+      ]),
+    );
+
+    assert.match(
+      line,
+      /This ticket has been cut off 3 times in a row: consider splitting it or giving it a larger size or model\./,
+    );
+  });
+
+  it("adds no repeated-refusal warning on an infrastructure failure, whatever count its salvage carries over from an earlier limit refusal", () => {
+    const line = summaryLine(
+      facts([infrastructureFailure(226, { branch: branch("issue-226"), limitRefusals: 2 })]),
+    );
+
+    assert.doesNotMatch(line, /cut off/);
+  });
+
+  it("lists a limit-refused ticket under waiting on you once it has been cut off two or more times in a row", () => {
+    const lines = waitingLines([
+      limitRefused(227, { kind: "salvaged", branch: branch("issue-227"), limitRefusals: 2 }),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #227: cut off 2 times in a row — consider splitting it or giving it a larger size or model`,
+    ]);
+  });
+
+  it("does not list a limit-refused ticket under waiting on you at one refusal", () => {
+    const lines = waitingLines([
+      limitRefused(228, { kind: "salvaged", branch: branch("issue-228"), limitRefusals: 1 }),
+    ]);
+
+    assert.deepEqual(lines, []);
   });
 });

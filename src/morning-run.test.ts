@@ -62,6 +62,11 @@ function finished(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "finished" ? iteration : undefined;
 }
 
+/** The limit-refused half of an iteration outcome — undefined if it ended any other way. */
+function limitRefused(iteration: IterationOutcome | undefined) {
+  return iteration?.kind === "limit-refused" ? iteration : undefined;
+}
+
 /** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
 function gateRefusal(report: InvocationReport) {
   const standDown = report.standDown;
@@ -3099,7 +3104,7 @@ describe("morningLoop", () => {
         commits: [commitSha("c0ffee1")],
       });
 
-      await morningLoop(ports);
+      const report = await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, [
         {
@@ -3111,6 +3116,12 @@ describe("morningLoop", () => {
       assert.deepEqual(state.salvages, [
         { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, limitRefusals: 1 },
       ]);
+      const failure = failureOf(report.iterations[0]);
+      assert.equal(failure?.kind, "infrastructure");
+      assert.deepEqual(
+        failure?.kind === "infrastructure" ? failure.salvage : undefined,
+        { branch: FAILED_BRANCH, limitRefusals: 1 },
+      );
     });
 
     it("records no salvage from a post-start infrastructure failure whose branch never reached the checkout", async () => {
@@ -4280,12 +4291,17 @@ describe("morningLoop", () => {
       });
 
       await morningLoop(ports);
-      await morningLoop(ports);
+      const second = await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
         { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, limitRefusals: 2 },
       ]);
+      assert.deepEqual(limitRefused(second.iterations[0])?.discard, {
+        kind: "salvaged",
+        branch: SALVAGED_BRANCH,
+        limitRefusals: 2,
+      });
     });
 
     it("discards a ticket's earlier salvage branch when a second limit refusal salvages a different one", async () => {
