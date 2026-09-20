@@ -4581,9 +4581,10 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.sandbox.runs, []);
         assert.deepEqual(ports.repoHost.clones, []);
-        // The comment's own wording is covered by hand-back.test.ts; here it
-        // is enough that the hand back happened, without a run.
+        // The comment's exact wording is covered by hand-back.test.ts; here
+        // it is enough that it quotes the offending label.
         assert.equal(ports.tracker.handbacks.length, 1);
+        assert.match(ports.tracker.handbacks[0]?.comment ?? "", /size:XXL/);
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "unusable-size-label");
       });
@@ -4612,6 +4613,26 @@ describe("morningLoop", () => {
         assert.equal(ports.tracker.handbacks.length, 1);
         assert.deepEqual(ports.sandbox.runs, []);
         assert.equal(report.outcome, "stood-down");
+      });
+
+      it("never hands back a pull request ticket over one, since runEstimate ignores its size label", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        const review = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(42),
+          title: reviewTitle({ repo: PILOT, number: issueNumber(6), title: "Earlier" }),
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+          },
+        });
+        ports.tracker.addLabel(review, "size:XXL");
+
+        await morningLoop(ports);
+
+        // Ahead of the gate is caught before the sandbox is ever asked to
+        // run anything, so reaching the sandbox proves it was not caught.
+        assert.equal(ports.sandbox.reviews.length, 1);
       });
     });
 

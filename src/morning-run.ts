@@ -47,6 +47,7 @@ import {
   REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
+  isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -699,13 +700,15 @@ function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
 
 /**
  * Why no run can be started on `ticket`'s size label, absent when it names a
- * recognised size or none. Never falls back to `unsizedCountsAs`: the
- * developer named a size, and running the ticket as though it were unsized is
- * not what they asked for.
+ * recognised size, names none, or belongs to a pull request ticket — whose
+ * size label `runEstimate` (`budget-gate.ts`) always ignores, so it is never
+ * unusable. Never falls back to `unsizedCountsAs`: the developer named a
+ * size, and running the ticket as though it were unsized is not what they
+ * asked for.
  */
 function unusableSizeLabel(ticket: Ticket): UnusableSizeLabel | undefined {
   const label = ticket.sizeLabel;
-  if (label?.kind !== "unusable") {
+  if (isPullRequestTicket(ticket) || label?.kind !== "unusable") {
     return undefined;
   }
   return {
