@@ -96,6 +96,29 @@ function ranWith(iteration: IterationOutcome | undefined) {
     : iteration.run;
 }
 
+const PULL_REQUEST = pullRequestUrl(
+  "https://github.com/nadav-alon/pilot/pull/12",
+);
+
+/** A review ticket, eligible like any other, naming the pull request it asks about. */
+function queued(ports: FakePorts): ReviewTicket {
+  ports.store.register(PILOT);
+  return ports.tracker.addEligibleTicket(PILOT, {
+    number: issueNumber(42),
+    title: "Review the draft pull request for #7",
+    pullRequest: { kind: "review", url: PULL_REQUEST },
+  }) as ReviewTicket;
+}
+
+/** Records a finding on the queued pull request, as a reviewing agent would post it. */
+function postedAFinding(ports: FakePorts): void {
+  ports.repoHost.postReviewFinding(PULL_REQUEST, {
+    path: "src/thing.ts",
+    line: 3,
+    body: "Missing a null check here.",
+  });
+}
+
 describe("morningLoop", () => {
   it("reports a dry queue when nothing is registered", async () => {
     const ports = fakePorts();
@@ -584,20 +607,8 @@ describe("morningLoop", () => {
 
     it("frees a review ticket for a later firing today once it closes cleanly", async () => {
       const ports = fakePorts();
-      ports.store.register(PILOT);
-      const pullRequest = pullRequestUrl(
-        "https://github.com/nadav-alon/pilot/pull/12",
-      );
-      ports.tracker.addEligibleTicket(PILOT, {
-        number: issueNumber(42),
-        title: "Review the draft pull request for #7",
-        pullRequest: { kind: "review", url: pullRequest },
-      });
-      ports.repoHost.postReviewFinding(pullRequest, {
-        path: "src/thing.ts",
-        line: 3,
-        body: "Missing a null check here.",
-      });
+      queued(ports);
+      postedAFinding(ports);
 
       await morningLoop(ports);
 
@@ -609,20 +620,125 @@ describe("morningLoop", () => {
 
     it("keeps a review ticket on the record for the rest of the day when the loop cannot close it", async (t) => {
       const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [{ repo: PILOT, number: issueNumber(42) }],
+      );
+    });
+
+    it("frees an apply-review ticket for a later firing today once it closes cleanly", async () => {
+      const ports = fakePorts();
       ports.store.register(PILOT);
       const pullRequest = pullRequestUrl(
         "https://github.com/nadav-alon/pilot/pull/12",
       );
       ports.tracker.addEligibleTicket(PILOT, {
-        number: issueNumber(42),
-        title: "Review the draft pull request for #7",
-        pullRequest: { kind: "review", url: pullRequest },
+        number: issueNumber(43),
+        title: "Apply the review on the draft pull request for #7",
+        pullRequest: { kind: "apply-review", url: pullRequest },
       });
-      ports.repoHost.postReviewFinding(pullRequest, {
-        path: "src/thing.ts",
-        line: 3,
-        body: "Missing a null check here.",
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("keeps an apply-review ticket on the record for the rest of the day when the loop cannot close it", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const pullRequest = pullRequestUrl(
+        "https://github.com/nadav-alon/pilot/pull/12",
+      );
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(43),
+        title: "Apply the review on the draft pull request for #7",
+        pullRequest: { kind: "apply-review", url: pullRequest },
       });
+      t.mock.method(ports.tracker, "closeApplyReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [{ repo: PILOT, number: issueNumber(43) }],
+      );
+    });
+
+    it("frees a rebase ticket for a later firing today once it closes cleanly", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.mergeStatus = () => "clean";
+      const pullRequest = pullRequestUrl(
+        "https://github.com/nadav-alon/pilot/pull/12",
+      );
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(44),
+        title: "Rebase the draft pull request for #7",
+        pullRequest: { kind: "rebase", url: pullRequest },
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("keeps a rebase ticket on the record for the rest of the day when the loop cannot close it", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.mergeStatus = () => "clean";
+      const pullRequest = pullRequestUrl(
+        "https://github.com/nadav-alon/pilot/pull/12",
+      );
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(44),
+        title: "Rebase the draft pull request for #7",
+        pullRequest: { kind: "rebase", url: pullRequest },
+      });
+      t.mock.method(ports.tracker, "closeRebaseTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [{ repo: PILOT, number: issueNumber(44) }],
+      );
+    });
+
+    it("frees a resolved pull request ticket for a later firing today once it closes cleanly", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "merged");
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("keeps a resolved pull request ticket on the record for the rest of the day when the loop cannot close it", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.repoHost.setPullRequestState(PULL_REQUEST, "merged");
       t.mock.method(ports.tracker, "closeReviewTicket", async () => {
         throw new Error("issue is locked");
       });
@@ -1340,29 +1456,6 @@ describe("morningLoop", () => {
   });
 
   describe("a review ticket, selected", () => {
-    const PULL_REQUEST = pullRequestUrl(
-      "https://github.com/nadav-alon/pilot/pull/12",
-    );
-
-    /** A review ticket, eligible like any other, naming the pull request it asks about. */
-    function queued(ports: FakePorts): ReviewTicket {
-      ports.store.register(PILOT);
-      return ports.tracker.addEligibleTicket(PILOT, {
-        number: issueNumber(42),
-        title: "Review the draft pull request for #7",
-        pullRequest: { kind: "review", url: PULL_REQUEST },
-      }) as ReviewTicket;
-    }
-
-    /** Records a finding on the queued pull request, as a reviewing agent would post it. */
-    function postedAFinding(ports: FakePorts): void {
-      ports.repoHost.postReviewFinding(PULL_REQUEST, {
-        path: "src/thing.ts",
-        line: 3,
-        body: "Missing a null check here.",
-      });
-    }
-
     it("runs a reviewing agent rather than an implementing one", async (t) => {
       const ports = fakePorts();
       queued(ports);
