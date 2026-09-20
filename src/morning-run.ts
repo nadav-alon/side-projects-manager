@@ -1177,8 +1177,8 @@ async function resolvedPullRequestOutcome(
  * success, `notLabelled` naming the error otherwise.
  *
  * Never throws: a refused label is reported rather than raised, since it is
- * the last step and the ticket closing is what matters — the developer is
- * told the label is missing instead.
+ * the last step and the ticket closing is what matters. TODO[#407]: render
+ * `notLabelled` to the developer; it is only recorded on the iteration today.
  */
 async function labelClosedPullRequest(
   ports: MorningLoopPorts,
