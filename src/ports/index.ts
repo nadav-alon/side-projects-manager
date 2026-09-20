@@ -89,6 +89,17 @@ export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isProcessId, processId } from "./process-id.ts";
 export type { ProcessId } from "./process-id.ts";
+export { notify } from "./progress.ts";
+export type {
+  Abandoning,
+  ContainerStarted,
+  IterationSelected,
+  Progress,
+  ProgressEvent,
+  ProviderLimited,
+  RunEnded,
+  StoodDown,
+} from "./progress.ts";
 export {
   APPLIED_REVIEW_LABEL,
   REVIEWED_LABEL,
@@ -130,6 +141,7 @@ export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
 export { isSize, largerSize, SIZES } from "./size.ts";
 export type { Size } from "./size.ts";
+export type { StandDownReason } from "./stand-down-reason.ts";
 export type {
   ApplyReviewGaveUp,
   ApplyReviewOutcome,
@@ -162,6 +174,13 @@ export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
 export type { TicketPriority } from "./ticket-priority.ts";
 export { isTokenCount, tokenCount } from "./token-count.ts";
 export type { TokenCount } from "./token-count.ts";
+export {
+  isTranscriptDirectory,
+  transcriptDirectory,
+} from "./transcript-directory.ts";
+export type { TranscriptDirectory } from "./transcript-directory.ts";
+export { isTranscriptPath, transcriptPath } from "./transcript-path.ts";
+export type { TranscriptPath } from "./transcript-path.ts";
 export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";

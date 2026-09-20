@@ -232,11 +232,11 @@ A sub-issue of an implementation ticket asking for that ticket's draft pull requ
 _Avoid_: rebase task, merge ticket, conflict ticket, sync ticket, update-branch ticket
 
 **Review ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket. One whose own pull request is already merged or closed has nothing left to review: the ticket closes the same way, with no run.
+A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed. Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any implementation ticket. Once its findings are confirmed and the ticket closes, its pull request is labelled — see the Reviewed label; a refusal is reported on the iteration rather than retried, and never reopens the ticket. One whose own pull request is already merged or closed has nothing left to review: the ticket closes the same way, with no run and no label.
 _Avoid_: review task, review job, QA ticket
 
 **Apply-review ticket**:
-A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes and promotes it all the same. One whose own pull request is already merged or closed closes the same way, with no run and nothing marked ready.
+A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted on — every open thread applied or declined, commits pushed to that pull request. Opened by a workflow in the project repo when the developer comments `/apply-review`, born ready-for-agent, and selected after rebase tickets and before review tickets. Finished — every thread answered, as the repo host reads it — it closes and promotes the pull request, declined threads or not, and the pull request is labelled — see the Applied-review label; a refusal is reported on the iteration rather than retried, and never reopens the ticket. A pull request with no open thread when the iteration starts has nothing to apply: no run starts, and the ticket closes, promotes it and labels it all the same. One whose own pull request is already merged or closed closes the same way, with no run, nothing marked ready and no label.
 _Avoid_: apply ticket, fix-review ticket, action ticket
 
 **Reviewed label**:
@@ -351,7 +351,7 @@ _Avoid_: installed, enabled, active, live
 ### The seam
 
 **Port**:
-One of the six injected dependencies the loop reaches the outside world through: issue tracker, repo host, sandbox, usage ledger, clock, store.
+One of the seven injected dependencies the loop reaches the outside world through: issue tracker, repo host, sandbox, usage ledger, clock, store, progress. All but progress carry something back; progress is written to only, never read.
 _Avoid_: service, client, interface, dependency
 
 **Adapter**:
@@ -362,6 +362,10 @@ _Avoid_: driver, provider, backend
 A working in-memory implementation of a port, used to exercise the loop in tests.
 _Avoid_: mock, double, spy
 
+**Progress**:
+What the loop reports about an invocation while it runs, the instant something happens — an iteration's selection, the gate's verdict, a container starting, a run ending, the provider refusing mid-invocation, or a second interrupt abandoning what is still running. Written through its own port, never read back, and never the reason an invocation fails: distinct from the summary, which is the durable record an invocation writes once it is done, and would otherwise have to be either chatty or terse to double as both.
+_Avoid_: log, terminal output, streaming
+
 **Sandbox**:
 The container an unattended agent runs in, on a throwaway clone of one project. An implementation run's branch is fetched back into the project's checkout; a review leaves no branch, and an apply-review run pushes to its pull request's branch from inside the container, so nothing comes back from either. A rebase run brings no branch back either, as an apply-review run does not — it force-pushes to the pull request's branch from inside the container. The clone is not kept.
 _Avoid_: box, VM, runner, environment
@@ -369,6 +373,10 @@ _Avoid_: box, VM, runner, environment
 **Throwaway clone**:
 The repository one run happens in: cloned from the project's checkout, deleted when the run ends, and never the checkout itself. Shortened to _clone_ where the context is a run.
 _Avoid_: workspace, worktree (it is neither), scratch directory
+
+**Session transcript**:
+The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a host directory made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards.
+_Avoid_: log, session log, output
 
 **Harness**:
 The skills setup: baked into the sandbox image, and scaffolded into each project repo.

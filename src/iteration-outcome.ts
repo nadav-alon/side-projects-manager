@@ -1,9 +1,8 @@
-import type { Discard } from "./handback-comment.ts";
+import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
   Branch,
   Checkout,
-  HandBackOutcome,
   ModelName,
   ModelRefusal,
   PullRequestResolution,
@@ -22,15 +21,8 @@ import type {
   RunProviderFailed,
   Ticket,
   TokenCount,
+  TranscriptPath,
 } from "./ports/index.ts";
-
-/**
- * What became of the loop's own attempt to hand a ticket back: the tracker's
- * own `HandBackOutcome`, or `"refused"` where the tracker call itself failed —
- * leaving the ticket still eligible, and due to come round again until a
- * human relabels it by hand.
- */
-export type HandBackAttempt = HandBackOutcome | "refused";
 
 /**
  * Whose problem a failed run is.
@@ -56,26 +48,8 @@ export type RunFailure =
 /** A failure whose ticket the loop hands back: every kind but the setup's. */
 export type HandedBackFailure = Exclude<RunFailure, InfrastructureFailure>;
 
-/**
- * Carries what became of the loop's own attempt to give a failed run's
- * ticket back to the developer. Every `HandedBackFailure` extends this
- * rather than declaring the field itself, so the one doc comment below
- * covers all five and a change to what the field means is a one-line edit.
- */
-interface HandedBack {
-  /**
-   * What became of the attempt to give the ticket back to the developer.
-   * `"refused"` says the loop could not comment or relabel, so the ticket is
-   * still eligible and will be selected again — a morning that needs the
-   * developer to go and look at the ticket themselves. `"already-closed"`
-   * says an overlapping run closed it first, so nothing here needs the
-   * developer at all.
-   */
-  handedBack: HandBackAttempt;
-}
-
 /** The agent ran and stopped short: it said it could not, or left the tests red. */
-export interface GaveUp extends HandedBack {
+export interface GaveUp {
   kind: "gave-up";
   reason: string;
 }
@@ -88,7 +62,7 @@ export interface GaveUp extends HandedBack {
  * Handed back all the same, since the work exists and running the ticket again
  * would only make it twice. The branch is kept, not discarded: it is the work.
  */
-export interface HandoverFailed extends HandedBack {
+export interface HandoverFailed {
   kind: "handover-failed";
   reason: string;
   /** Where the run's commits are. */
@@ -117,7 +91,7 @@ export type ModelSource = "model label" | "model defaults";
  * given. The ticket's model is the problem, so the ticket is handed back —
  * but the agent never gave up, and the setup did its part.
  */
-export interface ModelRefused extends HandedBack {
+export interface ModelRefused {
   kind: "model-refused";
   reason: string;
   refusal: ModelRefusal;
@@ -130,7 +104,7 @@ export interface ModelRefused extends HandedBack {
  * disagree, or one naming no usable model — caught at selection, so nothing
  * was cloned, run or spent.
  */
-export interface UnusableModelLabel extends HandedBack {
+export interface UnusableModelLabel {
   kind: "conflicting-model-labels" | "unusable-model-label";
   reason: string;
   /** The model labels at fault, as the ticket carries them. */
@@ -144,7 +118,7 @@ export interface UnusableModelLabel extends HandedBack {
  * problem, not the setup, so the ticket is handed back: left eligible, it
  * would come round every firing ahead of the project's other work.
  */
-export interface UnsettledMergeability extends HandedBack {
+export interface UnsettledMergeability {
   kind: "unsettled-mergeability";
   reason: string;
 }
@@ -202,6 +176,14 @@ export interface LimitRefused {
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunLimitRefused;
+  /**
+   * Where the refused run's session transcript landed, absent when none was
+   * ever found. Carried here rather than read off `run`, which is absent for
+   * a review, an apply-review or a rebase run's own limit refusal: every kind
+   * of run can still leave a transcript behind, so this is the one field a
+   * reader checks regardless of which kind refused.
+   */
+  transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
@@ -227,6 +209,13 @@ export interface ProviderFailed {
   tokensUsed: TokenCount;
   /** What the implementation run left behind. Absent for a review. */
   run?: RunProviderFailed;
+  /**
+   * Where the cut-off run's session transcript landed, absent when none was
+   * ever found. Carried and read exactly as `LimitRefused.transcript` is:
+   * every kind of run leaves one behind whichever way the provider stopped
+   * it.
+   */
+  transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
 }
@@ -253,11 +242,14 @@ export function cutOffRunOutcome(
   run: RunLimitRefused | RunProviderFailed,
   discard: Discard,
 ): CutOff {
+  const transcript =
+    run.transcript === undefined ? {} : { transcript: run.transcript };
   return run.kind === "limit-refused"
     ? {
         kind: "limit-refused",
         limitRefusal: run.words,
         tokensUsed: run.tokensUsed,
+        ...transcript,
         run,
         discard,
       }
@@ -265,6 +257,7 @@ export function cutOffRunOutcome(
         kind: "provider-failed",
         providerFailure: run.words,
         tokensUsed: run.tokensUsed,
+        ...transcript,
         run,
         discard,
       };
@@ -277,17 +270,21 @@ export function cutOffRunOutcome(
 export function cutOffReviewOutcome(
   review: ReviewLimitRefused | ReviewProviderFailed,
 ): CutOff {
+  const transcript =
+    review.transcript === undefined ? {} : { transcript: review.transcript };
   return review.kind === "limit-refused"
     ? {
         kind: "limit-refused",
         limitRefusal: review.words,
         tokensUsed: review.tokensUsed,
+        ...transcript,
         discard: { kind: "none" },
       }
     : {
         kind: "provider-failed",
         providerFailure: review.words,
         tokensUsed: review.tokensUsed,
+        ...transcript,
         discard: { kind: "none" },
       };
 }
@@ -304,17 +301,11 @@ export interface Finished {
   /** Absent when the run committed nothing, so there was nothing to hand over. */
   handover?: Handover;
   /**
-   * What became of the ticket's own hand-back, absent exactly when it
-   * succeeded outright as `"handed-back"` — whether or not the run produced a
-   * handover, since a run that committed nothing is given back too, just with
-   * nothing to name in the comment but that. `"already-closed"` says an
-   * overlapping run closed the ticket first, so `handFinishedTicketBack`
-   * wrote nothing and there is nothing further to say about it here.
-   * `"refused"` pairs with `handbackFailure` naming why.
+   * What became of the ticket's own hand-back — whether or not the run
+   * produced a handover, since a run that committed nothing is given back
+   * too, just with nothing to name in the comment but that.
    */
-  handedBack?: Exclude<HandBackAttempt, "handed-back">;
-  /** Present exactly when `handedBack` is `"refused"`: why the tracker call itself failed. */
-  handbackFailure?: string;
+  handedBack: HandBackRecord;
 }
 
 /**
@@ -329,10 +320,15 @@ export interface Handover {
 /**
  * An iteration whose run did not finish: an agent that gave up, whose ticket
  * is handed back, or an infrastructure failure, whose ticket is left as it was.
+ *
+ * Split on `failure`'s kind, rather than carrying `handedBack` as one
+ * optional field, so whether a ticket was handed back is recorded one way for
+ * every kind of failure: a `HandedBackFailure` always carries the record of
+ * its hand-back, and an `InfrastructureFailure` — never handed back — can
+ * never be built with one.
  */
-export interface Failed {
+export type Failed = {
   kind: "failed";
-  failure: RunFailure;
   /** What the agent left behind. Absent when it never ran, and for a review. */
   run?: RunOutcome;
   /**
@@ -345,6 +341,30 @@ export interface Failed {
    * which is where that distinction is actually told apart.
    */
   tokensUsed?: TokenCount;
+  /**
+   * Where the failed run's session transcript landed, absent when none was
+   * ever found. As `tokensUsed`, carried here rather than read off `run` —
+   * which is absent for a review, an apply-review or a rebase run — so a
+   * reader checks the one field regardless of which kind of run failed.
+   */
+  transcript?: TranscriptPath;
+} & (
+  | { failure: InfrastructureFailure }
+  /** What became of the ticket's own hand-back. */
+  | { failure: HandedBackFailure; handedBack: HandBackRecord }
+);
+
+/**
+ * Narrows `failed` to the branch that carries its own hand-back — every kind
+ * but an infrastructure failure, which is never handed back. Checking
+ * `failed.failure.kind` directly does not narrow `failed.handedBack` itself,
+ * since the two live in different members of the intersection; this says so
+ * once, as a type predicate, rather than at every reader of `Failed`.
+ */
+export function handedBackFailure<T extends Failed>(
+  failed: T,
+): failed is T & { failure: HandedBackFailure; handedBack: HandBackRecord } {
+  return failed.failure.kind !== "infrastructure";
 }
 
 /**
@@ -390,6 +410,13 @@ export interface Reviewed {
    * request and closes it by hand.
    */
   notClosed?: NotClosed;
+  /**
+   * Set when the ticket closed but `REVIEWED_LABEL` could not be added to its
+   * pull request. The last step, tried only once the ticket is already
+   * closed: a refusal here is reported rather than retried, never `notClosed`
+   * — the ticket did close.
+   */
+  notLabelled?: NotLabelled;
 }
 
 /**
@@ -398,6 +425,14 @@ export interface Reviewed {
  */
 export interface NotClosed {
   kind: "check-failed" | "close-failed";
+  error: string;
+}
+
+/**
+ * Why a review or apply-review iteration's closed ticket could not have its
+ * pull request labelled, and the error that stopped it.
+ */
+export interface NotLabelled {
   error: string;
 }
 
@@ -426,6 +461,12 @@ export interface AppliedReview {
    * not be closed. Either way the ticket is still ready-for-agent.
    */
   notClosed?: ApplyReviewNotClosed;
+  /**
+   * Set when the ticket closed but `APPLIED_REVIEW_LABEL` could not be added
+   * to its pull request. As `Reviewed.notLabelled`: the last step, tried only
+   * once the ticket is already closed, and reported rather than retried.
+   */
+  notLabelled?: NotLabelled;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */

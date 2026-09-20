@@ -10,6 +10,7 @@ import type {
 import type { ModelName } from "./model-name.ts";
 import type { TicketGist } from "./ticket-gist.ts";
 import type { TokenCount } from "./token-count.ts";
+import type { TranscriptPath } from "./transcript-path.ts";
 import type { Usd } from "./usd.ts";
 
 /** One ticket, and the project checkout it is to be worked against. */
@@ -95,6 +96,12 @@ export interface ModelRefusal {
 interface Ended {
   /** Tokens the run consumed, fed back to the ledger and the summary. */
   tokensUsed: TokenCount;
+  /**
+   * Where the container's own session transcript landed on the host, absent
+   * when none was ever found there — a container that never reached the
+   * agent CLI leaves nothing to name. See `container-sandbox.ts`'s `attempt`.
+   */
+  transcript?: TranscriptPath;
 }
 
 /**

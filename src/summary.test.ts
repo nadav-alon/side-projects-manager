@@ -15,6 +15,7 @@ import {
   pullRequestUrl,
   repoSlug,
   tokenCount,
+  transcriptPath,
   type ReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
@@ -48,6 +49,7 @@ function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOu
       pullRequest: PULL_REQUEST,
       reviewTicket: reviewTicket(reviewNumber),
     },
+    handedBack: { outcome: "handed-back" },
   };
   return { repo: REPO, ticket, ...finished };
 }
@@ -88,7 +90,8 @@ function reviewFailed(number: number): IterationOutcome {
     repo: REPO,
     ticket: reviewTicket(number),
     kind: "failed",
-    failure: { kind: "gave-up", reason: "left the tests red", handedBack: "handed-back" },
+    failure: { kind: "gave-up", reason: "left the tests red" },
+    handedBack: { outcome: "handed-back" },
   };
 }
 
@@ -98,7 +101,8 @@ function reviewFailedNotHandedBack(number: number): IterationOutcome {
     repo: REPO,
     ticket: reviewTicket(number),
     kind: "failed",
-    failure: { kind: "gave-up", reason: "left the tests red", handedBack: "refused" },
+    failure: { kind: "gave-up", reason: "left the tests red" },
+    handedBack: { outcome: "refused", reason: "the tracker was unreachable" },
   };
 }
 
@@ -108,7 +112,8 @@ function reviewFailedAlreadyClosed(number: number): IterationOutcome {
     repo: REPO,
     ticket: reviewTicket(number),
     kind: "failed",
-    failure: { kind: "gave-up", reason: "left the tests red", handedBack: "already-closed" },
+    failure: { kind: "gave-up", reason: "left the tests red" },
+    handedBack: { outcome: "already-closed" },
   };
 }
 
@@ -368,11 +373,8 @@ describe("summaryLine", () => {
       repo: REPO,
       ticket: implementationTicket(185),
       kind: "failed",
-      failure: {
-        kind: "gave-up",
-        reason: "left the tests red at 2168fc2c.",
-        handedBack: "handed-back",
-      },
+      failure: { kind: "gave-up", reason: "left the tests red at 2168fc2c." },
+      handedBack: { outcome: "handed-back" },
     };
 
     const line = summaryLine(facts([iteration]));
@@ -386,11 +388,8 @@ describe("summaryLine", () => {
       repo: REPO,
       ticket: implementationTicket(186),
       kind: "failed",
-      failure: {
-        kind: "gave-up",
-        reason: "left the branch on finding-shape\n",
-        handedBack: "handed-back",
-      },
+      failure: { kind: "gave-up", reason: "left the branch on finding-shape\n" },
+      handedBack: { outcome: "handed-back" },
     };
 
     const line = summaryLine(facts([iteration]));
@@ -403,11 +402,8 @@ describe("summaryLine", () => {
       repo: REPO,
       ticket: implementationTicket(187),
       kind: "failed",
-      failure: {
-        kind: "gave-up",
-        reason: "left the tests red at 2168fc2c...",
-        handedBack: "handed-back",
-      },
+      failure: { kind: "gave-up", reason: "left the tests red at 2168fc2c..." },
+      handedBack: { outcome: "handed-back" },
     };
 
     const line = summaryLine(facts([iteration]));
@@ -427,7 +423,7 @@ describe("summaryLine", () => {
     assert.doesNotMatch(line, /\.\./);
   });
 
-  it("trims a trailing newline from a hand-back failure before the em dash that follows it", () => {
+  it("trims a trailing newline from a hand-back failure before the semicolon that follows it", () => {
     const finished: IterationOutcome = {
       repo: REPO,
       ticket: implementationTicket(188),
@@ -440,14 +436,14 @@ describe("summaryLine", () => {
         output: "done",
       },
       tokensUsed: tokenCount(1000),
-      handbackFailure: "the tracker was unreachable\n",
+      handedBack: { outcome: "refused", reason: "the tracker was unreachable\n" },
     };
 
     const line = summaryLine(facts([finished]));
 
     assert.match(
       line,
-      /could not be handed back: the tracker was unreachable — still ready-for-agent/,
+      /still ready-for-agent and will come round again — the hand-back itself failed: the tracker was unreachable;/,
     );
   });
 
@@ -456,11 +452,8 @@ describe("summaryLine", () => {
       repo: REPO,
       ticket: implementationTicket(191),
       kind: "failed",
-      failure: {
-        kind: "gave-up",
-        reason: "left the tests red",
-        handedBack: "already-closed",
-      },
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "already-closed" },
     };
 
     const line = summaryLine(facts([iteration]));
@@ -468,5 +461,74 @@ describe("summaryLine", () => {
     assert.match(line, /#191 was already closed by another run, so it was left alone/);
     assert.doesNotMatch(line, /Handed back for a human/);
     assert.doesNotMatch(line, /still ready-for-agent/);
+  });
+});
+
+describe("transcript", () => {
+  const TRANSCRIPT = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+
+  it("names a finished run's transcript", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(200),
+      kind: "finished",
+      run: {
+        kind: "finished",
+        branch: branch("agent/200"),
+        commits: [commitSha("a".repeat(40))],
+        tokensUsed: tokenCount(1000),
+        output: "done",
+        transcript: TRANSCRIPT,
+      },
+      tokensUsed: tokenCount(1000),
+      handedBack: { outcome: "handed-back" },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
+  });
+
+  it("names a failed run's transcript", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(201),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "handed-back" },
+      transcript: TRANSCRIPT,
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
+  });
+
+  it("names nothing when no transcript was ever found", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(202),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "handed-back" },
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.doesNotMatch(line, /Transcript:/);
+  });
+
+  it("names a reviewed ticket's transcript", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: reviewTicket(203),
+      kind: "reviewed",
+      review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted", transcript: TRANSCRIPT },
+      tokensUsed: tokenCount(500),
+    };
+
+    const line = summaryLine(facts([iteration]));
+
+    assert.match(line, new RegExp(`Transcript: ${TRANSCRIPT}\\.`));
   });
 });

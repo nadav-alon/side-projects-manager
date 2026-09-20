@@ -45,6 +45,7 @@ export {
   type FakeNewProjectPorts,
 } from "./fake-new-project-ports.ts";
 export { fakePorts, type FakePorts } from "./fake-ports.ts";
+export { FakeProgress } from "./fake-progress.ts";
 export {
   LAST_WEEK,
   MANAGER,

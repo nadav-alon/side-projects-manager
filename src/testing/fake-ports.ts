@@ -1,3 +1,4 @@
+import { noOpProgress } from "../adapters/no-op-progress.ts";
 import type { MorningLoopPorts } from "../morning-run.ts";
 import { FakeClock } from "./fake-clock.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
@@ -19,6 +20,10 @@ export interface FakePorts extends MorningLoopPorts {
 /**
  * A whole world with nothing in it: no registered projects, no backlogs, no
  * usage. Tests arrange from here by putting things into the fakes.
+ *
+ * `progress` defaults to the no-op adapter, not a fake that could be
+ * inspected: almost no test cares what an invocation narrated. A test that
+ * does care overrides it with `FakeProgress`.
  */
 export function fakePorts(): FakePorts {
   return {
@@ -28,5 +33,6 @@ export function fakePorts(): FakePorts {
     ledger: new FakeUsageLedger(),
     clock: new FakeClock(),
     store: new FakeStore(),
+    progress: noOpProgress,
   };
 }

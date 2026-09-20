@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { failureOf, type IterationOutcome } from "./iteration-outcome.ts";
+import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
+  APPLIED_REVIEW_LABEL,
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   READY_FOR_HUMAN_LABEL,
+  REVIEWED_LABEL,
   backlogIn,
   branch,
   checkout,
@@ -20,6 +22,7 @@ import {
   reviewTitle,
   ticketGist,
   tokenCount,
+  transcriptPath,
   usd,
   type ApplyReviewTicket,
   type CommitSha,
@@ -39,6 +42,7 @@ import {
   SPENDABLE_THIS_WEEK,
   YESTERDAY,
   FakeClock,
+  FakeProgress,
   FakeRepoHost,
   HANGS,
   LIMIT_REFUSAL,
@@ -66,10 +70,11 @@ function gateRefusal(report: InvocationReport) {
     : standDown;
 }
 
-/** What became of an agent that gave up's own hand-back — undefined for any other outcome. */
+/** What became of a failed iteration's own hand-back — undefined for any other outcome. */
 function handedBackOf(iteration: IterationOutcome | undefined) {
-  const failure = failureOf(iteration);
-  return failure?.kind === "gave-up" ? failure.handedBack : undefined;
+  return iteration?.kind === "failed" && handedBackFailure(iteration)
+    ? iteration.handedBack.outcome
+    : undefined;
 }
 
 function pullRequestOf(iteration: IterationOutcome | undefined) {
@@ -733,6 +738,15 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("adds no reviewed or applied-review label to an implementation run's own pull request", async () => {
+      const ports = fakePorts();
+      ran(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
     it("is opened with the run's ticket gist, when it carried one", async () => {
       const ports = fakePorts();
       const gist = ticketGist("Add the thing to the widget.");
@@ -949,12 +963,10 @@ describe("morningLoop", () => {
       const checkoutPath = `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`;
       assert.match(report.message, /not pushed/);
       assert.match(report.message, new RegExp(checkoutPath));
+      // The comment's own wording — naming the branch and checkout — is
+      // covered by hand-back.test.ts; here it is enough that the hand back
+      // happened, for the ticket this iteration selected.
       assert.equal(ports.tracker.handbacks[0]?.ticket.number, ticket.number);
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /not pushed/);
-      assert.match(
-        ports.tracker.handbacks[0]?.comment ?? "",
-        new RegExp(checkoutPath),
-      );
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs, [
         { at: FROZEN_NOW, tokensUsed: tokenCount(42_000) },
@@ -1135,7 +1147,7 @@ describe("morningLoop", () => {
         ports.tracker.handbacks.some((handback) => handback.ticket.number === ticket.number),
         false,
       );
-      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+      assert.equal(finished(report.iterations[0])?.handedBack.outcome, "already-closed");
     });
 
     it("is not opened on a morning that ran nothing", async () => {
@@ -1261,6 +1273,84 @@ describe("morningLoop", () => {
       assert.deepEqual(backlog, []);
     });
 
+    it("labels the pull request reviewed once the ticket closes", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
+      ]);
+    });
+
+    it("reports a refused label without reopening the review ticket", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.repoHost, "labelPullRequest", async () => {
+        throw new Error("label does not exist");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "reviewed");
+      assert.equal(
+        outcome?.kind === "reviewed" ? outcome.notLabelled?.error : undefined,
+        "label does not exist",
+      );
+      assert.equal(
+        outcome?.kind === "reviewed" ? outcome.notClosed : undefined,
+        undefined,
+      );
+    });
+
+    it("adds no label when the review ticket cannot be closed", async (t) => {
+      const ports = fakePorts();
+      queued(ports);
+      postedAFinding(ports);
+      t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+        throw new Error("issue is locked");
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("adds no label to a review whose agent gave up", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not read the diff",
+        tokensUsed: tokenCount(1_000),
+        reason: "the review skill exited 1",
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("adds no label to a review the provider limit refused", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      ports.sandbox.reviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "limit-refused");
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
     it("hands back a review whose agent gave up, rather than leaving it to come round again", async () => {
       const ports = fakePorts();
       const ticket = queued(ports);
@@ -1277,11 +1367,11 @@ describe("morningLoop", () => {
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
       assert.equal(handedBackOf(report.iterations[0]), "handed-back");
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      // The comment's own wording is covered by hand-back.test.ts; here it is
+      // enough that the hand back happened, for the ticket this iteration
+      // selected.
       const [handback] = ports.tracker.handbacks;
       assert.equal(handback?.ticket.number, ticket.number);
-      assert.match(handback.comment, /the review skill exited 1/);
-      assert.match(handback.comment, /I could not read the diff/);
-      assert.match(handback.comment, /will not be retried/);
       assert.equal(ports.sandbox.reviews.length, 1);
       assert.equal(tomorrow.outcome, "dry-queue");
     });
@@ -1353,6 +1443,27 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("carries the review's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not read the diff",
+        tokensUsed: tokenCount(1_000),
+        reason: "the review skill exited 1",
+        transcript,
+      });
+
+      const report = await morningLoop(ports);
+
+      const iteration = report.iterations[0];
+      assert.equal(
+        iteration?.kind === "failed" ? iteration.transcript : undefined,
+        transcript,
+      );
+    });
+
     it("says a review's hand-back itself failed, leaving the ticket for the developer to relabel", async (t) => {
       const ports = fakePorts();
       queued(ports);
@@ -1393,6 +1504,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /gh api rate limited/);
       assert.deepEqual(ports.tracker.closedReviewTickets, []);
       assert.deepEqual(ports.tracker.handbacks.map((h) => h.ticket.number), [7]);
+      assert.deepEqual(ports.repoHost.labelled, []);
       const body = ports.tracker.summaries[0]?.body ?? "";
       const waiting = body.slice(body.indexOf("## Waiting on you"));
       assert.match(waiting, new RegExp(`pilot #${ticket.number}`));
@@ -1733,6 +1845,18 @@ describe("morningLoop", () => {
       assert.deepEqual(backlog, []);
     });
 
+    it("labels the pull request applied-review once a finished run's ticket closes", async () => {
+      const ports = fakePorts();
+      queued(ports, 1);
+      answering(ports, ["applied"]);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: APPLIED_REVIEW_LABEL },
+      ]);
+    });
+
     it("marks the pull request ready even when every thread was declined", async () => {
       const ports = fakePorts();
       queued(ports, 1);
@@ -1801,6 +1925,17 @@ describe("morningLoop", () => {
       assert.match(report.message, /nothing left to apply/i);
     });
 
+    it("labels the pull request applied-review when no thread was open, so nothing ran", async () => {
+      const ports = fakePorts();
+      queued(ports, 0);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: APPLIED_REVIEW_LABEL },
+      ]);
+    });
+
     it("hands back a finished run that left a thread unanswered, leaving the pull request a draft", async () => {
       const ports = fakePorts();
       const ticket = queued(ports, 2);
@@ -1818,6 +1953,16 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("adds no label to an apply-review whose agent gave up", async () => {
+      const ports = fakePorts();
+      queued(ports, 2);
+      answering(ports, ["applied"]);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("hands back a run whose push was rejected because the branch moved, naming the moved head", async () => {
@@ -1841,6 +1986,27 @@ describe("morningLoop", () => {
       assert.match(handback?.comment ?? "", /will not be retried/);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+    });
+
+    it("carries the run's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not answer every thread",
+        reason: "left a thread unanswered",
+        tokensUsed: tokenCount(2_000),
+        transcript,
+      });
+
+      const report = await morningLoop(ports);
+
+      const iteration = report.iterations[0];
+      assert.equal(
+        iteration?.kind === "failed" ? iteration.transcript : undefined,
+        transcript,
+      );
     });
 
     it("leaves the ticket eligible when the sandbox breaks, naming it under what is waiting on the developer", async (t) => {
@@ -1896,6 +2062,7 @@ describe("morningLoop", () => {
       assert.equal(report.standDown?.reason, "provider-limit");
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.repoHost.labelled, []);
       const { tickets: backlog } = backlogIn(
         await ports.tracker.listOpenIssues(PILOT),
       );
@@ -1981,6 +2148,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
+      assert.deepEqual(ports.repoHost.labelled, []);
       assert.match(
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
@@ -2004,6 +2172,7 @@ describe("morningLoop", () => {
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
       );
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("reports a ticket that cannot be closed, rather than raising it", async (t) => {
@@ -2023,6 +2192,35 @@ describe("morningLoop", () => {
       assert.match(
         waitingOn(ports),
         new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+      );
+      assert.deepEqual(ports.repoHost.labelled, []);
+    });
+
+    it("reports a refused label without reopening a finished apply-review's ticket", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      answering(ports, ["applied"]);
+      t.mock.method(ports.repoHost, "labelPullRequest", async () => {
+        throw new Error("label does not exist");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket),
+        [ticket],
+      );
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "applied-review");
+      assert.equal(
+        outcome?.kind === "applied-review"
+          ? outcome.notLabelled?.error
+          : undefined,
+        "label does not exist",
+      );
+      assert.equal(
+        outcome?.kind === "applied-review" ? outcome.notClosed : undefined,
+        undefined,
       );
     });
 
@@ -2200,6 +2398,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.pullRequests.length, 0);
       assert.equal(ports.repoHost.discarded.length, 0);
       assert.equal(ports.tracker.reviewTickets.length, 0);
+      assert.deepEqual(ports.repoHost.labelled, []);
     });
 
     it("hands back a finished run whose pull request still conflicts, and does not close it", async () => {
@@ -2248,6 +2447,27 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
+    });
+
+    it("carries the run's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.rebaseResult = () => ({
+        kind: "gave-up",
+        output: "I could not resolve the conflict",
+        reason: "left the pull request still conflicting",
+        tokensUsed: tokenCount(2_000),
+        transcript,
+      });
+
+      const report = await morningLoop(ports);
+
+      const iteration = report.iterations[0];
+      assert.equal(
+        iteration?.kind === "failed" ? iteration.transcript : undefined,
+        transcript,
+      );
     });
 
     it("stands down on a limit refusal, leaving the ticket exactly as it was", async () => {
@@ -2642,19 +2862,14 @@ describe("morningLoop", () => {
       assert.match(report.message, new RegExp(reason));
     });
 
-    describe("the comment it leaves", () => {
-      it("says why the agent stopped, and what it said before it did", async () => {
-        const ports = readyToWork();
-        agentGivesUp(ports);
+    it("hands the ticket back", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
 
-        await morningLoop(ports);
+      await morningLoop(ports);
 
-        const [handback] = ports.tracker.handbacks;
-        assert.equal(handback?.ticket.number, 7);
-        assert.match(handback.comment, new RegExp(GAVE_UP));
-        assert.match(handback.comment, new RegExp(SAID));
-      });
-
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, 7);
     });
 
     describe("when the sandbox itself breaks", () => {
@@ -2824,7 +3039,6 @@ describe("morningLoop", () => {
 
       assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
       assert.equal(handedBackOf(report.iterations[0]), "refused");
-      assert.match(report.message, /could not be handed back/);
       assert.match(report.message, /gh is not logged in/);
       // The one morning the developer has to act on themselves: saying it was
       // handed back would be the opposite of what happened.
@@ -2844,13 +3058,9 @@ describe("morningLoop", () => {
       // Relabelling is the half that stops the ticket costing another
       // morning; a branch git will not delete must not take it down.
       assert.equal(handedBackOf(report.iterations[0]), "handed-back");
-      assert.match(
-        ports.tracker.handbacks[0]?.comment ?? "",
-        /could not be discarded/,
-      );
     });
 
-    it("does not claim a branch was discarded when the agent committed nothing", async () => {
+    it("does not discard a branch when the agent committed nothing", async () => {
       const ports = readyToWork();
       ports.sandbox.result = () => ({
         kind: "gave-up",
@@ -2864,44 +3074,6 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(ports.repoHost.discarded, []);
-      assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /discard/);
-    });
-
-    it("keeps the comment small enough for a tracker to accept it", async () => {
-      const ports = readyToWork();
-      ports.sandbox.result = () => ({
-        kind: "gave-up",
-        branch: FAILED_BRANCH,
-        commits: [commitSha("c0ffee1")],
-        output: "x".repeat(200_000),
-        tokensUsed: tokenCount(42_000),
-        // A failed `execFile` carries every byte the command wrote to stderr.
-        reason: "y".repeat(200_000),
-      });
-
-      await morningLoop(ports);
-
-      // GitHub's own limit on a comment body. A comment it rejects is a
-      // ticket that never gets handed back.
-      assert.ok((ports.tracker.handbacks[0]?.comment.length ?? 0) < 65_536);
-    });
-
-    it("quotes output that contains code fences without breaking out of the quote", async () => {
-      const ports = readyToWork();
-      ports.sandbox.result = () => ({
-        kind: "gave-up",
-        branch: FAILED_BRANCH,
-        commits: [commitSha("c0ffee1")],
-        output: "I tried:\n```ts\nconst x = 1;\n```\nand it broke",
-        tokensUsed: tokenCount(42_000),
-        reason: GAVE_UP,
-      });
-
-      await morningLoop(ports);
-
-      // A fence longer than any run of backticks inside, or the rest of the
-      // output renders as Markdown and its `#123`s become cross-references.
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /````\n/);
     });
 
     it("reports the run alongside the failure, so its commits are still visible", async () => {
@@ -2978,7 +3150,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.deepEqual(ports.tracker.handbacks, []);
-      assert.equal(finished(report.iterations[0])?.handedBack, "already-closed");
+      assert.equal(finished(report.iterations[0])?.handedBack.outcome, "already-closed");
       const [summary] = ports.tracker.summaries;
       assert.ok(summary);
       assert.doesNotMatch(summary.body, /relabelled/);
@@ -3014,7 +3186,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.match(report.message, /could not be handed back/);
+      assert.match(report.message, /the hand-back itself failed/);
       assert.match(report.message, /gh is not logged in/);
     });
   });
@@ -3892,25 +4064,11 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.sandbox.runs, []);
         assert.deepEqual(ports.repoHost.clones, []);
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, without a run.
         assert.equal(ports.tracker.handbacks.length, 1);
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /model:opus/);
-        assert.match(comment, /model:haiku/);
-        assert.match(comment, /keep one/i);
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "conflicting-model-labels");
-      });
-
-      it("names the labels as the ticket carries them", async () => {
-        const { ports, ticket } = oneTicket();
-        ports.tracker.addLabel(ticket, "Model:Opus");
-        ports.tracker.addLabel(ticket, "model:haiku");
-
-        await morningLoop(ports);
-
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /`Model:Opus`/);
-        assert.doesNotMatch(comment, /`model:Opus`/);
       });
 
       it("spends nothing, and the invocation carries on to the next ticket", async () => {
@@ -3944,14 +4102,15 @@ describe("morningLoop", () => {
       });
     });
 
-    it("hands back a ticket whose model label names no usable model, quoting it, and never runs it", async () => {
+    it("hands back a ticket whose model label names no usable model, and never runs it", async () => {
       const { ports, ticket } = oneTicket();
       ports.tracker.addLabel(ticket, "model:");
 
       await morningLoop(ports);
 
       assert.deepEqual(ports.sandbox.runs, []);
-      assert.match(ports.tracker.handbacks[0]?.comment ?? "", /`model:`/);
+      // The comment's own wording is covered by hand-back.test.ts.
+      assert.equal(ports.tracker.handbacks.length, 1);
     });
 
     describe("a model the agent CLI refuses", () => {
@@ -3968,12 +4127,10 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
+        // The comment's own wording is covered by hand-back.test.ts; here it
+        // is enough that the hand back happened, for the failure this
+        // iteration reports.
         assert.equal(ports.tracker.handbacks.length, 1);
-        const comment = ports.tracker.handbacks[0]?.comment ?? "";
-        assert.match(comment, /opus/);
-        assert.match(comment, /model label/);
-        assert.match(comment, /refused model opus/);
-        assert.doesNotMatch(comment, /gave up/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
         assert.deepEqual(backlogIn(await ports.tracker.listOpenIssues(PILOT)).tickets, []);
       });
@@ -4020,6 +4177,7 @@ describe("morningLoop", () => {
         assert.match(ports.tracker.handbacks[0]?.comment ?? "", /haiku/);
         assert.deepEqual(ports.tracker.closedReviewTickets, []);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+        assert.deepEqual(ports.repoHost.labelled, []);
       });
 
       it("hands back an apply-review ticket whose model is refused, naming the apply-review model defaults", async () => {
@@ -4049,6 +4207,7 @@ describe("morningLoop", () => {
         assert.match(comment, /model defaults for apply-review tickets/);
         assert.match(comment, /fix the apply-review model in `models\.json`/);
         assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+        assert.deepEqual(ports.repoHost.labelled, []);
       });
 
       it("discards any branch the refused run left, and says so", async () => {
@@ -4491,6 +4650,217 @@ describe("morningLoop", () => {
           `Morning loop summary — ${local.year}-${local.month}-${local.day} ${local.hour}:${local.minute}`,
         );
       });
+    });
+  });
+
+  /**
+   * `fakePorts()` defaults `progress` to the no-op adapter, so every test
+   * above this one exercises the loop having said nothing about itself in
+   * between. These are the only tests that swap in `FakeProgress` to see
+   * what the loop narrated.
+   */
+  describe("progress", () => {
+    /** A project with one thing to do, so the run itself is the only question. */
+    function readyToWork(ports: FakePorts): void {
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+    }
+
+    it("announces the project and ticket it selected", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const selected = progress.events.find(
+        (event) => event.kind === "iteration-selected",
+      );
+      assert.equal(selected?.ticket.repo, PILOT);
+      assert.equal(selected?.ticket.number, 7);
+    });
+
+    /**
+     * Pinned at the moment the sandbox is entered, not inferred from the
+     * final event order: a line printed after the container exits is the
+     * silence this port exists to fix.
+     */
+    it("announces the selection and the starting container before the sandbox is ever invoked", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+      let seenBeforeRun: string[] | undefined;
+      ports.sandbox.result = (ticket) => {
+        seenBeforeRun = progress.events.map((event) => event.kind);
+        return {
+          kind: "finished",
+          branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+          commits: [],
+          output: "",
+          tokensUsed: tokenCount(0),
+        };
+      };
+
+      await morningLoop(ports);
+
+      assert.deepEqual(seenBeforeRun, [
+        "iteration-selected",
+        "container-started",
+      ]);
+    });
+
+    it("names the spend ceiling the container was given", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.store.budget = { ...DEFAULT_BUDGET, spendCeiling: usd(3) };
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const started = progress.events.find(
+        (event) => event.kind === "container-started",
+      );
+      assert.equal(started?.spendCeiling, 3);
+    });
+
+    it("names the throwaway clone a starting container runs against", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const started = progress.events.find(
+        (event) => event.kind === "container-started",
+      );
+      assert.equal(started?.checkout, await ports.repoHost.clone(PILOT));
+    });
+
+    it("announces what a run cost once it ends", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.sandbox.result = (ticket) => ({
+        kind: "finished",
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        output: "",
+        tokensUsed: tokenCount(4242),
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      const ended = progress.events.find((event) => event.kind === "run-ended");
+      assert.equal(ended?.tokensUsed, 4242);
+    });
+
+    it("announces the gate's refusal the instant it refuses, before the invocation ends", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        ["iteration-selected", "stood-down"],
+      );
+      const stoodDown = progress.events.find(
+        (event) => event.kind === "stood-down",
+      );
+      assert.equal(stoodDown?.reason, "weekly-reserve");
+    });
+
+    it("announces a provider-limit stand-down the instant a run is refused, not only when the invocation ends", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.standDown?.reason, "provider-limit");
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        [
+          "iteration-selected",
+          "container-started",
+          "run-ended",
+          "provider-limited",
+        ],
+      );
+      const limited = progress.events.find(
+        (event) => event.kind === "provider-limited",
+      );
+      assert.equal(limited?.limitRefusal, LIMIT_REFUSAL);
+    });
+
+    it("announces the run ended, spending nothing, when the sandbox rejects after the container started", async (t) => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("docker is not running");
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        ["iteration-selected", "container-started", "run-ended"],
+      );
+      const ended = progress.events.find((event) => event.kind === "run-ended");
+      assert.equal(ended?.tokensUsed, 0);
+    });
+
+    it("never announces a container started, or a run ended, when the checkout cannot be made", async (t) => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      t.mock.method(ports.repoHost, "clone", async () => {
+        throw new Error("no such remote");
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        progress.events.map((event) => event.kind),
+        ["iteration-selected"],
+      );
+    });
+
+    it("never fails the invocation, or changes its exit-worthy outcome, when a progress write throws", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.progress = {
+        note: () => {
+          throw new Error("the terminal hung up");
+        },
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(ports.sandbox.runs.length, 1);
     });
   });
 });
