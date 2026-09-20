@@ -21,8 +21,15 @@ const CRON_MARKER =
 const RC_BEGIN = "# >>> side-projects-manager: logon guard >>>";
 const RC_END = "# <<< side-projects-manager: logon guard <<<";
 
-/** The tail every registered line quotes the trigger script as — `install-triggers.sh`'s own `$TRIGGER_SCRIPT`, minus the manager home it is joined to. */
-const TRIGGER_SCRIPT_SUFFIX = "/src/bin/morning-run.ts";
+/**
+ * The tail every registered line quotes the trigger script as —
+ * `install-triggers.sh`'s own `$TRIGGER_SCRIPT`, minus the manager home it is
+ * joined to. Matches both the current name and `guarded-morning-run.ts`, the
+ * name every installer from `d8d4439` through `b06aab9` wrote before the
+ * invocation lease was folded into `morning-run.ts` itself — a block or line
+ * from one of those installs is still on disk until the installer is re-run.
+ */
+const TRIGGER_SCRIPT_SUFFIX = /\/src\/bin\/(?:guarded-)?morning-run\.ts$/;
 
 const DEFAULT_RC_FILES = [
   path.join(os.homedir(), ".bashrc"),
@@ -122,8 +129,11 @@ function firstLogonGuardBlock(content: string): string | undefined {
 /** The manager home a registered line or block points at, read off its quoted trigger-script path. */
 function managerHomeIn(text: string): string | undefined {
   const quoted = [...text.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
-  const scriptPath = quoted.find((candidate) =>
-    candidate.endsWith(TRIGGER_SCRIPT_SUFFIX),
-  );
-  return scriptPath?.slice(0, -TRIGGER_SCRIPT_SUFFIX.length);
+  for (const candidate of quoted) {
+    const match = TRIGGER_SCRIPT_SUFFIX.exec(candidate);
+    if (match !== null) {
+      return candidate.slice(0, match.index);
+    }
+  }
+  return undefined;
 }

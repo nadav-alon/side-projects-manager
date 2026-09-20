@@ -17,10 +17,17 @@ function cronLine(home: string, marker: string = CRON_MARKER): string {
   return `0 * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
 }
 
-function logonGuardBlock(home: string): string {
+/**
+ * `guarded-morning-run.ts` by default: what every installer that ever wrote
+ * a logon guard named the script, from `d8d4439` through `b06aab9` — before
+ * `3a72ac0` folded the invocation lease into `morning-run.ts` itself and
+ * renamed the trigger script to match. Overridable to build a block from
+ * that later naming instead.
+ */
+function logonGuardBlock(home: string, script = "guarded-morning-run.ts"): string {
   return [
     RC_BEGIN,
-    `( "/usr/bin/node" "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 & )`,
+    `( "/usr/bin/node" "${home}/src/bin/${script}" >> "${home}/trigger.log" 2>&1 & )`,
     RC_END,
   ].join("\n");
 }
@@ -140,6 +147,17 @@ describe("the logon guard registration", () => {
     assert.deepEqual(await systemTriggerRegistrations([rc]).logonGuard(), {
       registered: true,
       managerHome: moved,
+    });
+  });
+
+  it("reports armed for a block naming the current morning-run.ts script", async () => {
+    const directory = await tempHome("trigger-registrations");
+    const rc = path.join(directory, ".bashrc");
+    await writeFile(rc, `${logonGuardBlock(directory, "morning-run.ts")}\n`);
+
+    assert.deepEqual(await systemTriggerRegistrations([rc]).logonGuard(), {
+      registered: true,
+      managerHome: directory,
     });
   });
 
