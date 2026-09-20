@@ -254,6 +254,12 @@ function attemptsSection(iterations: IterationOutcome[]): string {
  * ticket's own size in the budget document or, for "unsized", the size
  * `unsizedCountsAs` names there. Per `CONTEXT.md`'s "Run estimate": nothing
  * here revises the estimate itself.
+ *
+ * The estimate is itself absent only for a ticket handed back ahead of the
+ * gate (`iteration-outcome.ts`'s `Attempt.estimateCharged`), which never
+ * reaches here — every iteration this is called for ran, so the gate
+ * consulted it and charged one. Said as unknown rather than silently
+ * dropped, on the chance that invariant ever stops holding.
  */
 function costClause(iteration: IterationOutcome): string {
   const spent = iteration.tokensUsed;
@@ -262,7 +268,7 @@ function costClause(iteration: IterationOutcome): string {
   }
   const estimate = iteration.estimateCharged;
   if (estimate === undefined) {
-    return ` — ${tokens(spent)} tokens`;
+    return ` — ${tokens(spent)} tokens, estimate unknown`;
   }
   const beside = `${tokens(spent)} / ${tokens(estimate)} tokens`;
   return spent > estimate

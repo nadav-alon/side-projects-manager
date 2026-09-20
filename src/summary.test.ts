@@ -476,6 +476,30 @@ describe("attemptsSection", () => {
 
     assert.match(lines[0] ?? "", /cost unknown/);
   });
+
+  it("says the estimate is unknown, rather than dropping it silently, should a worked run ever carry none", () => {
+    const finished: Finished = {
+      kind: "finished",
+      run: {
+        kind: "finished",
+        branch: branch("agent/306"),
+        commits: [commitSha("a".repeat(40))],
+        tokensUsed: tokenCount(750_000),
+        output: "done",
+      },
+      tokensUsed: tokenCount(750_000),
+      handedBack: { outcome: "handed-back" },
+    };
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(306),
+      ...finished,
+    };
+
+    const lines = attemptsLines([iteration]);
+
+    assert.match(lines[0] ?? "", /750,000 tokens, estimate unknown/);
+  });
 });
 
 describe("a ticket handed back for an unusable size label", () => {
