@@ -1604,7 +1604,7 @@ describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
 
 /**
  * A pull request ticket is a sub-issue GitHub counts like any other, yet it is
- * no part of the work its parent was broken out into: counted, a handed-back
+ * no part of the work that makes its parent a supertask: counted, a handed-back
  * ticket re-labelled ready-for-agent while its review is open would never be
  * selected again.
  */

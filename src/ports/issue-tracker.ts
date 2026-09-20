@@ -271,9 +271,9 @@ export function isSupertask(ticket: Ticket): boolean {
 /**
  * `issues`, each ticket's `openSubIssues` taken from counting every open
  * sub-issue the tracker knows of to counting only those that are not pull
- * request tickets — the ones `CONTEXT.md`'s "Supertask" counts. A
- * pull request ticket is recognised among `issues` themselves, by its
- * `parent`, so the bodies that say what it is come from the same read.
+ * request tickets — the ones `CONTEXT.md`'s "Supertask" counts. A pull
+ * request ticket is recognised among `issues` themselves, by its `parent`,
+ * so the bodies that say what it is come from the same read.
  *
  * Complete for any listing read newest first: a pull request ticket is opened
  * only once its parent has a draft pull request, so it is always newer than

@@ -174,11 +174,10 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Puts a supertask — carrying `READY_FOR_AGENT_LABEL` with
-   * `openSubIssues` open sub-issues of its own — in `repo`'s backlog and
-   * returns it. Exists so a test can prove such a ticket is passed over even
-   * though it still carries the label, at the loop's own seam rather than
-   * against a query string.
+   * Puts a supertask — carrying `READY_FOR_AGENT_LABEL` with `openSubIssues` open
+   * sub-issues of its own — in `repo`'s backlog and returns it. Exists so a test
+   * can prove such a ticket is passed over even though it still carries the
+   * label, at the loop's own seam rather than against a query string.
    */
   addSupertask(
     repo: RepoSlug,
