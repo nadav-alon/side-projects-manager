@@ -209,13 +209,6 @@ export interface PullRequestBinding {
  * ticket, which is what selection reads to choose which kind of run to
  * start.
  *
- * `openSubIssues` counts how many of the ticket's sub-issues are still open
- * and are not pull request tickets, straight from the same listing that
- * already carries the labels selection filters on, so it costs no extra
- * tracker call. Absent or zero means the ticket has none open —
- * indistinguishable from a ticket with no sub-issues at all, since neither is
- * workable any differently from the other.
- *
  * `supertask` is the fact `isSupertask` reads: whether the ticket carries the
  * supertask label, from that same listing. Declared, not inferred — per
  * `CONTEXT.md`'s "Supertask", a ticket's sub-issue count says nothing about
@@ -244,7 +237,6 @@ export interface Ticket {
   number: IssueNumber;
   title: string;
   pullRequest?: PullRequestBinding;
-  openSubIssues?: number;
   supertask?: true;
   openBlockers?: number;
   modelLabel?: ModelLabel;
@@ -291,43 +283,6 @@ export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
  */
 export function isSupertask(ticket: Ticket): boolean {
   return ticket.supertask === true;
-}
-
-/**
- * `issues`, each ticket's `openSubIssues` taken from counting every open
- * sub-issue the tracker knows of to counting only those that are not pull
- * request tickets — the ones `CONTEXT.md`'s "Supertask" counts. A pull
- * request ticket is recognised among `issues` themselves, by its `parent`,
- * so the bodies that say what it is come from the same read.
- *
- * Complete for any listing read newest first: a pull request ticket is opened
- * only once its parent has a draft pull request, so it is always newer than
- * the parent, and a read that holds the parent holds it too.
- *
- * Beside the port so the real tracker and the fake discount alike.
- */
-export function discountPullRequestTickets(
-  issues: readonly OpenIssue[],
-): OpenIssue[] {
-  const pullRequestTicketsByParent = new Map<number, number>();
-  for (const { parent, ticket } of issues) {
-    if (parent !== undefined && isPullRequestTicket(ticket)) {
-      pullRequestTicketsByParent.set(parent, (pullRequestTicketsByParent.get(parent) ?? 0) + 1);
-    }
-  }
-
-  return issues.map((issue) => {
-    const discount = pullRequestTicketsByParent.get(issue.ticket.number);
-    if (discount === undefined) {
-      return issue;
-    }
-    const { openSubIssues = 0, ...ticket } = issue.ticket;
-    const counted = openSubIssues - discount;
-    return {
-      ...issue,
-      ticket: { ...ticket, ...(counted > 0 && { openSubIssues: counted }) },
-    };
-  });
 }
 
 /**

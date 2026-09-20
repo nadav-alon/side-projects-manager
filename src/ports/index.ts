@@ -35,7 +35,6 @@ export {
   backlogIn,
   carriesReadyForAgent,
   carriesSupertaskLabel,
-  discountPullRequestTickets,
   isApplyReviewTicket,
   isBlocked,
   isPullRequestTicket,

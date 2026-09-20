@@ -17,8 +17,6 @@ import {
   SUPERTASK_LABEL,
   carriesReadyForAgent,
   carriesSupertaskLabel,
-  discountPullRequestTickets,
-  isPullRequestTicket,
   issueNumber,
   issueUrl,
   modelLabelOf,
@@ -82,32 +80,6 @@ interface Stored {
    * the entry could never get that wrong.
    */
   closed?: boolean;
-}
-
-/**
- * Throws where an issue in `stored` has more pull request tickets among
- * `stored` than its `openSubIssues` counts. The real tracker counts every open
- * sub-issue, pull request tickets included, so such a fixture describes a
- * tracker that cannot exist; `discountPullRequestTickets` would clamp it to
- * none open and hide the mistake.
- */
-function throwOnUncountedPullRequestTickets(stored: readonly Stored[]): void {
-  const pullRequestTickets = new Map<number, number>();
-  for (const { issue } of stored) {
-    const { parent } = issue;
-    if (parent !== undefined && isPullRequestTicket(issue)) {
-      pullRequestTickets.set(parent, (pullRequestTickets.get(parent) ?? 0) + 1);
-    }
-  }
-  for (const { issue } of stored) {
-    const held = pullRequestTickets.get(issue.number) ?? 0;
-    const counted = issue.openSubIssues ?? 0;
-    if (held > counted) {
-      throw new Error(
-        `#${issue.number} has ${held} open pull request tickets but counts ${counted} open sub-issues; count them in its openSubIssues`,
-      );
-    }
-  }
 }
 
 /**
@@ -260,15 +232,14 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * An issue's eligibility, model label and size label are read from the
-   * labels it holds at the time of the call, through the same `modelLabelOf`
-   * and `sizeLabelOf` the real tracker uses, so a label changed between calls
-   * changes what the next call returns. Issues are listed in the order they
-   * were added.
+   * An issue's eligibility, model label, size label and supertask status are
+   * read from the labels it holds at the time of the call, through the same
+   * `modelLabelOf`, `sizeLabelOf` and `carriesSupertaskLabel` the real tracker
+   * uses, so a label changed between calls changes what the next call
+   * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
     const open = (this.#issues.get(repo) ?? []).filter((entry) => !entry.closed);
-    throwOnUncountedPullRequestTickets(open);
     const issues = open.map((entry) => {
       const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
       const modelLabel = modelLabelOf(entry.labels);
@@ -287,7 +258,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       };
     });
     return {
-      issues: discountPullRequestTickets(issues),
+      issues,
       truncated: this.#truncated.has(repo),
     };
   }

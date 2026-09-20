@@ -391,7 +391,6 @@ describe("invocationSelection", () => {
       const implementation = tracker.addEligibleTicket(PILOT, {
         number: issueNumber(7),
         title: "Add the thing",
-        openSubIssues: 1,
       });
       // Handed back, so the review itself is not what gets selected.
       tracker.addIneligibleTicket(PILOT, {
@@ -417,7 +416,6 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, {
         number: issueNumber(7),
         title: "Add the thing",
-        openSubIssues: 1,
       });
       // Handed back, so the apply-review itself is not what gets selected.
       tracker.addIneligibleTicket(PILOT, {
@@ -862,7 +860,6 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(7),
@@ -949,7 +946,6 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(9),
@@ -971,12 +967,10 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         const implementation = tracker.addEligibleTicket(PILOT, {
           number: issueNumber(7),
           title: "Add the thing",
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(9),
@@ -1004,7 +998,6 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(7),
@@ -1089,13 +1082,11 @@ describe("invocationSelection", () => {
         const first = tracker.addEligibleTicket(PILOT, {
           number: issueNumber(5),
           title: "Add the thing",
-          openSubIssues: 1,
         });
         const urgent = tracker.addEligibleTicket(PILOT, {
           number: issueNumber(6),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(8),

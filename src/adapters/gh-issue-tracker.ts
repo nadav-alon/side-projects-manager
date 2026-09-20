@@ -21,7 +21,6 @@ import {
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
   carriesSupertaskLabel,
-  discountPullRequestTickets,
   isIssueNumber,
   isIssueUrl,
   isPullRequestUrl,
@@ -86,16 +85,14 @@ export function ghIssueTracker(
         "--limit",
         String(OPEN_ISSUE_READ_LIMIT + 1),
         "--json",
-        "number,title,body,subIssuesSummary,blockedBy,parent,labels",
+        "number,title,body,blockedBy,parent,labels",
       ]);
 
       const listed = parseIssues(stdout, repo);
       const truncated = listed.length > OPEN_ISSUE_READ_LIMIT;
       const issues = listed.slice(0, OPEN_ISSUE_READ_LIMIT).map(
-        ({ body, subIssuesSummary, blockedBy, parent, labels, ...issue }) => {
+        ({ body, blockedBy, parent, labels, ...issue }) => {
           const pullRequest = pullRequestBoundIn(body);
-          const openSubIssues =
-            subIssuesSummary.total - subIssuesSummary.completed;
           const stillBlocking = blockedBy.filter(
             (blocker) => blocker.state === "OPEN",
           );
@@ -111,7 +108,6 @@ export function ghIssueTracker(
             ticket: {
               repo,
               ...issue,
-              ...(openSubIssues > 0 && { openSubIssues }),
               ...(supertask && { supertask }),
               ...(openBlockers > 0 && { openBlockers }),
               ...(pullRequest !== undefined && { pullRequest }),
@@ -126,7 +122,7 @@ export function ghIssueTracker(
           };
         },
       );
-      return { issues: discountPullRequestTickets(issues), truncated };
+      return { issues, truncated };
     },
 
     async closeReviewTicket(
@@ -642,21 +638,14 @@ function isInRepo(url: string, repo: RepoSlug): boolean {
   return `${owner}/${name}`.toLowerCase() === repo.toLowerCase();
 }
 
-/** How many of an issue's sub-issues are open, as `subIssuesSummary` reports it. */
-interface RawSubIssuesSummary {
-  total: number;
-  completed: number;
-}
-
 /**
- * One issue as `gh issue list --json number,title,body,subIssuesSummary,blockedBy,parent,labels`
+ * One issue as `gh issue list --json number,title,body,blockedBy,parent,labels`
  * reports it, with each label reduced to its name.
  */
 interface RawIssue {
   number: IssueNumber;
   title: string;
   body: string;
-  subIssuesSummary: RawSubIssuesSummary;
   blockedBy: RawBlocker[];
   parent: RawLinkedIssue | null;
   labels: string[];
@@ -678,8 +667,8 @@ interface RawBlocker extends RawLinkedIssue {
 }
 
 /**
- * `gh --json number,title,body,subIssuesSummary,blockedBy,parent,labels`: a
- * JSON array of `{ number, title, body, subIssuesSummary, blockedBy, parent, labels }`.
+ * `gh --json number,title,body,blockedBy,parent,labels`: a JSON array of
+ * `{ number, title, body, blockedBy, parent, labels }`.
  */
 function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
   const where = `gh issue list --repo ${repo}`;
@@ -699,13 +688,12 @@ function parseIssues(stdout: string, repo: RepoSlug): RawIssue[] {
     if (typeof issue !== "object" || issue === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, subIssuesSummary, blockedBy, parent, labels } =
+    const { number, title, body, blockedBy, parent, labels } =
       issue as Record<string, unknown>;
     return {
       number: expectIssueNumber(number, "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
-      subIssuesSummary: parseSubIssuesSummary(subIssuesSummary, at),
       blockedBy: parseBlockedBy(blockedBy, at),
       parent: parseParent(parent, at),
       labels: parseLabels(labels, at),
@@ -769,25 +757,6 @@ function parseBlockedBy(value: unknown, at: string): RawBlocker[] {
       url: expectField(url, "string", "blockedBy.nodes.url", at),
     };
   });
-}
-
-function parseSubIssuesSummary(
-  value: unknown,
-  at: string,
-): RawSubIssuesSummary {
-  if (typeof value !== "object" || value === null) {
-    throw new Error(`${at}: "subIssuesSummary" must be an object.`);
-  }
-  const { total, completed } = value as Record<string, unknown>;
-  return {
-    total: expectField(total, "number", "subIssuesSummary.total", at),
-    completed: expectField(
-      completed,
-      "number",
-      "subIssuesSummary.completed",
-      at,
-    ),
-  };
 }
 
 /**
