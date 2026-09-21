@@ -383,7 +383,7 @@ The repository one run happens in: cloned from the project's checkout, deleted w
 _Avoid_: workspace, worktree (it is neither), scratch directory
 
 **Session transcript**:
-The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a host directory made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards.
+The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a directory under `transcripts/` in `MANAGER_HOME` made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards. `MANAGER_HOME` rather than the system temp directory, which is not durable enough to outlive a restart.
 _Avoid_: log, session log, output
 
 **Harness**:

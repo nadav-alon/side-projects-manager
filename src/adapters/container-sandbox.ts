@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -56,6 +56,7 @@ import {
   unreserveBranch,
 } from "./branch-reservations.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { MANAGER_HOME } from "./manager-home.ts";
 import { IMAGE } from "./sandbox-image.ts";
 
 const run = promisify(execFile);
@@ -226,13 +227,14 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
 export function containerSandbox(
   container: Container = dockerContainer,
   pullRequestHead: PullRequestHead = ghPullRequestHead,
+  home: string = MANAGER_HOME,
 ): Sandbox {
   function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   function run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   function run(request: RunRequest): Promise<RunOutcome> {
-    return runOnClone(container, request);
+    return runOnClone(container, request, home);
   }
 
   function review(
@@ -242,7 +244,7 @@ export function containerSandbox(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   function review(request: ReviewRequest): Promise<ReviewOutcome> {
-    return reviewOnClone(container, request);
+    return reviewOnClone(container, request, home);
   }
 
   function applyReview(
@@ -254,7 +256,7 @@ export function containerSandbox(
   function applyReview(
     request: ApplyReviewRequest,
   ): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(container, pullRequestHead, request);
+    return applyReviewOnClone(container, pullRequestHead, request, home);
   }
 
   function rebase(
@@ -264,7 +266,7 @@ export function containerSandbox(
     request: RebaseRequest & { model?: undefined },
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   function rebase(request: RebaseRequest): Promise<RebaseOutcome> {
-    return rebaseOnClone(container, pullRequestHead, request);
+    return rebaseOnClone(container, pullRequestHead, request, home);
   }
 
   return { run, review, applyReview, rebase };
@@ -306,6 +308,7 @@ async function withThrowawayClone<T>(
 async function runOnClone(
   container: Container,
   request: RunRequest,
+  home: string,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -388,6 +391,7 @@ async function runOnClone(
           mount: "rw",
         },
         model,
+        home,
       );
 
       // Set once the branch has actually reached the checkout, so a failure
@@ -477,15 +481,20 @@ async function runOnClone(
  * to lose, and reporting it as a run would post "the agent gave up" on a ticket
  * nobody ever worked — so it goes to the caller as the sandbox failing.
  *
- * A fresh host directory is made for every attempt, named for `kind` so one
- * left behind says which sort of run wrote it, and handed to `container` as
- * `transcriptDirectory` for `dockerCommand` to mount — see `TRANSCRIPT_MOUNT`.
- * Never deleted once the agent has actually run, unlike the throwaway clone:
- * the whole point is a transcript that survives the container `--rm` deletes
- * it with. Whatever the container did, the directory is searched for the
- * `.jsonl` the agent CLI left in it, and the result carries that path
- * whichever way it ends — a container that throws after the agent has
- * already run left one exactly as one that returns cleanly did.
+ * A fresh directory is made for every attempt under `<home>/transcripts/`,
+ * named for `kind` so one left behind says which sort of run wrote it, and
+ * handed to `container` as `transcriptDirectory` for `dockerCommand` to mount
+ * — see `TRANSCRIPT_MOUNT`. `<home>/transcripts/` rather than the system temp
+ * directory: a container that gave up survives only in its transcript, and a
+ * temp directory is not durable — WSL and many Linux setups clear `/tmp` on
+ * restart, so a transcript kept there can be gone by the time anyone reads
+ * the hand-back. Never deleted once the agent has actually run, unlike the
+ * throwaway clone: the whole point is a transcript that survives the
+ * container `--rm` deletes it with. Whatever the container did, the
+ * directory is searched for the `.jsonl` the agent CLI left in it, and the
+ * result carries that path whichever way it ends — a container that throws
+ * after the agent has already run left one exactly as one that returns
+ * cleanly did.
  *
  * A container that never reached the CLI (`AgentNeverRan`) is the one
  * exception: nothing was ever written into the directory, so it is removed
@@ -498,9 +507,14 @@ async function attempt(
   kind: RunKind,
   options: Omit<RunOptions, "model" | "transcriptDirectory">,
   model: ModelName | undefined,
+  home: string,
 ): Promise<AgentRun> {
+  const transcriptsRoot = path.join(home, "transcripts");
+  await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
-    await mkdtemp(path.join(tmpdir(), `side-projects-transcript-${kind}-`)),
+    await mkdtemp(
+      path.join(transcriptsRoot, `side-projects-transcript-${kind}-`),
+    ),
   );
   try {
     const agent = await container({
@@ -785,6 +799,7 @@ function reviewOutcomeOf(
 async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
+  home: string,
 ): Promise<ReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
 
@@ -797,6 +812,7 @@ async function reviewOnClone(
       "review",
       { directory: clone, prompt: reviewPromptFor(ticket), spendCeiling, mount: "ro" },
       model,
+      home,
     );
 
     return reviewOutcomeOf(agent, model);
@@ -897,6 +913,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   pullRequestHead: PullRequestHead,
   request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
   promptFor: (ticket: T) => string,
+  home: string,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
@@ -909,6 +926,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       kind,
       { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
       model,
+      home,
     );
 
     return pushRejectedOutcomeOf(agent, model);
@@ -919,6 +937,7 @@ async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
+  home: string,
 ): Promise<ApplyReviewOutcome> {
   return pushingRunOnClone(
     "apply-review",
@@ -926,6 +945,7 @@ async function applyReviewOnClone(
     pullRequestHead,
     request,
     applyReviewPromptFor,
+    home,
   );
 }
 
@@ -933,6 +953,7 @@ async function rebaseOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
+  home: string,
 ): Promise<RebaseOutcome> {
   return pushingRunOnClone(
     "rebase",
@@ -940,6 +961,7 @@ async function rebaseOnClone(
     pullRequestHead,
     request,
     rebasePromptFor,
+    home,
   );
 }
 
