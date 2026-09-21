@@ -61,17 +61,22 @@ export interface FakeComment {
   comment: string;
 }
 
-/** One discovered ticket the loop opened, in the order it was opened. */
+/**
+ * One discovered ticket the loop opened, in the order it was opened. Not a
+ * sub-issue of `discoveredWhile` — a discovered ticket never is, per #595 —
+ * so it does not share `FakeReviewTicket`'s `parent` field name, which does
+ * carry that meaning.
+ */
 export interface FakeDiscoveredTicket {
   /** The ticket it was discovered while working. */
-  parent: Ticket;
+  discoveredWhile: Ticket;
   title: string;
-  /** `discoveredBody(parent, …)`: the given body, naming `parent`. */
+  /** `discoveredBody(discoveredWhile, …)`: the given body, naming it. */
   body: string;
   /**
-   * Whether a `blocked_by` edge from `parent` to `ticket` was added — not
-   * merely asked for: `false` where `parent` was never put in the fake, the
-   * one way this can diverge from `discovery.blocking`.
+   * Whether a `blocked_by` edge from `discoveredWhile` to `ticket` was
+   * added — not merely asked for: `false` where `discoveredWhile` was never
+   * put in the fake, the one way this can diverge from `discovery.blocking`.
    */
   blocking: boolean;
   /** The discovered ticket itself, as the fake numbered it. */
@@ -435,7 +440,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     }
 
     this.discoveredTickets.push({
-      parent: ticket,
+      discoveredWhile: ticket,
       title: discovery.title,
       body: discoveredBody(ticket, discovery.body),
       blocking: blocked,

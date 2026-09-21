@@ -359,7 +359,7 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
 
     assert.deepEqual(tracker.discoveredTickets, [
       {
-        parent: ticket,
+        discoveredWhile: ticket,
         title: "The retry loop never backs off",
         body: "Hammers the API on every failure.\n\nDiscovered while working #7.",
         blocking: false,
