@@ -5,6 +5,7 @@ import type {
   Checkout,
   DraftPullRequestOpening,
   MergeStatus,
+  OpenPullRequest,
   Proposal,
   PullRequestLabel,
   PullRequestState,
@@ -145,6 +146,16 @@ export class FakeRepoHost implements RepoHost {
    */
   setPullRequestState(pullRequest: PullRequestUrl, state: PullRequestState): void {
     this.#pullRequestStates.set(pullRequest, state);
+  }
+
+  readonly #openPullRequests = new Map<RepoSlug, OpenPullRequest[]>();
+
+  /**
+   * Sets what `listOpenPullRequests` answers for `repo`. None, unless a test
+   * says otherwise.
+   */
+  setOpenPullRequests(repo: RepoSlug, pullRequests: OpenPullRequest[]): void {
+    this.#openPullRequests.set(repo, pullRequests);
   }
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
@@ -361,6 +372,10 @@ export class FakeRepoHost implements RepoHost {
 
   async pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState> {
     return this.#pullRequestStates.get(pullRequest) ?? "open";
+  }
+
+  async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
+    return this.#openPullRequests.get(repo) ?? [];
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {

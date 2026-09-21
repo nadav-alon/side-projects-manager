@@ -231,6 +231,24 @@ export function closedTicketIn(body: string): IssueNumber | undefined {
 }
 
 /**
+ * One open pull request, as {@link RepoHost.listOpenPullRequests} lists it:
+ * its own url, the labels it carries, and the ticket its body closes — see
+ * {@link closedTicketIn} — absent when its body names none.
+ */
+export interface OpenPullRequest {
+  url: PullRequestUrl;
+  labels: PullRequestLabel[];
+  closes?: IssueNumber;
+}
+
+/**
+ * How many of a repo's open pull requests {@link RepoHost.listOpenPullRequests}
+ * reads: the newest this many, by the repo host's own ordering, when a repo
+ * has more open at once.
+ */
+export const OPEN_PULL_REQUEST_LIMIT = 100;
+
+/**
  * How many times total {@link resolveNeedsRebase} calls `read` — the first
  * try plus every retry after an `"unknown"` — before it gives up. Bounded
  * rather than unbounded, so a pull request whose mergeability never finishes
@@ -555,4 +573,14 @@ export interface RepoHost {
    * after.
    */
   pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState>;
+  /**
+   * Lists `repo`'s open pull requests — draft and ready alike — up to
+   * {@link OPEN_PULL_REQUEST_LIMIT}, newest first: each one's url, labels,
+   * and the ticket its body closes (see {@link closedTicketIn}).
+   *
+   * What the conflict sweep asks every project with, before every selection:
+   * the same closing-keyword definition `.github/workflows/rebase.yml` uses,
+   * so the sweep never picks a pull request the workflow would refuse.
+   */
+  listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]>;
 }

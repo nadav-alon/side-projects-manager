@@ -12,6 +12,7 @@ import type {
   DraftPullRequestOpening,
   MergeStatus,
   Milliseconds,
+  OpenPullRequest,
   Proposal,
   PullRequestLabel,
   PullRequestState,
@@ -24,10 +25,14 @@ import type {
 } from "../ports/index.ts";
 import {
   checkout,
+  closedTicketIn,
   isBranch,
   isMarkedReply,
+  isPullRequestLabel,
   isPullRequestUrl,
   NEEDS_REBASE_LABEL,
+  OPEN_PULL_REQUEST_LIMIT,
+  pullRequestUrl,
   resolveNeedsRebase,
   summarizeApplyReviewThreads,
 } from "../ports/index.ts";
@@ -492,6 +497,22 @@ export function githubRepoHost(
             `gh pr view ${pullRequest}: "state" was none of OPEN, MERGED or CLOSED: ${JSON.stringify(state)}`,
           );
       }
+    },
+
+    async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--json",
+        "url,body,labels",
+        "--limit",
+        String(OPEN_PULL_REQUEST_LIMIT),
+      ]);
+      return openPullRequestsFrom(stdout, repo);
     },
   };
 }
@@ -1006,6 +1027,56 @@ function reviewFindingsIn(
     findings.push({ finding: { path, line, body }, postedAt: new Date(created_at) });
   }
   return findings;
+}
+
+/**
+ * The {@link OpenPullRequest}s `stdout` — `gh pr list --json url,body,labels`
+ * — carries for `repo`. Read against the declared shape: a malformed entry
+ * throws naming which one and why, rather than silently reporting fewer open
+ * pull requests than the repo actually has.
+ */
+function openPullRequestsFrom(
+  stdout: string,
+  repo: RepoSlug,
+): OpenPullRequest[] {
+  const where = `gh pr list for ${repo}`;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected an array.`);
+  }
+
+  return payload.map((raw, index) => {
+    const at = `${where}: pull request ${index + 1}`;
+    const { url, body, labels } = objectAt(raw, at);
+    const closes = closedTicketIn(expectField(body, "string", "body", at));
+    const pullRequest: OpenPullRequest = {
+      url: pullRequestUrl(expectField(url, "string", "url", at)),
+      labels: labelsIn(labels, at),
+    };
+    return closes === undefined ? pullRequest : { ...pullRequest, closes };
+  });
+}
+
+/**
+ * The label names `gh pr list`'s own `labels` field carries, filtered to
+ * those shaped like a {@link PullRequestLabel} — GitHub's label rules are
+ * looser than the ones this repo's own labelling verbs enforce, and a name
+ * this repo could never itself apply is left out rather than reported.
+ */
+function labelsIn(value: unknown, at: string): PullRequestLabel[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${at}: "labels" must be an array.`);
+  }
+  return value.flatMap((label) => {
+    const name = objectAt(label, at).name;
+    return typeof name === "string" && isPullRequestLabel(name) ? [name] : [];
+  });
 }
 
 /** The owner, repo and number a pull request's own URL names. */

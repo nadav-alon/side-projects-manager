@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
+  issueNumber,
   MergeabilityUnknown,
   pullRequestUrl,
+  repoSlug,
   REVIEWED_LABEL,
   type MergeStatus,
 } from "../ports/index.ts";
@@ -15,6 +17,7 @@ const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7"
 const OTHER = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/8");
 const SINCE = new Date("2026-09-15T00:00:00Z");
 const AFTER = new Date("2026-09-15T01:00:00Z");
+const PILOT = repoSlug("nadav-alon/pilot");
 
 describe("FakeRepoHost apply-review answers", () => {
   it("answers from the threads a test opened, answered and resolved", async () => {
@@ -182,5 +185,32 @@ describe("FakeRepoHost needs-rebase label", () => {
     host.labelNeedsRebase(PULL_REQUEST);
 
     assert.equal(host.hasNeedsRebaseLabel(OTHER), false);
+  });
+});
+
+describe("FakeRepoHost listOpenPullRequests", () => {
+  it("answers with none for a repo no test scripted", async () => {
+    const host = new FakeRepoHost();
+
+    assert.deepEqual(await host.listOpenPullRequests(PILOT), []);
+  });
+
+  it("answers with what a test scripted, url, labels, closed ticket and all", async () => {
+    const host = new FakeRepoHost();
+    const scripted = [
+      { url: PULL_REQUEST, labels: [REVIEWED_LABEL], closes: issueNumber(12) },
+      { url: OTHER, labels: [] },
+    ];
+    host.setOpenPullRequests(PILOT, scripted);
+
+    assert.deepEqual(await host.listOpenPullRequests(PILOT), scripted);
+  });
+
+  it("keeps each repo's open pull requests to itself", async () => {
+    const host = new FakeRepoHost();
+    const other = repoSlug("nadav-alon/other");
+    host.setOpenPullRequests(other, [{ url: PULL_REQUEST, labels: [] }]);
+
+    assert.deepEqual(await host.listOpenPullRequests(PILOT), []);
   });
 });
