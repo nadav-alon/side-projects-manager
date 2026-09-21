@@ -202,14 +202,24 @@ export type PullRequestResolution = Exclude<PullRequestState, "open">;
 /**
  * GitHub's nine closing keywords — `close(s|d)`, `fix(es|ed)`, `resolve(s|d)`
  * — case-insensitive, starting at a word boundary, with an optional colon
- * before the `#`. The ERE subset `.github/workflows/rebase.yml` matches in
- * shell (`CLOSING_KEYWORD`), translated to a `RegExp` so both copies read the
- * same set of bodies the same way. `[ \t]` rather than `\s`, so a keyword on
- * one line can never pair with a `#N` on the next: `rebase.yml`'s `grep`
- * processes a body one line at a time and can't either.
+ * before the `#`. Translated from the ERE `.github/workflows/rebase.yml`'s
+ * `closing_number` matches with `grep` (`CLOSING_KEYWORD`) — the copy that
+ * reads a single pull request's body — so this and that reader agree on
+ * every body. `[^\S\n]` rather than `\s`, to mirror `grep`'s `[[:space:]]`
+ * without also pairing a keyword on one line with a `#N` on the next: `grep`
+ * processes a body one line at a time and can't either, but within a line it
+ * matches more than plain spaces and tabs, including `\r`, `\f` and `\v`.
+ *
+ * `rebase.yml` also feeds `CLOSING_KEYWORD` to `jq`'s `test()` against a
+ * whole body at once (its "implementation ticket" branch), where a keyword
+ * on one line *can* pair with a `#N` on the next — this function does not
+ * reproduce that second, non-line-oriented copy. Both are the same shell
+ * literal kept in sync by hand, with nothing that re-checks the two shell
+ * uses or this translation against each other; a future edit to any one of
+ * the three needs to be carried to the other two by whoever makes it.
  */
 const CLOSING_KEYWORD =
-  /(?:^|[^A-Za-z0-9_])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[ \t]*:?[ \t]*#(\d+)/i;
+  /(?:^|[^A-Za-z0-9_])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^\S\n]*:?[^\S\n]*#(\d+)/i;
 
 /**
  * The ticket `body` closes: the number from the first `Closes`, `Fixes` or

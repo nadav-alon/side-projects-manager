@@ -258,6 +258,10 @@ describe("closedTicketIn", () => {
     assert.equal(closedTicketIn("Closes\n#12"), undefined);
   });
 
+  it("reads Closes\\r#12, the way grep's [[:space:]] would within one line", () => {
+    assert.equal(closedTicketIn("Closes\r#12"), issueNumber(12));
+  });
+
   it("reads every one of GitHub's nine closing keywords", () => {
     for (const keyword of [
       "close",
