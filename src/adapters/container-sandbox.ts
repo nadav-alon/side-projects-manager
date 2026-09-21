@@ -1824,8 +1824,10 @@ const dockerContainer: Container = async (options) => {
  * starting the container at all — leaves nothing here to kill.
  */
 async function killStalledContainer(cidFile: string): Promise<void> {
-  const id = (await readFile(cidFile, "utf8").catch(() => "")).trim();
-  if (id === "") {
+  const id = await readFile(cidFile, "utf8")
+    .then((contents) => contents.trim() || undefined)
+    .catch(() => undefined);
+  if (id === undefined) {
     return;
   }
   await run("docker", ["kill", id]).catch((error: unknown) => {
