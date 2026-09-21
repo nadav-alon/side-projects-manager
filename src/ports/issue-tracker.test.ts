@@ -6,14 +6,17 @@ import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
+  SPEC_REVIEW_LABEL,
   SUPERTASK_LABEL,
   carriesReadyForAgent,
+  carriesSpecReviewLabel,
   carriesSupertaskLabel,
   declaredSize,
   isApplyReviewTicket,
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
+  isSpecReviewTicket,
   isSupertask,
   modelLabelOf,
   sizeLabelOf,
@@ -188,6 +191,18 @@ describe("isSupertask", () => {
   });
 });
 
+describe("carriesSpecReviewLabel", () => {
+  it("finds the spec review label among other labels, whatever its case", () => {
+    assert.equal(carriesSpecReviewLabel(["bug", SPEC_REVIEW_LABEL]), true);
+    assert.equal(carriesSpecReviewLabel(["Spec-Review"]), true);
+  });
+
+  it("finds nothing in labels without it", () => {
+    assert.equal(carriesSpecReviewLabel(["ready-for-agent", "review"]), false);
+    assert.equal(carriesSpecReviewLabel([]), false);
+  });
+});
+
 const PULL_REQUEST = pullRequestUrl(
   "https://github.com/nadav-alon/pilot/pull/12",
 );
@@ -230,6 +245,57 @@ describe("ticketKind", () => {
     assert.equal(
       ticketKind({ repo: PILOT, number: issueNumber(12), title: "Add a thing" }),
       "implementation",
+    );
+  });
+
+  it("reads a ticket naming no pull request but carrying the spec review label as a spec review", () => {
+    assert.equal(
+      ticketKind({
+        repo: PILOT,
+        number: issueNumber(16),
+        title: "Review the loop spec",
+        specReview: true,
+      }),
+      "spec-review",
+    );
+  });
+
+  it("prefers the pull request binding's kind over the spec review label", () => {
+    const ticket = {
+      repo: PILOT,
+      number: issueNumber(13),
+      title: "Review #12",
+      pullRequest: { kind: "review" as const, url: PULL_REQUEST },
+      specReview: true as const,
+    };
+
+    assert.equal(ticketKind(ticket), "review");
+  });
+});
+
+describe("isSpecReviewTicket", () => {
+  it("reads true only for a ticket with no pull request and the spec review fact", () => {
+    assert.equal(
+      isSpecReviewTicket({
+        repo: PILOT,
+        number: issueNumber(16),
+        title: "Review the loop spec",
+        specReview: true,
+      }),
+      true,
+    );
+    assert.equal(
+      isSpecReviewTicket({ repo: PILOT, number: issueNumber(12), title: "Add a thing" }),
+      false,
+    );
+    assert.equal(
+      isSpecReviewTicket({
+        repo: PILOT,
+        number: issueNumber(13),
+        title: "Review #12",
+        pullRequest: { kind: "review", url: PULL_REQUEST },
+      }),
+      false,
     );
   });
 });
