@@ -101,7 +101,6 @@ export function ghIssueTracker(
       const truncated = listed.length > OPEN_ISSUE_READ_LIMIT;
       const issues = listed.slice(0, OPEN_ISSUE_READ_LIMIT).map(
         ({ body, blockedBy, parent, labels, ...issue }) => {
-          const pullRequest = pullRequestBoundIn(body);
           const stillBlocking = blockedBy.filter(
             (blocker) => blocker.state === "OPEN",
           );
@@ -109,26 +108,12 @@ export function ghIssueTracker(
           const openBlockerNumbers = stillBlocking
             .filter((blocker) => isInRepo(blocker.url, repo))
             .map((blocker) => blocker.number);
-          const modelLabel = modelLabelOf(labels);
-          const priority = priorityLabelIn(labels);
-          const sizeLabel = sizeLabelOf(labels);
-          const supertask = carriesSupertaskLabel(labels);
-          // Only meaningful where `pullRequest` is absent — `ticketKind`
-          // always prefers the pull request binding's own kind — but read
-          // unconditionally, the same way `supertask` is: the tracker
-          // reports the fact, and it is `ticketKind`'s job to weigh it.
-          const specReview = carriesSpecReviewLabel(labels);
           return {
             ticket: {
               repo,
               ...issue,
-              ...(supertask && { supertask }),
-              ...(specReview && { specReview }),
+              ...labelDerivedTicketFields(body, labels),
               ...(openBlockers > 0 && { openBlockers }),
-              ...(pullRequest !== undefined && { pullRequest }),
-              ...(modelLabel !== undefined && { modelLabel }),
-              ...(priority !== undefined && { priority }),
-              ...(sizeLabel !== undefined && { sizeLabel }),
             },
             eligible: carriesReadyForAgent(labels),
             openBlockerNumbers,
@@ -251,7 +236,7 @@ export function ghIssueTracker(
         "--title",
         title,
         // Born carrying every label a selectable spec review needs, per
-        // `CONTEXT.md`'s "Spec review ticket" — applied at creation, the same
+        // `CONTEXT.md`'s "Spec review sweep" — applied at creation, the same
         // as `createReviewTicket`'s own review, so there is no instant in
         // which it exists and is not yet eligible.
         "--label",
@@ -286,11 +271,17 @@ export function ghIssueTracker(
     },
 
     async listSubIssues(ticket: Ticket): Promise<SubIssue[]> {
+      // `--paginate`, so a supertask with more sub-issues than fit in one
+      // page is read whole rather than truncated to the first — the guard
+      // this feeds is the whole feature, per `CONTEXT.md`'s "Spec review
+      // sweep". Filtered with `--jq` one page at a time, which is why
+      // `subIssuesIn` reads newline-delimited JSON rather than one array.
       const { stdout } = await execFileAsync("gh", [
         "api",
         `repos/${ticket.repo}/issues/${ticket.number}/sub_issues`,
+        "--paginate",
         "--jq",
-        "[.[] | {number, title, body, state, labels: [.labels[].name]}]",
+        ".[] | {number, title, body, state, labels: [.labels[].name]}",
       ]);
       return subIssuesIn(stdout, ticket);
     },
@@ -794,10 +785,46 @@ function isInRepo(url: string, repo: RepoSlug): boolean {
 }
 
 /**
- * One sub-issue as `gh api repos/<repo>/issues/<n>/sub_issues --jq '[.[] |
- * {number, title, body, state, labels: [.labels[].name]}]'` reports it — the
- * REST API's own issue shape, unlike `RawIssue`'s GraphQL one, so `state`
- * reads lowercase `open` or `closed` rather than `OPEN` or `CLOSED`.
+ * The ticket fields `listOpenIssues` and `subIssuesIn` both read the same way
+ * from an issue's own body and labels: whether it is bound to a pull request,
+ * its model, priority and size labels, and whether it carries the supertask
+ * or spec review label. The one place both readers build them, so a
+ * label-derived fact added to only one of them can't happen.
+ *
+ * `specReview` is only meaningful where `pullRequest` is absent —
+ * `ticketKind` always prefers the pull request binding's own kind — but read
+ * unconditionally, the same way `supertask` is: the tracker reports the
+ * fact, and it is `ticketKind`'s job to weigh it.
+ */
+function labelDerivedTicketFields(
+  body: string,
+  labels: string[],
+): Pick<
+  Ticket,
+  "pullRequest" | "modelLabel" | "priority" | "sizeLabel" | "supertask" | "specReview"
+> {
+  const pullRequest = pullRequestBoundIn(body);
+  const modelLabel = modelLabelOf(labels);
+  const priority = priorityLabelIn(labels);
+  const sizeLabel = sizeLabelOf(labels);
+  const supertask = carriesSupertaskLabel(labels);
+  const specReview = carriesSpecReviewLabel(labels);
+  return {
+    ...(supertask && { supertask }),
+    ...(specReview && { specReview }),
+    ...(pullRequest !== undefined && { pullRequest }),
+    ...(modelLabel !== undefined && { modelLabel }),
+    ...(priority !== undefined && { priority }),
+    ...(sizeLabel !== undefined && { sizeLabel }),
+  };
+}
+
+/**
+ * One sub-issue as `gh api repos/<repo>/issues/<n>/sub_issues --paginate
+ * --jq '.[] | {number, title, body, state, labels: [.labels[].name]}'`
+ * reports it, one per line — the REST API's own issue shape, unlike
+ * `RawIssue`'s GraphQL one, so `state` reads lowercase `open` or `closed`
+ * rather than `OPEN` or `CLOSED`.
  */
 interface RawSubIssue {
   number: IssueNumber;
@@ -808,25 +835,24 @@ interface RawSubIssue {
 }
 
 /**
- * `gh api .../sub_issues --jq '[...]'`: a JSON array of `{ number, title,
- * body, state, labels }`, one per sub-issue of `parent` — open or closed
- * alike, per `CONTEXT.md`'s "Spec review ticket".
+ * `gh api .../sub_issues --paginate --jq '.[] | {...}'`: newline-delimited
+ * JSON, one `{ number, title, body, state, labels }` per sub-issue of
+ * `parent` — open or closed alike, per `CONTEXT.md`'s "Spec review sweep" —
+ * across every page `--paginate` reads, so a supertask with more sub-issues
+ * than fit on one page is read whole.
  */
 function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
-  const where = `gh api repos/${parent.repo}/issues/${parent.number}/sub_issues`;
+  const where = `gh api repos/${parent.repo}/issues/${parent.number}/sub_issues --paginate`;
+  const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
-  if (!Array.isArray(payload)) {
-    throw new Error(`${where}: expected a JSON array of sub-issues.`);
-  }
-
-  return payload.map((raw, index) => {
+  return lines.map((line, index) => {
     const at = `${where}: sub-issue ${index + 1}`;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line);
+    } catch (error) {
+      throw new Error(`${at}: did not return JSON: ${errorMessage(error)}`);
+    }
     if (typeof raw !== "object" || raw === null) {
       throw new Error(`${at}: expected an object.`);
     }
@@ -838,23 +864,12 @@ function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
       state: expectField(state, "string", "state", at),
       labels: parseLabelNames(labels, at),
     };
-    const pullRequest = pullRequestBoundIn(issue.body);
-    const modelLabel = modelLabelOf(issue.labels);
-    const priority = priorityLabelIn(issue.labels);
-    const sizeLabel = sizeLabelOf(issue.labels);
-    const supertask = carriesSupertaskLabel(issue.labels);
-    const specReview = carriesSpecReviewLabel(issue.labels);
     return {
       ticket: {
         repo: parent.repo,
         number: issue.number,
         title: issue.title,
-        ...(supertask && { supertask }),
-        ...(specReview && { specReview }),
-        ...(pullRequest !== undefined && { pullRequest }),
-        ...(modelLabel !== undefined && { modelLabel }),
-        ...(priority !== undefined && { priority }),
-        ...(sizeLabel !== undefined && { sizeLabel }),
+        ...labelDerivedTicketFields(issue.body, issue.labels),
       },
       closed: subIssueClosed(issue.state, at),
     };

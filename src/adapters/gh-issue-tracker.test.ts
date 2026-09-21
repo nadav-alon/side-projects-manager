@@ -2135,10 +2135,19 @@ describe("ghIssueTracker.listSubIssues", () => {
     labels?: string[];
   }
 
+  /**
+   * A fake `gh` body answering as `--paginate --jq '.[] | {...}'` does: one
+   * JSON object per line, not a single array — see `subIssuesIn`.
+   */
   function subIssues(entries: RawSubIssue[]): string {
-    return `echo '${JSON.stringify(
-      entries.map((entry) => ({ body: "", labels: [], ...entry })),
-    )}'`;
+    if (entries.length === 0) {
+      return ":";
+    }
+    const lines = entries
+      .map((entry) => JSON.stringify({ body: "", labels: [], ...entry }))
+      .map((line) => `'${line}'`)
+      .join(" ");
+    return `printf '%s\\n' ${lines}`;
   }
 
   it("lists a sub-issue's number and title", async (t) => {
@@ -2199,7 +2208,7 @@ describe("ghIssueTracker.listSubIssues", () => {
   });
 
   it("throws naming the malformed entry when gh answers with something outside the declared shape", async (t) => {
-    await recordingGh(t, `echo '[{"title": "Part one", "body": "", "state": "open", "labels": []}]'`);
+    await recordingGh(t, `echo '{"title": "Part one", "body": "", "state": "open", "labels": []}'`);
 
     await assert.rejects(
       ghIssueTracker().listSubIssues(SUPERTASK),
@@ -2210,7 +2219,7 @@ describe("ghIssueTracker.listSubIssues", () => {
   it("throws naming the answer when a sub-issue's state is neither open nor closed", async (t) => {
     await recordingGh(
       t,
-      `echo '[{"number": 41, "title": "Part one", "body": "", "state": "draft", "labels": []}]'`,
+      `echo '{"number": 41, "title": "Part one", "body": "", "state": "draft", "labels": []}'`,
     );
 
     await assert.rejects(
