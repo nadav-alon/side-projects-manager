@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { promisify } from "node:util";
 
 import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
@@ -12,7 +10,6 @@ import {
   isSpecReviewTicket,
   isSupertask,
   issueNumber,
-  modelLabelOf,
   modelName,
   pullRequestUrl,
   repoSlug,
@@ -23,190 +20,20 @@ import {
 } from "../ports/index.ts";
 import { callWith, recordingGh, tempHome, valueOf } from "../testing/index.ts";
 
-const execFileAsync = promisify(execFile);
-
-// The manager's own repo: a real tracker with a real, changing mix of
-// open/closed and labelled/unlabelled issues, so the adapter is verified
-// against the tracker it actually talks to rather than a repo built for the
-// test.
-const MANAGER = repoSlug("nadav-alon/side-projects-manager");
-
 // A public repo the developer doesn't own, guaranteed to carry no
 // ready-for-agent issues. Verifies an empty backlog is not an error. Also
-// referenced from `morning-run.test.ts`, for the same reason.
+// referenced from `morning-run.test.ts`, for the same reason. Read live: it
+// is static and outside the developer's own control, so it cannot drift the
+// way an actively worked repo does.
 const EMPTY = repoSlug("octocat/Hello-World");
 
-type RawIssue = {
-  number: number;
-  title: string;
-  state: string;
-  labels: { name: string }[];
-};
-
-async function fetchIssue(repo: string, number: number): Promise<RawIssue> {
-  const { stdout } = await execFileAsync("gh", [
-    "issue",
-    "view",
-    String(number),
-    "--repo",
-    repo,
-    "--json",
-    "number,title,state,labels",
-  ]);
-  return JSON.parse(stdout) as RawIssue;
-}
-
-/**
- * The manager's own issues matching `filters`, as `gh issue list` answers
- * them. Each caller passes its own `--state` and `--limit`, since what makes
- * a usable fixture window differs per assertion.
- */
-async function listManagerIssues(filters: string[]): Promise<RawIssue[]> {
-  const { stdout } = await execFileAsync("gh", [
-    "issue",
-    "list",
-    "--repo",
-    MANAGER,
-    ...filters,
-    "--json",
-    "number,title,state,labels",
-  ]);
-  return JSON.parse(stdout) as RawIssue[];
-}
-
-describe("ghIssueTracker", () => {
-  it("returns the repo's open issues, eligible exactly where they carry ready-for-agent", async () => {
-    // Asked for as two listings rather than one over `--state all`, because
-    // `gh issue list` answers newest-first up to `--limit` and the two
-    // fixtures sit at opposite ends of the repo's history: the closed,
-    // labelled one is whatever a morning finished most recently, while an
-    // open, untriaged one can be arbitrarily old. One listing wide enough to
-    // hold both would have to read the whole repo, and one that is not wide
-    // enough finds no open fixture on a busy week — failing the assertion
-    // below for a reason that says nothing about the adapter.
-    const [closedButLabelled] = await listManagerIssues([
-      "--state",
-      "closed",
-      "--label",
-      READY_FOR_AGENT_LABEL,
-      "--limit",
-      "1",
-    ]);
-    const openButUnlabelled = (
-      await listManagerIssues([
-        "--state",
-        "open",
-        // The same newest 300 the adapter reads (OPEN_ISSUE_READ_LIMIT), so an
-        // issue found here is one the adapter was given the chance to list.
-        "--limit",
-        "300",
-      ])
-    ).find(
-      (issue) =>
-        !issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL),
-    );
-    // The fixture repo must actually exercise both cases, or the assertions
-    // below would pass whether or not the adapter reads state and labels at
-    // all.
-    assert.ok(
-      closedButLabelled,
-      "fixture repo needs a closed, labelled issue to prove state is filtered",
-    );
-    assert.ok(
-      openButUnlabelled,
-      "fixture repo needs an open, unlabelled issue to prove it is listed as ineligible",
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
-    const numbers = issues.map((issue) => issue.ticket.number);
-
-    // Excluded by state, included whatever its labels: checked against the
-    // fixtures found above rather than a JS reimplementation of the adapter's
-    // own filter.
-    assert.ok(!numbers.includes(issueNumber(closedButLabelled.number)));
-    const unlabelled = issues.find(
-      (issue) => issue.ticket.number === openButUnlabelled.number,
-    );
-    assert.equal(unlabelled?.eligible, false);
-
-    const eligible = issues.filter((issue) => issue.eligible);
-    assert.ok(eligible.length > 0, "fixture repo needs at least one eligible issue");
-    for (const listed of eligible) {
-      // Verified independently via `gh issue view`, not `gh issue list`'s own
-      // answer, so a bug in how the listing is read can't make this pass anyway.
-      const issue = await fetchIssue(MANAGER, listed.ticket.number);
-      assert.equal(issue.state, "OPEN");
-      assert.ok(issue.labels.some((label) => label.name === READY_FOR_AGENT_LABEL));
-      assert.equal(listed.ticket.title, issue.title);
-      assert.equal(listed.ticket.repo, MANAGER);
-      assert.deepEqual(
-        listed.ticket.modelLabel,
-        modelLabelOf(issue.labels.map((label) => label.name)),
-      );
-    }
-  });
-
+describe("ghIssueTracker.listOpenIssues — live smoke test", () => {
   it("finds nothing eligible in a project with no ready-for-agent issues, without an error", async () => {
     const { issues } = await ghIssueTracker().listOpenIssues(EMPTY);
 
     assert.deepEqual(
       issues.filter((issue) => issue.eligible),
       [],
-    );
-  });
-
-  it("carries an open issue's same-repo parent and the numbers of its open blockers", async () => {
-    const { stdout } = await execFileAsync("gh", [
-      "issue",
-      "list",
-      "--repo",
-      MANAGER,
-      "--state",
-      "open",
-      "--limit",
-      "300",
-      "--json",
-      "number,parent,blockedBy",
-    ]);
-    const all = JSON.parse(stdout) as {
-      number: number;
-      parent: { number: number; url: string } | null;
-      blockedBy: { nodes: { number: number; state: string; url: string }[] };
-    }[];
-    const inManager = (url: string) =>
-      url.toLowerCase().startsWith(`https://github.com/${MANAGER}/issues/`.toLowerCase());
-
-    const subIssue = all.find(
-      (issue) => issue.parent !== null && inManager(issue.parent.url),
-    );
-    const mixedBlockers = all.find((issue) => {
-      const states = new Set(issue.blockedBy.nodes.map((blocker) => blocker.state));
-      return states.has("OPEN") && states.has("CLOSED");
-    });
-    // The fixture repo must exercise both, or the assertions below would pass
-    // whether or not the adapter reads `parent` and each blocker's state.
-    assert.ok(
-      subIssue,
-      "fixture repo needs an open sub-issue of an issue in the same repo",
-    );
-    assert.ok(
-      mixedBlockers,
-      "fixture repo needs an open issue blocked by both an open and a closed issue",
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
-
-    const listedSubIssue = issues.find((i) => i.ticket.number === subIssue.number);
-    assert.equal(listedSubIssue?.parent, subIssue.parent?.number);
-
-    const listedBlocked = issues.find(
-      (i) => i.ticket.number === mixedBlockers.number,
-    );
-    assert.deepEqual(
-      listedBlocked?.openBlockerNumbers,
-      mixedBlockers.blockedBy.nodes
-        .filter((blocker) => blocker.state === "OPEN" && inManager(blocker.url))
-        .map((blocker) => blocker.number),
     );
   });
 });
@@ -782,6 +609,13 @@ describe("ghIssueTracker.handBack", () => {
  * for, filled in as a ticket with none of it — no body, sub-issues, blockers
  * or labels — unless `fields` names its own. Each listing test sets only the
  * fields it is about.
+ *
+ * The shape (`blockedBy: { nodes, totalCount }`, `parent` and each
+ * `blockedBy.nodes` entry as `{ id, number, state, title, url }`, each label
+ * as `{ id, name, description, color }`) was captured once against a real
+ * repo, not hand-invented: `gh --version` 2.101.0, running
+ * `gh issue list --repo nadav-alon/side-projects-manager --state open
+ * --limit 2 --json number,title,body,blockedBy,parent,labels`.
  */
 function rawIssue(fields: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -826,7 +660,12 @@ function issue(
     number,
     title: `Ticket ${number}`,
     body,
-    labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
+    labels: labels.map((name) => ({
+      id: `LA_${name}`,
+      name,
+      description: "",
+      color: "ededed",
+    })),
   });
 }
 
@@ -840,6 +679,9 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
 
     const list = callWith(await gh.calls(), "issue", "list");
     assert.ok(list);
+    // State filtering itself now lives in `gh`, not the adapter, so a stub
+    // fixture can't prove closed issues are excluded — only that `--state
+    // open` is the filter asked for.
     assert.equal(valueOf(list, "--state"), "open");
     assert.equal(valueOf(list, "--label"), undefined);
     assert.ok(valueOf(list, "--json")?.split(",").includes("parent"));
@@ -876,6 +718,8 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed[0]?.eligible, true);
+    assert.equal(listed[0]?.ticket.title, "Add the thing");
+    assert.equal(listed[0]?.ticket.repo, PILOT);
   });
 
   it("rejects an issue number that is not a positive integer, loudly", async (t) => {
