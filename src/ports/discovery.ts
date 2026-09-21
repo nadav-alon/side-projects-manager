@@ -45,9 +45,11 @@ function isDiscoveryKind(value: unknown): value is DiscoveryKind {
 
 /**
  * Whether `value` is a well-formed discovery: one of the four kinds, and a
- * non-empty title and body. What a discovery file must parse as to count —
- * anything else is dropped and counted rather than failing the run (see
- * `container-sandbox.ts`'s `readDiscoveries`).
+ * title and a body. What a discovery file must parse as to count — anything
+ * else is dropped and counted rather than failing the run (see
+ * `container-sandbox.ts`'s `readDiscoveries`). Silent on whether either
+ * string is empty: `DISCOVERY_INSTRUCTIONS` never asks the agent for a
+ * non-empty one, so nothing here can hold it to that.
  */
 export function isDiscovery(value: unknown): value is Discovery {
   if (typeof value !== "object" || value === null) {
@@ -61,8 +63,6 @@ export function isDiscovery(value: unknown): value is Discovery {
   return (
     isDiscoveryKind(kind) &&
     typeof title === "string" &&
-    title !== "" &&
-    typeof body === "string" &&
-    body !== ""
+    typeof body === "string"
   );
 }

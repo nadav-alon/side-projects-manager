@@ -42,9 +42,9 @@ describe("isDiscovery", () => {
     assert.equal(isDiscovery({ kind: "suggestion", title: "x" }), false);
   });
 
-  it("rejects an empty title or body", () => {
-    assert.equal(isDiscovery({ kind: "suggestion", title: "", body: "y" }), false);
-    assert.equal(isDiscovery({ kind: "suggestion", title: "x", body: "" }), false);
+  it("accepts an empty title or body: DISCOVERY_INSTRUCTIONS never asks for non-empty ones", () => {
+    assert.equal(isDiscovery({ kind: "suggestion", title: "", body: "y" }), true);
+    assert.equal(isDiscovery({ kind: "suggestion", title: "x", body: "" }), true);
   });
 
   it("rejects anything that is not an object", () => {
