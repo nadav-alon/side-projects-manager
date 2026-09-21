@@ -38,11 +38,13 @@ import {
   isCommitSha,
   isRemoteUrl,
   isTicketGist,
+  milliseconds,
   remoteUrl,
   reviewFindingTemplate,
   tokenCount,
   transcriptDirectory,
   transcriptPath,
+  type Milliseconds,
   type TicketGist,
   type TokenCount,
   type TranscriptPath,
@@ -56,6 +58,7 @@ import {
   unreserveBranch,
 } from "./branch-reservations.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { isErrorWithCode } from "./error-code.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { IMAGE } from "./sandbox-image.ts";
 
@@ -94,26 +97,34 @@ export const TRANSCRIPTS_DIRECTORY = "transcripts";
  * How long a transcript directory is kept, from its last modification,
  * before `pruneOldTranscripts` removes it.
  */
-export const TRANSCRIPT_RETENTION_DAYS = 14;
+export const TRANSCRIPT_RETENTION: Milliseconds = milliseconds(
+  14 * 24 * 60 * 60 * 1000,
+);
 
 /**
- * Removes transcript directories under `<home>/transcripts/` last modified
- * more than `TRANSCRIPT_RETENTION_DAYS` before `now`, so the directory the
- * durable comment on `attempt` describes as "never deleted" does not grow
- * without bound. Meant to run once, at invocation start, before any run of
- * the morning opens a directory of its own.
+ * Removes transcript directories under `<home>/transcripts/` whose own last
+ * modification is older than `TRANSCRIPT_RETENTION`, so transcripts — which
+ * nothing else ever removes — do not grow the manager home without bound.
+ * Meant to run once, at invocation start, before any run of the morning
+ * opens a directory of its own.
  *
  * Age is read from each directory's own modification time, not a name or a
- * journal entry, so a run still in progress is never touched: `attempt` and
- * everything it calls only ever write inside the one directory `mkdtemp`
- * gave that run, which keeps that directory's modification time current for
- * as long as the run keeps writing to it.
+ * journal entry. That time does not track writes into the directory's
+ * contents — the agent CLI writes one level down, in a project-named
+ * subdirectory (see `findTranscript`), which never bumps the parent's mtime
+ * — so what actually keeps this from touching a run still in progress is
+ * timing, not liveness the code tracks: the invocation lease
+ * (`../trigger-guard.ts`) serialises invocations, and this runs before any
+ * run of the current invocation opens a directory, so every directory still
+ * in use is minutes old, never close to the retention period.
  *
  * A directory that cannot be removed — permissions, a file still open inside
  * it — is warned about on stderr and left in place for the next invocation
  * to try again; pruning is never what fails an invocation. A `transcripts/`
  * that does not exist yet is not an error either: there is nothing to prune
- * on a manager home that has never run a container.
+ * on a manager home that has never run a container. Any other failure to
+ * read the directory or a stat of one of its entries is warned about the
+ * same way a failed removal is, rather than silently pruning nothing.
  */
 export async function pruneOldTranscripts(
   now: Date,
@@ -121,15 +132,25 @@ export async function pruneOldTranscripts(
 ): Promise<void> {
   const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
   const entries = await readdir(transcriptsRoot, { withFileTypes: true }).catch(
-    () => [],
+    (error: unknown) => {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        console.warn(`Could not read ${transcriptsRoot}: ${errorMessage(error)}`);
+      }
+      return [];
+    },
   );
-  const cutoffMs = now.getTime() - TRANSCRIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const cutoffMs = now.getTime() - TRANSCRIPT_RETENTION;
   for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue;
     }
     const directory = path.join(transcriptsRoot, entry.name);
-    const stats = await stat(directory).catch(() => undefined);
+    const stats = await stat(directory).catch((error: unknown) => {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        console.warn(`Could not read ${directory}: ${errorMessage(error)}`);
+      }
+      return undefined;
+    });
     if (stats === undefined || stats.mtimeMs >= cutoffMs) {
       continue;
     }
@@ -550,11 +571,13 @@ async function runOnClone(
  * directory is made inside it for every attempt, named for `kind` so one
  * left behind says which sort of run wrote it, and handed to `container` as
  * `transcriptDirectory` for `dockerCommand` to mount — see
- * `TRANSCRIPT_MOUNT`. That attempt directory is never deleted once the agent
- * has actually run, unlike the throwaway clone: the whole point is a
- * transcript that survives the container `--rm` deletes it with. Whatever
- * the container did, the directory is searched for the `.jsonl` the agent
- * CLI left in it, and the result carries that path whichever way it ends —
+ * `TRANSCRIPT_MOUNT`. That attempt directory outlives the container, unlike
+ * the throwaway clone: the whole point is a transcript that survives the
+ * container `--rm` deletes it with. This function never removes it once the
+ * agent has run — only `pruneOldTranscripts` does, at the start of a later
+ * invocation, once it has aged past the retention period. Whatever the
+ * container did, the directory is searched for the `.jsonl` the agent CLI
+ * left in it, and the result carries that path whichever way it ends —
  * a container that throws after the agent has already run left one exactly
  * as one that returns cleanly did.
  *

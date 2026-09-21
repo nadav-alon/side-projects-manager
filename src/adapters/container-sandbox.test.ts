@@ -26,7 +26,7 @@ import {
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
   TICKET_GIST_TAG,
-  TRANSCRIPT_RETENTION_DAYS,
+  TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
   type Container,
   type Mount,
@@ -3792,10 +3792,11 @@ describe("dockerNeverRanMessage", () => {
 
 describe("pruneOldTranscripts", () => {
   const NOW = new Date();
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
-  /** Backdates `directory`'s modification time by `days` from `NOW`. */
-  async function age(directory: string, days: number): Promise<void> {
-    const then = new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
+  /** Backdates `directory`'s modification time by `offsetMs` from `NOW`. */
+  async function age(directory: string, offsetMs: number): Promise<void> {
+    const then = new Date(NOW.getTime() - offsetMs);
     await utimes(directory, then, then);
   }
 
@@ -3803,7 +3804,7 @@ describe("pruneOldTranscripts", () => {
     const home = await tempHome("prune-old");
     const old = path.join(home, TRANSCRIPTS_DIRECTORY, "run-old");
     await mkdir(old, { recursive: true });
-    await age(old, TRANSCRIPT_RETENTION_DAYS + 1);
+    await age(old, TRANSCRIPT_RETENTION + DAY_MS);
 
     await pruneOldTranscripts(NOW, home);
 
@@ -3814,22 +3815,23 @@ describe("pruneOldTranscripts", () => {
     const home = await tempHome("prune-old");
     const fresh = path.join(home, TRANSCRIPTS_DIRECTORY, "run-fresh");
     await mkdir(fresh, { recursive: true });
-    await age(fresh, TRANSCRIPT_RETENTION_DAYS - 1);
+    await age(fresh, TRANSCRIPT_RETENTION - DAY_MS);
 
     await pruneOldTranscripts(NOW, home);
 
     assert.equal(await exists(fresh), true);
   });
 
-  it("never touches a directory a run still in progress keeps writing to, however old its name would suggest", async () => {
+  it("never touches a directory a run still in progress writes into, since a live run's directory was made this invocation", async () => {
     const home = await tempHome("prune-old");
     const inProgress = path.join(home, TRANSCRIPTS_DIRECTORY, "run-inprogress");
     await mkdir(inProgress, { recursive: true });
-    await age(inProgress, TRANSCRIPT_RETENTION_DAYS + 5);
-    // The run itself just wrote into its own directory, the way the agent
-    // CLI does throughout a run — refreshing the directory's modification
-    // time the same instant, whatever it was before.
-    await writeFile(path.join(inProgress, "session.jsonl"), "{}");
+    // The agent CLI writes one level down, into a directory named for the
+    // container's working directory — see `findTranscript` — never directly
+    // into the attempt directory `pruneOldTranscripts` stats. Left at its
+    // freshly-made mtime, the way any directory a live run is using would be.
+    await mkdir(path.join(inProgress, "-repo"), { recursive: true });
+    await writeFile(path.join(inProgress, "-repo", "session.jsonl"), "{}");
 
     await pruneOldTranscripts(NOW, home);
 
@@ -3841,7 +3843,7 @@ describe("pruneOldTranscripts", () => {
     const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
     const stuck = path.join(transcriptsRoot, "run-stuck");
     await mkdir(stuck, { recursive: true });
-    await age(stuck, TRANSCRIPT_RETENTION_DAYS + 1);
+    await age(stuck, TRANSCRIPT_RETENTION + DAY_MS);
     // Removing an entry needs write permission on its parent, not on itself.
     await chmod(transcriptsRoot, 0o555);
     t.after(() => chmod(transcriptsRoot, 0o755));
@@ -3860,5 +3862,21 @@ describe("pruneOldTranscripts", () => {
     const home = await tempHome("prune-old");
 
     await assert.doesNotReject(pruneOldTranscripts(NOW, home));
+  });
+
+  it("warns, rather than silently pruning nothing, when transcripts/ exists but cannot be read", async (t) => {
+    const home = await tempHome("prune-old");
+    const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
+    await mkdir(transcriptsRoot, { recursive: true });
+    await chmod(transcriptsRoot, 0o000);
+    t.after(() => chmod(transcriptsRoot, 0o755));
+    const warnings: string[] = [];
+    t.mock.method(console, "warn", (line: string) => {
+      warnings.push(line);
+    });
+
+    await assert.doesNotReject(pruneOldTranscripts(NOW, home));
+
+    assert.ok(warnings.some((line) => line.includes(transcriptsRoot)));
   });
 });
