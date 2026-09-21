@@ -439,24 +439,31 @@ function conflictSweepRefusalLine(
   }
 }
 
-/**
- * One project's spec review sweep activity, grouped across every sweep the
- * invocation ran: unlike a conflict sweep's own changes, a supertask a sweep
- * opened a spec review for is never met by a later scan the same invocation
- * — its own new sub-issue is what the next scan sees — so nothing here needs
- * deduplicating the way {@link conflictSweepProjects} does. A project with
- * nothing opened and nothing refused is left out entirely.
- */
-interface SpecReviewSweepProject {
-  repo: RepoSlug;
-  opened: Ticket[];
-  refusals: SpecReviewSweepRefusal[];
+/** The key a spec review sweep refusal is deduplicated by: the project and the supertask it names. */
+function specReviewSweepRefusalKey(
+  repo: RepoSlug,
+  refusal: SpecReviewSweepRefusal,
+): string {
+  return `${repo}|${refusal.supertask.number}`;
 }
 
+/**
+ * One project's spec review sweep activity, grouped across every sweep the
+ * invocation ran. Unlike a conflict sweep's own changes, a supertask a sweep
+ * opened a spec review for is never met by a later scan the same invocation
+ * — its own new sub-issue is what the next scan sees — so `opened` needs no
+ * deduplicating. A refusal is different: a supertask whose `listSubIssues`
+ * read failed changes nothing about the project, so a later scan the same
+ * invocation meets it, and refuses it, again — deduplicated the same way
+ * {@link conflictSweepProjects} dedupes its own refusals. A project with
+ * nothing opened and nothing refused is left out entirely.
+ */
 function specReviewSweepProjects(
   specReviewSweeps: SpecReviewSweepOutcome[],
-): SpecReviewSweepProject[] {
-  const projects = new Map<RepoSlug, SpecReviewSweepProject>();
+): SpecReviewSweepOutcome[] {
+  const projects = new Map<RepoSlug, SpecReviewSweepOutcome>();
+  const seenRefusals = new Set<string>();
+
   for (const swept of specReviewSweeps) {
     let project = projects.get(swept.repo);
     if (project === undefined) {
@@ -464,7 +471,15 @@ function specReviewSweepProjects(
       projects.set(swept.repo, project);
     }
     project.opened.push(...swept.opened);
-    project.refusals.push(...swept.refusals);
+
+    for (const refusal of swept.refusals) {
+      const key = specReviewSweepRefusalKey(swept.repo, refusal);
+      if (seenRefusals.has(key)) {
+        continue;
+      }
+      seenRefusals.add(key);
+      project.refusals.push(refusal);
+    }
   }
   return [...projects.values()].filter(
     (project) => project.opened.length > 0 || project.refusals.length > 0,
@@ -492,6 +507,13 @@ function specReviewSweepAside(specReviewSweeps: SpecReviewSweepOutcome[]): strin
   return flagged.length > 0 ? ` Spec review sweep: ${flagged.join(", ")}.` : "";
 }
 
+/**
+ * One bullet per project's spec review sweep activity: a spec review it
+ * opened, and a refusal naming the supertask and the error — each once,
+ * however many sweeps met it, per `specReviewSweepProjects`. `undefined`
+ * when no sweep this invocation opened or was refused anything, so the
+ * section is absent entirely.
+ */
 function specReviewSweepSection(
   specReviewSweeps: SpecReviewSweepOutcome[],
 ): string | undefined {
@@ -508,7 +530,7 @@ function specReviewSweepSection(
         `- ${project.repo}: could not open a spec review for #${refusal.supertask.number}: ${withoutTrailingStop(refusal.error)}`,
     ),
   ]);
-  return ["## Spec reviews opened", ...lines].join("\n");
+  return ["## Spec review sweep", ...lines].join("\n");
 }
 
 /**

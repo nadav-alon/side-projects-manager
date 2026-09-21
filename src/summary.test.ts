@@ -1403,7 +1403,7 @@ describe("spec review sweeps", () => {
     ];
 
     const body = bodyOf(sweeps);
-    const section = body.slice(body.indexOf("## Spec reviews opened"));
+    const section = body.slice(body.indexOf("## Spec review sweep"));
 
     assert.match(section, new RegExp(`- ${REPO}: opened #68 \\(Spec review for #40\\)`));
     assert.match(section, new RegExp(`- ${OTHER_REPO}: opened #20 \\(Spec review for #10\\)`));
@@ -1424,6 +1424,23 @@ describe("spec review sweeps", () => {
     assert.match(
       body,
       new RegExp(`- ${REPO}: could not open a spec review for #40: tracker unreachable`),
+    );
+  });
+
+  it("dedupes a refusal a later scan the same invocation met again for the same supertask", () => {
+    const supertask = implementationTicket(40);
+    const sweeps: SpecReviewSweepOutcome[] = [
+      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+    ];
+
+    const body = bodyOf(sweeps);
+    const matches = body.match(/could not open a spec review for #40/g);
+
+    assert.equal(matches?.length, 1);
+    assert.match(
+      summaryLine(factsWithSpecReviewSweeps(sweeps)),
+      new RegExp(`Spec review sweep: ${REPO} \\(refused once\\)`),
     );
   });
 
