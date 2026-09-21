@@ -6,6 +6,20 @@ import { isSize, largerSize, type Size } from "./size.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
+ * Whether `labels` include `name`, matched without regard to case, as GitHub
+ * matches label names. What `carriesReadyForAgent` and `carriesSupertaskLabel`
+ * both check, so the case rule is said once.
+ */
+function carriesLabel(labels: Iterable<string>, name: string): boolean {
+  for (const label of labels) {
+    if (label.toLowerCase() === name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The triage label that makes a ticket eligible, as `docs/agents/triage-labels.md`
  * spells it. The one place the literal lives; every adapter reads it from here.
  */
@@ -13,16 +27,10 @@ export const READY_FOR_AGENT_LABEL = "ready-for-agent";
 
 /**
  * Whether `labels` include ready-for-agent — what makes an issue eligible.
- * Beside the port so the real tracker and the fake read eligibility alike;
- * matched without regard to case, as GitHub matches label names.
+ * Beside the port so the real tracker and the fake read eligibility alike.
  */
 export function carriesReadyForAgent(labels: Iterable<string>): boolean {
-  for (const label of labels) {
-    if (label.toLowerCase() === READY_FOR_AGENT_LABEL) {
-      return true;
-    }
-  }
-  return false;
+  return carriesLabel(labels, READY_FOR_AGENT_LABEL);
 }
 
 /**
@@ -263,16 +271,10 @@ export const SUPERTASK_LABEL = "supertask";
 
 /**
  * Whether `labels` include the supertask label. Beside the port so the real
- * tracker and the fake read it alike; matched without regard to case, as
- * GitHub matches label names.
+ * tracker and the fake read it alike.
  */
 export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
-  for (const label of labels) {
-    if (label.toLowerCase() === SUPERTASK_LABEL) {
-      return true;
-    }
-  }
-  return false;
+  return carriesLabel(labels, SUPERTASK_LABEL);
 }
 
 /**
