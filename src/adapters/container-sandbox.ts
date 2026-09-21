@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -1720,6 +1720,15 @@ async function commitsSince(
  * ever appears in an argument list: `--env GH_TOKEN` with no `=value` tells
  * docker to read it from *this process's own* environment, which `envFor` is
  * what varies per `Mount`.
+ *
+ * `options.signal` is this function's half of `attempt`'s stall backstop:
+ * `--rm` with no name leaves nothing to kill, so `dockerCommand` is handed a
+ * `--cidfile` of its own to have docker write the container's id to, and an
+ * abort reads that id back and `docker kill`s it. The kill is awaited before
+ * this function's own promise settles — whether that promise goes on to
+ * reject or, on the rare race where the agent had already finished, resolve
+ * normally — so a caller (`attempt`, and past it `withThrowawayClone`) never
+ * deletes the clone out from under a container still bind-mounting it.
  */
 const dockerContainer: Container = async (options) => {
   // Asked here rather than left to the agent, which would start, fail to sign
@@ -1731,21 +1740,68 @@ const dockerContainer: Container = async (options) => {
   }
 
   const env = envFor(options.mount);
-  const command = dockerCommand(options);
+  const cidDirectory = await mkdtemp(path.join(tmpdir(), "side-projects-cid-"));
+  const cidFile = path.join(cidDirectory, "container-id");
+  const command = dockerCommand(options, cidFile);
+
+  let killed: Promise<void> | undefined;
+  const onAbort = (): void => {
+    killed = killStalledContainer(cidFile);
+  };
+  options.signal.addEventListener("abort", onAbort, { once: true });
+  if (options.signal.aborted) {
+    onAbort();
+  }
 
   try {
     const { stdout, stderr } = await run("docker", command, {
       maxBuffer: OUTPUT_LIMIT,
       env,
     });
+    await killed;
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
+    await killed;
+    // `options.signal.aborted` means this exit is ours: `onAbort` already
+    // `docker kill`ed the container, and whatever `execFile` rejected with is
+    // just that kill's own shape (a signal, or docker's exit code for one) —
+    // not the agent's own exit to read as `readExitedRun` would. Rethrown
+    // rather than turned into a result here, so `attempt` — which owns the
+    // timer and so is the one place that can word a stall — is what turns it
+    // into a run.
+    if (options.signal.aborted) {
+      throw error;
+    }
     if (dockerNeverRan(error)) {
       throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
     return readExitedRun(error);
+  } finally {
+    options.signal.removeEventListener("abort", onAbort);
+    await removeOrWarn(cidDirectory);
   }
 };
+
+/**
+ * Kills the container `dockerCommand`'s `--cidfile` named, once `attempt`'s
+ * own idle watchdog aborts. Warned about rather than thrown on failure — the
+ * run is already being reported as stalled either way, and a container
+ * docker could not kill is not a reason to lose that report.
+ *
+ * A `--cidfile` docker never got to write — the daemon never reached
+ * starting the container at all — leaves nothing here to kill; that case is
+ * `dockerNeverRan`'s to report, off the same rejection `execFile` gives
+ * `run("docker", …)` for it.
+ */
+async function killStalledContainer(cidFile: string): Promise<void> {
+  const id = (await readFile(cidFile, "utf8").catch(() => "")).trim();
+  if (id === "") {
+    return;
+  }
+  await run("docker", ["kill", id]).catch((error: unknown) => {
+    console.warn(`Could not kill the stalled container ${id}: ${errorMessage(error)}`);
+  });
+}
 
 /**
  * What `AgentNeverRan` says when docker itself would not run the container:
@@ -1885,22 +1941,33 @@ function dockerNeverRan(error: unknown): boolean {
  * agent CLI's own session transcript lands on the host the same way the
  * clone's uid does: pinned to `user`, never root's.
  *
+ * `cidFile` is where `--cidfile` asks docker to write the container's own id
+ * once it starts it — `--rm` with no name otherwise leaves nothing for
+ * `dockerContainer` to `docker kill` once `options.signal` aborts. The
+ * caller owns the path, and the file itself, so this stays a pure function of
+ * its arguments rather than one that reaches for a temp directory of its own.
+ *
  * Throws `AgentNeverRan` for a manager running as root, which is a setup no
  * unattended run can happen in — see `hostUser`.
  */
-function dockerCommand({
-  directory,
-  prompt,
-  spendCeiling,
-  mount,
-  model,
-  transcriptDirectory,
-}: RunOptions): string[] {
+function dockerCommand(
+  {
+    directory,
+    prompt,
+    spendCeiling,
+    mount,
+    model,
+    transcriptDirectory,
+  }: RunOptions,
+  cidFile: string,
+): string[] {
   const user = hostUser();
 
   return [
     "run",
     "--rm",
+    "--cidfile",
+    cidFile,
     // The clone is bind-mounted, so what the agent writes is written straight
     // into the developer's filesystem with whatever uid the container runs as.
     // Pinned to the invoking process's own, so the branch, the objects and any

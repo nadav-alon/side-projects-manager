@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   rm,
   stat,
   symlink,
@@ -3167,6 +3168,111 @@ describe("containerSandbox with the real docker container", () => {
     const ceiling = call?.indexOf("--max-budget-usd") ?? -1;
     assert.notEqual(ceiling, -1);
     assert.equal(call?.[ceiling + 1], "2.5");
+  });
+
+  /**
+   * `--rm` with no name leaves nothing for `dockerContainer` to `docker kill`
+   * once `attempt`'s idle watchdog aborts — this is the other half of that
+   * backstop, and it fails as quietly as the three flags this test's sibling
+   * already checks: a `--cidfile` that stopped being passed would leave a
+   * stalled run's container to run forever, with nothing here to say so.
+   */
+  it("asks docker for a --cidfile, so a stalled run's container can be killed by id", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    const cidFile = valueOf(call, "--cidfile");
+    assert.notEqual(cidFile, undefined);
+    assert.ok(path.isAbsolute(cidFile ?? ""));
+  });
+
+  /**
+   * A `docker` stub whose `run` writes the id `--cidfile` asked for, records
+   * its own real pid against that id (in `SIDE_PROJECTS_TEST_PIDMAP`, an env
+   * var this process sets so the child inherits it), and then hangs — a
+   * stand-in for an API response that stalls. Its `kill` looks the id back up
+   * and sends the real container process a real `SIGKILL`, the same way a
+   * real `docker kill` would actually stop the real container: this is what
+   * lets a test drive `dockerContainer`'s own kill through to a process that
+   * is actually gone, rather than merely asserting the argument list.
+   *
+   * `exec sleep 600` rather than a backgrounded one: replacing the shell
+   * with `sleep` keeps them the same pid, so killing the pid this script
+   * recorded kills the process actually blocking `execFile`, with nothing
+   * left orphaned once it does.
+   */
+  const KILL_RELAY_DOCKER = `
+if [ "$1" = "run" ]; then
+  cidfile=""
+  prev=""
+  for arg in "$@"; do
+    if [ "$prev" = "--cidfile" ]; then cidfile="$arg"; fi
+    prev="$arg"
+  done
+  id="cid-$$"
+  printf '%s' "$id" > "$cidfile"
+  echo "$id $$" >> "$SIDE_PROJECTS_TEST_PIDMAP"
+  exec sleep 600
+elif [ "$1" = "kill" ]; then
+  id="$2"
+  pid=$(awk -v id="$id" '$1==id{print $2}' "$SIDE_PROJECTS_TEST_PIDMAP")
+  if [ -n "$pid" ]; then
+    kill -KILL "$pid" 2>/dev/null
+  fi
+fi`;
+
+  it("kills the real container process once a stalled run is aborted, and keeps the clone until it is gone", async (t) => {
+    withCredential(t);
+    const directory = await project();
+    const pidmapDirectory = await mkdtemp(path.join(tmpdir(), "cidfile-pidmap-"));
+    const pidmap = path.join(pidmapDirectory, "pidmap");
+    await writeFile(pidmap, "");
+    const previousPidmap = process.env["SIDE_PROJECTS_TEST_PIDMAP"];
+    process.env["SIDE_PROJECTS_TEST_PIDMAP"] = pidmap;
+    t.after(async () => {
+      if (previousPidmap === undefined) {
+        delete process.env["SIDE_PROJECTS_TEST_PIDMAP"];
+      } else {
+        process.env["SIDE_PROJECTS_TEST_PIDMAP"] = previousPidmap;
+      }
+      await rm(pidmapDirectory, { recursive: true, force: true });
+    });
+    const docker = await recordingDocker(t, KILL_RELAY_DOCKER);
+
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+    const run = testSandbox().run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    // Real wall-clock wait for the real `docker run` stub to have actually
+    // started and recorded its pid, before advancing mocked time — the git
+    // clone and branch bookkeeping `attempt` does first are real, unmocked
+    // work, and how many event-loop turns that takes is not this test's to
+    // guess at.
+    for (let i = 0; i < 400; i++) {
+      const recorded = await readFile(pidmap, "utf8").catch(() => "");
+      if (recorded.trim() !== "") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await advancePastStall(t);
+
+    const result = await run;
+
+    assert.equal(result.kind, "provider-failed");
+    const calls = await docker.calls();
+    assert.ok(
+      calls.some((call) => call[0] === "kill"),
+      "the stalled container's id was never handed to docker kill",
+    );
   });
 
   it("passes no model argument when none is asked for", async (t) => {
