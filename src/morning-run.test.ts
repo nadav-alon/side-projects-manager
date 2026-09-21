@@ -245,7 +245,7 @@ describe("morningLoop", () => {
       [67],
     );
     // Selected for #67, yet still says #66 was passed over.
-    assert.match(report.message, /#66 broken out into sub-issues/);
+    assert.match(report.message, /#66 declared a supertask/);
   });
 
   it("selects a sibling ticket instead, and says the blocked one was passed over", async () => {

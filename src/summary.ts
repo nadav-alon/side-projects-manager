@@ -73,7 +73,7 @@ function passedOverAside(projects: ProjectOutcome[]): string {
     const reasons = [
       ...(supertasks === undefined
         ? []
-        : [`${numbers(supertasks)} broken out into sub-issues`]),
+        : [`${numbers(supertasks)} declared a supertask`]),
       ...(blocked === undefined
         ? []
         : [`${numbers(blocked)} blocked by an open ticket`]),
