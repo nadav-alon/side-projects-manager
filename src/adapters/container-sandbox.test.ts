@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 
 import { REASON_QUOTED } from "../hand-back.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { MANAGER_HOME } from "./manager-home.ts";
 import {
   AgentNeverRan,
   containerSandbox,
@@ -1448,6 +1449,29 @@ describe("transcript", () => {
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(path.dirname(seen[0] ?? ""), path.join(home, TRANSCRIPTS_DIRECTORY));
+  });
+
+  it("keeps transcripts under MANAGER_HOME by default, when no home is given", async () => {
+    const directory = await project();
+    const seen: string[] = [];
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      seen.push(transcriptDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    try {
+      await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+      assert.equal(
+        path.dirname(seen[0] ?? ""),
+        path.join(MANAGER_HOME, TRANSCRIPTS_DIRECTORY),
+      );
+    } finally {
+      await rm(path.join(MANAGER_HOME, TRANSCRIPTS_DIRECTORY), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 
   it("reports the transcript a finished run's container wrote", async () => {
