@@ -543,11 +543,13 @@ export interface RepoHost {
    * Posts `body` as a comment on `pullRequest`.
    *
    * Kept as narrow as the write verbs above it: turbo mode (CONTEXT.md's
-   * "Turbo", ADR 0006) is the one caller, and it only ever posts
-   * {@link APPLY_REVIEW_COMMENT}, once a review ticket closes, standing in
-   * for the developer typing it themselves. Nothing here reads a comment
-   * back — see `container-sandbox.ts`'s note by the reviewer's own prompt for
-   * why that stays true regardless.
+   * "Turbo", ADR 0006) and the conflict sweep (CONTEXT.md's "Conflict
+   * sweep", ADR 0007) are its only two callers, posting {@link
+   * APPLY_REVIEW_COMMENT} once a review ticket closes or {@link
+   * REBASE_COMMENT} on a turbo project's conflicting pull request, each
+   * standing in for the developer typing it themselves. Nothing here reads a
+   * comment back — see `container-sandbox.ts`'s note by the reviewer's own
+   * prompt for why that stays true regardless.
    */
   postComment(pullRequest: PullRequestUrl, body: string): Promise<void>;
   /**
