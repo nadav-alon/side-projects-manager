@@ -109,7 +109,7 @@ export interface ProjectOutcome {
  * project the developer adds or a ticket that changes mid-invocation is what
  * the next scan sees. `repoHost` is what each scan's conflict sweep and spec
  * review sweep write through (CONTEXT.md's "Conflict sweep" and "Spec review
- * ticket", ADR 0007 and issue #516): the writes selection makes, alongside
+ * sweep", ADR 0007 and issue #516): the writes selection makes, alongside
  * its reads — narrowed to the verbs the two sweeps call between them.
  */
 export interface SelectionPorts {
@@ -247,7 +247,7 @@ interface ScanFindings {
 /**
  * One scan of the registry: sweeps every non-paused project for conflicts
  * (CONTEXT.md's "Conflict sweep", ADR 0007) and for a supertask whose
- * sub-issues have all just closed (CONTEXT.md's "Spec review ticket", issue
+ * sub-issues have all just closed (CONTEXT.md's "Spec review sweep", issue
  * #516), asks its backlog for a candidate ticket, hands the best one to
  * `bestCandidate`, then folds this scan's outcomes into the invocation's
  * sticky `outcomesByRepo` before answering with the winner, if any.
@@ -317,7 +317,7 @@ async function scan(
     // repo, not about which ticket this scan goes on to select.
     const specReviewsThisScan = await specReviewSweep(ports, project.repo, open);
     specReviewSweepOutcomes.push(specReviewsThisScan);
-    // Per `CONTEXT.md`'s "Spec review ticket": born selectable the same
+    // Per `CONTEXT.md`'s "Spec review sweep": born selectable the same
     // morning it is opened. Everything below reads `open`, so a scan that
     // just opened one re-reads it here — the one extra tracker read a
     // supertask completing costs, and only on the mornings one does.

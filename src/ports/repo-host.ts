@@ -275,9 +275,9 @@ export interface OpenPullRequest {
  *
  * What a spec review sweep (`spec-review-sweep.ts`) reads once, at the
  * instant a supertask's sub-issues all close, per `CONTEXT.md`'s "Spec review
- * ticket" ("Why disclose rather than verify"): exact branches, exact merged
- * state and exact issue linkage, without a read per sub-issue and without a
- * new failure mode for a sub-issue that never had a pull request.
+ * sweep": exact branches, exact merged state and exact issue linkage,
+ * without a read per sub-issue and without a new failure mode for a
+ * sub-issue that never had a pull request.
  */
 export interface ClosingPullRequest {
   number: IssueNumber;
@@ -660,7 +660,7 @@ export interface RepoHost {
    * each one's state, its own branch, and the issues its body closes.
    *
    * What a spec review sweep asks with, once per supertask whose sub-issues
-   * have all just closed, per `CONTEXT.md`'s "Spec review ticket": unlike
+   * have all just closed, per `CONTEXT.md`'s "Spec review sweep": unlike
    * {@link listOpenPullRequests}, which only ever sees pull requests still
    * open, this is the one read that reaches a merged or closed one — exactly
    * the ones a closed sub-issue's own pull request now is.

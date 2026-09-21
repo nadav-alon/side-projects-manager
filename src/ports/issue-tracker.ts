@@ -354,7 +354,7 @@ export function isSupertask(ticket: Ticket): boolean {
 /**
  * One sub-issue of a supertask, open or closed alike — what {@link
  * IssueTracker.listSubIssues} answers with. Per `CONTEXT.md`'s "Spec review
- * ticket", the guard that stops a supertask ever getting a second spec review
+ * sweep", the guard that stops a supertask ever getting a second spec review
  * reads closed sub-issues on purpose: a spec review that closed is still a
  * sub-issue that existed, and only a read that sees it can tell "closed" from
  * "never opened".
@@ -637,7 +637,7 @@ export interface IssueTracker {
    * same way {@link createReviewTicket}'s review is born eligible: a spec
    * review nobody labelled is one that never runs on a morning nobody is
    * around. `body` is composed by the caller, not here — per `CONTEXT.md`'s
-   * "Spec review ticket", it names the supertask and every sub-issue in
+   * "Spec review sweep", it names the supertask and every sub-issue in
    * scope, with a fact (a pull request's branch and state) this port alone
    * cannot read, since that comes from the repo host rather than the
    * tracker.
