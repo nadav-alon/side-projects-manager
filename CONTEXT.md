@@ -175,6 +175,10 @@ _Avoid_: crashed, errored, failed (say which of the two)
 Something a run learned about its ticket that the developer has to act on. One of four kinds, and the kind alone decides whether it is blocking: a correction (the ticket is wrong) and a prerequisite (the work needs something nobody ticketed) are blocking; a clarification (the ticket is ambiguous, and how the agent read it) and a suggestion (work worth doing that the ticket does not cover) are advisory. Always about the ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the pull request. A blocking discovery stops the run and hands its ticket back; an advisory one rides alongside a run that finishes. One filed by a pull request ticket's run is about the implementation ticket it belongs to, and lands there, while the pull request ticket is the one handed back. Neither is the agent giving up nor the setup failing: the ticket itself is wrong or incomplete.
 _Avoid_: finding, note, observation, feedback
 
+**Dropped discovery**:
+A file under a run's `/discoveries` mount that never became a discovery: not valid JSON, or naming a kind outside the four. Counted rather than carried, so the caller can report how many there were, and never fails the run on its own.
+_Avoid_: invalid discovery, malformed discovery, discarded discovery
+
 **Infrastructure failure**:
 A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. What an implementation agent that did start left is salvaged, wherever it can still be reached. The invocation carries on.
 _Avoid_: outage (a provider failure, if the provider was down), crash, system error
