@@ -197,13 +197,14 @@ export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
  * thing a run cannot work out for itself, since the sandbox's clone has no
  * GitHub remote to infer it from.
  *
- * `kind` is the ticket's kind itself, which is why it is spelled from
- * `TicketKind`: every kind but an implementation is bound to a pull request.
+ * `kind` names the three pull-request-bound kinds explicitly, rather than
+ * `Exclude<TicketKind, "implementation">`: a spec review ticket is not bound
+ * to a pull request either, so that shorthand would wrongly admit it too.
  *
  * TODO[#295]: the `/rebase` workflow itself.
  */
 export interface PullRequestBinding {
-  kind: Exclude<TicketKind, "implementation">;
+  kind: "review" | "apply-review" | "rebase";
   url: PullRequestUrl;
 }
 
@@ -221,6 +222,12 @@ export interface PullRequestBinding {
  * supertask label, from that same listing. Declared, not inferred — per
  * `CONTEXT.md`'s "Supertask", a ticket's sub-issue count says nothing about
  * whether it is a container. Absent, never `false`, where it carries none.
+ *
+ * `specReview` is the fact `isSpecReviewTicket` reads alongside `pullRequest`:
+ * whether the ticket carries the spec review label, from that same listing.
+ * Read only where `pullRequest` is absent — a pull-request-bound ticket's own
+ * kind always wins, per `ticketKind`. Absent, never `false`, where it carries
+ * none.
  *
  * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
  * marked as blocking this one are still open, from that same listing. Absent
@@ -246,6 +253,7 @@ export interface Ticket {
   title: string;
   pullRequest?: PullRequestBinding;
   supertask?: true;
+  specReview?: true;
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
@@ -275,6 +283,21 @@ export const SUPERTASK_LABEL = "supertask";
  */
 export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
   return carriesLabel(labels, SUPERTASK_LABEL);
+}
+
+/**
+ * The label that declares a ticket a spec review, per `CONTEXT.md`'s "Spec
+ * review ticket" and as `docs/agents/triage-labels.md` spells it. The one
+ * place the literal lives; every adapter reads it from here.
+ */
+export const SPEC_REVIEW_LABEL = "spec-review";
+
+/**
+ * Whether `labels` include the spec review label. Beside the port so the real
+ * tracker and the fake read it alike.
+ */
+export function carriesSpecReviewLabel(labels: Iterable<string>): boolean {
+  return carriesLabel(labels, SPEC_REVIEW_LABEL);
 }
 
 /**
@@ -437,6 +460,12 @@ export type RebaseTicket = Ticket & {
 /** A ticket narrowed to any pull-request-bound kind, once `isPullRequestTicket` has said so. */
 export type PullRequestTicket = Ticket & { pullRequest: PullRequestBinding };
 
+/** A ticket narrowed to the spec review kind, once `isSpecReviewTicket` has said so. */
+export type SpecReviewTicket = Ticket & {
+  pullRequest?: undefined;
+  specReview: true;
+};
+
 /** Whether `ticket` is a review ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest?.kind === "review";
@@ -462,6 +491,17 @@ export function isPullRequestTicket(
 }
 
 /**
+ * Whether `ticket` is a spec review ticket: bound to no pull request, and
+ * carrying the spec review label. Per `CONTEXT.md`'s "Spec review ticket",
+ * the first ticket kind that is not bound to a pull request.
+ */
+export function isSpecReviewTicket(
+  ticket: Ticket,
+): ticket is SpecReviewTicket {
+  return ticket.pullRequest === undefined && ticket.specReview === true;
+}
+
+/**
  * The size `ticket` itself declares, or `undefined` where it names none: an
  * unsized ticket, or any pull request ticket, which never inherits its
  * parent's size, per `CONTEXT.md`'s "Size label". Resolved once here so the
@@ -480,16 +520,32 @@ export const TICKET_KINDS = [
   "review",
   "apply-review",
   "rebase",
+  "spec-review",
 ] as const;
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
 /**
- * Which kind `ticket` is: its pull request binding's kind, or an
- * implementation where it is bound to none.
+ * Which kind `ticket` is, decided in order: its pull request binding's kind,
+ * else a spec review where it carries the spec review label, else an
+ * implementation.
  */
+export function ticketKind<T extends Ticket>(
+  ticket: T,
+): T extends ReviewTicket
+  ? "review"
+  : T extends ApplyReviewTicket
+    ? "apply-review"
+    : T extends RebaseTicket
+      ? "rebase"
+      : T extends SpecReviewTicket
+        ? "spec-review"
+        : TicketKind;
 export function ticketKind(ticket: Ticket): TicketKind {
-  return ticket.pullRequest?.kind ?? "implementation";
+  if (ticket.pullRequest !== undefined) {
+    return ticket.pullRequest.kind;
+  }
+  return ticket.specReview === true ? "spec-review" : "implementation";
 }
 
 /**

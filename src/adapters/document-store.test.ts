@@ -622,6 +622,7 @@ describe("the model defaults document", () => {
           review: "claude-opus-5",
           "apply-review": "sonnet",
           rebase: "opus",
+          "spec-review": "fable",
         }),
       }),
     );
@@ -631,6 +632,7 @@ describe("the model defaults document", () => {
       "apply-review": modelName("sonnet"),
       review: modelName("claude-opus-5"),
       rebase: modelName("opus"),
+      "spec-review": modelName("fable"),
     });
   });
 

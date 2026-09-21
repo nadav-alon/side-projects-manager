@@ -36,6 +36,7 @@ import type {
   RunSandboxFailed,
   Salvaged,
   Sandbox,
+  SpecReviewTicket,
   State,
   Store,
   Ticket,
@@ -54,6 +55,7 @@ import {
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
+  isSpecReviewTicket,
   localDay,
   notify,
   recordRun,
@@ -113,6 +115,7 @@ import {
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
+  type SpecReviewed,
   type UnsettledMergeability,
   type UnusableModelLabel,
   type UnusableSizeLabel,
@@ -800,13 +803,14 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
  * tickets the loop tried and failed to take off the queue itself.
  *
  * An infrastructure failure, a limit refusal or a provider failure says
- * nothing about the ticket at all, so it always frees it. A finished or a
- * failed run frees it exactly when its own hand-back landed — `"handed-back"`
- * or `"already-closed"` — and leaves it recorded when the tracker refused the
- * call. A review, an apply-review, a rebase or a resolved pull request frees
- * it exactly when it closed without a `notClosed`, and leaves it recorded
- * when one is set — the ticket is still ready-for-agent, due to come round
- * again on its own, so the record still has something to protect.
+ * nothing about the ticket at all, so it always frees it. A finished, a
+ * spec-reviewed or a failed run frees it exactly when its own hand-back
+ * landed — `"handed-back"` or `"already-closed"` — and leaves it recorded
+ * when the tracker refused the call. A review, an apply-review, a rebase or a
+ * resolved pull request frees it exactly when it closed without a
+ * `notClosed`, and leaves it recorded when one is set — the ticket is still
+ * ready-for-agent, due to come round again on its own, so the record still
+ * has something to protect.
  */
 function freesTicketToday(iteration: Iteration): boolean {
   switch (iteration.kind) {
@@ -815,6 +819,7 @@ function freesTicketToday(iteration: Iteration): boolean {
     case "budget-exhausted":
       return true;
     case "finished":
+    case "spec-reviewed":
       return iteration.handedBack.outcome !== "refused";
     case "failed":
       return (
@@ -840,7 +845,9 @@ function freesTicketToday(iteration: Iteration): boolean {
  * has; an apply-review
  * ticket's pushes and replies itself, and is closed once the repo host shows
  * every thread answered; a rebase ticket's force-pushes itself, and is closed
- * once the repo host no longer reports its pull request conflicting.
+ * once the repo host no longer reports its pull request conflicting; and a
+ * spec review ticket's run reviews the repo against its supertask and is
+ * handed back with its findings, never closed.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
@@ -882,6 +889,16 @@ async function work(
       spendCeiling,
       model,
       selection.project.turbo,
+    );
+  }
+  if (isSpecReviewTicket(selection.ticket)) {
+    return await runSpecReview(
+      ports,
+      selection.project.repo,
+      selection.ticket,
+      state,
+      spendCeiling,
+      model,
     );
   }
 
@@ -1556,17 +1573,21 @@ async function runReview(
   };
 }
 
-/** Hands back a review that left no findings on its pull request, as an agent that gave up. */
+/**
+ * Hands back a review that left no findings on its pull request, or a spec
+ * review that gave up, as an agent that gave up. Shared by both: neither has
+ * anywhere else its findings could have gone.
+ */
 async function handReviewBack(
   ports: MorningLoopPorts,
-  ticket: ReviewTicket,
+  ticket: ReviewTicket | SpecReviewTicket,
   review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason };
   const handedBack = await handBack(ports, ticket, {
     ...failure,
-    ticketKind: "review",
+    ticketKind: ticketKind(ticket),
     output: review.output,
     ...transcriptField(review.transcript),
   });
@@ -1577,6 +1598,67 @@ async function handReviewBack(
     failure,
     handedBack,
   };
+}
+
+/**
+ * A spec review ticket's own run: the agent reviews the whole repository
+ * against the supertask it names, and reports what it found. There is no
+ * pull request to post that report to, so the loop's only remaining part is
+ * handing the ticket back with the report as its own comment — always,
+ * whether the run finished or gave up, since a spec review never closes its
+ * ticket the way a review, apply-review or rebase ticket's own success does:
+ * per CONTEXT.md's "Spec review ticket", it ends in hand-back like every
+ * other kind.
+ *
+ * Unlike `runReview`, there is no pull request to check already resolved, and
+ * no posted-findings check to make: the run's own output is the whole of its
+ * findings, whatever it is.
+ *
+ * A checkout or a sandbox that could not do its part is an infrastructure
+ * failure here exactly as for an implementation run: reported, the ticket
+ * left as it was, and the invocation carries on.
+ */
+async function runSpecReview(
+  ports: MorningLoopPorts,
+  repo: RepoSlug,
+  ticket: SpecReviewTicket,
+  state: Map<RepoSlug, ProjectState>,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed> {
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
+    // As `attemptRun`: two distinct calls so each resolves the
+    // `Sandbox.specReview` overload that actually matches.
+    model === undefined
+      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling })
+      : ports.sandbox.specReview({ ticket, checkout, spendCeiling, model: model.name }),
+  );
+  if (result.kind === "failed") {
+    return result;
+  }
+  const { outcome: review } = result;
+
+  if (review.kind === "limit-refused" || review.kind === "provider-failed") {
+    return cutOffReviewOutcome(review);
+  }
+  if (review.kind === "budget-exhausted") {
+    return budgetExhaustedReviewOutcome(review);
+  }
+  // Handed back rather than left to come round again, as a review's is: every
+  // later morning would refuse the same model the same way.
+  if (review.kind === "model-refused") {
+    return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
+  }
+  if (review.kind === "gave-up") {
+    return handReviewBack(ports, ticket, review, review.reason);
+  }
+
+  const handedBack = await handBack(ports, ticket, {
+    kind: "spec-review-finished",
+    output: review.output,
+    ...transcriptField(review.transcript),
+  });
+  return { kind: "spec-reviewed", review, tokensUsed: review.tokensUsed, handedBack };
 }
 
 /**

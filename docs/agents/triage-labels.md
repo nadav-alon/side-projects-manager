@@ -16,7 +16,7 @@ Edit the right-hand column to match whatever vocabulary you actually use.
 
 ## Ticket priority labels
 
-Optional, on top of the state role. Orders `ready-for-agent` tickets within this project: smaller first, unlabelled tickets after every labelled one, ties broken by lowest issue number. Review tickets are always worked before any of them.
+Optional, on top of the state role. Orders `ready-for-agent` tickets within this project: smaller first, unlabelled tickets after every labelled one, ties broken by lowest issue number. Review and spec review tickets are always worked before any of them.
 
 | Label        | Meaning                        |
 | ------------ | ------------------------------ |
@@ -66,3 +66,18 @@ Declares a ticket a container for its work rather than work of its own, per `CON
 - The morning scan flags a likely missed label itself — a ticket with an open sub-issue that is
   not a pull request ticket, yet carries no `supertask` label — but does not apply the label; that
   stays the developer's call.
+
+## Spec review label
+
+Declares a ticket a spec review, per `CONTEXT.md`'s "Spec review ticket": a review of the whole
+repo against a named supertask's body, rather than of one pull request. Applied by hand — nothing
+opens one automatically.
+
+| Label         | Meaning                                                             |
+| ------------- | -------------------------------------------------------------------- |
+| `spec-review` | Reviews the repo against a supertask's body; reports, never commits. |
+
+- A label may not exist yet in a given repo: create it on first use (`gh label create spec-review`)
+  before `gh issue edit --add-label`.
+- Only read where the ticket carries no pull request binding — a review, apply-review or rebase
+  ticket's own kind always wins.

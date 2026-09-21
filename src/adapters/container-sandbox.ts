@@ -26,7 +26,11 @@ import type {
   RunOutcome,
   RunRequest,
   Sandbox,
+  SpecReviewOutcome,
+  SpecReviewRequest,
+  SpecReviewTicket,
   Ticket,
+  TicketKind,
   TranscriptDirectory,
   Usd,
 } from "../ports/index.ts";
@@ -401,11 +405,26 @@ export function containerSandbox(
     return rebaseOnClone(container, pullRequestHead, request, transcriptsRoot);
   }
 
-  return { run, review, applyReview, rebase };
+  function specReview(
+    request: SpecReviewRequest & { model: ModelName },
+  ): Promise<SpecReviewOutcome>;
+  function specReview(
+    request: SpecReviewRequest & { model?: undefined },
+  ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
+  function specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
+    return specReviewOnClone(container, request, transcriptsRoot);
+  }
+
+  return { run, review, applyReview, rebase, specReview };
 }
 
-/** The four shapes a sandboxed run comes in — named for `withThrowawayClone` and `attempt` alike. */
-type RunKind = "run" | "review" | "apply-review" | "rebase";
+/**
+ * The five shapes a sandboxed run comes in — named for `withThrowawayClone`
+ * and `attempt` alike. `TicketKind` with `"implementation"` spelled `"run"`:
+ * derived, rather than spelled out again, so a kind added to `TicketKind`
+ * forces the issue here too, as it already does at `SELECTION_RANK`.
+ */
+type RunKind = Exclude<TicketKind, "implementation"> | "run";
 
 /**
  * Runs `body` on a throwaway clone's directory, named for the `kind` of run
@@ -1078,35 +1097,112 @@ function reviewOutcomeOf(
 }
 
 /**
- * The reviewer's run: a throwaway clone of its own, exactly like an
- * implementation run, but mounted read-only and never fetched back — a
- * review leaves nothing on the checkout, because what it produces is a
- * comment on GitHub, not a branch.
+ * A reviewer's run, of either kind: a throwaway clone of its own, exactly
+ * like an implementation run, but mounted read-only and never fetched back —
+ * a review leaves nothing on the checkout, because what it produces is a
+ * comment on GitHub or, for a spec review, its own report, never a branch.
  *
  * No branch is created either: a reviewer has nothing to commit, and asking
- * for one would suggest it might.
+ * for one would suggest it might. The read-only mount is what routes
+ * `envFor` onto `GH_REVIEW_TOKEN`, stated here once for both kinds.
  */
-async function reviewOnClone(
+async function reviewOnReadOnlyClone(
   container: Container,
-  request: ReviewRequest,
+  kind: "review" | "spec-review",
+  request: ReviewRequest | SpecReviewRequest,
+  prompt: string,
   transcriptsRoot: string,
 ): Promise<ReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+  const { checkout: project, spendCeiling, model } = request;
 
-  return withThrowawayClone("review", async (clone) => {
+  return withThrowawayClone(kind, async (clone) => {
     await withCheckoutLock(project, () =>
       run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
     );
     const agent = await attempt(
       container,
-      "review",
-      { directory: clone, prompt: reviewPromptFor(ticket), spendCeiling, mount: "ro" },
+      kind,
+      { directory: clone, prompt, spendCeiling, mount: "ro" },
       model,
       transcriptsRoot,
     );
 
     return reviewOutcomeOf(agent, model);
   });
+}
+
+async function reviewOnClone(
+  container: Container,
+  request: ReviewRequest,
+  transcriptsRoot: string,
+): Promise<ReviewOutcome> {
+  return reviewOnReadOnlyClone(
+    container,
+    "review",
+    request,
+    reviewPromptFor(request.ticket),
+    transcriptsRoot,
+  );
+}
+
+async function specReviewOnClone(
+  container: Container,
+  request: SpecReviewRequest,
+  transcriptsRoot: string,
+): Promise<SpecReviewOutcome> {
+  return reviewOnReadOnlyClone(
+    container,
+    "spec-review",
+    request,
+    specReviewPromptFor(request.ticket),
+    transcriptsRoot,
+  );
+}
+
+/**
+ * What the spec-reviewing agent is asked to do.
+ *
+ * The ticket is named explicitly for the same reason `promptFor` names the
+ * issue: the clone's origin is a local path, so nothing GitHub-shaped can be
+ * inferred from it. The supertask it reviews against is not named here —
+ * the agent reads it for itself, as the parent issue this ticket is a
+ * sub-issue of, since that is the one place the association still exists: a
+ * spec review ticket is opened by hand, the way a review ticket already
+ * hangs off the ticket it reviews, as a sub-issue of the supertask it is
+ * about. A ticket opened without a parent has nothing to review against, so
+ * the prompt tells the agent to say so and stop rather than reviewing the
+ * repo against nothing.
+ *
+ * TODO[#516]: once the manager opens a spec review ticket itself, hand the
+ * supertask through directly instead of having the agent discover it here.
+ *
+ * Unlike `reviewPromptFor`, there is no pull request to post findings to:
+ * the run reports instead, and its own output is what the caller hands back
+ * as the ticket's comment — see `Sandbox.specReview`. It is also told
+ * explicitly never to open issues of its own: every other kind of ticket
+ * ends in hand-back, and a spec review that filed tickets of its own would
+ * be the loop's only exception, with findings bounded by nothing.
+ *
+ * The prompt also says the run is unattended, for the same reason
+ * `reviewPromptFor`'s does: a `--print` run gets no reply, so a reviewer
+ * that stops to ask has answered nothing.
+ */
+function specReviewPromptFor(ticket: SpecReviewTicket): string {
+  return [
+    `Spec-review this repository. Read #${ticket.number} with`,
+    `\`gh issue view ${ticket.number} --repo ${ticket.repo}\` first — name the repo explicitly`,
+    "wherever gh needs one, since this clone's origin is a local path and gh cannot infer it —",
+    `then find the supertask it is a sub-issue of (\`gh issue view ${ticket.number} --repo ${ticket.repo}`,
+    '--json parent`) and read that supertask\'s own body. If it has no parent, report that this',
+    "ticket was opened with no supertask to review it against, and stop there.",
+    "Review the whole repository against that body: gaps between its sub-issues, drift from the",
+    "spec, and seams that do not line up.",
+    "This is a review, not an implementation: do not commit or push anything — this checkout is",
+    "read-only, so neither would work anyway — and do not open issues of your own. Report what you",
+    "find instead; your report is the whole of the work here.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "finish and report without asking for confirmation.",
+  ].join(" ");
 }
 
 /**

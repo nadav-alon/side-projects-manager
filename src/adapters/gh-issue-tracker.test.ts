@@ -9,6 +9,7 @@ import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  isSpecReviewTicket,
   isSupertask,
   issueNumber,
   modelLabelOf,
@@ -1488,6 +1489,31 @@ describe("ghIssueTracker.listOpenIssues — supertask label", () => {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(isSupertask(issues[0]!.ticket), false);
+  });
+});
+
+/**
+ * Whether a ticket is a spec review, per `isSpecReviewTicket`: declared by
+ * the spec review label, read from the same listing as every other label,
+ * and only where the ticket carries no pull request binding.
+ */
+describe("ghIssueTracker.listOpenIssues — spec review label", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  it("reads a ticket carrying the spec review label as a spec review", async (t) => {
+    await recordingGh(t, listing([issue(7, ["spec-review"])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(isSpecReviewTicket(issues[0]!.ticket), true);
+  });
+
+  it("does not read an ordinary ticket as a spec review", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL])]));
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(isSpecReviewTicket(issues[0]!.ticket), false);
   });
 });
 

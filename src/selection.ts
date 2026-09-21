@@ -401,18 +401,19 @@ function hasNonPullRequestSubIssue(
 
 /**
  * The one ticket `backlog` offers selection, within a single project: a
- * rebase ticket before an apply-review ticket before a review ticket before
- * any implementation ticket, since finishing beats starting and a review
- * already written is nearer finished than one not yet written — and a review
- * applied to a branch that cannot merge has to be rebased afterwards anyway;
- * among implementation tickets, ticket priority ascending — as `ticketPriorities` holds it by issue number,
- * never a ticket's own priority label — with a ticket absent from it sorting
- * after every ticket present; and, ties still standing, the oldest ticket —
- * the lowest issue number — so the order the tracker happened to return them
- * in never matters. Two pull request tickets of the same kind go straight to
- * the oldest ticket: ticket priority orders implementation tickets only, and
- * a pull request ticket inherits its parent's as a sub-issue, not as a rank
- * of its own.
+ * rebase ticket before an apply-review ticket before a review ticket before a
+ * spec review ticket before any implementation ticket, since finishing beats
+ * starting and a review already written is nearer finished than one not yet
+ * written — and a review applied to a branch that cannot merge has to be
+ * rebased afterwards anyway; among implementation tickets, ticket priority
+ * ascending — as `ticketPriorities` holds it by issue number, never a
+ * ticket's own priority label — with a ticket absent from it sorting after
+ * every ticket present; and, ties still standing, the oldest ticket — the
+ * lowest issue number — so the order the tracker happened to return them in
+ * never matters. Two tickets of the same non-implementation kind go straight
+ * to the oldest ticket: ticket priority orders implementation tickets only, a
+ * pull request ticket inherits its parent's as a sub-issue rather than a rank
+ * of its own, and a spec review ticket names no parent to inherit one from.
  */
 function bestTicket(
   backlog: Ticket[],
@@ -432,7 +433,8 @@ const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
   rebase: 0,
   "apply-review": 1,
   review: 2,
-  implementation: 3,
+  "spec-review": 3,
+  implementation: 4,
 };
 
 /** Ascending by each kind's `SELECTION_RANK`. */

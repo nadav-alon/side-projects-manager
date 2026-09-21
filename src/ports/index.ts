@@ -30,10 +30,12 @@ export {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SIZE_LABEL_PREFIX,
+  SPEC_REVIEW_LABEL,
   SUPERTASK_LABEL,
   TICKET_KINDS,
   backlogIn,
   carriesReadyForAgent,
+  carriesSpecReviewLabel,
   carriesSupertaskLabel,
   declaredSize,
   isApplyReviewTicket,
@@ -41,6 +43,7 @@ export {
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
+  isSpecReviewTicket,
   isSupertask,
   modelLabelOf,
   openRebaseTicketFor,
@@ -62,6 +65,7 @@ export type {
   RebaseTicket,
   ReviewTicket,
   SizeLabel,
+  SpecReviewTicket,
   Ticket,
   TicketKind,
 } from "./issue-tracker.ts";
@@ -178,6 +182,8 @@ export type {
   RunRequest,
   RunSandboxFailed,
   Sandbox,
+  SpecReviewOutcome,
+  SpecReviewRequest,
 } from "./sandbox.ts";
 export { isTicketGist, ticketGist } from "./ticket-gist.ts";
 export type { TicketGist } from "./ticket-gist.ts";

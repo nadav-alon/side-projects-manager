@@ -14,6 +14,9 @@ import type {
   RunOutcome,
   RunRequest,
   Sandbox,
+  SpecReviewOutcome,
+  SpecReviewRequest,
+  SpecReviewTicket,
   Ticket,
 } from "../ports/index.ts";
 import { branch, ticketKey, tokenCount } from "../ports/index.ts";
@@ -22,10 +25,11 @@ import { gate } from "./gate.ts";
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
  *
- * Tests arrange what a run, a review, an apply-review run or a rebase run
- * comes to through `result`, `reviewResult`, `applyReviewResult` and
- * `rebaseResult`, and inspect `runs`, `reviews`, `applyReviews` and `rebases`
- * to see which tickets the loop ran and against which checkouts. Whatever
+ * Tests arrange what a run, a review, an apply-review run, a rebase run or a
+ * spec review run comes to through `result`, `reviewResult`,
+ * `applyReviewResult`, `rebaseResult` and `specReviewResult`, and inspect
+ * `runs`, `reviews`, `applyReviews`, `rebases` and `specReviews` to see which
+ * tickets the loop ran and against which checkouts. Whatever
  * those return is what comes back, verbatim: this fake detects no refusal and
  * words none of its own, so a test after a limit refusal or a model refusal
  * writes the exact variant it wants.
@@ -68,6 +72,16 @@ export class FakeSandbox implements Sandbox {
 
   /** What the next rebase run comes to. A costless, finished one unless set. */
   rebaseResult: (ticket: RebaseTicket) => RebaseOutcome = () => ({
+    kind: "finished",
+    output: "",
+    tokensUsed: tokenCount(0),
+  });
+
+  /** Every spec review run asked for, in order. */
+  readonly specReviews: SpecReviewRequest[] = [];
+
+  /** What the next spec review run comes to. A costless, finished one unless set. */
+  specReviewResult: (ticket: SpecReviewTicket) => SpecReviewOutcome = () => ({
     kind: "finished",
     output: "",
     tokensUsed: tokenCount(0),
@@ -161,6 +175,19 @@ export class FakeSandbox implements Sandbox {
     this.rebases.push(request);
     return this.#inProgress(request.ticket, () =>
       this.rebaseResult(request.ticket),
+    );
+  }
+
+  specReview(
+    request: SpecReviewRequest & { model: ModelName },
+  ): Promise<SpecReviewOutcome>;
+  specReview(
+    request: SpecReviewRequest & { model?: undefined },
+  ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
+  async specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
+    this.specReviews.push(request);
+    return this.#inProgress(request.ticket, () =>
+      this.specReviewResult(request.ticket),
     );
   }
 

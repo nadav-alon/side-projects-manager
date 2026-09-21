@@ -5,6 +5,7 @@ import type {
   ApplyReviewTicket,
   RebaseTicket,
   ReviewTicket,
+  SpecReviewTicket,
   Ticket,
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
@@ -63,6 +64,16 @@ export interface ApplyReviewRequest {
    * where its GitHub remote is read. Never written to — the agent pushes to
    * the pull request's branch itself, so nothing comes back here.
    */
+  checkout: Checkout;
+  spendCeiling: Usd;
+  /** As `RunRequest.model`. */
+  model?: ModelName;
+}
+
+/** One spec review ticket, and the project checkout it is to be worked against. */
+export interface SpecReviewRequest {
+  ticket: SpecReviewTicket;
+  /** The project's managed clone, read from but never written to. */
   checkout: Checkout;
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
@@ -310,6 +321,15 @@ export type ApplyReviewOutcome =
   | ReviewModelRefused
   | ReviewProviderFailed;
 
+/**
+ * As `ReviewOutcome`, for a spec review run: no branch or commits on any
+ * variant, and no pull request either — a spec review is not bound to one.
+ * There is nowhere to post findings to, so `ReviewFinished.output` is what
+ * becomes the ticket's own hand-back comment instead of a pull request
+ * comment.
+ */
+export type SpecReviewOutcome = ReviewOutcome;
+
 /** A rebase run that ran to completion: a review's shape, named for what ran. */
 export type RebaseFinished = ReviewFinished;
 
@@ -382,6 +402,26 @@ export interface Sandbox {
   review(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
+
+  /**
+   * Runs a spec-reviewing agent against `request.ticket`, in a container with
+   * no write access to its clone, exactly as `review` sets one up: a fresh
+   * `docker run`, a separately scoped credential, and a clone mounted
+   * read-only. Unlike `review`, `request.ticket` names no pull request — the
+   * agent finds the supertask it reviews against for itself, as the parent
+   * issue the ticket is a sub-issue of — and there is nowhere for it to post
+   * its findings, so they travel back in the outcome's own output instead,
+   * for the caller to hand back as the ticket's comment.
+   *
+   * As `run`, a spec review naming no model can never come back refused for
+   * one.
+   */
+  specReview(
+    request: SpecReviewRequest & { model: ModelName },
+  ): Promise<SpecReviewOutcome>;
+  specReview(
+    request: SpecReviewRequest & { model?: undefined },
+  ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
 
   /**
    * Runs the `apply-pr-review` skill against `request.ticket.pullRequest`, on

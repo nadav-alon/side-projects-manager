@@ -20,6 +20,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
+  carriesSpecReviewLabel,
   carriesSupertaskLabel,
   isIssueNumber,
   isIssueUrl,
@@ -104,11 +105,17 @@ export function ghIssueTracker(
           const priority = priorityLabelIn(labels);
           const sizeLabel = sizeLabelOf(labels);
           const supertask = carriesSupertaskLabel(labels);
+          // Only meaningful where `pullRequest` is absent — `ticketKind`
+          // always prefers the pull request binding's own kind — but read
+          // unconditionally, the same way `supertask` is: the tracker
+          // reports the fact, and it is `ticketKind`'s job to weigh it.
+          const specReview = carriesSpecReviewLabel(labels);
           return {
             ticket: {
               repo,
               ...issue,
               ...(supertask && { supertask }),
+              ...(specReview && { specReview }),
               ...(openBlockers > 0 && { openBlockers }),
               ...(pullRequest !== undefined && { pullRequest }),
               ...(modelLabel !== undefined && { modelLabel }),

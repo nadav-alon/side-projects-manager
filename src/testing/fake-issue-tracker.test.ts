@@ -6,6 +6,7 @@ import {
   isApplyReviewTicket,
   isRebaseTicket,
   isReviewTicket,
+  isSpecReviewTicket,
   isSupertask,
   issueNumber,
   modelName,
@@ -182,6 +183,27 @@ describe("FakeIssueTracker", () => {
     const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
 
     assert.equal(isSupertask(backlog[0] as Ticket), true);
+  });
+
+  it("lists a spec review ticket carrying the spec review label", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(67),
+      title: "Review the loop spec",
+    });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(isSpecReviewTicket(backlog[0] as Ticket), true);
+  });
+
+  it("does not read an ordinary ticket as a spec review", async () => {
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, { number: issueNumber(68), title: "Add the thing" });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+
+    assert.equal(isSpecReviewTicket(backlog[0] as Ticket), false);
   });
 
   it("holds an apply-review ticket, bound to the pull request it names", async () => {

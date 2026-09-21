@@ -107,6 +107,7 @@ function ranWith(iteration: IterationOutcome | undefined) {
     iteration.kind === "reviewed" ||
     iteration.kind === "applied-review" ||
     iteration.kind === "rebased" ||
+    iteration.kind === "spec-reviewed" ||
     iteration.kind === "pull-request-resolved"
     ? undefined
     : iteration.run;
@@ -132,6 +133,15 @@ function postedAFinding(ports: FakePorts): void {
     path: "src/thing.ts",
     line: 3,
     body: "Missing a null check here.",
+  });
+}
+
+/** A spec review ticket, eligible like any other, naming no pull request. */
+function queuedSpecReview(ports: FakePorts, registration: Registration = {}): Ticket {
+  ports.store.register(PILOT, registration);
+  return ports.tracker.addSpecReviewTicket(PILOT, {
+    number: issueNumber(51),
+    title: "Review the loop spec",
   });
 }
 
@@ -2127,6 +2137,142 @@ describe("morningLoop", () => {
         body,
         new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
       );
+    });
+  });
+
+  describe("a spec review ticket, selected", () => {
+    it("runs a spec-reviewing agent rather than an implementing one", async (t) => {
+      const ports = fakePorts();
+      queuedSpecReview(ports);
+      const run = t.mock.method(ports.sandbox, "run");
+      const specReview = t.mock.method(ports.sandbox, "specReview");
+
+      await morningLoop(ports);
+
+      assert.equal(run.mock.callCount(), 0);
+      assert.equal(specReview.mock.callCount(), 1);
+    });
+
+    it("passes the spec review ticket and the project checkout to the sandbox", async () => {
+      const ports = fakePorts();
+      const ticket = queuedSpecReview(ports);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.specReviews, [
+        {
+          // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
+          // stored, before `specReview` is folded in from its label — the way
+          // `listOpenIssues` reads it back for selection.
+          ticket: { ...ticket, specReview: true },
+          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          spendCeiling: DEFAULT_BUDGET.spendCeiling,
+        },
+      ]);
+    });
+
+    it("hands the ticket back with its own findings as the comment, once it finishes", async () => {
+      const ports = fakePorts();
+      const ticket = queuedSpecReview(ports);
+      ports.sandbox.specReviewResult = () => ({
+        kind: "finished",
+        output: "the retry-policy sub-issue never landed the change the spec described",
+        tokensUsed: tokenCount(9_000),
+      });
+
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
+
+      const outcome = report.iterations[0];
+      assert.equal(outcome?.kind, "spec-reviewed");
+      assert.equal(
+        outcome?.kind === "spec-reviewed" ? outcome.handedBack.outcome : undefined,
+        "handed-back",
+      );
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.match(
+        handback?.comment ?? "",
+        /the retry-policy sub-issue never landed the change the spec described/,
+      );
+      assert.equal(
+        ports.tracker.carriesLabel(ticket, READY_FOR_HUMAN_LABEL),
+        true,
+      );
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("hands back a spec review whose agent gave up, rather than leaving it to come round again", async () => {
+      const ports = fakePorts();
+      const ticket = queuedSpecReview(ports);
+      ports.sandbox.specReviewResult = () => ({
+        kind: "gave-up",
+        output: "could not find a parent issue",
+        tokensUsed: tokenCount(1_000),
+        reason: "no supertask to review against",
+      });
+
+      const report = await morningLoop(ports);
+      const tomorrow = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "gave-up");
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
+      const [handback] = ports.tracker.handbacks;
+      assert.equal(handback?.ticket.number, ticket.number);
+      assert.equal(ports.sandbox.specReviews.length, 1);
+      assert.equal(tomorrow.outcome, "dry-queue");
+    });
+
+    it("records what a spec review run cost", async () => {
+      const ports = fakePorts();
+      queuedSpecReview(ports);
+      ports.sandbox.specReviewResult = () => ({
+        kind: "finished",
+        output: "no drift found",
+        tokensUsed: tokenCount(3_000),
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.projects.get(PILOT)?.runs, [
+        { at: FROZEN_NOW, tokensUsed: tokenCount(3_000) },
+      ]);
+    });
+
+    it("hands back a spec review the agent CLI refused the model for, rather than leaving it to come round again", async () => {
+      const ports = fakePorts();
+      const ticket = queuedSpecReview(ports);
+      ports.tracker.addLabel(ticket, "model:this-model-does-not-exist-xyz");
+      ports.sandbox.specReviewResult = () => ({
+        kind: "model-refused",
+        refusal: {
+          model: modelName("this-model-does-not-exist-xyz"),
+          words: "unrecognised model",
+        },
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "model-refused");
+      assert.equal(handedBackOf(report.iterations[0]), "handed-back");
+    });
+
+    it("leaves a spec review ticket untouched when the provider limit refuses it, standing the invocation down", async () => {
+      const ports = fakePorts();
+      queuedSpecReview(ports);
+      ports.sandbox.specReviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "limit-refused");
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(report.standDown?.reason, "provider-limit");
     });
   });
 
