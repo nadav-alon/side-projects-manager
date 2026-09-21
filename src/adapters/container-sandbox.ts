@@ -11,6 +11,8 @@ import type {
   Branch,
   Checkout,
   CommitSha,
+  Discovery,
+  DiscoveryDirectory,
   ModelName,
   ModelRefusal,
   PullRequestUrl,
@@ -38,8 +40,10 @@ import {
   branch,
   checkout,
   commitSha,
+  discoveryDirectory,
   isBranch,
   isCommitSha,
+  isDiscovery,
   isRemoteUrl,
   isTicketGist,
   milliseconds,
@@ -110,6 +114,21 @@ const TRANSCRIPT_MOUNT = "/home/node/.claude/projects";
 
 /** Where session transcripts are kept, as a directory under the manager home. */
 export const TRANSCRIPTS_DIRECTORY = "transcripts";
+
+/**
+ * Where the agent writes discoveries inside the container — see
+ * CONTEXT.md's "Discovery" and `promptFor`'s own instructions. `dockerCommand`
+ * mounts `RunOptions.discoveriesDirectory` here, writable whatever `Mount`
+ * the clone itself gets, so a review can file one exactly as a run can.
+ */
+const DISCOVERIES_MOUNT = "/discoveries";
+
+/**
+ * Where a run's own discoveries directory is made, as a directory under the
+ * manager home beside `TRANSCRIPTS_DIRECTORY`. Unlike a transcript, nothing
+ * keeps this once `attempt` has read it back — see `readDiscoveries`.
+ */
+export const DISCOVERIES_DIRECTORY = "discoveries";
 
 /**
  * How long a transcript directory is kept, from its last modification,
@@ -251,6 +270,16 @@ export interface AgentRun {
    * see `attempt`. Absent when nothing was found there.
    */
   transcript?: TranscriptPath;
+  /**
+   * What the agent filed under `RunOptions.discoveriesDirectory`, read back
+   * once the container has exited — see `attempt` and `readDiscoveries`. Set
+   * only by `attempt`, never by a `Container` implementation's own return,
+   * exactly as `transcript` is; always an array once set, empty when the
+   * agent filed none.
+   */
+  discoveries?: Discovery[];
+  /** How many files under `discoveriesDirectory` `readDiscoveries` dropped. Set only by `attempt`. */
+  discoveriesDropped?: number;
 }
 
 /**
@@ -305,6 +334,15 @@ export interface RunOptions {
    * in progress at once never write into the same one.
    */
   transcriptDirectory: TranscriptDirectory;
+  /**
+   * The host directory `dockerCommand` mounts at `DISCOVERIES_MOUNT`
+   * (`/discoveries`), writable whatever `mount` is — see CONTEXT.md's
+   * "Discovery". Made fresh per run by `attempt`, so two runs in progress at
+   * once never see each other's discoveries, and read back into the run's
+   * own outcome once the container has exited, rather than kept the way
+   * `transcriptDirectory` is.
+   */
+  discoveriesDirectory: DiscoveryDirectory;
   /**
    * Aborted once `attempt`'s own idle watchdog (`watchForStall`) decides the
    * run has stalled — `attempt` owns the timer and calls this, `dockerContainer`
@@ -364,13 +402,14 @@ export function containerSandbox(
   home: string = MANAGER_HOME,
 ): Sandbox {
   const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
+  const discoveriesRoot = path.join(home, DISCOVERIES_DIRECTORY);
 
   function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   function run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   function run(request: RunRequest): Promise<RunOutcome> {
-    return runOnClone(container, request, transcriptsRoot);
+    return runOnClone(container, request, transcriptsRoot, discoveriesRoot);
   }
 
   function review(
@@ -380,7 +419,7 @@ export function containerSandbox(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   function review(request: ReviewRequest): Promise<ReviewOutcome> {
-    return reviewOnClone(container, request, transcriptsRoot);
+    return reviewOnClone(container, request, transcriptsRoot, discoveriesRoot);
   }
 
   function applyReview(
@@ -392,7 +431,13 @@ export function containerSandbox(
   function applyReview(
     request: ApplyReviewRequest,
   ): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(container, pullRequestHead, request, transcriptsRoot);
+    return applyReviewOnClone(
+      container,
+      pullRequestHead,
+      request,
+      transcriptsRoot,
+      discoveriesRoot,
+    );
   }
 
   function rebase(
@@ -402,7 +447,13 @@ export function containerSandbox(
     request: RebaseRequest & { model?: undefined },
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   function rebase(request: RebaseRequest): Promise<RebaseOutcome> {
-    return rebaseOnClone(container, pullRequestHead, request, transcriptsRoot);
+    return rebaseOnClone(
+      container,
+      pullRequestHead,
+      request,
+      transcriptsRoot,
+      discoveriesRoot,
+    );
   }
 
   function specReview(
@@ -412,7 +463,7 @@ export function containerSandbox(
     request: SpecReviewRequest & { model?: undefined },
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
   function specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
-    return specReviewOnClone(container, request, transcriptsRoot);
+    return specReviewOnClone(container, request, transcriptsRoot, discoveriesRoot);
   }
 
   return { run, review, applyReview, rebase, specReview };
@@ -456,6 +507,7 @@ async function runOnClone(
   container: Container,
   request: RunRequest,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -539,6 +591,7 @@ async function runOnClone(
         },
         model,
         transcriptsRoot,
+        discoveriesRoot,
       );
 
       // Set once the branch has actually reached the checkout, so a failure
@@ -592,7 +645,7 @@ async function runOnClone(
         // afterwards — reported rather than thrown, so that spend is not lost
         // to a rejection the way it would be before the agent ever started.
         // Its transcript is just as real, and named the same way.
-        return withTranscriptField(
+        return withAgentFields(
           {
             kind: "sandbox-failed",
             reason: errorMessage(error),
@@ -651,7 +704,8 @@ async function runOnClone(
  * that directory — and only that directory, never the durable root above it
  * — is removed before the error is rethrown rather than left behind empty; a
  * directory `findTranscript` was never even asked to look in, since the
- * caller only ever sees the thrown error.
+ * caller only ever sees the thrown error. Its discoveries directory is
+ * removed the same way, for the same reason.
  *
  * This is also where a stalled run is caught: `watchForStall` watches
  * `transcriptDir` for growth and aborts a `signal` of its own once none has
@@ -665,13 +719,26 @@ async function runOnClone(
  * `crashed`: the provider answered and then went quiet, which is the
  * provider's problem exactly as any other silence is — see CONTEXT.md's
  * "Provider failure".
+ *
+ * The discoveries directory (`DISCOVERIES_DIRECTORY`) is made fresh the same
+ * way, mounted at `DISCOVERIES_MOUNT`, and read back with `readDiscoveries`
+ * once the agent has run — whatever became of it, since a discovery filed
+ * before a gave-up or cut-off run stopped is still true (see CONTEXT.md's
+ * "Discovery"). Unlike the transcript directory, nothing keeps it once it has
+ * been read: it carries nothing a developer needs to read back off disk, so
+ * it is removed in `finally` rather than left for a retention period to
+ * catch up with.
  */
 async function attempt(
   container: Container,
   kind: RunKind,
-  options: Omit<RunOptions, "model" | "transcriptDirectory" | "signal">,
+  options: Omit<
+    RunOptions,
+    "model" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
+  >,
   model: ModelName | undefined,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<AgentRun> {
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
@@ -679,29 +746,46 @@ async function attempt(
       path.join(transcriptsRoot, `${kind}-`),
     ),
   );
+  await mkdir(discoveriesRoot, { recursive: true });
+  const discoveriesDir = discoveryDirectory(
+    await mkdtemp(path.join(discoveriesRoot, `${kind}-`)),
+  );
   const controller = new AbortController();
   const watch = watchForStall(transcriptDir, controller);
   try {
     const agent = await container({
       ...options,
       transcriptDirectory: transcriptDir,
+      discoveriesDirectory: discoveriesDir,
       signal: controller.signal,
       ...(model === undefined ? {} : { model }),
     });
-    return withTranscript(agent, await findTranscript(transcriptDir));
+    return finishAgentRun(
+      agent,
+      await findTranscript(transcriptDir),
+      await readDiscoveries(discoveriesDir),
+    );
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
       await removeOrWarn(transcriptDir);
       throw error;
     }
+    const found = await readDiscoveries(discoveriesDir);
     if (controller.signal.aborted) {
       const words = stallWords(watch.wroteTranscript());
-      return failedRun(error, transcriptDir, { failure: words, providerFailure: words });
+      return failedRun(error, transcriptDir, found, {
+        failure: words,
+        providerFailure: words,
+      });
     }
-    return failedRun(error, transcriptDir, { failure: errorMessage(error), crashed: true });
+    return failedRun(error, transcriptDir, found, {
+      failure: errorMessage(error),
+      crashed: true,
+    });
   } finally {
     controller.abort();
     await watch.stopped;
+    await removeOrWarn(discoveriesDir);
   }
 }
 
@@ -714,11 +798,13 @@ async function attempt(
 async function failedRun(
   error: unknown,
   transcriptDir: TranscriptDirectory,
+  found: DiscoveriesFound,
   extra: { failure: string; providerFailure: string } | { failure: string; crashed: true },
 ): Promise<AgentRun> {
-  return withTranscript(
+  return finishAgentRun(
     { output: errorMessage(error), tokensUsed: tokenCount(0), ...extra },
     await findTranscript(transcriptDir),
+    found,
   );
 }
 
@@ -744,27 +830,56 @@ function stallWords(wroteTranscript: boolean): string {
     : `the run stalled: its transcript never appeared in the first ${minutes} minutes — check that the container is writing to it at all`;
 }
 
-/** `agent`, with `transcript` set from `found` when there is one to set. */
-function withTranscript(
-  agent: AgentRun,
-  found: TranscriptPath | undefined,
-): AgentRun {
-  return found === undefined ? agent : { ...agent, transcript: found };
+/** What `readDiscoveries` found under a run's discoveries directory. */
+interface DiscoveriesFound {
+  discoveries: Discovery[];
+  dropped: number;
 }
 
 /**
- * `fields`, with `transcript` added from `agent` when it found one — the one
- * spread every outcome-building function in this file repeats, so a field
- * that only ever rides alongside `agent.transcript` is written once here
- * rather than copied out at each call site.
+ * `agent`, with `transcript` set from `transcript` when there is one, and
+ * `discoveries`/`discoveriesDropped` set from `found` — the one place a raw
+ * `AgentRun` a `Container` returned becomes the one this file's
+ * outcome-building functions read.
  */
-function withTranscriptField<T extends object>(
+function finishAgentRun(
+  agent: AgentRun,
+  transcript: TranscriptPath | undefined,
+  found: DiscoveriesFound,
+): AgentRun {
+  return {
+    ...agent,
+    ...(transcript === undefined ? {} : { transcript }),
+    discoveries: found.discoveries,
+    discoveriesDropped: found.dropped,
+  };
+}
+
+/**
+ * `fields`, with `transcript`, `discoveries` and `discoveriesDropped` added
+ * from `agent` — the one spread every outcome-building function in this file
+ * repeats, so what only ever rides alongside `agent`'s own bookkeeping is
+ * written once here rather than copied out at each call site. `transcript`
+ * only added when `agent` found one; `discoveries` and `discoveriesDropped`
+ * always added, `finishAgentRun` having already set them on every `agent`
+ * this is ever called with.
+ */
+function withAgentFields<T extends object>(
   fields: T,
   agent: AgentRun,
-): T & { transcript?: TranscriptPath } {
-  return agent.transcript === undefined
-    ? fields
-    : { ...fields, transcript: agent.transcript };
+): T & {
+  transcript?: TranscriptPath;
+  discoveries?: Discovery[];
+  discoveriesDropped?: number;
+} {
+  return {
+    ...fields,
+    ...(agent.discoveries === undefined ? {} : { discoveries: agent.discoveries }),
+    ...(agent.discoveriesDropped === undefined
+      ? {}
+      : { discoveriesDropped: agent.discoveriesDropped }),
+    ...(agent.transcript === undefined ? {} : { transcript: agent.transcript }),
+  };
 }
 
 /**
@@ -791,6 +906,49 @@ async function findTranscript(
     }
   }
   return undefined;
+}
+
+/**
+ * The discoveries written under `directory`, in the order they were written,
+ * and how many files there did not parse as one — see `Discovery` and
+ * `isDiscovery`, and CONTEXT.md's "Discovery". A file that is not valid
+ * JSON, or whose shape `isDiscovery` refuses, is dropped and counted rather
+ * than failing the run.
+ *
+ * Ordered by each file's own modification time: the only signal that says
+ * when the agent wrote it, since nothing here controls what it names the
+ * file — the same one `watchForStall` already reads a transcript by. A file
+ * this cannot `stat` sorts as though it were written at the very start,
+ * rather than dropping it from the count.
+ */
+async function readDiscoveries(
+  directory: DiscoveryDirectory,
+): Promise<DiscoveriesFound> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    () => [],
+  );
+  const files = entries.filter((entry) => entry.isFile());
+  const withMtime = await Promise.all(
+    files.map(async (entry) => {
+      const filePath = path.join(directory, entry.name);
+      const stats = await stat(filePath).catch(() => undefined);
+      return { filePath, mtimeMs: stats?.mtimeMs ?? 0 };
+    }),
+  );
+  withMtime.sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  const discoveries: Discovery[] = [];
+  let dropped = 0;
+  for (const { filePath } of withMtime) {
+    const contents = await readFile(filePath, "utf8").catch(() => undefined);
+    const parsed = contents === undefined ? undefined : parse(contents);
+    if (isDiscovery(parsed)) {
+      discoveries.push({ kind: parsed.kind, title: parsed.title, body: parsed.body });
+    } else {
+      dropped++;
+    }
+  }
+  return { discoveries, dropped };
 }
 
 /**
@@ -1073,7 +1231,7 @@ function runOutcomeOf(
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
-  return withTranscriptField(
+  return withAgentFields(
     {
       ...ending,
       ...(gist !== undefined && { gist }),
@@ -1090,7 +1248,7 @@ function reviewOutcomeOf(
   agent: AgentRun,
   model: ModelName | undefined,
 ): ReviewOutcome {
-  return withTranscriptField(
+  return withAgentFields(
     { ...endingOf(agent, model), tokensUsed: agent.tokensUsed },
     agent,
   );
@@ -1112,6 +1270,7 @@ async function reviewOnReadOnlyClone(
   request: ReviewRequest | SpecReviewRequest,
   prompt: string,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<ReviewOutcome> {
   const { checkout: project, spendCeiling, model } = request;
 
@@ -1125,6 +1284,7 @@ async function reviewOnReadOnlyClone(
       { directory: clone, prompt, spendCeiling, mount: "ro" },
       model,
       transcriptsRoot,
+      discoveriesRoot,
     );
 
     return reviewOutcomeOf(agent, model);
@@ -1135,6 +1295,7 @@ async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<ReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
@@ -1142,6 +1303,7 @@ async function reviewOnClone(
     request,
     reviewPromptFor(request.ticket),
     transcriptsRoot,
+    discoveriesRoot,
   );
 }
 
@@ -1149,6 +1311,7 @@ async function specReviewOnClone(
   container: Container,
   request: SpecReviewRequest,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<SpecReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
@@ -1156,6 +1319,7 @@ async function specReviewOnClone(
     request,
     specReviewPromptFor(request.ticket),
     transcriptsRoot,
+    discoveriesRoot,
   );
 }
 
@@ -1300,6 +1464,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
   promptFor: (ticket: T) => string,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
@@ -1313,6 +1478,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
       model,
       transcriptsRoot,
+      discoveriesRoot,
     );
 
     return pushRejectedOutcomeOf(agent, model);
@@ -1324,6 +1490,7 @@ async function applyReviewOnClone(
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<ApplyReviewOutcome> {
   return pushingRunOnClone(
     "apply-review",
@@ -1332,6 +1499,7 @@ async function applyReviewOnClone(
     request,
     applyReviewPromptFor,
     transcriptsRoot,
+    discoveriesRoot,
   );
 }
 
@@ -1340,6 +1508,7 @@ async function rebaseOnClone(
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
   transcriptsRoot: string,
+  discoveriesRoot: string,
 ): Promise<RebaseOutcome> {
   return pushingRunOnClone(
     "rebase",
@@ -1348,6 +1517,7 @@ async function rebaseOnClone(
     request,
     rebasePromptFor,
     transcriptsRoot,
+    discoveriesRoot,
   );
 }
 
@@ -1384,7 +1554,7 @@ function pushRejectedOutcomeOf(
   ) {
     // Only a full hash is carried: an abbreviation cannot be compared with
     // the head the repo host reports. The push was rejected all the same.
-    return withTranscriptField(
+    return withAgentFields(
       {
         kind: "gave-up",
         output: agent.output,
@@ -1395,7 +1565,7 @@ function pushRejectedOutcomeOf(
       agent,
     );
   }
-  return withTranscriptField({ ...ending, tokensUsed: agent.tokensUsed }, agent);
+  return withAgentFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
 }
 
 /**
@@ -2086,6 +2256,7 @@ function dockerCommand(
     mount,
     model,
     transcriptDirectory,
+    discoveriesDirectory,
   }: RunOptions,
   cidFile: string,
 ): string[] {
@@ -2118,6 +2289,10 @@ function dockerCommand(
     // clone, so a reviewer's read-only mount says nothing about it.
     "--volume",
     `${transcriptDirectory}:${TRANSCRIPT_MOUNT}`,
+    // Always writable too, for the same reason: a review files a discovery
+    // exactly as a run does, even though its clone is read-only.
+    "--volume",
+    `${discoveriesDirectory}:${DISCOVERIES_MOUNT}`,
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "--env",
