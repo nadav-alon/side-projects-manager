@@ -1068,14 +1068,24 @@ function openPullRequestsFrom(
  * those shaped like a {@link PullRequestLabel} — GitHub's label rules are
  * looser than the ones this repo's own labelling verbs enforce, and a name
  * this repo could never itself apply is left out rather than reported.
+ *
+ * A missing or non-string `name` is not that: it is `gh` answering outside
+ * its declared shape, so it throws the way the rest of a malformed entry does
+ * (see {@link openPullRequestsFrom}), rather than being silently filtered out
+ * alongside a genuine label this repo just can't apply.
  */
 function labelsIn(value: unknown, at: string): PullRequestLabel[] {
   if (!Array.isArray(value)) {
     throw new Error(`${at}: "labels" must be an array.`);
   }
   return value.flatMap((label) => {
-    const name = objectAt(label, at).name;
-    return typeof name === "string" && isPullRequestLabel(name) ? [name] : [];
+    const name = expectField(
+      objectAt(label, at).name,
+      "string",
+      "labels.name",
+      at,
+    );
+    return isPullRequestLabel(name) ? [name] : [];
   });
 }
 

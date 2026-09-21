@@ -1706,4 +1706,16 @@ describe("listing a repo's open pull requests", () => {
       /pull request 1.*"url" must be a string/,
     );
   });
+
+  it("throws naming the malformed entry when a label's name is missing or not a string", async (t) => {
+    await recordingGh(
+      t,
+      `echo '[{"url": "${OPENED}", "body": "Closes #12.", "labels": [{"id": 1}]}]'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().listOpenPullRequests(PILOT),
+      /pull request 1.*"labels\.name" must be a string/,
+    );
+  });
 });
