@@ -351,6 +351,10 @@ export class FakeRepoHost implements RepoHost {
     );
   }
 
+  async readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus> {
+    return this.mergeStatus(pullRequest);
+  }
+
   async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
     this.#needsRebaseLabelled.delete(pullRequest);
   }

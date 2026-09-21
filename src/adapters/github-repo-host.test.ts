@@ -1482,6 +1482,50 @@ describe("whether a pull request's branch needs a rebase", () => {
   });
 });
 
+describe("reading a pull request's mergeability once", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("reads a conflicting pull request", async (t) => {
+    await recordingGh(t, "echo CONFLICTING");
+
+    assert.equal(
+      await githubRepoHost().readMergeStatus(PULL_REQUEST),
+      "conflicting",
+    );
+  });
+
+  it("reads a clean pull request", async (t) => {
+    await recordingGh(t, "echo MERGEABLE");
+
+    assert.equal(await githubRepoHost().readMergeStatus(PULL_REQUEST), "clean");
+  });
+
+  it("returns unknown as-is, with a single read and no retry", async (t) => {
+    const gh = await recordingGh(t, "echo UNKNOWN");
+
+    assert.equal(
+      await githubRepoHost().readMergeStatus(PULL_REQUEST),
+      "unknown",
+    );
+    assert.equal((await gh.calls()).length, 1);
+  });
+
+  it("asks about the pull request named by its own URL, never gh pr list", async (t) => {
+    const gh = await recordingGh(t, "echo MERGEABLE");
+
+    await githubRepoHost().readMergeStatus(PULL_REQUEST);
+
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call.slice(0, 2)),
+      [["pr", "view"]],
+    );
+    assert.ok(calls[0]?.includes(PULL_REQUEST));
+  });
+});
+
 describe("removing needs-rebase from a pull request", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",

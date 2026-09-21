@@ -435,6 +435,10 @@ export function githubRepoHost(
       );
     },
 
+    async readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus> {
+      return mergeStatusOf(pullRequest);
+    },
+
     async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
       // Checked first, so a pull request that never carried the label — one
       // opened before the workflow labelled it, or in a project whose

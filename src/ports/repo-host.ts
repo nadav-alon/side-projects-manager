@@ -521,6 +521,19 @@ export interface RepoHost {
    */
   needsRebase(pullRequest: PullRequestUrl): Promise<boolean>;
   /**
+   * Reads `pullRequest`'s mergeability once: no retry, no wait, and
+   * `"unknown"` is returned exactly as read, never thrown.
+   *
+   * What the conflict sweep asks with, once per pull request, before every
+   * selection (CONTEXT.md's "Conflict sweep", ADR 0007) — unlike
+   * `needsRebase`, whose {@link resolveNeedsRebase} retries an unsettled read
+   * until it gives up. Retrying every open pull request of every project
+   * before every selection would stall selection itself; a pull request left
+   * `"unknown"` here is simply left for the next sweep, whose read is what
+   * GitHub's own lazy computation was already working toward.
+   */
+  readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus>;
+  /**
    * Removes {@link NEEDS_REBASE_LABEL} from `pullRequest`, once a rebase
    * ticket closes because it no longer needs one.
    *

@@ -117,6 +117,33 @@ describe("FakeRepoHost needsRebase", () => {
   });
 });
 
+describe("FakeRepoHost readMergeStatus", () => {
+  it("answers clean by default", async () => {
+    const host = new FakeRepoHost();
+
+    assert.equal(await host.readMergeStatus(PULL_REQUEST), "clean");
+  });
+
+  it("answers with what mergeStatus is scripted to say", async () => {
+    const host = new FakeRepoHost();
+    host.mergeStatus = () => "conflicting";
+
+    assert.equal(await host.readMergeStatus(PULL_REQUEST), "conflicting");
+  });
+
+  it("returns unknown as-is, without retrying", async () => {
+    const host = new FakeRepoHost();
+    let calls = 0;
+    host.mergeStatus = () => {
+      calls++;
+      return "unknown";
+    };
+
+    assert.equal(await host.readMergeStatus(PULL_REQUEST), "unknown");
+    assert.equal(calls, 1);
+  });
+});
+
 describe("FakeRepoHost needs-rebase label", () => {
   it("does not carry the label by default", () => {
     const host = new FakeRepoHost();
