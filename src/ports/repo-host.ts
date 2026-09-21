@@ -1,5 +1,6 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
+import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
 import type { PullRequestLabel } from "./pull-request-label.ts";
@@ -197,6 +198,37 @@ export type PullRequestState = "open" | "merged" | "closed";
  * `Exclude` spelled out anew at each site that needs it.
  */
 export type PullRequestResolution = Exclude<PullRequestState, "open">;
+
+/**
+ * GitHub's nine closing keywords — `close(s|d)`, `fix(es|ed)`, `resolve(s|d)`
+ * — case-insensitive, starting at a word boundary, with an optional colon
+ * before the `#`. The ERE subset `.github/workflows/rebase.yml` matches in
+ * shell (`CLOSING_KEYWORD`), translated to a `RegExp` so both copies read the
+ * same set of bodies the same way. `[ \t]` rather than `\s`, so a keyword on
+ * one line can never pair with a `#N` on the next: `rebase.yml`'s `grep`
+ * processes a body one line at a time and can't either.
+ */
+const CLOSING_KEYWORD =
+  /(?:^|[^A-Za-z0-9_])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[ \t]*:?[ \t]*#(\d+)/i;
+
+/**
+ * The ticket `body` closes: the number from the first `Closes`, `Fixes` or
+ * `Resolves` — any of GitHub's nine closing keywords, see
+ * {@link CLOSING_KEYWORD} — or undefined when `body` names none.
+ *
+ * What {@link RepoHost.listOpenPullRequests} reads a pull request's closed
+ * ticket with, the same way `.github/workflows/rebase.yml` reads it in
+ * shell, so a sweep built on the former never picks a pull request the
+ * latter would refuse.
+ */
+export function closedTicketIn(body: string): IssueNumber | undefined {
+  const match = CLOSING_KEYWORD.exec(body);
+  if (match === null) {
+    return undefined;
+  }
+  const number = Number(match[1]);
+  return isIssueNumber(number) ? number : undefined;
+}
 
 /**
  * How many times total {@link resolveNeedsRebase} calls `read` — the first

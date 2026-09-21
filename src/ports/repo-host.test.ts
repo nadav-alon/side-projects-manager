@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   APPLIED_REPLY_PREFIX,
   APPLY_REVIEW_MARKER,
+  closedTicketIn,
   DECLINED_REPLY_PREFIX,
   MergeabilityUnknown,
   REBASE_STATUS_ATTEMPTS,
@@ -16,6 +17,7 @@ import {
   type ApplyReviewThread,
   type MergeStatus,
 } from "./repo-host.ts";
+import { issueNumber } from "./issue-number.ts";
 import type { Milliseconds } from "./milliseconds.ts";
 import { pullRequestUrl } from "./pull-request-url.ts";
 
@@ -214,5 +216,69 @@ describe("reviewFindingTemplate", () => {
 
   it("names exactly the fields REVIEW_FINDING_FIELDS declares", () => {
     assert.deepEqual(REVIEW_FINDING_FIELDS, ["path", "line", "body"]);
+  });
+});
+
+describe("closedTicketIn", () => {
+  it("reads Closes #12", () => {
+    assert.equal(closedTicketIn("Closes #12"), issueNumber(12));
+  });
+
+  it("reads fixes: #12, with its optional colon", () => {
+    assert.equal(closedTicketIn("fixes: #12"), issueNumber(12));
+  });
+
+  it("reads RESOLVED #12, case-insensitively", () => {
+    assert.equal(closedTicketIn("RESOLVED #12"), issueNumber(12));
+  });
+
+  it("does not read #12 alone, with no closing keyword", () => {
+    assert.equal(closedTicketIn("#12"), undefined);
+  });
+
+  it("does not read preclose #12, whose keyword doesn't start at a word boundary", () => {
+    assert.equal(closedTicketIn("preclose #12"), undefined);
+  });
+
+  it("reads the first match when a body names more than one", () => {
+    assert.equal(
+      closedTicketIn("Closes #12. Also fixes #34."),
+      issueNumber(12),
+    );
+  });
+
+  it("reads a keyword in the middle of a longer body", () => {
+    assert.equal(
+      closedTicketIn("Some context first.\n\nCloses #7.\n\nMore text."),
+      issueNumber(7),
+    );
+  });
+
+  it("does not pair a keyword on one line with a # on the next", () => {
+    assert.equal(closedTicketIn("Closes\n#12"), undefined);
+  });
+
+  it("reads every one of GitHub's nine closing keywords", () => {
+    for (const keyword of [
+      "close",
+      "closes",
+      "closed",
+      "fix",
+      "fixes",
+      "fixed",
+      "resolve",
+      "resolves",
+      "resolved",
+    ]) {
+      assert.equal(
+        closedTicketIn(`${keyword} #5`),
+        issueNumber(5),
+        `expected "${keyword} #5" to close #5`,
+      );
+    }
+  });
+
+  it("finds nothing in a body naming no closing keyword", () => {
+    assert.equal(closedTicketIn("Just some notes, no ticket here."), undefined);
   });
 });

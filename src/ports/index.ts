@@ -117,6 +117,7 @@ export {
   APPLIED_REPLY_PREFIX,
   APPLY_REVIEW_COMMENT,
   APPLY_REVIEW_MARKER,
+  closedTicketIn,
   DECLINED_REPLY_PREFIX,
   isMarkedReply,
   MergeabilityUnknown,
