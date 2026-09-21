@@ -131,6 +131,7 @@ describe("conflictSweep", () => {
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
     ]);
+    host.labelNeedsRebase(PULL_REQUEST);
     host.mergeStatus = () => "clean";
 
     const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
@@ -147,6 +148,7 @@ describe("conflictSweep", () => {
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
     ]);
+    host.labelNeedsRebase(PULL_REQUEST);
     host.mergeStatus = () => "clean";
     const tracker = new FakeIssueTracker();
     tracker.addEligibleTicket(PILOT, {
