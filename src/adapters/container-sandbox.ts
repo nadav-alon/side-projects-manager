@@ -65,6 +65,20 @@ import { IMAGE } from "./sandbox-image.ts";
 const run = promisify(execFile);
 
 /**
+ * Removes `directory` and everything in it; a failure — permissions, a file
+ * still open inside it — is warned about on stderr and otherwise ignored,
+ * rather than losing a result the caller already has to a cleanup step that
+ * doesn't matter as much as what it's cleaning up after.
+ */
+async function removeOrWarn(directory: string): Promise<void> {
+  await rm(directory, { recursive: true, force: true }).catch(
+    (error: unknown) => {
+      console.warn(`Left ${directory} behind: ${errorMessage(error)}`);
+    },
+  );
+}
+
+/**
  * How much of the agent's output to hold in memory. A full implementation run
  * says far more than `execFile`'s 1 MB default allows, and overflowing it
  * kills the container mid-run.
@@ -154,11 +168,7 @@ export async function pruneOldTranscripts(
     if (stats === undefined || stats.mtimeMs >= cutoffMs) {
       continue;
     }
-    await rm(directory, { recursive: true, force: true }).catch(
-      (error: unknown) => {
-        console.warn(`Left ${directory} behind: ${errorMessage(error)}`);
-      },
-    );
+    await removeOrWarn(directory);
   }
 }
 
@@ -379,11 +389,7 @@ async function withThrowawayClone<T>(
   try {
     return await body(clone);
   } finally {
-    await rm(clone, { recursive: true, force: true }).catch(
-      (error: unknown) => {
-        console.warn(`Left ${clone} behind: ${errorMessage(error)}`);
-      },
-    );
+    await removeOrWarn(clone);
   }
 }
 
@@ -610,13 +616,7 @@ async function attempt(
     return withTranscript(agent, await findTranscript(transcriptDir));
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
-      await rm(transcriptDir, { recursive: true, force: true }).catch(
-        (cleanupError: unknown) => {
-          console.warn(
-            `Left ${transcriptDir} behind: ${errorMessage(cleanupError)}`,
-          );
-        },
-      );
+      await removeOrWarn(transcriptDir);
       throw error;
     }
     return withTranscript(
