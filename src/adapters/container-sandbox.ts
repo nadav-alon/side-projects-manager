@@ -491,26 +491,28 @@ async function runOnClone(
  * to lose, and reporting it as a run would post "the agent gave up" on a ticket
  * nobody ever worked — so it goes to the caller as the sandbox failing.
  *
- * A fresh directory is made for every attempt under `<home>/transcripts/`,
- * named for `kind` so one left behind says which sort of run wrote it, and
- * handed to `container` as `transcriptDirectory` for `dockerCommand` to mount
- * — see `TRANSCRIPT_MOUNT`. `<home>/transcripts/` rather than the system temp
- * directory: a container that gave up survives only in its transcript, and a
- * temp directory is not durable — WSL and many Linux setups clear `/tmp` on
- * restart, so a transcript kept there can be gone by the time anyone reads
- * the hand-back. Never deleted once the agent has actually run, unlike the
- * throwaway clone: the whole point is a transcript that survives the
- * container `--rm` deletes it with. Whatever the container did, the
- * directory is searched for the `.jsonl` the agent CLI left in it, and the
- * result carries that path whichever way it ends — a container that throws
- * after the agent has already run left one exactly as one that returns
- * cleanly did.
+ * `<home>/transcripts/` is a durable fixture, made (idempotently, via
+ * `mkdir`'s `recursive`) the first time any attempt needs it and never
+ * removed by this function again: it is kept under the manager home, which
+ * survives a restart, unlike `/tmp`, which WSL and many Linux setups clear —
+ * a container that gave up survives only in its transcript. A fresh
+ * directory is made inside it for every attempt, named for `kind` so one
+ * left behind says which sort of run wrote it, and handed to `container` as
+ * `transcriptDirectory` for `dockerCommand` to mount — see
+ * `TRANSCRIPT_MOUNT`. That attempt directory is never deleted once the agent
+ * has actually run, unlike the throwaway clone: the whole point is a
+ * transcript that survives the container `--rm` deletes it with. Whatever
+ * the container did, the directory is searched for the `.jsonl` the agent
+ * CLI left in it, and the result carries that path whichever way it ends —
+ * a container that throws after the agent has already run left one exactly
+ * as one that returns cleanly did.
  *
  * A container that never reached the CLI (`AgentNeverRan`) is the one
- * exception: nothing was ever written into the directory, so it is removed
- * before the error is rethrown rather than left behind empty — a directory
- * `findTranscript` was never even asked to look in, since the caller only
- * ever sees the thrown error.
+ * exception: nothing was ever written into the attempt's own directory, so
+ * that directory — and only that directory, never the durable root above it
+ * — is removed before the error is rethrown rather than left behind empty; a
+ * directory `findTranscript` was never even asked to look in, since the
+ * caller only ever sees the thrown error.
  */
 async function attempt(
   container: Container,
