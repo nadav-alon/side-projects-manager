@@ -417,6 +417,11 @@ export async function morningLoop(
         ) {
           await Promise.race(inProgress.keys());
         }
+        // A stop caught here, before the first `next`, means the invocation
+        // sweeps nothing this run: a stop is a developer asking the loop to
+        // do nothing further, and a conflict sweep — unlike the budget gate —
+        // is one of the things it would otherwise do, its zero agent cost
+        // notwithstanding.
         if (stopped()) {
           break;
         }
