@@ -7,27 +7,13 @@ import type {
   RepoSlug,
 } from "./ports/index.ts";
 import {
-  isRebaseTicket,
   NEEDS_REBASE_LABEL,
+  openRebaseTicketFor,
   pullRequestLabel,
   REBASE_COMMENT,
 } from "./ports/index.ts";
 
 const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
-
-/**
- * Whether an open issue in `openIssues` is a rebase ticket bound to
- * `pullRequest`, whatever that issue's own labels — a rebase ticket handed
- * back to the developer still counts, per `CONTEXT.md`'s "Conflict sweep".
- */
-function hasOpenRebaseTicketFor(
-  openIssues: OpenIssues,
-  pullRequest: PullRequestUrl,
-): boolean {
-  return openIssues.issues.some(
-    ({ ticket }) => isRebaseTicket(ticket) && ticket.pullRequest.url === pullRequest,
-  );
-}
 
 /**
  * The one thing each candidate pull request of a sweep does: reading its
@@ -166,7 +152,7 @@ export async function conflictSweep(
       }
     }
 
-    if (turbo && !hasOpenRebaseTicketFor(openIssues, pullRequest.url)) {
+    if (turbo && !openRebaseTicketFor(openIssues, pullRequest.url)) {
       try {
         await repoHost.postComment(pullRequest.url, REBASE_COMMENT);
         changes.push({ pullRequest: pullRequest.url, action: "commented" });

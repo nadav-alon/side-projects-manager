@@ -43,6 +43,7 @@ export {
   isReviewTicket,
   isSupertask,
   modelLabelOf,
+  openRebaseTicketFor,
   reviewTitle,
   sizeLabelOf,
   ticketKind,
