@@ -21,15 +21,17 @@ export type ConflictSweepAction = "list" | "read" | "label" | "unlabel" | "comme
 
 /**
  * One refusal a sweep met: which {@link ConflictSweepAction} it was trying,
- * and the error the repo host gave. `pullRequest` is absent only for a
+ * and the error the repo host gave. `pullRequest` names none only for a
  * refused `"list"`, which names no pull request to refuse on — the listing
  * itself is what was refused.
  */
-export interface ConflictSweepRefusal {
-  action: ConflictSweepAction;
-  error: string;
-  pullRequest?: PullRequestUrl;
-}
+export type ConflictSweepRefusal =
+  | { action: "list"; error: string }
+  | {
+      action: Exclude<ConflictSweepAction, "list">;
+      pullRequest: PullRequestUrl;
+      error: string;
+    };
 
 /** One change a sweep made to a pull request. */
 export interface ConflictSweepChange {
