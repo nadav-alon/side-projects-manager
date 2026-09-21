@@ -6,11 +6,14 @@ import {
   MODEL_LABEL_PREFIX,
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
+  SUPERTASK_LABEL,
   carriesReadyForAgent,
+  carriesSupertaskLabel,
   isApplyReviewTicket,
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
+  isSupertask,
   modelLabelOf,
   sizeLabelOf,
   ticketKind,
@@ -156,6 +159,31 @@ describe("carriesReadyForAgent", () => {
   it("finds nothing in labels without it", () => {
     assert.equal(carriesReadyForAgent(["ready-for-human", "ready"]), false);
     assert.equal(carriesReadyForAgent([]), false);
+  });
+});
+
+describe("carriesSupertaskLabel", () => {
+  it("finds the supertask label among other labels, whatever its case", () => {
+    assert.equal(carriesSupertaskLabel(["bug", SUPERTASK_LABEL]), true);
+    assert.equal(carriesSupertaskLabel(["Supertask"]), true);
+  });
+
+  it("finds nothing in labels without it", () => {
+    assert.equal(carriesSupertaskLabel(["ready-for-agent", "super"]), false);
+    assert.equal(carriesSupertaskLabel([]), false);
+  });
+});
+
+describe("isSupertask", () => {
+  it("reads true only when the ticket carries the supertask fact", () => {
+    assert.equal(
+      isSupertask({ repo: PILOT, number: issueNumber(1), title: "x", supertask: true }),
+      true,
+    );
+    assert.equal(
+      isSupertask({ repo: PILOT, number: issueNumber(2), title: "y" }),
+      false,
+    );
   });
 });
 
