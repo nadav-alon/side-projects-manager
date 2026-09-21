@@ -1569,7 +1569,13 @@ async function runReview(
   model: ResolvedModel | undefined,
   turbo: boolean,
 ): Promise<
-  Reviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+  | Reviewed
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | PullRequestResolved
+  | DiscoveryBlocked
 > {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
@@ -1604,8 +1610,16 @@ async function runReview(
     return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
   }
 
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the found-nothing-posted path
+  // below, per CONTEXT.md's "Discovery" and "Hand back".
+  const routed = await routeRunDiscoveries(ports.tracker, ticket, review.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+    return discoveryBlockedOutcome(ports, ticket, routed, review.tokensUsed, review.transcript);
+  }
+
   if (review.kind === "gave-up") {
-    return handReviewBack(ports, ticket, review, review.reason);
+    return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
   }
 
   let posted: boolean;
@@ -1615,31 +1629,36 @@ async function runReview(
       startedAt,
     );
   } catch (error: unknown) {
-    return {
+    const checkFailed: Reviewed = {
       kind: "reviewed",
       review,
       tokensUsed: review.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(checkFailed, routed);
   }
   if (!posted) {
-    return handReviewBack(
-      ports,
-      ticket,
-      review,
-      `the agent ran but posted nothing to ${ticket.pullRequest.url}`,
+    return withDiscoveries(
+      await handReviewBack(
+        ports,
+        ticket,
+        review,
+        `the agent ran but posted nothing to ${ticket.pullRequest.url}`,
+      ),
+      routed,
     );
   }
 
   try {
     await ports.tracker.closeReviewTicket(ticket);
   } catch (error: unknown) {
-    return {
+    const closeFailed: Reviewed = {
       kind: "reviewed",
       review,
       tokensUsed: review.tokensUsed,
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(closeFailed, routed);
   }
   const labelled = await labelClosedPullRequest(
     ports,
@@ -1649,13 +1668,14 @@ async function runReview(
   const commented = turbo
     ? await postTurboComment(ports, ticket.pullRequest.url)
     : {};
-  return {
+  const reviewed: Reviewed = {
     kind: "reviewed",
     review,
     tokensUsed: review.tokensUsed,
     ...labelled,
     ...commented,
   };
+  return withDiscoveries(reviewed, routed);
 }
 
 /**

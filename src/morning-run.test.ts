@@ -2271,6 +2271,106 @@ describe("morningLoop", () => {
         new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
       );
     });
+
+    describe("a blocking discovery", () => {
+      /** The implementation ticket #7, and a review ticket queued as its own sub-issue, as `createReviewTicket` links one. */
+      function queuedWithImplementation(ports: FakePorts): {
+        implementation: Ticket;
+        review: ReviewTicket;
+      } {
+        ports.store.register(PILOT);
+        const implementation = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        const review = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(42),
+          title: "Review the draft pull request for #7",
+          pullRequest: { kind: "review", url: PULL_REQUEST },
+          parent: issueNumber(7),
+        }) as ReviewTicket;
+        return { implementation, review };
+      }
+
+      it("opens a discovered ticket that blocks the implementation ticket, and hands back the review ticket, not the implementation ticket", async () => {
+        const ports = fakePorts();
+        const { implementation, review } = queuedWithImplementation(ports);
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: "There is no widget port to review against yet.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.blocking, true);
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, review.number);
+        assert.notEqual(handback?.ticket.number, implementation.number);
+        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
+
+      it("hands back the review ticket for a gave-up run that also filed a correction, not as a gave-up run", async () => {
+        const ports = fakePorts();
+        const { review } = queuedWithImplementation(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "gave-up",
+          output: "I could not tell what to review",
+          reason: "the diff made no sense",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            {
+              kind: "correction",
+              title: "The ticket names the wrong file",
+              body: "It should touch src/widget.ts.",
+            },
+          ],
+        });
+
+        await morningLoop(ports);
+
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === review.number,
+        );
+        assert.match(handback?.comment ?? "", /blocking discovery/);
+        assert.doesNotMatch(handback?.comment ?? "", /the agent gave up/);
+      });
+
+      it("proceeds as normal for a clarification or a suggestion, filing them on the implementation ticket", async () => {
+        const ports = fakePorts();
+        queuedWithImplementation(ports);
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            { kind: "clarification", title: "What #7 means", body: "Read as the button." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.comments.length, 1);
+        assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
+        assert.deepEqual(
+          ports.tracker.closedReviewTickets.map((ticket) => ticket.number),
+          [issueNumber(42)],
+        );
+        assert.equal(report.iterations[0]?.kind, "reviewed");
+      });
+    });
   });
 
   describe("a spec review ticket, selected", () => {
