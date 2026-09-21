@@ -113,6 +113,7 @@ export interface HandBackPorts {
 type GaveUpContext =
   | { ticketKind: "implementation"; output: string; checkout: Checkout; run: RunGaveUp }
   | { ticketKind: "review"; output: string; transcript?: TranscriptPath }
+  | { ticketKind: "spec-review"; output: string; transcript?: TranscriptPath }
   | {
       ticketKind: "apply-review";
       output: string;
@@ -137,10 +138,15 @@ type GaveUpContext =
  * settled, a finished run's handover failed part way, or a run finished, with
  * or without a handover.
  *
- * Every kind but `"finished"` is exactly the `RunFailure` its own iteration
- * is built from, plus only what the comment needs beyond `reason` — never a
- * second description of the same failure a caller has to keep in step with
- * the one it builds for `Failed.failure`.
+ * Every kind but `"finished"` and `"spec-review-finished"` is exactly the
+ * `RunFailure` its own iteration is built from, plus only what the comment
+ * needs beyond `reason` — never a second description of the same failure a
+ * caller has to keep in step with the one it builds for `Failed.failure`.
+ *
+ * `"spec-review-finished"` is its own case rather than a share of
+ * `"finished"`: a spec review run never creates a branch, so it has no
+ * `RunFinished` to carry, and its own report is what becomes the comment in
+ * place of a handover — see `Sandbox.specReview`.
  */
 export type HandBackEnding =
   | (GaveUp & GaveUpContext)
@@ -152,7 +158,8 @@ export type HandBackEnding =
     })
   | AheadOfGateFailure
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
-  | { kind: "finished"; run: RunFinished; handover?: Handover };
+  | { kind: "finished"; run: RunFinished; handover?: Handover }
+  | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath };
 
 /**
  * Gives `ticket` back to the developer for `ending`: discards its branch when
@@ -251,6 +258,8 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
       return ending.handover === undefined
         ? committedNothingComment(ending.run)
         : handoverComment(ending.handover.pullRequest, ending.handover.reviewTicket);
+    case "spec-review-finished":
+      return specReviewFindingsComment(ending);
   }
 }
 
@@ -261,6 +270,7 @@ function gaveUpCommentFor(ending: GaveUp & GaveUpContext, discard: Discard): str
       case "implementation":
         return [branchNote(ending.run.branch, discard), ending.run.transcript];
       case "review":
+      case "spec-review":
         return [[], ending.transcript];
       case "apply-review":
         // A pull request is marked ready for review only once every thread on
@@ -412,6 +422,24 @@ function handoverComment(pullRequest: PullRequestUrl, reviewTicket: Ticket): str
     `The morning loop finished this ticket. Its work is waiting in a draft pull request: ${pullRequest}`,
     `A review has been queued as #${reviewTicket.number}.`,
     `This ticket is yours again: it will not be retried.`,
+  ].join("\n\n");
+}
+
+/**
+ * What a spec review ticket is told once its run finished: its own report,
+ * verbatim, since that report — not a pull request comment, which a spec
+ * review has nowhere to post — is the whole of its findings, and the ticket
+ * itself is how they reach the developer, per CONTEXT.md's "Spec review
+ * ticket".
+ */
+function specReviewFindingsComment(ending: {
+  output: string;
+  transcript?: TranscriptPath;
+}): string {
+  return [
+    `The morning loop ran this spec review ticket. What it found:\n\n${quote(ending.output)}`,
+    notRetried(),
+    ...transcriptNote(ending.transcript),
   ].join("\n\n");
 }
 
