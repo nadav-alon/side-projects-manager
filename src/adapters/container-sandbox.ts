@@ -677,24 +677,30 @@ async function attempt(
     }
     if (controller.signal.aborted) {
       const words = stallWords(watch.wroteTranscript());
-      return withTranscript(
-        { output: errorMessage(error), tokensUsed: tokenCount(0), failure: words, providerFailure: words },
-        await findTranscript(transcriptDir),
-      );
+      return failedRun(error, transcriptDir, { failure: words, providerFailure: words });
     }
-    return withTranscript(
-      {
-        output: errorMessage(error),
-        tokensUsed: tokenCount(0),
-        failure: errorMessage(error),
-        crashed: true,
-      },
-      await findTranscript(transcriptDir),
-    );
+    return failedRun(error, transcriptDir, { failure: errorMessage(error), crashed: true });
   } finally {
     controller.abort();
     await watch.stopped;
   }
+}
+
+/**
+ * An `AgentRun` for a container that ended without the agent's own exit
+ * reporting it — `output` and `tokensUsed` are always the same in that case,
+ * whether `attempt`'s own idle watchdog killed the container or it crashed on
+ * its own; `extra` is what actually differs between the two.
+ */
+async function failedRun(
+  error: unknown,
+  transcriptDir: TranscriptDirectory,
+  extra: { failure: string; providerFailure: string } | { failure: string; crashed: true },
+): Promise<AgentRun> {
+  return withTranscript(
+    { output: errorMessage(error), tokensUsed: tokenCount(0), ...extra },
+    await findTranscript(transcriptDir),
+  );
 }
 
 /**
