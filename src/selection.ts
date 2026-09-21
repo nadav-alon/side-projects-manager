@@ -250,13 +250,31 @@ async function scan(
     // blocked, still passes its priority label on.
     const open = await ports.tracker.listOpenIssues(project.repo);
     // The same read the sweep is told about, rather than a second listing —
-    // one project is never read twice for the same scan. Awaited before the
-    // rest of this project's own scan work, and never run alongside another
-    // project's sweep: this loop is sequential, so two sweeps of one project
-    // can never overlap even while iterations of the invocation itself run
-    // concurrently.
+    // one project is never read twice for the same scan. `next` must not be
+    // called concurrently: two scans in flight would sweep the same project
+    // twice at once.
+    //
+    // A rebase ticket takes a moment to exist once posted: `open`, read at
+    // the top of this scan, may still show no open rebase ticket for a pull
+    // request an earlier scan of this same invocation already commented on.
+    // `alreadyPosted` — every url this invocation has already commented on,
+    // regardless of project — holds `/rebase` to once per pull request
+    // without a second tracker read.
+    const alreadyPosted = new Set(
+      sweepOutcomes.flatMap((swept) =>
+        swept.changes
+          .filter((change) => change.action === "commented")
+          .map((change) => change.pullRequest),
+      ),
+    );
     sweepOutcomes.push(
-      await conflictSweep(ports.repoHost, project.repo, project.turbo, open),
+      await conflictSweep(
+        ports.repoHost,
+        project.repo,
+        project.turbo,
+        open,
+        alreadyPosted,
+      ),
     );
     const ticketPriorities = ticketPrioritiesIn(open);
     const { tickets, truncated: backlogTruncated } = backlogIn(open);

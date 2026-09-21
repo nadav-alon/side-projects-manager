@@ -276,6 +276,28 @@ describe("conflictSweep", () => {
       );
     });
 
+    it("posts nothing while alreadyPosted already names the pull request", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+
+      const outcome = await conflictSweep(
+        host,
+        PILOT,
+        true,
+        NO_OPEN_ISSUES,
+        new Set([PULL_REQUEST]),
+      );
+
+      assert.deepEqual(host.comments, []);
+      assert.equal(
+        outcome.changes.some((change) => change.action === "commented"),
+        false,
+      );
+    });
+
     it("posts nothing while the open rebase ticket was handed back to the developer", async () => {
       const host = new FakeRepoHost();
       host.setOpenPullRequests(PILOT, [

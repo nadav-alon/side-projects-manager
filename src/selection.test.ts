@@ -1548,6 +1548,34 @@ describe("invocationSelection", () => {
       ]);
     });
 
+    it("posts /rebase on a turbo project's pull request at most once across several scans of one invocation", async () => {
+      // The rebase ticket a posted comment opens takes a moment to exist: a
+      // later scan of the same invocation still reads no open rebase ticket
+      // for the pull request its predecessor already commented on.
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT, { turbo: true });
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+      await selection.next();
+
+      assert.deepEqual(repoHost.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+      const commented = selection
+        .sweeps()
+        .flatMap((swept) =>
+          swept.changes.filter((change) => change.action === "commented"),
+        );
+      assert.equal(commented.length, 1);
+    });
+
     it("reuses the open issues read selection already makes, rather than listing again", async (t) => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
