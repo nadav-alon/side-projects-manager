@@ -103,30 +103,30 @@ export interface HandBackPorts {
  * leaves a branch behind to discard; a review's never does; an apply-review
  * or rebase run leaves neither, but names the pull request its comment
  * points at, and may say which head a rejected push found it moved to.
+ *
+ * `transcript` names where the run's session transcript landed, absent when
+ * none was ever found — so the comment can tell whoever picks the ticket
+ * back up where to read it, rather than only the morning summary knowing.
+ * Carried here only for the three kinds with no run of their own to read it
+ * from; an implementation's is `ending.run.transcript`.
  */
-type GaveUpContext = (
+type GaveUpContext =
   | { ticketKind: "implementation"; output: string; checkout: Checkout; run: RunGaveUp }
-  | { ticketKind: "review"; output: string }
+  | { ticketKind: "review"; output: string; transcript?: TranscriptPath }
   | {
       ticketKind: "apply-review";
       output: string;
       pullRequest: PullRequestUrl;
       movedHead?: CommitSha;
+      transcript?: TranscriptPath;
     }
   | {
       ticketKind: "rebase";
       output: string;
       pullRequest: PullRequestUrl;
       movedHead?: CommitSha;
-    }
-) & {
-  /**
-   * Where the run's session transcript landed, absent when none was ever
-   * found — so the comment can tell whoever picks the ticket back up where to
-   * read it, rather than only the morning summary knowing.
-   */
-  transcript?: TranscriptPath;
-};
+      transcript?: TranscriptPath;
+    };
 
 /**
  * How one iteration ended, for the one ticket it selected — everything
@@ -144,10 +144,11 @@ type GaveUpContext = (
  */
 export type HandBackEnding =
   | (GaveUp & GaveUpContext)
-  | HandoverFailed
+  | (HandoverFailed & { transcript?: TranscriptPath })
   | (ModelRefused & {
       /** The branch the refused run left. Present only for an implementation ticket, which is the only kind a model refusal leaves one for. */
       worked?: { checkout: Checkout; run: RunModelRefused };
+      transcript?: TranscriptPath;
     })
   | AheadOfGateFailure
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
@@ -255,25 +256,31 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
 
 /** The gave-up comment for whichever kind of ticket `ending.ticketKind` names. */
 function gaveUpCommentFor(ending: GaveUp & GaveUpContext, discard: Discard): string {
-  const notes = ((): string[] => {
+  const [notes, transcript] = ((): [string[], TranscriptPath | undefined] => {
     switch (ending.ticketKind) {
       case "implementation":
-        return branchNote(ending.run.branch, discard);
+        return [branchNote(ending.run.branch, discard), ending.run.transcript];
       case "review":
-        return [];
+        return [[], ending.transcript];
       case "apply-review":
         // A pull request is marked ready for review only once every thread on
         // it is answered, so a gave-up run — which answered none, or left one
         // unanswered — always finds it still a draft.
-        return [...movedHeadNote(ending.movedHead), `${ending.pullRequest} is still a draft.`];
+        return [
+          [...movedHeadNote(ending.movedHead), `${ending.pullRequest} is still a draft.`],
+          ending.transcript,
+        ];
       case "rebase":
         // Never claims the pull request is a draft, unlike an apply-review's:
         // `/rebase` can be commented on one already marked ready, and a
         // rebase leaves its draft state exactly as it found it either way.
-        return [...movedHeadNote(ending.movedHead), untouchedDraftState(ending.pullRequest)];
+        return [
+          [...movedHeadNote(ending.movedHead), untouchedDraftState(ending.pullRequest)],
+          ending.transcript,
+        ];
     }
   })();
-  return gaveUpComment(ending.reason, ending.output, notes, ending.transcript);
+  return gaveUpComment(ending.reason, ending.output, notes, transcript);
 }
 
 /**
@@ -295,11 +302,12 @@ function unsettledMergeabilityComment(
  * its work is, so the developer picks it up rather than re-running a ticket
  * whose work already exists.
  */
-function handoverFailedComment(ending: HandoverFailed): string {
+function handoverFailedComment(ending: HandoverFailed & { transcript?: TranscriptPath }): string {
   return [
     `The morning loop finished this ticket, but could not hand its work over: ${tail(ending.reason, REASON_QUOTED)}`,
     `Its work is on the branch ${workLocation(ending, (text) => `\`${text}\``)}.`,
     `This ticket is yours again: it will not be retried.`,
+    ...transcriptNote(ending.transcript),
   ].join("\n\n");
 }
 
@@ -316,16 +324,15 @@ function gaveUpComment(
     `What it said:\n\n${quote(output)}`,
     ...notes,
     notRetried(),
-    ...transcriptLine(transcript),
+    ...transcriptNote(transcript),
   ].join("\n\n");
 }
 
 /**
  * The comment's own last line naming where the run's session transcript
- * landed, empty when it left none — so a ticket handed back for a run with no
- * transcript reads exactly as it did before this line existed.
+ * landed, empty when it left none.
  */
-function transcriptLine(transcript: TranscriptPath | undefined): string[] {
+function transcriptNote(transcript: TranscriptPath | undefined): string[] {
   return transcript === undefined ? [] : [`Transcript: \`${transcript}\`.`];
 }
 
@@ -350,7 +357,10 @@ function untouchedDraftState(pullRequest: PullRequestUrl): string {
  */
 function modelRefusalComment(
   ticket: Ticket,
-  ending: ModelRefused & { worked?: { checkout: Checkout; run: RunModelRefused } },
+  ending: ModelRefused & {
+    worked?: { checkout: Checkout; run: RunModelRefused };
+    transcript?: TranscriptPath;
+  },
   discard: Discard,
 ): string {
   const model = `\`${ending.refusal.model}\``;
@@ -369,6 +379,7 @@ function modelRefusalComment(
     `What the CLI said:\n\n${quote(ending.refusal.words)}`,
     ...branchNote(ending.worked?.run.branch, discard),
     notRetried(fix),
+    ...transcriptNote(ending.transcript),
   ].join("\n\n");
 }
 

@@ -77,8 +77,7 @@ describe("handBack", () => {
         reason: built.reason,
         output: built.output,
         checkout: CHECKOUT,
-        run: built,
-        ...(transcript !== undefined && { transcript }),
+        run: { ...built, ...(transcript !== undefined && { transcript }) },
       };
     };
 
@@ -370,6 +369,21 @@ describe("handBack", () => {
       assert.match(comment, /haiku/);
       assert.match(comment, /model defaults for review tickets/);
     });
+
+    it("names the transcript's host path on a model-refused hand-back that left one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, reviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "model-refused",
+        reason: "the agent CLI refused the model haiku (from the model defaults): unknown model haiku",
+        refusal: { model: modelName("haiku"), words: "unknown model haiku" },
+        source: "model defaults",
+        transcript: TRANSCRIPT,
+      });
+
+      assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
   });
 
   describe("unusable model labels", () => {
@@ -480,6 +494,21 @@ describe("handBack", () => {
     const comment = tracker.handbacks[0]?.comment ?? "";
     assert.match(comment, new RegExp(BRANCH));
     assert.match(comment, /pull requests are disabled/);
+  });
+
+  it("names the transcript's host path on a handover-failed hand-back that left one", async () => {
+    const { tracker, repoHost } = ports();
+    const ticket = eligible(tracker, implementationTicket());
+
+    await handBack({ tracker, repoHost }, ticket, {
+      kind: "handover-failed",
+      reason: "pull requests are disabled",
+      branch: BRANCH,
+      where: { kind: "unpushed", checkout: CHECKOUT },
+      transcript: TRANSCRIPT,
+    });
+
+    assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
   });
 
   describe("a finished run", () => {

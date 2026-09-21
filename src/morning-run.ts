@@ -772,6 +772,11 @@ function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
   };
 }
 
+/** The `transcript` field a `handBack` ending wants, present only when `transcript` is. */
+function transcriptField(transcript: TranscriptPath | undefined): { transcript?: TranscriptPath } {
+  return transcript === undefined ? {} : { transcript };
+}
+
 /**
  * Whether `iteration` frees its ticket to be selected again today —
  * CONTEXT.md's "Worked today" rule: the persisted record protects only the
@@ -944,7 +949,6 @@ async function work(
     output: run.output,
     checkout,
     run,
-    ...(run.transcript !== undefined && { transcript: run.transcript }),
   });
   return {
     kind: "failed",
@@ -1095,7 +1099,7 @@ async function handoverFailed(
     branch: run.branch,
     where,
   };
-  const handedBack = await handBack(ports, ticket, failure);
+  const handedBack = await handBack(ports, ticket, { ...failure, ...transcriptField(run.transcript) });
   return {
     kind: "failed",
     run,
@@ -1124,6 +1128,7 @@ async function handModelRefusedBack(
   const handedBack = await handBack(ports, ticket, {
     ...failure,
     ...(worked !== undefined && { worked }),
+    ...transcriptField(transcript),
   });
   return {
     kind: "failed",
@@ -1526,7 +1531,7 @@ async function handReviewBack(
     ...failure,
     ticketKind: "review",
     output: review.output,
-    ...(review.transcript !== undefined && { transcript: review.transcript }),
+    ...transcriptField(review.transcript),
   });
   return {
     kind: "failed",
@@ -1707,7 +1712,7 @@ async function handApplyReviewBack(
     output: run.output,
     pullRequest: ticket.pullRequest.url,
     ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
-    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    ...transcriptField(run.transcript),
   });
   return {
     kind: "failed",
@@ -1885,7 +1890,7 @@ async function handRebaseBack(
     output: run.output,
     pullRequest: ticket.pullRequest.url,
     ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
-    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    ...transcriptField(run.transcript),
   });
   return {
     kind: "failed",
