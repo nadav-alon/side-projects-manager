@@ -224,7 +224,11 @@ const CLOSING_KEYWORD =
 /**
  * The ticket `body` closes: the number from the first `Closes`, `Fixes` or
  * `Resolves` — any of GitHub's nine closing keywords, see
- * {@link CLOSING_KEYWORD} — or undefined when `body` names none.
+ * {@link CLOSING_KEYWORD} — or undefined when `body` names none. Also
+ * undefined for a match on `#0`, since {@link isIssueNumber} rejects it as no
+ * tracker could have produced it — indistinguishable here from a body naming
+ * no closing keyword at all, which is the more common way to reach this
+ * same answer.
  *
  * What {@link RepoHost.listOpenPullRequests} reads a pull request's closed
  * ticket with, the same way `.github/workflows/rebase.yml` reads it in
@@ -254,7 +258,14 @@ export interface OpenPullRequest {
 /**
  * How many of a repo's open pull requests {@link RepoHost.listOpenPullRequests}
  * reads: the newest this many, by the repo host's own ordering, when a repo
- * has more open at once.
+ * has more open at once. `rebase.yml` reads up to 500 in the same place; this
+ * is the conflict sweep's own limit, not a promise to see every pull request
+ * the workflow would. A repo with more than this many open truncates
+ * silently, unlike `OPEN_ISSUE_READ_LIMIT` in `gh-issue-tracker.ts`, which
+ * reports when it truncates: that read feeds ticket selection, where a
+ * hidden ticket is a ticket nobody can pick, while the sweep is best effort
+ * (CONTEXT.md's "Conflict sweep") and a pull request left short one pass is
+ * caught by the next.
  */
 export const OPEN_PULL_REQUEST_LIMIT = 100;
 
