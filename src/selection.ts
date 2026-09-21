@@ -5,7 +5,6 @@ import type {
   Priority,
   ProjectState,
   RegisteredProject,
-  RepoHost,
   RepoSlug,
   Store,
   Ticket,
@@ -20,7 +19,11 @@ import {
   ticketKind,
   ticketPrioritiesIn,
 } from "./ports/index.ts";
-import { conflictSweep, type ConflictSweepOutcome } from "./conflict-sweep.ts";
+import {
+  conflictSweep,
+  type ConflictSweepOutcome,
+  type ConflictSweepRepoHost,
+} from "./conflict-sweep.ts";
 import type { WorkedTickets } from "./worked-today.ts";
 
 /** The project an iteration works, and the ticket it works there. */
@@ -96,17 +99,17 @@ export interface ProjectOutcome {
 }
 
 /**
- * The three ports selection reads: every registered project, in registry
- * order, and each non-paused one's open issues — read fresh on every `next`,
- * never cached, so a project the developer adds or a ticket that changes
- * mid-invocation is what the next scan sees. `repoHost` is what each scan's
- * conflict sweep writes through (CONTEXT.md's "Conflict sweep", ADR 0007):
- * the one write selection makes, alongside its reads.
+ * The three ports selection uses: two it reads, one it writes through.
+ * `tracker` and `store` are read fresh on every `next`, never cached, so a
+ * project the developer adds or a ticket that changes mid-invocation is what
+ * the next scan sees. `repoHost` is what each scan's conflict sweep writes
+ * through (CONTEXT.md's "Conflict sweep", ADR 0007): the one write selection
+ * makes, alongside its reads — narrowed to the five verbs the sweep calls.
  */
 export interface SelectionPorts {
   tracker: Pick<IssueTracker, "listOpenIssues">;
   store: Pick<Store, "loadRegistry">;
-  repoHost: RepoHost;
+  repoHost: ConflictSweepRepoHost;
 }
 
 /**

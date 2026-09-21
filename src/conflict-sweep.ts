@@ -20,6 +20,16 @@ import { NEEDS_REBASE, openRebaseTicketFor, REBASE_COMMENT } from "./ports/index
  */
 export type ConflictSweepAction = "list" | "read" | "label" | "unlabel" | "comment";
 
+/** The five {@link RepoHost} verbs a sweep calls, and nothing else. */
+export type ConflictSweepRepoHost = Pick<
+  RepoHost,
+  | "listOpenPullRequests"
+  | "readMergeStatus"
+  | "labelPullRequest"
+  | "removeNeedsRebaseLabel"
+  | "postComment"
+>;
+
 /**
  * One refusal a sweep met: which {@link ConflictSweepAction} it was trying,
  * and the error the repo host gave. `pullRequest` names none only for a
@@ -97,7 +107,7 @@ export interface ConflictSweepOutcome {
  * spot.
  */
 export async function conflictSweep(
-  repoHost: RepoHost,
+  repoHost: ConflictSweepRepoHost,
   repo: RepoSlug,
   turbo: boolean,
   openIssues: OpenIssues,
