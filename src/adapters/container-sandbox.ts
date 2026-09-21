@@ -725,9 +725,9 @@ function providerFailureFromProse(stdout: string): string | undefined {
  * provider's own worded refusal, a provider failure is silence. It, too, only
  * applies when the CLI exited non-zero: an agent that finished clean and
  * merely opens its own output with matching prose said nothing about the
- * provider failing. The spend-ceiling ending comes last of the cut-off kinds,
- * checked the same way as a provider failure — off the envelope's own fields
- * — since which of the two an exit carries is mutually exclusive, never a
+ * provider failing. The spend-ceiling ending is checked alongside the
+ * provider failure, in either order — off the envelope's own fields —
+ * since which of the two an exit carries is mutually exclusive, never a
  * matter of ordering.
  */
 type Ending =
