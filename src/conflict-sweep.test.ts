@@ -9,6 +9,7 @@ import {
   REBASE_COMMENT,
   repoSlug,
 } from "./ports/index.ts";
+import type { PullRequestUrl } from "./ports/index.ts";
 import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 
@@ -86,7 +87,7 @@ describe("conflictSweep", () => {
       { url: OTHER_PULL_REQUEST, labels: [], closes: issueNumber(2) },
     ]);
     host.mergeStatus = () => "conflicting";
-    t.mock.method(host, "readMergeStatus", async (pullRequest: typeof PULL_REQUEST) => {
+    t.mock.method(host, "readMergeStatus", async (pullRequest: PullRequestUrl) => {
       if (pullRequest === PULL_REQUEST) {
         throw new Error("mergeability check refused");
       }
@@ -110,7 +111,7 @@ describe("conflictSweep", () => {
       { url: OTHER_PULL_REQUEST, labels: [], closes: issueNumber(2) },
     ]);
     host.mergeStatus = () => "conflicting";
-    t.mock.method(host, "labelPullRequest", async (pullRequest: typeof PULL_REQUEST) => {
+    t.mock.method(host, "labelPullRequest", async (pullRequest: PullRequestUrl) => {
       if (pullRequest === PULL_REQUEST) {
         throw new Error("label does not exist");
       }
@@ -185,7 +186,7 @@ describe("conflictSweep", () => {
       { url: OTHER_PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(2) },
     ]);
     host.mergeStatus = () => "clean";
-    t.mock.method(host, "removeNeedsRebaseLabel", async (pullRequest: typeof PULL_REQUEST) => {
+    t.mock.method(host, "removeNeedsRebaseLabel", async (pullRequest: PullRequestUrl) => {
       if (pullRequest === PULL_REQUEST) {
         throw new Error("label already gone");
       }
@@ -355,7 +356,7 @@ describe("conflictSweep", () => {
         { url: OTHER_PULL_REQUEST, labels: [], closes: issueNumber(2) },
       ]);
       host.mergeStatus = () => "conflicting";
-      t.mock.method(host, "postComment", async (pullRequest: typeof PULL_REQUEST) => {
+      t.mock.method(host, "postComment", async (pullRequest: PullRequestUrl) => {
         if (pullRequest === PULL_REQUEST) {
           throw new Error("comment refused");
         }
