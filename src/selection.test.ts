@@ -331,7 +331,7 @@ describe("invocationSelection", () => {
       ]);
     });
 
-    it("stays unselectable once every sub-issue has closed, unlike a blocked ticket regaining eligibility", async () => {
+    it("stays unselectable itself once every sub-issue has closed, unlike a blocked ticket regaining eligibility — even though its spec review sweep now opens one to select instead", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
@@ -349,10 +349,12 @@ describe("invocationSelection", () => {
 
       const chosen = await selection.next();
 
-      assert.equal(chosen, undefined);
-      assert.deepEqual(verdicts(selection.verdicts()), [
-        [PILOT, "no-eligible-tickets"],
-      ]);
+      // Never the supertask itself, per issue #516's own spec review sweep:
+      // what closing the last sub-issue makes selectable is the spec review
+      // it opens, not the supertask regaining eligibility the way a blocked
+      // ticket would.
+      assert.notEqual(chosen?.ticket.number, 66);
+      assert.equal(chosen?.ticket.number, 68);
     });
 
     it("selects a sibling ticket instead, when one in the same backlog is a supertask", async () => {
@@ -1671,6 +1673,148 @@ describe("invocationSelection", () => {
       assert.deepEqual(selection.sweeps(), [
         { repo: PILOT, changes: [], refusals: [{ action: "list", error: "host unreachable" }] },
       ]);
+    });
+  });
+
+  describe("spec review sweep", () => {
+    it("opens a spec review for a non-paused project's supertask before selecting", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const supertask = tracker.addSupertask(PILOT, {
+        number: issueNumber(40),
+        title: "Too big for one run",
+      });
+      const child = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(41),
+        title: "Part one",
+        parent: supertask.number,
+      });
+      tracker.closeOutOfBand(child);
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(tracker.specReviewTickets.length, 1);
+      assert.equal(tracker.specReviewTickets[0]?.parent.number, 40);
+      assert.equal(selection.specReviewSweeps()[0]?.opened.length, 1);
+    });
+
+    it("never sweeps a paused project", async (t) => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT, { paused: true });
+      const listSubIssues = t.mock.method(tracker, "listSubIssues");
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(listSubIssues.mock.callCount(), 0);
+      assert.deepEqual(selection.specReviewSweeps(), []);
+    });
+
+    it("lets the newly opened spec review be selected the same scan it is opened in", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const supertask = tracker.addSupertask(PILOT, {
+        number: issueNumber(40),
+        title: "Too big for one run",
+      });
+      const child = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(41),
+        title: "Part one",
+        parent: supertask.number,
+      });
+      tracker.closeOutOfBand(child);
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 42);
+    });
+
+    it("never re-reads open issues on a scan whose sweep opened nothing", async (t) => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(listOpenIssues.mock.callCount(), 1);
+    });
+
+    it("never re-opens a spec review for the same supertask across several scans of one invocation", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      store.register(MANAGER);
+      const supertask = tracker.addSupertask(PILOT, {
+        number: issueNumber(40),
+        title: "Too big for one run",
+      });
+      const child = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(41),
+        title: "Part one",
+        parent: supertask.number,
+      });
+      tracker.closeOutOfBand(child);
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+      await selection.next();
+
+      assert.equal(tracker.specReviewTickets.length, 1);
+    });
+
+    it("accumulates every spec review sweep across several calls to next", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+      await selection.next();
+
+      assert.deepEqual(selection.specReviewSweeps(), [
+        { repo: PILOT, opened: [], refusals: [] },
+        { repo: PILOT, opened: [], refusals: [] },
+      ]);
+    });
+
+    it("a sweep's refusal does not stop selection", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      const supertask = tracker.addSupertask(PILOT, {
+        number: issueNumber(40),
+        title: "Too big for one run",
+      });
+      const child = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(41),
+        title: "Part one",
+        parent: supertask.number,
+      });
+      tracker.closeOutOfBand(child);
+      tracker.listSubIssues = async () => {
+        throw new Error("tracker unreachable");
+      };
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 7);
+      const [swept] = selection.specReviewSweeps();
+      assert.equal(swept?.opened.length, 0);
+      assert.deepEqual(
+        swept?.refusals.map((refusal) => refusal.supertask.number),
+        [supertask.number],
+      );
+      assert.equal(swept?.refusals[0]?.error, "tracker unreachable");
     });
   });
 });
