@@ -51,6 +51,8 @@ import {
   type Ticket,
 } from "../ports/index.ts";
 import {
+  BUDGET_EXHAUSTED_JSON_RESULT,
+  BUDGET_EXHAUSTED_STDOUT,
   gate,
   HANGS,
   LIMIT_REFUSAL,
@@ -732,14 +734,15 @@ describe("containerSandbox", () => {
 
   /**
    * Only a run cut off rather than ended by its own agent gets a salvage
-   * commit: a limit refusal (above) or a container that crashed once the
-   * agent had started. A run that finished or gave up through its own exit
-   * ended on its own terms, and keeps `leftover.txt` uncommitted, exactly as
-   * the agent left it.
+   * commit: a limit refusal (above), its own spend ceiling stopping it, or a
+   * container that crashed once the agent had started. A run that finished or
+   * gave up through its own exit ended on its own terms, and keeps
+   * `leftover.txt` uncommitted, exactly as the agent left it.
    */
   for (const [name, mode, expectedCommits, expectedKind] of [
     ["finished", "finished", 1, "finished"],
     ["gave up through its own exit", "gave-up", 1, "gave-up"],
+    ["was stopped by its own spend ceiling", "budget-exhausted", 2, "budget-exhausted"],
     ["was cut off by a container that crashed after it started", "crashed", 2, "gave-up"],
   ] as const) {
     it(`makes ${expectedCommits > 1 ? "a salvage commit" : "no salvage commit"} for a run that ${name}`, async () => {
@@ -751,7 +754,16 @@ describe("containerSandbox", () => {
         if (mode === "crashed") {
           throw new Error("the container crashed");
         }
-        return mode === "gave-up" ? { ...agent, failure: "the agent gave up" } : agent;
+        if (mode === "gave-up") {
+          return { ...agent, failure: "the agent gave up" };
+        }
+        return mode === "budget-exhausted"
+          ? {
+              ...agent,
+              failure: "Command failed: docker run",
+              budgetExhausted: BUDGET_EXHAUSTED_JSON_RESULT,
+            }
+          : agent;
       });
 
       const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
@@ -874,6 +886,71 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
+  });
+
+  it("reports a spend-ceiling ending apart from an agent that gave up", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async () => ({
+      output: BUDGET_EXHAUSTED_JSON_RESULT,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+      budgetExhausted: BUDGET_EXHAUSTED_JSON_RESULT,
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "budget-exhausted");
+    assert.equal(
+      variant(result, "budget-exhausted")?.words,
+      BUDGET_EXHAUSTED_JSON_RESULT,
+    );
+  });
+
+  it("does not mistake a clean exit for a spend-ceiling ending, whatever it carries", async () => {
+    const directory = await project();
+    // As the provider-failure case above: `endingOf` must not read
+    // `budgetExhausted` as a spend-ceiling ending unless `failure` says the
+    // CLI exited non-zero too.
+    const sandbox = containerSandbox(async () => ({
+      output: BUDGET_EXHAUSTED_JSON_RESULT,
+      tokensUsed: tokenCount(1_000),
+      budgetExhausted: BUDGET_EXHAUSTED_JSON_RESULT,
+    }));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "finished");
+  });
+
+  /**
+   * A spend-ceiling ending cuts the agent off mid-work, exactly as a limit
+   * refusal does: what it had not yet committed would otherwise be lost with
+   * the clone. See `Salvage` in CONTEXT.md.
+   */
+  it("salvages a budget-exhausted run's uncommitted changes as one commit, and fetches its branch back", async () => {
+    const directory = await project();
+    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
+      return {
+        output: BUDGET_EXHAUSTED_JSON_RESULT,
+        tokensUsed: tokenCount(0),
+        failure: "Command failed: docker run",
+        budgetExhausted: BUDGET_EXHAUSTED_JSON_RESULT,
+      };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "budget-exhausted");
+    const budgetExhausted = variant(result, "budget-exhausted");
+    assert.equal(budgetExhausted?.commits.length, 1);
+    assert.deepEqual(await branchesIn(directory), [BRANCH, "main"]);
+    assert.equal(
+      await headOf(directory, BRANCH),
+      budgetExhausted?.commits.at(-1),
+    );
+    assert.equal(await subjectOf(directory, BRANCH), SALVAGE_COMMIT_MESSAGE);
+    assert.ok((await filesOn(directory, BRANCH)).includes("leftover.txt"));
   });
 
   it("reports a model refusal apart from an agent that gave up", async () => {
@@ -3392,6 +3469,32 @@ describe("containerSandbox with the real docker container", () => {
         variant(result, "provider-failed")?.words,
         PROVIDER_FAILURE_PROSE,
       );
+    });
+
+    it("reads a spend-ceiling ending off the JSON envelope's own is_error and subtype", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(BUDGET_EXHAUSTED_STDOUT, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "budget-exhausted");
+      assert.equal(
+        variant(result, "budget-exhausted")?.words,
+        BUDGET_EXHAUSTED_JSON_RESULT,
+      );
+    });
+
+    it("reads no spend-ceiling ending from the provider-failure fixture's own subtype", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(PROVIDER_FAILURE_STDOUT, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "provider-failed");
     });
 
     for (const status of [529, 500]) {

@@ -25,7 +25,11 @@ import {
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
-import { LIMIT_REFUSAL, SPENDABLE_THIS_WEEK } from "./testing/index.ts";
+import {
+  BUDGET_EXHAUSTED_JSON_RESULT,
+  LIMIT_REFUSAL,
+  SPENDABLE_THIS_WEEK,
+} from "./testing/index.ts";
 
 const REPO = repoSlug("nadav-alon/pilot");
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/171");
@@ -41,6 +45,18 @@ function limitRefused(number: number, discard: Discard): IterationOutcome {
     ticket: implementationTicket(number),
     kind: "limit-refused",
     limitRefusal: LIMIT_REFUSAL,
+    tokensUsed: tokenCount(500),
+    discard,
+  };
+}
+
+/** An implementation ticket's own run its spend ceiling stopped, discarding or salvaging its branch as `discard` says. */
+function budgetExhausted(number: number, discard: Discard): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    kind: "budget-exhausted",
+    words: BUDGET_EXHAUSTED_JSON_RESULT,
     tokensUsed: tokenCount(500),
     discard,
   };
@@ -986,6 +1002,59 @@ describe("salvage", () => {
   it("does not list a limit-refused ticket under waiting on you at one refusal", () => {
     const lines = waitingLines([
       limitRefused(228, { kind: "salvaged", branch: branch("issue-228"), limitRefusals: 1 }),
+    ]);
+
+    assert.deepEqual(lines, []);
+  });
+
+  it("names a salvaged budget exhaustion's branch and says the next run will continue on it", () => {
+    const line = summaryLine(
+      facts([
+        budgetExhausted(229, { kind: "salvaged", branch: branch("issue-229"), limitRefusals: 1 }),
+      ]),
+    );
+
+    assert.match(
+      line,
+      /Its branch issue-229 was salvaged: the ticket's next run will continue on it\./,
+    );
+  });
+
+  it("reads a budget exhaustion exactly as today when nothing was salvaged", () => {
+    const line = summaryLine(facts([budgetExhausted(230, { kind: "none" })]));
+
+    assert.equal(
+      line,
+      `The run on ${REPO} #230 was stopped by its spend ceiling.`,
+    );
+  });
+
+  it("warns that a ticket has been cut off repeatedly at two or more budget exhaustions in a row", () => {
+    const line = summaryLine(
+      facts([
+        budgetExhausted(231, { kind: "salvaged", branch: branch("issue-231"), limitRefusals: 2 }),
+      ]),
+    );
+
+    assert.match(
+      line,
+      /This ticket has been cut off 2 times in a row: consider splitting it or giving it a larger size or model\./,
+    );
+  });
+
+  it("lists a budget-exhausted ticket under waiting on you once it has been cut off two or more times in a row", () => {
+    const lines = waitingLines([
+      budgetExhausted(232, { kind: "salvaged", branch: branch("issue-232"), limitRefusals: 2 }),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #232: cut off 2 times in a row — consider splitting it or giving it a larger size or model`,
+    ]);
+  });
+
+  it("does not list a budget-exhausted ticket under waiting on you at one exhaustion", () => {
+    const lines = waitingLines([
+      budgetExhausted(233, { kind: "salvaged", branch: branch("issue-233"), limitRefusals: 1 }),
     ]);
 
     assert.deepEqual(lines, []);

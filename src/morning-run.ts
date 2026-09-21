@@ -27,6 +27,7 @@ import type {
   ReviewFinished,
   ReviewGaveUp,
   ReviewTicket,
+  RunBudgetExhausted,
   RunFinished,
   RunLimitRefused,
   RunModelRefused,
@@ -84,6 +85,8 @@ import {
 } from "./hand-back.ts";
 import { errorMessage } from "./error-message.ts";
 import {
+  budgetExhaustedReviewOutcome,
+  budgetExhaustedRunOutcome,
   cutOffReviewOutcome,
   cutOffRunOutcome,
   failedOnInfrastructure,
@@ -92,6 +95,7 @@ import {
   isCutOff,
   type AheadOfGateFailure,
   type AppliedReview,
+  type BudgetExhausted,
   type CutOff,
   type Failed,
   type Finished,
@@ -506,14 +510,16 @@ export async function morningLoop(
                 ...iteration,
               } as IterationOutcome;
 
-              // An infrastructure failure, a limit refusal or a provider
-              // failure says nothing about the ticket, so it is left free for
-              // a later firing today — one that finds the setup fixed, the
-              // provider limit reset, or the provider answering again. So is
-              // a ticket whose own tracker write landed: the loop already
-              // took its eligibility away, so the record has nothing left to
-              // protect, and a developer who re-applies ready-for-agent the
-              // same day gets a later firing rather than silence.
+              // An infrastructure failure, a limit refusal, a provider
+              // failure or a budget exhaustion says nothing about the ticket,
+              // so it is left free for a later firing today — one that finds
+              // the setup fixed, the provider limit reset, the provider
+              // answering again, or simply enough of the ceiling left to
+              // finish the job. So is a ticket whose own tracker write
+              // landed: the loop already took its eligibility away, so the
+              // record has nothing left to protect, and a developer who
+              // re-applies ready-for-agent the same day gets a later firing
+              // rather than silence.
               if (freesTicketToday(iteration)) {
                 worked.unrecord(ticket);
               }
@@ -790,6 +796,7 @@ function freesTicketToday(iteration: Iteration): boolean {
   switch (iteration.kind) {
     case "limit-refused":
     case "provider-failed":
+    case "budget-exhausted":
       return true;
     case "finished":
       return iteration.handedBack.outcome !== "refused";
@@ -811,9 +818,10 @@ function freesTicketToday(iteration: Iteration): boolean {
  * The second step: run the selected ticket and record what that cost. An
  * implementation ticket hands its work over as a draft pull request with a
  * review queued against it, or — when the agent gave up — puts the ticket back
- * in the developer's hands. An infrastructure failure, a limit refusal or a
- * provider failure leaves the ticket untouched. A review ticket's own run
- * posts its findings itself and is closed once it has; an apply-review
+ * in the developer's hands. An infrastructure failure, a limit refusal, a
+ * provider failure or a budget exhaustion leaves the ticket untouched. A
+ * review ticket's own run posts its findings itself and is closed once it
+ * has; an apply-review
  * ticket's pushes and replies itself, and is closed once the repo host shows
  * every thread answered; a rebase ticket's force-pushes itself, and is closed
  * once the repo host no longer reports its pull request conflicting.
@@ -904,7 +912,18 @@ async function work(
   if (run.kind === "limit-refused") {
     return cutOffRunOutcome(
       run,
-      await limitRefusedBranchOutcome(ports, checkout, salvages, selection.ticket, run),
+      await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run),
+    );
+  }
+  if (run.kind === "budget-exhausted") {
+    // Salvaged exactly as a limit refusal's branch is — its own ceiling says
+    // nothing about the ticket, only that this run ran out of room — but
+    // never a `cutOffRunOutcome`: unlike a limit refusal, this run's own
+    // ceiling says nothing about the next run's, so it must not stand the
+    // invocation down.
+    return budgetExhaustedRunOutcome(
+      run,
+      await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run),
     );
   }
   if (run.kind === "provider-failed") {
@@ -956,19 +975,21 @@ async function work(
 }
 
 /**
- * The discard a limit-refused run's branch gets: salvaged, when it carries
- * commits — kept in the checkout, and recorded against `ticket`'s salvage
- * record, so its next run can continue on it (see CONTEXT.md's "Salvage") —
- * or discarded as any other cut-off run's branch otherwise, since a run that
- * committed nothing left nothing to salvage and says nothing new about an
- * existing record.
+ * The discard a limit-refused or a budget-exhausted run's branch gets:
+ * salvaged, when it carries commits — kept in the checkout, and recorded
+ * against `ticket`'s salvage record, so its next run can continue on it (see
+ * CONTEXT.md's "Salvage") — or discarded as any other cut-off run's branch
+ * otherwise, since a run that committed nothing left nothing to salvage and
+ * says nothing new about an existing record. Shared by both: a budget
+ * exhaustion is kept exactly as a limit refusal's branch is, even though it
+ * never stands the invocation down the way a limit refusal does.
  */
-async function limitRefusedBranchOutcome(
+async function salvageableBranchOutcome(
   ports: MorningLoopPorts,
   checkout: Checkout,
   salvages: Salvages,
   ticket: Ticket,
-  run: RunLimitRefused,
+  run: RunLimitRefused | RunBudgetExhausted,
 ): Promise<Discard> {
   if (run.commits.length === 0) {
     return { kind: "none" };
@@ -1428,7 +1449,9 @@ async function runReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   turbo: boolean,
-): Promise<Reviewed | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
+): Promise<
+  Reviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+> {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
   );
@@ -1452,6 +1475,9 @@ async function runReview(
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
     return cutOffReviewOutcome(review);
+  }
+  if (review.kind === "budget-exhausted") {
+    return budgetExhaustedReviewOutcome(review);
   }
   // Handed back rather than left to come round again, as an implementation
   // ticket's is: every later morning would refuse the same model the same way.
@@ -1567,7 +1593,9 @@ async function runApplyReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<AppliedReview | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
+): Promise<
+  AppliedReview | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+> {
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -1610,6 +1638,9 @@ async function runApplyReview(
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
     return cutOffReviewOutcome(run);
+  }
+  if (run.kind === "budget-exhausted") {
+    return budgetExhaustedReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
@@ -1749,7 +1780,9 @@ async function runRebase(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<Rebased | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
+): Promise<
+  Rebased | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+> {
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -1794,6 +1827,9 @@ async function runRebase(
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
     return cutOffReviewOutcome(run);
+  }
+  if (run.kind === "budget-exhausted") {
+    return budgetExhaustedReviewOutcome(run);
   }
   if (run.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);

@@ -11,10 +11,12 @@ import type {
   RebaseFinished,
   RebaseTicket,
   RepoSlug,
+  ReviewBudgetExhausted,
   ReviewFinished,
   ReviewLimitRefused,
   ReviewProviderFailed,
   ReviewTicket,
+  RunBudgetExhausted,
   RunFinished,
   RunLimitRefused,
   RunOutcome,
@@ -169,8 +171,9 @@ export interface InfrastructureFailure {
 
 /**
  * What one iteration did with the ticket it selected: finished a run, failed
- * one, worked a review, an apply-review or a rebase ticket's own run, or had
- * any kind of run refused by the provider limit. Told apart by `kind`, and nothing else.
+ * one, worked a review, an apply-review or a rebase ticket's own run, had any
+ * kind of run refused by the provider limit, or had one stopped by its own
+ * spend ceiling. Told apart by `kind`, and nothing else.
  *
  * Nothing here is thrown. A run that gave up, and one that never happened, are
  * described rather than raised, so the invocation still reports on the
@@ -184,7 +187,8 @@ export type Iteration =
   | Rebased
   | PullRequestResolved
   | LimitRefused
-  | ProviderFailed;
+  | ProviderFailed
+  | BudgetExhausted;
 
 /**
  * A limit refusal: an implementation, review, apply-review or rebase run the
@@ -313,6 +317,68 @@ export function cutOffReviewOutcome(
       };
 }
 
+/**
+ * A run, implementation, review, apply-review or rebase, that its own spend
+ * ceiling stopped rather than the agent giving up. Not a `CutOff`: a limit
+ * refusal or a provider failure says every run after it would be stopped the
+ * same way, but one run's own ceiling says nothing about the next run's, so
+ * this never stands the invocation down. Not a failure either: the ticket is
+ * nobody's problem, so it is neither commented on nor relabelled, and stays
+ * eligible for a later firing.
+ */
+export interface BudgetExhausted {
+  kind: "budget-exhausted";
+  /** What the CLI said, word for word — see `RunBudgetExhausted.words`. */
+  words: string;
+  /** What ran spent before its spend ceiling stopped it. */
+  tokensUsed: TokenCount;
+  /** What the implementation run left behind. Absent for a review. */
+  run?: RunBudgetExhausted;
+  /** As `LimitRefused.transcript`. */
+  transcript?: TranscriptPath;
+  /** What became of any branch the run left, salvaged as a limit refusal's is. */
+  discard: Discard;
+}
+
+/**
+ * `run`'s own spend-ceiling ending, as the iteration it comes to: the one
+ * place an implementation run's is built, rather than a parallel copy for
+ * every ticket kind that can hit one.
+ */
+export function budgetExhaustedRunOutcome(
+  run: RunBudgetExhausted,
+  discard: Discard,
+): BudgetExhausted {
+  const transcript =
+    run.transcript === undefined ? {} : { transcript: run.transcript };
+  return {
+    kind: "budget-exhausted",
+    words: run.words,
+    tokensUsed: run.tokensUsed,
+    ...transcript,
+    run,
+    discard,
+  };
+}
+
+/**
+ * As `budgetExhaustedRunOutcome`, for a review, apply-review or rebase run:
+ * none of those ever creates a branch, so there is never one to discard.
+ */
+export function budgetExhaustedReviewOutcome(
+  review: ReviewBudgetExhausted,
+): BudgetExhausted {
+  const transcript =
+    review.transcript === undefined ? {} : { transcript: review.transcript };
+  return {
+    kind: "budget-exhausted",
+    words: review.words,
+    tokensUsed: review.tokensUsed,
+    ...transcript,
+    discard: { kind: "none" },
+  };
+}
+
 /** An iteration whose run finished, and how its work reached the developer. */
 export interface Finished {
   kind: "finished";
@@ -418,7 +484,8 @@ export type IterationOutcome =
   | (Attempt<RebaseTicket> & Rebased)
   | (Attempt<PullRequestTicket> & PullRequestResolved)
   | (Attempt & LimitRefused)
-  | (Attempt & ProviderFailed);
+  | (Attempt & ProviderFailed)
+  | (Attempt & BudgetExhausted);
 
 /**
  * A review ticket's own run that finished without the agent giving up. There
