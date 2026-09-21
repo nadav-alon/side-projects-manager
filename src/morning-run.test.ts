@@ -48,6 +48,7 @@ import {
   HANGS,
   LIMIT_REFUSAL,
   PROVIDER_FAILURE_PROSE,
+  endsWithTranscript,
   gate,
   type FakePorts,
   type Registration,
@@ -1787,6 +1788,26 @@ describe("morningLoop", () => {
       );
     });
 
+    it("names the review's transcript in the hand-back comment, when it left one", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.reviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not read the diff",
+        tokensUsed: tokenCount(1_000),
+        reason: "the review skill exited 1",
+        transcript,
+      });
+
+      await morningLoop(ports);
+
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        endsWithTranscript(transcript),
+      );
+    });
+
     it("says a review's hand-back itself failed, leaving the ticket for the developer to relabel", async (t) => {
       const ports = fakePorts();
       queued(ports);
@@ -2332,6 +2353,26 @@ describe("morningLoop", () => {
       );
     });
 
+    it("names the run's transcript in the hand-back comment, when it left one", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "gave-up",
+        output: "I could not answer every thread",
+        reason: "left a thread unanswered",
+        tokensUsed: tokenCount(2_000),
+        transcript,
+      });
+
+      await morningLoop(ports);
+
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        endsWithTranscript(transcript),
+      );
+    });
+
     it("leaves the ticket eligible when the sandbox breaks, naming it under what is waiting on the developer", async (t) => {
       const ports = fakePorts();
       const ticket = queued(ports);
@@ -2790,6 +2831,26 @@ describe("morningLoop", () => {
       assert.equal(
         iteration?.kind === "failed" ? iteration.transcript : undefined,
         transcript,
+      );
+    });
+
+    it("names the run's transcript in the hand-back comment, when it left one", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.rebaseResult = () => ({
+        kind: "gave-up",
+        output: "I could not resolve the conflict",
+        reason: "left the pull request still conflicting",
+        tokensUsed: tokenCount(2_000),
+        transcript,
+      });
+
+      await morningLoop(ports);
+
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        endsWithTranscript(transcript),
       );
     });
 
@@ -3482,6 +3543,36 @@ describe("morningLoop", () => {
         [commitSha("c0ffee1")],
       );
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
+    });
+
+    it("names the run's transcript in the hand-back comment, when it left one", async () => {
+      const ports = readyToWork();
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.result = () => ({
+        kind: "gave-up",
+        branch: FAILED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+        output: SAID,
+        tokensUsed: tokenCount(42_000),
+        reason: GAVE_UP,
+        transcript,
+      });
+
+      await morningLoop(ports);
+
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        endsWithTranscript(transcript),
+      );
+    });
+
+    it("says nothing about a transcript in the hand-back comment, when the run left none", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+
+      await morningLoop(ports);
+
+      assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /Transcript:/);
     });
   });
 

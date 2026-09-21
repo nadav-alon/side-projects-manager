@@ -53,5 +53,6 @@ export {
   PILOT,
   SPENDABLE_THIS_WEEK,
   YESTERDAY,
+  endsWithTranscript,
   verdicts,
 } from "./fixtures.ts";

@@ -20,3 +20,13 @@ export const LAST_WEEK = new Date("2025-12-20T06:00:00.000Z");
 export function verdicts(projects: ProjectOutcome[]): [string, string][] {
   return projects.map((project) => [project.repo, project.verdict]);
 }
+
+/**
+ * The regex a hand-back or summary comment's own transcript line must match:
+ * `path`'s own characters escaped, so a `.` in it can't stand in for any
+ * character the way an unescaped one would.
+ */
+export function endsWithTranscript(path: string): RegExp {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`Transcript: \`${escaped}\`\\.$`);
+}
