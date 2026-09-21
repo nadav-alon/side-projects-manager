@@ -1041,7 +1041,7 @@ function pushableRemote(remote: RemoteUrl): RemoteUrl {
  * of an apply-review run can be exercised against a stand-in repo host without
  * `gh`, a credential, or a network.
  */
-type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
+export type PullRequestHead = (pullRequest: PullRequestUrl) => Promise<Branch>;
 
 /** The real lookup: `gh pr view`, read by `pullRequestHeadFrom`. */
 const ghPullRequestHead: PullRequestHead = async (pullRequest) => {

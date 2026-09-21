@@ -25,6 +25,7 @@ import {
   TRANSCRIPTS_DIRECTORY,
   type Container,
   type Mount,
+  type PullRequestHead,
 } from "./container-sandbox.ts";
 import {
   branch,
@@ -60,6 +61,7 @@ import {
   PROVIDER_FAILURE_STDOUT,
   recordingGh,
   recordingDocker,
+  tempHome,
   valueOf,
   type RecordedDocker,
 } from "../testing/index.ts";
@@ -68,15 +70,15 @@ const run = promisify(execFile);
 
 /**
  * Where this file's own tests keep their transcripts — never the checkout's
- * real `transcripts/` (`manager-home.ts`), so running this file never leaves
- * directories behind in the repository itself.
+ * real `transcripts/` (`container-sandbox.ts`), so running this file never
+ * leaves directories behind in the repository itself.
  */
-const TEST_HOME = await mkdtemp(path.join(tmpdir(), "container-sandbox-home-"));
+const TEST_HOME = await tempHome("container-sandbox-home");
 
 /** `containerSandbox`, with its transcripts kept under `TEST_HOME` rather than the checkout's own. */
 function testSandbox(
   container?: Container,
-  pullRequestHead?: Parameters<typeof containerSandbox>[1],
+  pullRequestHead?: PullRequestHead,
 ): Sandbox {
   return containerSandbox(container, pullRequestHead, TEST_HOME);
 }
@@ -1436,7 +1438,7 @@ describe("transcript", () => {
 
   it("makes the transcript directory under transcripts/ in the manager home, not the system temp directory", async () => {
     const directory = await project();
-    const home = await mkdtemp(path.join(tmpdir(), "container-sandbox-home-"));
+    const home = await tempHome("container-sandbox-home");
     const seen: string[] = [];
     const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
       seen.push(transcriptDirectory);
