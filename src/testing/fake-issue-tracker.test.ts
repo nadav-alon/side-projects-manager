@@ -361,7 +361,7 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
       {
         parent: ticket,
         title: "The retry loop never backs off",
-        body: "Hammers the API on every failure.",
+        body: "Hammers the API on every failure.\n\nDiscovered while working #7.",
         blocking: false,
         ticket: discovered,
       },

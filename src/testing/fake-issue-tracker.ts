@@ -22,6 +22,7 @@ import {
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
+  discoveredBody,
   issueNumber,
   issueUrl,
   modelLabelOf,
@@ -64,6 +65,7 @@ export interface FakeDiscoveredTicket {
   /** The ticket it was discovered while working. */
   parent: Ticket;
   title: string;
+  /** `discoveredBody(parent, …)`: the given body, naming `parent`. */
   body: string;
   /** Whether a `blocked_by` edge from `parent` to `ticket` was asked for. */
   blocking: boolean;
@@ -396,7 +398,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     this.discoveredTickets.push({
       parent: ticket,
       title: discovery.title,
-      body: discovery.body,
+      body: discoveredBody(ticket, discovery.body),
       blocking,
       ticket: discovered,
     });
