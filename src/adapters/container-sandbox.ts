@@ -1721,12 +1721,19 @@ async function commitsSince(
  * docker to read it from *this process's own* environment, which `envFor` is
  * what varies per `Mount`.
  *
- * `options.signal` is this function's half of `attempt`'s stall backstop:
+ * `options.signal` is this function's half of `attempt`'s stall backstop, in
+ * two parts that race each other rather than one depending on the other.
  * `--rm` with no name leaves nothing to kill, so `dockerCommand` is handed a
- * `--cidfile` of its own to have docker write the container's id to, and an
- * abort reads that id back and `docker kill`s it. The kill is awaited before
- * this function's own promise settles — whether that promise goes on to
- * reject or, on the rare race where the agent had already finished, resolve
+ * `--cidfile` of its own — under the run's own `transcriptDirectory`, which
+ * already outlives this function and is already `pruneOldTranscripts`'s to
+ * clean up — to have docker write the container's id to, and an abort reads
+ * that id back and `docker kill`s it. That kill can itself no-op (an empty
+ * cidfile) or fail (docker refuses it), so an abort is also handed straight
+ * to `execFile` as `signal`: aborting it ends this function's own await on
+ * its own, by killing the `docker run` client, whichever of the two actually
+ * stops the container. Either way, the kill is awaited before this
+ * function's own promise settles — whether that promise goes on to reject
+ * or, on the rare race where the agent had already finished, resolve
  * normally — so a caller (`attempt`, and past it `withThrowawayClone`) never
  * deletes the clone out from under a container still bind-mounting it.
  */
@@ -1740,8 +1747,7 @@ const dockerContainer: Container = async (options) => {
   }
 
   const env = envFor(options.mount);
-  const cidDirectory = await mkdtemp(path.join(tmpdir(), "side-projects-cid-"));
-  const cidFile = path.join(cidDirectory, "container-id");
+  const cidFile = path.join(options.transcriptDirectory, "container-id");
   const command = dockerCommand(options, cidFile);
 
   let killed: Promise<void> | undefined;
@@ -1757,18 +1763,18 @@ const dockerContainer: Container = async (options) => {
     const { stdout, stderr } = await run("docker", command, {
       maxBuffer: OUTPUT_LIMIT,
       env,
+      signal: options.signal,
     });
-    await killed;
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
-    await killed;
     // `options.signal.aborted` means this exit is ours: `onAbort` already
-    // `docker kill`ed the container, and whatever `execFile` rejected with is
-    // just that kill's own shape (a signal, or docker's exit code for one) —
-    // not the agent's own exit to read as `readExitedRun` would. Rethrown
-    // rather than turned into a result here, so `attempt` — which owns the
-    // timer and so is the one place that can word a stall — is what turns it
-    // into a run.
+    // `docker kill`ed the container, `execFile`'s own `signal` already ended
+    // the client waiting on it, or both — whatever `execFile` rejected with
+    // is just that shape (a signal, an abort error, or docker's exit code for
+    // one), not the agent's own exit to read as `readExitedRun` would.
+    // Rethrown rather than turned into a result here, so `attempt` — which
+    // owns the timer and so is the one place that can word a stall — is what
+    // turns it into a run.
     if (options.signal.aborted) {
       throw error;
     }
@@ -1778,20 +1784,20 @@ const dockerContainer: Container = async (options) => {
     return readExitedRun(error);
   } finally {
     options.signal.removeEventListener("abort", onAbort);
-    await removeOrWarn(cidDirectory);
+    await killed;
   }
 };
 
 /**
  * Kills the container `dockerCommand`'s `--cidfile` named, once `attempt`'s
  * own idle watchdog aborts. Warned about rather than thrown on failure — the
- * run is already being reported as stalled either way, and a container
- * docker could not kill is not a reason to lose that report.
+ * run is already being reported as stalled either way, a container docker
+ * could not kill is not a reason to lose that report, and `dockerContainer`'s
+ * own await does not depend on this succeeding: the same abort also reaches
+ * `execFile` directly, as `signal`.
  *
  * A `--cidfile` docker never got to write — the daemon never reached
- * starting the container at all — leaves nothing here to kill; that case is
- * `dockerNeverRan`'s to report, off the same rejection `execFile` gives
- * `run("docker", …)` for it.
+ * starting the container at all — leaves nothing here to kill.
  */
 async function killStalledContainer(cidFile: string): Promise<void> {
   const id = (await readFile(cidFile, "utf8").catch(() => "")).trim();
