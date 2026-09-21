@@ -307,7 +307,7 @@ describe("invocationSelection", () => {
   });
 
   describe("supertasks", () => {
-    it("never selects a ticket carrying ready-for-agent with an open sub-issue, even as its project's only ticket", async () => {
+    it("never selects a ticket carrying the supertask label, even as its project's only ticket", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
@@ -325,19 +325,28 @@ describe("invocationSelection", () => {
       ]);
     });
 
-    it("is selectable again once it carries no more open sub-issues", async () => {
+    it("stays unselectable once every sub-issue has closed, unlike a blocked ticket regaining eligibility", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, {
+      tracker.addSupertask(PILOT, {
         number: issueNumber(66),
         title: "Too big for one run",
       });
+      const subIssue = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(67),
+        title: "One of the slices",
+        parent: issueNumber(66),
+      });
+      tracker.closeOutOfBand(subIssue);
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
 
-      assert.equal(chosen?.ticket.number, 66);
+      assert.equal(chosen, undefined);
+      assert.deepEqual(verdicts(selection.verdicts()), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
     });
 
     it("selects a sibling ticket instead, when one in the same backlog is a supertask", async () => {
