@@ -40,6 +40,23 @@ export interface ConflictSweepChange {
 }
 
 /**
+ * The past participle {@link ConflictSweepChange} names its action by, for
+ * each {@link ConflictSweepAction} that ever succeeds into a change —
+ * `"list"` and `"read"` never do. `satisfies` ties the two vocabularies
+ * together, the way `REVIEW_FINDING_FIELDS` ties a field list to
+ * `ReviewFinding`'s own names in `repo-host.ts`: renaming one here and not
+ * there fails to compile, rather than drifting unnoticed.
+ */
+const CHANGED = {
+  unlabel: "unlabelled",
+  label: "labelled",
+  comment: "commented",
+} as const satisfies Record<
+  Exclude<ConflictSweepAction, "list" | "read">,
+  ConflictSweepChange["action"]
+>;
+
+/**
  * What sweeping one project came to: every pull request it changed, and
  * every refusal it met along the way. A pull request left untouched —
  * naming no closed ticket, still `"unknown"`, or already in the shape the
@@ -87,6 +104,25 @@ export async function conflictSweep(
   const changes: ConflictSweepChange[] = [];
   const refusals: ConflictSweepRefusal[] = [];
 
+  /**
+   * Runs `run`, recording a change on `pullRequest` under `CHANGED[action]`
+   * if it succeeds and a refusal under `action` if it throws — the one shape
+   * shared by every best-effort write below, so the pairing between a change
+   * and its refusal can't drift between them.
+   */
+  async function attempt(
+    action: keyof typeof CHANGED,
+    pullRequest: PullRequestUrl,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await run();
+      changes.push({ pullRequest, action: CHANGED[action] });
+    } catch (error) {
+      refusals.push({ action, pullRequest, error: errorMessage(error) });
+    }
+  }
+
   let pullRequests;
   try {
     pullRequests = await repoHost.listOpenPullRequests(repo);
@@ -120,44 +156,23 @@ export async function conflictSweep(
 
     if (status === "clean") {
       if (labelled) {
-        try {
-          await repoHost.removeNeedsRebaseLabel(pullRequest.url);
-          changes.push({ pullRequest: pullRequest.url, action: "unlabelled" });
-        } catch (error) {
-          refusals.push({
-            action: "unlabel",
-            pullRequest: pullRequest.url,
-            error: errorMessage(error),
-          });
-        }
+        await attempt("unlabel", pullRequest.url, () =>
+          repoHost.removeNeedsRebaseLabel(pullRequest.url),
+        );
       }
       continue;
     }
 
     if (!labelled) {
-      try {
-        await repoHost.labelPullRequest(pullRequest.url, NEEDS_REBASE);
-        changes.push({ pullRequest: pullRequest.url, action: "labelled" });
-      } catch (error) {
-        refusals.push({
-          action: "label",
-          pullRequest: pullRequest.url,
-          error: errorMessage(error),
-        });
-      }
+      await attempt("label", pullRequest.url, () =>
+        repoHost.labelPullRequest(pullRequest.url, NEEDS_REBASE),
+      );
     }
 
     if (turbo && !openRebaseTicketFor(openIssues, pullRequest.url)) {
-      try {
-        await repoHost.postComment(pullRequest.url, REBASE_COMMENT);
-        changes.push({ pullRequest: pullRequest.url, action: "commented" });
-      } catch (error) {
-        refusals.push({
-          action: "comment",
-          pullRequest: pullRequest.url,
-          error: errorMessage(error),
-        });
-      }
+      await attempt("comment", pullRequest.url, () =>
+        repoHost.postComment(pullRequest.url, REBASE_COMMENT),
+      );
     }
   }
 
