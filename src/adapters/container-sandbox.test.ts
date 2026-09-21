@@ -266,6 +266,27 @@ async function writeDiscovery(
 }
 
 /**
+ * Asserts `asked` states the four discovery kinds, the `/discoveries` path
+ * and shape, the blocking-kind rule and the one-suggestion limit —
+ * everything `DISCOVERY_INSTRUCTIONS` promises, whichever of the five
+ * entry points built the prompt. Shared rather than repeated at each: all
+ * five embed the one constant, so tightening its wording should mean
+ * editing one assertion, not five.
+ */
+function assertDiscoveryInstructions(asked: string): void {
+  assert.match(asked, /correction/);
+  assert.match(asked, /prerequisite/);
+  assert.match(asked, /clarification/);
+  assert.match(asked, /suggestion/);
+  assert.match(asked, /\/discoveries/);
+  assert.match(asked, /"kind"/);
+  assert.match(asked, /"title"/);
+  assert.match(asked, /"body"/);
+  assert.match(asked, /stop without committing further/);
+  assert.match(asked, /at most one suggestion/);
+}
+
+/**
  * Lets the real, un-mocked filesystem I/O `watchForStall`'s own poll started
  * catch up before the next assertion or `tick` — `t.mock.timers.tick` only
  * advances the virtual clock and runs due timers synchronously, so a poll's
@@ -455,16 +476,7 @@ describe("containerSandbox", () => {
 
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.match(asked, /correction/);
-    assert.match(asked, /prerequisite/);
-    assert.match(asked, /clarification/);
-    assert.match(asked, /suggestion/);
-    assert.match(asked, /\/discoveries/);
-    assert.match(asked, /"kind"/);
-    assert.match(asked, /"title"/);
-    assert.match(asked, /"body"/);
-    assert.match(asked, /stop without committing further/);
-    assert.match(asked, /at most one suggestion/);
+    assertDiscoveryInstructions(asked);
   });
 
   it("asks docker for no model when the request names none", async () => {
@@ -2266,13 +2278,7 @@ describe("containerSandbox.review", () => {
       spendCeiling: CEILING,
     });
 
-    assert.match(asked, /correction/);
-    assert.match(asked, /prerequisite/);
-    assert.match(asked, /clarification/);
-    assert.match(asked, /suggestion/);
-    assert.match(asked, /\/discoveries/);
-    assert.match(asked, /stop without committing further/);
-    assert.match(asked, /at most one suggestion/);
+    assertDiscoveryInstructions(asked);
   });
 
   /**
@@ -2639,13 +2645,7 @@ describe("containerSandbox.specReview", () => {
       spendCeiling: CEILING,
     });
 
-    assert.match(asked, /correction/);
-    assert.match(asked, /prerequisite/);
-    assert.match(asked, /clarification/);
-    assert.match(asked, /suggestion/);
-    assert.match(asked, /\/discoveries/);
-    assert.match(asked, /stop without committing further/);
-    assert.match(asked, /at most one suggestion/);
+    assertDiscoveryInstructions(asked);
   });
 
   it("tells the agent to report and stop where the ticket has no parent to review against", async () => {
@@ -3028,13 +3028,7 @@ describe("containerSandbox.applyReview", () => {
 
     await applyReviewOn(sandbox, directory);
 
-    assert.match(asked, /correction/);
-    assert.match(asked, /prerequisite/);
-    assert.match(asked, /clarification/);
-    assert.match(asked, /suggestion/);
-    assert.match(asked, /\/discoveries/);
-    assert.match(asked, /stop without committing further/);
-    assert.match(asked, /at most one suggestion/);
+    assertDiscoveryInstructions(asked);
   });
 
   it("passes the model to the agent CLI", async () => {
@@ -3520,13 +3514,7 @@ describe("containerSandbox.rebase", () => {
 
     await rebaseOn(sandbox, directory);
 
-    assert.match(asked, /correction/);
-    assert.match(asked, /prerequisite/);
-    assert.match(asked, /clarification/);
-    assert.match(asked, /suggestion/);
-    assert.match(asked, /\/discoveries/);
-    assert.match(asked, /stop without committing further/);
-    assert.match(asked, /at most one suggestion/);
+    assertDiscoveryInstructions(asked);
   });
 
   it("passes the model to the agent CLI", async () => {
