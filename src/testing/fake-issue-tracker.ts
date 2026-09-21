@@ -403,6 +403,10 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /**
    * The review lands in the same backlog its parent came from, because a real
    * review ticket is born ready-for-agent and is eligible from that moment.
+   * Linked to it as a sub-issue, the way `createSpecReviewTicket` links a
+   * spec review to its supertask — the real tracker's own `createReviewTicket`
+   * hangs the review off `ticket` through `linkToParent`, so `listOpenIssues`
+   * reports it back the same way here.
    *
    * Numbered above every ticket the repo has — eligible or not, the way the
    * real tracker never reuses a number — so a test can tell the review from
@@ -416,6 +420,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       number: this.#nextNumber(ticket.repo, ticket),
       title: reviewTitle(ticket),
       pullRequest: { kind: "review", url: pullRequest },
+      parent: ticket.number,
     });
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });
