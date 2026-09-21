@@ -12,6 +12,11 @@ export type { CronMinute } from "./cron-minute.ts";
 export { day, isDay, localDay, localTimeOfMinute } from "./day.ts";
 export type { Day } from "./day.ts";
 export {
+  discoveryDirectory,
+  isDiscoveryDirectory,
+} from "./discovery-directory.ts";
+export type { DiscoveryDirectory } from "./discovery-directory.ts";
+export {
   DISCOVERY_KINDS,
   isBlockingDiscoveryKind,
   isDiscovery,
