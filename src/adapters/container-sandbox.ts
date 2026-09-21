@@ -524,7 +524,7 @@ async function attempt(
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
     await mkdtemp(
-      path.join(transcriptsRoot, `side-projects-transcript-${kind}-`),
+      path.join(transcriptsRoot, `${kind}-`),
     ),
   );
   try {

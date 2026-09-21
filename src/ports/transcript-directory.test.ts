@@ -8,7 +8,7 @@ import {
 
 describe("isTranscriptDirectory", () => {
   it("accepts a normalised absolute path", () => {
-    assert.ok(isTranscriptDirectory("/tmp/side-projects-transcript-run-abc123"));
+    assert.ok(isTranscriptDirectory("/home/manager/transcripts/run-abc123"));
   });
 
   it("refuses a relative path, which no adapter could resolve twice", () => {
