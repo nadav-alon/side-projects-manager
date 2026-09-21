@@ -21,6 +21,7 @@ import type {
   RunProviderFailed,
   Salvaged,
   Ticket,
+  TranscriptPath,
 } from "./ports/index.ts";
 import {
   MODEL_LABEL_PREFIX,
@@ -103,7 +104,7 @@ export interface HandBackPorts {
  * or rebase run leaves neither, but names the pull request its comment
  * points at, and may say which head a rejected push found it moved to.
  */
-type GaveUpContext =
+type GaveUpContext = (
   | { ticketKind: "implementation"; output: string; checkout: Checkout; run: RunGaveUp }
   | { ticketKind: "review"; output: string }
   | {
@@ -117,7 +118,15 @@ type GaveUpContext =
       output: string;
       pullRequest: PullRequestUrl;
       movedHead?: CommitSha;
-    };
+    }
+) & {
+  /**
+   * Where the run's session transcript landed, absent when none was ever
+   * found — so the comment can tell whoever picks the ticket back up where to
+   * read it, rather than only the morning summary knowing.
+   */
+  transcript?: TranscriptPath;
+};
 
 /**
  * How one iteration ended, for the one ticket it selected — everything
@@ -264,7 +273,7 @@ function gaveUpCommentFor(ending: GaveUp & GaveUpContext, discard: Discard): str
         return [...movedHeadNote(ending.movedHead), untouchedDraftState(ending.pullRequest)];
     }
   })();
-  return gaveUpComment(ending.reason, ending.output, notes);
+  return gaveUpComment(ending.reason, ending.output, notes, ending.transcript);
 }
 
 /**
@@ -295,14 +304,29 @@ function handoverFailedComment(ending: HandoverFailed): string {
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */
-function gaveUpComment(reason: string, output: string, notes: string[]): string {
+function gaveUpComment(
+  reason: string,
+  output: string,
+  notes: string[],
+  transcript: TranscriptPath | undefined,
+): string {
   return [
     `The morning loop ran this ticket and the agent gave up.`,
     `Why it stopped: ${tail(reason, REASON_QUOTED)}`,
     `What it said:\n\n${quote(output)}`,
     ...notes,
     notRetried(),
+    ...transcriptLine(transcript),
   ].join("\n\n");
+}
+
+/**
+ * The comment's own last line naming where the run's session transcript
+ * landed, empty when it left none — so a ticket handed back for a run with no
+ * transcript reads exactly as it did before this line existed.
+ */
+function transcriptLine(transcript: TranscriptPath | undefined): string[] {
+  return transcript === undefined ? [] : [`Transcript: \`${transcript}\`.`];
 }
 
 /** Says which head a rejected push found the branch on, when that is why the run gave up. */

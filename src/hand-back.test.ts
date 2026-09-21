@@ -11,6 +11,7 @@ import {
   pullRequestUrl,
   repoSlug,
   tokenCount,
+  transcriptPath,
   type Ticket,
 } from "./ports/index.ts";
 import { FakeIssueTracker, FakeRepoHost } from "./testing/index.ts";
@@ -19,6 +20,7 @@ const REPO = repoSlug("nadav-alon/pilot");
 const CHECKOUT = checkout(`${FakeRepoHost.MANAGED_LOCATION}/${REPO}`);
 const BRANCH = branch("issue-7-add-the-thing");
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/171");
+const TRANSCRIPT = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
 
 function ports() {
   const tracker = new FakeIssueTracker();
@@ -64,7 +66,10 @@ function eligible<T extends { number: ReturnType<typeof issueNumber>; title: str
 
 describe("handBack", () => {
   describe("an implementation ticket whose agent gave up", () => {
-    const ending = (run: Parameters<typeof gaveUpRun>[0] = {}): HandBackEnding => {
+    const ending = (
+      run: Parameters<typeof gaveUpRun>[0] = {},
+      transcript?: ReturnType<typeof transcriptPath>,
+    ): HandBackEnding => {
       const built = gaveUpRun(run);
       return {
         kind: "gave-up",
@@ -73,6 +78,7 @@ describe("handBack", () => {
         output: built.output,
         checkout: CHECKOUT,
         run: built,
+        ...(transcript !== undefined && { transcript }),
       };
     };
 
@@ -186,6 +192,27 @@ describe("handBack", () => {
       // output renders as Markdown and its `#123`s become cross-references.
       assert.match(tracker.handbacks[0]?.comment ?? "", /````\n/);
     });
+
+    it("names the transcript's host path as a code span, when the run left one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, ending({}, TRANSCRIPT));
+
+      assert.match(
+        tracker.handbacks[0]?.comment ?? "",
+        new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+      );
+    });
+
+    it("says nothing about a transcript when the run left none", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, ending());
+
+      assert.doesNotMatch(tracker.handbacks[0]?.comment ?? "", /Transcript:/);
+    });
   });
 
   it("hands a review ticket back with no branch to discard, on the agent's own reason", async () => {
@@ -204,6 +231,25 @@ describe("handBack", () => {
     const comment = tracker.handbacks[0]?.comment ?? "";
     assert.match(comment, /the review skill exited 1/);
     assert.match(comment, /I could not read the diff/);
+    assert.doesNotMatch(comment, /Transcript:/);
+  });
+
+  it("names the transcript's host path on a review hand-back that left one", async () => {
+    const { tracker, repoHost } = ports();
+    const ticket = eligible(tracker, reviewTicket());
+
+    await handBack({ tracker, repoHost }, ticket, {
+      kind: "gave-up",
+      ticketKind: "review",
+      reason: "the review skill exited 1",
+      output: "I could not read the diff",
+      transcript: TRANSCRIPT,
+    });
+
+    assert.match(
+      tracker.handbacks[0]?.comment ?? "",
+      new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+    );
   });
 
   it("hands an apply-review ticket back, naming the moved head and that its pull request is still a draft", async () => {
@@ -225,6 +271,25 @@ describe("handBack", () => {
     assert.match(comment, /is still a draft/);
   });
 
+  it("names the transcript's host path on an apply-review hand-back that left one", async () => {
+    const { tracker, repoHost } = ports();
+    const ticket = eligible(tracker, applyReviewTicket());
+
+    await handBack({ tracker, repoHost }, ticket, {
+      kind: "gave-up",
+      ticketKind: "apply-review",
+      reason: "the push was rejected",
+      output: "pushed",
+      pullRequest: PULL_REQUEST,
+      transcript: TRANSCRIPT,
+    });
+
+    assert.match(
+      tracker.handbacks[0]?.comment ?? "",
+      new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+    );
+  });
+
   it("hands a rebase ticket back, leaving its draft state alone rather than calling it a draft", async () => {
     const { tracker, repoHost } = ports();
     const ticket = eligible(tracker, rebaseTicket());
@@ -240,6 +305,25 @@ describe("handBack", () => {
     const comment = tracker.handbacks[0]?.comment ?? "";
     assert.match(comment, /draft state was left as it was/);
     assert.doesNotMatch(comment, /is still a draft/);
+  });
+
+  it("names the transcript's host path on a rebase hand-back that left one", async () => {
+    const { tracker, repoHost } = ports();
+    const ticket = eligible(tracker, rebaseTicket());
+
+    await handBack({ tracker, repoHost }, ticket, {
+      kind: "gave-up",
+      ticketKind: "rebase",
+      reason: "still conflicts",
+      output: "still conflicts",
+      pullRequest: PULL_REQUEST,
+      transcript: TRANSCRIPT,
+    });
+
+    assert.match(
+      tracker.handbacks[0]?.comment ?? "",
+      new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+    );
   });
 
   describe("a model refusal", () => {
