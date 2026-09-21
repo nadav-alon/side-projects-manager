@@ -45,9 +45,20 @@ cron_path() {
 }
 CRON_PATH="$(cron_path)"
 
+# Cron sources neither .bashrc nor .zshrc, so the credentials in the env file
+# setup-wizard.sh writes — CLAUDE_CODE_OAUTH_TOKEN and the GitHub tokens —
+# never reach a firing unless the line loads that file itself. Crontab-level
+# variable lines are not enough on their own: anything else that rewrites the
+# crontab can drop them, and the run then fails on a missing token.
+ENV_FILE="$HOME/.side-projects-manager.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "install-triggers: $ENV_FILE is missing; run scripts/setup-wizard.sh first." >&2
+  exit 1
+fi
+
 CRON_MARKER_OLD="# side-projects-manager: daily schedule (see scripts/install-triggers.sh)"
 CRON_MARKER="# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)"
-CRON_LINE="0 * * * * PATH=\"$CRON_PATH\" $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
+CRON_LINE="0 * * * * set -a; . \"$ENV_FILE\"; set +a; PATH=\"$CRON_PATH\" $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
 
 RC_BEGIN="# >>> side-projects-manager: logon guard >>>"
 RC_END="# <<< side-projects-manager: logon guard <<<"
