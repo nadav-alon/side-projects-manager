@@ -5699,6 +5699,29 @@ describe("morningLoop", () => {
       );
     });
 
+    it("sweeps and labels a conflicting pull request even though the gate refuses the invocation's first ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      ports.repoHost.mergeStatus = () => "conflicting";
+      ports.ledger.reports(spent({ weekly: SPENDABLE_THIS_WEEK + 1 }));
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "stood-down");
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
+      ]);
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /## Conflict sweeps/);
+    });
+
     it(
       "never runs two sweeps of the same project at the same time, even with iterations in progress",
       HANGS,
