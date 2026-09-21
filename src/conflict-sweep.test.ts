@@ -22,16 +22,17 @@ const OTHER_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/p
 const THIRD_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
 
 describe("conflictSweep", () => {
-  it("never reads or labels a pull request whose body names no closed ticket", async (t) => {
+  it("never reads, labels or comments on a pull request whose body names no closed ticket", async (t) => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [{ url: PULL_REQUEST, labels: [] }]);
     host.mergeStatus = () => "conflicting";
     const readMergeStatus = t.mock.method(host, "readMergeStatus");
 
-    const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
+    const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
 
     assert.equal(readMergeStatus.mock.callCount(), 0);
     assert.deepEqual(host.labelled, []);
+    assert.deepEqual(host.comments, []);
     assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
   });
 
@@ -64,16 +65,17 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome.changes, []);
   });
 
-  it("leaves an unknown pull request untouched", async () => {
+  it("leaves an unknown pull request untouched, in a turbo project too", async () => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
     ]);
     host.mergeStatus = () => "unknown";
 
-    const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
+    const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
 
     assert.deepEqual(host.labelled, []);
+    assert.deepEqual(host.comments, []);
     assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
   });
 
@@ -138,6 +140,28 @@ describe("conflictSweep", () => {
       { pullRequest: PULL_REQUEST, action: "unlabelled" },
     ]);
     assert.deepEqual(outcome.refusals, []);
+  });
+
+  it("removes needs-rebase from a clean pull request even while a rebase ticket for it is open", async () => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
+    ]);
+    host.mergeStatus = () => "clean";
+    const tracker = new FakeIssueTracker();
+    tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(2),
+      title: "Rebase #1",
+      pullRequest: { kind: "rebase", url: PULL_REQUEST },
+    });
+    const openIssues = await tracker.listOpenIssues(PILOT);
+
+    const outcome = await conflictSweep(host, PILOT, false, openIssues);
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), false);
+    assert.deepEqual(outcome.changes, [
+      { pullRequest: PULL_REQUEST, action: "unlabelled" },
+    ]);
   });
 
   it("does nothing to a clean pull request that does not carry needs-rebase", async () => {
