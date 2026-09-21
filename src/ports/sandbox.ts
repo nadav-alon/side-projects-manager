@@ -199,6 +199,28 @@ export interface ReviewProviderFailed extends Ended {
   words: string;
 }
 
+/**
+ * The run's own spend ceiling stopped it: the agent CLI's envelope carried
+ * `subtype: "error_max_budget_usd"`. Distinct from `RunLimitRefused` — this
+ * ceiling is the developer's own declaration, enforced by the CLI itself, not
+ * a refusal from the provider — and from `RunGaveUp` — the run was stopped
+ * from outside, not abandoned on its own account.
+ */
+export interface RunBudgetExhausted extends Ended, Worked {
+  kind: "budget-exhausted";
+  /**
+   * What the CLI said, word for word — the envelope's own `result`, or, when
+   * it gave no `result` to quote, a fixed line saying so.
+   */
+  words: string;
+}
+
+/** As `RunBudgetExhausted`, for a review. */
+export interface ReviewBudgetExhausted extends Ended {
+  kind: "budget-exhausted";
+  words: string;
+}
+
 /** `RunRequest.model` was refused by the agent CLI rather than run. */
 export interface RunModelRefused extends Ended, Worked {
   kind: "model-refused";
@@ -240,6 +262,7 @@ export type RunSandboxFailed = Ended & {
  * other field to know which is which.
  */
 export type RunOutcome =
+  | RunBudgetExhausted
   | RunFinished
   | RunGaveUp
   | RunLimitRefused
@@ -249,6 +272,7 @@ export type RunOutcome =
 
 /** As `RunOutcome`, for a review — with no branch or commits on any variant. */
 export type ReviewOutcome =
+  | ReviewBudgetExhausted
   | ReviewFinished
   | ReviewGaveUp
   | ReviewLimitRefused
@@ -279,6 +303,7 @@ export interface ApplyReviewGaveUp extends ReviewGaveUp {
  * pushed and answered is read back from the repo host, never from here.
  */
 export type ApplyReviewOutcome =
+  | ReviewBudgetExhausted
   | ReviewFinished
   | ApplyReviewGaveUp
   | ReviewLimitRefused
@@ -297,6 +322,7 @@ export type RebaseGaveUp = ApplyReviewGaveUp;
  * whether it worked is read back from the repo host, never from here.
  */
 export type RebaseOutcome =
+  | ReviewBudgetExhausted
   | RebaseFinished
   | RebaseGaveUp
   | ReviewLimitRefused

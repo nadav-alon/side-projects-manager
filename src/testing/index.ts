@@ -15,6 +15,10 @@ export {
   type FakePush,
 } from "./fake-repo-host.ts";
 export { FakeSandbox } from "./fake-sandbox.ts";
+export {
+  BUDGET_EXHAUSTED_JSON_RESULT,
+  BUDGET_EXHAUSTED_STDOUT,
+} from "./budget-exhaustion.ts";
 export { LIMIT_REFUSAL } from "./limit-refusal.ts";
 export {
   PROVIDER_FAILURE_JSON_RESULT,

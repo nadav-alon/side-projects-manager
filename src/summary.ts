@@ -7,6 +7,7 @@ import {
   handedBackFailure,
   type AppliedReview,
   type Attempt,
+  type BudgetExhausted,
   type CutOff,
   type Failed,
   type Finished,
@@ -311,15 +312,15 @@ function stillEligibleLine(iteration: {
   return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
 }
 
-/** What the developer may want to do about a ticket that keeps getting cut off — said the same way everywhere it comes up. */
+/** What the developer may want to do about a ticket that keeps getting stopped short — said the same way everywhere it comes up. */
 const CONSIDER_SPLITTING = "consider splitting it or giving it a larger size or model";
 
-/** A limit-refused ticket whose salvage shows it has been cut off repeatedly: worth the developer's attention, since it may need splitting or a larger size or model. */
-function repeatedRefusalWaitingLine(
+/** A limit-refused or budget-exhausted ticket whose salvage shows it has been stopped short repeatedly: worth the developer's attention, since it may need splitting or a larger size or model. */
+function repeatedStopShortWaitingLine(
   iteration: { repo: RepoSlug; ticket: Ticket },
-  limitRefusals: number,
+  stopShorts: number,
 ): string {
-  return `- ${iteration.repo} #${iteration.ticket.number}: cut off ${limitRefusals} times in a row — ${CONSIDER_SPLITTING}`;
+  return `- ${iteration.repo} #${iteration.ticket.number}: stopped short ${stopShorts} times in a row — ${CONSIDER_SPLITTING}`;
 }
 
 /**
@@ -375,13 +376,15 @@ function waitingSection(
           ? []
           : [pullRequestResolvedWaitingLine(iteration, iteration.notClosed)];
       // A limit refusal's or a provider failure's ticket waits on the
-      // provider, not the developer — unless a limit refusal's salvage shows
-      // the ticket has been cut off repeatedly, which the developer may want
-      // to act on by splitting it or giving it a larger size or model.
-      case "limit-refused": {
+      // provider, not the developer — unless a limit refusal's or a budget
+      // exhaustion's salvage shows the ticket has been stopped short
+      // repeatedly, which the developer may want to act on by splitting it or
+      // giving it a larger size or model.
+      case "limit-refused":
+      case "budget-exhausted": {
         const salvage = salvageOf(iteration.discard);
-        return salvage !== undefined && salvage.limitRefusals >= 2
-          ? [repeatedRefusalWaitingLine(iteration, salvage.limitRefusals)]
+        return salvage !== undefined && salvage.stopShorts >= 2
+          ? [repeatedStopShortWaitingLine(iteration, salvage.stopShorts)]
           : [];
       }
       case "provider-failed":
@@ -597,12 +600,13 @@ function ranNothing(iteration: IterationOutcome): boolean {
     case "reviewed":
     case "limit-refused":
     case "provider-failed":
+    case "budget-exhausted":
       return false;
   }
 }
 
-/** What a cut-off iteration says about a branch its discard could not throw away. Empty when there was none, or it went cleanly. */
-function keptBranchNote(iteration: CutOff): string {
+/** What a cut-off or budget-exhausted iteration says about a branch its discard could not throw away. Empty when there was none, or it went cleanly. */
+function keptBranchNote(iteration: CutOff | BudgetExhausted): string {
   return iteration.discard.kind === "kept"
     ? ` Its branch ${iteration.run?.branch ?? ""} could not be discarded: ${withoutTrailingStop(iteration.discard.reason)}.`
     : "";
@@ -625,22 +629,23 @@ function salvagedBranchNote(salvage: Salvaged | undefined): string {
 }
 
 /**
- * `salvagedBranchNote`, plus — for a limit refusal only — a warning once its
- * ticket's own count of limit refusals in a row reaches two, since that is
- * worth splitting it or giving it a larger size or model over; at exactly one
- * it stays quiet, a single refusal being unremarkable. An infrastructure
- * failure never adds the warning here: its own `limitRefusals` only ever
- * repeats what an earlier limit refusal already recorded, so this line's
- * count would not be its own (see `InfrastructureFailure.salvage`).
+ * `salvagedBranchNote`, plus — for a limit refusal or a budget exhaustion
+ * only — a warning once its ticket's own count of stop-shorts in a row
+ * reaches two, since that is worth splitting it or giving it a larger size or
+ * model over; at exactly one it stays quiet, a single stop-short being
+ * unremarkable. An infrastructure failure never adds the warning here: its
+ * own `stopShorts` only ever repeats what an earlier stop-short already
+ * recorded, so this line's count would not be its own (see
+ * `InfrastructureFailure.salvage`).
  */
 function salvageNote(salvage: Salvaged | undefined): string {
   if (salvage === undefined) {
     return "";
   }
   const kept = salvagedBranchNote(salvage);
-  return salvage.limitRefusals < 2
+  return salvage.stopShorts < 2
     ? kept
-    : `${kept} This ticket has been cut off ${salvage.limitRefusals} times in a row: ${CONSIDER_SPLITTING}.`;
+    : `${kept} This ticket has been stopped short ${salvage.stopShorts} times in a row: ${CONSIDER_SPLITTING}.`;
 }
 
 /**
@@ -660,6 +665,8 @@ function describeIteration(iteration: IterationOutcome): string {
       return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
     case "provider-failed":
       return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
+    case "budget-exhausted":
+      return `The run on ${iteration.repo} #${iteration.ticket.number} was stopped by its spend ceiling: ${withoutTrailingStop(iteration.words)}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
     case "failed": {
       const { repo, ticket } = iteration;
       // Named as a rebase, since a rebase ticket's own title says nothing a

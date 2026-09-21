@@ -25,7 +25,7 @@ import {
   KEPT_SUMMARY_LIMIT,
   findInvocationRecord,
   keptSummaryPath,
-  recordLimitRefusalSalvage,
+  recordStopShortSalvage,
   ticketKey,
   workedTicket,
 } from "../ports/index.ts";
@@ -103,10 +103,10 @@ export class FakeStore implements Store {
    * limit refusal or post-start infrastructure failure would have left it —
    * replacing whatever salvage record `ticket` already carried.
    */
-  markSalvaged(ticket: WorkedTicket, branch: Branch, limitRefusals: number): void {
-    this.#salvages = recordLimitRefusalSalvage(this.#salvages, ticket, branch).map(
+  markSalvaged(ticket: WorkedTicket, branch: Branch, stopShorts: number): void {
+    this.#salvages = recordStopShortSalvage(this.#salvages, ticket, branch).map(
       (salvage) =>
-        ticketKey(salvage) === ticketKey(ticket) ? { ...salvage, limitRefusals } : salvage,
+        ticketKey(salvage) === ticketKey(ticket) ? { ...salvage, stopShorts } : salvage,
     );
   }
 

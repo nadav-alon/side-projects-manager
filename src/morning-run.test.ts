@@ -42,6 +42,7 @@ import {
   PILOT,
   SPENDABLE_THIS_WEEK,
   YESTERDAY,
+  BUDGET_EXHAUSTED_JSON_RESULT,
   FakeClock,
   FakeProgress,
   FakeRepoHost,
@@ -68,6 +69,11 @@ function finished(iteration: IterationOutcome | undefined) {
 /** The limit-refused half of an iteration outcome — undefined if it ended any other way. */
 function limitRefused(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "limit-refused" ? iteration : undefined;
+}
+
+/** The budget-exhausted half of an iteration outcome — undefined if it ended any other way. */
+function budgetExhausted(iteration: IterationOutcome | undefined) {
+  return iteration?.kind === "budget-exhausted" ? iteration : undefined;
 }
 
 /** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
@@ -543,6 +549,29 @@ describe("morningLoop", () => {
         branch: branch(`fake/${ticket.repo}/${ticket.number}`),
         commits: [],
         words: PROVIDER_FAILURE_PROSE,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(
+        (await ports.store.loadState()).workedToday?.tickets,
+        [],
+      );
+    });
+
+    it("frees the ticket for a later firing today when its own spend ceiling stopped its run", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      ports.sandbox.result = (ticket) => ({
+        kind: "budget-exhausted",
+        branch: branch(`fake/${ticket.repo}/${ticket.number}`),
+        commits: [],
+        words: BUDGET_EXHAUSTED_JSON_RESULT,
         tokensUsed: tokenCount(0),
       });
 
@@ -3271,13 +3300,13 @@ describe("morningLoop", () => {
       ]);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, limitRefusals: 1 },
+        { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, stopShorts: 1 },
       ]);
       const failure = failureOf(report.iterations[0]);
       assert.equal(failure?.kind, "infrastructure");
       assert.deepEqual(
         failure?.kind === "infrastructure" ? failure.salvage : undefined,
-        { branch: FAILED_BRANCH, limitRefusals: 1 },
+        { branch: FAILED_BRANCH, stopShorts: 1 },
       );
     });
 
@@ -4431,7 +4460,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.pullRequests.length, 0);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), limitRefusals: 1 },
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), stopShorts: 1 },
       ]);
     });
 
@@ -4459,7 +4488,7 @@ describe("morningLoop", () => {
           repo: PILOT,
           number: issueNumber(1),
           branch: branch("issue-1-earlier-salvage"),
-          limitRefusals: 1,
+          stopShorts: 1,
         },
       ]);
     });
@@ -4482,12 +4511,12 @@ describe("morningLoop", () => {
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, limitRefusals: 2 },
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 2 },
       ]);
       assert.deepEqual(limitRefused(second.iterations[0])?.discard, {
         kind: "salvaged",
         branch: SALVAGED_BRANCH,
-        limitRefusals: 2,
+        stopShorts: 2,
       });
     });
 
@@ -4515,7 +4544,7 @@ describe("morningLoop", () => {
       ]);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1-2"), limitRefusals: 2 },
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1-2"), stopShorts: 2 },
       ]);
     });
 
@@ -4564,6 +4593,162 @@ describe("morningLoop", () => {
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.ok(backlog.some((ticket) => ticket.number === review.number));
       assert.equal(report.standDown?.reason, "provider-limit");
+    });
+  });
+
+  describe("a spend-ceiling ending", () => {
+    /**
+     * Unlike a limit refusal or a provider failure, one run's own spend
+     * ceiling says nothing about the next run's — a ticket needing more room
+     * is not a sign every other ticket this morning would hit the same wall —
+     * so it must never stand the invocation down.
+     */
+    it("does not stand the invocation down, and runs every ticket after it", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      for (const number of [1, 2, 3]) {
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(number),
+          title: `Ticket ${number}`,
+        });
+      }
+      ports.sandbox.result = (ticket) =>
+        ticket.number === 1
+          ? {
+              kind: "budget-exhausted",
+              branch: branch(`issue-${ticket.number}`),
+              commits: [],
+              words: BUDGET_EXHAUSTED_JSON_RESULT,
+              tokensUsed: tokenCount(0),
+            }
+          : {
+              kind: "finished",
+              branch: branch(`issue-${ticket.number}`),
+              commits: [],
+              output: "done",
+              tokensUsed: tokenCount(5_000),
+            };
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(
+        ports.sandbox.runs.map((run) => run.ticket.number),
+        [1, 2, 3],
+      );
+      assert.equal(report.standDown, undefined);
+    });
+
+    it("salvages a budget-exhausted run's branch with commits, rather than discarding it, without handing the ticket back", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      ports.sandbox.result = (ticket) => ({
+        kind: "budget-exhausted",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [commitSha("c0ffee1")],
+        words: BUDGET_EXHAUSTED_JSON_RESULT,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, []);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(ports.repoHost.pullRequests.length, 0);
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), stopShorts: 1 },
+      ]);
+    });
+
+    it("discards a budget-exhausted run's branch when it carries no commits, and leaves any existing salvage record unchanged", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      ports.store.markSalvaged(
+        { repo: PILOT, number: issueNumber(1) },
+        branch("issue-1-earlier-salvage"),
+        1,
+      );
+      ports.sandbox.result = (ticket) => ({
+        kind: "budget-exhausted",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        words: BUDGET_EXHAUSTED_JSON_RESULT,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.discarded, []);
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        {
+          repo: PILOT,
+          number: issueNumber(1),
+          branch: branch("issue-1-earlier-salvage"),
+          stopShorts: 1,
+        },
+      ]);
+    });
+
+    it("raises the same salvage count a limit refusal would, when it follows one on the same ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const SALVAGED_BRANCH = branch("issue-1");
+      ports.sandbox.result = () => ({
+        kind: "limit-refused",
+        branch: SALVAGED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+      ports.sandbox.result = () => ({
+        kind: "budget-exhausted",
+        branch: SALVAGED_BRANCH,
+        commits: [commitSha("c0ffee2")],
+        words: BUDGET_EXHAUSTED_JSON_RESULT,
+        tokensUsed: tokenCount(0),
+      });
+      const second = await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 2 },
+      ]);
+      assert.deepEqual(budgetExhausted(second.iterations[0])?.discard, {
+        kind: "salvaged",
+        branch: SALVAGED_BRANCH,
+        stopShorts: 2,
+      });
+    });
+
+    it("stands down neither, when it stops a review's run, leaving the review open", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const review = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(42),
+        title: "Review the draft pull request for #7",
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+        },
+      });
+      ports.sandbox.reviewResult = () => ({
+        kind: "budget-exhausted",
+        words: BUDGET_EXHAUSTED_JSON_RESULT,
+        tokensUsed: tokenCount(0),
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+      assert.ok(backlog.some((ticket) => ticket.number === review.number));
+      assert.equal(report.standDown, undefined);
     });
   });
 

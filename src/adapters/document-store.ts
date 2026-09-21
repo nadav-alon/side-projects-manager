@@ -626,7 +626,7 @@ function parseState(document: unknown, file: string): State {
 
 /**
  * `[{ "repo": "owner/repo", "number": 7, "branch": "issue-7-salvage",
- *    "limitRefusals": 1 }]`
+ *    "stopShorts": 1 }]`
  */
 function parseSalvages(value: unknown, where: string): Salvage[] {
   if (!Array.isArray(value)) {
@@ -643,17 +643,17 @@ function parseSalvage(salvage: unknown, where: string): Salvage {
   if (typeof branch !== "string" || !isBranch(branch)) {
     throw new Error(`${where}: "branch" must be a git branch name: ${JSON.stringify(branch)}`);
   }
-  const limitRefusals = fieldOf(salvage, "limitRefusals", where);
+  const stopShorts = fieldOf(salvage, "stopShorts", where);
   if (
-    typeof limitRefusals !== "number" ||
-    !Number.isInteger(limitRefusals) ||
-    limitRefusals < 0
+    typeof stopShorts !== "number" ||
+    !Number.isInteger(stopShorts) ||
+    stopShorts < 0
   ) {
     throw new Error(
-      `${where}: "limitRefusals" must be a whole number of 0 or more: ${JSON.stringify(limitRefusals)}`,
+      `${where}: "stopShorts" must be a whole number of 0 or more: ${JSON.stringify(stopShorts)}`,
     );
   }
-  return { repo, number, branch, limitRefusals };
+  return { repo, number, branch, stopShorts };
 }
 
 function parseDayField(value: unknown, where: string): Day {

@@ -112,46 +112,48 @@ export interface WorkedTicket {
 
 /**
  * One ticket's salvaged branch, kept in the checkout rather than discarded:
- * see CONTEXT.md's "Salvage". `limitRefusals` is how many limit refusals in a
- * row the ticket has had — 1 for the first, one more each time a run on this
- * same salvage is refused again — and is left unchanged by a post-start
- * infrastructure failure, which salvages a branch without being one.
+ * see CONTEXT.md's "Salvage". `stopShorts` is how many times in a row the
+ * ticket has been stopped short — a limit refusal or a budget exhaustion —
+ * 1 for the first, one more each time a run on this same salvage is stopped
+ * short again — and is left unchanged by a post-start infrastructure
+ * failure, which salvages a branch without being one.
  */
 export interface Salvage extends WorkedTicket {
   branch: Branch;
-  limitRefusals: number;
+  stopShorts: number;
 }
 
 /** `Salvage`'s own fields, without the ticket — what a discard or a failure names once the ticket it belongs to is known from context. */
-export type Salvaged = Pick<Salvage, "branch" | "limitRefusals">;
+export type Salvaged = Pick<Salvage, "branch" | "stopShorts">;
 
 /**
- * `previous` with `ticket`'s salvage recorded as a limit refusal on `branch`:
- * `limitRefusals` one more than an existing record for `ticket` already
- * carried, or 1 for a ticket salvaged for the first time.
+ * `previous` with `ticket`'s salvage recorded as a stop-short — a limit
+ * refusal or a budget exhaustion — on `branch`: `stopShorts` one more than an
+ * existing record for `ticket` already carried, or 1 for a ticket salvaged
+ * for the first time.
  */
-export function recordLimitRefusalSalvage(
+export function recordStopShortSalvage(
   previous: Salvage[] | undefined,
   ticket: WorkedTicket,
   branch: Branch,
 ): Salvage[] {
-  const limitRefusals = (salvageFor(previous, ticket)?.limitRefusals ?? 0) + 1;
-  return withSalvage(previous, { ...workedTicket(ticket), branch, limitRefusals });
+  const stopShorts = (salvageFor(previous, ticket)?.stopShorts ?? 0) + 1;
+  return withSalvage(previous, { ...workedTicket(ticket), branch, stopShorts });
 }
 
 /**
  * `previous` with `ticket`'s salvage recorded as a post-start infrastructure
- * failure on `branch`: `limitRefusals` left exactly as an existing record for
+ * failure on `branch`: `stopShorts` left exactly as an existing record for
  * `ticket` already carried, or 0 for a ticket salvaged for the first time —
- * an infrastructure failure salvages a branch without being a limit refusal.
+ * an infrastructure failure salvages a branch without being a stop-short.
  */
 export function recordInfrastructureFailureSalvage(
   previous: Salvage[] | undefined,
   ticket: WorkedTicket,
   branch: Branch,
 ): Salvage[] {
-  const limitRefusals = salvageFor(previous, ticket)?.limitRefusals ?? 0;
-  return withSalvage(previous, { ...workedTicket(ticket), branch, limitRefusals });
+  const stopShorts = salvageFor(previous, ticket)?.stopShorts ?? 0;
+  return withSalvage(previous, { ...workedTicket(ticket), branch, stopShorts });
 }
 
 /** `previous` with `salvage` recorded in place of any earlier one for the same ticket. */

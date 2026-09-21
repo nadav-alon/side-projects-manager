@@ -34,7 +34,7 @@ No registered project had an eligible ticket. A normal quiet morning, reported e
 _Avoid_: empty queue, no work, nothing found
 
 **Worked today**:
-The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes a ticket on this record over until the next local calendar day, even while it still carries ready-for-agent. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. It counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close. Everything else comes off the record again the moment its own iteration ends, and a later firing the same day — one triggered by a developer re-applying ready-for-agent by hand included — may select it: a hand-back that landed, a close that landed, and, saying nothing about the ticket at all, an infrastructure failure, a provider failure or a limit refusal. A record for any other day reads as nothing worked today.
+The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes a ticket on this record over until the next local calendar day, even while it still carries ready-for-agent. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. It counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close. Everything else comes off the record again the moment its own iteration ends, and a later firing the same day — one triggered by a developer re-applying ready-for-agent by hand included — may select it: a hand-back that landed, a close that landed, and, saying nothing about the ticket at all, an infrastructure failure, a provider failure, a limit refusal or a budget exhaustion. A record for any other day reads as nothing worked today.
 _Avoid_: seen, attempted, cooldown
 
 **Stand down**:
@@ -180,7 +180,7 @@ What becomes of a gave-up run's branch: deleted from the project checkout, never
 _Avoid_: clean up, prune, delete
 
 **Salvage**:
-What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, or an infrastructure failure after the agent started: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch. Nothing about the ticket changes. A run that continues on a salvage and then gives up is discarded, salvage and all.
+What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, an infrastructure failure after the agent started, or its own spend ceiling stopping it: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch. Nothing about the ticket changes. A run that continues on a salvage and then gives up is discarded, salvage and all.
 _Avoid_: leftover, WIP branch, partial run, resume branch
 
 **Backlog**:
@@ -313,12 +313,16 @@ A run, implementation, review, apply-review or rebase, that the agent started bu
 _Avoid_: outage, API error, provider down
 
 **Cut off**:
-A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way. An implementation run's branch is discarded on a provider failure, same as any other cut-off run's — but kept, as a salvage, on a limit refusal with commits (see **Salvage**).
+A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way. An implementation run's branch is discarded on a provider failure, same as any other cut-off run's — but kept, as a salvage, on a limit refusal with commits (see **Salvage**). Distinct from a budget exhaustion, which stops one run without saying anything about the next.
 _Avoid_: interrupted, killed, aborted
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate. One dollar figure for every ticket, or one per size label, resolved the same way `sizes` resolves the run estimate — an unsized ticket, and every review, apply-review or rebase ticket, takes `unsizedCountsAs`'s.
 _Avoid_: budget, limit, cap
+
+**Budget exhaustion**:
+A run, implementation, review, apply-review or rebase, that its own spend ceiling stopped: the agent CLI's envelope carries `subtype: "error_max_budget_usd"`. Not cut off in the sense that matters for a stand-down: this run's own ceiling says nothing about the next run's, so — unlike a limit refusal or a provider failure — it never stands the invocation down. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, an implementation run's work is salvaged exactly as a limit refusal's is, and what it spent is recorded.
+_Avoid_: budget cutoff, spend limit hit, out of budget
 
 **Concurrency limit**:
 The most iterations one invocation has in progress at once, `maxConcurrentIterations` in the budget document, defaulting to 1. The gate charges every iteration still in progress its own run estimate, so raising this does not multiply an unaccounted overshoot — but an estimate set too low still lets that many runs overshoot together, by as much as the largest ceiling in play, when the ceiling differs by size.

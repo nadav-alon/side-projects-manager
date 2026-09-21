@@ -114,6 +114,15 @@ export interface AgentRun {
    */
   providerFailure?: string;
   /**
+   * The CLI's own words saying `--max-budget-usd` stopped the run — the
+   * envelope's `result`, or a fixed line saying it gave none to quote —
+   * absent unless `budgetExhaustedFromEnvelope` recognises the envelope's
+   * `subtype`. Only ever set once the envelope parsed as an object: a
+   * spend-ceiling ending has no prose form the way a provider failure does,
+   * so there is nothing to recognise in raw `stdout`.
+   */
+  budgetExhausted?: string;
+  /**
    * The ticket gist off the agent's own last line, read before `output` gains
    * any diagnostics appended after it — see `gistFrom`. Absent when the agent
    * gave none.
@@ -414,11 +423,11 @@ async function runOnClone(
 
         // Salvaged before the commits are counted, so a cut-off run's own
         // uncommitted work is not dropped with the clone: see `Salvage` in
-        // CONTEXT.md. `wasCutOff` covers a limit refusal and a container that
-        // crashed once the agent had started — the two ways a run stops
-        // without the agent itself ending it. A run that finished, gave up on
-        // its own account, or was refused its model ended on its own terms,
-        // and keeps nothing uncommitted.
+        // CONTEXT.md. `wasCutOff` covers a limit refusal, its own spend
+        // ceiling stopping it, and a container that crashed once the agent
+        // had started — the ways a run stops without the agent itself ending
+        // it. A run that finished, gave up on its own account, or was refused
+        // its model ended on its own terms, and keeps nothing uncommitted.
         if (wasCutOff(ending, agent)) {
           await salvageUncommitted(clone);
         }
@@ -689,6 +698,31 @@ function providerFailureFromEnvelope(envelope: object): string | undefined {
 }
 
 /**
+ * A spend-ceiling ending read off `envelope`'s own fields: `is_error` and
+ * `subtype: "error_max_budget_usd"`, the CLI's own signal that
+ * `--max-budget-usd` stopped the run rather than the agent giving up on its
+ * own. What is quoted back is the envelope's own `result`, prose meant for a
+ * reader, or a fixed line when the envelope names the ending but gives no
+ * `result` to quote.
+ *
+ * Called only once `readAgentRun` already knows the envelope parsed as an
+ * object — the one place that test is made, rather than repeated here.
+ */
+function budgetExhaustedFromEnvelope(envelope: object): string | undefined {
+  const { is_error, subtype, result } = envelope as {
+    is_error?: unknown;
+    subtype?: unknown;
+    result?: unknown;
+  };
+  if (is_error !== true || subtype !== "error_max_budget_usd") {
+    return undefined;
+  }
+  return typeof result === "string"
+    ? result.trim()
+    : "the envelope named a spend-ceiling ending but gave no message to quote";
+}
+
+/**
  * A provider failure read off `stdout` when the CLI's answer never parsed as
  * JSON at all: `PROVIDER_FAILURE_PROSE` against the whole of what it said,
  * captured from a real provider failure.
@@ -716,9 +750,13 @@ function providerFailureFromProse(stdout: string): string | undefined {
  * provider's own worded refusal, a provider failure is silence. It, too, only
  * applies when the CLI exited non-zero: an agent that finished clean and
  * merely opens its own output with matching prose said nothing about the
- * provider failing.
+ * provider failing. The spend-ceiling ending is checked alongside the
+ * provider failure, in either order — off the envelope's own fields —
+ * since which of the two an exit carries is mutually exclusive, never a
+ * matter of ordering.
  */
 type Ending =
+  | { kind: "budget-exhausted"; words: string }
   | { kind: "finished"; output: string }
   | { kind: "gave-up"; output: string; reason: string }
   | { kind: "limit-refused"; words: string }
@@ -737,6 +775,9 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
   if (refusal !== undefined) {
     return { kind: "limit-refused", words: refusal.trim() };
   }
+  if (agent.failure !== undefined && agent.budgetExhausted !== undefined) {
+    return { kind: "budget-exhausted", words: agent.budgetExhausted };
+  }
   if (agent.failure !== undefined && agent.providerFailure !== undefined) {
     return { kind: "provider-failed", words: agent.providerFailure };
   }
@@ -747,17 +788,21 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
 
 /**
  * Whether an implementation run was cut off rather than ended by its own
- * agent — a limit refusal, or a container that crashed once the agent had
- * started — and so left uncommitted work worth salvaging: see `Salvage` in
- * CONTEXT.md. `ending` alone cannot tell a crashed container apart from an
- * agent that gave up on its own account, since `endingOf` reads both as
- * `"gave-up"`; `agent.crashed` is `attempt`'s own record of which one this
- * was.
+ * agent — a limit refusal, its own spend ceiling stopping it, or a container
+ * that crashed once the agent had started — and so left uncommitted work
+ * worth salvaging: see `Salvage` in CONTEXT.md. `ending` alone cannot tell a
+ * crashed container apart from an agent that gave up on its own account,
+ * since `endingOf` reads both as `"gave-up"`; `agent.crashed` is `attempt`'s
+ * own record of which one this was.
  *
  * TODO[#242]: a provider failure is cut off too, and is not salvaged here.
  */
 function wasCutOff(ending: Ending, agent: AgentRun): boolean {
-  return ending.kind === "limit-refused" || agent.crashed === true;
+  return (
+    ending.kind === "limit-refused" ||
+    ending.kind === "budget-exhausted" ||
+    agent.crashed === true
+  );
 }
 
 /**
@@ -1792,6 +1837,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
   const providerFailure = providerFailureFromEnvelope(envelope);
+  const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
     output: withDiagnostics(output, stderr, deniedTools(envelope)),
     tokensUsed: totalTokens(usage),
@@ -1799,6 +1845,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
     ...(providerFailure !== undefined && { providerFailure }),
+    ...(budgetExhausted !== undefined && { budgetExhausted }),
     ...(gist !== undefined && { gist }),
   };
 }
