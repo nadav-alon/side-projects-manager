@@ -1,6 +1,8 @@
 import type {
   ApplyReviewTicket,
+  Discovery,
   HandBackOutcome,
+  IssueNumber,
   IssueTracker,
   IssueUrl,
   OpenIssue,
@@ -12,6 +14,8 @@ import type {
   Ticket,
 } from "../ports/index.ts";
 import {
+  ENHANCEMENT_LABEL,
+  NEEDS_TRIAGE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
@@ -19,6 +23,7 @@ import {
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
+  discoveredBody,
   issueNumber,
   issueUrl,
   modelLabelOf,
@@ -48,6 +53,34 @@ export interface FakeReviewTicket {
 export interface FakeHandback {
   ticket: Ticket;
   comment: string;
+}
+
+/** One plain comment the fake was given, in the order it was posted. */
+export interface FakeComment {
+  ticket: Ticket;
+  comment: string;
+}
+
+/**
+ * One discovered ticket the loop opened, in the order it was opened. Not a
+ * sub-issue of `discoveredWhile` — a discovered ticket never is, per #595 —
+ * so it does not share `FakeReviewTicket`'s `parent` field name, which does
+ * carry that meaning.
+ */
+export interface FakeDiscoveredTicket {
+  /** The ticket it was discovered while working. */
+  discoveredWhile: Ticket;
+  title: string;
+  /** `discoveredBody(discoveredWhile, …)`: the given body, naming it. */
+  body: string;
+  /**
+   * Whether a `blocked_by` edge from `discoveredWhile` to `ticket` was
+   * added — not merely asked for: `false` where `discoveredWhile` was never
+   * put in the fake, the one way this can diverge from `discovery.blocking`.
+   */
+  blocking: boolean;
+  /** The discovered ticket itself, as the fake numbered it. */
+  ticket: Ticket;
 }
 
 /**
@@ -105,6 +138,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly reviewTickets: FakeReviewTicket[] = [];
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
+
+  /** Plain comments posted, in the order they were posted. */
+  readonly comments: FakeComment[] = [];
+
+  /** Discovered tickets opened, in the order they were opened. */
+  readonly discoveredTickets: FakeDiscoveredTicket[] = [];
 
   /** The review tickets closed, in the order they were closed. */
   readonly closedReviewTickets: ReviewTicket[] = [];
@@ -241,6 +280,19 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * A number above every ticket `repo` has — eligible or not, the way the
+   * real tracker never reuses a number — for `createReviewTicket` and
+   * `createDiscoveredTicket` to number what they open above `ticket` too, in
+   * case `repo` was seeded with a smaller newest number than `ticket`'s own.
+   */
+  #nextNumber(repo: RepoSlug, ticket: Ticket): IssueNumber {
+    const numbers = (this.#issues.get(repo) ?? []).map(
+      (entry) => entry.issue.number,
+    );
+    return issueNumber(Math.max(ticket.number, ...numbers) + 1);
+  }
+
+  /**
    * Marks `repo`'s backlog as a truncated backlog: more open issues than the
    * loop reads in one morning. The issues listed stay exactly those added, so
    * a test arranges the ones read and says there were more.
@@ -257,9 +309,28 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
-    const open = (this.#issues.get(repo) ?? []).filter((entry) => !entry.closed);
+    const stored = this.#issues.get(repo) ?? [];
+    const open = stored.filter((entry) => !entry.closed);
     const issues = open.map((entry) => {
-      const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
+      const {
+        parent,
+        openBlockerNumbers: numbers = [],
+        openBlockers: staticBlockers,
+        ...ticket
+      } = entry.issue;
+      // As the real tracker recomputes `openBlockers` from each blocker's
+      // state on every listing (`gh-issue-tracker.ts`'s `stillBlocking`):
+      // a number tracked here stays counted only while its own entry is
+      // still open. `staticBlockers` — set by `addBlockedTicket`, which
+      // tracks no numbers of its own — is added rather than replaced, so
+      // that helper's count is untouched by this.
+      const openBlockerNumbers = numbers.filter((number) => {
+        const blocker = stored.find(
+          (candidate) => candidate.issue.number === number,
+        );
+        return blocker === undefined || blocker.closed !== true;
+      });
+      const openBlockers = (staticBlockers ?? 0) + openBlockerNumbers.length;
       const modelLabel = modelLabelOf(entry.labels);
       const sizeLabel = sizeLabelOf(entry.labels);
       const supertask = carriesSupertaskLabel(entry.labels);
@@ -267,6 +338,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       return {
         ticket: {
           ...ticket,
+          ...(openBlockers > 0 && { openBlockers }),
           ...(modelLabel !== undefined && { modelLabel }),
           ...(sizeLabel !== undefined && { sizeLabel }),
           ...(supertask && { supertask }),
@@ -295,10 +367,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     pullRequest: PullRequestUrl,
   ): Promise<Ticket> {
-    const issues = this.#issues.get(ticket.repo) ?? [];
-    const numbers = issues.map((entry) => entry.issue.number);
     const review = this.addEligibleTicket(ticket.repo, {
-      number: issueNumber(Math.max(ticket.number, ...numbers) + 1),
+      number: this.#nextNumber(ticket.repo, ticket),
       title: reviewTitle(ticket),
       pullRequest: { kind: "review", url: pullRequest },
     });
@@ -323,6 +393,60 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     entry?.labels.delete(READY_FOR_AGENT_LABEL);
     entry?.labels.add(READY_FOR_HUMAN_LABEL);
     return "handed-back";
+  }
+
+  /** Records the comment. Touches no label, the way the real tracker's plain comment does. */
+  async comment(ticket: Ticket, comment: string): Promise<void> {
+    this.comments.push({ ticket, comment });
+  }
+
+  /**
+   * Opens a discovered ticket carrying `NEEDS_TRIAGE_LABEL` and
+   * `ENHANCEMENT_LABEL` — never `READY_FOR_AGENT_LABEL` — numbered above
+   * every ticket the repo has, the way `createReviewTicket` numbers a
+   * review. Asking for `discovery.blocking` adds `ticket`'s number to its own
+   * open blockers, the same fact `openBlockers` reports from on the next
+   * `listOpenIssues`.
+   */
+  async createDiscoveredTicket(
+    ticket: Ticket,
+    discovery: Discovery,
+  ): Promise<Ticket> {
+    const discovered = this.#add(
+      ticket.repo,
+      {
+        number: this.#nextNumber(ticket.repo, ticket),
+        title: discovery.title,
+      },
+      NEEDS_TRIAGE_LABEL,
+    );
+    this.addLabel(discovered, ENHANCEMENT_LABEL);
+
+    // `blocked` — what actually happened — rather than `discovery.blocking`
+    // — what was asked for: a ticket built by hand rather than through
+    // `addEligibleTicket` has no entry to add the edge to, and recording
+    // blocking regardless would claim an edge that changed nothing a
+    // `listOpenIssues` could ever show.
+    let blocked = false;
+    if (discovery.blocking === true) {
+      const parent = this.#find(ticket);
+      if (parent !== undefined) {
+        parent.issue.openBlockerNumbers = [
+          ...(parent.issue.openBlockerNumbers ?? []),
+          discovered.number,
+        ];
+        blocked = true;
+      }
+    }
+
+    this.discoveredTickets.push({
+      discoveredWhile: ticket,
+      title: discovery.title,
+      body: discoveredBody(ticket, discovery.body),
+      blocking: blocked,
+      ticket: discovered,
+    });
+    return discovered;
   }
 
   /**

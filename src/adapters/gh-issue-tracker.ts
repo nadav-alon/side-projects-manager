@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
+  Discovery,
   HandBackOutcome,
   IssueNumber,
   IssueTracker,
@@ -17,11 +18,14 @@ import type {
   TicketPriority,
 } from "../ports/index.ts";
 import {
+  ENHANCEMENT_LABEL,
+  NEEDS_TRIAGE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
+  discoveredBody,
   isIssueNumber,
   isIssueUrl,
   isPullRequestUrl,
@@ -250,13 +254,7 @@ export function ghIssueTracker(
       // morning after. Gaining ready-for-human comes last, because it is the
       // only one that needs a label to exist — and by then the ticket is
       // commented on and out of the queue, which is the part that matters.
-      await execFileAsync("gh", [
-        "issue",
-        "comment",
-        ...args,
-        "--body",
-        comment,
-      ]);
+      await postComment(ticket, comment);
       await execFileAsync("gh", [
         "issue",
         "edit",
@@ -290,7 +288,88 @@ export function ghIssueTracker(
       }
       return "handed-back";
     },
+
+    async comment(ticket: Ticket, comment: string): Promise<void> {
+      await postComment(ticket, comment);
+    },
+
+    async createDiscoveredTicket(
+      ticket: Ticket,
+      discovery: Discovery,
+    ): Promise<Ticket> {
+      await ensureLabel(ticket.repo, NEEDS_TRIAGE_LABEL);
+      await ensureLabel(ticket.repo, ENHANCEMENT_LABEL);
+
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--repo",
+        ticket.repo,
+        "--title",
+        discovery.title,
+        "--label",
+        NEEDS_TRIAGE_LABEL,
+        "--label",
+        ENHANCEMENT_LABEL,
+        "--body",
+        discoveredBody(ticket, discovery.body),
+      ]);
+
+      const discovered: Ticket = {
+        repo: ticket.repo,
+        number: issueNumberIn(stdout, ticket.repo),
+        title: discovery.title,
+      };
+
+      if (discovery.blocking === true) {
+        try {
+          await blockOn(ticket, discovered);
+        } catch (error) {
+          // The discovery is not lost — it exists and is triageable — but
+          // nobody was told to wait on it, which is the whole point of
+          // asking for the edge. Named here because this is the only place
+          // the developer learns the created issue and the refused edge
+          // both.
+          throw new Error(
+            `Opened #${discovered.number} in ${discovered.repo} but could not block #${ticket.number} by it: ${errorMessage(error)}`,
+          );
+        }
+      }
+
+      return discovered;
+    },
   };
+}
+
+/**
+ * Posts `comment` on `ticket`, the shape `handBack`'s own first call and
+ * `comment` share.
+ */
+async function postComment(ticket: Ticket, comment: string): Promise<void> {
+  await execFileAsync("gh", [
+    "issue",
+    "comment",
+    ...issueArgs(ticket),
+    "--body",
+    comment,
+  ]);
+}
+
+/**
+ * Adds a native `blocked_by` edge so `ticket` is blocked by `blocker`, keyed
+ * on `blocker`'s database id — what the endpoint takes, never its `#number`
+ * or node id, per `docs/agents/issue-tracker.md`.
+ */
+async function blockOn(ticket: Ticket, blocker: Ticket): Promise<void> {
+  const id = await issueIdOf(blocker);
+  await execFileAsync("gh", [
+    "api",
+    "--method",
+    "POST",
+    `repos/${ticket.repo}/issues/${ticket.number}/dependencies/blocked_by`,
+    "-F",
+    `issue_id=${id}`,
+  ]);
 }
 
 /**
@@ -321,6 +400,8 @@ async function closeWithComment(
 const LABEL_DESCRIPTIONS = {
   [READY_FOR_AGENT_LABEL]: "Fully specified, ready for an AFK agent",
   [READY_FOR_HUMAN_LABEL]: "Requires human implementation",
+  [NEEDS_TRIAGE_LABEL]: "Maintainer needs to evaluate this issue",
+  [ENHANCEMENT_LABEL]: "New feature or request",
 } as const;
 
 /**
