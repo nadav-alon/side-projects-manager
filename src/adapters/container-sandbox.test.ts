@@ -25,6 +25,7 @@ import {
   dockerNeverRanMessage,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
+  STALL_TIMEOUT,
   TICKET_GIST_TAG,
   TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
@@ -232,6 +233,37 @@ async function writeTranscript(
   const file = path.join(projectDir, name);
   await writeFile(file, '{"type":"summary"}\n');
   return file;
+}
+
+/**
+ * Lets the real, un-mocked filesystem I/O `watchForStall`'s own poll started
+ * catch up before the next assertion or `tick` — `t.mock.timers.tick` only
+ * advances the virtual clock and runs due timers synchronously, so a poll's
+ * own `stat` still resolves on the real event loop, one real turn later.
+ */
+async function flushRealIo(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+/**
+ * Advances mocked time well past `STALL_TIMEOUT` in several steps, flushing
+ * real I/O between each, rather than in one `tick`.
+ *
+ * Every poll inside a single `tick` call sees the same final mocked
+ * `Date.now()`, so a transcript written just before ticking would look
+ * freshly grown to every poll within whichever step first observes it, not
+ * only the first — resetting the idle clock to that step's own end rather
+ * than to zero. Advancing twice `STALL_TIMEOUT` over enough steps keeps the
+ * remainder comfortably past the window even against that worst case.
+ */
+async function advancePastStall(t: TestContext): Promise<void> {
+  const steps = 20;
+  for (let i = 0; i < steps; i++) {
+    t.mock.timers.tick(Math.ceil((STALL_TIMEOUT * 2) / steps));
+    await flushRealIo();
+  }
 }
 
 /**
@@ -822,6 +854,168 @@ describe("containerSandbox", () => {
     assert.equal(await headOf(directory, BRANCH), gaveUp?.commits.at(-1));
     assert.equal(await subjectOf(directory, BRANCH), SALVAGE_COMMIT_MESSAGE);
     assert.ok((await filesOn(directory, BRANCH)).includes("leftover.txt"));
+  });
+
+  /**
+   * `attempt`'s own idle backstop (`watchForStall`) against a container whose
+   * API response stalls mid-run: nothing bounds `docker run` on its own, so
+   * this is what kills it once its transcript goes quiet for `STALL_TIMEOUT`.
+   * Exercised entirely through a fake `Container` that honours `options.signal`
+   * the way the real `dockerContainer` does — by rejecting once it fires —
+   * so none of this needs docker: see `STALL_TIMEOUT`'s own doc comment for
+   * why twenty minutes.
+   */
+  describe("a run whose transcript stalls", () => {
+    /**
+     * A promise that settles once `body` is actually invoked, and a
+     * `Container` wrapping it that settles it — so a test can wait for the
+     * real git setup `attempt` does first (a real clone, a real branch) to
+     * finish before advancing mocked time, rather than guessing how many
+     * event-loop turns that takes.
+     */
+    function starts(body: Container): { container: Container; started: Promise<void> } {
+      let markStarted: () => void = () => {};
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      return {
+        started,
+        container: (options) => {
+          markStarted();
+          return body(options);
+        },
+      };
+    }
+
+    /** A `Container` that hangs until `options.signal` aborts, then rejects. */
+    const hangsUntilKilled: Container = ({ signal }) =>
+      new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new Error("the container was killed")),
+          { once: true },
+        );
+      });
+
+    it("kills a run whose transcript has gone quiet, and reads it as a provider failure naming how long", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      const { container, started } = starts(hangsUntilKilled);
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      await advancePastStall(t);
+
+      const result = await run;
+
+      assert.equal(result.kind, "provider-failed");
+      const words = variant(result, "provider-failed")?.words ?? "";
+      assert.match(words, /stalled/);
+      assert.match(words, /20 minutes/);
+    });
+
+    it("never kills a run whose transcript keeps growing, however long it runs", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      let transcriptDir = "";
+      let resolveAgent: ((agent: { output: string; tokensUsed: ReturnType<typeof tokenCount> }) => void) | undefined;
+      const { container, started } = starts(({ transcriptDirectory, signal }) => {
+        transcriptDir = transcriptDirectory;
+        return new Promise((resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("the container was killed")),
+            { once: true },
+          );
+          resolveAgent = resolve;
+        });
+      });
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+
+      // Three stretches, each just under the stall window, with the
+      // transcript written to between them: total elapsed time comfortably
+      // exceeds `STALL_TIMEOUT`, and the run must still not be killed.
+      for (let i = 0; i < 3; i++) {
+        await writeTranscript(transcriptDir);
+        t.mock.timers.tick(STALL_TIMEOUT - 1_000);
+        await flushRealIo();
+      }
+
+      resolveAgent?.({ output: "", tokensUsed: tokenCount(0) });
+      const result = await run;
+
+      assert.equal(result.kind, "finished");
+    });
+
+    it("still reports the transcript it wrote before going quiet", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      let written = "";
+      const { container, started } = starts(async ({ transcriptDirectory, signal }) => {
+        written = await writeTranscript(transcriptDirectory);
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("the container was killed")),
+            { once: true },
+          );
+        });
+      });
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      await advancePastStall(t);
+
+      const result = await run;
+
+      assert.equal(result.kind, "provider-failed");
+      assert.equal(variant(result, "provider-failed")?.transcript, written);
+    });
+
+    /**
+     * `dockerContainer`'s own half of the backstop kills the container and
+     * only then lets its promise settle — see its own doc comment — so
+     * `withThrowawayClone`'s `rm` (awaited after `attempt` returns) can never
+     * run while the container is still bind-mounting the clone. A fake
+     * `Container` whose own "kill" takes a moment stands in for that here.
+     */
+    it("keeps the clone until the container is confirmed gone, even when killing it takes a moment", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      let clone = "";
+      const { container, started } = starts(({ directory: mounted, signal }) => {
+        clone = mounted;
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              setTimeout(() => reject(new Error("the container was killed")), 100);
+            },
+            { once: true },
+          );
+        });
+      });
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      await advancePastStall(t);
+
+      assert.equal(
+        await exists(clone),
+        true,
+        "the abort fired, but the container's own kill has not settled yet",
+      );
+
+      await run;
+
+      assert.equal(await exists(clone), false);
+    });
   });
 
   it("reports a failure while salvaging as the sandbox's own failure, keeping the spend", async () => {
