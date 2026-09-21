@@ -11,6 +11,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  SubIssue,
   Ticket,
 } from "../ports/index.ts";
 import {
@@ -19,6 +20,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
+  SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -29,6 +31,7 @@ import {
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
+  specReviewTitle,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 
@@ -46,6 +49,16 @@ export interface FakeReviewTicket {
   /** The draft pull request the review is for. */
   pullRequest: PullRequestUrl;
   /** The review ticket itself, as the fake numbered it. */
+  ticket: Ticket;
+}
+
+/** One spec review ticket the sweep opened, in the order the fake received it. */
+export interface FakeSpecReviewTicket {
+  /** The supertask the spec review reviews. */
+  parent: Ticket;
+  /** The body the caller composed for it. */
+  body: string;
+  /** The spec review ticket itself, as the fake numbered it. */
   ticket: Ticket;
 }
 
@@ -136,6 +149,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
+  /** The spec review tickets opened, in the order they were opened. */
+  readonly specReviewTickets: FakeSpecReviewTicket[] = [];
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
 
@@ -302,6 +317,30 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * `entry` as a `Ticket`: its eligibility-independent facts, plus the model
+   * label, size label, supertask status and spec review status the real
+   * tracker reads from the labels it holds at the time of the call — so a
+   * label changed between calls changes what the next call returns. Shared by
+   * `listOpenIssues` and `listSubIssues`, the fake's two readers of a stored
+   * issue as a ticket.
+   */
+  #ticketOf(entry: Stored): Ticket {
+    const { parent: _parent, openBlockerNumbers: _openBlockerNumbers, ...ticket } =
+      entry.issue;
+    const modelLabel = modelLabelOf(entry.labels);
+    const sizeLabel = sizeLabelOf(entry.labels);
+    const supertask = carriesSupertaskLabel(entry.labels);
+    const specReview = carriesSpecReviewLabel(entry.labels);
+    return {
+      ...ticket,
+      ...(modelLabel !== undefined && { modelLabel }),
+      ...(sizeLabel !== undefined && { sizeLabel }),
+      ...(supertask && { supertask }),
+      ...(specReview && { specReview }),
+    };
+  }
+
+  /**
    * An issue's eligibility, model label, size label and supertask status are
    * read from the labels it holds at the time of the call, through the same
    * `modelLabelOf`, `sizeLabelOf` and `carriesSupertaskLabel` the real tracker
@@ -316,7 +355,6 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
         parent,
         openBlockerNumbers: numbers = [],
         openBlockers: staticBlockers,
-        ...ticket
       } = entry.issue;
       // As the real tracker recomputes `openBlockers` from each blocker's
       // state on every listing (`gh-issue-tracker.ts`'s `stillBlocking`):
@@ -331,18 +369,10 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
         return blocker === undefined || blocker.closed !== true;
       });
       const openBlockers = (staticBlockers ?? 0) + openBlockerNumbers.length;
-      const modelLabel = modelLabelOf(entry.labels);
-      const sizeLabel = sizeLabelOf(entry.labels);
-      const supertask = carriesSupertaskLabel(entry.labels);
-      const specReview = carriesSpecReviewLabel(entry.labels);
       return {
         ticket: {
-          ...ticket,
+          ...this.#ticketOf(entry),
           ...(openBlockers > 0 && { openBlockers }),
-          ...(modelLabel !== undefined && { modelLabel }),
-          ...(sizeLabel !== undefined && { sizeLabel }),
-          ...(supertask && { supertask }),
-          ...(specReview && { specReview }),
         },
         eligible: carriesReadyForAgent(entry.labels),
         openBlockerNumbers,
@@ -353,6 +383,21 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       issues,
       truncated: this.#truncated.has(repo),
     };
+  }
+
+  /**
+   * Every entry stored against `ticket`'s repo whose `parent` names it —
+   * open or closed alike, unlike `listOpenIssues`, which drops a closed one
+   * outright. Listed in the order they were added.
+   */
+  async listSubIssues(ticket: Ticket): Promise<SubIssue[]> {
+    const entries = this.#issues.get(ticket.repo) ?? [];
+    return entries
+      .filter((entry) => entry.issue.parent === ticket.number)
+      .map((entry) => ({
+        ticket: this.#ticketOf(entry),
+        closed: entry.closed === true,
+      }));
   }
 
   /**
@@ -375,6 +420,38 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
     this.reviewTickets.push({ parent: ticket, pullRequest, ticket: review });
     return review;
+  }
+
+  /**
+   * The spec review lands in the same backlog its supertask came from, born
+   * eligible and linked to it as a sub-issue — the way `createReviewTicket`
+   * links a review to the ticket that earned it — and carrying the spec
+   * review label and `SPEC_REVIEW_SIZE_LABEL`, the way the real tracker's own
+   * `createSpecReviewTicket` labels it.
+   *
+   * Numbered above every ticket the repo has, as `createReviewTicket` numbers
+   * a review, so a test can tell the spec review from the supertask that
+   * earned it. Answers with `specReview: true` set directly, the same as the
+   * real tracker's own return — unlike every other label-derived fact, which
+   * the fake reads back only from a later `listOpenIssues` or `listSubIssues`
+   * call, `isSpecReviewTicket` must already read `true` from the ticket
+   * `createSpecReviewTicket` itself hands back, since nothing else names the
+   * kind of ticket a caller just opened.
+   */
+  async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {
+    const issues = this.#issues.get(ticket.repo) ?? [];
+    const numbers = issues.map((entry) => entry.issue.number);
+    const specReview = this.addEligibleTicket(ticket.repo, {
+      number: issueNumber(Math.max(ticket.number, ...numbers) + 1),
+      title: specReviewTitle(ticket),
+      parent: ticket.number,
+    });
+    this.addLabel(specReview, SPEC_REVIEW_LABEL);
+    this.addLabel(specReview, SPEC_REVIEW_SIZE_LABEL);
+
+    const opened: Ticket = { ...specReview, specReview: true };
+    this.specReviewTickets.push({ parent: ticket, body, ticket: opened });
+    return opened;
   }
 
   async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {

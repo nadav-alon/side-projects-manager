@@ -12,6 +12,7 @@ import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   APPLY_REVIEW_MARKER,
+  CLOSING_PULL_REQUEST_LIMIT,
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
   OPEN_PULL_REQUEST_LIMIT,
@@ -1720,6 +1721,119 @@ describe("listing a repo's open pull requests", () => {
     await assert.rejects(
       githubRepoHost().listOpenPullRequests(PILOT),
       /pull request 1.*"labels\.name" must be a string/,
+    );
+  });
+});
+
+describe("listing a repo's pull requests closing issues", () => {
+  function listing(
+    entries: {
+      number: number;
+      state: string;
+      headRefName: string;
+      closingIssuesReferences: { number: number }[];
+    }[],
+  ): string {
+    return JSON.stringify(entries);
+  }
+
+  async function listedFrom(
+    t: TestContext,
+    entries: {
+      number: number;
+      state: string;
+      headRefName: string;
+      closingIssuesReferences: { number: number }[];
+    }[],
+  ) {
+    const gh = await recordingGh(t, `cat <<'JSON'\n${listing(entries)}\nJSON`);
+    const pullRequests = await githubRepoHost().listPullRequestsClosingIssues(PILOT);
+    return { gh, pullRequests };
+  }
+
+  it("lists a pull request's number, state, branch and the issues it closes", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      {
+        number: 50,
+        state: "MERGED",
+        headRefName: "41-part-one",
+        closingIssuesReferences: [{ number: 41 }],
+      },
+    ]);
+
+    assert.deepEqual(pullRequests, [
+      { number: 50, state: "merged", branch: "41-part-one", closesIssues: [41] },
+    ]);
+  });
+
+  it("lists a pull request closing more than one issue", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      {
+        number: 50,
+        state: "OPEN",
+        headRefName: "combo",
+        closingIssuesReferences: [{ number: 41 }, { number: 42 }],
+      },
+    ]);
+
+    assert.deepEqual(pullRequests[0]?.closesIssues, [41, 42]);
+  });
+
+  it("lists a pull request closing no issue with an empty list, not dropped and not an error", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      {
+        number: 50,
+        state: "CLOSED",
+        headRefName: "stray",
+        closingIssuesReferences: [],
+      },
+    ]);
+
+    assert.deepEqual(pullRequests, [
+      { number: 50, state: "closed", branch: "stray", closesIssues: [] },
+    ]);
+  });
+
+  it("asks for pull requests of any state, capped at CLOSING_PULL_REQUEST_LIMIT", async (t) => {
+    const { gh } = await listedFrom(t, []);
+
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), ["pr", "list"]);
+    assert.equal(valueOf(call, "--repo"), PILOT);
+    assert.equal(valueOf(call, "--state"), "all");
+    assert.equal(valueOf(call, "--limit"), String(CLOSING_PULL_REQUEST_LIMIT));
+  });
+
+  it("throws naming the malformed entry when gh answers with something outside the declared shape", async (t) => {
+    await recordingGh(t, `echo '[{"state": "OPEN"}]'`);
+
+    await assert.rejects(
+      githubRepoHost().listPullRequestsClosingIssues(PILOT),
+      /pull request 1.*"number" must be a number/,
+    );
+  });
+
+  it("throws naming the answer when a pull request's state is none of OPEN, MERGED or CLOSED", async (t) => {
+    await recordingGh(
+      t,
+      `echo '[{"number": 50, "state": "DRAFT", "headRefName": "x", "closingIssuesReferences": []}]'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().listPullRequestsClosingIssues(PILOT),
+      /DRAFT/,
+    );
+  });
+
+  it("throws naming the answer when a branch name git would not accept", async (t) => {
+    await recordingGh(
+      t,
+      `echo '[{"number": 50, "state": "OPEN", "headRefName": "-bad", "closingIssuesReferences": []}]'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().listPullRequestsClosingIssues(PILOT),
+      /headRefName.*not a branch name/,
     );
   });
 });

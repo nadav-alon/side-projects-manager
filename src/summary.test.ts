@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { Discard } from "./hand-back.ts";
+import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import type {
   AppliedReview,
   Finished,
@@ -308,6 +309,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     standDown: undefined,
     invocationFailure: undefined,
     conflictSweeps: [],
+    specReviewSweeps: [],
   };
 }
 
@@ -711,6 +713,7 @@ describe("summaryLine", () => {
         standDown,
         invocationFailure: undefined,
         conflictSweeps: [],
+        specReviewSweeps: [],
       });
     }
 
@@ -854,6 +857,7 @@ describe("summaryLine", () => {
       standDown: undefined,
       invocationFailure: "the process crashed.",
       conflictSweeps: [],
+      specReviewSweeps: [],
     });
 
     assert.match(line, /The invocation did not finish: the process crashed\./);
@@ -914,6 +918,7 @@ describe("summaryLine", () => {
       standDown: undefined,
       invocationFailure: undefined,
       conflictSweeps: [],
+      specReviewSweeps: [],
     });
 
     assert.match(line, /Nothing to do: skipped/);
@@ -1337,5 +1342,136 @@ describe("conflict sweeps", () => {
     ]);
 
     assert.match(summaryLine(refused), new RegExp(`Conflict sweep: ${REPO} \\(refused once\\)`));
+  });
+});
+
+describe("spec review sweeps", () => {
+  const OTHER_REPO = repoSlug("nadav-alon/other");
+
+  function specReview(supertaskNumber: number, number: number): Ticket {
+    return {
+      repo: REPO,
+      number: issueNumber(number),
+      title: `Spec review for #${supertaskNumber}`,
+      specReview: true,
+    };
+  }
+
+  /**
+   * Facts naming a `no-eligible-tickets` project for every repo
+   * `specReviewSweeps` names, the same way `factsWithSweeps` does for a
+   * conflict sweep.
+   */
+  function factsWithSpecReviewSweeps(
+    specReviewSweeps: SpecReviewSweepOutcome[],
+  ): SummaryFacts {
+    const repos = [...new Set(specReviewSweeps.map((sweep) => sweep.repo))];
+    return {
+      ...facts([]),
+      projects: repos.map((repo) => ({ repo, verdict: "no-eligible-tickets" as const })),
+      specReviewSweeps,
+    };
+  }
+
+  function bodyOf(sweeps: SpecReviewSweepOutcome[]): string {
+    const built = factsWithSpecReviewSweeps(sweeps);
+    return summaryBody(built, summaryLine(built));
+  }
+
+  it("renders nothing extra, byte for byte, when no sweep opened or refused anything", () => {
+    const projects = [{ repo: REPO, verdict: "no-eligible-tickets" as const }];
+    const withoutSweeps: SummaryFacts = { ...facts([]), projects };
+    const withEmptySweeps: SummaryFacts = {
+      ...facts([]),
+      projects,
+      specReviewSweeps: [{ repo: REPO, opened: [], refusals: [] }],
+    };
+
+    const line = summaryLine(withoutSweeps);
+    assert.equal(summaryLine(withEmptySweeps), line);
+    assert.equal(
+      summaryBody(withEmptySweeps, summaryLine(withEmptySweeps)),
+      summaryBody(withoutSweeps, line),
+    );
+    assert.doesNotMatch(line, /Spec review sweep/);
+  });
+
+  it("names the spec review it opened and the supertask it reviews, in the body", () => {
+    const sweeps: SpecReviewSweepOutcome[] = [
+      { repo: REPO, opened: [specReview(40, 68)], refusals: [] },
+      { repo: OTHER_REPO, opened: [specReview(10, 20)], refusals: [] },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Spec review sweep"));
+
+    assert.match(section, new RegExp(`- ${REPO}: opened #68 \\(Spec review for #40\\)`));
+    assert.match(section, new RegExp(`- ${OTHER_REPO}: opened #20 \\(Spec review for #10\\)`));
+  });
+
+  it("names the supertask and the error for a refusal, in the body", () => {
+    const supertask = implementationTicket(40);
+    const sweeps: SpecReviewSweepOutcome[] = [
+      {
+        repo: REPO,
+        opened: [],
+        refusals: [{ supertask, error: "tracker unreachable" }],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    assert.match(
+      body,
+      new RegExp(`- ${REPO}: could not open a spec review for #40: tracker unreachable`),
+    );
+  });
+
+  it("dedupes a refusal a later scan the same invocation met again for the same supertask", () => {
+    const supertask = implementationTicket(40);
+    const sweeps: SpecReviewSweepOutcome[] = [
+      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+    ];
+
+    const body = bodyOf(sweeps);
+    const matches = body.match(/could not open a spec review for #40/g);
+
+    assert.equal(matches?.length, 1);
+    assert.match(
+      summaryLine(factsWithSpecReviewSweeps(sweeps)),
+      new RegExp(`Spec review sweep: ${REPO} \\(refused once\\)`),
+    );
+  });
+
+  it("mentions the sweep in the summary line when it opened a spec review", () => {
+    const opened = factsWithSpecReviewSweeps([
+      { repo: REPO, opened: [specReview(40, 68)], refusals: [] },
+    ]);
+
+    assert.match(
+      summaryLine(opened),
+      new RegExp(`Spec review sweep: ${REPO} \\(opened #68\\)`),
+    );
+  });
+
+  it("names every opened spec review, not just a count", () => {
+    const opened = factsWithSpecReviewSweeps([
+      { repo: REPO, opened: [specReview(40, 68), specReview(10, 20)], refusals: [] },
+    ]);
+
+    assert.match(summaryLine(opened), /opened #68, #20/);
+  });
+
+  it("mentions the sweep in the summary line when it was refused something", () => {
+    const supertask = implementationTicket(40);
+    const refused = factsWithSpecReviewSweeps([
+      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+    ]);
+
+    assert.match(
+      summaryLine(refused),
+      new RegExp(`Spec review sweep: ${REPO} \\(refused once\\)`),
+    );
   });
 });

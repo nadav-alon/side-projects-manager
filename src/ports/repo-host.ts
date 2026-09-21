@@ -268,6 +268,34 @@ export interface OpenPullRequest {
 }
 
 /**
+ * One pull request of any state, as {@link RepoHost.listPullRequestsClosingIssues}
+ * lists it: its own number, its state, its own branch, and the issues its
+ * body closes — every one of them, since a pull request can close more than
+ * one.
+ *
+ * What a spec review sweep (`spec-review-sweep.ts`) reads once, at the
+ * instant a supertask's sub-issues all close, per `CONTEXT.md`'s "Spec review
+ * sweep": exact branches, exact merged state and exact issue linkage,
+ * without a read per sub-issue and without a new failure mode for a
+ * sub-issue that never had a pull request.
+ */
+export interface ClosingPullRequest {
+  number: IssueNumber;
+  state: PullRequestState;
+  branch: Branch;
+  closesIssues: readonly IssueNumber[];
+}
+
+/**
+ * How many pull requests {@link RepoHost.listPullRequestsClosingIssues} reads,
+ * any state, newest first. `.github/workflows/rebase.yml` reads up to 500 in
+ * the same place; this asks the same width for the same reason — a repo busy
+ * enough to exceed it is not one a single `gh pr list` was ever going to
+ * cover completely.
+ */
+export const CLOSING_PULL_REQUEST_LIMIT = 500;
+
+/**
  * How many of a repo's open pull requests {@link RepoHost.listOpenPullRequests}
  * reads: the newest this many, by the repo host's own ordering, when a repo
  * has more open at once. `rebase.yml` reads up to 500 in the same place; this
@@ -626,4 +654,16 @@ export interface RepoHost {
    * so the sweep never picks a pull request the workflow would refuse.
    */
   listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]>;
+  /**
+   * Lists `repo`'s pull requests of any state — open, merged or closed
+   * without merging — up to {@link CLOSING_PULL_REQUEST_LIMIT}, newest first:
+   * each one's state, its own branch, and the issues its body closes.
+   *
+   * What a spec review sweep asks with, once per supertask whose sub-issues
+   * have all just closed, per `CONTEXT.md`'s "Spec review sweep": unlike
+   * {@link listOpenPullRequests}, which only ever sees pull requests still
+   * open, this is the one read that reaches a merged or closed one — exactly
+   * the ones a closed sub-issue's own pull request now is.
+   */
+  listPullRequestsClosingIssues(repo: RepoSlug): Promise<ClosingPullRequest[]>;
 }

@@ -24,6 +24,11 @@ import {
   type ConflictSweepOutcome,
   type ConflictSweepRepoHost,
 } from "./conflict-sweep.ts";
+import {
+  specReviewSweep,
+  type SpecReviewSweepOutcome,
+  type SpecReviewSweepPorts,
+} from "./spec-review-sweep.ts";
 import type { WorkedTickets } from "./worked-today.ts";
 
 /** The project an iteration works, and the ticket it works there. */
@@ -102,14 +107,18 @@ export interface ProjectOutcome {
  * The three ports selection uses: two it reads, one it writes through.
  * `tracker` and `store` are read fresh on every `next`, never cached, so a
  * project the developer adds or a ticket that changes mid-invocation is what
- * the next scan sees. `repoHost` is what each scan's conflict sweep writes
- * through (CONTEXT.md's "Conflict sweep", ADR 0007): the one write selection
- * makes, alongside its reads — narrowed to the five verbs the sweep calls.
+ * the next scan sees. `repoHost` is what each scan's conflict sweep and spec
+ * review sweep write through (CONTEXT.md's "Conflict sweep" and "Spec review
+ * sweep", ADR 0007 and issue #516): the writes selection makes, alongside
+ * its reads — narrowed to the verbs the two sweeps call between them.
  */
 export interface SelectionPorts {
-  tracker: Pick<IssueTracker, "listOpenIssues">;
+  tracker: Pick<
+    IssueTracker,
+    "listOpenIssues" | "listSubIssues" | "createSpecReviewTicket"
+  >;
   store: Pick<Store, "loadRegistry">;
-  repoHost: ConflictSweepRepoHost;
+  repoHost: ConflictSweepRepoHost & SpecReviewSweepPorts["repoHost"];
 }
 
 /**
@@ -150,6 +159,16 @@ export interface InvocationSelection {
    * project — left for `summary.ts` to deduplicate, per its own doc.
    */
   sweeps(): ConflictSweepOutcome[];
+  /**
+   * Every spec review sweep run by any call to `next` so far, in the order
+   * each ran — one per non-paused project per scan, as `sweeps` is for the
+   * conflict sweep. A supertask a sweep opened a spec review for is not one a
+   * later scan the same invocation finds again: its own new sub-issue is
+   * what the next scan's fresh `listOpenIssues` sees, so — unlike the
+   * conflict sweep's own changes — nothing here is ever the same supertask
+   * twice.
+   */
+  specReviewSweeps(): SpecReviewSweepOutcome[];
 }
 
 /**
@@ -175,11 +194,24 @@ export function invocationSelection(
   // whole run to `summary.ts`, which is what dedupes a change or a refusal
   // met by more than one scan.
   const sweepOutcomes: ConflictSweepOutcome[] = [];
+  // Appended to by every scan, same as `sweepOutcomes` — but never carries
+  // the same supertask twice, per `specReviewSweeps`'s own doc, so nothing
+  // here needs deduplicating the way `sweepOutcomes` does.
+  const specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
 
   return {
-    next: () => scan(ports, projectStates, worked, outcomesByRepo, sweepOutcomes),
+    next: () =>
+      scan(
+        ports,
+        projectStates,
+        worked,
+        outcomesByRepo,
+        sweepOutcomes,
+        specReviewSweepOutcomes,
+      ),
     verdicts: () => [...outcomesByRepo.values()],
     sweeps: () => [...sweepOutcomes],
+    specReviewSweeps: () => [...specReviewSweepOutcomes],
   };
 }
 
@@ -214,17 +246,18 @@ interface ScanFindings {
 
 /**
  * One scan of the registry: sweeps every non-paused project for conflicts
- * (CONTEXT.md's "Conflict sweep", ADR 0007), asks its backlog for a
- * candidate ticket, hands the best one to `bestCandidate`, then folds this
- * scan's outcomes into the invocation's sticky `outcomesByRepo` before
- * answering with the winner, if any.
+ * (CONTEXT.md's "Conflict sweep", ADR 0007) and for a supertask whose
+ * sub-issues have all just closed (CONTEXT.md's "Spec review sweep", issue
+ * #516), asks its backlog for a candidate ticket, hands the best one to
+ * `bestCandidate`, then folds this scan's outcomes into the invocation's
+ * sticky `outcomesByRepo` before answering with the winner, if any.
  *
  * A paused project is passed over without asking the tracker or the repo
  * host anything, because paused means never considered — and never swept.
  * A project left with no selectable ticket reads as already worked today
  * when at least one eligible ticket is in `worked`, and reads the same as an
  * empty backlog otherwise — including when every ticket left is merely
- * blocked or a supertask. Either way it was still swept: the sweep runs
+ * blocked or a supertask. Either way it was still swept: both sweeps run
  * whether or not anything turns out eligible.
  */
 async function scan(
@@ -233,6 +266,7 @@ async function scan(
   worked: WorkedTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
   sweepOutcomes: ConflictSweepOutcome[],
+  specReviewSweepOutcomes: SpecReviewSweepOutcome[],
 ): Promise<Selection | undefined> {
   const outcomes = new Map<RepoSlug, ProjectOutcome>();
   const candidates: Candidate[] = [];
@@ -247,8 +281,10 @@ async function scan(
 
     // Worked out over every open issue read, before `backlogIn` keeps only the
     // eligible ones: a spec left ready-for-human, or a ticket passed over as
-    // blocked, still passes its priority label on.
-    const open = await ports.tracker.listOpenIssues(project.repo);
+    // blocked, still passes its priority label on. Reassigned below, only on
+    // a scan whose spec review sweep opened something, so the ticket it just
+    // opened is selectable this same scan rather than only the next.
+    let open = await ports.tracker.listOpenIssues(project.repo);
     // The same read the sweep is told about, rather than a second listing —
     // one project is never read twice for the same scan. `next` must not be
     // called concurrently: two scans in flight would sweep the same project
@@ -276,6 +312,18 @@ async function scan(
         alreadyPosted,
       ),
     );
+    // Before selection, same as the conflict sweep, and over the same
+    // listing: a supertask this opens a spec review for is a fact about the
+    // repo, not about which ticket this scan goes on to select.
+    const specReviewsThisScan = await specReviewSweep(ports, project.repo, open);
+    specReviewSweepOutcomes.push(specReviewsThisScan);
+    // Per `CONTEXT.md`'s "Spec review sweep": born selectable the same
+    // morning it is opened. Everything below reads `open`, so a scan that
+    // just opened one re-reads it here — the one extra tracker read a
+    // supertask completing costs, and only on the mornings one does.
+    if (specReviewsThisScan.opened.length > 0) {
+      open = await ports.tracker.listOpenIssues(project.repo);
+    }
     const ticketPriorities = ticketPrioritiesIn(open);
     const { tickets, truncated: backlogTruncated } = backlogIn(open);
     const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));

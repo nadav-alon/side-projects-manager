@@ -66,12 +66,16 @@ Declares a ticket a container for its work rather than work of its own, per `CON
 - The morning scan flags a likely missed label itself — a ticket with an open sub-issue that is
   not a pull request ticket, yet carries no `supertask` label — but does not apply the label; that
   stays the developer's call.
+- Once every one of its sub-issues has closed, the spec review sweep opens one spec-review sub-issue
+  for it, itself — see the "Spec review label" section above and `CONTEXT.md`'s "Spec review sweep".
+  At most once per supertask, ever.
 
 ## Spec review label
 
 Declares a ticket a spec review, per `CONTEXT.md`'s "Spec review ticket": a review of the whole
-repo against a named supertask's body, rather than of one pull request. Applied by hand — nothing
-opens one automatically.
+repo against a named supertask's body, rather than of one pull request. Applied either by hand, or
+by the manager's own spec review sweep once a supertask's sub-issues have all closed — see
+`CONTEXT.md`'s "Spec review sweep".
 
 | Label         | Meaning                                                             |
 | ------------- | -------------------------------------------------------------------- |
