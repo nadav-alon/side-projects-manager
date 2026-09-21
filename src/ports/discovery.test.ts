@@ -3,22 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   DISCOVERY_KINDS,
-  isBlockingDiscoveryKind,
   isDiscovery,
   type DiscoveryKind,
 } from "./discovery.ts";
-
-describe("isBlockingDiscoveryKind", () => {
-  it("treats a correction and a prerequisite as blocking", () => {
-    assert.equal(isBlockingDiscoveryKind("correction"), true);
-    assert.equal(isBlockingDiscoveryKind("prerequisite"), true);
-  });
-
-  it("treats a clarification and a suggestion as advisory", () => {
-    assert.equal(isBlockingDiscoveryKind("clarification"), false);
-    assert.equal(isBlockingDiscoveryKind("suggestion"), false);
-  });
-});
 
 describe("isDiscovery", () => {
   for (const kind of DISCOVERY_KINDS) {

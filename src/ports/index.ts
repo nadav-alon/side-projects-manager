@@ -16,11 +16,7 @@ export {
   isDiscoveryDirectory,
 } from "./discovery-directory.ts";
 export type { DiscoveryDirectory } from "./discovery-directory.ts";
-export {
-  DISCOVERY_KINDS,
-  isBlockingDiscoveryKind,
-  isDiscovery,
-} from "./discovery.ts";
+export { DISCOVERY_KINDS, isDiscovery } from "./discovery.ts";
 export type { Discovery, DiscoveryKind } from "./discovery.ts";
 export { exitCode, isExitCode } from "./exit-code.ts";
 export type { ExitCode } from "./exit-code.ts";

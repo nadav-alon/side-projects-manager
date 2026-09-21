@@ -27,15 +27,6 @@ export interface Discovery {
   body: string;
 }
 
-/**
- * Whether `kind` stops the run rather than merely riding alongside a run that
- * finishes: a correction (the ticket is wrong) or a prerequisite (the work
- * needs something nobody ticketed) — see CONTEXT.md's "Discovery".
- */
-export function isBlockingDiscoveryKind(kind: DiscoveryKind): boolean {
-  return kind === "correction" || kind === "prerequisite";
-}
-
 function isDiscoveryKind(value: unknown): value is DiscoveryKind {
   return (
     typeof value === "string" &&
