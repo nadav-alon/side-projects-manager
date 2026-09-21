@@ -122,11 +122,11 @@ export const TRANSCRIPT_RETENTION: Milliseconds = milliseconds(
  * Chosen against two other numbers, not picked on its own. The agent CLI
  * carries its own mid-stream watchdog, which aborts a silent API stream
  * after three minutes and retries on its own — a backstop shorter than that
- * would be racing a stall the CLI is already handling. And a healthy run's
- * own idle stretches between tool results run well under this: the longest
- * one captured while diagnosing a stalled run sat fourteen minutes dead and
- * still climbing before the container was ever killed. Twenty minutes sits
- * outside both.
+ * would be racing a stall the CLI is already handling. And it sits far
+ * outside any quiet stretch a healthy run has — a working agent writes a
+ * transcript entry per tool result — where the stall that prompted this
+ * backstop had already sat fourteen minutes dead, and still climbing, by the
+ * time it was captured.
  */
 export const STALL_TIMEOUT: Milliseconds = milliseconds(20 * 60 * 1000);
 
