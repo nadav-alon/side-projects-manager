@@ -16,7 +16,7 @@ Edit the right-hand column to match whatever vocabulary you actually use.
 
 ## Ticket priority labels
 
-Optional, on top of the state role. Orders `ready-for-agent` tickets within this project: smaller first, unlabelled tickets after every labelled one, ties broken by lowest issue number. Review tickets are always worked before any of them.
+Optional, on top of the state role. Orders `ready-for-agent` tickets within this project: smaller first, unlabelled tickets after every labelled one, ties broken by lowest issue number. Review and spec review tickets are always worked before any of them.
 
 | Label        | Meaning                        |
 | ------------ | ------------------------------ |
