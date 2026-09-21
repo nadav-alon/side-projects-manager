@@ -11,6 +11,7 @@ import type {
   Branch,
   Checkout,
   CommitSha,
+  Discovery,
   IssueTracker,
   PullRequestUrl,
   RepoHost,
@@ -159,7 +160,22 @@ export type HandBackEnding =
   | AheadOfGateFailure
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
   | { kind: "finished"; run: RunFinished; handover?: Handover }
-  | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath };
+  | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath }
+  | {
+      kind: "discovery-blocked";
+      /** The correction and/or prerequisite discoveries that stopped this ticket's run from finishing normally, in the order the agent filed them. */
+      discoveries: Discovery[];
+      /**
+       * The ticket those discoveries were routed against, present only when
+       * it differs from the ticket being handed back — a pull request
+       * ticket's run, whose discoveries land on its implementation ticket
+       * instead of the ticket handed back here.
+       */
+      target?: Ticket;
+      /** The branch a finished or gave-up implementation run left. Present only for an implementation ticket, the only kind with one to discard. */
+      worked?: { checkout: Checkout; run: RunFinished | RunGaveUp };
+      transcript?: TranscriptPath;
+    };
 
 /**
  * Gives `ticket` back to the developer for `ending`: discards its branch when
@@ -190,7 +206,10 @@ export async function handBack(
  * Throws a failed run's branch away, and says what became of it. Exported so
  * a cut-off run — a limit refusal or a provider failure, never handed back,
  * since the provider is the problem, not the ticket — can discard its branch
- * the same way without going through `handBack`.
+ * the same way without going through `handBack`. Also what a finished run's
+ * branch gets when a blocking discovery hands its ticket back instead of
+ * opening it as a pull request — per CONTEXT.md's "Discard", exactly as a
+ * gave-up run's branch is discarded, whatever the agent went on to commit.
  *
  * Never throws. A branch that will not delete is worth telling the developer
  * about; it is not worth the ticket, which is what refusing to go on would
@@ -199,7 +218,7 @@ export async function handBack(
 export async function discardBranch(
   repoHost: RepoHost,
   checkout: Checkout,
-  run: RunGaveUp | RunLimitRefused | RunModelRefused | RunProviderFailed,
+  run: RunFinished | RunGaveUp | RunLimitRefused | RunModelRefused | RunProviderFailed,
 ): Promise<Discard> {
   // The sandbox fetches a branch back only when the agent committed to it, and
   // an agent that gave up commonly committed nothing at all.
@@ -214,7 +233,10 @@ export async function discardBranch(
   }
 }
 
-/** Discards the branch `ending` left behind, when it left one — none but a gave-up or a worked model refusal ever does. */
+/**
+ * Discards the branch `ending` left behind, when it left one — none but a
+ * gave-up, a worked model refusal, or a worked discovery block ever does.
+ */
 async function discardIfWorked(
   repoHost: RepoHost,
   ending: HandBackEnding,
@@ -223,6 +245,9 @@ async function discardIfWorked(
     return discardBranch(repoHost, ending.checkout, ending.run);
   }
   if (ending.kind === "model-refused" && ending.worked !== undefined) {
+    return discardBranch(repoHost, ending.worked.checkout, ending.worked.run);
+  }
+  if (ending.kind === "discovery-blocked" && ending.worked !== undefined) {
     return discardBranch(repoHost, ending.worked.checkout, ending.worked.run);
   }
   return { kind: "none" };
@@ -260,6 +285,8 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
         : handoverComment(ending.handover.pullRequest, ending.handover.reviewTicket);
     case "spec-review-finished":
       return specReviewFindingsComment(ending);
+    case "discovery-blocked":
+      return discoveryBlockedComment(ending, discard);
   }
 }
 
@@ -445,6 +472,34 @@ function specReviewFindingsComment(ending: {
 }
 
 /**
+ * What a ticket is told when its run filed a blocking discovery: a
+ * correction or a prerequisite, in the agent's own words — never described as
+ * a run that gave up, even when the same run also did. `target`, present only
+ * for a pull request ticket, names the implementation ticket the discoveries
+ * were separately filed against; inlined here regardless, so the ticket being
+ * handed back carries the whole of what was found even if that other write
+ * was itself refused.
+ */
+function discoveryBlockedComment(
+  ending: Extract<HandBackEnding, { kind: "discovery-blocked" }>,
+  discard: Discard,
+): string {
+  const findings = ending.discoveries
+    .map((discovery) => `**${discovery.kind}**: ${discovery.title}\n\n${discovery.body}`)
+    .join("\n\n---\n\n");
+  return [
+    `The morning loop ran this ticket and found a blocking discovery: a correction or a prerequisite, not a run that gave up.`,
+    findings,
+    ...(ending.target === undefined
+      ? []
+      : [`Also filed against the implementation ticket, #${ending.target.number}.`]),
+    ...branchNote(ending.worked?.run.branch, discard),
+    notRetried(),
+    ...transcriptNote(ending.transcript),
+  ].join("\n\n");
+}
+
+/**
  * Warns that `quote` kept only the tail of a report, when it did: unlike
  * every other caller of `quote`, this one's output is the deliverable, not a
  * trailing symptom, so a report long enough to be cut loses its summary and
@@ -526,9 +581,10 @@ function branchNote(branchName: Branch | undefined, discard: Discard): string[] 
       return [
         `Its branch \`${branchName ?? ""}\` could not be discarded, so it is still in the checkout: ${tail(discard.reason, REASON_QUOTED)}`,
       ];
-    // Unreachable from here: the comments this module writes are a gave-up
-    // run's and a model refusal's, and neither ever salvages a branch. Kept
-    // for the switch to stay exhaustive against every `Discard`.
+    // Unreachable from here: every comment this module writes calls
+    // `discardBranch` at most, and that never salvages a branch — only
+    // `morning-run.ts`'s own cut-off handling does. Kept for the switch to
+    // stay exhaustive against every `Discard`.
     case "salvaged":
       return [];
   }
