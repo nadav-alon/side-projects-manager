@@ -751,7 +751,10 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
     await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
 
     assert.equal(
-      callWith(await gh.calls(), "dependencies/blocked_by"),
+      callWith(
+        await gh.calls(),
+        "repos/nadav-alon/pilot/issues/7/dependencies/blocked_by",
+      ),
       undefined,
     );
   });
