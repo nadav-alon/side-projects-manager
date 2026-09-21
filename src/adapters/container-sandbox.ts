@@ -161,6 +161,54 @@ export const STALL_TIMEOUT: Milliseconds = milliseconds(20 * 60 * 1000);
 const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
 
 /**
+ * Removes directories under `root` whose own last modification is older than
+ * `retention`. Shared by `pruneOldTranscripts` and `pruneOldDiscoveries`:
+ * both sweep a root of per-run directories `attempt` makes fresh with
+ * `mkdtemp`, and age is the only signal either has for "nothing is using
+ * this any more" — see `pruneOldTranscripts`'s own doc comment for why that
+ * is safe to read this way.
+ *
+ * A directory that cannot be removed — permissions, a file still open inside
+ * it — is warned about on stderr and left in place for the next invocation
+ * to try again; pruning is never what fails an invocation. A `root` that
+ * does not exist yet is not an error either: there is nothing to prune on a
+ * manager home that has never run a container. Any other failure to read the
+ * directory or a stat of one of its entries is warned about the same way a
+ * failed removal is, rather than silently pruning nothing.
+ */
+async function pruneStaleDirectories(
+  root: string,
+  retention: Milliseconds,
+  now: Date,
+): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(
+    (error: unknown) => {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        console.warn(`Could not read ${root}: ${errorMessage(error)}`);
+      }
+      return [];
+    },
+  );
+  const cutoffMs = now.getTime() - retention;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const directory = path.join(root, entry.name);
+    const stats = await stat(directory).catch((error: unknown) => {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        console.warn(`Could not read ${directory}: ${errorMessage(error)}`);
+      }
+      return undefined;
+    });
+    if (stats === undefined || stats.mtimeMs >= cutoffMs) {
+      continue;
+    }
+    await removeOrWarn(directory);
+  }
+}
+
+/**
  * Removes transcript directories under `<home>/transcripts/` whose own last
  * modification is older than `TRANSCRIPT_RETENTION`, so transcripts — which
  * nothing else ever removes — do not grow the manager home without bound.
@@ -176,45 +224,39 @@ const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
  * (`../trigger-guard.ts`) serialises invocations, and this runs before any
  * run of the current invocation opens a directory, so every directory still
  * in use is minutes old, never close to the retention period.
- *
- * A directory that cannot be removed — permissions, a file still open inside
- * it — is warned about on stderr and left in place for the next invocation
- * to try again; pruning is never what fails an invocation. A `transcripts/`
- * that does not exist yet is not an error either: there is nothing to prune
- * on a manager home that has never run a container. Any other failure to
- * read the directory or a stat of one of its entries is warned about the
- * same way a failed removal is, rather than silently pruning nothing.
  */
 export async function pruneOldTranscripts(
   now: Date,
   home: string = MANAGER_HOME,
 ): Promise<void> {
-  const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
-  const entries = await readdir(transcriptsRoot, { withFileTypes: true }).catch(
-    (error: unknown) => {
-      if (!isErrorWithCode(error, "ENOENT")) {
-        console.warn(`Could not read ${transcriptsRoot}: ${errorMessage(error)}`);
-      }
-      return [];
-    },
+  await pruneStaleDirectories(
+    path.join(home, TRANSCRIPTS_DIRECTORY),
+    TRANSCRIPT_RETENTION,
+    now,
   );
-  const cutoffMs = now.getTime() - TRANSCRIPT_RETENTION;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const directory = path.join(transcriptsRoot, entry.name);
-    const stats = await stat(directory).catch((error: unknown) => {
-      if (!isErrorWithCode(error, "ENOENT")) {
-        console.warn(`Could not read ${directory}: ${errorMessage(error)}`);
-      }
-      return undefined;
-    });
-    if (stats === undefined || stats.mtimeMs >= cutoffMs) {
-      continue;
-    }
-    await removeOrWarn(directory);
-  }
+}
+
+/**
+ * Removes per-run discoveries directories under `<home>/discoveries/` whose
+ * own last modification is older than `TRANSCRIPT_RETENTION` — reused rather
+ * than a retention of its own, since a directory this stale can only mean
+ * one thing: `attempt`'s `finally` never got to remove it, because the
+ * manager process was killed mid-run. `attempt` removes its own discoveries
+ * directory once a run ends normally (see its own doc comment), so nothing
+ * this old is ever still in use; unlike a transcript, nobody ever wants to
+ * read a leaked discoveries directory back, but it still has to go so it
+ * does not grow the manager home without bound. Meant to run once, at
+ * invocation start, alongside `pruneOldTranscripts`.
+ */
+export async function pruneOldDiscoveries(
+  now: Date,
+  home: string = MANAGER_HOME,
+): Promise<void> {
+  await pruneStaleDirectories(
+    path.join(home, DISCOVERIES_DIRECTORY),
+    TRANSCRIPT_RETENTION,
+    now,
+  );
 }
 
 /** What one agent run in the container came back with. */

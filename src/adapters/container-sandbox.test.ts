@@ -25,6 +25,7 @@ import {
   containerSandbox,
   DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,
+  pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
   STALL_TIMEOUT,
@@ -4993,5 +4994,44 @@ describe("pruneOldTranscripts", () => {
     await assert.doesNotReject(pruneOldTranscripts(NOW, home));
 
     assert.ok(warnings.some((line) => line.includes(transcriptsRoot)));
+  });
+});
+
+describe("pruneOldDiscoveries", () => {
+  const NOW = new Date();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  /** Backdates `directory`'s modification time by `offsetMs` from `NOW`. */
+  async function age(directory: string, offsetMs: number): Promise<void> {
+    const then = new Date(NOW.getTime() - offsetMs);
+    await utimes(directory, then, then);
+  }
+
+  it("removes a discoveries directory last modified more than the retention period ago, leaked by a manager killed mid-run", async () => {
+    const home = await tempHome("prune-old");
+    const leaked = path.join(home, DISCOVERIES_DIRECTORY, "run-old");
+    await mkdir(leaked, { recursive: true });
+    await age(leaked, TRANSCRIPT_RETENTION + DAY_MS);
+
+    await pruneOldDiscoveries(NOW, home);
+
+    assert.equal(await exists(leaked), false);
+  });
+
+  it("keeps a discoveries directory modified within the retention period", async () => {
+    const home = await tempHome("prune-old");
+    const fresh = path.join(home, DISCOVERIES_DIRECTORY, "run-fresh");
+    await mkdir(fresh, { recursive: true });
+    await age(fresh, TRANSCRIPT_RETENTION - DAY_MS);
+
+    await pruneOldDiscoveries(NOW, home);
+
+    assert.equal(await exists(fresh), true);
+  });
+
+  it("does nothing when discoveries/ does not exist yet", async () => {
+    const home = await tempHome("prune-old");
+
+    await assert.doesNotReject(pruneOldDiscoveries(NOW, home));
   });
 });
