@@ -619,6 +619,52 @@ describe("handBack", () => {
         endsWithTranscript(TRANSCRIPT),
       );
     });
+
+    it("says the report was cut and points at the transcript when the report overruns the quote", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, specReviewTicket());
+      const report = `the earliest, highest-priority finding\n${"x".repeat(20_001)}`;
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "spec-review-finished",
+        output: report,
+        transcript: TRANSCRIPT,
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.doesNotMatch(comment, /the earliest, highest-priority finding/);
+      assert.match(comment, /only the tail of the report/);
+      assert.match(comment, /transcript below has the rest/);
+    });
+
+    it("says the report was cut and that no transcript holds the rest, when the run left none", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, specReviewTicket());
+      const report = "x".repeat(20_001);
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "spec-review-finished",
+        output: report,
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /only the tail of the report/);
+      assert.match(comment, /left no transcript/);
+    });
+
+    it("says nothing about a cut when the report fits", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, specReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "spec-review-finished",
+        output: "no drift found",
+        transcript: TRANSCRIPT,
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.doesNotMatch(comment, /only the tail of the report/);
+    });
   });
 });
 

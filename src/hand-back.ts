@@ -438,9 +438,31 @@ function specReviewFindingsComment(ending: {
 }): string {
   return [
     `The morning loop ran this spec review ticket. What it found:\n\n${quote(ending.output)}`,
+    ...truncationNote(ending.output, ending.transcript),
     notRetried(),
     ...transcriptNote(ending.transcript),
   ].join("\n\n");
+}
+
+/**
+ * Warns that `quote` kept only the tail of a report, when it did: unlike
+ * every other caller of `quote`, this one's output is the deliverable, not a
+ * trailing symptom, so a report long enough to be cut loses its summary and
+ * highest-priority findings rather than whatever it was doing when it
+ * stopped.
+ */
+function truncationNote(
+  output: string,
+  transcript: TranscriptPath | undefined,
+): string[] {
+  if (output.trim().length <= OUTPUT_QUOTED) {
+    return [];
+  }
+  return [
+    transcript === undefined
+      ? "This comment carries only the tail of the report: the earliest findings were cut to fit, and this run left no transcript to find the rest in."
+      : "This comment carries only the tail of the report: the earliest findings were cut to fit; the transcript below has the rest.",
+  ];
 }
 
 /**
