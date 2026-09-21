@@ -401,6 +401,24 @@ export function ticketPrioritiesIn(
   return priorities;
 }
 
+/**
+ * Whether an open issue in `open` is a rebase ticket bound to `pullRequest`,
+ * whatever that issue's own labels — a rebase ticket handed back to the
+ * developer still counts, per `CONTEXT.md`'s "Conflict sweep".
+ *
+ * Only as complete as `open` itself: a truncated backlog (`open.truncated`)
+ * can leave an existing rebase ticket out of `issues`, in which case this
+ * reads `false` for a pull request that does have one open.
+ */
+export function openRebaseTicketFor(
+  open: OpenIssues,
+  pullRequest: PullRequestUrl,
+): boolean {
+  return open.issues.some(
+    ({ ticket }) => isRebaseTicket(ticket) && ticket.pullRequest.url === pullRequest,
+  );
+}
+
 /** A ticket narrowed to the review kind, once `isReviewTicket` has said so. */
 export type ReviewTicket = Ticket & {
   pullRequest: PullRequestBinding & { kind: "review" };

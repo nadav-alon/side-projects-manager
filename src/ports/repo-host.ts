@@ -3,7 +3,7 @@ import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
-import type { PullRequestLabel } from "./pull-request-label.ts";
+import { pullRequestLabel, type PullRequestLabel } from "./pull-request-label.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TicketGist } from "./ticket-gist.ts";
@@ -37,6 +37,18 @@ export const DECLINED_REPLY_PREFIX = "Declined: ";
  * CONTEXT.md's "Turbo" and ADR 0006.
  */
 export const APPLY_REVIEW_COMMENT = "/apply-review";
+
+/**
+ * The bare comment the conflict sweep posts on a turbo project's conflicting
+ * pull request, standing in for the developer typing `/rebase` themselves.
+ * `.github/workflows/rebase.yml` matches a comment's trimmed body against
+ * this exactly, so any marker or trailing note here would silently stop the
+ * chain — a named constant beside {@link APPLY_REVIEW_COMMENT}, for the same
+ * reason that one is named rather than spelled inline, keeps the manager's
+ * spelling and the workflow's from drifting apart unnoticed. See
+ * `CONTEXT.md`'s "Conflict sweep" and ADR 0007.
+ */
+export const REBASE_COMMENT = "/rebase";
 
 /**
  * One finding a review posts, in the shape the reviewer is told to post it
@@ -326,6 +338,14 @@ export class MergeabilityUnknown extends Error {
 export const NEEDS_REBASE_LABEL = "needs-rebase";
 
 /**
+ * {@link NEEDS_REBASE_LABEL}, branded once so the conflict sweep and its
+ * test don't each construct their own `PullRequestLabel` from the same
+ * string, the way {@link REVIEWED_LABEL} and {@link APPLIED_REVIEW_LABEL}
+ * are branded once beside the type they're labels of.
+ */
+export const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
+
+/**
  * Whether a pull request needs a rebase, read repeatedly through `read` until
  * it settles.
  *
@@ -531,11 +551,13 @@ export interface RepoHost {
    * Posts `body` as a comment on `pullRequest`.
    *
    * Kept as narrow as the write verbs above it: turbo mode (CONTEXT.md's
-   * "Turbo", ADR 0006) is the one caller, and it only ever posts
-   * {@link APPLY_REVIEW_COMMENT}, once a review ticket closes, standing in
-   * for the developer typing it themselves. Nothing here reads a comment
-   * back — see `container-sandbox.ts`'s note by the reviewer's own prompt for
-   * why that stays true regardless.
+   * "Turbo", ADR 0006) and the conflict sweep (CONTEXT.md's "Conflict
+   * sweep", ADR 0007) are its only two callers, posting {@link
+   * APPLY_REVIEW_COMMENT} once a review ticket closes or {@link
+   * REBASE_COMMENT} on a turbo project's conflicting pull request, each
+   * standing in for the developer typing it themselves. Nothing here reads a
+   * comment back — see `container-sandbox.ts`'s note by the reviewer's own
+   * prompt for why that stays true regardless.
    */
   postComment(pullRequest: PullRequestUrl, body: string): Promise<void>;
   /**

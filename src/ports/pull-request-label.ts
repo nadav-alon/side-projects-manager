@@ -10,7 +10,9 @@ declare const pullRequestLabelBrand: unique symbol;
  * actually going to be asked to apply. Values enter through
  * `pullRequestLabel` or `isPullRequestLabel`. {@link REVIEWED_LABEL} and
  * {@link APPLIED_REVIEW_LABEL} are the two the loop applies, per
- * `CONTEXT.md`'s "Reviewed label" and "Applied-review label".
+ * `CONTEXT.md`'s "Reviewed label" and "Applied-review label"; the conflict
+ * sweep applies a third, `NEEDS_REBASE_LABEL` in `repo-host.ts`, per
+ * `CONTEXT.md`'s "Conflict sweep".
  */
 export type PullRequestLabel = string & {
   readonly [pullRequestLabelBrand]: true;
