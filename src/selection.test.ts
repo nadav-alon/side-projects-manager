@@ -632,7 +632,7 @@ describe("invocationSelection", () => {
     function reviewOf(
       parent: Ticket,
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview"> {
       return {
         number: issueNumber(number),
         title: reviewTitle(parent),
@@ -643,7 +643,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for the review on `SOME_PULL_REQUEST` to be applied. */
     function applyReviewTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview"> {
       return {
         number: issueNumber(number),
         title: `Apply the review on ${SOME_PULL_REQUEST}`,
@@ -654,22 +654,11 @@ describe("invocationSelection", () => {
     /** A ticket asking for `SOME_PULL_REQUEST` to be rebased. */
     function rebaseTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview"> {
       return {
         number: issueNumber(number),
         title: `Rebase ${SOME_PULL_REQUEST}`,
         pullRequest: { kind: "rebase", url: SOME_PULL_REQUEST },
-      };
-    }
-
-    /** A ticket declaring itself a spec review, bound to no pull request. */
-    function specReviewTicket(
-      number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
-      return {
-        number: issueNumber(number),
-        title: "Review the loop spec",
-        specReview: true,
       };
     }
 
@@ -862,7 +851,10 @@ describe("invocationSelection", () => {
         number: issueNumber(7),
         title: "Add the thing",
       });
-      tracker.addEligibleTicket(PILOT, specReviewTicket(8));
+      tracker.addSpecReviewTicket(PILOT, {
+        number: issueNumber(8),
+        title: "Review the loop spec",
+      });
       tracker.addEligibleTicket(PILOT, reviewOf(implementation, 9));
       const { selection } = await open(store, tracker);
 
@@ -881,7 +873,10 @@ describe("invocationSelection", () => {
       });
       // Added after the implementation ticket, so winning proves the rule
       // rather than just reflecting backlog order.
-      tracker.addEligibleTicket(PILOT, specReviewTicket(8));
+      tracker.addSpecReviewTicket(PILOT, {
+        number: issueNumber(8),
+        title: "Review the loop spec",
+      });
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();

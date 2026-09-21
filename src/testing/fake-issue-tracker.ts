@@ -14,8 +14,10 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SPEC_REVIEW_LABEL,
   SUPERTASK_LABEL,
   carriesReadyForAgent,
+  carriesSpecReviewLabel,
   carriesSupertaskLabel,
   issueNumber,
   issueUrl,
@@ -51,21 +53,26 @@ export interface FakeHandback {
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
  * without what the fake works out on each listing — no `eligible`,
- * `modelLabel`, `sizeLabel` or `supertask`, which come from the labels it
- * carries — and `openBlockerNumbers` optional, since most tests give none.
+ * `modelLabel`, `sizeLabel`, `supertask` or `specReview`, which come from the
+ * labels it carries — and `openBlockerNumbers` optional, since most tests
+ * give none.
  */
-type StoredIssue = Omit<Ticket, "modelLabel" | "sizeLabel" | "supertask"> &
+type StoredIssue = Omit<
+  Ticket,
+  "modelLabel" | "sizeLabel" | "supertask" | "specReview"
+> &
   Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
 
 /**
- * A ticket as a test hands it to the fake. No `modelLabel`, `sizeLabel` or
- * `supertask`, not even on a wider `Ticket`: the fake reads all three from
- * the labels a ticket holds, the way the real tracker does.
+ * A ticket as a test hands it to the fake. No `modelLabel`, `sizeLabel`,
+ * `supertask` or `specReview`, not even on a wider `Ticket`: the fake reads
+ * all four from the labels a ticket holds, the way the real tracker does.
  */
 type TicketInput = Omit<StoredIssue, "repo"> & {
   modelLabel?: never;
   sizeLabel?: never;
   supertask?: never;
+  specReview?: never;
 };
 
 /** One entry the fake holds: the open issue, and the labels it carries. */
@@ -162,6 +169,17 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * Puts a spec review ticket — carrying `READY_FOR_AGENT_LABEL` and the spec
+   * review label — in `repo`'s backlog and returns it, the way a developer
+   * opening one by hand would label it.
+   */
+  addSpecReviewTicket(repo: RepoSlug, ticket: TicketInput): Ticket {
+    const specReview = this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
+    this.addLabel(specReview, SPEC_REVIEW_LABEL);
+    return specReview;
+  }
+
+  /**
    * Puts a blocked ticket — carrying `READY_FOR_AGENT_LABEL` with
    * `openBlockers` open tickets blocking it — in `repo`'s backlog and returns
    * it. Exists so a test can prove such a ticket is passed over even though it
@@ -245,12 +263,14 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       const modelLabel = modelLabelOf(entry.labels);
       const sizeLabel = sizeLabelOf(entry.labels);
       const supertask = carriesSupertaskLabel(entry.labels);
+      const specReview = carriesSpecReviewLabel(entry.labels);
       return {
         ticket: {
           ...ticket,
           ...(modelLabel !== undefined && { modelLabel }),
           ...(sizeLabel !== undefined && { sizeLabel }),
           ...(supertask && { supertask }),
+          ...(specReview && { specReview }),
         },
         eligible: carriesReadyForAgent(entry.labels),
         openBlockerNumbers,

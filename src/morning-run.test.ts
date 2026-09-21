@@ -137,10 +137,9 @@ function postedAFinding(ports: FakePorts): void {
 /** A spec review ticket, eligible like any other, naming no pull request. */
 function queuedSpecReview(ports: FakePorts, registration: Registration = {}): Ticket {
   ports.store.register(PILOT, registration);
-  return ports.tracker.addEligibleTicket(PILOT, {
+  return ports.tracker.addSpecReviewTicket(PILOT, {
     number: issueNumber(51),
     title: "Review the loop spec",
-    specReview: true,
   });
 }
 
@@ -2160,7 +2159,10 @@ describe("morningLoop", () => {
 
       assert.deepEqual(ports.sandbox.specReviews, [
         {
-          ticket,
+          // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
+          // stored, before `specReview` is folded in from its label — the way
+          // `listOpenIssues` reads it back for selection.
+          ticket: { ...ticket, specReview: true },
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
         },
