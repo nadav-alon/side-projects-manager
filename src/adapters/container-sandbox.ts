@@ -931,29 +931,32 @@ function reviewOutcomeOf(
 }
 
 /**
- * The reviewer's run: a throwaway clone of its own, exactly like an
- * implementation run, but mounted read-only and never fetched back — a
- * review leaves nothing on the checkout, because what it produces is a
- * comment on GitHub, not a branch.
+ * A reviewer's run, of either kind: a throwaway clone of its own, exactly
+ * like an implementation run, but mounted read-only and never fetched back —
+ * a review leaves nothing on the checkout, because what it produces is a
+ * comment on GitHub or, for a spec review, its own report, never a branch.
  *
  * No branch is created either: a reviewer has nothing to commit, and asking
- * for one would suggest it might.
+ * for one would suggest it might. The read-only mount is what routes
+ * `envFor` onto `GH_REVIEW_TOKEN`, stated here once for both kinds.
  */
-async function reviewOnClone(
+async function reviewOnReadOnlyClone(
   container: Container,
-  request: ReviewRequest,
+  kind: "review" | "spec-review",
+  request: ReviewRequest | SpecReviewRequest,
+  prompt: string,
   transcriptsRoot: string,
 ): Promise<ReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+  const { checkout: project, spendCeiling, model } = request;
 
-  return withThrowawayClone("review", async (clone) => {
+  return withThrowawayClone(kind, async (clone) => {
     await withCheckoutLock(project, () =>
       run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
     );
     const agent = await attempt(
       container,
-      "review",
-      { directory: clone, prompt: reviewPromptFor(ticket), spendCeiling, mount: "ro" },
+      kind,
+      { directory: clone, prompt, spendCeiling, mount: "ro" },
       model,
       transcriptsRoot,
     );
@@ -962,36 +965,32 @@ async function reviewOnClone(
   });
 }
 
-/**
- * The spec reviewer's run: a throwaway clone of its own, mounted read-only
- * and never fetched back, exactly as `reviewOnClone` sets one up — a spec
- * review leaves nothing on the checkout, because what it produces is its own
- * report, not a branch or a pull request comment.
- *
- * No branch is created either, for the same reason `reviewOnClone` creates
- * none: a spec reviewer has nothing to commit.
- */
+async function reviewOnClone(
+  container: Container,
+  request: ReviewRequest,
+  transcriptsRoot: string,
+): Promise<ReviewOutcome> {
+  return reviewOnReadOnlyClone(
+    container,
+    "review",
+    request,
+    reviewPromptFor(request.ticket),
+    transcriptsRoot,
+  );
+}
+
 async function specReviewOnClone(
   container: Container,
   request: SpecReviewRequest,
   transcriptsRoot: string,
 ): Promise<SpecReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
-
-  return withThrowawayClone("spec-review", async (clone) => {
-    await withCheckoutLock(project, () =>
-      run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
-    );
-    const agent = await attempt(
-      container,
-      "spec-review",
-      { directory: clone, prompt: specReviewPromptFor(ticket), spendCeiling, mount: "ro" },
-      model,
-      transcriptsRoot,
-    );
-
-    return reviewOutcomeOf(agent, model);
-  });
+  return reviewOnReadOnlyClone(
+    container,
+    "spec-review",
+    request,
+    specReviewPromptFor(request.ticket),
+    transcriptsRoot,
+  );
 }
 
 /**
