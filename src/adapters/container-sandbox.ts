@@ -305,10 +305,9 @@ export interface RunOptions {
    * Aborted once `attempt`'s own idle watchdog (`watchForStall`) decides the
    * run has stalled — `attempt` owns the timer and calls this, `dockerContainer`
    * is what turns an abort into a dead container, by killing whatever
-   * `--cidfile` named. A `Container` that never looks at this just runs to
-   * its own end, same as before it existed; a fake one in a test honours it
-   * by rejecting once it fires, which is how the decision to abort is
-   * exercised without docker.
+   * `--cidfile` named. A `Container` that never looks at this runs to its own
+   * end regardless; a fake one in a test honours it by rejecting once it
+   * fires, which is how the decision to abort is exercised without docker.
    */
   signal: AbortSignal;
 }
