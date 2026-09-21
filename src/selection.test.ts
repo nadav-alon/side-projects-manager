@@ -41,8 +41,10 @@ const TODAY = localDay(FROZEN_NOW);
 async function open(
   store: FakeStore,
   tracker: FakeIssueTracker,
-  today: Day = TODAY,
-  repoHost: FakeRepoHost = new FakeRepoHost(),
+  { today = TODAY, repoHost = new FakeRepoHost() }: {
+    today?: Day;
+    repoHost?: FakeRepoHost;
+  } = {},
 ): Promise<{ selection: InvocationSelection; worked: WorkedTickets }> {
   const state = await store.loadState();
   const worked = workedTickets(state.workedToday, today);
@@ -1477,7 +1479,7 @@ describe("invocationSelection", () => {
         { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
       ]);
       repoHost.mergeStatus = () => "conflicting";
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       await selection.next();
 
@@ -1495,7 +1497,7 @@ describe("invocationSelection", () => {
       const repoHost = new FakeRepoHost();
       store.register(PILOT, { paused: true });
       const listOpenPullRequests = t.mock.method(repoHost, "listOpenPullRequests");
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       await selection.next();
 
@@ -1512,7 +1514,7 @@ describe("invocationSelection", () => {
         { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
       ]);
       repoHost.mergeStatus = () => "conflicting";
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       const chosen = await selection.next();
 
@@ -1537,7 +1539,7 @@ describe("invocationSelection", () => {
         { url: TURBO_PULL_REQUEST, labels: [], closes: issueNumber(1) },
       ]);
       repoHost.mergeStatus = () => "conflicting";
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       await selection.next();
 
@@ -1557,7 +1559,7 @@ describe("invocationSelection", () => {
       ]);
       repoHost.mergeStatus = () => "conflicting";
       const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       await selection.next();
 
@@ -1572,7 +1574,7 @@ describe("invocationSelection", () => {
       const tracker = new FakeIssueTracker();
       const repoHost = new FakeRepoHost();
       store.register(PILOT);
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       await selection.next();
       await selection.next();
@@ -1592,7 +1594,7 @@ describe("invocationSelection", () => {
       repoHost.listOpenPullRequests = async () => {
         throw new Error("host unreachable");
       };
-      const { selection } = await open(store, tracker, TODAY, repoHost);
+      const { selection } = await open(store, tracker, { repoHost });
 
       const chosen = await selection.next();
 
