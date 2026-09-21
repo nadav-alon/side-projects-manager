@@ -87,6 +87,9 @@ const BRANCH_ATTEMPTS = 10;
  */
 const TRANSCRIPT_MOUNT = "/home/node/.claude/projects";
 
+/** Where session transcripts are kept, as a directory under the manager home. */
+export const TRANSCRIPTS_DIRECTORY = "transcripts";
+
 /** What one agent run in the container came back with. */
 export interface AgentRun {
   /** Everything the agent said, kept for the ticket comment on failure. */
@@ -223,18 +226,25 @@ export type Container = (options: RunOptions) => Promise<AgentRun>;
  * before a review is budgeted: see docs/adr/0004 for how the gate charges
  * each run in progress its own estimate, in place of the overshoot
  * docs/adr/0003 once accepted.
+ *
+ * `home` defaults to `MANAGER_HOME`, which is resolved at module load from an
+ * environment variable, so a test cannot redirect it the way it can any other
+ * default — this parameter is the only seam that lets a test point session
+ * transcripts somewhere other than the developer's own checkout.
  */
 export function containerSandbox(
   container: Container = dockerContainer,
   pullRequestHead: PullRequestHead = ghPullRequestHead,
   home: string = MANAGER_HOME,
 ): Sandbox {
+  const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
+
   function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   function run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   function run(request: RunRequest): Promise<RunOutcome> {
-    return runOnClone(container, request, home);
+    return runOnClone(container, request, transcriptsRoot);
   }
 
   function review(
@@ -244,7 +254,7 @@ export function containerSandbox(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   function review(request: ReviewRequest): Promise<ReviewOutcome> {
-    return reviewOnClone(container, request, home);
+    return reviewOnClone(container, request, transcriptsRoot);
   }
 
   function applyReview(
@@ -256,7 +266,7 @@ export function containerSandbox(
   function applyReview(
     request: ApplyReviewRequest,
   ): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(container, pullRequestHead, request, home);
+    return applyReviewOnClone(container, pullRequestHead, request, transcriptsRoot);
   }
 
   function rebase(
@@ -266,7 +276,7 @@ export function containerSandbox(
     request: RebaseRequest & { model?: undefined },
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   function rebase(request: RebaseRequest): Promise<RebaseOutcome> {
-    return rebaseOnClone(container, pullRequestHead, request, home);
+    return rebaseOnClone(container, pullRequestHead, request, transcriptsRoot);
   }
 
   return { run, review, applyReview, rebase };
@@ -308,7 +318,7 @@ async function withThrowawayClone<T>(
 async function runOnClone(
   container: Container,
   request: RunRequest,
-  home: string,
+  transcriptsRoot: string,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -391,7 +401,7 @@ async function runOnClone(
           mount: "rw",
         },
         model,
-        home,
+        transcriptsRoot,
       );
 
       // Set once the branch has actually reached the checkout, so a failure
@@ -507,9 +517,8 @@ async function attempt(
   kind: RunKind,
   options: Omit<RunOptions, "model" | "transcriptDirectory">,
   model: ModelName | undefined,
-  home: string,
+  transcriptsRoot: string,
 ): Promise<AgentRun> {
-  const transcriptsRoot = path.join(home, "transcripts");
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
     await mkdtemp(
@@ -799,7 +808,7 @@ function reviewOutcomeOf(
 async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
-  home: string,
+  transcriptsRoot: string,
 ): Promise<ReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
 
@@ -812,7 +821,7 @@ async function reviewOnClone(
       "review",
       { directory: clone, prompt: reviewPromptFor(ticket), spendCeiling, mount: "ro" },
       model,
-      home,
+      transcriptsRoot,
     );
 
     return reviewOutcomeOf(agent, model);
@@ -913,7 +922,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   pullRequestHead: PullRequestHead,
   request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
   promptFor: (ticket: T) => string,
-  home: string,
+  transcriptsRoot: string,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
@@ -926,7 +935,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       kind,
       { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
       model,
-      home,
+      transcriptsRoot,
     );
 
     return pushRejectedOutcomeOf(agent, model);
@@ -937,7 +946,7 @@ async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
-  home: string,
+  transcriptsRoot: string,
 ): Promise<ApplyReviewOutcome> {
   return pushingRunOnClone(
     "apply-review",
@@ -945,7 +954,7 @@ async function applyReviewOnClone(
     pullRequestHead,
     request,
     applyReviewPromptFor,
-    home,
+    transcriptsRoot,
   );
 }
 
@@ -953,7 +962,7 @@ async function rebaseOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
-  home: string,
+  transcriptsRoot: string,
 ): Promise<RebaseOutcome> {
   return pushingRunOnClone(
     "rebase",
@@ -961,7 +970,7 @@ async function rebaseOnClone(
     pullRequestHead,
     request,
     rebasePromptFor,
-    home,
+    transcriptsRoot,
   );
 }
 

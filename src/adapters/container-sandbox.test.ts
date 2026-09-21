@@ -22,6 +22,7 @@ import {
   dockerNeverRanMessage,
   SALVAGE_COMMIT_MESSAGE,
   TICKET_GIST_TAG,
+  TRANSCRIPTS_DIRECTORY,
   type Container,
   type Mount,
 } from "./container-sandbox.ts";
@@ -1444,7 +1445,7 @@ describe("transcript", () => {
 
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(path.dirname(seen[0] ?? ""), path.join(home, "transcripts"));
+    assert.equal(path.dirname(seen[0] ?? ""), path.join(home, TRANSCRIPTS_DIRECTORY));
   });
 
   it("reports the transcript a finished run's container wrote", async () => {
