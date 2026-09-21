@@ -589,6 +589,25 @@ describe("summaryLine", () => {
     assert.doesNotMatch(line, /Handed back for a human/);
     assert.doesNotMatch(line, /still ready-for-agent/);
   });
+
+  it("names a missed supertask label even on a quiet morning nothing ran", () => {
+    const flagged = implementationTicket(200);
+    const line = summaryLine({
+      projects: [
+        {
+          repo: REPO,
+          verdict: "no-eligible-tickets",
+          missingSupertaskLabel: [flagged],
+        },
+      ],
+      iterations: [],
+      standDown: undefined,
+      invocationFailure: undefined,
+    });
+
+    assert.match(line, /Nothing to do: skipped/);
+    assert.match(line, /Check for a missed supertask label: .*#200/);
+  });
 });
 
 describe("transcript", () => {
