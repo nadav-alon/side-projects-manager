@@ -403,6 +403,43 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
     assert.deepEqual(found?.openBlockerNumbers, [discovered.number]);
     assert.deepEqual(tracker.discoveredTickets[0]?.blocking, true);
   });
+
+  it("drops the ticket's open blocker count once the discovered ticket closes", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+      blocking: true,
+    });
+    tracker.closeOutOfBand(discovered);
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, undefined);
+    assert.deepEqual(found?.openBlockerNumbers, []);
+  });
+
+  it("records no edge, rather than the one asked for, against a ticket the fake never held", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket: Ticket = {
+      repo: PILOT,
+      number: issueNumber(7),
+      title: "Add the thing",
+    };
+
+    await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+      blocking: true,
+    });
+
+    assert.equal(tracker.discoveredTickets[0]?.blocking, false);
+  });
 });
 
 /** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */

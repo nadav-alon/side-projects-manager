@@ -67,7 +67,11 @@ export interface FakeDiscoveredTicket {
   title: string;
   /** `discoveredBody(parent, …)`: the given body, naming `parent`. */
   body: string;
-  /** Whether a `blocked_by` edge from `parent` to `ticket` was asked for. */
+  /**
+   * Whether a `blocked_by` edge from `parent` to `ticket` was added — not
+   * merely asked for: `false` where `parent` was never put in the fake, the
+   * one way this can diverge from `discovery.blocking`.
+   */
   blocking: boolean;
   /** The discovered ticket itself, as the fake numbered it. */
   ticket: Ticket;
@@ -286,9 +290,28 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
-    const open = (this.#issues.get(repo) ?? []).filter((entry) => !entry.closed);
+    const stored = this.#issues.get(repo) ?? [];
+    const open = stored.filter((entry) => !entry.closed);
     const issues = open.map((entry) => {
-      const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
+      const {
+        parent,
+        openBlockerNumbers: numbers = [],
+        openBlockers: staticBlockers,
+        ...ticket
+      } = entry.issue;
+      // As the real tracker recomputes `openBlockers` from each blocker's
+      // state on every listing (`gh-issue-tracker.ts`'s `stillBlocking`):
+      // a number tracked here stays counted only while its own entry is
+      // still open. `staticBlockers` — set by `addBlockedTicket`, which
+      // tracks no numbers of its own — is added rather than replaced, so
+      // that helper's count is untouched by this.
+      const openBlockerNumbers = numbers.filter((number) => {
+        const blocker = stored.find(
+          (candidate) => candidate.issue.number === number,
+        );
+        return blocker === undefined || blocker.closed !== true;
+      });
+      const openBlockers = (staticBlockers ?? 0) + openBlockerNumbers.length;
       const modelLabel = modelLabelOf(entry.labels);
       const sizeLabel = sizeLabelOf(entry.labels);
       const supertask = carriesSupertaskLabel(entry.labels);
@@ -296,6 +319,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       return {
         ticket: {
           ...ticket,
+          ...(openBlockers > 0 && { openBlockers }),
           ...(modelLabel !== undefined && { modelLabel }),
           ...(sizeLabel !== undefined && { sizeLabel }),
           ...(supertask && { supertask }),
@@ -383,15 +407,20 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     );
     this.addLabel(discovered, ENHANCEMENT_LABEL);
 
-    const blocking = discovery.blocking === true;
-    if (blocking) {
+    // `blocked` — what actually happened — rather than `discovery.blocking`
+    // — what was asked for: a ticket built by hand rather than through
+    // `addEligibleTicket` has no entry to add the edge to, and recording
+    // blocking regardless would claim an edge that changed nothing a
+    // `listOpenIssues` could ever show.
+    let blocked = false;
+    if (discovery.blocking === true) {
       const parent = this.#find(ticket);
       if (parent !== undefined) {
-        parent.issue.openBlockers = (parent.issue.openBlockers ?? 0) + 1;
         parent.issue.openBlockerNumbers = [
           ...(parent.issue.openBlockerNumbers ?? []),
           discovered.number,
         ];
+        blocked = true;
       }
     }
 
@@ -399,7 +428,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       parent: ticket,
       title: discovery.title,
       body: discoveredBody(ticket, discovery.body),
-      blocking,
+      blocking: blocked,
       ticket: discovered,
     });
     return discovered;
