@@ -14,6 +14,7 @@ import {
   APPLY_REVIEW_MARKER,
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
+  OPEN_PULL_REQUEST_LIMIT,
   branch as toBranch,
   checkout as toCheckout,
   issueNumber,
@@ -1482,6 +1483,50 @@ describe("whether a pull request's branch needs a rebase", () => {
   });
 });
 
+describe("reading a pull request's mergeability once", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("reads a conflicting pull request", async (t) => {
+    await recordingGh(t, "echo CONFLICTING");
+
+    assert.equal(
+      await githubRepoHost().readMergeStatus(PULL_REQUEST),
+      "conflicting",
+    );
+  });
+
+  it("reads a clean pull request", async (t) => {
+    await recordingGh(t, "echo MERGEABLE");
+
+    assert.equal(await githubRepoHost().readMergeStatus(PULL_REQUEST), "clean");
+  });
+
+  it("returns unknown as-is, with a single read and no retry", async (t) => {
+    const gh = await recordingGh(t, "echo UNKNOWN");
+
+    assert.equal(
+      await githubRepoHost().readMergeStatus(PULL_REQUEST),
+      "unknown",
+    );
+    assert.equal((await gh.calls()).length, 1);
+  });
+
+  it("asks about the pull request named by its own URL, never gh pr list", async (t) => {
+    const gh = await recordingGh(t, "echo MERGEABLE");
+
+    await githubRepoHost().readMergeStatus(PULL_REQUEST);
+
+    const calls = await gh.calls();
+    assert.deepEqual(
+      calls.map((call) => call.slice(0, 2)),
+      [["pr", "view"]],
+    );
+    assert.ok(calls[0]?.includes(PULL_REQUEST));
+  });
+});
+
 describe("removing needs-rebase from a pull request", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",
@@ -1580,6 +1625,101 @@ describe("whether a pull request is open, merged or closed", () => {
     await assert.rejects(
       githubRepoHost().pullRequestState(PULL_REQUEST),
       /DRAFT/,
+    );
+  });
+});
+
+describe("listing a repo's open pull requests", () => {
+  interface RawLabel {
+    name: string;
+  }
+
+  function listing(
+    entries: { url: string; body: string; labels?: RawLabel[] }[],
+  ): string {
+    return JSON.stringify(
+      entries.map((entry) => ({ ...entry, labels: entry.labels ?? [] })),
+    );
+  }
+
+  async function listedFrom(
+    t: TestContext,
+    entries: { url: string; body: string; labels?: RawLabel[] }[],
+  ) {
+    const gh = await recordingGh(t, `cat <<'JSON'\n${listing(entries)}\nJSON`);
+    const pullRequests = await githubRepoHost().listOpenPullRequests(PILOT);
+    return { gh, pullRequests };
+  }
+
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/7";
+  const OTHER = "https://github.com/nadav-alon/pilot/pull/8";
+
+  it("lists a pull request's url, labels and closed ticket", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      {
+        url: OPENED,
+        body: "Closes #12.",
+        labels: [{ name: "enhancement" }],
+      },
+    ]);
+
+    assert.deepEqual(pullRequests, [
+      { url: OPENED, labels: ["enhancement"], closes: 12 },
+    ]);
+  });
+
+  it("lists a pull request whose body names no closing keyword with no closed ticket, not dropped and not an error", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      { url: OPENED, body: "Just some notes, no ticket here." },
+    ]);
+
+    assert.deepEqual(pullRequests, [{ url: OPENED, labels: [] }]);
+  });
+
+  it("lists every entry gh pr list --state open answers with, in order", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      { url: OPENED, body: "Closes #12." },
+      { url: OTHER, body: "Fixes #34." },
+    ]);
+
+    assert.deepEqual(
+      pullRequests.map((pullRequest) => pullRequest.url),
+      [OPENED, OTHER],
+    );
+  });
+
+  it("asks for open pull requests of the repo it was given, capped at OPEN_PULL_REQUEST_LIMIT, draft or ready alike", async (t) => {
+    const { gh } = await listedFrom(t, []);
+
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), ["pr", "list"]);
+    assert.equal(valueOf(call, "--repo"), PILOT);
+    assert.equal(valueOf(call, "--state"), "open");
+    assert.equal(valueOf(call, "--limit"), String(OPEN_PULL_REQUEST_LIMIT));
+    assert.ok(
+      !call?.includes("--draft"),
+      "expected no --draft flag, so draft pull requests are listed too",
+    );
+  });
+
+  it("throws naming the malformed entry when gh answers with something outside the declared shape", async (t) => {
+    await recordingGh(t, `echo '[{"body": "Closes #12.", "labels": []}]'`);
+
+    await assert.rejects(
+      githubRepoHost().listOpenPullRequests(PILOT),
+      /pull request 1.*"url" must be a string/,
+    );
+  });
+
+  it("throws naming the malformed entry when a label's name is missing or not a string", async (t) => {
+    await recordingGh(
+      t,
+      `echo '[{"url": "${OPENED}", "body": "Closes #12.", "labels": [{"id": 1}]}]'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().listOpenPullRequests(PILOT),
+      /pull request 1.*"labels\.name" must be a string/,
     );
   });
 });

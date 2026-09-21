@@ -1,5 +1,6 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
+import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
 import type { PullRequestLabel } from "./pull-request-label.ts";
@@ -197,6 +198,76 @@ export type PullRequestState = "open" | "merged" | "closed";
  * `Exclude` spelled out anew at each site that needs it.
  */
 export type PullRequestResolution = Exclude<PullRequestState, "open">;
+
+/**
+ * GitHub's nine closing keywords — `close(s|d)`, `fix(es|ed)`, `resolve(s|d)`
+ * — case-insensitive, starting at a word boundary, with an optional colon
+ * before the `#`. Translated from the ERE `.github/workflows/rebase.yml`'s
+ * `closing_number` matches with `grep` (`CLOSING_KEYWORD`) — the copy that
+ * reads a single pull request's body — so this and that reader agree on
+ * every body. `[^\S\n]` rather than `\s`, to mirror `grep`'s `[[:space:]]`
+ * without also pairing a keyword on one line with a `#N` on the next: `grep`
+ * processes a body one line at a time and can't either, but within a line it
+ * matches more than plain spaces and tabs, including `\r`, `\f` and `\v`.
+ *
+ * `rebase.yml` also feeds `CLOSING_KEYWORD` to `jq`'s `test()` against a
+ * whole body at once (its "implementation ticket" branch), where a keyword
+ * on one line *can* pair with a `#N` on the next — this function does not
+ * reproduce that second, non-line-oriented copy. Both are the same shell
+ * literal kept in sync by hand, with nothing that re-checks the two shell
+ * uses or this translation against each other; a future edit to any one of
+ * the three needs to be carried to the other two by whoever makes it.
+ */
+const CLOSING_KEYWORD =
+  /(?:^|[^A-Za-z0-9_])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^\S\n]*:?[^\S\n]*#(\d+)/i;
+
+/**
+ * The ticket `body` closes: the number from the first `Closes`, `Fixes` or
+ * `Resolves` — any of GitHub's nine closing keywords, see
+ * {@link CLOSING_KEYWORD} — or undefined when `body` names none. Also
+ * undefined for a match on `#0`, since {@link isIssueNumber} rejects it as no
+ * tracker could have produced it — indistinguishable here from a body naming
+ * no closing keyword at all, which is the more common way to reach this
+ * same answer.
+ *
+ * What {@link RepoHost.listOpenPullRequests} reads a pull request's closed
+ * ticket with, the same way `.github/workflows/rebase.yml` reads it in
+ * shell, so a sweep built on the former never picks a pull request the
+ * latter would refuse.
+ */
+export function closedTicketIn(body: string): IssueNumber | undefined {
+  const match = CLOSING_KEYWORD.exec(body);
+  if (match === null) {
+    return undefined;
+  }
+  const number = Number(match[1]);
+  return isIssueNumber(number) ? number : undefined;
+}
+
+/**
+ * One open pull request, as {@link RepoHost.listOpenPullRequests} lists it:
+ * its own url, the labels it carries, and the ticket its body closes — see
+ * {@link closedTicketIn} — absent when its body names none.
+ */
+export interface OpenPullRequest {
+  url: PullRequestUrl;
+  labels: PullRequestLabel[];
+  closes?: IssueNumber;
+}
+
+/**
+ * How many of a repo's open pull requests {@link RepoHost.listOpenPullRequests}
+ * reads: the newest this many, by the repo host's own ordering, when a repo
+ * has more open at once. `rebase.yml` reads up to 500 in the same place; this
+ * is the conflict sweep's own limit, not a promise to see every pull request
+ * the workflow would. A repo with more than this many open truncates
+ * silently, unlike `OPEN_ISSUE_READ_LIMIT` in `gh-issue-tracker.ts`, which
+ * reports when it truncates: that read feeds ticket selection, where a
+ * hidden ticket is a ticket nobody can pick, while the sweep is best effort
+ * (CONTEXT.md's "Conflict sweep") and a pull request left short one pass is
+ * caught by the next.
+ */
+export const OPEN_PULL_REQUEST_LIMIT = 100;
 
 /**
  * How many times total {@link resolveNeedsRebase} calls `read` — the first
@@ -489,6 +560,19 @@ export interface RepoHost {
    */
   needsRebase(pullRequest: PullRequestUrl): Promise<boolean>;
   /**
+   * Reads `pullRequest`'s mergeability once: no retry, no wait, and
+   * `"unknown"` is returned exactly as read, never thrown.
+   *
+   * What the conflict sweep asks with, once per pull request, before every
+   * selection (CONTEXT.md's "Conflict sweep", ADR 0007) — unlike
+   * `needsRebase`, whose {@link resolveNeedsRebase} retries an unsettled read
+   * until it gives up. Retrying every open pull request of every project
+   * before every selection would stall selection itself; a pull request left
+   * `"unknown"` here is simply left for the next sweep, whose read is what
+   * GitHub's own lazy computation was already working toward.
+   */
+  readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus>;
+  /**
    * Removes {@link NEEDS_REBASE_LABEL} from `pullRequest`, once a rebase
    * ticket closes because it no longer needs one.
    *
@@ -510,4 +594,14 @@ export interface RepoHost {
    * after.
    */
   pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState>;
+  /**
+   * Lists `repo`'s open pull requests — draft and ready alike — up to
+   * {@link OPEN_PULL_REQUEST_LIMIT}, newest first: each one's url, labels,
+   * and the ticket its body closes (see {@link closedTicketIn}).
+   *
+   * What the conflict sweep asks every project with, before every selection:
+   * the same closing-keyword definition `.github/workflows/rebase.yml` uses,
+   * so the sweep never picks a pull request the workflow would refuse.
+   */
+  listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]>;
 }

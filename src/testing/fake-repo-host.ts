@@ -5,6 +5,7 @@ import type {
   Checkout,
   DraftPullRequestOpening,
   MergeStatus,
+  OpenPullRequest,
   Proposal,
   PullRequestLabel,
   PullRequestState,
@@ -130,9 +131,13 @@ export class FakeRepoHost implements RepoHost {
   });
 
   /**
-   * What `needsRebase` reads for a pull request, called once per attempt so a
-   * test can answer `"unknown"` a bounded number of times before it settles.
-   * Clean, unless a test says otherwise.
+   * What `needsRebase` and `readMergeStatus` read for a pull request.
+   * `needsRebase` calls it once per attempt, so a test can answer `"unknown"`
+   * a bounded number of times before it settles; `readMergeStatus` calls it
+   * exactly once, with no notion of attempts, so a function scripted to
+   * settle after some number of calls will read as still unsettled to
+   * `readMergeStatus` if `needsRebase` hasn't already called it that many
+   * times. Clean, unless a test says otherwise.
    */
   mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
 
@@ -145,6 +150,16 @@ export class FakeRepoHost implements RepoHost {
    */
   setPullRequestState(pullRequest: PullRequestUrl, state: PullRequestState): void {
     this.#pullRequestStates.set(pullRequest, state);
+  }
+
+  readonly #openPullRequests = new Map<RepoSlug, OpenPullRequest[]>();
+
+  /**
+   * Sets what `listOpenPullRequests` answers for `repo`. None, unless a test
+   * says otherwise.
+   */
+  setOpenPullRequests(repo: RepoSlug, pullRequests: OpenPullRequest[]): void {
+    this.#openPullRequests.set(repo, pullRequests);
   }
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
@@ -351,12 +366,20 @@ export class FakeRepoHost implements RepoHost {
     );
   }
 
+  async readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus> {
+    return this.mergeStatus(pullRequest);
+  }
+
   async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
     this.#needsRebaseLabelled.delete(pullRequest);
   }
 
   async pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState> {
     return this.#pullRequestStates.get(pullRequest) ?? "open";
+  }
+
+  async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
+    return this.#openPullRequests.get(repo) ?? [];
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {
