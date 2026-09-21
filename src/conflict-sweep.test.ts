@@ -222,6 +222,23 @@ describe("conflictSweep", () => {
       ]);
     });
 
+    it("posts /rebase on a conflicting pull request that already carries needs-rebase", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+
+      const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+
+      assert.deepEqual(host.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+      assert.deepEqual(outcome.changes, [
+        { pullRequest: PULL_REQUEST, action: "commented" },
+      ]);
+    });
+
     it("never posts /rebase in a project that is not turbo", async () => {
       const host = new FakeRepoHost();
       host.setOpenPullRequests(PILOT, [
