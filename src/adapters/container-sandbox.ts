@@ -410,6 +410,19 @@ export interface RunOptions {
 export type Container = (options: RunOptions) => Promise<AgentRun>;
 
 /**
+ * Where `attempt` makes a run's transcript and discoveries directories
+ * fresh, both under one manager home — see `TRANSCRIPTS_DIRECTORY` and
+ * `DISCOVERIES_DIRECTORY`. The two always travel together, derived from the
+ * same `home` in `containerSandbox` and threaded unchanged through every
+ * `*OnClone` function down to `attempt`, so they travel as one value rather
+ * than a pair of positional strings.
+ */
+interface SandboxRoots {
+  transcriptsRoot: string;
+  discoveriesRoot: string;
+}
+
+/**
  * The sandbox: one agent, in a container, on a throwaway clone of the project.
  *
  * The clone is the whole safety story. The agent is handed a repository of its
@@ -443,15 +456,17 @@ export function containerSandbox(
   pullRequestHead: PullRequestHead = ghPullRequestHead,
   home: string = MANAGER_HOME,
 ): Sandbox {
-  const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
-  const discoveriesRoot = path.join(home, DISCOVERIES_DIRECTORY);
+  const roots: SandboxRoots = {
+    transcriptsRoot: path.join(home, TRANSCRIPTS_DIRECTORY),
+    discoveriesRoot: path.join(home, DISCOVERIES_DIRECTORY),
+  };
 
   function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   function run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   function run(request: RunRequest): Promise<RunOutcome> {
-    return runOnClone(container, request, transcriptsRoot, discoveriesRoot);
+    return runOnClone(container, request, roots);
   }
 
   function review(
@@ -461,7 +476,7 @@ export function containerSandbox(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   function review(request: ReviewRequest): Promise<ReviewOutcome> {
-    return reviewOnClone(container, request, transcriptsRoot, discoveriesRoot);
+    return reviewOnClone(container, request, roots);
   }
 
   function applyReview(
@@ -473,13 +488,7 @@ export function containerSandbox(
   function applyReview(
     request: ApplyReviewRequest,
   ): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(
-      container,
-      pullRequestHead,
-      request,
-      transcriptsRoot,
-      discoveriesRoot,
-    );
+    return applyReviewOnClone(container, pullRequestHead, request, roots);
   }
 
   function rebase(
@@ -489,13 +498,7 @@ export function containerSandbox(
     request: RebaseRequest & { model?: undefined },
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   function rebase(request: RebaseRequest): Promise<RebaseOutcome> {
-    return rebaseOnClone(
-      container,
-      pullRequestHead,
-      request,
-      transcriptsRoot,
-      discoveriesRoot,
-    );
+    return rebaseOnClone(container, pullRequestHead, request, roots);
   }
 
   function specReview(
@@ -505,7 +508,7 @@ export function containerSandbox(
     request: SpecReviewRequest & { model?: undefined },
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
   function specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
-    return specReviewOnClone(container, request, transcriptsRoot, discoveriesRoot);
+    return specReviewOnClone(container, request, roots);
   }
 
   return { run, review, applyReview, rebase, specReview };
@@ -548,8 +551,7 @@ async function withThrowawayClone<T>(
 async function runOnClone(
   container: Container,
   request: RunRequest,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -632,8 +634,7 @@ async function runOnClone(
           mount: "rw",
         },
         model,
-        transcriptsRoot,
-        discoveriesRoot,
+        roots,
       );
 
       // Set once the branch has actually reached the checkout, so a failure
@@ -779,8 +780,7 @@ async function attempt(
     "model" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
   >,
   model: ModelName | undefined,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  { transcriptsRoot, discoveriesRoot }: SandboxRoots,
 ): Promise<FinishedAgentRun> {
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
@@ -1329,8 +1329,7 @@ async function reviewOnReadOnlyClone(
   kind: "review" | "spec-review",
   request: ReviewRequest | SpecReviewRequest,
   prompt: string,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<ReviewOutcome> {
   const { checkout: project, spendCeiling, model } = request;
 
@@ -1343,8 +1342,7 @@ async function reviewOnReadOnlyClone(
       kind,
       { directory: clone, prompt, spendCeiling, mount: "ro" },
       model,
-      transcriptsRoot,
-      discoveriesRoot,
+      roots,
     );
 
     return reviewOutcomeOf(agent, model);
@@ -1354,32 +1352,28 @@ async function reviewOnReadOnlyClone(
 async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<ReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
     "review",
     request,
     reviewPromptFor(request.ticket),
-    transcriptsRoot,
-    discoveriesRoot,
+    roots,
   );
 }
 
 async function specReviewOnClone(
   container: Container,
   request: SpecReviewRequest,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<SpecReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
     "spec-review",
     request,
     specReviewPromptFor(request.ticket),
-    transcriptsRoot,
-    discoveriesRoot,
+    roots,
   );
 }
 
@@ -1545,8 +1539,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   pullRequestHead: PullRequestHead,
   request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
   promptFor: (ticket: T) => string,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
@@ -1559,8 +1552,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       kind,
       { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
       model,
-      transcriptsRoot,
-      discoveriesRoot,
+      roots,
     );
 
     return pushRejectedOutcomeOf(agent, model);
@@ -1571,8 +1563,7 @@ async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<ApplyReviewOutcome> {
   return pushingRunOnClone(
     "apply-review",
@@ -1580,8 +1571,7 @@ async function applyReviewOnClone(
     pullRequestHead,
     request,
     applyReviewPromptFor,
-    transcriptsRoot,
-    discoveriesRoot,
+    roots,
   );
 }
 
@@ -1589,8 +1579,7 @@ async function rebaseOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
-  transcriptsRoot: string,
-  discoveriesRoot: string,
+  roots: SandboxRoots,
 ): Promise<RebaseOutcome> {
   return pushingRunOnClone(
     "rebase",
@@ -1598,8 +1587,7 @@ async function rebaseOnClone(
     pullRequestHead,
     request,
     rebasePromptFor,
-    transcriptsRoot,
-    discoveriesRoot,
+    roots,
   );
 }
 
