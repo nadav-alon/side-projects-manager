@@ -261,6 +261,11 @@ export function isCutOff(iteration: Iteration): iteration is CutOff {
   return iteration.kind === "limit-refused" || iteration.kind === "provider-failed";
 }
 
+/** `x`'s own `transcript`, spread beside the rest of an outcome's fields — present only when `x` carries one. */
+function transcriptField(x: { transcript?: TranscriptPath }) {
+  return x.transcript === undefined ? {} : { transcript: x.transcript };
+}
+
 /**
  * `run`'s own cut-off kind, as the iteration it comes to: the one place an
  * implementation run's limit refusal and provider failure are each built,
@@ -270,14 +275,12 @@ export function cutOffRunOutcome(
   run: RunLimitRefused | RunProviderFailed,
   discard: Discard,
 ): CutOff {
-  const transcript =
-    run.transcript === undefined ? {} : { transcript: run.transcript };
   return run.kind === "limit-refused"
     ? {
         kind: "limit-refused",
         limitRefusal: run.words,
         tokensUsed: run.tokensUsed,
-        ...transcript,
+        ...transcriptField(run),
         run,
         discard,
       }
@@ -285,7 +288,7 @@ export function cutOffRunOutcome(
         kind: "provider-failed",
         providerFailure: run.words,
         tokensUsed: run.tokensUsed,
-        ...transcript,
+        ...transcriptField(run),
         run,
         discard,
       };
@@ -298,21 +301,19 @@ export function cutOffRunOutcome(
 export function cutOffReviewOutcome(
   review: ReviewLimitRefused | ReviewProviderFailed,
 ): CutOff {
-  const transcript =
-    review.transcript === undefined ? {} : { transcript: review.transcript };
   return review.kind === "limit-refused"
     ? {
         kind: "limit-refused",
         limitRefusal: review.words,
         tokensUsed: review.tokensUsed,
-        ...transcript,
+        ...transcriptField(review),
         discard: { kind: "none" },
       }
     : {
         kind: "provider-failed",
         providerFailure: review.words,
         tokensUsed: review.tokensUsed,
-        ...transcript,
+        ...transcriptField(review),
         discard: { kind: "none" },
       };
 }
@@ -349,13 +350,11 @@ export function budgetExhaustedRunOutcome(
   run: RunBudgetExhausted,
   discard: Discard,
 ): BudgetExhausted {
-  const transcript =
-    run.transcript === undefined ? {} : { transcript: run.transcript };
   return {
     kind: "budget-exhausted",
     words: run.words,
     tokensUsed: run.tokensUsed,
-    ...transcript,
+    ...transcriptField(run),
     run,
     discard,
   };
@@ -368,13 +367,11 @@ export function budgetExhaustedRunOutcome(
 export function budgetExhaustedReviewOutcome(
   review: ReviewBudgetExhausted,
 ): BudgetExhausted {
-  const transcript =
-    review.transcript === undefined ? {} : { transcript: review.transcript };
   return {
     kind: "budget-exhausted",
     words: review.words,
     tokensUsed: review.tokensUsed,
-    ...transcript,
+    ...transcriptField(review),
     discard: { kind: "none" },
   };
 }
