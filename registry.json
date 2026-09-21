@@ -1,5 +1,5 @@
 {
   "projects": [
-    { "repo": "nadav-alon/side-projects-manager" }
+    { "repo": "nadav-alon/side-projects-manager", "turbo": true }
   ]
 }
