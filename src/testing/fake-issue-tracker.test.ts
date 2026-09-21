@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   backlogIn,
+  ENHANCEMENT_LABEL,
   isApplyReviewTicket,
   isRebaseTicket,
   isReviewTicket,
@@ -10,6 +11,7 @@ import {
   isSupertask,
   issueNumber,
   modelName,
+  NEEDS_TRIAGE_LABEL,
   pullRequestUrl,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
@@ -301,6 +303,105 @@ describe("FakeIssueTracker.comment", () => {
       { ticket, comment: "Found something while working this." },
     ]);
     assert.equal(tracker.carriesLabel(ticket, READY_FOR_AGENT_LABEL), true);
+  });
+});
+
+describe("FakeIssueTracker.createDiscoveredTicket", () => {
+  it("opens a ticket carrying needs-triage and enhancement, never ready-for-agent", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+    });
+
+    assert.equal(tracker.carriesLabel(discovered, NEEDS_TRIAGE_LABEL), true);
+    assert.equal(tracker.carriesLabel(discovered, ENHANCEMENT_LABEL), true);
+    assert.equal(
+      tracker.carriesLabel(discovered, READY_FOR_AGENT_LABEL),
+      false,
+    );
+  });
+
+  it("numbers it above every ticket the repo has, and lists it as ineligible", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+    });
+
+    assert.equal(discovered.number, 8);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === discovered.number);
+    assert.equal(found?.eligible, false);
+  });
+
+  it("records the call, naming the ticket it was discovered while working", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+    });
+
+    assert.deepEqual(tracker.discoveredTickets, [
+      {
+        parent: ticket,
+        title: "The retry loop never backs off",
+        body: "Hammers the API on every failure.",
+        blocking: false,
+        ticket: discovered,
+      },
+    ]);
+  });
+
+  it("leaves the ticket's open blocker count untouched without blocking asked for", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+    });
+
+    const { tickets: backlog } = backlogIn(await tracker.listOpenIssues(PILOT));
+    assert.equal(backlog.find((t) => t.number === ticket.number)?.openBlockers, undefined);
+  });
+
+  it("raises the ticket's open blocker count by one when blocking is asked for", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+      blocking: true,
+    });
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, 1);
+    assert.deepEqual(found?.openBlockerNumbers, [discovered.number]);
+    assert.deepEqual(tracker.discoveredTickets[0]?.blocking, true);
   });
 });
 

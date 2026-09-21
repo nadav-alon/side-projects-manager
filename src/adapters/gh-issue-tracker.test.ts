@@ -5,6 +5,8 @@ import { describe, it } from "node:test";
 
 import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
+  ENHANCEMENT_LABEL,
+  NEEDS_TRIAGE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   isSpecReviewTicket,
@@ -638,6 +640,162 @@ describe("ghIssueTracker.comment", () => {
     assert.equal(callWith(calls, "--remove-label"), undefined);
     assert.equal(callWith(calls, "issue", "edit"), undefined);
     assert.equal(callWith(calls, "issue", "close"), undefined);
+  });
+});
+
+describe("ghIssueTracker.createDiscoveredTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const TICKET: Ticket = {
+    repo: PILOT,
+    number: issueNumber(7),
+    title: "Add the thing",
+  };
+
+  const DISCOVERED_URL = "https://github.com/nadav-alon/pilot/issues/43";
+  /** The discovered ticket's database id, which is what the edge takes. */
+  const DISCOVERED_ID = "2159872999";
+
+  const DISCOVERY = {
+    title: "The retry loop never backs off",
+    body: "Hammers the API on every failure.",
+  };
+
+  /** A tracker where creating, reading back and blocking all succeed. */
+  const WORKING = [
+    `case "$1 $2" in`,
+    `  "issue create") echo ${DISCOVERED_URL} ;;`,
+    `  "api repos/nadav-alon/pilot/issues/43") echo ${DISCOVERED_ID} ;;`,
+    `  *) : ;;`,
+    `esac`,
+  ].join("\n");
+
+  it("creates it in the ticket's own repo, carrying needs-triage and enhancement, never ready-for-agent", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create, "the ticket should be created with `gh issue create`");
+    assert.equal(valueOf(create, "--repo"), PILOT);
+    assert.ok(create.includes(NEEDS_TRIAGE_LABEL));
+    assert.ok(create.includes(ENHANCEMENT_LABEL));
+    assert.ok(!create.includes(READY_FOR_AGENT_LABEL));
+  });
+
+  it("creates both labels first, since a project may have neither", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
+
+    const calls = await gh.calls();
+    const needsTriage = callWith(calls, "label", "create", NEEDS_TRIAGE_LABEL);
+    const enhancement = callWith(calls, "label", "create", ENHANCEMENT_LABEL);
+    const create = callWith(calls, "issue", "create");
+    assert.ok(needsTriage, "needs-triage should be created");
+    assert.ok(enhancement, "enhancement should be created");
+    assert.ok(create);
+    assert.ok(calls.indexOf(needsTriage) < calls.indexOf(create));
+    assert.ok(calls.indexOf(enhancement) < calls.indexOf(create));
+  });
+
+  it("opens the ticket even where both labels already exist", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "label create") echo "label already exists" >&2; exit 1 ;;`,
+        `  "issue create") echo ${DISCOVERED_URL} ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const discovered = await ghIssueTracker().createDiscoveredTicket(
+      TICKET,
+      DISCOVERY,
+    );
+
+    assert.equal(discovered.number, 43);
+  });
+
+  it("names the given body and the ticket it was discovered while working", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.equal(valueOf(create, "--title"), DISCOVERY.title);
+    const body = valueOf(create, "--body") ?? "";
+    assert.match(body, /Hammers the API on every failure\./);
+    assert.match(body, /Discovered while working #7\./);
+  });
+
+  it("answers with the new ticket", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    const discovered = await ghIssueTracker().createDiscoveredTicket(
+      TICKET,
+      DISCOVERY,
+    );
+
+    assert.equal(discovered.repo, PILOT);
+    assert.equal(discovered.number, 43);
+    assert.equal(discovered.title, DISCOVERY.title);
+  });
+
+  it("adds no edge when blocking is not asked for", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
+
+    assert.equal(
+      callWith(await gh.calls(), "dependencies/blocked_by"),
+      undefined,
+    );
+  });
+
+  it("blocks the ticket, keyed on the new issue's database id, when asked", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createDiscoveredTicket(TICKET, {
+      ...DISCOVERY,
+      blocking: true,
+    });
+
+    const edge = callWith(await gh.calls(), "api", "--method", "POST");
+    assert.ok(edge, "a blocked_by edge should be added");
+    assert.ok(
+      edge.includes("repos/nadav-alon/pilot/issues/7/dependencies/blocked_by"),
+    );
+    // The discovered issue's database id, never its `#number` or node id.
+    assert.equal(valueOf(edge, "-F"), `issue_id=${DISCOVERED_ID}`);
+  });
+
+  it("reports a refused edge without losing the created issue", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue create") echo ${DISCOVERED_URL} ;;`,
+        `  "api repos/nadav-alon/pilot/issues/43") echo ${DISCOVERED_ID} ;;`,
+        `  "api --method") echo "gh: Forbidden (HTTP 403)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    // The discovery is not lost — it exists and is triageable — but the
+    // rejection is where the developer learns it, since nothing else names
+    // both the created issue and the refused edge.
+    await assert.rejects(
+      ghIssueTracker().createDiscoveredTicket(TICKET, {
+        ...DISCOVERY,
+        blocking: true,
+      }),
+      /Opened #43 in nadav-alon\/pilot .* could not block #7/s,
+    );
   });
 });
 

@@ -47,6 +47,44 @@ export const READY_FOR_HUMAN_LABEL = "ready-for-human";
 export type HandBackOutcome = "handed-back" | "already-closed";
 
 /**
+ * The triage label a freshly discovered ticket is born with, as
+ * `docs/agents/triage-labels.md` spells it: the maintainer, not the loop,
+ * decides whether it ever becomes ready-for-agent.
+ */
+export const NEEDS_TRIAGE_LABEL = "needs-triage";
+
+/**
+ * The label a freshly discovered ticket is born with, beside
+ * `NEEDS_TRIAGE_LABEL`: it says the ticket is new work rather than a report
+ * against existing behavior. The one place the literal lives.
+ */
+export const ENHANCEMENT_LABEL = "enhancement";
+
+/**
+ * What `IssueTracker.createDiscoveredTicket` opens a ticket from: a title
+ * and body the caller supplies, and whether the ticket it names should be
+ * blocked by the new one. `blocking` absent or false opens the ticket with
+ * no edge at all.
+ */
+export interface DiscoveredTicket {
+  title: string;
+  body: string;
+  blocking?: boolean;
+}
+
+/**
+ * The body a discovered ticket carries: `body`, followed by a line naming
+ * the ticket it was discovered while working, so the discovery reads in
+ * context wherever it later surfaces.
+ *
+ * Beside the verb that opens one rather than in the adapter, so the real
+ * tracker and the fake write the same body.
+ */
+export function discoveredBody(ticket: Ticket, body: string): string {
+  return `${body}\n\nDiscovered while working #${ticket.number}.`;
+}
+
+/**
  * What a label starts with when it is a model label, per `CONTEXT.md`: the
  * rest of the label is the model's name. The one place the literal lives.
  */
@@ -609,6 +647,28 @@ export interface IssueTracker {
    * itself a hand-back: nothing about it is specific to a run ending.
    */
   comment(ticket: Ticket, comment: string): Promise<void>;
+
+  /**
+   * Opens an issue in the same repo as `ticket` — a ticket discovered while
+   * working `ticket`, not a sub-issue of it — labelled needs-triage and
+   * enhancement, never ready-for-agent: the maintainer triages it like any
+   * other report. Its body is `discovery.body` followed by a line naming
+   * `ticket`, per `discoveredBody`.
+   *
+   * `discovery.blocking` also adds a native `blocked_by` edge, so `ticket`
+   * is blocked by the new issue until it closes — for a discovery serious
+   * enough that `ticket`'s own work should wait on it. Left unset or false,
+   * no edge is added.
+   *
+   * Answers with the new ticket either way. Where the edge is asked for and
+   * refused, the created issue is not lost: the rejection names it, since a
+   * discovery that exists but nobody was told to look for is worse than one
+   * this simply failed to open.
+   */
+  createDiscoveredTicket(
+    ticket: Ticket,
+    discovery: DiscoveredTicket,
+  ): Promise<Ticket>;
 
   /**
    * Closes `ticket`, once its review has been posted, and takes

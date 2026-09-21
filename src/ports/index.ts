@@ -26,7 +26,9 @@ export {
 } from "./kept-summary-path.ts";
 export type { KeptSummaryPath } from "./kept-summary-path.ts";
 export {
+  ENHANCEMENT_LABEL,
   MODEL_LABEL_PREFIX,
+  NEEDS_TRIAGE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SIZE_LABEL_PREFIX,
@@ -38,6 +40,7 @@ export {
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
   declaredSize,
+  discoveredBody,
   isApplyReviewTicket,
   isBlocked,
   isPullRequestTicket,
@@ -55,6 +58,7 @@ export {
 export type {
   ApplyReviewTicket,
   Backlog,
+  DiscoveredTicket,
   HandBackOutcome,
   IssueTracker,
   ModelLabel,

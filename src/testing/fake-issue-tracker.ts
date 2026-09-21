@@ -1,5 +1,6 @@
 import type {
   ApplyReviewTicket,
+  DiscoveredTicket,
   HandBackOutcome,
   IssueTracker,
   IssueUrl,
@@ -12,6 +13,8 @@ import type {
   Ticket,
 } from "../ports/index.ts";
 import {
+  ENHANCEMENT_LABEL,
+  NEEDS_TRIAGE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
@@ -54,6 +57,18 @@ export interface FakeHandback {
 export interface FakeComment {
   ticket: Ticket;
   comment: string;
+}
+
+/** One discovered ticket the loop opened, in the order it was opened. */
+export interface FakeDiscoveredTicket {
+  /** The ticket it was discovered while working. */
+  parent: Ticket;
+  title: string;
+  body: string;
+  /** Whether a `blocked_by` edge from `parent` to `ticket` was asked for. */
+  blocking: boolean;
+  /** The discovered ticket itself, as the fake numbered it. */
+  ticket: Ticket;
 }
 
 /**
@@ -114,6 +129,9 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /** Plain comments posted, in the order they were posted. */
   readonly comments: FakeComment[] = [];
+
+  /** Discovered tickets opened, in the order they were opened. */
+  readonly discoveredTickets: FakeDiscoveredTicket[] = [];
 
   /** The review tickets closed, in the order they were closed. */
   readonly closedReviewTickets: ReviewTicket[] = [];
@@ -337,6 +355,52 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** Records the comment. Touches no label, the way the real tracker's plain comment does. */
   async comment(ticket: Ticket, comment: string): Promise<void> {
     this.comments.push({ ticket, comment });
+  }
+
+  /**
+   * Opens a discovered ticket carrying `NEEDS_TRIAGE_LABEL` and
+   * `ENHANCEMENT_LABEL` — never `READY_FOR_AGENT_LABEL` — numbered above
+   * every ticket the repo has, the way `createReviewTicket` numbers a
+   * review. Asking for `discovery.blocking` adds `ticket`'s number to its own
+   * open blockers, the same fact `openBlockers` reports from on the next
+   * `listOpenIssues`.
+   */
+  async createDiscoveredTicket(
+    ticket: Ticket,
+    discovery: DiscoveredTicket,
+  ): Promise<Ticket> {
+    const issues = this.#issues.get(ticket.repo) ?? [];
+    const numbers = issues.map((entry) => entry.issue.number);
+    const discovered = this.#add(
+      ticket.repo,
+      {
+        number: issueNumber(Math.max(ticket.number, ...numbers) + 1),
+        title: discovery.title,
+      },
+      NEEDS_TRIAGE_LABEL,
+    );
+    this.addLabel(discovered, ENHANCEMENT_LABEL);
+
+    const blocking = discovery.blocking === true;
+    if (blocking) {
+      const parent = this.#find(ticket);
+      if (parent !== undefined) {
+        parent.issue.openBlockers = (parent.issue.openBlockers ?? 0) + 1;
+        parent.issue.openBlockerNumbers = [
+          ...(parent.issue.openBlockerNumbers ?? []),
+          discovered.number,
+        ];
+      }
+    }
+
+    this.discoveredTickets.push({
+      parent: ticket,
+      title: discovery.title,
+      body: discovery.body,
+      blocking,
+      ticket: discovered,
+    });
+    return discovered;
   }
 
   /**
