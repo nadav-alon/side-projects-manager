@@ -36,7 +36,6 @@ export {
   carriesReadyForAgent,
   carriesSupertaskLabel,
   declaredSize,
-  discountPullRequestTickets,
   isApplyReviewTicket,
   isBlocked,
   isPullRequestTicket,
