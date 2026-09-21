@@ -3484,6 +3484,7 @@ describe("containerSandbox with the real docker container", () => {
         variant(result, "budget-exhausted")?.words,
         BUDGET_EXHAUSTED_JSON_RESULT,
       );
+      assert.equal(result.tokensUsed, tokenCount(671_055));
     });
 
     it("reads no spend-ceiling ending from the provider-failure fixture's own subtype", async (t) => {

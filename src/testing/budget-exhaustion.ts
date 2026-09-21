@@ -15,7 +15,8 @@ export const BUDGET_EXHAUSTED_JSON_RESULT =
  * <ceiling>` writes to stdout once a run spends past its ceiling, trimmed to
  * the fields a reader or the adapter cares about: `is_error: true`,
  * `subtype: "error_max_budget_usd"`, `terminal_reason: "budget_exhausted"`,
- * and a `result` meant to be read.
+ * and a `result` meant to be read. `usage` is populated, as it is on a real
+ * envelope: 202 turns spending $10.02 could not have moved zero tokens.
  */
 export const BUDGET_EXHAUSTED_STDOUT = JSON.stringify({
   type: "result",
@@ -25,10 +26,10 @@ export const BUDGET_EXHAUSTED_STDOUT = JSON.stringify({
   num_turns: 202,
   total_cost_usd: 10.02,
   usage: {
-    input_tokens: 0,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
-    output_tokens: 0,
+    input_tokens: 12_345,
+    cache_creation_input_tokens: 30_210,
+    cache_read_input_tokens: 610_000,
+    output_tokens: 18_500,
   },
   permission_denials: [],
   result: BUDGET_EXHAUSTED_JSON_RESULT,
