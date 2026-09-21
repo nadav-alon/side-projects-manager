@@ -1676,7 +1676,7 @@ describe("listing a repo's open pull requests", () => {
     assert.deepEqual(pullRequests, [{ url: OPENED, labels: [] }]);
   });
 
-  it("lists every open pull request, draft or ready, gh pr list --state open answers with", async (t) => {
+  it("lists every entry gh pr list --state open answers with, in order", async (t) => {
     const { pullRequests } = await listedFrom(t, [
       { url: OPENED, body: "Closes #12." },
       { url: OTHER, body: "Fixes #34." },
@@ -1688,7 +1688,7 @@ describe("listing a repo's open pull requests", () => {
     );
   });
 
-  it("asks for open pull requests of the repo it was given, capped at OPEN_PULL_REQUEST_LIMIT", async (t) => {
+  it("asks for open pull requests of the repo it was given, capped at OPEN_PULL_REQUEST_LIMIT, draft or ready alike", async (t) => {
     const { gh } = await listedFrom(t, []);
 
     const [call] = await gh.calls();
@@ -1696,6 +1696,10 @@ describe("listing a repo's open pull requests", () => {
     assert.equal(valueOf(call, "--repo"), PILOT);
     assert.equal(valueOf(call, "--state"), "open");
     assert.equal(valueOf(call, "--limit"), String(OPEN_PULL_REQUEST_LIMIT));
+    assert.ok(
+      !call?.includes("--draft"),
+      "expected no --draft flag, so draft pull requests are listed too",
+    );
   });
 
   it("throws naming the malformed entry when gh answers with something outside the declared shape", async (t) => {
