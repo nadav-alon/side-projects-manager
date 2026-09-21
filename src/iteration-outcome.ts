@@ -1,3 +1,4 @@
+import type { DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
@@ -190,7 +191,8 @@ export type Iteration =
   | PullRequestResolved
   | LimitRefused
   | ProviderFailed
-  | BudgetExhausted;
+  | BudgetExhausted
+  | DiscoveryBlocked;
 
 /**
  * A limit refusal: an implementation, review, apply-review or rebase run the
@@ -216,6 +218,14 @@ export interface LimitRefused {
   transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
+  /**
+   * What a cut-off run's own discoveries came to, per CONTEXT.md's
+   * "Discovery": acted on exactly as a finished or a gave-up run's are, since
+   * a discovery filed before the provider stopped the run is still true —
+   * but never a reason to hand the ticket back, which stays eligible whatever
+   * it found. Absent when the run filed none.
+   */
+  discoveries?: DiscoveryRouting;
 }
 
 /**
@@ -248,6 +258,8 @@ export interface ProviderFailed {
   transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
+  /** As `LimitRefused.discoveries`. */
+  discoveries?: DiscoveryRouting;
 }
 
 /**
@@ -395,6 +407,13 @@ export interface Finished {
    * too, just with nothing to name in the comment but that.
    */
   handedBack: HandBackRecord;
+  /**
+   * What the run's own discoveries came to, per CONTEXT.md's "Discovery" —
+   * always advisory here, since a correction or a prerequisite would have
+   * made this a `DiscoveryBlocked` iteration instead. Absent when the run
+   * filed none.
+   */
+  discoveries?: DiscoveryRouting;
 }
 
 /**
@@ -437,6 +456,14 @@ export type Failed = {
    * reader checks the one field regardless of which kind of run failed.
    */
   transcript?: TranscriptPath;
+  /**
+   * What a gave-up run's own discoveries came to, per CONTEXT.md's
+   * "Discovery" — always advisory here, since a correction or a prerequisite
+   * would have made this a `DiscoveryBlocked` iteration instead. Absent when
+   * the run filed none, and always absent for an infrastructure failure,
+   * which this module never routes discoveries for.
+   */
+  discoveries?: DiscoveryRouting;
 } & (
   | { failure: InfrastructureFailure }
   /** What became of the ticket's own hand-back. */
@@ -485,7 +512,8 @@ export type IterationOutcome =
   | (Attempt<PullRequestTicket> & PullRequestResolved)
   | (Attempt & LimitRefused)
   | (Attempt & ProviderFailed)
-  | (Attempt & BudgetExhausted);
+  | (Attempt & BudgetExhausted)
+  | (Attempt & DiscoveryBlocked);
 
 /**
  * A review ticket's own run that finished without the agent giving up. There
@@ -523,6 +551,8 @@ export interface Reviewed {
    * that is not turbo and for one whose comment posted fine.
    */
   notCommented?: NotCommented;
+  /** As `Finished.discoveries`. */
+  discoveries?: DiscoveryRouting;
 }
 
 /**
@@ -582,6 +612,8 @@ export interface AppliedReview {
    * once the ticket is already closed, and reported rather than retried.
    */
   notLabelled?: NotLabelled;
+  /** As `Finished.discoveries`. */
+  discoveries?: DiscoveryRouting;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
@@ -612,6 +644,8 @@ export interface Rebased {
    * ready-for-agent.
    */
   notClosed?: RebaseNotClosed;
+  /** As `Finished.discoveries`. */
+  discoveries?: DiscoveryRouting;
 }
 
 /** Why a rebase iteration left its ticket open, and the error that stopped it. */
@@ -637,6 +671,28 @@ export interface SpecReviewed {
    * here for the same reason as `Finished.tokensUsed`.
    */
   tokensUsed: TokenCount;
+  /** What became of the ticket's own hand-back. */
+  handedBack: HandBackRecord;
+}
+
+/**
+ * An iteration whose run filed a correction or a prerequisite — a blocking
+ * discovery, per CONTEXT.md's "Discovery" and "Hand back". The run's own
+ * ticket is handed back exactly as a gave-up run's is, whatever the agent
+ * went on to commit or would otherwise have finished: no pull request opens,
+ * and no review, apply-review or rebase closes. For a pull request ticket,
+ * "the run's own ticket" is the pull request ticket itself — `target` names
+ * the implementation ticket its discoveries landed on instead, absent for an
+ * implementation run, whose target is its own ticket.
+ */
+export interface DiscoveryBlocked {
+  kind: "discovery-blocked";
+  /** What every discovery the run filed came to, blocking and advisory alike. */
+  routing: DiscoveryRouting;
+  /** As `HandBackEnding`'s own `target`: present only for a pull request ticket. */
+  target?: Ticket;
+  tokensUsed: TokenCount;
+  transcript?: TranscriptPath;
   /** What became of the ticket's own hand-back. */
   handedBack: HandBackRecord;
 }

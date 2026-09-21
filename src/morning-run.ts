@@ -29,6 +29,7 @@ import type {
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
+  RunGaveUp,
   RunLimitRefused,
   RunModelRefused,
   RunOutcome,
@@ -85,6 +86,12 @@ import {
   type Discard,
   type HandBackRecord,
 } from "./hand-back.ts";
+import {
+  blockingDiscoveriesOf,
+  hasBlockingDiscovery,
+  routeRunDiscoveries,
+  type RoutedDiscoveries,
+} from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
 import {
   budgetExhaustedReviewOutcome,
@@ -99,6 +106,7 @@ import {
   type AppliedReview,
   type BudgetExhausted,
   type CutOff,
+  type DiscoveryBlocked,
   type Failed,
   type Finished,
   type GaveUp,
@@ -811,13 +819,13 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
  *
  * An infrastructure failure, a limit refusal or a provider failure says
  * nothing about the ticket at all, so it always frees it. A finished, a
- * spec-reviewed or a failed run frees it exactly when its own hand-back
- * landed — `"handed-back"` or `"already-closed"` — and leaves it recorded
- * when the tracker refused the call. A review, an apply-review, a rebase or a
- * resolved pull request frees it exactly when it closed without a
- * `notClosed`, and leaves it recorded when one is set — the ticket is still
- * ready-for-agent, due to come round again on its own, so the record still
- * has something to protect.
+ * spec-reviewed, a discovery-blocked or a failed run frees it exactly when
+ * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
+ * leaves it recorded when the tracker refused the call. A review, an
+ * apply-review, a rebase or a resolved pull request frees it exactly when it
+ * closed without a `notClosed`, and leaves it recorded when one is set — the
+ * ticket is still ready-for-agent, due to come round again on its own, so the
+ * record still has something to protect.
  */
 function freesTicketToday(iteration: Iteration): boolean {
   switch (iteration.kind) {
@@ -827,6 +835,7 @@ function freesTicketToday(iteration: Iteration): boolean {
       return true;
     case "finished":
     case "spec-reviewed":
+    case "discovery-blocked":
       return iteration.handedBack.outcome !== "refused";
     case "failed":
       return (
@@ -950,9 +959,10 @@ async function work(
     };
   }
   if (run.kind === "limit-refused") {
-    return cutOffRunOutcome(
-      run,
-      await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run),
+    const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
+    return withDiscoveries(
+      cutOffRunOutcome(run, discard),
+      await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries),
     );
   }
   if (run.kind === "budget-exhausted") {
@@ -967,7 +977,11 @@ async function work(
     );
   }
   if (run.kind === "provider-failed") {
-    return cutOffRunOutcome(run, await discardBranch(ports.repoHost, checkout, run));
+    const discard = await discardBranch(ports.repoHost, checkout, run);
+    return withDiscoveries(
+      cutOffRunOutcome(run, discard),
+      await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries),
+    );
   }
   if (run.kind === "model-refused") {
     // A model refusal ends the ticket's run on its own terms, whatever it
@@ -985,15 +999,33 @@ async function work(
     );
   }
   if (run.kind === "finished") {
+    const routed = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
+    if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+      await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+      salvages.clear(selection.ticket);
+      return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
+        checkout,
+        run,
+      });
+    }
     await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
-    return handOver(ports, run, checkout, selection.ticket);
+    return withDiscoveries(await handOver(ports, run, checkout, selection.ticket), routed);
   }
 
   // A run that gave up ends on its own terms, whatever it continued from: see
   // CONTEXT.md's "Salvage", which discards a ticket's salvage record — and,
   // via `discardStaleSalvage`, the branch it names — the same as any other
   // gave-up run's branch.
+  const routedGaveUp = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
+  if (routedGaveUp !== undefined && hasBlockingDiscovery(routedGaveUp.routing)) {
+    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+    salvages.clear(selection.ticket);
+    return discoveryBlockedOutcome(ports, selection.ticket, routedGaveUp, run.tokensUsed, run.transcript, {
+      checkout,
+      run,
+    });
+  }
   await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
   salvages.clear(selection.ticket);
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
@@ -1011,7 +1043,16 @@ async function work(
     ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
     handedBack,
+    ...(routedGaveUp !== undefined && { discoveries: routedGaveUp.routing }),
   };
+}
+
+/** `iteration`, with `routed`'s own routing attached — unchanged when there was nothing to route. */
+function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"] }>(
+  iteration: T,
+  routed: RoutedDiscoveries | undefined,
+): T {
+  return routed === undefined ? iteration : { ...iteration, discoveries: routed.routing };
 }
 
 /**
@@ -1192,6 +1233,43 @@ async function handModelRefusedBack(
     tokensUsed,
     ...(transcript !== undefined && { transcript }),
     failure,
+    handedBack,
+  };
+}
+
+/**
+ * Hands a ticket back for a blocking discovery — a correction or a
+ * prerequisite the run filed — per CONTEXT.md's "Discovery" and "Hand back":
+ * the run's own ticket is handed back exactly as a gave-up run's is, whatever
+ * the agent went on to commit or would otherwise have finished. `worked`
+ * names the branch an implementation run left, so its own hand-back discards
+ * it; a review, apply-review or rebase ticket's own run never creates one, so
+ * `worked` is left out. `routed.target` is named on the hand-back only when it
+ * differs from `ticket` — a pull request ticket's run, whose discoveries land
+ * on its implementation ticket rather than the ticket handed back here.
+ */
+async function discoveryBlockedOutcome(
+  ports: MorningLoopPorts,
+  ticket: Ticket,
+  routed: RoutedDiscoveries,
+  tokensUsed: TokenCount,
+  transcript: TranscriptPath | undefined,
+  worked?: { checkout: Checkout; run: RunFinished | RunGaveUp },
+): Promise<DiscoveryBlocked> {
+  const target = routed.target.number === ticket.number ? undefined : routed.target;
+  const handedBack = await handBack(ports, ticket, {
+    kind: "discovery-blocked",
+    discoveries: blockingDiscoveriesOf(routed.routing),
+    ...(target !== undefined && { target }),
+    ...(worked !== undefined && { worked }),
+    ...transcriptField(transcript),
+  });
+  return {
+    kind: "discovery-blocked",
+    routing: routed.routing,
+    ...(target !== undefined && { target }),
+    tokensUsed,
+    ...(transcript !== undefined && { transcript }),
     handedBack,
   };
 }

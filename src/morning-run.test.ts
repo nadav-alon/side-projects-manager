@@ -29,6 +29,7 @@ import {
   usd,
   type ApplyReviewTicket,
   type CommitSha,
+  type Discovery,
   type RebaseTicket,
   type ReviewTicket,
   type RunFinished,
@@ -78,6 +79,11 @@ function budgetExhausted(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "budget-exhausted" ? iteration : undefined;
 }
 
+/** The discovery-blocked half of an iteration outcome — undefined if it ended any other way. */
+function discoveryBlocked(iteration: IterationOutcome | undefined) {
+  return iteration?.kind === "discovery-blocked" ? iteration : undefined;
+}
+
 /** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
 function gateRefusal(report: InvocationReport) {
   const standDown = report.standDown;
@@ -108,7 +114,8 @@ function ranWith(iteration: IterationOutcome | undefined) {
     iteration.kind === "applied-review" ||
     iteration.kind === "rebased" ||
     iteration.kind === "spec-reviewed" ||
-    iteration.kind === "pull-request-resolved"
+    iteration.kind === "pull-request-resolved" ||
+    iteration.kind === "discovery-blocked"
     ? undefined
     : iteration.run;
 }
@@ -1007,6 +1014,7 @@ describe("morningLoop", () => {
         commits?: CommitSha[];
         failure?: string;
         gist?: TicketGist;
+        discoveries?: Discovery[];
       } = {},
     ): Ticket {
       ports.store.register(PILOT);
@@ -1023,6 +1031,7 @@ describe("morningLoop", () => {
               output: "",
               tokensUsed: tokenCount(42_000),
               ...(run.gist !== undefined && { gist: run.gist }),
+              ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
             }
           : {
               kind: "gave-up",
@@ -1031,6 +1040,7 @@ describe("morningLoop", () => {
               output: "",
               reason: run.failure,
               tokensUsed: tokenCount(42_000),
+              ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
             };
       return ticket;
     }
@@ -1301,6 +1311,129 @@ describe("morningLoop", () => {
       assert.match(report.message, /the tracker is unreachable/);
       assert.match(report.message, /still ready-for-agent/);
       assert.match(report.message, new RegExp(BRANCH));
+    });
+
+    describe("a blocking discovery", () => {
+      function correction(overrides: Partial<Discovery> = {}): Discovery {
+        return {
+          kind: "correction",
+          title: "The ticket names the wrong file",
+          body: "It should touch src/widget.ts, not src/gadget.ts.",
+          ...overrides,
+        };
+      }
+
+      it("is discarded, opens no pull request, and hands back the ticket with the correction in a comment", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports, { discoveries: [correction()] });
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        assert.equal(pullRequestOf(report.iterations[0]), undefined);
+        assert.deepEqual(ports.repoHost.discarded, [
+          { directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`, branch: BRANCH },
+        ]);
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.ok(handback, "the ticket should have been handed back");
+        assert.match(handback.comment, /blocking discovery/);
+        assert.match(handback.comment, /The ticket names the wrong file/);
+        assert.equal(discoveryBlocked(report.iterations[0])?.kind, "discovery-blocked");
+      });
+
+      it("still discards and hands back a run the agent would otherwise have finished, even though it committed", async () => {
+        const ports = fakePorts();
+        ran(ports, { discoveries: [correction()], commits: [commitSha("c0ffee1")] });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+      });
+
+      it("hands back a run that gave up as a blocking discovery, not as a gave-up run", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports, {
+          failure: "the tests would not go green",
+          discoveries: [correction()],
+        });
+
+        await morningLoop(ports);
+
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.match(handback?.comment ?? "", /blocking discovery/);
+        assert.doesNotMatch(handback?.comment ?? "", /the agent gave up/);
+      });
+
+      it("proceeds exactly as normal for a clarification or a suggestion, filing them on the target", async () => {
+        const ports = fakePorts();
+        ran(ports, {
+          discoveries: [
+            { kind: "clarification", title: "What 'the thing' means", body: "Read as the button." },
+            { kind: "suggestion", title: "Worth a retry", body: "Consider retrying on failure." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(pullRequestOf(report.iterations[0]), FakeRepoHost.RUN_PULL_REQUEST);
+        assert.equal(ports.tracker.comments.length, 1);
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        const finished = report.iterations[0];
+        assert.equal(finished?.kind, "finished");
+        assert.equal(
+          finished?.kind === "finished" ? finished.discoveries?.filed.length : undefined,
+          2,
+        );
+      });
+
+      it("files only the first of two suggestions, reporting one dropped", async () => {
+        const ports = fakePorts();
+        ran(ports, {
+          discoveries: [
+            { kind: "suggestion", title: "First", body: "..." },
+            { kind: "suggestion", title: "Second", body: "..." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.title, "First");
+        const finished = report.iterations[0];
+        assert.equal(
+          finished?.kind === "finished" ? finished.discoveries?.suggestionsDropped : undefined,
+          1,
+        );
+      });
+
+      it("reports a refused tracker write without losing the rest", async (t) => {
+        const ports = fakePorts();
+        let calls = 0;
+        t.mock.method(ports.tracker, "comment", async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error("the tracker refused the comment");
+          }
+        });
+        ran(ports, {
+          discoveries: [
+            { kind: "clarification", title: "First", body: "..." },
+            { kind: "clarification", title: "Second", body: "..." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        const finished = report.iterations[0];
+        const discoveries = finished?.kind === "finished" ? finished.discoveries : undefined;
+        assert.equal(discoveries?.refused.length, 1);
+        assert.match(discoveries?.refused[0]?.reason ?? "", /refused the comment/);
+        assert.equal(discoveries?.filed.length, 1);
+      });
     });
   });
 
@@ -4610,6 +4743,36 @@ describe("morningLoop", () => {
       assert.deepEqual(state.salvages, [
         { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), stopShorts: 1 },
       ]);
+    });
+
+    it("still routes a refused run's discoveries, without handing the ticket back for a blocking one", async () => {
+      const ports = threeTickets();
+      ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            body: "It should touch src/widget.ts.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.comments.length, 1);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      const limitRefusedIteration = report.iterations[0];
+      assert.equal(
+        limitRefusedIteration?.kind === "limit-refused"
+          ? limitRefusedIteration.discoveries?.filed.length
+          : undefined,
+        1,
+      );
     });
 
     it("discards a refused run's branch when it carries no commits, and leaves any existing salvage record unchanged", async () => {
