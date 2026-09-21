@@ -30,6 +30,7 @@ import {
   TICKET_GIST_TAG,
   TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
+  type AgentRun,
   type Container,
   type Mount,
   type PullRequestHead,
@@ -920,7 +921,7 @@ describe("containerSandbox", () => {
       t.mock.timers.enable({ apis: ["setInterval", "Date"] });
       const directory = await project();
       let transcriptDir = "";
-      let resolveAgent: ((agent: { output: string; tokensUsed: ReturnType<typeof tokenCount> }) => void) | undefined;
+      let resolveAgent: ((agent: AgentRun) => void) | undefined;
       const { container, started } = starts(({ transcriptDirectory, signal }) => {
         transcriptDir = transcriptDirectory;
         return new Promise((resolve, reject) => {
