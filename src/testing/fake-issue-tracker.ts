@@ -1,6 +1,6 @@
 import type {
   ApplyReviewTicket,
-  DiscoveredTicket,
+  Discovery,
   HandBackOutcome,
   IssueTracker,
   IssueUrl,
@@ -369,7 +369,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   async createDiscoveredTicket(
     ticket: Ticket,
-    discovery: DiscoveredTicket,
+    discovery: Discovery,
   ): Promise<Ticket> {
     const issues = this.#issues.get(ticket.repo) ?? [];
     const numbers = issues.map((entry) => entry.issue.number);

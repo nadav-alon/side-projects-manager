@@ -58,7 +58,7 @@ export {
 export type {
   ApplyReviewTicket,
   Backlog,
-  DiscoveredTicket,
+  Discovery,
   HandBackOutcome,
   IssueTracker,
   ModelLabel,

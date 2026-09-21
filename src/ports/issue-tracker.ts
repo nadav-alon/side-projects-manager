@@ -65,8 +65,11 @@ export const ENHANCEMENT_LABEL = "enhancement";
  * and body the caller supplies, and whether the ticket it names should be
  * blocked by the new one. `blocking` absent or false opens the ticket with
  * no edge at all.
+ *
+ * Not itself a `Ticket` — nothing has been opened yet — so it is named for
+ * the glossary's own **Discovery**, the thing the caller is reporting.
  */
-export interface DiscoveredTicket {
+export interface Discovery {
   title: string;
   body: string;
   blocking?: boolean;
@@ -667,7 +670,7 @@ export interface IssueTracker {
    */
   createDiscoveredTicket(
     ticket: Ticket,
-    discovery: DiscoveredTicket,
+    discovery: Discovery,
   ): Promise<Ticket>;
 
   /**
