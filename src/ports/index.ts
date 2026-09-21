@@ -196,7 +196,7 @@ export {
   clearSalvage,
   hasAnnouncedOn,
   recordInfrastructureFailureSalvage,
-  recordLimitRefusalSalvage,
+  recordStopShortSalvage,
   recordRun,
   recordWorked,
   salvageFor,

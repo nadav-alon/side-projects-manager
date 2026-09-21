@@ -3239,13 +3239,13 @@ describe("morningLoop", () => {
       ]);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, limitRefusals: 1 },
+        { repo: PILOT, number: issueNumber(7), branch: FAILED_BRANCH, stopShorts: 1 },
       ]);
       const failure = failureOf(report.iterations[0]);
       assert.equal(failure?.kind, "infrastructure");
       assert.deepEqual(
         failure?.kind === "infrastructure" ? failure.salvage : undefined,
-        { branch: FAILED_BRANCH, limitRefusals: 1 },
+        { branch: FAILED_BRANCH, stopShorts: 1 },
       );
     });
 
@@ -4369,7 +4369,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.pullRequests.length, 0);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), limitRefusals: 1 },
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), stopShorts: 1 },
       ]);
     });
 
@@ -4397,7 +4397,7 @@ describe("morningLoop", () => {
           repo: PILOT,
           number: issueNumber(1),
           branch: branch("issue-1-earlier-salvage"),
-          limitRefusals: 1,
+          stopShorts: 1,
         },
       ]);
     });
@@ -4420,12 +4420,12 @@ describe("morningLoop", () => {
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, limitRefusals: 2 },
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 2 },
       ]);
       assert.deepEqual(limitRefused(second.iterations[0])?.discard, {
         kind: "salvaged",
         branch: SALVAGED_BRANCH,
-        limitRefusals: 2,
+        stopShorts: 2,
       });
     });
 
@@ -4453,7 +4453,7 @@ describe("morningLoop", () => {
       ]);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1-2"), limitRefusals: 2 },
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1-2"), stopShorts: 2 },
       ]);
     });
 
@@ -4566,7 +4566,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.pullRequests.length, 0);
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), limitRefusals: 1 },
+        { repo: PILOT, number: issueNumber(1), branch: branch("issue-1"), stopShorts: 1 },
       ]);
     });
 
@@ -4596,7 +4596,7 @@ describe("morningLoop", () => {
           repo: PILOT,
           number: issueNumber(1),
           branch: branch("issue-1-earlier-salvage"),
-          limitRefusals: 1,
+          stopShorts: 1,
         },
       ]);
     });
@@ -4626,12 +4626,12 @@ describe("morningLoop", () => {
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
-        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, limitRefusals: 2 },
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 2 },
       ]);
       assert.deepEqual(budgetExhausted(second.iterations[0])?.discard, {
         kind: "salvaged",
         branch: SALVAGED_BRANCH,
-        limitRefusals: 2,
+        stopShorts: 2,
       });
     });
 

@@ -922,7 +922,7 @@ describe("the state document", () => {
           repo: PILOT,
           number: issueNumber(7),
           branch: branch("issue-7-salvage"),
-          limitRefusals: 2,
+          stopShorts: 2,
         },
       ],
     };
@@ -937,7 +937,7 @@ describe("the state document", () => {
       await home({
         state: JSON.stringify({
           projects: {},
-          salvages: [{ number: 7, branch: "issue-7-salvage", limitRefusals: 1 }],
+          salvages: [{ number: 7, branch: "issue-7-salvage", stopShorts: 1 }],
         }),
       }),
     );
@@ -951,7 +951,7 @@ describe("the state document", () => {
         state: JSON.stringify({
           projects: {},
           salvages: [
-            { repo: PILOT, number: 7, branch: "", limitRefusals: 1 },
+            { repo: PILOT, number: 7, branch: "", stopShorts: 1 },
           ],
         }),
       }),
@@ -960,19 +960,19 @@ describe("the state document", () => {
     await assert.rejects(store.loadState(), /"branch" must be a git branch name/);
   });
 
-  it("rejects a salvage whose limitRefusals is negative", async () => {
+  it("rejects a salvage whose stopShorts is negative", async () => {
     const store = documentStore(
       await home({
         state: JSON.stringify({
           projects: {},
           salvages: [
-            { repo: PILOT, number: 7, branch: "issue-7-salvage", limitRefusals: -1 },
+            { repo: PILOT, number: 7, branch: "issue-7-salvage", stopShorts: -1 },
           ],
         }),
       }),
     );
 
-    await assert.rejects(store.loadState(), /"limitRefusals" must be a whole number/);
+    await assert.rejects(store.loadState(), /"stopShorts" must be a whole number/);
   });
 });
 

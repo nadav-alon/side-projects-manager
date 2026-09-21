@@ -65,7 +65,7 @@ function budgetExhausted(number: number, discard: Discard): IterationOutcome {
 /** An implementation ticket's own run that failed post-start, salvaging its branch when `salvage` is given. */
 function infrastructureFailure(
   number: number,
-  salvage?: { branch: Branch; limitRefusals: number },
+  salvage?: { branch: Branch; stopShorts: number },
 ): IterationOutcome {
   return {
     repo: REPO,
@@ -920,7 +920,7 @@ describe("salvage", () => {
   it("names a salvaged limit refusal's branch and says the next run will continue on it", () => {
     const line = summaryLine(
       facts([
-        limitRefused(220, { kind: "salvaged", branch: branch("issue-220"), limitRefusals: 1 }),
+        limitRefused(220, { kind: "salvaged", branch: branch("issue-220"), stopShorts: 1 }),
       ]),
     );
 
@@ -942,7 +942,7 @@ describe("salvage", () => {
   it("names a salvaged infrastructure failure's branch and says the next run will continue on it", () => {
     const line = summaryLine(
       facts([
-        infrastructureFailure(222, { branch: branch("issue-222"), limitRefusals: 1 }),
+        infrastructureFailure(222, { branch: branch("issue-222"), stopShorts: 1 }),
       ]),
     );
 
@@ -958,50 +958,50 @@ describe("salvage", () => {
     assert.doesNotMatch(line, /salvaged/);
   });
 
-  it("adds no repeated-refusal warning at one limit refusal in a row", () => {
+  it("adds no repeated-stop-short warning at one limit refusal in a row", () => {
     const line = summaryLine(
       facts([
-        limitRefused(224, { kind: "salvaged", branch: branch("issue-224"), limitRefusals: 1 }),
+        limitRefused(224, { kind: "salvaged", branch: branch("issue-224"), stopShorts: 1 }),
       ]),
     );
 
-    assert.doesNotMatch(line, /cut off/);
+    assert.doesNotMatch(line, /stopped short/);
   });
 
-  it("warns that a ticket has been cut off repeatedly at two or more limit refusals in a row", () => {
+  it("warns that a ticket has been stopped short repeatedly at two or more limit refusals in a row", () => {
     const line = summaryLine(
       facts([
-        limitRefused(225, { kind: "salvaged", branch: branch("issue-225"), limitRefusals: 3 }),
+        limitRefused(225, { kind: "salvaged", branch: branch("issue-225"), stopShorts: 3 }),
       ]),
     );
 
     assert.match(
       line,
-      /This ticket has been cut off 3 times in a row: consider splitting it or giving it a larger size or model\./,
+      /This ticket has been stopped short 3 times in a row: consider splitting it or giving it a larger size or model\./,
     );
   });
 
-  it("adds no repeated-refusal warning on an infrastructure failure, whatever count its salvage carries over from an earlier limit refusal", () => {
+  it("adds no repeated-stop-short warning on an infrastructure failure, whatever count its salvage carries over from an earlier limit refusal", () => {
     const line = summaryLine(
-      facts([infrastructureFailure(226, { branch: branch("issue-226"), limitRefusals: 2 })]),
+      facts([infrastructureFailure(226, { branch: branch("issue-226"), stopShorts: 2 })]),
     );
 
-    assert.doesNotMatch(line, /cut off/);
+    assert.doesNotMatch(line, /stopped short/);
   });
 
-  it("lists a limit-refused ticket under waiting on you once it has been cut off two or more times in a row", () => {
+  it("lists a limit-refused ticket under waiting on you once it has been stopped short two or more times in a row", () => {
     const lines = waitingLines([
-      limitRefused(227, { kind: "salvaged", branch: branch("issue-227"), limitRefusals: 2 }),
+      limitRefused(227, { kind: "salvaged", branch: branch("issue-227"), stopShorts: 2 }),
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #227: cut off 2 times in a row — consider splitting it or giving it a larger size or model`,
+      `- ${REPO} #227: stopped short 2 times in a row — consider splitting it or giving it a larger size or model`,
     ]);
   });
 
   it("does not list a limit-refused ticket under waiting on you at one refusal", () => {
     const lines = waitingLines([
-      limitRefused(228, { kind: "salvaged", branch: branch("issue-228"), limitRefusals: 1 }),
+      limitRefused(228, { kind: "salvaged", branch: branch("issue-228"), stopShorts: 1 }),
     ]);
 
     assert.deepEqual(lines, []);
@@ -1010,7 +1010,7 @@ describe("salvage", () => {
   it("names a salvaged budget exhaustion's branch and says the next run will continue on it", () => {
     const line = summaryLine(
       facts([
-        budgetExhausted(229, { kind: "salvaged", branch: branch("issue-229"), limitRefusals: 1 }),
+        budgetExhausted(229, { kind: "salvaged", branch: branch("issue-229"), stopShorts: 1 }),
       ]),
     );
 
@@ -1020,41 +1020,41 @@ describe("salvage", () => {
     );
   });
 
-  it("reads a budget exhaustion exactly as today when nothing was salvaged", () => {
+  it("reads a budget exhaustion exactly as today when nothing was salvaged, quoting the CLI's own words", () => {
     const line = summaryLine(facts([budgetExhausted(230, { kind: "none" })]));
 
     assert.equal(
       line,
-      `The run on ${REPO} #230 was stopped by its spend ceiling.`,
+      `The run on ${REPO} #230 was stopped by its spend ceiling: ${BUDGET_EXHAUSTED_JSON_RESULT}.`,
     );
   });
 
-  it("warns that a ticket has been cut off repeatedly at two or more budget exhaustions in a row", () => {
+  it("warns that a ticket has been stopped short repeatedly at two or more budget exhaustions in a row", () => {
     const line = summaryLine(
       facts([
-        budgetExhausted(231, { kind: "salvaged", branch: branch("issue-231"), limitRefusals: 2 }),
+        budgetExhausted(231, { kind: "salvaged", branch: branch("issue-231"), stopShorts: 2 }),
       ]),
     );
 
     assert.match(
       line,
-      /This ticket has been cut off 2 times in a row: consider splitting it or giving it a larger size or model\./,
+      /This ticket has been stopped short 2 times in a row: consider splitting it or giving it a larger size or model\./,
     );
   });
 
-  it("lists a budget-exhausted ticket under waiting on you once it has been cut off two or more times in a row", () => {
+  it("lists a budget-exhausted ticket under waiting on you once it has been stopped short two or more times in a row", () => {
     const lines = waitingLines([
-      budgetExhausted(232, { kind: "salvaged", branch: branch("issue-232"), limitRefusals: 2 }),
+      budgetExhausted(232, { kind: "salvaged", branch: branch("issue-232"), stopShorts: 2 }),
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #232: cut off 2 times in a row — consider splitting it or giving it a larger size or model`,
+      `- ${REPO} #232: stopped short 2 times in a row — consider splitting it or giving it a larger size or model`,
     ]);
   });
 
   it("does not list a budget-exhausted ticket under waiting on you at one exhaustion", () => {
     const lines = waitingLines([
-      budgetExhausted(233, { kind: "salvaged", branch: branch("issue-233"), limitRefusals: 1 }),
+      budgetExhausted(233, { kind: "salvaged", branch: branch("issue-233"), stopShorts: 1 }),
     ]);
 
     assert.deepEqual(lines, []);

@@ -995,15 +995,15 @@ async function salvageableBranchOutcome(
     return { kind: "none" };
   }
   await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
-  const { branch, limitRefusals } = salvages.recordLimitRefusal(ticket, run.branch);
-  return { kind: "salvaged", branch, limitRefusals };
+  const { branch, stopShorts } = salvages.recordStopShort(ticket, run.branch);
+  return { kind: "salvaged", branch, stopShorts };
 }
 
 /**
  * The salvage a post-start infrastructure failure's branch gets, when it had
  * already reached the checkout and carries commits — kept where it landed,
  * and recorded against `ticket`'s salvage record with its existing count of
- * limit refusals left untouched (see CONTEXT.md's "Salvage") — undefined
+ * stop-shorts left untouched (see CONTEXT.md's "Salvage") — undefined
  * otherwise, since a branch never fetched back, or one that committed
  * nothing, left nothing to salvage.
  */
@@ -1018,8 +1018,8 @@ async function infrastructureFailureSalvage(
     return undefined;
   }
   await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
-  const { branch, limitRefusals } = salvages.recordInfrastructureFailure(ticket, run.branch);
-  return { branch, limitRefusals };
+  const { branch, stopShorts } = salvages.recordInfrastructureFailure(ticket, run.branch);
+  return { branch, stopShorts };
 }
 
 /**
