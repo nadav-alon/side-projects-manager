@@ -3030,6 +3030,68 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.match(report.message, /closed without merging/);
     });
+
+    describe("a blocking discovery", () => {
+      /** The implementation ticket #7, and an apply-review ticket on it, as the /apply-review workflow would open one as a sub-issue. */
+      function queuedWithImplementation(
+        ports: FakePorts,
+        threads = 1,
+      ): { implementation: Ticket; applyReview: ApplyReviewTicket } {
+        ports.store.register(PILOT);
+        for (let opened = 0; opened < threads; opened++) {
+          ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+        }
+        const implementation = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        const applyReview = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(43),
+          title: "Apply the review on the draft pull request for #7",
+          pullRequest: { kind: "apply-review", url: PULL_REQUEST },
+          parent: issueNumber(7),
+        }) as ApplyReviewTicket;
+        return { implementation, applyReview };
+      }
+
+      it("opens a discovered ticket that blocks the implementation ticket, and hands back the apply-review ticket, not the implementation ticket", async () => {
+        const ports = fakePorts();
+        const { implementation, applyReview } = queuedWithImplementation(ports);
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            0,
+            "applied",
+            "the reason",
+            DURING_THE_RUN,
+          );
+          return {
+            kind: "finished",
+            output: "answered",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: "There is no widget port to apply the review against yet.",
+              },
+            ],
+          };
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.blocking, true);
+        assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, applyReview.number);
+        assert.notEqual(handback?.ticket.number, implementation.number);
+        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
+    });
   });
 
   describe("a rebase ticket, selected", () => {
@@ -3537,6 +3599,58 @@ describe("morningLoop", () => {
       assert.deepEqual(closed?.ticket, ticket);
       assert.match(closed?.comment ?? "", /closed without merging/);
       assert.match(report.message, /closed without merging/);
+    });
+
+    describe("a blocking discovery", () => {
+      /** The implementation ticket #7, and a rebase ticket on it, as the /rebase workflow would open one as a sub-issue. */
+      function queuedWithImplementation(
+        ports: FakePorts,
+      ): { implementation: Ticket; rebase: RebaseTicket } {
+        ports.store.register(PILOT);
+        ports.repoHost.mergeStatus = () => "conflicting";
+        const implementation = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        const rebase = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(44),
+          title: "Rebase the draft pull request for #7",
+          pullRequest: { kind: "rebase", url: PULL_REQUEST },
+          parent: issueNumber(7),
+        }) as RebaseTicket;
+        return { implementation, rebase };
+      }
+
+      it("opens a discovered ticket that blocks the implementation ticket, and hands back the rebase ticket, not the implementation ticket", async () => {
+        const ports = fakePorts();
+        const { implementation, rebase } = queuedWithImplementation(ports);
+        ports.sandbox.rebaseResult = () => {
+          ports.repoHost.mergeStatus = () => "clean";
+          return {
+            kind: "finished",
+            output: "rebased",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: "There is no widget port to rebase against yet.",
+              },
+            ],
+          };
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.blocking, true);
+        assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, rebase.number);
+        assert.notEqual(handback?.ticket.number, implementation.number);
+        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
     });
   });
 

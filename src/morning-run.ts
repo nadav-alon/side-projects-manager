@@ -1799,7 +1799,13 @@ async function runApplyReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
-  AppliedReview | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+  | AppliedReview
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | PullRequestResolved
+  | DiscoveryBlocked
 > {
   const pullRequest = ticket.pullRequest.url;
 
@@ -1850,8 +1856,17 @@ async function runApplyReview(
   if (run.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
   }
+
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the thread-left-unanswered path
+  // below, per CONTEXT.md's "Discovery" and "Hand back".
+  const routed = await routeRunDiscoveries(ports.tracker, ticket, run.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+    return discoveryBlockedOutcome(ports, ticket, routed, run.tokensUsed, run.transcript);
+  }
+
   if (run.kind === "gave-up") {
-    return handApplyReviewBack(ports, ticket, run, run.reason);
+    return withDiscoveries(await handApplyReviewBack(ports, ticket, run, run.reason), routed);
   }
 
   let answers: ApplyReviewAnswers;
@@ -1861,30 +1876,35 @@ async function runApplyReview(
       startedAt,
     );
   } catch (error: unknown) {
-    return {
+    const checkFailed: AppliedReview = {
       kind: "applied-review",
       review: run,
       tokensUsed: run.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(checkFailed, routed);
   }
   if (answers.unanswered > 0) {
     const threads =
       answers.unanswered === 1 ? "1 thread" : `${answers.unanswered} threads`;
-    return handApplyReviewBack(
-      ports,
-      ticket,
-      run,
-      `the agent finished with ${threads} left unanswered on ${pullRequest}`,
+    return withDiscoveries(
+      await handApplyReviewBack(
+        ports,
+        ticket,
+        run,
+        `the agent finished with ${threads} left unanswered on ${pullRequest}`,
+      ),
+      routed,
     );
   }
 
-  return finishApplyReview(ports, ticket, {
+  const finished = await finishApplyReview(ports, ticket, {
     kind: "applied-review",
     review: run,
     tokensUsed: run.tokensUsed,
     answers: { applied: answers.appliedSince, declined: answers.declinedSince },
   });
+  return withDiscoveries(finished, routed);
 }
 
 /**
@@ -1987,7 +2007,13 @@ async function runRebase(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
-  Rebased | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+  | Rebased
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | PullRequestResolved
+  | DiscoveryBlocked
 > {
   const pullRequest = ticket.pullRequest.url;
 
@@ -2040,34 +2066,48 @@ async function runRebase(
   if (run.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
   }
+
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the still-conflicting path
+  // below, per CONTEXT.md's "Discovery" and "Hand back".
+  const routed = await routeRunDiscoveries(ports.tracker, ticket, run.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+    return discoveryBlockedOutcome(ports, ticket, routed, run.tokensUsed, run.transcript);
+  }
+
   if (run.kind === "gave-up") {
-    return handRebaseBack(ports, ticket, run, run.reason);
+    return withDiscoveries(await handRebaseBack(ports, ticket, run, run.reason), routed);
   }
 
   try {
     needsRebase = await ports.repoHost.needsRebase(pullRequest);
   } catch (error: unknown) {
-    return {
+    const checkFailed: Rebased = {
       kind: "rebased",
       rebase: run,
       tokensUsed: run.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(checkFailed, routed);
   }
   if (needsRebase) {
-    return handRebaseBack(
-      ports,
-      ticket,
-      run,
-      `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+    return withDiscoveries(
+      await handRebaseBack(
+        ports,
+        ticket,
+        run,
+        `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+      ),
+      routed,
     );
   }
 
-  return finishRebase(ports, ticket, {
+  const finished = await finishRebase(ports, ticket, {
     kind: "rebased",
     rebase: run,
     tokensUsed: run.tokensUsed,
   });
+  return withDiscoveries(finished, routed);
 }
 
 /**
