@@ -254,13 +254,7 @@ export function ghIssueTracker(
       // morning after. Gaining ready-for-human comes last, because it is the
       // only one that needs a label to exist — and by then the ticket is
       // commented on and out of the queue, which is the part that matters.
-      await execFileAsync("gh", [
-        "issue",
-        "comment",
-        ...args,
-        "--body",
-        comment,
-      ]);
+      await postComment(ticket, comment);
       await execFileAsync("gh", [
         "issue",
         "edit",
@@ -296,13 +290,7 @@ export function ghIssueTracker(
     },
 
     async comment(ticket: Ticket, comment: string): Promise<void> {
-      await execFileAsync("gh", [
-        "issue",
-        "comment",
-        ...issueArgs(ticket),
-        "--body",
-        comment,
-      ]);
+      await postComment(ticket, comment);
     },
 
     async createDiscoveredTicket(
@@ -351,6 +339,20 @@ export function ghIssueTracker(
       return discovered;
     },
   };
+}
+
+/**
+ * Posts `comment` on `ticket`, the shape `handBack`'s own first call and
+ * `comment` share.
+ */
+async function postComment(ticket: Ticket, comment: string): Promise<void> {
+  await execFileAsync("gh", [
+    "issue",
+    "comment",
+    ...issueArgs(ticket),
+    "--body",
+    comment,
+  ]);
 }
 
 /**
