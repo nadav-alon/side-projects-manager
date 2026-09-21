@@ -9,7 +9,9 @@ import type {
   ApplyReviewThread,
   Branch,
   Checkout,
+  ClosingPullRequest,
   DraftPullRequestOpening,
+  IssueNumber,
   MergeStatus,
   Milliseconds,
   OpenPullRequest,
@@ -24,9 +26,12 @@ import type {
   TicketGist,
 } from "../ports/index.ts";
 import {
+  branch,
   checkout,
+  CLOSING_PULL_REQUEST_LIMIT,
   closedTicketIn,
   isBranch,
+  isIssueNumber,
   isMarkedReply,
   isPullRequestLabel,
   isPullRequestUrl,
@@ -484,19 +489,10 @@ export function githubRepoHost(
         "--jq",
         ".state",
       ]);
-      const state = stdout.trim();
-      switch (state) {
-        case "OPEN":
-          return "open";
-        case "MERGED":
-          return "merged";
-        case "CLOSED":
-          return "closed";
-        default:
-          throw new Error(
-            `gh pr view ${pullRequest}: "state" was none of OPEN, MERGED or CLOSED: ${JSON.stringify(state)}`,
-          );
-      }
+      return pullRequestStateFrom(
+        stdout.trim(),
+        `gh pr view ${pullRequest}`,
+      );
     },
 
     async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
@@ -513,6 +509,24 @@ export function githubRepoHost(
         String(OPEN_PULL_REQUEST_LIMIT),
       ]);
       return openPullRequestsFrom(stdout, repo);
+    },
+
+    async listPullRequestsClosingIssues(
+      repo: RepoSlug,
+    ): Promise<ClosingPullRequest[]> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "all",
+        "--json",
+        "number,state,headRefName,closingIssuesReferences",
+        "--limit",
+        String(CLOSING_PULL_REQUEST_LIMIT),
+      ]);
+      return closingPullRequestsFrom(stdout, repo);
     },
   };
 }
@@ -1061,6 +1075,108 @@ function openPullRequestsFrom(
     };
     return closes === undefined ? pullRequest : { ...pullRequest, closes };
   });
+}
+
+/**
+ * `state`, as `gh pr view`'s or `gh pr list`'s own `state` field answers it:
+ * `OPEN`, `MERGED` or `CLOSED`. Shared by `pullRequestState` and
+ * `closingPullRequestsFrom`, the two readers of a pull request's state, so a
+ * value neither reader recognises is refused the same way by both.
+ */
+function pullRequestStateFrom(state: string, where: string): PullRequestState {
+  switch (state) {
+    case "OPEN":
+      return "open";
+    case "MERGED":
+      return "merged";
+    case "CLOSED":
+      return "closed";
+    default:
+      throw new Error(
+        `${where}: "state" was none of OPEN, MERGED or CLOSED: ${JSON.stringify(state)}`,
+      );
+  }
+}
+
+/**
+ * `gh pr list --state all --json number,state,headRefName,closingIssuesReferences`:
+ * a JSON array of `{ number, state, headRefName, closingIssuesReferences }`,
+ * one entry per pull request of `repo`, any state. What a spec review sweep
+ * reads a supertask's closed sub-issues' pull requests with — see {@link
+ * ClosingPullRequest}.
+ */
+function closingPullRequestsFrom(
+  stdout: string,
+  repo: RepoSlug,
+): ClosingPullRequest[] {
+  const where = `gh pr list --state all for ${repo}`;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected an array.`);
+  }
+
+  return payload.map((raw, index) => {
+    const at = `${where}: pull request ${index + 1}`;
+    const { number, state, headRefName, closingIssuesReferences } = objectAt(
+      raw,
+      at,
+    );
+    return {
+      number: closingIssueNumber(number, "number", at),
+      state: pullRequestStateFrom(
+        expectField(state, "string", "state", at),
+        at,
+      ),
+      branch: closingBranch(
+        expectField(headRefName, "string", "headRefName", at),
+        at,
+      ),
+      closesIssues: closingIssueNumbersIn(closingIssuesReferences, at),
+    };
+  });
+}
+
+/** `value`, as the issue number `field` names it at `at`: a positive integer. */
+function closingIssueNumber(
+  value: unknown,
+  field: string,
+  at: string,
+): IssueNumber {
+  const number = expectField(value, "number", field, at);
+  if (!isIssueNumber(number)) {
+    throw new Error(
+      `${at}: "${field}" must be a positive integer, got ${number}.`,
+    );
+  }
+  return number;
+}
+
+/** `value`, as the branch name git would accept, or thrown naming the offending value. */
+function closingBranch(value: string, at: string): Branch {
+  if (!isBranch(value)) {
+    throw new Error(`${at}: "headRefName" is not a branch name git would accept: ${value}`);
+  }
+  return branch(value);
+}
+
+/**
+ * `closingIssuesReferences` as `gh pr list` answers it: an array of issue
+ * objects, of which only each one's number is kept — the rest is nothing a
+ * spec review sweep reads.
+ */
+function closingIssueNumbersIn(value: unknown, at: string): IssueNumber[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${at}: "closingIssuesReferences" must be an array.`);
+  }
+  return value.map((entry) =>
+    closingIssueNumber(objectAt(entry, at).number, "closingIssuesReferences.number", at),
+  );
 }
 
 /**

@@ -1947,3 +1947,275 @@ describe("ghIssueTracker.closeRebaseTicket", () => {
     );
   });
 });
+
+describe("ghIssueTracker.createSpecReviewTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const SUPERTASK: Ticket = {
+    repo: PILOT,
+    number: issueNumber(40),
+    title: "Too big for one run",
+  };
+
+  const SPEC_REVIEW_URL = "https://github.com/nadav-alon/pilot/issues/50";
+  /** The spec review's database id, which is what the sub-issues endpoint takes. */
+  const SPEC_REVIEW_ID = "2159872999";
+
+  /** A tracker where creating, reading back and linking all succeed. */
+  const WORKING = [
+    `case "$1 $2" in`,
+    `  "issue create") echo ${SPEC_REVIEW_URL} ;;`,
+    `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+    `  *) : ;;`,
+    `esac`,
+  ].join("\n");
+
+  it("creates it in the supertask's own repo, carrying ready-for-agent, spec-review and size:L", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40.");
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create, "the spec review should be created with `gh issue create`");
+    assert.equal(valueOf(create, "--repo"), PILOT);
+    assert.ok(create.includes(READY_FOR_AGENT_LABEL));
+    assert.ok(create.includes("spec-review"));
+    assert.ok(create.includes("size:L"));
+  });
+
+  it("creates every label first, since a project may have none of them", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40.");
+
+    const calls = await gh.calls();
+    const create = callWith(calls, "issue", "create");
+    assert.ok(create);
+    for (const label of [READY_FOR_AGENT_LABEL, "spec-review", "size:L"]) {
+      const labelCreate = callWith(calls, "label", "create", label);
+      assert.ok(labelCreate, `${label} should be created`);
+      assert.ok(
+        calls.indexOf(labelCreate) < calls.indexOf(create),
+        `${label} should exist before the spec review that carries it`,
+      );
+    }
+  });
+
+  it("opens the spec review even where every label is already there", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "label create") echo "label already exists" >&2; exit 1 ;;`,
+        `  "issue create") echo ${SPEC_REVIEW_URL} ;;`,
+        `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const specReview = await ghIssueTracker().createSpecReviewTicket(
+      SUPERTASK,
+      "Reviews #40.",
+    );
+
+    assert.equal(specReview.number, 50);
+  });
+
+  it("carries the body its caller composed, unchanged", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(
+      SUPERTASK,
+      "Reviews #40 and its sub-issues #41, #42.",
+    );
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.equal(
+      valueOf(create, "--body"),
+      "Reviews #40 and its sub-issues #41, #42.",
+    );
+  });
+
+  it("names the supertask it reviews", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40.");
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.match(valueOf(create, "--title") ?? "", /#40/);
+  });
+
+  it("answers with the spec review it opened, bound to no pull request", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    const specReview = await ghIssueTracker().createSpecReviewTicket(
+      SUPERTASK,
+      "Reviews #40.",
+    );
+
+    assert.equal(specReview.repo, PILOT);
+    assert.equal(specReview.number, 50);
+    assert.match(specReview.title, /#40/);
+    assert.equal(isSpecReviewTicket(specReview), true);
+  });
+
+  it("hangs it off the supertask with the tracker's own sub-issue relationship", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40.");
+
+    const link = callWith(await gh.calls(), "api", "--method", "POST");
+    assert.ok(link, "the spec review should be linked as a sub-issue");
+    assert.ok(link.includes("repos/nadav-alon/pilot/issues/40/sub_issues"));
+    assert.equal(valueOf(link, "-F"), `sub_issue_id=${SPEC_REVIEW_ID}`);
+  });
+
+  it("falls back to a parent reference in its body where sub-issues are unavailable", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue create") echo ${SPEC_REVIEW_URL} ;;`,
+        `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+        `  "api --method") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const specReview = await ghIssueTracker().createSpecReviewTicket(
+      SUPERTASK,
+      "Reviews #40.",
+    );
+
+    const edit = callWith(await gh.calls(), "issue", "edit");
+    assert.ok(edit, "the spec review's body should carry the reference instead");
+    assert.equal(valueOf(edit, "--repo"), PILOT);
+    const body = valueOf(edit, "--body") ?? "";
+    assert.match(body, /^Part of #40\./);
+    assert.match(body, /Reviews #40\.$/);
+    assert.equal(specReview.number, 50);
+  });
+
+  it("says so when linking fails after the spec review was opened", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue create") echo ${SPEC_REVIEW_URL} ;;`,
+        `  *) echo "denied" >&2; exit 1 ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40."),
+      /Opened #50 in nadav-alon\/pilot .* could not link it to #40/s,
+    );
+  });
+});
+
+describe("ghIssueTracker.listSubIssues", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const SUPERTASK: Ticket = {
+    repo: PILOT,
+    number: issueNumber(40),
+    title: "Too big for one run",
+  };
+
+  interface RawSubIssue {
+    number: number;
+    title: string;
+    body?: string;
+    state: string;
+    labels?: string[];
+  }
+
+  function subIssues(entries: RawSubIssue[]): string {
+    return `echo '${JSON.stringify(
+      entries.map((entry) => ({ body: "", labels: [], ...entry })),
+    )}'`;
+  }
+
+  it("lists a sub-issue's number and title", async (t) => {
+    await recordingGh(
+      t,
+      subIssues([{ number: 41, title: "Part one", state: "open" }]),
+    );
+
+    const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    assert.deepEqual(listed, [
+      { ticket: { repo: PILOT, number: 41, title: "Part one" }, closed: false },
+    ]);
+  });
+
+  it("reads a closed sub-issue as closed", async (t) => {
+    await recordingGh(
+      t,
+      subIssues([{ number: 41, title: "Part one", state: "closed" }]),
+    );
+
+    const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    assert.equal(listed[0]?.closed, true);
+  });
+
+  it("reads a sub-issue carrying the spec review label as a spec review", async (t) => {
+    await recordingGh(
+      t,
+      subIssues([
+        { number: 41, title: "Spec review for #40", state: "closed", labels: ["spec-review"] },
+      ]),
+    );
+
+    const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    assert.equal(isSpecReviewTicket(listed[0]!.ticket), true);
+  });
+
+  it("lists no sub-issues where the supertask has none", async (t) => {
+    await recordingGh(t, subIssues([]));
+
+    const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    assert.deepEqual(listed, []);
+  });
+
+  it("asks the sub-issues endpoint of the supertask it was given", async (t) => {
+    const gh = await recordingGh(t, subIssues([]));
+
+    await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), [
+      "api",
+      "repos/nadav-alon/pilot/issues/40/sub_issues",
+    ]);
+  });
+
+  it("throws naming the malformed entry when gh answers with something outside the declared shape", async (t) => {
+    await recordingGh(t, `echo '[{"title": "Part one", "body": "", "state": "open", "labels": []}]'`);
+
+    await assert.rejects(
+      ghIssueTracker().listSubIssues(SUPERTASK),
+      /sub-issue 1.*"number" must be a number/,
+    );
+  });
+
+  it("throws naming the answer when a sub-issue's state is neither open nor closed", async (t) => {
+    await recordingGh(
+      t,
+      `echo '[{"number": 41, "title": "Part one", "body": "", "state": "draft", "labels": []}]'`,
+    );
+
+    await assert.rejects(
+      ghIssueTracker().listSubIssues(SUPERTASK),
+      /"state" was neither "open" nor "closed": "draft"/,
+    );
+  });
+});

@@ -223,10 +223,11 @@ describe("FakeRepoHost listPullRequestsClosingIssues", () => {
     assert.deepEqual(await host.listPullRequestsClosingIssues(PILOT), []);
   });
 
-  it("answers with what a test scripted, state, branch and closed issues", async () => {
+  it("answers with what a test scripted, number, state, branch and closed issues", async () => {
     const host = new FakeRepoHost();
     const scripted = [
       {
+        number: issueNumber(50),
         state: "merged" as const,
         branch: branch("41-part-one"),
         closesIssues: [issueNumber(41)],
@@ -244,7 +245,7 @@ describe("FakeRepoHost listPullRequestsClosingIssues", () => {
     const host = new FakeRepoHost();
     const other = repoSlug("nadav-alon/other");
     host.setPullRequestsClosingIssues(other, [
-      { state: "open", branch: branch("x"), closesIssues: [] },
+      { number: issueNumber(1), state: "open", branch: branch("x"), closesIssues: [] },
     ]);
 
     assert.deepEqual(await host.listPullRequestsClosingIssues(PILOT), []);

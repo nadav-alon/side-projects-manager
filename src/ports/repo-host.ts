@@ -269,8 +269,9 @@ export interface OpenPullRequest {
 
 /**
  * One pull request of any state, as {@link RepoHost.listPullRequestsClosingIssues}
- * lists it: its state, its own branch, and the issues its body closes — every
- * one of them, since a pull request can close more than one.
+ * lists it: its own number, its state, its own branch, and the issues its
+ * body closes — every one of them, since a pull request can close more than
+ * one.
  *
  * What a spec review sweep (`spec-review-sweep.ts`) reads once, at the
  * instant a supertask's sub-issues all close, per `CONTEXT.md`'s "Spec review
@@ -279,6 +280,7 @@ export interface OpenPullRequest {
  * new failure mode for a sub-issue that never had a pull request.
  */
 export interface ClosingPullRequest {
+  number: IssueNumber;
   state: PullRequestState;
   branch: Branch;
   closesIssues: readonly IssueNumber[];

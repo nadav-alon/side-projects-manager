@@ -14,6 +14,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  SubIssue,
   Ticket,
   TicketPriority,
 } from "../ports/index.ts";
@@ -22,6 +23,8 @@ import {
   NEEDS_TRIAGE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SPEC_REVIEW_LABEL,
+  SPEC_REVIEW_SIZE_LABEL,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
@@ -33,6 +36,7 @@ import {
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
+  specReviewTitle,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../morning-run.ts";
 import { errorMessage } from "../error-message.ts";
@@ -219,7 +223,7 @@ export function ghIssueTracker(
       };
 
       try {
-        await linkToParent(review, ticket, pullRequest);
+        await linkToParent(review, ticket, reviewBody(ticket, pullRequest));
       } catch (error) {
         // The review exists and is eligible, so the morning's work is not lost
         // — but it is floating free of the ticket that earned it, and nothing
@@ -231,6 +235,64 @@ export function ghIssueTracker(
         );
       }
       return review;
+    },
+
+    async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {
+      const title = specReviewTitle(ticket);
+      await ensureLabel(ticket.repo, READY_FOR_AGENT_LABEL);
+      await ensureLabel(ticket.repo, SPEC_REVIEW_LABEL);
+      await ensureLabel(ticket.repo, SPEC_REVIEW_SIZE_LABEL);
+
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "create",
+        "--repo",
+        ticket.repo,
+        "--title",
+        title,
+        // Born carrying every label a selectable spec review needs, per
+        // `CONTEXT.md`'s "Spec review ticket" — applied at creation, the same
+        // as `createReviewTicket`'s own review, so there is no instant in
+        // which it exists and is not yet eligible.
+        "--label",
+        READY_FOR_AGENT_LABEL,
+        "--label",
+        SPEC_REVIEW_LABEL,
+        "--label",
+        SPEC_REVIEW_SIZE_LABEL,
+        "--body",
+        body,
+      ]);
+
+      const specReview: Ticket = {
+        repo: ticket.repo,
+        number: issueNumberIn(stdout, ticket.repo),
+        title,
+        specReview: true,
+      };
+
+      try {
+        await linkToParent(specReview, ticket, body);
+      } catch (error) {
+        // As `createReviewTicket`: the spec review exists and is eligible, so
+        // the morning's work is not lost — but it is floating free of the
+        // supertask it reviews, and this error is where the developer finds
+        // out about it.
+        throw new Error(
+          `Opened #${specReview.number} in ${specReview.repo} as a spec review for #${ticket.number}, but could not link it to #${ticket.number}: ${errorMessage(error)}`,
+        );
+      }
+      return specReview;
+    },
+
+    async listSubIssues(ticket: Ticket): Promise<SubIssue[]> {
+      const { stdout } = await execFileAsync("gh", [
+        "api",
+        `repos/${ticket.repo}/issues/${ticket.number}/sub_issues`,
+        "--jq",
+        "[.[] | {number, title, body, state, labels: [.labels[].name]}]",
+      ]);
+      return subIssuesIn(stdout, ticket);
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
@@ -402,6 +464,9 @@ const LABEL_DESCRIPTIONS = {
   [READY_FOR_HUMAN_LABEL]: "Requires human implementation",
   [NEEDS_TRIAGE_LABEL]: "Maintainer needs to evaluate this issue",
   [ENHANCEMENT_LABEL]: "New feature or request",
+  [SPEC_REVIEW_LABEL]:
+    "Reviews the repo against a supertask's body; reports, never commits.",
+  [SPEC_REVIEW_SIZE_LABEL]: "Larger than M, smaller than XL",
 } as const;
 
 /**
@@ -555,25 +620,27 @@ function bindingMatching(
 }
 
 /**
- * Hangs `review` off `parent` as a sub-issue, the relationship GitHub shows in
- * its own UI.
+ * Hangs `child` off `parent` as a sub-issue, the relationship GitHub shows in
+ * its own UI — the review a review ticket earns, or the spec review a
+ * supertask earns.
  *
  * Where sub-issues are unavailable — an older GitHub Enterprise, a token
- * without the scope — the relationship goes into the review's own body
- * instead, per `docs/agents/issue-tracker.md`. Only where they are unavailable:
- * a refusal, a rate limit or a dropped connection is a tracker that has
- * sub-issues and could not be asked, and writing the reference into the body
- * would answer it by quietly downgrading the relationship forever.
+ * without the scope — the relationship goes into `child`'s own body instead,
+ * per `docs/agents/issue-tracker.md`: `body`, the one `child` was created
+ * with, prefixed with a `Part of #N.` reference. Only where they are
+ * unavailable: a refusal, a rate limit or a dropped connection is a tracker
+ * that has sub-issues and could not be asked, and writing the reference into
+ * the body would answer it by quietly downgrading the relationship forever.
  *
- * Only the review's body: the parent is a ticket the developer wrote and this
- * is not the place to edit it.
+ * Only `child`'s own body: the parent is a ticket the developer wrote and
+ * this is not the place to edit it.
  */
 async function linkToParent(
-  review: Ticket,
+  child: Ticket,
   parent: Ticket,
-  pullRequest: PullRequestUrl,
+  body: string,
 ): Promise<void> {
-  const id = await issueIdOf(review);
+  const id = await issueIdOf(child);
 
   try {
     await execFileAsync("gh", [
@@ -591,9 +658,9 @@ async function linkToParent(
     await execFileAsync("gh", [
       "issue",
       "edit",
-      ...issueArgs(review),
+      ...issueArgs(child),
       "--body",
-      `Part of #${parent.number}.\n\n${reviewBody(parent, pullRequest)}`,
+      `Part of #${parent.number}.\n\n${body}`,
     ]);
   }
 }
@@ -727,6 +794,93 @@ function isInRepo(url: string, repo: RepoSlug): boolean {
 }
 
 /**
+ * One sub-issue as `gh api repos/<repo>/issues/<n>/sub_issues --jq '[.[] |
+ * {number, title, body, state, labels: [.labels[].name]}]'` reports it — the
+ * REST API's own issue shape, unlike `RawIssue`'s GraphQL one, so `state`
+ * reads lowercase `open` or `closed` rather than `OPEN` or `CLOSED`.
+ */
+interface RawSubIssue {
+  number: IssueNumber;
+  title: string;
+  body: string;
+  state: string;
+  labels: string[];
+}
+
+/**
+ * `gh api .../sub_issues --jq '[...]'`: a JSON array of `{ number, title,
+ * body, state, labels }`, one per sub-issue of `parent` — open or closed
+ * alike, per `CONTEXT.md`'s "Spec review ticket".
+ */
+function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
+  const where = `gh api repos/${parent.repo}/issues/${parent.number}/sub_issues`;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected a JSON array of sub-issues.`);
+  }
+
+  return payload.map((raw, index) => {
+    const at = `${where}: sub-issue ${index + 1}`;
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`${at}: expected an object.`);
+    }
+    const { number, title, body, state, labels } = raw as Record<string, unknown>;
+    const issue: RawSubIssue = {
+      number: expectIssueNumber(number, "number", at),
+      title: expectField(title, "string", "title", at),
+      body: expectField(body, "string", "body", at),
+      state: expectField(state, "string", "state", at),
+      labels: parseLabelNames(labels, at),
+    };
+    const pullRequest = pullRequestBoundIn(issue.body);
+    const modelLabel = modelLabelOf(issue.labels);
+    const priority = priorityLabelIn(issue.labels);
+    const sizeLabel = sizeLabelOf(issue.labels);
+    const supertask = carriesSupertaskLabel(issue.labels);
+    const specReview = carriesSpecReviewLabel(issue.labels);
+    return {
+      ticket: {
+        repo: parent.repo,
+        number: issue.number,
+        title: issue.title,
+        ...(supertask && { supertask }),
+        ...(specReview && { specReview }),
+        ...(pullRequest !== undefined && { pullRequest }),
+        ...(modelLabel !== undefined && { modelLabel }),
+        ...(priority !== undefined && { priority }),
+        ...(sizeLabel !== undefined && { sizeLabel }),
+      },
+      closed: subIssueClosed(issue.state, at),
+    };
+  });
+}
+
+/**
+ * `state`, as the REST API answers it for a sub-issue: `"open"` or
+ * `"closed"`, lowercase unlike `isClosed`'s GraphQL read of the same fact.
+ * Thrown on naming the offending value, same as `isClosed`: a state neither
+ * open nor closed is not something this can safely default either way.
+ */
+function subIssueClosed(state: string, at: string): boolean {
+  switch (state) {
+    case "open":
+      return false;
+    case "closed":
+      return true;
+    default:
+      throw new Error(
+        `${at}: "state" was neither "open" nor "closed": ${JSON.stringify(state)}`,
+      );
+  }
+}
+
+/**
  * One issue as `gh issue list --json number,title,body,blockedBy,parent,labels`
  * reports it, with each label reduced to its name.
  */
@@ -819,6 +973,20 @@ function parseLabels(value: unknown, at: string): string[] {
     const { name } = label as Record<string, unknown>;
     return expectField(name, "string", "labels.name", at);
   });
+}
+
+/**
+ * `labels` as `subIssuesIn`'s own `--jq` filter reduces it to: `[name, …]`,
+ * already just the names — unlike `parseLabels`, which reads them out of
+ * `gh issue list`'s own label objects.
+ */
+function parseLabelNames(value: unknown, at: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${at}: "labels" must be an array.`);
+  }
+  return value.map((label, index) =>
+    expectField(label, "string", `labels[${index}]`, at),
+  );
 }
 
 /**
