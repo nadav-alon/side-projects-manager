@@ -2,6 +2,7 @@ import type {
   ApplyReviewTicket,
   Discovery,
   HandBackOutcome,
+  IssueNumber,
   IssueTracker,
   IssueUrl,
   OpenIssue,
@@ -274,6 +275,19 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * A number above every ticket `repo` has — eligible or not, the way the
+   * real tracker never reuses a number — for `createReviewTicket` and
+   * `createDiscoveredTicket` to number what they open above `ticket` too, in
+   * case `repo` was seeded with a smaller newest number than `ticket`'s own.
+   */
+  #nextNumber(repo: RepoSlug, ticket: Ticket): IssueNumber {
+    const numbers = (this.#issues.get(repo) ?? []).map(
+      (entry) => entry.issue.number,
+    );
+    return issueNumber(Math.max(ticket.number, ...numbers) + 1);
+  }
+
+  /**
    * Marks `repo`'s backlog as a truncated backlog: more open issues than the
    * loop reads in one morning. The issues listed stay exactly those added, so
    * a test arranges the ones read and says there were more.
@@ -348,10 +362,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     pullRequest: PullRequestUrl,
   ): Promise<Ticket> {
-    const issues = this.#issues.get(ticket.repo) ?? [];
-    const numbers = issues.map((entry) => entry.issue.number);
     const review = this.addEligibleTicket(ticket.repo, {
-      number: issueNumber(Math.max(ticket.number, ...numbers) + 1),
+      number: this.#nextNumber(ticket.repo, ticket),
       title: reviewTitle(ticket),
       pullRequest: { kind: "review", url: pullRequest },
     });
@@ -395,12 +407,10 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     discovery: Discovery,
   ): Promise<Ticket> {
-    const issues = this.#issues.get(ticket.repo) ?? [];
-    const numbers = issues.map((entry) => entry.issue.number);
     const discovered = this.#add(
       ticket.repo,
       {
-        number: issueNumber(Math.max(ticket.number, ...numbers) + 1),
+        number: this.#nextNumber(ticket.repo, ticket),
         title: discovery.title,
       },
       NEEDS_TRIAGE_LABEL,
