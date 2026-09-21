@@ -889,6 +889,26 @@ describe("containerSandbox", () => {
       };
     }
 
+    /**
+     * Enables mocked time, starts a run against `body` on a fresh project,
+     * and waits for `body` to actually be invoked — the preamble every test
+     * below shares, up to the point each one diverges on what `body` itself
+     * does and what it goes on to assert.
+     */
+    async function stalledRun(
+      t: TestContext,
+      body: Container,
+    ): Promise<{ run: Promise<RunOutcome> }> {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      const { container, started } = starts(body);
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      return { run };
+    }
+
     /** A `Container` that hangs until `options.signal` aborts, then rejects. */
     const hangsUntilKilled: Container = ({ signal }) =>
       new Promise((_, reject) => {
@@ -900,13 +920,7 @@ describe("containerSandbox", () => {
       });
 
     it("kills a run whose transcript has gone quiet, and reads it as a provider failure naming how long", async (t) => {
-      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
-      const directory = await project();
-      const { container, started } = starts(hangsUntilKilled);
-      const sandbox = testSandbox(container);
-
-      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-      await started;
+      const { run } = await stalledRun(t, hangsUntilKilled);
       await advancePastStall(t);
 
       const result = await run;
@@ -918,11 +932,9 @@ describe("containerSandbox", () => {
     });
 
     it("never kills a run whose transcript keeps growing, however long it runs", async (t) => {
-      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
-      const directory = await project();
       let transcriptDir = "";
       let resolveAgent: ((agent: AgentRun) => void) | undefined;
-      const { container, started } = starts(({ transcriptDirectory, signal }) => {
+      const { run } = await stalledRun(t, ({ transcriptDirectory, signal }) => {
         transcriptDir = transcriptDirectory;
         return new Promise((resolve, reject) => {
           signal.addEventListener(
@@ -933,10 +945,6 @@ describe("containerSandbox", () => {
           resolveAgent = resolve;
         });
       });
-      const sandbox = testSandbox(container);
-
-      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-      await started;
 
       // Three stretches, each just under the stall window, with the
       // transcript written to between them: total elapsed time comfortably
@@ -954,10 +962,8 @@ describe("containerSandbox", () => {
     });
 
     it("still reports the transcript it wrote before going quiet", async (t) => {
-      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
-      const directory = await project();
       let written = "";
-      const { container, started } = starts(async ({ transcriptDirectory, signal }) => {
+      const { run } = await stalledRun(t, async ({ transcriptDirectory, signal }) => {
         written = await writeTranscript(transcriptDirectory);
         return new Promise((_, reject) => {
           signal.addEventListener(
@@ -967,10 +973,6 @@ describe("containerSandbox", () => {
           );
         });
       });
-      const sandbox = testSandbox(container);
-
-      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-      await started;
       await advancePastStall(t);
 
       const result = await run;
@@ -987,10 +989,8 @@ describe("containerSandbox", () => {
      * `Container` whose own "kill" takes a moment stands in for that here.
      */
     it("keeps the clone until the container is confirmed gone, even when killing it takes a moment", async (t) => {
-      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
-      const directory = await project();
       let clone = "";
-      const { container, started } = starts(({ directory: mounted, signal }) => {
+      const { run } = await stalledRun(t, ({ directory: mounted, signal }) => {
         clone = mounted;
         return new Promise((_, reject) => {
           signal.addEventListener(
@@ -1002,10 +1002,6 @@ describe("containerSandbox", () => {
           );
         });
       });
-      const sandbox = testSandbox(container);
-
-      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-      await started;
       await advancePastStall(t);
 
       assert.equal(
@@ -1017,6 +1013,87 @@ describe("containerSandbox", () => {
       await run;
 
       assert.equal(await exists(clone), false);
+    });
+
+    it("watches runs side by side, killing only the one whose transcript stalls", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      const HEALTHY_TICKET: Ticket = {
+        ...TICKET,
+        number: issueNumber(8),
+        title: "A second ticket, run alongside the first",
+      };
+
+      let healthyTranscriptDir = "";
+      let resolveHealthy: ((agent: AgentRun) => void) | undefined;
+      const stallingStarted = gate();
+      const healthyStarted = gate();
+
+      // Dispatched on which ticket's prompt this is, since both runs share
+      // one sandbox and so one `Container` — a fake standing in for two
+      // different real containers running side by side.
+      const container: Container = (options) => {
+        if (options.prompt.includes(`#${HEALTHY_TICKET.number} `)) {
+          healthyTranscriptDir = options.transcriptDirectory;
+          healthyStarted.open();
+          return new Promise((resolve, reject) => {
+            options.signal.addEventListener(
+              "abort",
+              () => reject(new Error("the healthy run was killed")),
+              { once: true },
+            );
+            resolveHealthy = resolve;
+          });
+        }
+        stallingStarted.open();
+        return new Promise((_, reject) => {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new Error("the stalled run was killed")),
+            { once: true },
+          );
+        });
+      };
+      const sandbox = testSandbox(container);
+
+      const stallingRun = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const healthyRun = sandbox.run({
+        ticket: HEALTHY_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      });
+      await Promise.all([stallingStarted.opened, healthyStarted.opened]);
+
+      // The healthy run's own transcript keeps growing across the same
+      // stretch the stalled one sits quiet in — proof each run watches its
+      // own transcript, not a clock the sandbox shares between them.
+      for (let i = 0; i < 3; i++) {
+        await writeTranscript(healthyTranscriptDir);
+        t.mock.timers.tick(STALL_TIMEOUT - 1_000);
+        await flushRealIo();
+      }
+
+      const stalled = await stallingRun;
+      assert.equal(stalled.kind, "provider-failed");
+
+      resolveHealthy?.({ output: "", tokensUsed: tokenCount(0) });
+      const healthy = await healthyRun;
+      assert.equal(healthy.kind, "finished");
+    });
+
+    it("leaves no timer behind once a run ends normally", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const clearIntervalCalls = t.mock.method(globalThis, "clearInterval");
+      const directory = await project();
+      const { container, started } = starts(async () => ({ output: "", tokensUsed: tokenCount(0) }));
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      const result = await run;
+
+      assert.equal(result.kind, "finished");
+      assert.equal(clearIntervalCalls.mock.callCount(), 1);
     });
   });
 
