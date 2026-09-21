@@ -452,6 +452,28 @@ describe("containerSandbox", () => {
     assert.match(asked, /do not push, and do\s+not open a pull request/);
   });
 
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /correction/);
+    assert.match(asked, /prerequisite/);
+    assert.match(asked, /clarification/);
+    assert.match(asked, /suggestion/);
+    assert.match(asked, /\/discoveries/);
+    assert.match(asked, /"kind"/);
+    assert.match(asked, /"title"/);
+    assert.match(asked, /"body"/);
+    assert.match(asked, /stop without committing further/);
+    assert.match(asked, /at most one suggestion/);
+  });
+
   it("asks docker for no model when the request names none", async () => {
     const directory = await project();
     let seen: string | undefined = "unset";
@@ -2217,6 +2239,29 @@ describe("containerSandbox.review", () => {
     assert.match(asked, /mattpocock-skills:code-review/);
   });
 
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /correction/);
+    assert.match(asked, /prerequisite/);
+    assert.match(asked, /clarification/);
+    assert.match(asked, /suggestion/);
+    assert.match(asked, /\/discoveries/);
+    assert.match(asked, /stop without committing further/);
+    assert.match(asked, /at most one suggestion/);
+  });
+
   /**
    * The skill's own last step only aggregates the two reports — posting is
    * the prompt's to spell out, and a finding dropped as one summary comment
@@ -2565,6 +2610,29 @@ describe("containerSandbox.specReview", () => {
     assert.match(asked, new RegExp(`#${SPEC_REVIEW_TICKET.number}\\b`));
     assert.match(asked, /--json parent/);
     assert.match(asked, /supertask/);
+  });
+
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /correction/);
+    assert.match(asked, /prerequisite/);
+    assert.match(asked, /clarification/);
+    assert.match(asked, /suggestion/);
+    assert.match(asked, /\/discoveries/);
+    assert.match(asked, /stop without committing further/);
+    assert.match(asked, /at most one suggestion/);
   });
 
   it("tells the agent to report and stop where the ticket has no parent to review against", async () => {
@@ -2935,6 +3003,25 @@ describe("containerSandbox.applyReview", () => {
     await applyReviewOn(sandbox, directory);
 
     assert.match(asked, /Push after each commit rather than once at the end/);
+  });
+
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.match(asked, /correction/);
+    assert.match(asked, /prerequisite/);
+    assert.match(asked, /clarification/);
+    assert.match(asked, /suggestion/);
+    assert.match(asked, /\/discoveries/);
+    assert.match(asked, /stop without committing further/);
+    assert.match(asked, /at most one suggestion/);
   });
 
   it("passes the model to the agent CLI", async () => {
@@ -3408,6 +3495,25 @@ describe("containerSandbox.rebase", () => {
     await rebaseOn(sandbox, directory);
 
     assert.match(asked, /force-push with `--force-with-lease`/);
+  });
+
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assert.match(asked, /correction/);
+    assert.match(asked, /prerequisite/);
+    assert.match(asked, /clarification/);
+    assert.match(asked, /suggestion/);
+    assert.match(asked, /\/discoveries/);
+    assert.match(asked, /stop without committing further/);
+    assert.match(asked, /at most one suggestion/);
   });
 
   it("passes the model to the agent CLI", async () => {

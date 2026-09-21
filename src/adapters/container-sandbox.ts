@@ -1324,6 +1324,26 @@ async function specReviewOnClone(
 }
 
 /**
+ * What every prompt tells the agent about filing a discovery — see
+ * CONTEXT.md's "Discovery". Closes `promptFor`, `reviewPromptFor`,
+ * `specReviewPromptFor`, `applyReviewPromptFor` and `rebasePromptFor` alike,
+ * so what a discovery is, where to file one and the one-suggestion limit read
+ * the same whatever kind of ticket the run is working — one wording rather
+ * than five copies to keep in step.
+ */
+const DISCOVERY_INSTRUCTIONS = [
+  "If you learn something about this ticket the developer has to act on, file a discovery: one JSON",
+  `file per discovery, written to ${DISCOVERIES_MOUNT}, shaped`,
+  '`{"kind": "correction" | "prerequisite" | "clarification" | "suggestion", "title": "...", "body": "..."}`.',
+  "A correction says the ticket itself is wrong; a prerequisite says the work needs something nobody",
+  "ticketed — either is blocking: stop without committing further once you file one. A clarification",
+  "says the ticket is ambiguous, and how you read it; a suggestion is work worth doing that the",
+  "ticket does not cover — either is advisory: keep going. File at most one suggestion: your best,",
+  "and only one you would have acted on yourself had the ticket allowed it. Implementation detail",
+  "belongs in the commit and the pull request, never in a discovery.",
+].join(" ");
+
+/**
  * What the spec-reviewing agent is asked to do.
  *
  * The ticket is named explicitly for the same reason `promptFor` names the
@@ -1366,6 +1386,7 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
     "find instead; your report is the whole of the work here.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
+    DISCOVERY_INSTRUCTIONS,
   ].join(" ");
 }
 
@@ -1656,6 +1677,8 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
     "If the push is rejected because the branch moved, stop, and end your report with the line",
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
+    "",
+    DISCOVERY_INSTRUCTIONS,
   ].join("\n");
 }
 
@@ -1689,6 +1712,8 @@ function rebasePromptFor(ticket: RebaseTicket): string {
     "If the push is rejected because the branch moved, stop, and end your report with the line",
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
+    "",
+    DISCOVERY_INSTRUCTIONS,
   ].join("\n");
 }
 
@@ -1734,6 +1759,7 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     "a run cut off part way should still leave reviewable progress on the",
     "branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
+    DISCOVERY_INSTRUCTIONS,
     `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
     "followed by one sentence saying what the ticket asked for — not what",
     "your diff did; the run is complete either way.",
@@ -1819,6 +1845,7 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "You post with the developer's own GitHub credential, so nothing marks a comment of yours",
     "apart from one the developer wrote. Never post a comment whose whole body is",
     "`/apply-review` — acting on this review is the developer's call, not yours.",
+    DISCOVERY_INSTRUCTIONS,
   ].join(" ");
 }
 
