@@ -164,19 +164,23 @@ The triage label a ticket carries once the loop has stopped working on it. Alway
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
-What the loop does with a ticket whose run gave up or finished, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows, or, for a rebase ticket, whose pull request the repo host never settles as conflicting or not: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, a provider failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was. Checked against the tracker first: a ticket already closed — by an overlapping run that finished it first, most commonly — is left exactly as it is, no comment and no label touched, and the summary does not list it as waiting on the developer.
+What the loop does with a ticket whose run gave up, finished, or filed a blocking discovery, or whose model it cannot use — a model refusal, or model labels that name no one usable model — or whose size label names no size the budget document knows, or, for a rebase ticket, whose pull request the repo host never settles as conflicting or not: a comment saying what happened, and a move from ready-for-agent to ready-for-human. Also the whole of the no-retry rule, since a ticket without ready-for-agent is not eligible the next morning. Only those: a run that was an infrastructure failure, a provider failure, or that the provider limit refused, says nothing about the ticket, so the ticket is left exactly as it was. Checked against the tracker first: a ticket already closed — by an overlapping run that finished it first, most commonly — is left exactly as it is, no comment and no label touched, and the summary does not list it as waiting on the developer.
 _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
 A run whose agent ran and stopped short — it said it could not, left the tests red, for a review, posted no findings to the pull request, or, for an apply-review run, left a thread on its pull request unanswered or had its push rejected because the pull request's branch moved on the repo host, or, for a rebase run, could not resolve a conflict green. The ticket is the problem: a branch that moved since the review is one the review no longer describes, and whether to ask again is the developer's call, so it is handed back rather than left eligible as an infrastructure failure would be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
+**Discovery**:
+Something a run learned about its ticket that the developer has to act on. One of four kinds, and the kind alone decides whether it is blocking: a correction (the ticket is wrong) and a prerequisite (the work needs something nobody ticketed) are blocking; a clarification (the ticket is ambiguous, and how the agent read it) and a suggestion (work worth doing that the ticket does not cover) are advisory. Always about the ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the pull request. A blocking discovery stops the run and hands its ticket back; an advisory one rides alongside a run that finishes. One filed by a pull request ticket's run is about the implementation ticket it belongs to, and lands there, while the pull request ticket is the one handed back. Neither is the agent giving up nor the setup failing: the ticket itself is wrong or incomplete.
+_Avoid_: finding, note, observation, feedback
+
 **Infrastructure failure**:
 A run that never happened, or whose work never reached the checkout, because the sandbox or the repo host could not do its part — before the agent started, or after it stopped, such as a branch that could not be fetched back. The setup is the problem. What an agent that did start spent is still recorded against its project. Reported apart from an agent that gave up, because the developer's next move differs: never handed back, the ticket stays eligible, and the summary names it under what is waiting on the developer. What an implementation agent that did start left is salvaged, wherever it can still be reached. The invocation carries on.
 _Avoid_: outage (a provider failure, if the provider was down), crash, system error
 
 **Discard**:
-What becomes of a gave-up run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
+What becomes of the branch of a run that gave up or filed a blocking discovery: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
 _Avoid_: clean up, delete
 
 **Salvage**:
