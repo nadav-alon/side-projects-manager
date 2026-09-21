@@ -312,6 +312,10 @@ _Avoid_: bad model, model error, invalid model
 A run, implementation, review, apply-review or rebase, that the agent started but the provider never answered: down, overloaded or unreachable — or one that answered and then went silent mid-stream, which reads the same as never answering once the run is killed for having gone quiet. The provider is the problem, not the ticket, the agent or the setup, so it is neither gave up nor an infrastructure failure, and never handed back: its ticket is left exactly as it was, for a later firing to select again.
 _Avoid_: outage, API error, provider down
 
+**Stalled run**:
+A run, implementation, review, apply-review or rebase, whose transcript has not grown for twenty minutes while its container is still up — the provider answered and then went quiet mid-stream, rather than never answering at all. Nothing else bounds a container whose API response goes silent this way, so the sandbox kills it itself once its idle watchdog fires. Reads as a **Provider failure** once killed: a stalled run and one that was never answered come back the same way.
+_Avoid_: hung, wedged, frozen, timed out, stuck
+
 **Cut off**:
 A run the provider stopped before it finished: a limit refusal or a provider failure. Never handed back: its ticket is left exactly as it was, what it spent is recorded, and the invocation stands down, since every run after it would be stopped the same way. An implementation run's branch is discarded on a provider failure, same as any other cut-off run's — but kept, as a salvage, on a limit refusal with commits (see **Salvage**). Distinct from a budget exhaustion, which stops one run without saying anything about the next.
 _Avoid_: interrupted, killed, aborted
