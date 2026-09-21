@@ -63,17 +63,22 @@ Done when every applied thread maps to a commit on the branch and the full test 
 
 ## 7. Reply
 
-Every reply ends with the marker line `<!-- apply-pr-review -->`.
+Every reply, whichever kind of thread it answers, is one verdict with the marker as its last line. The marker is how the next run, and whoever checks this one, tell an answered thread from an open one:
 
-- Applied: `Applied in <sha>: <what changed>.`
-- Declined: `Declined: <reason>.`
+```
+Applied in <sha>: <what changed>.
+
+<!-- apply-pr-review -->
+```
+
+A declined reply's verdict line is `Declined: <reason>.`
 
 Where it goes:
 
 - Review thread: `gh api repos/<owner>/<repo>/pulls/<number>/comments/<databaseId of the thread's first comment>/replies -f body=<reply>`. Then, for applied threads only, resolve it: `gh api graphql -F id=<thread id> -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'`. Declined threads stay open for the reviewer to answer.
-- Review body: `gh pr comment <pr> --body <reply>`, opening with a quote of the passage it answers.
+- Review body: `gh pr comment <pr> --body <reply>`, the reply opening with a quote of the passage it answers, then its own verdict and marker. It answers the review body alone; each inline thread already has its reply.
 
-Done when every thread from step 2 has exactly one reply posted.
+Done when every thread from step 2 has exactly one reply whose last line is the marker. Check by reading them back — `gh api repos/<owner>/<repo>/issues/<number>/comments` for review-body replies — and fix any reply that ends otherwise by editing it in place (`gh api -X PATCH repos/<owner>/<repo>/issues/comments/<id> -f body=<reply>`, or `pulls/comments/<id>` for a review thread's).
 
 ## 8. Report
 
