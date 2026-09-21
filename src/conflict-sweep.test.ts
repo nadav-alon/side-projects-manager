@@ -4,8 +4,7 @@ import { describe, it } from "node:test";
 import { conflictSweep } from "./conflict-sweep.ts";
 import {
   issueNumber,
-  NEEDS_REBASE_LABEL,
-  pullRequestLabel,
+  NEEDS_REBASE,
   pullRequestUrl,
   REBASE_COMMENT,
   repoSlug,
@@ -14,7 +13,6 @@ import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
-const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
 const NO_OPEN_ISSUES = { issues: [], truncated: false };
 
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");

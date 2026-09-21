@@ -3,7 +3,7 @@ import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
-import type { PullRequestLabel } from "./pull-request-label.ts";
+import { pullRequestLabel, type PullRequestLabel } from "./pull-request-label.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TicketGist } from "./ticket-gist.ts";
@@ -336,6 +336,14 @@ export class MergeabilityUnknown extends Error {
  * it as their own literal.
  */
 export const NEEDS_REBASE_LABEL = "needs-rebase";
+
+/**
+ * {@link NEEDS_REBASE_LABEL}, branded once so the conflict sweep and its
+ * test don't each construct their own `PullRequestLabel` from the same
+ * string, the way {@link REVIEWED_LABEL} and {@link APPLIED_REVIEW_LABEL}
+ * are branded once beside the type they're labels of.
+ */
+export const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
 
 /**
  * Whether a pull request needs a rebase, read repeatedly through `read` until

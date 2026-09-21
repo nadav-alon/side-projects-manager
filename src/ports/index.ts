@@ -122,6 +122,7 @@ export {
   DECLINED_REPLY_PREFIX,
   isMarkedReply,
   MergeabilityUnknown,
+  NEEDS_REBASE,
   NEEDS_REBASE_LABEL,
   OPEN_PULL_REQUEST_LIMIT,
   REBASE_COMMENT,

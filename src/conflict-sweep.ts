@@ -6,14 +6,7 @@ import type {
   RepoHost,
   RepoSlug,
 } from "./ports/index.ts";
-import {
-  NEEDS_REBASE_LABEL,
-  openRebaseTicketFor,
-  pullRequestLabel,
-  REBASE_COMMENT,
-} from "./ports/index.ts";
-
-const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
+import { NEEDS_REBASE, openRebaseTicketFor, REBASE_COMMENT } from "./ports/index.ts";
 
 /**
  * The one thing each candidate pull request of a sweep does: reading its
@@ -64,7 +57,7 @@ export interface ConflictSweepOutcome {
  * {@link RepoHost.needsRebase}. A pull request naming no closed ticket is
  * never read, labelled or commented on.
  *
- * A conflicting pull request is labelled {@link NEEDS_REBASE_LABEL} unless it
+ * A conflicting pull request is labelled {@link NEEDS_REBASE} unless it
  * already carries it. A clean one has the label taken off if it carries it,
  * whether or not a rebase ticket is still open for it — the label means not
  * mergeable now, and a ticket still open finds nothing to rebase and closes
