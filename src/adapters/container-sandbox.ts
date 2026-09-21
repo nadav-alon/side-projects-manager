@@ -917,17 +917,26 @@ async function findTranscript(
 }
 
 /**
+ * The leading counter `DISCOVERY_INSTRUCTIONS` asks the agent to open a
+ * discovery's filename with, for `readDiscoveries`'s sort — names it as
+ * write order, rather than merely correlating with it the way a
+ * modification time only approximately does. A name with no leading number
+ * sorts after every numbered one, by name, so the order stays deterministic
+ * even then.
+ */
+function discoveryOrder(name: string): [number, string] {
+  const match = /^(\d+)/.exec(name);
+  return [match ? Number(match[1]) : Number.POSITIVE_INFINITY, name];
+}
+
+/**
  * The discoveries written under `directory`, in the order they were written,
- * and how many files there did not parse as one — see `Discovery` and
+ * and how many entries there did not carry one — see `Discovery` and
  * `isDiscovery`, and CONTEXT.md's "Discovery". A file that is not valid
  * JSON, or whose shape `isDiscovery` refuses, is dropped and counted rather
- * than failing the run.
- *
- * Ordered by each file's own modification time: the only signal that says
- * when the agent wrote it, since nothing here controls what it names the
- * file — the same one `watchForStall` already reads a transcript by. A file
- * this cannot `stat` sorts as though it were written at the very start,
- * rather than dropping it from the count.
+ * than failing the run — and so is anything under `directory` that is not a
+ * plain file at all, a subdirectory or a symlink among them, since neither
+ * one is a discovery `isDiscovery` could ever accept.
  */
 async function readDiscoveries(
   directory: DiscoveryDirectory,
@@ -935,19 +944,20 @@ async function readDiscoveries(
   const entries = await readdir(directory, { withFileTypes: true }).catch(
     () => [],
   );
-  const files = entries.filter((entry) => entry.isFile());
-  const withMtime = await Promise.all(
-    files.map(async (entry) => {
-      const filePath = path.join(directory, entry.name);
-      const stats = await stat(filePath).catch(() => undefined);
-      return { filePath, mtimeMs: stats?.mtimeMs ?? 0 };
-    }),
-  );
-  withMtime.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const ordered = [...entries].sort((a, b) => {
+    const [aNumber, aName] = discoveryOrder(a.name);
+    const [bNumber, bName] = discoveryOrder(b.name);
+    return aNumber - bNumber || (aName < bName ? -1 : aName > bName ? 1 : 0);
+  });
 
   const discoveries: Discovery[] = [];
   let dropped = 0;
-  for (const { filePath } of withMtime) {
+  for (const entry of ordered) {
+    if (!entry.isFile()) {
+      dropped++;
+      continue;
+    }
+    const filePath = path.join(directory, entry.name);
     const contents = await readFile(filePath, "utf8").catch(() => undefined);
     const parsed = contents === undefined ? undefined : parse(contents);
     if (isDiscovery(parsed)) {
@@ -1341,7 +1351,8 @@ async function specReviewOnClone(
  */
 const DISCOVERY_INSTRUCTIONS = [
   "If you learn something about this ticket the developer has to act on, file a discovery: one JSON",
-  `file per discovery, written to ${DISCOVERIES_MOUNT}, shaped`,
+  `file per discovery, written to ${DISCOVERIES_MOUNT}, named 1.json, 2.json and so on in the order`,
+  "you file them, shaped",
   '`{"kind": "correction" | "prerequisite" | "clarification" | "suggestion", "title": "...", "body": "..."}`.',
   "A correction says the ticket itself is wrong; a prerequisite says the work needs something nobody",
   "ticketed — either is blocking: stop without committing further once you file one. A clarification",

@@ -249,26 +249,18 @@ async function writeTranscript(
 
 /**
  * Writes one discovery JSON file into `discoveriesDirectory`, the way an
- * agent would through its `/discoveries` mount, and backdates its
- * modification time by `ageSeconds` — `readDiscoveries` orders by mtime, and
- * two files written in the same test can otherwise land on the same
- * millisecond.
+ * agent would through its `/discoveries` mount.
  */
 async function writeDiscovery(
   discoveriesDirectory: string,
   contents: unknown,
   name: string,
-  ageSeconds = 0,
 ): Promise<string> {
   const file = path.join(discoveriesDirectory, name);
   await writeFile(
     file,
     typeof contents === "string" ? contents : JSON.stringify(contents),
   );
-  if (ageSeconds !== 0) {
-    const then = new Date(Date.now() - ageSeconds * 1000);
-    await utimes(file, then, then);
-  }
   return file;
 }
 
@@ -2009,17 +2001,17 @@ describe("discoveries", () => {
   it("carries the discoveries a finished run's agent filed, in the order it wrote them", async () => {
     const directory = await project();
     const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
-      await writeDiscovery(
-        discoveriesDirectory,
-        { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
-        "1.json",
-        2,
-      );
+      // Written out of write order, on purpose: the filename's own counter,
+      // not the write itself, is what `readDiscoveries` must order by.
       await writeDiscovery(
         discoveriesDirectory,
         { kind: "suggestion", title: "Add a retry", body: "Would have added retries myself." },
         "2.json",
-        1,
+      );
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
+        "1.json",
       );
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -2067,6 +2059,26 @@ describe("discoveries", () => {
       { kind: "correction", title: "Wrong ticket", body: "This is already built." },
     ]);
     assert.equal(variant(result, "finished")?.discoveriesDropped, 2);
+  });
+
+  it("drops and counts a subdirectory under the discoveries mount, rather than passing over it silently", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+        "1.json",
+      );
+      await mkdir(path.join(discoveriesDirectory, "2"));
+      return { output: "implemented the thing", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.deepEqual(variant(result, "finished")?.discoveries, [
+      { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+    ]);
+    assert.equal(variant(result, "finished")?.discoveriesDropped, 1);
   });
 
   it("carries discoveries filed by a run that gave up", async () => {
