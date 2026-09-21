@@ -60,13 +60,15 @@ export interface ConflictSweepOutcome {
  * never read, labelled or commented on.
  *
  * A conflicting pull request is labelled {@link NEEDS_REBASE_LABEL} unless it
- * already carries it. An `"unknown"` one is left exactly as it is, for the
- * next sweep.
+ * already carries it. A clean one has the label taken off if it carries it,
+ * whether or not a rebase ticket is still open for it — the label means not
+ * mergeable now, and a ticket still open finds nothing to rebase and closes
+ * itself. An `"unknown"` one is left exactly as it is, for the next sweep.
  *
- * Best effort throughout: a refused read or label is recorded in the outcome
- * and the sweep carries on with the next pull request, never throwing. A
- * refused listing is the one exception — with no list, there is nothing left
- * to sweep — and ends the project's sweep on the spot.
+ * Best effort throughout: a refused read, label or unlabel is recorded in
+ * the outcome and the sweep carries on with the next pull request, never
+ * throwing. A refused listing is the one exception — with no list, there is
+ * nothing left to sweep — and ends the project's sweep on the spot.
  */
 export async function conflictSweep(
   repoHost: RepoHost,
@@ -108,7 +110,23 @@ export async function conflictSweep(
 
     const labelled = pullRequest.labels.includes(NEEDS_REBASE);
 
-    if (status === "conflicting" && !labelled) {
+    if (status === "clean") {
+      if (labelled) {
+        try {
+          await repoHost.removeNeedsRebaseLabel(pullRequest.url);
+          changes.push({ pullRequest: pullRequest.url, action: "unlabelled" });
+        } catch (error) {
+          refusals.push({
+            action: "unlabel",
+            pullRequest: pullRequest.url,
+            error: errorMessage(error),
+          });
+        }
+      }
+      continue;
+    }
+
+    if (!labelled) {
       try {
         await repoHost.labelPullRequest(pullRequest.url, NEEDS_REBASE);
         changes.push({ pullRequest: pullRequest.url, action: "labelled" });

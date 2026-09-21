@@ -121,6 +121,57 @@ describe("conflictSweep", () => {
     ]);
   });
 
+  it("removes needs-rebase from a clean pull request that carries it", async () => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
+    ]);
+    host.mergeStatus = () => "clean";
+
+    const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
+
+    assert.equal(host.hasNeedsRebaseLabel(PULL_REQUEST), false);
+    assert.deepEqual(outcome.changes, [
+      { pullRequest: PULL_REQUEST, action: "unlabelled" },
+    ]);
+    assert.deepEqual(outcome.refusals, []);
+  });
+
+  it("does nothing to a clean pull request that does not carry needs-rebase", async () => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+    ]);
+    host.mergeStatus = () => "clean";
+
+    const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
+
+    assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
+  });
+
+  it("records a refused unlabel and carries on to the next pull request", async (t) => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(1) },
+      { url: OTHER_PULL_REQUEST, labels: [NEEDS_REBASE], closes: issueNumber(2) },
+    ]);
+    host.mergeStatus = () => "clean";
+    t.mock.method(host, "removeNeedsRebaseLabel", async (pullRequest: typeof PULL_REQUEST) => {
+      if (pullRequest === PULL_REQUEST) {
+        throw new Error("label already gone");
+      }
+    });
+
+    const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
+
+    assert.deepEqual(outcome.refusals, [
+      { action: "unlabel", pullRequest: PULL_REQUEST, error: "label already gone" },
+    ]);
+    assert.deepEqual(outcome.changes, [
+      { pullRequest: OTHER_PULL_REQUEST, action: "unlabelled" },
+    ]);
+  });
+
   it("ends the project's sweep on a refused listing, without a per-pull-request refusal", async (t) => {
     const host = new FakeRepoHost();
     t.mock.method(host, "listOpenPullRequests", async () => {
