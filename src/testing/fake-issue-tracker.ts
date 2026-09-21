@@ -431,7 +431,12 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    *
    * Numbered above every ticket the repo has, as `createReviewTicket` numbers
    * a review, so a test can tell the spec review from the supertask that
-   * earned it.
+   * earned it. Answers with `specReview: true` set directly, the same as the
+   * real tracker's own return — unlike every other label-derived fact, which
+   * the fake reads back only from a later `listOpenIssues` or `listSubIssues`
+   * call, `isSpecReviewTicket` must already read `true` from the ticket
+   * `createSpecReviewTicket` itself hands back, since nothing else names the
+   * kind of ticket a caller just opened.
    */
   async createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket> {
     const issues = this.#issues.get(ticket.repo) ?? [];
@@ -444,8 +449,9 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     this.addLabel(specReview, SPEC_REVIEW_LABEL);
     this.addLabel(specReview, SPEC_REVIEW_SIZE_LABEL);
 
-    this.specReviewTickets.push({ parent: ticket, body, ticket: specReview });
-    return specReview;
+    const opened: Ticket = { ...specReview, specReview: true };
+    this.specReviewTickets.push({ parent: ticket, body, ticket: opened });
+    return opened;
   }
 
   async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
