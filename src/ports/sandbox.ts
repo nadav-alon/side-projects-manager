@@ -1,6 +1,7 @@
 import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { CommitSha } from "./commit-sha.ts";
+import type { Discovery } from "./discovery.ts";
 import type {
   ApplyReviewTicket,
   RebaseTicket,
@@ -121,6 +122,21 @@ interface Ended {
    * agent CLI leaves nothing to name. See `container-sandbox.ts`'s `attempt`.
    */
   transcript?: TranscriptPath;
+  /**
+   * What the agent filed through its per-run `/discoveries` mount, in the
+   * order it wrote them — see CONTEXT.md's "Discovery". Present for every
+   * outcome where the agent started, gave-up and cut-off runs included, since
+   * a discovery filed before the run stopped is still true; empty rather than
+   * absent when it filed none. Absent only when the agent never started at
+   * all, which never reaches an `Ended` outcome in the first place.
+   */
+  discoveries?: Discovery[];
+  /**
+   * How many files under `/discoveries` were dropped rather than carried into
+   * `discoveries` — not valid JSON, or valid JSON of an unknown `kind` — so
+   * the caller can report them. Never fails the run on its own.
+   */
+  discoveriesDropped?: number;
 }
 
 /**
