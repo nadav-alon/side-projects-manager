@@ -661,7 +661,7 @@ async function attempt(
     ),
   );
   const controller = new AbortController();
-  const stopWatching = watchForStall(transcriptDir, controller);
+  const watch = watchForStall(transcriptDir, controller);
   try {
     const agent = await container({
       ...options,
@@ -676,7 +676,7 @@ async function attempt(
       throw error;
     }
     if (controller.signal.aborted) {
-      const words = stallWords();
+      const words = stallWords(watch.wroteTranscript());
       return withTranscript(
         { output: errorMessage(error), tokensUsed: tokenCount(0), failure: words, providerFailure: words },
         await findTranscript(transcriptDir),
@@ -693,7 +693,7 @@ async function attempt(
     );
   } finally {
     controller.abort();
-    await stopWatching;
+    await watch.stopped;
   }
 }
 
@@ -702,9 +702,21 @@ async function attempt(
  * `providerFailure` — the provider answered and then went quiet, so
  * `endingOf` reads this the same way it reads any other provider failure,
  * words included: see CONTEXT.md's "Provider failure".
+ *
+ * `wroteTranscript` false is a different shape of the same timeout: the CLI
+ * never got as far as opening a session at all, which a broken mount or a
+ * changed per-project layout causes as readily as a genuinely silent
+ * provider does. Worded to say so, so a run stopped this way points whoever
+ * reads it at the setup rather than at the provider, while still reading as
+ * a provider failure — `endingOf` has no way yet to tell the two apart on
+ * its own, and misreading a setup fault as the ticket's problem would be
+ * worse than misreading it as the provider's.
  */
-function stallWords(): string {
-  return `the run stalled: its transcript wrote nothing for at least ${STALL_TIMEOUT / 60_000} minutes`;
+function stallWords(wroteTranscript: boolean): string {
+  const minutes = STALL_TIMEOUT / 60_000;
+  return wroteTranscript
+    ? `the run stalled: its transcript wrote nothing for at least ${minutes} minutes`
+    : `the run stalled: its transcript never appeared in the first ${minutes} minutes — check that the container is writing to it at all`;
 }
 
 /** `agent`, with `transcript` set from `found` when there is one to set. */
@@ -767,20 +779,25 @@ async function findTranscript(
  * since `STALL_TIMEOUT` already sits with room to spare against
  * `STALL_POLL_INTERVAL`.
  *
- * Returns a promise that settles once the watch has stopped — either because
- * it aborted `controller` itself, or because `controller` was aborted from
- * outside (`attempt`'s own cleanup, once `container` has settled either way).
+ * `stopped` settles once the watch has stopped — either because it aborted
+ * `controller` itself, or because `controller` was aborted from outside
+ * (`attempt`'s own cleanup, once `container` has settled either way).
  * Awaiting it before returning is how a run that ends normally leaves no
  * timer behind.
+ *
+ * `wroteTranscript` reads true once a transcript has actually been seen to
+ * grow, false if none ever was — told apart so `attempt` can word an abort
+ * that never saw a transcript at all differently from one that saw growth
+ * stop, see `stallWords`.
  */
 function watchForStall(
   directory: TranscriptDirectory,
   controller: AbortController,
-): Promise<void> {
+): { stopped: Promise<void>; wroteTranscript: () => boolean } {
   let lastGrowth = Date.now();
   let lastMtimeMs: number | undefined;
 
-  return new Promise((resolve) => {
+  const stopped = new Promise<void>((resolve) => {
     const timer = setInterval(() => {
       void latestTranscriptMtime(directory).then((mtimeMs) => {
         if (controller.signal.aborted) {
@@ -807,6 +824,8 @@ function watchForStall(
       { once: true },
     );
   });
+
+  return { stopped, wroteTranscript: () => lastMtimeMs !== undefined };
 }
 
 /**
