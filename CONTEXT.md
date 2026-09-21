@@ -177,7 +177,7 @@ _Avoid_: outage (a provider failure, if the provider was down), crash, system er
 
 **Discard**:
 What becomes of a gave-up run's branch: deleted from the project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
-_Avoid_: clean up, prune, delete
+_Avoid_: clean up, delete
 
 **Salvage**:
 What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, an infrastructure failure after the agent started, or its own spend ceiling stopping it: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch. Nothing about the ticket changes. A run that continues on a salvage and then gives up is discarded, salvage and all.
@@ -387,8 +387,12 @@ The repository one run happens in: cloned from the project's checkout, deleted w
 _Avoid_: workspace, worktree (it is neither), scratch directory
 
 **Session transcript**:
-The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a directory under `transcripts/` in the manager home made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards. Gitignored like `trigger.log` rather than committed.
+The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a directory under `transcripts/` in the manager home made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards. Gitignored like `trigger.log` rather than committed. Pruned at the start of the next invocation once its directory has aged past the transcript retention period.
 _Avoid_: log, session log, output
+
+**Prune**:
+What becomes of a session transcript's directory once it has aged past the transcript retention period: removed at the start of the next invocation, before any run of that invocation opens a directory of its own. Unlike discard, this is age-based housekeeping over a whole directory of past runs, not one run's own branch; a directory that cannot be removed is warned about and left for the next invocation to try again, never fatal to the invocation it runs in.
+_Avoid_: clean up, discard, delete
 
 **Harness**:
 The skills setup: baked into the sandbox image, and scaffolded into each project repo.
