@@ -74,12 +74,15 @@ export interface ProjectOutcome {
    */
   blocked?: Ticket[];
   /**
-   * Tickets this scan found carrying ready-for-agent with an open sub-issue
-   * that is not a pull request ticket, yet no supertask label — a likely
-   * missed label, in backlog order. Reported, not skipped: unlike a
-   * supertask or a blocked ticket, a wrong guess here costs one summary
-   * line, not a wrong selection, so the ticket stays exactly as selectable
-   * as it would otherwise be.
+   * Tickets this scan found with an open sub-issue that is not a pull
+   * request ticket, yet no supertask label — a likely missed label, in
+   * listing order. Read over every open issue, whatever its own triage
+   * label or whether it was already worked this invocation, since a
+   * ready-for-human spec is exactly the un-migrated container the label
+   * needs applying to. Reported, not skipped: unlike a supertask or a
+   * blocked ticket, a wrong guess here costs one summary line, not a wrong
+   * selection, so the ticket stays exactly as selectable as it would
+   * otherwise be.
    */
   missingSupertaskLabel?: Ticket[];
   /**
@@ -225,15 +228,15 @@ async function scan(
     const ticketPriorities = ticketPrioritiesIn(open);
     const { tickets, truncated: backlogTruncated } = backlogIn(open);
     const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
-    // A ticket whose work has moved into open sub-issues is a container, not
-    // work of its own — set aside here rather than in the tracker's query, so
-    // the rule can be exercised against the fake and the summary can still
-    // name what it passed over. A ticket an open ticket blocks is set aside
-    // the same way: its work builds on work not yet done.
+    // A ticket carrying the supertask label is a container, not work of its
+    // own — set aside here rather than in the tracker's query, so the rule
+    // can be exercised against the fake, which reads the same label, and the
+    // summary can still name what it passed over. A ticket an open ticket
+    // blocks is set aside the same way: its work builds on work not yet
+    // done.
     const supertasks: Ticket[] = [];
     const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
-    const missingSupertaskLabel: Ticket[] = [];
     for (const ticket of backlog) {
       if (isSupertask(ticket)) {
         supertasks.push(ticket);
@@ -242,13 +245,18 @@ async function scan(
       } else {
         selectable.push(ticket);
       }
-      // Never what excludes a ticket from `selectable`: a wrong guess here
-      // costs one summary line, not a wrong selection, unlike `isSupertask`
-      // itself.
-      if (!isSupertask(ticket) && hasNonPullRequestSubIssue(ticket, open.issues)) {
-        missingSupertaskLabel.push(ticket);
-      }
     }
+    // Read over every open issue, not just this scan's backlog: the likely
+    // missed label is as real on a ready-for-human spec, or on a ticket
+    // already worked this invocation, as on one selection would otherwise
+    // pick up. Never what excludes a ticket from `selectable`: a wrong guess
+    // here costs one summary line, not a wrong selection, unlike
+    // `isSupertask` itself.
+    const missingSupertaskLabel = open.issues.flatMap(({ ticket }) =>
+      !isSupertask(ticket) && hasNonPullRequestSubIssue(ticket, open.issues)
+        ? [ticket]
+        : [],
+    );
     const findings: ScanFindings = {
       supertasks,
       blocked,

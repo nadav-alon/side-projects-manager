@@ -478,6 +478,30 @@ describe("invocationSelection", () => {
       );
     });
 
+    it("flags a ready-for-human spec too, not only tickets in this scan's own backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Build part of the thing",
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 9);
+      assert.deepEqual(
+        selection.verdicts()[0]?.missingSupertaskLabel?.map((ticket) => ticket.number),
+        [7],
+      );
+    });
+
     it("does not flag a ticket that already carries the supertask label", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
