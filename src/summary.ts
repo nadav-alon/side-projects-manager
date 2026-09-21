@@ -1,5 +1,10 @@
 import type { StandDown } from "./budget-gate.ts";
 import { pullRequestResolutionPhrase } from "./close-comment.ts";
+import type {
+  ConflictSweepChange,
+  ConflictSweepOutcome,
+  ConflictSweepRefusal,
+} from "./conflict-sweep.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
@@ -43,6 +48,7 @@ import {
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  REBASE_COMMENT,
   REVIEWED_LABEL,
   declaredSize,
   isRebaseTicket,
@@ -111,6 +117,124 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
 }
 
 /**
+ * One project's conflict sweep activity, deduplicated across every sweep the
+ * invocation ran before a selection: the same pull request and action, met by
+ * several sweeps, appears once under its action in `changes`, and the same
+ * refusal appears once in `refusals`. Built by {@link conflictSweepProjects},
+ * and read by both the summary line's short aside and the body's own
+ * section, so the two never drift apart on what counts as "changed" or
+ * "refused".
+ */
+interface ConflictSweepProject {
+  repo: RepoSlug;
+  changes: Map<ConflictSweepChange["action"], PullRequestUrl[]>;
+  refusals: ConflictSweepRefusal[];
+}
+
+/**
+ * The past participle {@link ConflictSweepChange} names its action by, in the
+ * phrase {@link conflictSweepSection} renders for it. Keyed the same way
+ * `CHANGED` in `conflict-sweep.ts` keys its own vocabulary: one place per
+ * action, so adding one means adding one line here rather than a new branch
+ * in every renderer.
+ */
+const CHANGE_PHRASE: Record<ConflictSweepChange["action"], (urls: string) => string> = {
+  labelled: (urls) => `labelled ${NEEDS_REBASE_LABEL} on ${urls}`,
+  unlabelled: (urls) => `removed ${NEEDS_REBASE_LABEL} from ${urls}`,
+  commented: (urls) => `posted ${REBASE_COMMENT} on ${urls}`,
+};
+
+/** The order {@link conflictSweepSection} renders a project's change bullets in. */
+const CHANGE_ORDER: ConflictSweepChange["action"][] = ["labelled", "unlabelled", "commented"];
+
+/** The key a change is deduplicated by: the pull request and action it names. */
+function conflictSweepChangeKey(repo: RepoSlug, change: ConflictSweepChange): string {
+  return `${repo}|${change.action}|${change.pullRequest}`;
+}
+
+/** The key a refusal is deduplicated by: what it names, since a `"list"` refusal names no pull request. */
+function conflictSweepRefusalKey(
+  repo: RepoSlug,
+  refusal: ConflictSweepRefusal,
+): string {
+  return refusal.action === "list"
+    ? `${repo}|list`
+    : `${repo}|${refusal.action}|${refusal.pullRequest}`;
+}
+
+/**
+ * Every conflict sweep outcome of the invocation, grouped by project and
+ * deduplicated the way `CONTEXT.md`'s "Conflict sweep" and ADR 0007 describe:
+ * one invocation sweeps before every selection, so the same pull request and
+ * action, or the same refusal, can be met by several sweeps and is reported
+ * once. A project with nothing changed and nothing refused is left out
+ * entirely.
+ */
+function conflictSweepProjects(
+  conflictSweeps: ConflictSweepOutcome[],
+): ConflictSweepProject[] {
+  const projects = new Map<RepoSlug, ConflictSweepProject>();
+  const seenChanges = new Set<string>();
+  const seenRefusals = new Set<string>();
+
+  for (const outcome of conflictSweeps) {
+    let project = projects.get(outcome.repo);
+    if (project === undefined) {
+      project = { repo: outcome.repo, changes: new Map(), refusals: [] };
+      projects.set(outcome.repo, project);
+    }
+
+    for (const change of outcome.changes) {
+      const key = conflictSweepChangeKey(outcome.repo, change);
+      if (seenChanges.has(key)) {
+        continue;
+      }
+      seenChanges.add(key);
+      const urls = project.changes.get(change.action) ?? [];
+      urls.push(change.pullRequest);
+      project.changes.set(change.action, urls);
+    }
+
+    for (const refusal of outcome.refusals) {
+      const key = conflictSweepRefusalKey(outcome.repo, refusal);
+      if (seenRefusals.has(key)) {
+        continue;
+      }
+      seenRefusals.add(key);
+      project.refusals.push(refusal);
+    }
+  }
+
+  return [...projects.values()].filter(
+    (project) => project.changes.size > 0 || project.refusals.length > 0,
+  );
+}
+
+/**
+ * The summary line's own short aside on conflict sweeps: present only when a
+ * sweep posted {@link REBASE_COMMENT} or was refused something — the cases
+ * that need the developer's eye, per ADR 0007's "Best effort" bullet. A
+ * label added or removed stays in the body alone.
+ */
+function conflictSweepAside(conflictSweeps: ConflictSweepOutcome[]): string {
+  const flagged = conflictSweepProjects(conflictSweeps).flatMap((project) => {
+    const commented = project.changes.get("commented")?.length ?? 0;
+    const bits = [
+      ...(commented > 0
+        ? [
+            `posted ${REBASE_COMMENT} on ${commented === 1 ? "1 pull request" : `${commented} pull requests`}`,
+          ]
+        : []),
+      ...(project.refusals.length > 0
+        ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]
+        : []),
+    ];
+    return bits.length > 0 ? [`${project.repo} (${bits.join("; ")})`] : [];
+  });
+  return flagged.length > 0 ? ` Conflict sweep: ${flagged.join(", ")}.` : "";
+}
+
+/**
  * An error or reason, trimmed of trailing whitespace and then of at most one
  * trailing `.` it already ends with. Every call site interpolates this
  * either right before punctuation of its own, mid-sentence before more text,
@@ -137,9 +261,15 @@ export interface SummaryFacts {
   iterations: IterationOutcome[];
   standDown: InvocationStandDown | undefined;
   invocationFailure: string | undefined;
+  conflictSweeps: ConflictSweepOutcome[];
 }
 
-/** The summary in one line: the invocation's `message`, and the body's opening. */
+/**
+ * The summary in one line: the invocation's `message`, and the body's
+ * opening. An invocation failure returns before the skipped, passed-over,
+ * missing-label and conflict-sweep asides are built, same as it always has:
+ * none of them appear on this line when the invocation itself didn't finish.
+ */
 export function summaryLine(facts: SummaryFacts): string {
   if (facts.invocationFailure !== undefined) {
     return `The invocation did not finish: ${withoutTrailingStop(facts.invocationFailure)}.`;
@@ -153,7 +283,8 @@ export function summaryLine(facts: SummaryFacts): string {
 
   const passedOver = passedOverAside(projects);
   const missingLabel = missingSupertaskLabelAside(projects);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}`;
+  const sweeps = conflictSweepAside(facts.conflictSweeps);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -173,7 +304,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}`;
 }
 
 /**
@@ -245,9 +376,58 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
       ? undefined
       : attemptsSection(facts.iterations),
     waitingSection(facts.iterations, facts.projects),
+    conflictSweepSection(facts.conflictSweeps),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
+}
+
+/**
+ * One bullet per project's conflict sweep activity: a pull request labelled
+ * {@link NEEDS_REBASE_LABEL}, one that had it removed, one that had {@link
+ * REBASE_COMMENT} posted, and a refusal naming what it was trying and the
+ * error — each once, however many sweeps met it, per `conflictSweepProjects`.
+ * `undefined` when no sweep this invocation changed or was refused anything,
+ * so the section is absent entirely — pinned byte-for-byte by the test at
+ * `summary.test.ts:1021`.
+ */
+function conflictSweepSection(
+  conflictSweeps: ConflictSweepOutcome[],
+): string | undefined {
+  const projects = conflictSweepProjects(conflictSweeps);
+  if (projects.length === 0) {
+    return undefined;
+  }
+  const lines = projects.flatMap((project) => [
+    ...CHANGE_ORDER.flatMap((action) => {
+      const urls = project.changes.get(action);
+      return urls === undefined
+        ? []
+        : [`- ${project.repo}: ${CHANGE_PHRASE[action](urls.join(", "))}`];
+    }),
+    ...project.refusals.map((refusal) => conflictSweepRefusalLine(project.repo, refusal)),
+  ]);
+  return ["## Conflict sweeps", ...lines].join("\n");
+}
+
+/** One refusal a conflict sweep met, naming what it was trying and the error. */
+function conflictSweepRefusalLine(
+  repo: RepoSlug,
+  refusal: ConflictSweepRefusal,
+): string {
+  const error = withoutTrailingStop(refusal.error);
+  switch (refusal.action) {
+    case "list":
+      return `- ${repo}: could not list its open pull requests: ${error}`;
+    case "read":
+      return `- ${repo}: could not check ${refusal.pullRequest}'s mergeability: ${error}`;
+    case "label":
+      return `- ${repo}: could not label ${refusal.pullRequest} ${NEEDS_REBASE_LABEL}: ${error}`;
+    case "unlabel":
+      return `- ${repo}: could not remove ${NEEDS_REBASE_LABEL} from ${refusal.pullRequest}: ${error}`;
+    case "comment":
+      return `- ${repo}: could not post ${REBASE_COMMENT} on ${refusal.pullRequest}: ${error}`;
+  }
 }
 
 /**

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { Discard } from "./hand-back.ts";
 import type {
   AppliedReview,
@@ -265,6 +266,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     iterations,
     standDown: undefined,
     invocationFailure: undefined,
+    conflictSweeps: [],
   };
 }
 
@@ -639,6 +641,7 @@ describe("summaryLine", () => {
         iterations: [],
         standDown,
         invocationFailure: undefined,
+        conflictSweeps: [],
       });
     }
 
@@ -781,6 +784,7 @@ describe("summaryLine", () => {
       iterations: [],
       standDown: undefined,
       invocationFailure: "the process crashed.",
+      conflictSweeps: [],
     });
 
     assert.match(line, /The invocation did not finish: the process crashed\./);
@@ -840,6 +844,7 @@ describe("summaryLine", () => {
       iterations: [],
       standDown: undefined,
       invocationFailure: undefined,
+      conflictSweeps: [],
     });
 
     assert.match(line, /Nothing to do: skipped/);
@@ -1058,5 +1063,210 @@ describe("salvage", () => {
     ]);
 
     assert.deepEqual(lines, []);
+  });
+});
+
+describe("conflict sweeps", () => {
+  const OTHER_REPO = repoSlug("nadav-alon/other");
+  const OTHER_REPO_PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/other/pull/9",
+  );
+
+  /**
+   * Facts naming a `no-eligible-tickets` project for every repo `conflictSweeps`
+   * names, so the summary line takes the same "skipped" branch a real morning
+   * would after sweeping a project with nothing else to work — the one branch
+   * every non-empty-sweep test below needs to reach its own aside.
+   */
+  function factsWithSweeps(conflictSweeps: ConflictSweepOutcome[]): SummaryFacts {
+    const repos = [...new Set(conflictSweeps.map((sweep) => sweep.repo))];
+    return {
+      ...facts([]),
+      projects: repos.map((repo) => ({ repo, verdict: "no-eligible-tickets" as const })),
+      conflictSweeps,
+    };
+  }
+
+  /** The body {@link factsWithSweeps} renders for `sweeps`, line and all. */
+  function bodyOf(sweeps: ConflictSweepOutcome[]): string {
+    return summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
+  }
+
+  it("renders nothing extra, byte for byte, when no sweep changed or refused anything", () => {
+    const projects = [{ repo: REPO, verdict: "no-eligible-tickets" as const }];
+    const withoutSweeps: SummaryFacts = { ...facts([]), projects };
+    const withEmptySweeps: SummaryFacts = {
+      ...facts([]),
+      projects,
+      conflictSweeps: [{ repo: REPO, changes: [], refusals: [] }],
+    };
+
+    const line = summaryLine(withoutSweeps);
+    assert.equal(summaryLine(withEmptySweeps), line);
+    assert.equal(
+      summaryBody(withEmptySweeps, summaryLine(withEmptySweeps)),
+      summaryBody(withoutSweeps, line),
+    );
+    assert.doesNotMatch(line, /Conflict sweep/);
+  });
+
+  it("names a labelled, an unlabelled and a commented pull request in the body, grouped by project", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [
+          { pullRequest: PULL_REQUEST, action: "labelled" },
+          { pullRequest: PULL_REQUEST, action: "unlabelled" },
+          { pullRequest: PULL_REQUEST, action: "commented" },
+        ],
+        refusals: [],
+      },
+      {
+        repo: OTHER_REPO,
+        changes: [{ pullRequest: OTHER_REPO_PULL_REQUEST, action: "labelled" }],
+        refusals: [],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Conflict sweeps"));
+
+    assert.match(section, new RegExp(`- ${REPO}: labelled needs-rebase on ${PULL_REQUEST}`));
+    assert.match(section, new RegExp(`- ${REPO}: removed needs-rebase from ${PULL_REQUEST}`));
+    assert.match(section, new RegExp(`- ${REPO}: posted /rebase on ${PULL_REQUEST}`));
+    assert.match(
+      section,
+      new RegExp(`- ${OTHER_REPO}: labelled needs-rebase on ${OTHER_REPO_PULL_REQUEST}`),
+    );
+    assert.doesNotMatch(section, new RegExp(`${OTHER_REPO}.*removed|${OTHER_REPO}.*posted`));
+  });
+
+  it("reports the same pull request and action once, however many sweeps met it", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    const matches = body.match(new RegExp(PULL_REQUEST, "g")) ?? [];
+    assert.equal(matches.length, 1);
+  });
+
+  it("names what was refused and the error, and reports a repeated refusal once", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "label", pullRequest: PULL_REQUEST, error: "label does not exist" },
+        ],
+      },
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "label", pullRequest: PULL_REQUEST, error: "label does not exist" },
+        ],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    const matches = body.match(/could not label/g) ?? [];
+    assert.equal(matches.length, 1);
+    assert.match(
+      body,
+      new RegExp(`- ${REPO}: could not label ${PULL_REQUEST} needs-rebase: label does not exist`),
+    );
+  });
+
+  it("reports a refusal once even when the error text differs between sweeps", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "comment", pullRequest: PULL_REQUEST, error: "502 Bad Gateway (request id: 1abc)" },
+        ],
+      },
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "comment", pullRequest: PULL_REQUEST, error: "502 Bad Gateway (request id: 2abc)" },
+        ],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    const matches = body.match(/could not post/g) ?? [];
+    assert.equal(matches.length, 1);
+  });
+
+  it("names the project, not a pull request, for a refused listing", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      { repo: REPO, changes: [], refusals: [{ action: "list", error: "listing refused" }] },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    assert.match(body, new RegExp(`- ${REPO}: could not list its open pull requests: listing refused`));
+  });
+
+  it("mentions sweeps in the summary line only when a comment was posted or something was refused, not for label changes alone", () => {
+    const labelOnly = factsWithSweeps([
+      {
+        repo: REPO,
+        changes: [
+          { pullRequest: PULL_REQUEST, action: "labelled" },
+          { pullRequest: OTHER_REPO_PULL_REQUEST, action: "unlabelled" },
+        ],
+        refusals: [],
+      },
+    ]);
+
+    assert.doesNotMatch(summaryLine(labelOnly), /Conflict sweep/);
+  });
+
+  it("mentions the sweep in the summary line when it posted /rebase", () => {
+    const commented = factsWithSweeps([
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+    ]);
+
+    assert.match(
+      summaryLine(commented),
+      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 1 pull request\\)`),
+    );
+  });
+
+  it("names a count, not every url, when a sweep posted /rebase on several pull requests", () => {
+    const commented = factsWithSweeps([
+      {
+        repo: REPO,
+        changes: [
+          { pullRequest: PULL_REQUEST, action: "commented" },
+          { pullRequest: OTHER_REPO_PULL_REQUEST, action: "commented" },
+        ],
+        refusals: [],
+      },
+    ]);
+
+    const line = summaryLine(commented);
+    assert.match(line, new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 2 pull requests\\)`));
+    assert.doesNotMatch(line, new RegExp(PULL_REQUEST));
+  });
+
+  it("mentions the sweep in the summary line when it was refused something", () => {
+    const refused = factsWithSweeps([
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [{ action: "read", pullRequest: PULL_REQUEST, error: "mergeability refused" }],
+      },
+    ]);
+
+    assert.match(summaryLine(refused), new RegExp(`Conflict sweep: ${REPO} \\(refused once\\)`));
   });
 });

@@ -590,6 +590,8 @@ export async function morningLoop(
     iterations,
     standDown,
     invocationFailure,
+    // TODO[#553]: carry the invocation's own conflict sweep outcomes here.
+    conflictSweeps: [],
   };
   const line = summaryLine(facts);
   const outcome = outcomeOf(iterations, standDown, invocationFailure);
