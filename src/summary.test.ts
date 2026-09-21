@@ -1018,6 +1018,11 @@ describe("conflict sweeps", () => {
     };
   }
 
+  /** The body {@link factsWithSweeps} renders for `sweeps`, line and all. */
+  function bodyOf(sweeps: ConflictSweepOutcome[]): string {
+    return summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
+  }
+
   it("renders nothing extra, byte for byte, when no sweep changed or refused anything", () => {
     const projects = [{ repo: REPO, verdict: "no-eligible-tickets" as const }];
     const withoutSweeps: SummaryFacts = { ...facts([]), projects };
@@ -1054,7 +1059,7 @@ describe("conflict sweeps", () => {
       },
     ];
 
-    const body = summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
+    const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Conflict sweeps"));
 
     assert.match(section, new RegExp(`- ${REPO}: labelled needs-rebase on ${PULL_REQUEST}`));
@@ -1073,7 +1078,7 @@ describe("conflict sweeps", () => {
       { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
     ];
 
-    const body = summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
+    const body = bodyOf(sweeps);
 
     const matches = body.match(new RegExp(PULL_REQUEST, "g")) ?? [];
     assert.equal(matches.length, 1);
@@ -1097,7 +1102,7 @@ describe("conflict sweeps", () => {
       },
     ];
 
-    const body = summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
+    const body = bodyOf(sweeps);
 
     const matches = body.match(/could not label/g) ?? [];
     assert.equal(matches.length, 1);
@@ -1107,12 +1112,36 @@ describe("conflict sweeps", () => {
     );
   });
 
+  it("reports a refusal once even when the error text differs between sweeps", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "comment", pullRequest: PULL_REQUEST, error: "502 Bad Gateway (request id: 1abc)" },
+        ],
+      },
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "comment", pullRequest: PULL_REQUEST, error: "502 Bad Gateway (request id: 2abc)" },
+        ],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    const matches = body.match(/could not post/g) ?? [];
+    assert.equal(matches.length, 1);
+  });
+
   it("names the project, not a pull request, for a refused listing", () => {
     const sweeps: ConflictSweepOutcome[] = [
       { repo: REPO, changes: [], refusals: [{ action: "list", error: "listing refused" }] },
     ];
 
-    const body = summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
+    const body = bodyOf(sweeps);
 
     assert.match(body, new RegExp(`- ${REPO}: could not list its open pull requests: listing refused`));
   });
@@ -1137,7 +1166,27 @@ describe("conflict sweeps", () => {
       { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
     ]);
 
-    assert.match(summaryLine(commented), /Conflict sweep: nadav-alon\/pilot \(posted \/rebase/);
+    assert.match(
+      summaryLine(commented),
+      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 1 pull request\\)`),
+    );
+  });
+
+  it("names a count, not every url, when a sweep posted /rebase on several pull requests", () => {
+    const commented = factsWithSweeps([
+      {
+        repo: REPO,
+        changes: [
+          { pullRequest: PULL_REQUEST, action: "commented" },
+          { pullRequest: OTHER_REPO_PULL_REQUEST, action: "commented" },
+        ],
+        refusals: [],
+      },
+    ]);
+
+    const line = summaryLine(commented);
+    assert.match(line, new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 2 pull requests\\)`));
+    assert.doesNotMatch(line, new RegExp(PULL_REQUEST));
   });
 
   it("mentions the sweep in the summary line when it was refused something", () => {
@@ -1149,6 +1198,6 @@ describe("conflict sweeps", () => {
       },
     ]);
 
-    assert.match(summaryLine(refused), /Conflict sweep: nadav-alon\/pilot \(refused once\)/);
+    assert.match(summaryLine(refused), new RegExp(`Conflict sweep: ${REPO} \\(refused once\\)`));
   });
 });

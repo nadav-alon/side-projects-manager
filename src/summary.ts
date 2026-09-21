@@ -1,6 +1,10 @@
 import type { StandDown } from "./budget-gate.ts";
 import { pullRequestResolutionPhrase } from "./close-comment.ts";
-import type { ConflictSweepOutcome, ConflictSweepRefusal } from "./conflict-sweep.ts";
+import type {
+  ConflictSweepChange,
+  ConflictSweepOutcome,
+  ConflictSweepRefusal,
+} from "./conflict-sweep.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
@@ -114,17 +118,37 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
 /**
  * One project's conflict sweep activity, deduplicated across every sweep the
  * invocation ran before a selection: the same pull request and action, met by
- * several sweeps, appears once in the relevant list, and the same refusal
- * appears once in `refusals`. Built by {@link conflictSweepGroups}, and read
- * by both the summary line's short aside and the body's own section, so the
- * two never drift apart on what counts as "changed" or "refused".
+ * several sweeps, appears once under its action in `changes`, and the same
+ * refusal appears once in `refusals`. Built by {@link conflictSweepProjects},
+ * and read by both the summary line's short aside and the body's own
+ * section, so the two never drift apart on what counts as "changed" or
+ * "refused".
  */
-interface ConflictSweepGroup {
+interface ConflictSweepProject {
   repo: RepoSlug;
-  labelled: PullRequestUrl[];
-  unlabelled: PullRequestUrl[];
-  commented: PullRequestUrl[];
+  changes: Map<ConflictSweepChange["action"], PullRequestUrl[]>;
   refusals: ConflictSweepRefusal[];
+}
+
+/**
+ * The past participle {@link ConflictSweepChange} names its action by, in the
+ * phrase {@link conflictSweepSection} renders for it. Keyed the same way
+ * `CHANGED` in `conflict-sweep.ts` keys its own vocabulary: one place per
+ * action, so adding one means adding one line here rather than a new branch
+ * in every renderer.
+ */
+const CHANGE_PHRASE: Record<ConflictSweepChange["action"], (urls: string) => string> = {
+  labelled: (urls) => `labelled ${NEEDS_REBASE_LABEL} on ${urls}`,
+  unlabelled: (urls) => `removed ${NEEDS_REBASE_LABEL} from ${urls}`,
+  commented: (urls) => `posted ${REBASE_COMMENT} on ${urls}`,
+};
+
+/** The order {@link conflictSweepSection} renders a project's change bullets in. */
+const CHANGE_ORDER: ConflictSweepChange["action"][] = ["labelled", "unlabelled", "commented"];
+
+/** The key a change is deduplicated by: the pull request and action it names. */
+function conflictSweepChangeKey(repo: RepoSlug, change: ConflictSweepChange): string {
+  return `${repo}|${change.action}|${change.pullRequest}`;
 }
 
 /** The key a refusal is deduplicated by: what it names, since a `"list"` refusal names no pull request. */
@@ -133,8 +157,8 @@ function conflictSweepRefusalKey(
   refusal: ConflictSweepRefusal,
 ): string {
   return refusal.action === "list"
-    ? `${repo}|list|${refusal.error}`
-    : `${repo}|${refusal.action}|${refusal.pullRequest}|${refusal.error}`;
+    ? `${repo}|list`
+    : `${repo}|${refusal.action}|${refusal.pullRequest}`;
 }
 
 /**
@@ -145,37 +169,29 @@ function conflictSweepRefusalKey(
  * once. A project with nothing changed and nothing refused is left out
  * entirely.
  */
-function conflictSweepGroups(
+function conflictSweepProjects(
   conflictSweeps: ConflictSweepOutcome[],
-): ConflictSweepGroup[] {
-  const groups = new Map<RepoSlug, ConflictSweepGroup>();
+): ConflictSweepProject[] {
+  const projects = new Map<RepoSlug, ConflictSweepProject>();
   const seenChanges = new Set<string>();
   const seenRefusals = new Set<string>();
 
   for (const outcome of conflictSweeps) {
-    let group = groups.get(outcome.repo);
-    if (group === undefined) {
-      group = { repo: outcome.repo, labelled: [], unlabelled: [], commented: [], refusals: [] };
-      groups.set(outcome.repo, group);
+    let project = projects.get(outcome.repo);
+    if (project === undefined) {
+      project = { repo: outcome.repo, changes: new Map(), refusals: [] };
+      projects.set(outcome.repo, project);
     }
 
     for (const change of outcome.changes) {
-      const key = `${outcome.repo}|${change.action}|${change.pullRequest}`;
+      const key = conflictSweepChangeKey(outcome.repo, change);
       if (seenChanges.has(key)) {
         continue;
       }
       seenChanges.add(key);
-      switch (change.action) {
-        case "labelled":
-          group.labelled.push(change.pullRequest);
-          break;
-        case "unlabelled":
-          group.unlabelled.push(change.pullRequest);
-          break;
-        case "commented":
-          group.commented.push(change.pullRequest);
-          break;
-      }
+      const urls = project.changes.get(change.action) ?? [];
+      urls.push(change.pullRequest);
+      project.changes.set(change.action, urls);
     }
 
     for (const refusal of outcome.refusals) {
@@ -184,36 +200,35 @@ function conflictSweepGroups(
         continue;
       }
       seenRefusals.add(key);
-      group.refusals.push(refusal);
+      project.refusals.push(refusal);
     }
   }
 
-  return [...groups.values()].filter(
-    (group) =>
-      group.labelled.length > 0 ||
-      group.unlabelled.length > 0 ||
-      group.commented.length > 0 ||
-      group.refusals.length > 0,
+  return [...projects.values()].filter(
+    (project) => project.changes.size > 0 || project.refusals.length > 0,
   );
 }
 
 /**
  * The summary line's own short aside on conflict sweeps: present only when a
- * sweep posted {@link REBASE_COMMENT} or was refused something, per the
- * ticket's "the cases that need the developer's eye" — a label added or
- * removed stays in the body alone.
+ * sweep posted {@link REBASE_COMMENT} or was refused something — the cases
+ * that need the developer's eye, per ADR 0007's "Best effort" bullet. A
+ * label added or removed stays in the body alone.
  */
 function conflictSweepAside(conflictSweeps: ConflictSweepOutcome[]): string {
-  const flagged = conflictSweepGroups(conflictSweeps).flatMap((group) => {
+  const flagged = conflictSweepProjects(conflictSweeps).flatMap((project) => {
+    const commented = project.changes.get("commented")?.length ?? 0;
     const bits = [
-      ...(group.commented.length > 0
-        ? [`posted ${REBASE_COMMENT} on ${group.commented.join(", ")}`]
+      ...(commented > 0
+        ? [
+            `posted ${REBASE_COMMENT} on ${commented === 1 ? "1 pull request" : `${commented} pull requests`}`,
+          ]
         : []),
-      ...(group.refusals.length > 0
-        ? [`refused ${group.refusals.length === 1 ? "once" : `${group.refusals.length} times`}`]
+      ...(project.refusals.length > 0
+        ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]
         : []),
     ];
-    return bits.length > 0 ? [`${group.repo} (${bits.join("; ")})`] : [];
+    return bits.length > 0 ? [`${project.repo} (${bits.join("; ")})`] : [];
   });
   return flagged.length > 0 ? ` Conflict sweep: ${flagged.join(", ")}.` : "";
 }
@@ -248,7 +263,12 @@ export interface SummaryFacts {
   conflictSweeps: ConflictSweepOutcome[];
 }
 
-/** The summary in one line: the invocation's `message`, and the body's opening. */
+/**
+ * The summary in one line: the invocation's `message`, and the body's
+ * opening. An invocation failure returns before the skipped, passed-over,
+ * missing-label and conflict-sweep asides are built, same as it always has:
+ * none of them appear on this line when the invocation itself didn't finish.
+ */
 export function summaryLine(facts: SummaryFacts): string {
   if (facts.invocationFailure !== undefined) {
     return `The invocation did not finish: ${withoutTrailingStop(facts.invocationFailure)}.`;
@@ -365,29 +385,26 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
  * One bullet per project's conflict sweep activity: a pull request labelled
  * {@link NEEDS_REBASE_LABEL}, one that had it removed, one that had {@link
  * REBASE_COMMENT} posted, and a refusal naming what it was trying and the
- * error — each once, however many sweeps met it, per `conflictSweepGroups`.
+ * error — each once, however many sweeps met it, per `conflictSweepProjects`.
  * `undefined` when no sweep this invocation changed or was refused anything,
- * so a morning whose sweeps found nothing renders the same body as before
- * this section existed.
+ * so the section is absent entirely — pinned byte-for-byte by the test at
+ * `summary.test.ts:1021`.
  */
 function conflictSweepSection(
   conflictSweeps: ConflictSweepOutcome[],
 ): string | undefined {
-  const groups = conflictSweepGroups(conflictSweeps);
-  if (groups.length === 0) {
+  const projects = conflictSweepProjects(conflictSweeps);
+  if (projects.length === 0) {
     return undefined;
   }
-  const lines = groups.flatMap((group) => [
-    ...(group.labelled.length === 0
-      ? []
-      : [`- ${group.repo}: labelled ${NEEDS_REBASE_LABEL} on ${group.labelled.join(", ")}`]),
-    ...(group.unlabelled.length === 0
-      ? []
-      : [`- ${group.repo}: removed ${NEEDS_REBASE_LABEL} from ${group.unlabelled.join(", ")}`]),
-    ...(group.commented.length === 0
-      ? []
-      : [`- ${group.repo}: posted ${REBASE_COMMENT} on ${group.commented.join(", ")}`]),
-    ...group.refusals.map((refusal) => conflictSweepRefusalLine(group.repo, refusal)),
+  const lines = projects.flatMap((project) => [
+    ...CHANGE_ORDER.flatMap((action) => {
+      const urls = project.changes.get(action);
+      return urls === undefined
+        ? []
+        : [`- ${project.repo}: ${CHANGE_PHRASE[action](urls.join(", "))}`];
+    }),
+    ...project.refusals.map((refusal) => conflictSweepRefusalLine(project.repo, refusal)),
   ]);
   return ["## Conflict sweeps", ...lines].join("\n");
 }
