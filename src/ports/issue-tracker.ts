@@ -67,9 +67,13 @@ export const ENHANCEMENT_LABEL = "enhancement";
  * no edge at all.
  *
  * Not itself a `Ticket` — nothing has been opened yet — so it is named for
- * the glossary's own **Discovery**, the thing the caller is reporting.
+ * the glossary's own **Discovery**, the thing the caller is reporting. Named
+ * `DiscoveredTicketRequest` rather than `Discovery` itself so it does not
+ * collide with `./discovery.ts`'s `Discovery` — the sandbox's own shape for
+ * what a run's agent found — which a caller routing one into the other needs
+ * in scope at once.
  */
-export interface Discovery {
+export interface DiscoveredTicketRequest {
   title: string;
   body: string;
   blocking?: boolean;
@@ -712,7 +716,7 @@ export interface IssueTracker {
    */
   createDiscoveredTicket(
     ticket: Ticket,
-    discovery: Discovery,
+    discovery: DiscoveredTicketRequest,
   ): Promise<Ticket>;
 
   /**

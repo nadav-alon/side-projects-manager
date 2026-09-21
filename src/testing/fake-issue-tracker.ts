@@ -1,6 +1,6 @@
 import type {
   ApplyReviewTicket,
-  Discovery,
+  DiscoveredTicketRequest,
   HandBackOutcome,
   IssueNumber,
   IssueTracker,
@@ -487,7 +487,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   async createDiscoveredTicket(
     ticket: Ticket,
-    discovery: Discovery,
+    discovery: DiscoveredTicketRequest,
   ): Promise<Ticket> {
     const discovered = this.#add(
       ticket.repo,
