@@ -10,8 +10,10 @@ import { workedTickets, type WorkedTickets } from "./worked-today.ts";
 import {
   issueNumber,
   localDay,
+  NEEDS_REBASE,
   priority,
   pullRequestUrl,
+  REBASE_COMMENT,
   reviewTitle,
   ticketPriority,
   type Day,
@@ -24,6 +26,7 @@ import {
   PILOT,
   YESTERDAY,
   FakeIssueTracker,
+  FakeRepoHost,
   FakeStore,
   verdicts,
 } from "./testing/index.ts";
@@ -38,13 +41,16 @@ const TODAY = localDay(FROZEN_NOW);
 async function open(
   store: FakeStore,
   tracker: FakeIssueTracker,
-  today: Day = TODAY,
+  { today = TODAY, repoHost = new FakeRepoHost() }: {
+    today?: Day;
+    repoHost?: FakeRepoHost;
+  } = {},
 ): Promise<{ selection: InvocationSelection; worked: WorkedTickets }> {
   const state = await store.loadState();
   const worked = workedTickets(state.workedToday, today);
   return {
     selection: invocationSelection(
-      { tracker, store },
+      { tracker, store, repoHost },
       new Map(state.projects),
       worked,
     ),
@@ -1458,6 +1464,172 @@ describe("invocationSelection", () => {
       const chosen = await selection.next();
 
       assert.equal(chosen?.ticket.number, 7);
+    });
+  });
+
+  describe("conflict sweep", () => {
+    const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
+
+    it("sweeps a non-paused project's pull requests before selecting", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT);
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+
+      assert.deepEqual(repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
+      ]);
+      assert.deepEqual(selection.sweeps(), [
+        { repo: PILOT, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
+      ]);
+    });
+
+    it("never sweeps a paused project", async (t) => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT, { paused: true });
+      const listOpenPullRequests = t.mock.method(repoHost, "listOpenPullRequests");
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+
+      assert.equal(listOpenPullRequests.mock.callCount(), 0);
+      assert.deepEqual(selection.sweeps(), []);
+    });
+
+    it("sweeps whether or not anything in the project is eligible", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT);
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const { selection } = await open(store, tracker, { repoHost });
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen, undefined);
+      assert.deepEqual(verdicts(selection.verdicts()), [[PILOT, "no-eligible-tickets"]]);
+      assert.deepEqual(repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
+      ]);
+    });
+
+    it("tells a turbo project's sweep it is turbo, and a plain project's it is not", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      const TURBO_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/side-projects-manager/pull/9");
+      store.register(PILOT);
+      store.register(MANAGER, { turbo: true });
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.setOpenPullRequests(MANAGER, [
+        { url: TURBO_PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+
+      assert.deepEqual(repoHost.comments, [
+        { pullRequest: TURBO_PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+    });
+
+    it("posts /rebase on a turbo project's pull request at most once across several scans of one invocation", async () => {
+      // The rebase ticket a posted comment opens takes a moment to exist: a
+      // later scan of the same invocation still reads no open rebase ticket
+      // for the pull request its predecessor already commented on.
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT, { turbo: true });
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+      await selection.next();
+
+      assert.deepEqual(repoHost.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+      const commented = selection
+        .sweeps()
+        .flatMap((swept) =>
+          swept.changes.filter((change) => change.action === "commented"),
+        );
+      assert.equal(commented.length, 1);
+    });
+
+    it("reuses the open issues read selection already makes, rather than listing again", async (t) => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT);
+      store.register(MANAGER);
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+
+      assert.equal(listOpenIssues.mock.callCount(), 2);
+      assert.deepEqual(repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
+      ]);
+    });
+
+    it("accumulates every sweep across several calls to next", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT);
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+      await selection.next();
+
+      assert.deepEqual(selection.sweeps(), [
+        { repo: PILOT, changes: [], refusals: [] },
+        { repo: PILOT, changes: [], refusals: [] },
+      ]);
+    });
+
+    it("a sweep's refusal does not stop selection", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      repoHost.listOpenPullRequests = async () => {
+        throw new Error("host unreachable");
+      };
+      const { selection } = await open(store, tracker, { repoHost });
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 7);
+      assert.deepEqual(selection.sweeps(), [
+        { repo: PILOT, changes: [], refusals: [{ action: "list", error: "host unreachable" }] },
+      ]);
     });
   });
 });

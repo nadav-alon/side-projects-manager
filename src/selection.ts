@@ -19,6 +19,11 @@ import {
   ticketKind,
   ticketPrioritiesIn,
 } from "./ports/index.ts";
+import {
+  conflictSweep,
+  type ConflictSweepOutcome,
+  type ConflictSweepRepoHost,
+} from "./conflict-sweep.ts";
 import type { WorkedTickets } from "./worked-today.ts";
 
 /** The project an iteration works, and the ticket it works there. */
@@ -94,14 +99,17 @@ export interface ProjectOutcome {
 }
 
 /**
- * The two ports selection reads: every registered project, in registry
- * order, and each non-paused one's open issues. Read only, and read
- * fresh on every `next`, never cached — a project the developer adds or a
- * ticket that changes mid-invocation is what the next scan sees.
+ * The three ports selection uses: two it reads, one it writes through.
+ * `tracker` and `store` are read fresh on every `next`, never cached, so a
+ * project the developer adds or a ticket that changes mid-invocation is what
+ * the next scan sees. `repoHost` is what each scan's conflict sweep writes
+ * through (CONTEXT.md's "Conflict sweep", ADR 0007): the one write selection
+ * makes, alongside its reads — narrowed to the five verbs the sweep calls.
  */
 export interface SelectionPorts {
   tracker: Pick<IssueTracker, "listOpenIssues">;
   store: Pick<Store, "loadRegistry">;
+  repoHost: ConflictSweepRepoHost;
 }
 
 /**
@@ -135,6 +143,13 @@ export interface InvocationSelection {
    * nothing left of its backlog to select.
    */
   verdicts(): ProjectOutcome[];
+  /**
+   * Every conflict sweep run by any call to `next` so far, in the order each
+   * ran. One `next` sweeps every non-paused project once, so an invocation
+   * that calls `next` several times carries several outcomes for the same
+   * project — left for `summary.ts` to deduplicate, per its own doc.
+   */
+  sweeps(): ConflictSweepOutcome[];
 }
 
 /**
@@ -156,10 +171,15 @@ export function invocationSelection(
   // outranked into "deferred" on the first scan and never asked about again
   // still keeps its place, since re-setting an existing key never moves it.
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
+  // Appended to by every scan, never deduplicated here: `sweeps()` hands the
+  // whole run to `summary.ts`, which is what dedupes a change or a refusal
+  // met by more than one scan.
+  const sweepOutcomes: ConflictSweepOutcome[] = [];
 
   return {
-    next: () => scan(ports, projectStates, worked, outcomesByRepo),
+    next: () => scan(ports, projectStates, worked, outcomesByRepo, sweepOutcomes),
     verdicts: () => [...outcomesByRepo.values()],
+    sweeps: () => [...sweepOutcomes],
   };
 }
 
@@ -193,22 +213,26 @@ interface ScanFindings {
 }
 
 /**
- * One scan of the registry: asks every non-paused project's backlog for a
+ * One scan of the registry: sweeps every non-paused project for conflicts
+ * (CONTEXT.md's "Conflict sweep", ADR 0007), asks its backlog for a
  * candidate ticket, hands the best one to `bestCandidate`, then folds this
  * scan's outcomes into the invocation's sticky `outcomesByRepo` before
  * answering with the winner, if any.
  *
- * A paused project is passed over without asking the tracker anything,
- * because paused means never considered. A project left with no selectable
- * ticket reads as already worked today when at least one eligible ticket is
- * in `worked`, and reads the same as an empty backlog otherwise — including
- * when every ticket left is merely blocked or a supertask.
+ * A paused project is passed over without asking the tracker or the repo
+ * host anything, because paused means never considered — and never swept.
+ * A project left with no selectable ticket reads as already worked today
+ * when at least one eligible ticket is in `worked`, and reads the same as an
+ * empty backlog otherwise — including when every ticket left is merely
+ * blocked or a supertask. Either way it was still swept: the sweep runs
+ * whether or not anything turns out eligible.
  */
 async function scan(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
   worked: WorkedTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
+  sweepOutcomes: ConflictSweepOutcome[],
 ): Promise<Selection | undefined> {
   const outcomes = new Map<RepoSlug, ProjectOutcome>();
   const candidates: Candidate[] = [];
@@ -225,6 +249,33 @@ async function scan(
     // eligible ones: a spec left ready-for-human, or a ticket passed over as
     // blocked, still passes its priority label on.
     const open = await ports.tracker.listOpenIssues(project.repo);
+    // The same read the sweep is told about, rather than a second listing —
+    // one project is never read twice for the same scan. `next` must not be
+    // called concurrently: two scans in flight would sweep the same project
+    // twice at once.
+    //
+    // A rebase ticket takes a moment to exist once posted: `open`, read at
+    // the top of this scan, may still show no open rebase ticket for a pull
+    // request an earlier scan of this same invocation already commented on.
+    // `alreadyPosted` — every url this invocation has already commented on,
+    // regardless of project — holds `/rebase` to once per pull request
+    // without a second tracker read.
+    const alreadyPosted = new Set(
+      sweepOutcomes.flatMap((swept) =>
+        swept.changes
+          .filter((change) => change.action === "commented")
+          .map((change) => change.pullRequest),
+      ),
+    );
+    sweepOutcomes.push(
+      await conflictSweep(
+        ports.repoHost,
+        project.repo,
+        project.turbo,
+        open,
+        alreadyPosted,
+      ),
+    );
     const ticketPriorities = ticketPrioritiesIn(open);
     const { tickets, truncated: backlogTruncated } = backlogIn(open);
     const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
