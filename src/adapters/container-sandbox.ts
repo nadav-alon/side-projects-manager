@@ -30,6 +30,7 @@ import type {
   SpecReviewRequest,
   SpecReviewTicket,
   Ticket,
+  TicketKind,
   TranscriptDirectory,
   Usd,
 } from "../ports/index.ts";
@@ -386,8 +387,13 @@ export function containerSandbox(
   return { run, review, applyReview, rebase, specReview };
 }
 
-/** The five shapes a sandboxed run comes in — named for `withThrowawayClone` and `attempt` alike. */
-type RunKind = "run" | "review" | "apply-review" | "rebase" | "spec-review";
+/**
+ * The five shapes a sandboxed run comes in — named for `withThrowawayClone`
+ * and `attempt` alike. `TicketKind` with `"implementation"` spelled `"run"`:
+ * derived, rather than spelled out again, so a kind added to `TicketKind`
+ * forces the issue here too, as it already does at `SELECTION_RANK`.
+ */
+type RunKind = Exclude<TicketKind, "implementation"> | "run";
 
 /**
  * Runs `body` on a throwaway clone's directory, named for the `kind` of run
