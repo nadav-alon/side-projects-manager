@@ -233,7 +233,6 @@ describe("morningLoop", () => {
     ports.tracker.addSupertask(
       PILOT,
       { number: issueNumber(66), title: "Too big for one run" },
-      7,
     );
     ports.tracker.addEligibleTicket(PILOT, {
       number: issueNumber(67),
@@ -248,7 +247,7 @@ describe("morningLoop", () => {
       [67],
     );
     // Selected for #67, yet still says #66 was passed over.
-    assert.match(report.message, /#66 broken out into sub-issues/);
+    assert.match(report.message, /#66 declared a supertask/);
   });
 
   it("selects a sibling ticket instead, and says the blocked one was passed over", async () => {
@@ -274,6 +273,29 @@ describe("morningLoop", () => {
     assert.match(report.message, /#56 blocked by an open ticket/);
   });
 
+  it("still selects, but flags, a ticket with an open sub-issue that carries no supertask label", async () => {
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    ports.tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(66),
+      title: "Too big for one run",
+    });
+    ports.tracker.addIneligibleTicket(PILOT, {
+      number: issueNumber(67),
+      title: "One of the slices",
+      parent: issueNumber(66),
+    });
+
+    const report = await morningLoop(ports);
+
+    assert.equal(report.outcome, "work-selected");
+    assert.deepEqual(
+      ports.sandbox.runs.map((run) => run.ticket.number),
+      [66],
+    );
+    assert.match(report.message, /Check for a missed supertask label: .*#66/);
+  });
+
   describe("a truncated backlog", () => {
     it("names the truncated project in the waiting section, even when nothing else is waiting", async () => {
       const ports = fakePorts();
@@ -281,7 +303,6 @@ describe("morningLoop", () => {
       ports.tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       ports.tracker.truncateBacklog(PILOT);
 
@@ -309,14 +330,12 @@ describe("morningLoop", () => {
       ports.tracker.addSupertask(
         MANAGER,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       ports.tracker.truncateBacklog(MANAGER);
       ports.store.register(PILOT);
       ports.tracker.addSupertask(
         PILOT,
         { number: issueNumber(67), title: "Also too big" },
-        8,
       );
       ports.tracker.truncateBacklog(PILOT);
 
@@ -349,7 +368,6 @@ describe("morningLoop", () => {
       ports.tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
 
       await morningLoop(ports);

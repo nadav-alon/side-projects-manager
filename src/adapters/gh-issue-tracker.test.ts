@@ -154,88 +154,6 @@ describe("ghIssueTracker", () => {
     );
   });
 
-  it("carries how many of an open issue's sub-issues are still open, leaving out pull request tickets", async () => {
-    const { stdout } = await execFileAsync("gh", [
-      "issue",
-      "list",
-      "--repo",
-      MANAGER,
-      "--state",
-      "open",
-      // The same newest 300 the adapter reads (OPEN_ISSUE_READ_LIMIT), so every
-      // issue found here is one the adapter lists too.
-      "--limit",
-      "300",
-      "--json",
-      "number,subIssuesSummary,subIssues",
-    ]);
-    const all = JSON.parse(stdout) as {
-      number: number;
-      subIssuesSummary: { total: number; completed: number };
-      subIssues: { nodes: { number: number; state: string; title: string }[] };
-    }[];
-    // Told apart by title rather than by the body line the adapter reads, so
-    // a bug in reading bodies can't make this pass anyway. The titles in this
-    // repo are the ones `reviewTitle` and the apply-review and rebase
-    // workflows give — one per pull request ticket kind, so a kind left out
-    // here would be miscounted as work of the parent's own.
-    const openSubIssues = (issue: (typeof all)[number]) =>
-      issue.subIssues.nodes.filter((sub) => sub.state === "OPEN");
-    const isPullRequestTicketTitle = (sub: { title: string }) =>
-      /^(?:Review the draft pull request for|Apply the review on|Rebase) #\d+$/.test(
-        sub.title,
-      );
-    // Every sub-issue listed, so the titles account for every open one.
-    const listsEveryOpenSubIssue = (issue: (typeof all)[number]) =>
-      openSubIssues(issue).length ===
-      issue.subIssuesSummary.total - issue.subIssuesSummary.completed;
-
-    const supertask = all.find(
-      (issue) =>
-        listsEveryOpenSubIssue(issue) &&
-        openSubIssues(issue).some((sub) => !isPullRequestTicketTitle(sub)),
-    );
-    const reviewedOnly = all.find(
-      (issue) =>
-        listsEveryOpenSubIssue(issue) &&
-        openSubIssues(issue).length > 0 &&
-        openSubIssues(issue).every(isPullRequestTicketTitle),
-    );
-    const whole = all.find(
-      (issue) => issue.subIssuesSummary.total <= issue.subIssuesSummary.completed,
-    );
-    // The fixture repo must exercise all three, or the assertions below would
-    // pass whether or not the adapter reads sub-issues at all.
-    assert.ok(
-      supertask,
-      "fixture repo needs an open issue with an open sub-issue that is not a pull request ticket",
-    );
-    assert.ok(
-      reviewedOnly,
-      "fixture repo needs an open issue whose only open sub-issues are pull request tickets",
-    );
-    assert.ok(
-      whole,
-      "fixture repo needs an open issue with no open sub-issues",
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
-
-    const supertaskIssue = issues.find((i) => i.ticket.number === supertask.number);
-    assert.equal(
-      supertaskIssue?.ticket.openSubIssues,
-      openSubIssues(supertask).filter((sub) => !isPullRequestTicketTitle(sub)).length,
-    );
-
-    const reviewedOnlyIssue = issues.find(
-      (i) => i.ticket.number === reviewedOnly.number,
-    );
-    assert.equal(reviewedOnlyIssue?.ticket.openSubIssues, undefined);
-
-    const wholeIssue = issues.find((i) => i.ticket.number === whole.number);
-    assert.equal(wholeIssue?.ticket.openSubIssues, undefined);
-  });
-
   it("carries an open issue's same-repo parent and the numbers of its open blockers", async () => {
     const { stdout } = await execFileAsync("gh", [
       "issue",
@@ -867,9 +785,8 @@ describe("ghIssueTracker.handBack", () => {
 function rawIssue(fields: Record<string, unknown>): Record<string, unknown> {
   return {
     body: "",
-    subIssuesSummary: { total: 0, completed: 0 },
     blockedBy: { nodes: [], totalCount: 0 },
-      parent: null,
+    parent: null,
     labels: [],
     ...fields,
   };
@@ -1129,7 +1046,7 @@ describe("ghIssueTracker.listOpenIssues — review tickets", () => {
     assert.ok(list);
     assert.equal(
       valueOf(list, "--json"),
-      "number,title,body,subIssuesSummary,blockedBy,parent,labels",
+      "number,title,body,blockedBy,parent,labels",
     );
   });
 });
@@ -1549,175 +1466,28 @@ describe("ghIssueTracker.listOpenIssues — size labels", () => {
   });
 });
 
-describe("ghIssueTracker.listOpenIssues — sub-issues", () => {
-  const PILOT = repoSlug("nadav-alon/pilot");
-
-  it("carries the count still open, not the total", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        {
-          number: 66,
-          title: "Too big for one run",
-          subIssuesSummary: { total: 7, completed: 3 },
-        },
-      ]),
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    assert.equal(issues[0]?.ticket.openSubIssues, 4);
-  });
-
-  it("leaves openSubIssues unset once every sub-issue has closed", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        {
-          number: 66,
-          title: "Too big for one run",
-          subIssuesSummary: { total: 7, completed: 7 },
-        },
-      ]),
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    assert.equal(issues[0]?.ticket.openSubIssues, undefined);
-  });
-
-  it("leaves openSubIssues unset for a ticket with no sub-issues at all", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        {
-          number: 7,
-          title: "Add the thing",
-          subIssuesSummary: { total: 0, completed: 0 },
-        },
-      ]),
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-
-    assert.equal(issues[0]?.ticket.openSubIssues, undefined);
-  });
-});
-
 /**
- * A pull request ticket is a sub-issue GitHub counts like any other, yet it is
- * no part of the work that makes its parent a supertask: counted, a handed-back
- * ticket re-labelled ready-for-agent while its review is open would never be
- * selected again.
+ * Whether a ticket is a supertask, per `isSupertask`: declared by the
+ * supertask label, read from the same listing as every other label, never
+ * inferred from a sub-issue count.
  */
-describe("ghIssueTracker.listOpenIssues — pull request tickets", () => {
+describe("ghIssueTracker.listOpenIssues — supertask label", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
-  const PULL_REQUEST = pullRequestUrl(
-    "https://github.com/nadav-alon/pilot/pull/12",
-  );
-  const REVIEW_BODY = `Review ${PULL_REQUEST}, the draft pull request opened for #7.`;
-  const APPLY_REVIEW_BODY = `Apply the review on ${PULL_REQUEST}, the draft pull request opened for #7.`;
-  const REBASE_BODY = `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`;
 
-  function implementation(open: number): Record<string, unknown> {
-    return {
-      number: 7,
-      title: "Add the thing",
-      subIssuesSummary: { total: open + 1, completed: 1 },
-    };
-  }
+  it("reads a ticket carrying the supertask label as a supertask", async (t) => {
+    await recordingGh(t, listing([issue(7, ["supertask"])]));
 
-  function subIssueOf7(
-    number: number,
-    body: string,
-    repo = "nadav-alon/pilot",
-  ): Record<string, unknown> {
-    return {
-      number,
-      title: `Sub-issue ${number}`,
-      body,
-      parent: linkedIssue(repo, 7),
-    };
-  }
-
-  /** Ticket #7 as the adapter lists it from the recorded listing. */
-  async function ticket7(): Promise<Ticket | undefined> {
     const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
-    return issues.find((issue) => issue.ticket.number === 7)?.ticket;
-  }
 
-  it("does not count a review ticket among a ticket's open sub-issues", async (t) => {
-    await recordingGh(
-      t,
-      listing([subIssueOf7(42, REVIEW_BODY), implementation(1)]),
-    );
-
-    const ticket = await ticket7();
-    assert.ok(ticket);
-    assert.equal(ticket.openSubIssues, undefined);
-    assert.equal(isSupertask(ticket), false);
+    assert.equal(isSupertask(issues[0]!.ticket), true);
   });
 
-  it("does not count an apply-review ticket among a ticket's open sub-issues", async (t) => {
-    await recordingGh(
-      t,
-      listing([subIssueOf7(43, APPLY_REVIEW_BODY), implementation(1)]),
-    );
+  it("does not read an ordinary ticket as a supertask", async (t) => {
+    await recordingGh(t, listing([issue(7, [READY_FOR_AGENT_LABEL])]));
 
-    const ticket = await ticket7();
-    assert.equal(ticket?.openSubIssues, undefined);
-  });
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
 
-  it("does not count a rebase ticket among a ticket's open sub-issues", async (t) => {
-    await recordingGh(
-      t,
-      listing([subIssueOf7(44, REBASE_BODY), implementation(1)]),
-    );
-
-    const ticket = await ticket7();
-    assert.equal(ticket?.openSubIssues, undefined);
-  });
-
-  it("counts an ordinary open sub-issue beside a review ticket as one", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        subIssueOf7(42, REVIEW_BODY),
-        subIssueOf7(9, "Build part of the thing."),
-        implementation(2),
-      ]),
-    );
-
-    const ticket = await ticket7();
-    assert.equal(ticket?.openSubIssues, 1);
-  });
-
-  it("still counts a sub-issue whose parent is the same number in another repo", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        subIssueOf7(42, REVIEW_BODY, "nadav-alon/elsewhere"),
-        implementation(1),
-      ]),
-    );
-
-    const ticket = await ticket7();
-    assert.equal(ticket?.openSubIssues, 1);
-  });
-
-  it("reads sub-issue bodies from the one listing call, not a call per issue", async (t) => {
-    const gh = await recordingGh(
-      t,
-      listing([
-        subIssueOf7(42, REVIEW_BODY),
-        subIssueOf7(9, "Build part of the thing."),
-        implementation(2),
-      ]),
-    );
-
-    await ghIssueTracker().listOpenIssues(PILOT);
-
-    assert.equal((await gh.calls()).length, 1);
+    assert.equal(isSupertask(issues[0]!.ticket), false);
   });
 });
 
@@ -1868,7 +1638,6 @@ describe("ghIssueTracker.listOpenIssues — ticket priority", () => {
       number: 7,
       title: "Add the thing",
       body: "",
-      subIssuesSummary: { total: 0, completed: 0 },
       blockedBy: { nodes: [], totalCount: 0 },
       parent: null,
       labels: names.map((name) => ({ name })),
@@ -1928,7 +1697,6 @@ describe("ghIssueTracker.listOpenIssues — truncated backlog", () => {
       number: count - index,
       title: `Ticket ${count - index}`,
       body: "",
-      subIssuesSummary: { total: 0, completed: 0 },
       blockedBy: { nodes: [], totalCount: 0 },
       parent: null,
       labels: [],

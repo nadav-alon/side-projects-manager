@@ -200,7 +200,7 @@ A project with more open issues than the loop reads in one morning. Every open i
 _Avoid_: overflow, capped backlog, full queue
 
 **Supertask**:
-A ticket with one or more open sub-issues that are not pull request tickets: a container for that work rather than work of its own. Still carries ready-for-agent, but is not selected while any such sub-issue is open — the tracker reports how many of those are open, and selection is what reads it. A handed-back ticket with an open review ticket is not a supertask. Selectable again, like any other ticket, once every such sub-issue has closed. Its ticket priority carries into its sub-issues.
+A ticket carrying the supertask label: a container for its work rather than work of its own. Declared, never inferred from its sub-issue count — the tracker reports whether the label is present, and selection is what reads it. Still carries ready-for-agent, but is not selected while it carries the supertask label, and stays a container until the ticket itself is closed: closing every sub-issue does not make it selectable, unlike a blocked ticket. Its ticket priority carries into its sub-issues. A ticket with an open sub-issue that is not a pull request ticket, yet no supertask label, is a likely missed label — reported by the morning scan, not treated as a supertask itself.
 _Avoid_: parent ticket, container ticket, epic, spec ticket, broken-out ticket
 
 **Blocked ticket**:

@@ -77,7 +77,7 @@ function passedOverAside(projects: ProjectOutcome[]): string {
     const reasons = [
       ...(supertasks === undefined
         ? []
-        : [`${numbers(supertasks)} broken out into sub-issues`]),
+        : [`${numbers(supertasks)} declared a supertask`]),
       ...(blocked === undefined
         ? []
         : [`${numbers(blocked)} blocked by an open ticket`]),
@@ -90,6 +90,23 @@ function passedOverAside(projects: ProjectOutcome[]): string {
 /** Tickets as the summary names them: `#1, #2`. */
 function numbers(tickets: Ticket[]): string {
   return tickets.map((ticket) => `#${ticket.number}`).join(", ");
+}
+
+/**
+ * Names every ticket a scan found with an open sub-issue that is not a pull
+ * request ticket, yet no supertask label — reported, not skipped, so a
+ * container an agent could otherwise pick up and implement as ordinary work
+ * still gets a developer's attention.
+ */
+function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
+  const flagged = projects.flatMap(({ repo, missingSupertaskLabel }) =>
+    missingSupertaskLabel === undefined
+      ? []
+      : [`${repo} (${numbers(missingSupertaskLabel)})`],
+  );
+  return flagged.length > 0
+    ? ` Check for a missed supertask label: ${flagged.join(", ")}.`
+    : "";
 }
 
 /**
@@ -134,7 +151,8 @@ export function summaryLine(facts: SummaryFacts): string {
   });
 
   const passedOver = passedOverAside(projects);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}`;
+  const missingLabel = missingSupertaskLabelAside(projects);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -154,7 +172,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}`;
 }
 
 /**

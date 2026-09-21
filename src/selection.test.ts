@@ -307,14 +307,13 @@ describe("invocationSelection", () => {
   });
 
   describe("supertasks", () => {
-    it("never selects a ticket carrying ready-for-agent with an open sub-issue, even as its project's only ticket", async () => {
+    it("never selects a ticket carrying the supertask label, even as its project's only ticket", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
       tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       const { selection } = await open(store, tracker);
 
@@ -326,19 +325,28 @@ describe("invocationSelection", () => {
       ]);
     });
 
-    it("is selectable again once it carries no more open sub-issues", async () => {
+    it("stays unselectable once every sub-issue has closed, unlike a blocked ticket regaining eligibility", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
       store.register(PILOT);
-      tracker.addEligibleTicket(PILOT, {
+      tracker.addSupertask(PILOT, {
         number: issueNumber(66),
         title: "Too big for one run",
       });
+      const subIssue = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(67),
+        title: "One of the slices",
+        parent: issueNumber(66),
+      });
+      tracker.closeOutOfBand(subIssue);
       const { selection } = await open(store, tracker);
 
       const chosen = await selection.next();
 
-      assert.equal(chosen?.ticket.number, 66);
+      assert.equal(chosen, undefined);
+      assert.deepEqual(verdicts(selection.verdicts()), [
+        [PILOT, "no-eligible-tickets"],
+      ]);
     });
 
     it("selects a sibling ticket instead, when one in the same backlog is a supertask", async () => {
@@ -348,7 +356,6 @@ describe("invocationSelection", () => {
       tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       tracker.addEligibleTicket(PILOT, {
         number: issueNumber(67),
@@ -374,7 +381,6 @@ describe("invocationSelection", () => {
       tracker.addSupertask(
         MANAGER,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       const { selection } = await open(store, tracker);
 
@@ -394,7 +400,6 @@ describe("invocationSelection", () => {
       const implementation = tracker.addEligibleTicket(PILOT, {
         number: issueNumber(7),
         title: "Add the thing",
-        openSubIssues: 1,
       });
       // Handed back, so the review itself is not what gets selected.
       tracker.addIneligibleTicket(PILOT, {
@@ -420,7 +425,6 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, {
         number: issueNumber(7),
         title: "Add the thing",
-        openSubIssues: 1,
       });
       // Handed back, so the apply-review itself is not what gets selected.
       tracker.addIneligibleTicket(PILOT, {
@@ -446,7 +450,6 @@ describe("invocationSelection", () => {
       tracker.addSupertask(
         PILOT,
         { number: issueNumber(66), title: "Too big for one run" },
-        7,
       );
       const { selection } = await open(store, tracker);
 
@@ -456,6 +459,124 @@ describe("invocationSelection", () => {
         selection.verdicts()[0]?.supertasks?.map((ticket) => ticket.number),
         [66],
       );
+    });
+  });
+
+  describe("missing supertask label", () => {
+    it("flags, but still selects, a ticket with an open sub-issue that is not a pull request ticket and carries no supertask label", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Build part of the thing",
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 7);
+      assert.deepEqual(
+        selection.verdicts()[0]?.missingSupertaskLabel?.map((ticket) => ticket.number),
+        [7],
+      );
+    });
+
+    it("flags a ready-for-human spec too, not only tickets in this scan's own backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Build part of the thing",
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 9);
+      assert.deepEqual(
+        selection.verdicts()[0]?.missingSupertaskLabel?.map((ticket) => ticket.number),
+        [7],
+      );
+    });
+
+    it("does not flag a ticket that already carries the supertask label", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addSupertask(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Build part of the thing",
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
+    });
+
+    it("does not flag a ticket whose only open sub-issue is a review ticket", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const implementation = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(42),
+        title: reviewTitle(implementation),
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
+    });
+
+    it("does not flag a ticket whose only open sub-issue is an apply-review ticket", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(43),
+        title: "Apply the review on #1",
+        pullRequest: {
+          kind: "apply-review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+        parent: issueNumber(7),
+      });
+      const { selection } = await open(store, tracker);
+
+      await selection.next();
+
+      assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
     });
   });
 
@@ -511,7 +632,7 @@ describe("invocationSelection", () => {
     function reviewOf(
       parent: Ticket,
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
       return {
         number: issueNumber(number),
         title: reviewTitle(parent),
@@ -522,7 +643,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for the review on `SOME_PULL_REQUEST` to be applied. */
     function applyReviewTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
       return {
         number: issueNumber(number),
         title: `Apply the review on ${SOME_PULL_REQUEST}`,
@@ -533,7 +654,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for `SOME_PULL_REQUEST` to be rebased. */
     function rebaseTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask"> {
       return {
         number: issueNumber(number),
         title: `Rebase ${SOME_PULL_REQUEST}`,
@@ -866,7 +987,6 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(7),
@@ -953,7 +1073,6 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(9),
@@ -975,12 +1094,10 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         const implementation = tracker.addEligibleTicket(PILOT, {
           number: issueNumber(7),
           title: "Add the thing",
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(9),
@@ -1008,7 +1125,6 @@ describe("invocationSelection", () => {
           number: issueNumber(5),
           title: "The urgent spec",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(7),
@@ -1093,13 +1209,11 @@ describe("invocationSelection", () => {
         const first = tracker.addEligibleTicket(PILOT, {
           number: issueNumber(5),
           title: "Add the thing",
-          openSubIssues: 1,
         });
         const urgent = tracker.addEligibleTicket(PILOT, {
           number: issueNumber(6),
           title: "Add the urgent thing",
           priority: ticketPriority(1),
-          openSubIssues: 1,
         });
         tracker.addEligibleTicket(PILOT, {
           number: issueNumber(8),
@@ -1214,7 +1328,6 @@ describe("invocationSelection", () => {
         tracker.addSupertask(
           PILOT,
           { number: issueNumber(66), title: "Too big for one run" },
-          7,
         );
         tracker.truncateBacklog(PILOT);
         const { selection } = await open(store, tracker);

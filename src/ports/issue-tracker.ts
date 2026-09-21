@@ -6,6 +6,20 @@ import { isSize, largerSize, type Size } from "./size.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
+ * Whether `labels` include `name`, matched without regard to case, as GitHub
+ * matches label names. What `carriesReadyForAgent` and `carriesSupertaskLabel`
+ * both check, so the case rule is said once.
+ */
+function carriesLabel(labels: Iterable<string>, name: string): boolean {
+  for (const label of labels) {
+    if (label.toLowerCase() === name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The triage label that makes a ticket eligible, as `docs/agents/triage-labels.md`
  * spells it. The one place the literal lives; every adapter reads it from here.
  */
@@ -13,16 +27,10 @@ export const READY_FOR_AGENT_LABEL = "ready-for-agent";
 
 /**
  * Whether `labels` include ready-for-agent — what makes an issue eligible.
- * Beside the port so the real tracker and the fake read eligibility alike;
- * matched without regard to case, as GitHub matches label names.
+ * Beside the port so the real tracker and the fake read eligibility alike.
  */
 export function carriesReadyForAgent(labels: Iterable<string>): boolean {
-  for (const label of labels) {
-    if (label.toLowerCase() === READY_FOR_AGENT_LABEL) {
-      return true;
-    }
-  }
-  return false;
+  return carriesLabel(labels, READY_FOR_AGENT_LABEL);
 }
 
 /**
@@ -209,13 +217,10 @@ export interface PullRequestBinding {
  * ticket, which is what selection reads to choose which kind of run to
  * start.
  *
- * `openSubIssues` is the fact `isSupertask` reads: how many of the ticket's
- * sub-issues are still open and are not pull request tickets, straight from
- * the same listing that already carries the labels selection filters on, so
- * it costs no extra tracker call.
- * Absent or zero means the ticket has none open — indistinguishable from a
- * ticket with no sub-issues at all, since neither is workable any
- * differently from the other.
+ * `supertask` is the fact `isSupertask` reads: whether the ticket carries the
+ * supertask label, from that same listing. Declared, not inferred — per
+ * `CONTEXT.md`'s "Supertask", a ticket's sub-issue count says nothing about
+ * whether it is a container. Absent, never `false`, where it carries none.
  *
  * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
  * marked as blocking this one are still open, from that same listing. Absent
@@ -240,7 +245,7 @@ export interface Ticket {
   number: IssueNumber;
   title: string;
   pullRequest?: PullRequestBinding;
-  openSubIssues?: number;
+  supertask?: true;
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
@@ -258,51 +263,28 @@ export function isBlocked(ticket: Ticket): boolean {
 }
 
 /**
- * Whether `ticket` is a supertask: its work sits in sub-issues that are
- * still open — a container for that work rather than work of its own, per
- * `CONTEXT.md`'s "Supertask". The tracker only reports the count; this is
- * the judgment selection makes from it, so it can be exercised against the
- * fake rather than buried in an adapter's query string.
+ * The label that declares a ticket a supertask, per `CONTEXT.md`'s
+ * "Supertask" and as `docs/agents/triage-labels.md` spells it. The one place
+ * the literal lives; every adapter reads it from here.
  */
-export function isSupertask(ticket: Ticket): boolean {
-  return (ticket.openSubIssues ?? 0) > 0;
+export const SUPERTASK_LABEL = "supertask";
+
+/**
+ * Whether `labels` include the supertask label. Beside the port so the real
+ * tracker and the fake read it alike.
+ */
+export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
+  return carriesLabel(labels, SUPERTASK_LABEL);
 }
 
 /**
- * `issues`, each ticket's `openSubIssues` taken from counting every open
- * sub-issue the tracker knows of to counting only those that are not pull
- * request tickets — the ones `CONTEXT.md`'s "Supertask" counts. A pull
- * request ticket is recognised among `issues` themselves, by its `parent`,
- * so the bodies that say what it is come from the same read.
- *
- * Complete for any listing read newest first: a pull request ticket is opened
- * only once its parent has a draft pull request, so it is always newer than
- * the parent, and a read that holds the parent holds it too.
- *
- * Beside the port so the real tracker and the fake discount alike.
+ * Whether `ticket` is a supertask: declared by the supertask label, per
+ * `CONTEXT.md`'s "Supertask", never inferred from its sub-issue count — a
+ * container for its work rather than work of its own until the ticket
+ * itself is closed.
  */
-export function discountPullRequestTickets(
-  issues: readonly OpenIssue[],
-): OpenIssue[] {
-  const pullRequestTicketsByParent = new Map<number, number>();
-  for (const { parent, ticket } of issues) {
-    if (parent !== undefined && isPullRequestTicket(ticket)) {
-      pullRequestTicketsByParent.set(parent, (pullRequestTicketsByParent.get(parent) ?? 0) + 1);
-    }
-  }
-
-  return issues.map((issue) => {
-    const discount = pullRequestTicketsByParent.get(issue.ticket.number);
-    if (discount === undefined) {
-      return issue;
-    }
-    const { openSubIssues = 0, ...ticket } = issue.ticket;
-    const counted = openSubIssues - discount;
-    return {
-      ...issue,
-      ticket: { ...ticket, ...(counted > 0 && { openSubIssues: counted }) },
-    };
-  });
+export function isSupertask(ticket: Ticket): boolean {
+  return ticket.supertask === true;
 }
 
 /**

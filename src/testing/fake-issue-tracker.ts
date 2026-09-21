@@ -14,9 +14,9 @@ import type {
 import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SUPERTASK_LABEL,
   carriesReadyForAgent,
-  discountPullRequestTickets,
-  isPullRequestTicket,
+  carriesSupertaskLabel,
   issueNumber,
   issueUrl,
   modelLabelOf,
@@ -51,20 +51,21 @@ export interface FakeHandback {
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
  * without what the fake works out on each listing — no `eligible`,
- * `modelLabel` or `sizeLabel`, which come from the labels it carries — and
- * `openBlockerNumbers` optional, since most tests give none.
+ * `modelLabel`, `sizeLabel` or `supertask`, which come from the labels it
+ * carries — and `openBlockerNumbers` optional, since most tests give none.
  */
-type StoredIssue = Omit<Ticket, "modelLabel" | "sizeLabel"> &
+type StoredIssue = Omit<Ticket, "modelLabel" | "sizeLabel" | "supertask"> &
   Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
 
 /**
- * A ticket as a test hands it to the fake. No `modelLabel` or `sizeLabel`,
- * not even on a wider `Ticket`: the fake reads both from the labels a ticket
- * holds, the way the real tracker does.
+ * A ticket as a test hands it to the fake. No `modelLabel`, `sizeLabel` or
+ * `supertask`, not even on a wider `Ticket`: the fake reads all three from
+ * the labels a ticket holds, the way the real tracker does.
  */
 type TicketInput = Omit<StoredIssue, "repo"> & {
   modelLabel?: never;
   sizeLabel?: never;
+  supertask?: never;
 };
 
 /** One entry the fake holds: the open issue, and the labels it carries. */
@@ -79,32 +80,6 @@ interface Stored {
    * the entry could never get that wrong.
    */
   closed?: boolean;
-}
-
-/**
- * Throws where an issue in `stored` has more pull request tickets among
- * `stored` than its `openSubIssues` counts. The real tracker counts every open
- * sub-issue, pull request tickets included, so such a fixture describes a
- * tracker that cannot exist; `discountPullRequestTickets` would clamp it to
- * none open and hide the mistake.
- */
-function throwOnUncountedPullRequestTickets(stored: readonly Stored[]): void {
-  const pullRequestTickets = new Map<number, number>();
-  for (const { issue } of stored) {
-    const { parent } = issue;
-    if (parent !== undefined && isPullRequestTicket(issue)) {
-      pullRequestTickets.set(parent, (pullRequestTickets.get(parent) ?? 0) + 1);
-    }
-  }
-  for (const { issue } of stored) {
-    const held = pullRequestTickets.get(issue.number) ?? 0;
-    const counted = issue.openSubIssues ?? 0;
-    if (held > counted) {
-      throw new Error(
-        `#${issue.number} has ${held} open pull request tickets but counts ${counted} open sub-issues; count them in its openSubIssues`,
-      );
-    }
-  }
 }
 
 /**
@@ -174,17 +149,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Puts a supertask — carrying `READY_FOR_AGENT_LABEL` with `openSubIssues` open
-   * sub-issues of its own — in `repo`'s backlog and returns it. Exists so a test
-   * can prove such a ticket is passed over even though it still carries the
-   * label, at the loop's own seam rather than against a query string.
+   * Puts a supertask — carrying `READY_FOR_AGENT_LABEL` and the supertask
+   * label — in `repo`'s backlog and returns it. Exists so a test can prove
+   * such a ticket is passed over even though it still carries
+   * `READY_FOR_AGENT_LABEL`, at the loop's own seam rather than against a
+   * query string.
    */
-  addSupertask(
-    repo: RepoSlug,
-    ticket: Omit<TicketInput, "openSubIssues">,
-    openSubIssues: number,
-  ): Ticket {
-    return this.#add(repo, { ...ticket, openSubIssues }, READY_FOR_AGENT_LABEL);
+  addSupertask(repo: RepoSlug, ticket: TicketInput): Ticket {
+    const supertask = this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
+    this.addLabel(supertask, SUPERTASK_LABEL);
+    return supertask;
   }
 
   /**
@@ -258,24 +232,25 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * An issue's eligibility, model label and size label are read from the
-   * labels it holds at the time of the call, through the same `modelLabelOf`
-   * and `sizeLabelOf` the real tracker uses, so a label changed between calls
-   * changes what the next call returns. Issues are listed in the order they
-   * were added.
+   * An issue's eligibility, model label, size label and supertask status are
+   * read from the labels it holds at the time of the call, through the same
+   * `modelLabelOf`, `sizeLabelOf` and `carriesSupertaskLabel` the real tracker
+   * uses, so a label changed between calls changes what the next call
+   * returns. Issues are listed in the order they were added.
    */
   async listOpenIssues(repo: RepoSlug): Promise<OpenIssues> {
     const open = (this.#issues.get(repo) ?? []).filter((entry) => !entry.closed);
-    throwOnUncountedPullRequestTickets(open);
     const issues = open.map((entry) => {
       const { parent, openBlockerNumbers = [], ...ticket } = entry.issue;
       const modelLabel = modelLabelOf(entry.labels);
       const sizeLabel = sizeLabelOf(entry.labels);
+      const supertask = carriesSupertaskLabel(entry.labels);
       return {
         ticket: {
           ...ticket,
           ...(modelLabel !== undefined && { modelLabel }),
           ...(sizeLabel !== undefined && { sizeLabel }),
+          ...(supertask && { supertask }),
         },
         eligible: carriesReadyForAgent(entry.labels),
         openBlockerNumbers,
@@ -283,7 +258,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       };
     });
     return {
-      issues: discountPullRequestTickets(issues),
+      issues,
       truncated: this.#truncated.has(repo),
     };
   }
