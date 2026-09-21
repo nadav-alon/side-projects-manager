@@ -1785,6 +1785,10 @@ describe("morningLoop", () => {
         iteration?.kind === "failed" ? iteration.transcript : undefined,
         transcript,
       );
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        new RegExp(`Transcript: \`${transcript}\`\\.$`),
+      );
     });
 
     it("says a review's hand-back itself failed, leaving the ticket for the developer to relabel", async (t) => {
@@ -2330,6 +2334,10 @@ describe("morningLoop", () => {
         iteration?.kind === "failed" ? iteration.transcript : undefined,
         transcript,
       );
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        new RegExp(`Transcript: \`${transcript}\`\\.$`),
+      );
     });
 
     it("leaves the ticket eligible when the sandbox breaks, naming it under what is waiting on the developer", async (t) => {
@@ -2790,6 +2798,10 @@ describe("morningLoop", () => {
       assert.equal(
         iteration?.kind === "failed" ? iteration.transcript : undefined,
         transcript,
+      );
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        new RegExp(`Transcript: \`${transcript}\`\\.$`),
       );
     });
 
@@ -3482,6 +3494,36 @@ describe("morningLoop", () => {
         [commitSha("c0ffee1")],
       );
       assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
+    });
+
+    it("names the run's transcript in the hand-back comment, when it left one", async () => {
+      const ports = readyToWork();
+      const transcript = transcriptPath("/home/node/.claude/projects/-repo/session.jsonl");
+      ports.sandbox.result = () => ({
+        kind: "gave-up",
+        branch: FAILED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+        output: SAID,
+        tokensUsed: tokenCount(42_000),
+        reason: GAVE_UP,
+        transcript,
+      });
+
+      await morningLoop(ports);
+
+      assert.match(
+        ports.tracker.handbacks[0]?.comment ?? "",
+        new RegExp(`Transcript: \`${transcript}\`\\.$`),
+      );
+    });
+
+    it("says nothing about a transcript in the hand-back comment, when the run left none", async () => {
+      const ports = readyToWork();
+      agentGivesUp(ports);
+
+      await morningLoop(ports);
+
+      assert.doesNotMatch(ports.tracker.handbacks[0]?.comment ?? "", /Transcript:/);
     });
   });
 

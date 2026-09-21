@@ -944,6 +944,7 @@ async function work(
     output: run.output,
     checkout,
     run,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
   });
   return {
     kind: "failed",
@@ -1525,6 +1526,7 @@ async function handReviewBack(
     ...failure,
     ticketKind: "review",
     output: review.output,
+    ...(review.transcript !== undefined && { transcript: review.transcript }),
   });
   return {
     kind: "failed",
@@ -1705,6 +1707,7 @@ async function handApplyReviewBack(
     output: run.output,
     pullRequest: ticket.pullRequest.url,
     ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
   });
   return {
     kind: "failed",
@@ -1882,6 +1885,7 @@ async function handRebaseBack(
     output: run.output,
     pullRequest: ticket.pullRequest.url,
     ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
   });
   return {
     kind: "failed",
