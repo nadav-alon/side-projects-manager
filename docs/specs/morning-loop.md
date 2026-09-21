@@ -159,10 +159,12 @@ when each project was last worked, and what runs cost. They are separate documen
 different authors and different change rates.
 
 **Work queue.** Tickets are issues in each project's own repo, filtered to the ready-for-agent triage
-label. Selection is: rebase tickets, then apply-review tickets, then review tickets, then
-implementation tickets; then explicit priority; then least recently worked. One project per
-iteration. Within that project: pull request tickets first, in that same order; then ticket priority, read from `priority:1`–`priority:3` labels (smallest wins when several are present, anything
-else is ignored); then lowest issue number. Ticket priority never influences which project is chosen.
+label. Selection is: rebase tickets, then apply-review tickets, then review tickets, then spec
+review tickets, then implementation tickets; then explicit priority; then least recently worked. One
+project per iteration. Within that project: rebase, apply-review, review and spec review tickets
+first, in that same order; then ticket priority, read from `priority:1`–`priority:3` labels (smallest
+wins when several are present, anything else is ignored); then lowest issue number. Ticket priority
+never influences which project is chosen.
 A backlog is read up to 100 tickets, the newest ones — a newly prioritised ticket costs more to miss
 than an old one — and a truncated backlog is named in the summary's waiting section.
 
