@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
+  branch,
   issueNumber,
   MergeabilityUnknown,
   pullRequestUrl,
@@ -212,5 +213,40 @@ describe("FakeRepoHost listOpenPullRequests", () => {
     host.setOpenPullRequests(other, [{ url: PULL_REQUEST, labels: [] }]);
 
     assert.deepEqual(await host.listOpenPullRequests(PILOT), []);
+  });
+});
+
+describe("FakeRepoHost listPullRequestsClosingIssues", () => {
+  it("answers with none for a repo no test scripted", async () => {
+    const host = new FakeRepoHost();
+
+    assert.deepEqual(await host.listPullRequestsClosingIssues(PILOT), []);
+  });
+
+  it("answers with what a test scripted, state, branch and closed issues", async () => {
+    const host = new FakeRepoHost();
+    const scripted = [
+      {
+        state: "merged" as const,
+        branch: branch("41-part-one"),
+        closesIssues: [issueNumber(41)],
+      },
+    ];
+    host.setPullRequestsClosingIssues(PILOT, scripted);
+
+    assert.deepEqual(
+      await host.listPullRequestsClosingIssues(PILOT),
+      scripted,
+    );
+  });
+
+  it("keeps each repo's closing pull requests to itself", async () => {
+    const host = new FakeRepoHost();
+    const other = repoSlug("nadav-alon/other");
+    host.setPullRequestsClosingIssues(other, [
+      { state: "open", branch: branch("x"), closesIssues: [] },
+    ]);
+
+    assert.deepEqual(await host.listPullRequestsClosingIssues(PILOT), []);
   });
 });

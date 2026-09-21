@@ -442,6 +442,82 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
   });
 });
 
+describe("FakeIssueTracker — sub-issues", () => {
+  it("lists a supertask's open sub-issues", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+    const child = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(41),
+      title: "Part one",
+      parent: supertask.number,
+    });
+
+    const subIssues = await tracker.listSubIssues(supertask);
+
+    assert.deepEqual(subIssues, [
+      { ticket: { repo: PILOT, number: child.number, title: child.title }, closed: false },
+    ]);
+  });
+
+  it("still lists a closed sub-issue, marked closed", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+    const child = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(41),
+      title: "Part one",
+      parent: supertask.number,
+    });
+    tracker.closeOutOfBand(child);
+
+    const subIssues = await tracker.listSubIssues(supertask);
+
+    assert.deepEqual(subIssues, [
+      { ticket: { repo: PILOT, number: child.number, title: child.title }, closed: true },
+    ]);
+  });
+
+  it("lists no sub-issues for a ticket nothing names as a parent", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+
+    const subIssues = await tracker.listSubIssues(supertask);
+
+    assert.deepEqual(subIssues, []);
+  });
+
+  it("opens a spec review ticket carrying ready-for-agent, spec-review and size:L, linked to its supertask", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+
+    const specReview = await tracker.createSpecReviewTicket(
+      supertask,
+      "Reviews #40.",
+    );
+
+    assert.equal(tracker.carriesLabel(specReview, READY_FOR_AGENT_LABEL), true);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const listed = issues.find((issue) => issue.ticket.number === specReview.number);
+    assert.ok(listed);
+    assert.equal(isSpecReviewTicket(listed.ticket), true);
+    assert.equal(listed.parent, 40);
+    assert.deepEqual(tracker.specReviewTickets, [
+      { parent: supertask, body: "Reviews #40.", ticket: specReview },
+    ]);
+  });
+});
+
 /** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */
 describe("FakeIssueTracker — model labels", () => {
   it("names no model for a ticket without a model label", async () => {

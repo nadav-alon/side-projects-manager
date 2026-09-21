@@ -352,6 +352,19 @@ export function isSupertask(ticket: Ticket): boolean {
 }
 
 /**
+ * One sub-issue of a supertask, open or closed alike — what {@link
+ * IssueTracker.listSubIssues} answers with. Per `CONTEXT.md`'s "Spec review
+ * ticket", the guard that stops a supertask ever getting a second spec review
+ * reads closed sub-issues on purpose: a spec review that closed is still a
+ * sub-issue that existed, and only a read that sees it can tell "closed" from
+ * "never opened".
+ */
+export interface SubIssue {
+  ticket: Ticket;
+  closed: boolean;
+}
+
+/**
  * One open issue in a project, eligible or not, and the facts ticket priority
  * is worked out from.
  *
@@ -606,6 +619,35 @@ export interface IssueTracker {
    */
   listOpenIssues(repo: RepoSlug): Promise<OpenIssues>;
   /**
+   * Every sub-issue of `ticket`, open or closed alike — see {@link SubIssue}.
+   *
+   * What the spec review sweep (`spec-review-sweep.ts`) reads a supertask
+   * with before opening a spec review for it: the guard that fires at most
+   * once per supertask, ever, and the sub-issues its body names. Unlike
+   * {@link listOpenIssues}, which only ever sees a project's open issues, this
+   * is the one read that reaches a closed one — per `CONTEXT.md`'s "Spec
+   * review ticket", nothing else in the loop needs to.
+   */
+  listSubIssues(ticket: Ticket): Promise<SubIssue[]>;
+  /**
+   * Opens a spec review ticket against `ticket`, a supertask — a sub-issue
+   * carrying `body` — and answers with it.
+   *
+   * Born carrying ready-for-agent, the spec review label and `size:L`, the
+   * same way {@link createReviewTicket}'s review is born eligible: a spec
+   * review nobody labelled is one that never runs on a morning nobody is
+   * around. `body` is composed by the caller, not here — per `CONTEXT.md`'s
+   * "Spec review ticket", it names the supertask and every sub-issue in
+   * scope, with a fact (a pull request's branch and state) this port alone
+   * cannot read, since that comes from the repo host rather than the
+   * tracker.
+   *
+   * `ticket` is read, never written: the spec review is queued beside the
+   * supertask it reviews, and closing or relabelling that one stays the
+   * developer's.
+   */
+  createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket>;
+  /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.
    *
@@ -729,4 +771,22 @@ export interface IssueTracker {
  */
 export function reviewTitle(ticket: Ticket): string {
   return `Review the draft pull request for #${ticket.number}`;
+}
+
+/**
+ * The size label a spec review ticket is born carrying, per `CONTEXT.md`'s
+ * "Spec review ticket": `size:L` suits the scope of a whole-repo review. The
+ * one place the literal lives; `createSpecReviewTicket`'s every
+ * implementation applies it.
+ */
+export const SPEC_REVIEW_SIZE_LABEL = `${SIZE_LABEL_PREFIX}L`;
+
+/**
+ * The title a spec review ticket carries. Names the supertask it reviews, the
+ * way `reviewTitle` names the ticket its review is for, so a backlog is read
+ * as a list of titles that already tells a spec review apart from anything
+ * else in it.
+ */
+export function specReviewTitle(ticket: Ticket): string {
+  return `Spec review for #${ticket.number}`;
 }

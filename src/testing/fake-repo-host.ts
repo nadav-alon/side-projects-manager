@@ -3,6 +3,7 @@ import type {
   ApplyReviewThread,
   Branch,
   Checkout,
+  ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
   OpenPullRequest,
@@ -380,6 +381,25 @@ export class FakeRepoHost implements RepoHost {
 
   async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
     return this.#openPullRequests.get(repo) ?? [];
+  }
+
+  readonly #closingPullRequests = new Map<RepoSlug, ClosingPullRequest[]>();
+
+  /**
+   * Sets what `listPullRequestsClosingIssues` answers for `repo`. None,
+   * unless a test says otherwise.
+   */
+  setPullRequestsClosingIssues(
+    repo: RepoSlug,
+    pullRequests: ClosingPullRequest[],
+  ): void {
+    this.#closingPullRequests.set(repo, pullRequests);
+  }
+
+  async listPullRequestsClosingIssues(
+    repo: RepoSlug,
+  ): Promise<ClosingPullRequest[]> {
+    return this.#closingPullRequests.get(repo) ?? [];
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {
