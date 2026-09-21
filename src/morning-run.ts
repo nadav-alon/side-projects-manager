@@ -836,7 +836,9 @@ function freesTicketToday(iteration: Iteration): boolean {
  * has; an apply-review
  * ticket's pushes and replies itself, and is closed once the repo host shows
  * every thread answered; a rebase ticket's force-pushes itself, and is closed
- * once the repo host no longer reports its pull request conflicting.
+ * once the repo host no longer reports its pull request conflicting; and a
+ * spec review ticket's run reviews the repo against its supertask and is
+ * handed back with its findings, never closed.
  *
  * A failed run ends this iteration rather than the invocation: it is
  * reported, and the loop goes on to consider the next iteration.
