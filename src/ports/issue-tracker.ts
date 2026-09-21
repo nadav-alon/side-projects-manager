@@ -646,8 +646,8 @@ export interface IssueTracker {
 
   /**
    * Posts `comment` on `ticket` and touches no label — the plain half of
-   * what `handBack` does atomically with a relabel, for a note that is not
-   * itself a hand-back: nothing about it is specific to a run ending.
+   * what `handBack` does alongside a relabel, for a note that is not itself
+   * a hand-back: nothing about it is specific to a run ending.
    */
   comment(ticket: Ticket, comment: string): Promise<void>;
 
