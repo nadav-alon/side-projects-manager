@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   rm,
   stat,
   symlink,
@@ -25,9 +26,11 @@ import {
   dockerNeverRanMessage,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
+  STALL_TIMEOUT,
   TICKET_GIST_TAG,
   TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
+  type AgentRun,
   type Container,
   type Mount,
   type PullRequestHead,
@@ -232,6 +235,37 @@ async function writeTranscript(
   const file = path.join(projectDir, name);
   await writeFile(file, '{"type":"summary"}\n');
   return file;
+}
+
+/**
+ * Lets the real, un-mocked filesystem I/O `watchForStall`'s own poll started
+ * catch up before the next assertion or `tick` — `t.mock.timers.tick` only
+ * advances the virtual clock and runs due timers synchronously, so a poll's
+ * own `stat` still resolves on the real event loop, one real turn later.
+ */
+async function flushRealIo(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+/**
+ * Advances mocked time well past `STALL_TIMEOUT` in several steps, flushing
+ * real I/O between each, rather than in one `tick`.
+ *
+ * Every poll inside a single `tick` call sees the same final mocked
+ * `Date.now()`, so a transcript written just before ticking would look
+ * freshly grown to every poll within whichever step first observes it, not
+ * only the first — resetting the idle clock to that step's own end rather
+ * than to zero. Advancing twice `STALL_TIMEOUT` over enough steps keeps the
+ * remainder comfortably past the window even against that worst case.
+ */
+async function advancePastStall(t: TestContext): Promise<void> {
+  const steps = 20;
+  for (let i = 0; i < steps; i++) {
+    t.mock.timers.tick(Math.ceil((STALL_TIMEOUT * 2) / steps));
+    await flushRealIo();
+  }
 }
 
 /**
@@ -822,6 +856,245 @@ describe("containerSandbox", () => {
     assert.equal(await headOf(directory, BRANCH), gaveUp?.commits.at(-1));
     assert.equal(await subjectOf(directory, BRANCH), SALVAGE_COMMIT_MESSAGE);
     assert.ok((await filesOn(directory, BRANCH)).includes("leftover.txt"));
+  });
+
+  /**
+   * `attempt`'s own idle backstop (`watchForStall`) against a container whose
+   * API response stalls mid-run: nothing bounds `docker run` on its own, so
+   * this is what kills it once its transcript goes quiet for `STALL_TIMEOUT`.
+   * Exercised entirely through a fake `Container` that honours `options.signal`
+   * the way the real `dockerContainer` does — by rejecting once it fires —
+   * so none of this needs docker: see `STALL_TIMEOUT`'s own doc comment for
+   * why twenty minutes.
+   */
+  describe("a run whose transcript stalls", () => {
+    /**
+     * A promise that settles once `body` is actually invoked, and a
+     * `Container` wrapping it that settles it — so a test can wait for the
+     * real git setup `attempt` does first (a real clone, a real branch) to
+     * finish before advancing mocked time, rather than guessing how many
+     * event-loop turns that takes.
+     */
+    function starts(body: Container): { container: Container; started: Promise<void> } {
+      let markStarted: () => void = () => {};
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      return {
+        started,
+        container: (options) => {
+          markStarted();
+          return body(options);
+        },
+      };
+    }
+
+    /**
+     * Enables mocked time, starts a run against `body` on a fresh project,
+     * and waits for `body` to actually be invoked — the preamble every test
+     * below shares, up to the point each one diverges on what `body` itself
+     * does and what it goes on to assert.
+     */
+    async function stalledRun(
+      t: TestContext,
+      body: Container,
+    ): Promise<{ run: Promise<RunOutcome> }> {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      const { container, started } = starts(body);
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      return { run };
+    }
+
+    /** A `Container` that hangs until `options.signal` aborts, then rejects. */
+    const hangsUntilKilled: Container = ({ signal }) =>
+      new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new Error("the container was killed")),
+          { once: true },
+        );
+      });
+
+    it("kills a run whose transcript has gone quiet, and reads it as a provider failure naming how long", async (t) => {
+      const { run } = await stalledRun(t, hangsUntilKilled);
+      await advancePastStall(t);
+
+      const result = await run;
+
+      assert.equal(result.kind, "provider-failed");
+      const words = variant(result, "provider-failed")?.words ?? "";
+      assert.match(words, /stalled/);
+      assert.match(words, /20 minutes/);
+    });
+
+    it("never kills a run whose transcript keeps growing, however long it runs", async (t) => {
+      let transcriptDir = "";
+      let resolveAgent: ((agent: AgentRun) => void) | undefined;
+      const { run } = await stalledRun(t, ({ transcriptDirectory, signal }) => {
+        transcriptDir = transcriptDirectory;
+        return new Promise((resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("the container was killed")),
+            { once: true },
+          );
+          resolveAgent = resolve;
+        });
+      });
+
+      // Three stretches, each just under the stall window, with the
+      // transcript written to between them: total elapsed time comfortably
+      // exceeds `STALL_TIMEOUT`, and the run must still not be killed.
+      for (let i = 0; i < 3; i++) {
+        await writeTranscript(transcriptDir);
+        t.mock.timers.tick(STALL_TIMEOUT - 1_000);
+        await flushRealIo();
+      }
+
+      resolveAgent?.({ output: "", tokensUsed: tokenCount(0) });
+      const result = await run;
+
+      assert.equal(result.kind, "finished");
+    });
+
+    it("still reports the transcript it wrote before going quiet", async (t) => {
+      let written = "";
+      const { run } = await stalledRun(t, async ({ transcriptDirectory, signal }) => {
+        written = await writeTranscript(transcriptDirectory);
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("the container was killed")),
+            { once: true },
+          );
+        });
+      });
+      await advancePastStall(t);
+
+      const result = await run;
+
+      assert.equal(result.kind, "provider-failed");
+      assert.equal(variant(result, "provider-failed")?.transcript, written);
+    });
+
+    /**
+     * `dockerContainer`'s own half of the backstop kills the container and
+     * only then lets its promise settle — see its own doc comment — so
+     * `withThrowawayClone`'s `rm` (awaited after `attempt` returns) can never
+     * run while the container is still bind-mounting the clone. A fake
+     * `Container` whose own "kill" takes a moment stands in for that here.
+     */
+    it("keeps the clone until the container is confirmed gone, even when killing it takes a moment", async (t) => {
+      let clone = "";
+      const { run } = await stalledRun(t, ({ directory: mounted, signal }) => {
+        clone = mounted;
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              setTimeout(() => reject(new Error("the container was killed")), 100);
+            },
+            { once: true },
+          );
+        });
+      });
+      await advancePastStall(t);
+
+      assert.equal(
+        await exists(clone),
+        true,
+        "the abort fired, but the container's own kill has not settled yet",
+      );
+
+      await run;
+
+      assert.equal(await exists(clone), false);
+    });
+
+    it("watches runs side by side, killing only the one whose transcript stalls", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const directory = await project();
+      const HEALTHY_TICKET: Ticket = {
+        ...TICKET,
+        number: issueNumber(8),
+        title: "A second ticket, run alongside the first",
+      };
+
+      let healthyTranscriptDir = "";
+      let resolveHealthy: ((agent: AgentRun) => void) | undefined;
+      const stallingStarted = gate();
+      const healthyStarted = gate();
+
+      // Dispatched on which ticket's prompt this is, since both runs share
+      // one sandbox and so one `Container` — a fake standing in for two
+      // different real containers running side by side.
+      const container: Container = (options) => {
+        if (options.prompt.includes(`#${HEALTHY_TICKET.number} `)) {
+          healthyTranscriptDir = options.transcriptDirectory;
+          healthyStarted.open();
+          return new Promise((resolve, reject) => {
+            options.signal.addEventListener(
+              "abort",
+              () => reject(new Error("the healthy run was killed")),
+              { once: true },
+            );
+            resolveHealthy = resolve;
+          });
+        }
+        stallingStarted.open();
+        return new Promise((_, reject) => {
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new Error("the stalled run was killed")),
+            { once: true },
+          );
+        });
+      };
+      const sandbox = testSandbox(container);
+
+      const stallingRun = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const healthyRun = sandbox.run({
+        ticket: HEALTHY_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      });
+      await Promise.all([stallingStarted.opened, healthyStarted.opened]);
+
+      // The healthy run's own transcript keeps growing across the same
+      // stretch the stalled one sits quiet in — proof each run watches its
+      // own transcript, not a clock the sandbox shares between them.
+      for (let i = 0; i < 3; i++) {
+        await writeTranscript(healthyTranscriptDir);
+        t.mock.timers.tick(STALL_TIMEOUT - 1_000);
+        await flushRealIo();
+      }
+
+      const stalled = await stallingRun;
+      assert.equal(stalled.kind, "provider-failed");
+
+      resolveHealthy?.({ output: "", tokensUsed: tokenCount(0) });
+      const healthy = await healthyRun;
+      assert.equal(healthy.kind, "finished");
+    });
+
+    it("leaves no timer behind once a run ends normally", async (t) => {
+      t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+      const clearIntervalCalls = t.mock.method(globalThis, "clearInterval");
+      const directory = await project();
+      const { container, started } = starts(async () => ({ output: "", tokensUsed: tokenCount(0) }));
+      const sandbox = testSandbox(container);
+
+      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await started;
+      const result = await run;
+
+      assert.equal(result.kind, "finished");
+      assert.equal(clearIntervalCalls.mock.callCount(), 1);
+    });
   });
 
   it("reports a failure while salvaging as the sandbox's own failure, keeping the spend", async () => {
@@ -2973,6 +3246,119 @@ describe("containerSandbox with the real docker container", () => {
     const ceiling = call?.indexOf("--max-budget-usd") ?? -1;
     assert.notEqual(ceiling, -1);
     assert.equal(call?.[ceiling + 1], "2.5");
+  });
+
+  /**
+   * `--rm` with no name leaves nothing for `dockerContainer` to `docker kill`
+   * once `attempt`'s idle watchdog aborts — this is the other half of that
+   * backstop, and it fails as quietly as the three flags this test's sibling
+   * already checks: a `--cidfile` that stopped being passed would leave a
+   * stalled run's container to run forever, with nothing here to say so.
+   */
+  it("asks docker for a --cidfile, so a stalled run's container can be killed by id", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    const cidFile = valueOf(call, "--cidfile");
+    assert.notEqual(cidFile, undefined);
+    assert.ok(path.isAbsolute(cidFile ?? ""));
+  });
+
+  /**
+   * A `docker` stub whose `run` writes the id `--cidfile` asked for, records
+   * its own real pid against that id (in `SIDE_PROJECTS_TEST_PIDMAP`, an env
+   * var this process sets so the child inherits it), and then hangs — a
+   * stand-in for an API response that stalls. Its `kill` looks the id back up
+   * and sends the real container process a real `SIGKILL`, the same way a
+   * real `docker kill` would actually stop the real container: this is what
+   * lets a test drive `dockerContainer`'s own kill through to a process that
+   * is actually gone, rather than merely asserting the argument list.
+   *
+   * `exec sleep 600` rather than a backgrounded one: replacing the shell
+   * with `sleep` keeps them the same pid, so killing the pid this script
+   * recorded kills the process actually blocking `execFile`, with nothing
+   * left orphaned once it does.
+   */
+  const KILL_RELAY_DOCKER = `
+if [ "$1" = "run" ]; then
+  cidfile=""
+  prev=""
+  for arg in "$@"; do
+    if [ "$prev" = "--cidfile" ]; then cidfile="$arg"; fi
+    prev="$arg"
+  done
+  id="cid-$$"
+  printf '%s' "$id" > "$cidfile"
+  echo "$id $$" >> "$SIDE_PROJECTS_TEST_PIDMAP"
+  exec sleep 600
+elif [ "$1" = "kill" ]; then
+  id="$2"
+  pid=$(awk -v id="$id" '$1==id{print $2}' "$SIDE_PROJECTS_TEST_PIDMAP")
+  if [ -n "$pid" ]; then
+    kill -KILL "$pid" 2>/dev/null
+  fi
+fi`;
+
+  it("kills the real container process once a stalled run is aborted, and keeps the clone until it is gone", async (t) => {
+    withCredential(t);
+    const directory = await project();
+    const pidmapDirectory = await mkdtemp(path.join(tmpdir(), "cidfile-pidmap-"));
+    const pidmap = path.join(pidmapDirectory, "pidmap");
+    await writeFile(pidmap, "");
+    const previousPidmap = process.env["SIDE_PROJECTS_TEST_PIDMAP"];
+    process.env["SIDE_PROJECTS_TEST_PIDMAP"] = pidmap;
+    t.after(async () => {
+      if (previousPidmap === undefined) {
+        delete process.env["SIDE_PROJECTS_TEST_PIDMAP"];
+      } else {
+        process.env["SIDE_PROJECTS_TEST_PIDMAP"] = previousPidmap;
+      }
+      await rm(pidmapDirectory, { recursive: true, force: true });
+    });
+    const docker = await recordingDocker(t, KILL_RELAY_DOCKER);
+
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+    const run = testSandbox().run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    // Real wall-clock wait for the real `docker run` stub to have actually
+    // started and recorded its pid, before advancing mocked time — the git
+    // clone and branch bookkeeping `attempt` does first are real, unmocked
+    // work, and how many event-loop turns that takes is not this test's to
+    // guess at.
+    for (let i = 0; i < 400; i++) {
+      const recorded = await readFile(pidmap, "utf8").catch(() => "");
+      if (recorded.trim() !== "") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await advancePastStall(t);
+
+    const result = await run;
+
+    assert.equal(result.kind, "provider-failed");
+    const calls = await docker.calls();
+    assert.ok(
+      calls.some((call) => call[0] === "kill"),
+      "the stalled container's id was never handed to docker kill",
+    );
+    const runCall = calls.find((call) => call[0] === "run");
+    const [clone] = (valueOf(runCall, "--volume") ?? "").split(":");
+    assert.notEqual(clone, undefined, "no clone was ever mounted");
+    assert.equal(
+      await exists(clone ?? ""),
+      false,
+      "the clone was not removed once the real container was confirmed gone",
+    );
   });
 
   it("passes no model argument when none is asked for", async (t) => {

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -114,6 +114,28 @@ export const TRANSCRIPTS_DIRECTORY = "transcripts";
 export const TRANSCRIPT_RETENTION: Milliseconds = milliseconds(
   14 * 24 * 60 * 60 * 1000,
 );
+
+/**
+ * How long a run's transcript may go without growing before `attempt` treats
+ * it as stalled and kills its container.
+ *
+ * Chosen against two other numbers, not picked on its own. The agent CLI
+ * carries its own mid-stream watchdog, which aborts a silent API stream
+ * after three minutes and retries on its own — a backstop shorter than that
+ * would be racing a stall the CLI is already handling. And it sits far
+ * outside any quiet stretch a healthy run has — a working agent writes a
+ * transcript entry per tool result — where the stall that prompted this
+ * backstop had already sat fourteen minutes dead, and still climbing, by the
+ * time it was captured.
+ */
+export const STALL_TIMEOUT: Milliseconds = milliseconds(20 * 60 * 1000);
+
+/**
+ * How often `watchForStall` checks a run's transcript for growth — far under
+ * `STALL_TIMEOUT`, so a stall is caught close to the window's edge rather
+ * than one poll's worth late.
+ */
+const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
 
 /**
  * Removes transcript directories under `<home>/transcripts/` whose own last
@@ -279,6 +301,15 @@ export interface RunOptions {
    * in progress at once never write into the same one.
    */
   transcriptDirectory: TranscriptDirectory;
+  /**
+   * Aborted once `attempt`'s own idle watchdog (`watchForStall`) decides the
+   * run has stalled — `attempt` owns the timer and calls this, `dockerContainer`
+   * is what turns an abort into a dead container, by killing whatever
+   * `--cidfile` named. A `Container` that never looks at this runs to its own
+   * end regardless; a fake one in a test honours it by rejecting once it
+   * fires, which is how the decision to abort is exercised without docker.
+   */
+  signal: AbortSignal;
 }
 
 /**
@@ -602,11 +633,24 @@ async function runOnClone(
  * — is removed before the error is rethrown rather than left behind empty; a
  * directory `findTranscript` was never even asked to look in, since the
  * caller only ever sees the thrown error.
+ *
+ * This is also where a stalled run is caught: `watchForStall` watches
+ * `transcriptDir` for growth and aborts a `signal` of its own once none has
+ * come for `STALL_TIMEOUT`, and `container` is handed that signal to turn
+ * into a dead container (see `dockerContainer`). Whatever `container` then
+ * rejects with, an abort this function itself raised is told apart from a
+ * container that genuinely crashed by asking the signal, not the error — a
+ * killed container's own rejection carries nothing distinctive, since
+ * turning the kill into one is `dockerContainer`'s job, not this function's
+ * to parse back out. A stalled run reads as a provider failure rather than
+ * `crashed`: the provider answered and then went quiet, which is the
+ * provider's problem exactly as any other silence is — see CONTEXT.md's
+ * "Provider failure".
  */
 async function attempt(
   container: Container,
   kind: RunKind,
-  options: Omit<RunOptions, "model" | "transcriptDirectory">,
+  options: Omit<RunOptions, "model" | "transcriptDirectory" | "signal">,
   model: ModelName | undefined,
   transcriptsRoot: string,
 ): Promise<AgentRun> {
@@ -616,10 +660,13 @@ async function attempt(
       path.join(transcriptsRoot, `${kind}-`),
     ),
   );
+  const controller = new AbortController();
+  const watch = watchForStall(transcriptDir, controller);
   try {
     const agent = await container({
       ...options,
       transcriptDirectory: transcriptDir,
+      signal: controller.signal,
       ...(model === undefined ? {} : { model }),
     });
     return withTranscript(agent, await findTranscript(transcriptDir));
@@ -628,16 +675,54 @@ async function attempt(
       await removeOrWarn(transcriptDir);
       throw error;
     }
-    return withTranscript(
-      {
-        output: errorMessage(error),
-        tokensUsed: tokenCount(0),
-        failure: errorMessage(error),
-        crashed: true,
-      },
-      await findTranscript(transcriptDir),
-    );
+    if (controller.signal.aborted) {
+      const words = stallWords(watch.wroteTranscript());
+      return failedRun(error, transcriptDir, { failure: words, providerFailure: words });
+    }
+    return failedRun(error, transcriptDir, { failure: errorMessage(error), crashed: true });
+  } finally {
+    controller.abort();
+    await watch.stopped;
   }
+}
+
+/**
+ * An `AgentRun` for a container that ended without the agent's own exit
+ * reporting it — `output` and `tokensUsed` are always the same in that case,
+ * whether `attempt`'s own idle watchdog killed the container or it crashed on
+ * its own; `extra` is what actually differs between the two.
+ */
+async function failedRun(
+  error: unknown,
+  transcriptDir: TranscriptDirectory,
+  extra: { failure: string; providerFailure: string } | { failure: string; crashed: true },
+): Promise<AgentRun> {
+  return withTranscript(
+    { output: errorMessage(error), tokensUsed: tokenCount(0), ...extra },
+    await findTranscript(transcriptDir),
+  );
+}
+
+/**
+ * What a stalled run's `AgentRun` says, in both `failure` and
+ * `providerFailure` — the provider answered and then went quiet, so
+ * `endingOf` reads this the same way it reads any other provider failure,
+ * words included: see CONTEXT.md's "Provider failure".
+ *
+ * `wroteTranscript` false is a different shape of the same timeout: the CLI
+ * never got as far as opening a session at all, which a broken mount or a
+ * changed per-project layout causes as readily as a genuinely silent
+ * provider does. Worded to say so, so a run stopped this way points whoever
+ * reads it at the setup rather than at the provider, while still reading as
+ * a provider failure — `endingOf` has no way yet to tell the two apart on
+ * its own, and misreading a setup fault as the ticket's problem would be
+ * worse than misreading it as the provider's.
+ */
+function stallWords(wroteTranscript: boolean): string {
+  const minutes = STALL_TIMEOUT / 60_000;
+  return wroteTranscript
+    ? `the run stalled: its transcript wrote nothing for at least ${minutes} minutes`
+    : `the run stalled: its transcript never appeared in the first ${minutes} minutes — check that the container is writing to it at all`;
 }
 
 /** `agent`, with `transcript` set from `found` when there is one to set. */
@@ -687,6 +772,81 @@ async function findTranscript(
     }
   }
   return undefined;
+}
+
+/**
+ * Watches `directory` for growth in the transcript the agent CLI writes
+ * there — read the same way `findTranscript` finds one at all, by `stat`,
+ * with no second channel into the container — and aborts `controller` once
+ * nothing has changed for `STALL_TIMEOUT`.
+ *
+ * Growth is noticed no sooner than the next poll after it happens, so the
+ * clock effectively resets a little later than the write itself — fine,
+ * since `STALL_TIMEOUT` already sits with room to spare against
+ * `STALL_POLL_INTERVAL`.
+ *
+ * `stopped` settles once the watch has stopped — either because it aborted
+ * `controller` itself, or because `controller` was aborted from outside
+ * (`attempt`'s own cleanup, once `container` has settled either way).
+ * Awaiting it before returning is how a run that ends normally leaves no
+ * timer behind.
+ *
+ * `wroteTranscript` reads true once a transcript has actually been seen to
+ * grow, false if none ever was — told apart so `attempt` can word an abort
+ * that never saw a transcript at all differently from one that saw growth
+ * stop, see `stallWords`.
+ */
+function watchForStall(
+  directory: TranscriptDirectory,
+  controller: AbortController,
+): { stopped: Promise<void>; wroteTranscript: () => boolean } {
+  let lastGrowth = Date.now();
+  let lastMtimeMs: number | undefined;
+
+  const stopped = new Promise<void>((resolve) => {
+    const timer = setInterval(() => {
+      void latestTranscriptMtime(directory).then((mtimeMs) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        const now = Date.now();
+        if (mtimeMs !== undefined && mtimeMs !== lastMtimeMs) {
+          lastMtimeMs = mtimeMs;
+          lastGrowth = now;
+        }
+        if (now - lastGrowth >= STALL_TIMEOUT) {
+          controller.abort();
+        }
+      });
+    }, STALL_POLL_INTERVAL);
+    timer.unref?.();
+
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        clearInterval(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+
+  return { stopped, wroteTranscript: () => lastMtimeMs !== undefined };
+}
+
+/**
+ * The transcript `.jsonl` under `directory`'s own last-modified time, absent
+ * when the agent CLI has not written one yet.
+ */
+async function latestTranscriptMtime(
+  directory: TranscriptDirectory,
+): Promise<number | undefined> {
+  const found = await findTranscript(directory);
+  if (found === undefined) {
+    return undefined;
+  }
+  const stats = await stat(found).catch(() => undefined);
+  return stats?.mtimeMs;
 }
 
 /**
@@ -1584,6 +1744,22 @@ async function commitsSince(
  * ever appears in an argument list: `--env GH_TOKEN` with no `=value` tells
  * docker to read it from *this process's own* environment, which `envFor` is
  * what varies per `Mount`.
+ *
+ * `options.signal` is this function's half of `attempt`'s stall backstop, in
+ * two parts that race each other rather than one depending on the other.
+ * `--rm` with no name leaves nothing to kill, so `dockerCommand` is handed a
+ * `--cidfile` of its own — under the run's own `transcriptDirectory`, which
+ * already outlives this function and is already `pruneOldTranscripts`'s to
+ * clean up — to have docker write the container's id to, and an abort reads
+ * that id back and `docker kill`s it. That kill can itself no-op (an empty
+ * cidfile) or fail (docker refuses it), so an abort is also handed straight
+ * to `execFile` as `signal`: aborting it ends this function's own await on
+ * its own, by killing the `docker run` client, whichever of the two actually
+ * stops the container. Either way, the kill is awaited before this
+ * function's own promise settles — whether that promise goes on to reject
+ * or, on the rare race where the agent had already finished, resolve
+ * normally — so a caller (`attempt`, and past it `withThrowawayClone`) never
+ * deletes the clone out from under a container still bind-mounting it.
  */
 const dockerContainer: Container = async (options) => {
   // Asked here rather than left to the agent, which would start, fail to sign
@@ -1595,21 +1771,69 @@ const dockerContainer: Container = async (options) => {
   }
 
   const env = envFor(options.mount);
-  const command = dockerCommand(options);
+  const cidFile = path.join(options.transcriptDirectory, "container-id");
+  const command = dockerCommand(options, cidFile);
+
+  let killed: Promise<void> | undefined;
+  const onAbort = (): void => {
+    killed = killStalledContainer(cidFile);
+  };
+  options.signal.addEventListener("abort", onAbort, { once: true });
+  if (options.signal.aborted) {
+    onAbort();
+  }
 
   try {
     const { stdout, stderr } = await run("docker", command, {
       maxBuffer: OUTPUT_LIMIT,
       env,
+      signal: options.signal,
     });
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
+    // `options.signal.aborted` means this exit is ours: `onAbort` already
+    // `docker kill`ed the container, `execFile`'s own `signal` already ended
+    // the client waiting on it, or both — whatever `execFile` rejected with
+    // is just that shape (a signal, an abort error, or docker's exit code for
+    // one), not the agent's own exit to read as `readExitedRun` would.
+    // Rethrown rather than turned into a result here, so `attempt` — which
+    // owns the timer and so is the one place that can word a stall — is what
+    // turns it into a run.
+    if (options.signal.aborted) {
+      throw error;
+    }
     if (dockerNeverRan(error)) {
       throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
     return readExitedRun(error);
+  } finally {
+    options.signal.removeEventListener("abort", onAbort);
+    await killed;
   }
 };
+
+/**
+ * Kills the container `dockerCommand`'s `--cidfile` named, once `attempt`'s
+ * own idle watchdog aborts. Warned about rather than thrown on failure — the
+ * run is already being reported as stalled either way, a container docker
+ * could not kill is not a reason to lose that report, and `dockerContainer`'s
+ * own await does not depend on this succeeding: the same abort also reaches
+ * `execFile` directly, as `signal`.
+ *
+ * A `--cidfile` docker never got to write — the daemon never reached
+ * starting the container at all — leaves nothing here to kill.
+ */
+async function killStalledContainer(cidFile: string): Promise<void> {
+  const id = await readFile(cidFile, "utf8")
+    .then((contents) => contents.trim() || undefined)
+    .catch(() => undefined);
+  if (id === undefined) {
+    return;
+  }
+  await run("docker", ["kill", id]).catch((error: unknown) => {
+    console.warn(`Could not kill the stalled container ${id}: ${errorMessage(error)}`);
+  });
+}
 
 /**
  * What `AgentNeverRan` says when docker itself would not run the container:
@@ -1749,22 +1973,33 @@ function dockerNeverRan(error: unknown): boolean {
  * agent CLI's own session transcript lands on the host the same way the
  * clone's uid does: pinned to `user`, never root's.
  *
+ * `cidFile` is where `--cidfile` asks docker to write the container's own id
+ * once it starts it — `--rm` with no name otherwise leaves nothing for
+ * `dockerContainer` to `docker kill` once `options.signal` aborts. The
+ * caller owns the path, and the file itself, so this stays a pure function of
+ * its arguments rather than one that reaches for a temp directory of its own.
+ *
  * Throws `AgentNeverRan` for a manager running as root, which is a setup no
  * unattended run can happen in — see `hostUser`.
  */
-function dockerCommand({
-  directory,
-  prompt,
-  spendCeiling,
-  mount,
-  model,
-  transcriptDirectory,
-}: RunOptions): string[] {
+function dockerCommand(
+  {
+    directory,
+    prompt,
+    spendCeiling,
+    mount,
+    model,
+    transcriptDirectory,
+  }: RunOptions,
+  cidFile: string,
+): string[] {
   const user = hostUser();
 
   return [
     "run",
     "--rm",
+    "--cidfile",
+    cidFile,
     // The clone is bind-mounted, so what the agent writes is written straight
     // into the developer's filesystem with whatever uid the container runs as.
     // Pinned to the invoking process's own, so the branch, the objects and any
