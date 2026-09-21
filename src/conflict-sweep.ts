@@ -2,6 +2,7 @@ import { errorMessage } from "./error-message.ts";
 import type {
   MergeStatus,
   OpenIssues,
+  OpenPullRequest,
   PullRequestUrl,
   RepoHost,
   RepoSlug,
@@ -123,7 +124,7 @@ export async function conflictSweep(
     }
   }
 
-  let pullRequests;
+  let pullRequests: OpenPullRequest[];
   try {
     pullRequests = await repoHost.listOpenPullRequests(repo);
   } catch (error) {
