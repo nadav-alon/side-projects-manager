@@ -20,44 +20,14 @@ import {
 } from "../ports/index.ts";
 import { callWith, recordingGh, tempHome, valueOf } from "../testing/index.ts";
 
-// The manager's own repo, named as the target of the fixtures below rather
-// than read live: closing, opening or relabelling an issue in it must not be
-// able to change what these tests find.
-const MANAGER = repoSlug("nadav-alon/side-projects-manager");
-
 // A public repo the developer doesn't own, guaranteed to carry no
 // ready-for-agent issues. Verifies an empty backlog is not an error. Also
-// referenced from `morning-run.test.ts`, for the same reason. Read live,
-// unlike `MANAGER` above: it is static and outside the developer's own
-// control, so it cannot drift the way an actively worked repo does.
+// referenced from `morning-run.test.ts`, for the same reason. Read live: it
+// is static and outside the developer's own control, so it cannot drift the
+// way an actively worked repo does.
 const EMPTY = repoSlug("octocat/Hello-World");
 
-describe("ghIssueTracker", () => {
-  it("returns the repo's open issues, eligible exactly where they carry ready-for-agent", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        issue(101, ["bug"]),
-        issue(102, [READY_FOR_AGENT_LABEL, "model:opus"]),
-      ]),
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
-
-    const unlabelled = issues.find((listed) => listed.ticket.number === 101);
-    assert.equal(unlabelled?.eligible, false);
-
-    const eligible = issues.filter((listed) => listed.eligible);
-    assert.equal(eligible.length, 1);
-    assert.equal(eligible[0]?.ticket.number, 102);
-    assert.equal(eligible[0]?.ticket.title, "Ticket 102");
-    assert.equal(eligible[0]?.ticket.repo, MANAGER);
-    assert.deepEqual(eligible[0]?.ticket.modelLabel, {
-      kind: "named",
-      name: modelName("opus"),
-    });
-  });
-
+describe("ghIssueTracker.listOpenIssues — live smoke test", () => {
   it("finds nothing eligible in a project with no ready-for-agent issues, without an error", async () => {
     const { issues } = await ghIssueTracker().listOpenIssues(EMPTY);
 
@@ -65,38 +35,6 @@ describe("ghIssueTracker", () => {
       issues.filter((issue) => issue.eligible),
       [],
     );
-  });
-
-  it("carries an open issue's same-repo parent and the numbers of its open blockers", async (t) => {
-    await recordingGh(
-      t,
-      listing([
-        {
-          number: 205,
-          title: "Part of the spec",
-          parent: linkedIssue(MANAGER, 201),
-        },
-        {
-          number: 206,
-          title: "Waits on others",
-          blockedBy: {
-            nodes: [
-              linkedIssue(MANAGER, 202, "OPEN"),
-              linkedIssue(MANAGER, 203, "CLOSED"),
-            ],
-            totalCount: 2,
-          },
-        },
-      ]),
-    );
-
-    const { issues } = await ghIssueTracker().listOpenIssues(MANAGER);
-
-    const subIssue = issues.find((listed) => listed.ticket.number === 205);
-    assert.equal(subIssue?.parent, 201);
-
-    const blocked = issues.find((listed) => listed.ticket.number === 206);
-    assert.deepEqual(blocked?.openBlockerNumbers, [202]);
   });
 });
 
@@ -722,7 +660,12 @@ function issue(
     number,
     title: `Ticket ${number}`,
     body,
-    labels: labels.map((name) => ({ id: `LA_${name}`, name, color: "ededed" })),
+    labels: labels.map((name) => ({
+      id: `LA_${name}`,
+      name,
+      description: "",
+      color: "ededed",
+    })),
   });
 }
 
@@ -736,6 +679,9 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
 
     const list = callWith(await gh.calls(), "issue", "list");
     assert.ok(list);
+    // State filtering itself now lives in `gh`, not the adapter, so a stub
+    // fixture can't prove closed issues are excluded — only that `--state
+    // open` is the filter asked for.
     assert.equal(valueOf(list, "--state"), "open");
     assert.equal(valueOf(list, "--label"), undefined);
     assert.ok(valueOf(list, "--json")?.split(",").includes("parent"));
@@ -772,6 +718,8 @@ describe("ghIssueTracker.listOpenIssues — every open issue", () => {
     const { issues: listed } = await ghIssueTracker().listOpenIssues(PILOT);
 
     assert.equal(listed[0]?.eligible, true);
+    assert.equal(listed[0]?.ticket.title, "Add the thing");
+    assert.equal(listed[0]?.ticket.repo, PILOT);
   });
 
   it("rejects an issue number that is not a positive integer, loudly", async (t) => {
