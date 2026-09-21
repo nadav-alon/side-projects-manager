@@ -182,6 +182,8 @@ export type {
   RunRequest,
   RunSandboxFailed,
   Sandbox,
+  SpecReviewOutcome,
+  SpecReviewRequest,
 } from "./sandbox.ts";
 export { isTicketGist, ticketGist } from "./ticket-gist.ts";
 export type { TicketGist } from "./ticket-gist.ts";

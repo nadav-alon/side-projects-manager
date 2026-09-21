@@ -26,6 +26,9 @@ import type {
   RunOutcome,
   RunRequest,
   Sandbox,
+  SpecReviewOutcome,
+  SpecReviewRequest,
+  SpecReviewTicket,
   Ticket,
   TranscriptDirectory,
   Usd,
@@ -370,11 +373,21 @@ export function containerSandbox(
     return rebaseOnClone(container, pullRequestHead, request, transcriptsRoot);
   }
 
-  return { run, review, applyReview, rebase };
+  function specReview(
+    request: SpecReviewRequest & { model: ModelName },
+  ): Promise<SpecReviewOutcome>;
+  function specReview(
+    request: SpecReviewRequest & { model?: undefined },
+  ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
+  function specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
+    return specReviewOnClone(container, request, transcriptsRoot);
+  }
+
+  return { run, review, applyReview, rebase, specReview };
 }
 
-/** The four shapes a sandboxed run comes in — named for `withThrowawayClone` and `attempt` alike. */
-type RunKind = "run" | "review" | "apply-review" | "rebase";
+/** The five shapes a sandboxed run comes in — named for `withThrowawayClone` and `attempt` alike. */
+type RunKind = "run" | "review" | "apply-review" | "rebase" | "spec-review";
 
 /**
  * Runs `body` on a throwaway clone's directory, named for the `kind` of run
@@ -947,6 +960,78 @@ async function reviewOnClone(
 
     return reviewOutcomeOf(agent, model);
   });
+}
+
+/**
+ * The spec reviewer's run: a throwaway clone of its own, mounted read-only
+ * and never fetched back, exactly as `reviewOnClone` sets one up — a spec
+ * review leaves nothing on the checkout, because what it produces is its own
+ * report, not a branch or a pull request comment.
+ *
+ * No branch is created either, for the same reason `reviewOnClone` creates
+ * none: a spec reviewer has nothing to commit.
+ */
+async function specReviewOnClone(
+  container: Container,
+  request: SpecReviewRequest,
+  transcriptsRoot: string,
+): Promise<SpecReviewOutcome> {
+  const { ticket, checkout: project, spendCeiling, model } = request;
+
+  return withThrowawayClone("spec-review", async (clone) => {
+    await withCheckoutLock(project, () =>
+      run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
+    );
+    const agent = await attempt(
+      container,
+      "spec-review",
+      { directory: clone, prompt: specReviewPromptFor(ticket), spendCeiling, mount: "ro" },
+      model,
+      transcriptsRoot,
+    );
+
+    return reviewOutcomeOf(agent, model);
+  });
+}
+
+/**
+ * What the spec-reviewing agent is asked to do.
+ *
+ * The ticket is named explicitly for the same reason `promptFor` names the
+ * issue: the clone's origin is a local path, so nothing GitHub-shaped can be
+ * inferred from it. The supertask it reviews against is not named here —
+ * the agent reads it for itself, as the parent issue this ticket is a
+ * sub-issue of, since that is the one place the association still exists:
+ * nothing opens a spec review ticket automatically yet, so a developer opens
+ * one by hand the way a review ticket already hangs off the ticket it
+ * reviews, as a sub-issue of the supertask it is about.
+ *
+ * Unlike `reviewPromptFor`, there is no pull request to post findings to:
+ * the run reports instead, and its own output is what the caller hands back
+ * as the ticket's comment — see `Sandbox.specReview`. It is also told
+ * explicitly never to open issues of its own: every other kind of ticket
+ * ends in hand-back, and a spec review that filed tickets of its own would
+ * be the loop's only exception, with findings bounded by nothing.
+ *
+ * The prompt also says the run is unattended, for the same reason
+ * `reviewPromptFor`'s does: a `--print` run gets no reply, so a reviewer
+ * that stops to ask has answered nothing.
+ */
+function specReviewPromptFor(ticket: SpecReviewTicket): string {
+  return [
+    `Spec-review this repository. Read #${ticket.number} with`,
+    `\`gh issue view ${ticket.number} --repo ${ticket.repo}\` first — name the repo explicitly`,
+    "wherever gh needs one, since this clone's origin is a local path and gh cannot infer it —",
+    `then find the supertask it is a sub-issue of (\`gh issue view ${ticket.number} --repo ${ticket.repo}`,
+    '--json parent`) and read that supertask\'s own body.',
+    "Review the whole repository against that body: gaps between its sub-issues, drift from the",
+    "spec, and seams that do not line up.",
+    "This is a review, not an implementation: do not commit or push anything — this checkout is",
+    "read-only, so neither would work anyway — and do not open issues of your own. Report what you",
+    "find instead; your report is the whole of the work here.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "finish and report without asking for confirmation.",
+  ].join(" ");
 }
 
 /**

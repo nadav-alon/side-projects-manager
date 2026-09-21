@@ -55,6 +55,8 @@ import {
   type ReviewTicket,
   type RunOutcome,
   type Sandbox,
+  type SpecReviewOutcome,
+  type SpecReviewTicket,
   type Ticket,
 } from "../ports/index.ts";
 import {
@@ -114,6 +116,13 @@ const REVIEW_TICKET: ReviewTicket = {
     kind: "review",
     url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
   },
+};
+
+const SPEC_REVIEW_TICKET: SpecReviewTicket = {
+  repo: repoSlug("nadav-alon/pilot"),
+  number: issueNumber(50),
+  title: "Review the loop spec",
+  specReview: true,
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
@@ -1994,6 +2003,209 @@ describe("containerSandbox.review", () => {
     await held.allInProgress;
     held.release();
     await both;
+  });
+});
+
+describe("containerSandbox.specReview", () => {
+  it("mounts a clone of its own, read-only", async () => {
+    const directory = await project();
+    const mounts: (Mount | undefined)[] = [];
+    const seen: string[] = [];
+    const sandbox = testSandbox(async ({ directory: mounted, mount }) => {
+      seen.push(mounted);
+      mounts.push(mount);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(seen.length, 1);
+    assert.notEqual(seen[0], directory);
+    assert.deepEqual(mounts, ["ro"]);
+  });
+
+  it("passes the spec review's model to the agent CLI the same way a run does, and stays read-only", async () => {
+    const directory = await project();
+    let seenModel: string | undefined;
+    let seenMount: Mount | undefined;
+    const sandbox = testSandbox(async ({ model, mount }) => {
+      seenModel = model;
+      seenMount = mount;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("opus"),
+    });
+
+    assert.equal(seenModel, "opus");
+    assert.equal(seenMount, "ro");
+  });
+
+  it("names the ticket and asks for the supertask it is a sub-issue of, since the clone's origin can't say", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, new RegExp(`#${SPEC_REVIEW_TICKET.number}\\b`));
+    assert.match(asked, /--json parent/);
+    assert.match(asked, /supertask/);
+  });
+
+  it("asks for the repo reviewed against the supertask's body, and forbids committing or opening issues", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /gaps between its sub-issues, drift from the/);
+    assert.match(asked, /do not commit or push anything/);
+    assert.match(asked, /do not open issues of your own/);
+  });
+
+  it("says the run is unattended, so it reports without asking", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /unattended/);
+    assert.match(asked, /without asking/);
+  });
+
+  it("creates no branch and leaves the checkout untouched, whatever the agent does", async () => {
+    const directory = await project();
+    const before = await headOf(directory);
+    const sandbox = testSandbox(async () => ({
+      output: "",
+      tokensUsed: tokenCount(0),
+    }));
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.deepEqual(await branchesIn(directory), ["main"]);
+    assert.equal(await headOf(directory), before);
+  });
+
+  it("returns the agent's own findings as the outcome's output, and what the run cost", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async () => ({
+      output: "no drift found",
+      tokensUsed: tokenCount(9_000),
+    }));
+
+    const result: SpecReviewOutcome = await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.kind, "finished");
+    assert.equal(variant(result, "finished")?.output, "no drift found");
+    assert.equal(result.tokensUsed, tokenCount(9_000));
+  });
+
+  it("reports a failed agent rather than throwing", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async () => {
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.kind, "gave-up");
+    assert.match(variant(result, "gave-up")?.reason ?? "", /gave up/);
+  });
+
+  /**
+   * `GH_REVIEW_TOKEN` is what stands between a spec reviewer and the
+   * developer's own push-capable credential, exactly as it does for a
+   * review — see `Mount` and `envFor` in container-sandbox.ts.
+   */
+  it("refuses to start a spec reviewer with no separately scoped credential", async (t) => {
+    const directory = await project();
+    const oauth = process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+    const reviewToken = process.env["GH_REVIEW_TOKEN"];
+    process.env["CLAUDE_CODE_OAUTH_TOKEN"] = "test-oauth-token";
+    delete process.env["GH_REVIEW_TOKEN"];
+    t.after(() => {
+      if (oauth === undefined) {
+        delete process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+      } else {
+        process.env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth;
+      }
+      if (reviewToken !== undefined) {
+        process.env["GH_REVIEW_TOKEN"] = reviewToken;
+      }
+    });
+
+    await assert.rejects(
+      testSandbox().specReview({
+        ticket: SPEC_REVIEW_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+      (error: Error) =>
+        error instanceof AgentNeverRan &&
+        /GH_REVIEW_TOKEN/.test(error.message),
+    );
+  });
+
+  it("takes the clone away once the run finishes", async () => {
+    const directory = await project();
+    let clone = "";
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      clone = mounted;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(await exists(clone), false);
   });
 });
 
