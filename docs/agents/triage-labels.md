@@ -51,3 +51,18 @@ ticket to `ready-for-agent`; the budget document is what sets the tokens each on
   written rather than any of the four sizes.
 - Says nothing about which model a ticket runs on: a ticket expected to run on a costlier model is
   sized larger instead.
+
+## Supertask label
+
+Declares a ticket a container for its work rather than work of its own, per `CONTEXT.md`'s
+"Supertask". Applied by hand — the loop only ever reads it, never applies it itself.
+
+| Label       | Meaning                                                                |
+| ----------- | ----------------------------------------------------------------------- |
+| `supertask` | A container ticket. Never selected, however many of its sub-issues are open or closed. |
+
+- A label may not exist yet in a given repo: create it on first use (`gh label create supertask`)
+  before `gh issue edit --add-label`.
+- The morning scan flags a likely missed label itself — a ticket with an open sub-issue that is
+  not a pull request ticket, yet carries no `supertask` label — but does not apply the label; that
+  stays the developer's call.

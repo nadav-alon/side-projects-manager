@@ -256,8 +256,8 @@ export function isBlocked(ticket: Ticket): boolean {
 
 /**
  * The label that declares a ticket a supertask, per `CONTEXT.md`'s
- * "Supertask". The one place the literal lives; every adapter reads it from
- * here.
+ * "Supertask" and as `docs/agents/triage-labels.md` spells it. The one place
+ * the literal lives; every adapter reads it from here.
  */
 export const SUPERTASK_LABEL = "supertask";
 
