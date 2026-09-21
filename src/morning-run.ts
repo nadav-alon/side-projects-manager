@@ -127,6 +127,7 @@ import {
   type SummaryFacts,
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
+import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 
 /**
  * The one write on the tracker that `ports/issue-tracker.ts` deliberately
@@ -361,6 +362,10 @@ export async function morningLoop(
   // Populated from `selecting.sweeps()` alongside `outcomes`: every conflict
   // sweep the invocation ran, one per non-paused project per selection.
   let sweepOutcomes: ConflictSweepOutcome[] = [];
+  // Populated from `selecting.specReviewSweeps()` the same way: every spec
+  // review sweep the invocation ran, one per non-paused project per
+  // selection.
+  let specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -571,6 +576,7 @@ export async function morningLoop(
       // before it.
       outcomes = selecting.verdicts();
       sweepOutcomes = selecting.sweeps();
+      specReviewSweepOutcomes = selecting.specReviewSweeps();
       // State is written back at the end of every invocation, including one that
       // worked nothing and one whose run failed part way, so that a machine
       // which has run the loop always has a state document to read next morning.
@@ -604,6 +610,7 @@ export async function morningLoop(
     standDown,
     invocationFailure,
     conflictSweeps: sweepOutcomes,
+    specReviewSweeps: specReviewSweepOutcomes,
   };
   const line = summaryLine(facts);
   const outcome = outcomeOf(iterations, standDown, invocationFailure);

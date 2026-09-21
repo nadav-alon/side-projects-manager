@@ -5,6 +5,10 @@ import type {
   ConflictSweepOutcome,
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
+import type {
+  SpecReviewSweepOutcome,
+  SpecReviewSweepRefusal,
+} from "./spec-review-sweep.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
@@ -264,6 +268,7 @@ export interface SummaryFacts {
   standDown: InvocationStandDown | undefined;
   invocationFailure: string | undefined;
   conflictSweeps: ConflictSweepOutcome[];
+  specReviewSweeps: SpecReviewSweepOutcome[];
 }
 
 /**
@@ -286,7 +291,8 @@ export function summaryLine(facts: SummaryFacts): string {
   const passedOver = passedOverAside(projects);
   const missingLabel = missingSupertaskLabelAside(projects);
   const sweeps = conflictSweepAside(facts.conflictSweeps);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}`;
+  const specReviews = specReviewSweepAside(facts.specReviewSweeps);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -306,7 +312,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}`;
 }
 
 /**
@@ -379,6 +385,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
       : attemptsSection(facts.iterations),
     waitingSection(facts.iterations, facts.projects),
     conflictSweepSection(facts.conflictSweeps),
+    specReviewSweepSection(facts.specReviewSweeps),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
@@ -430,6 +437,78 @@ function conflictSweepRefusalLine(
     case "comment":
       return `- ${repo}: could not post ${REBASE_COMMENT} on ${refusal.pullRequest}: ${error}`;
   }
+}
+
+/**
+ * One project's spec review sweep activity, grouped across every sweep the
+ * invocation ran: unlike a conflict sweep's own changes, a supertask a sweep
+ * opened a spec review for is never met by a later scan the same invocation
+ * — its own new sub-issue is what the next scan sees — so nothing here needs
+ * deduplicating the way {@link conflictSweepProjects} does. A project with
+ * nothing opened and nothing refused is left out entirely.
+ */
+interface SpecReviewSweepProject {
+  repo: RepoSlug;
+  opened: Ticket[];
+  refusals: SpecReviewSweepRefusal[];
+}
+
+function specReviewSweepProjects(
+  specReviewSweeps: SpecReviewSweepOutcome[],
+): SpecReviewSweepProject[] {
+  const projects = new Map<RepoSlug, SpecReviewSweepProject>();
+  for (const swept of specReviewSweeps) {
+    let project = projects.get(swept.repo);
+    if (project === undefined) {
+      project = { repo: swept.repo, opened: [], refusals: [] };
+      projects.set(swept.repo, project);
+    }
+    project.opened.push(...swept.opened);
+    project.refusals.push(...swept.refusals);
+  }
+  return [...projects.values()].filter(
+    (project) => project.opened.length > 0 || project.refusals.length > 0,
+  );
+}
+
+/**
+ * The summary line's own short aside on spec review sweeps: present only when
+ * a sweep opened one or was refused something — the developer's ticket to
+ * pick up starts the same as any other, so an opened spec review earns a
+ * place on the line itself rather than only in the body.
+ */
+function specReviewSweepAside(specReviewSweeps: SpecReviewSweepOutcome[]): string {
+  const flagged = specReviewSweepProjects(specReviewSweeps).flatMap((project) => {
+    const bits = [
+      ...(project.opened.length > 0
+        ? [`opened ${numbers(project.opened)}`]
+        : []),
+      ...(project.refusals.length > 0
+        ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]
+        : []),
+    ];
+    return bits.length > 0 ? [`${project.repo} (${bits.join("; ")})`] : [];
+  });
+  return flagged.length > 0 ? ` Spec review sweep: ${flagged.join(", ")}.` : "";
+}
+
+function specReviewSweepSection(
+  specReviewSweeps: SpecReviewSweepOutcome[],
+): string | undefined {
+  const projects = specReviewSweepProjects(specReviewSweeps);
+  if (projects.length === 0) {
+    return undefined;
+  }
+  const lines = projects.flatMap((project) => [
+    ...project.opened.map(
+      (ticket) => `- ${project.repo}: opened #${ticket.number} (${ticket.title})`,
+    ),
+    ...project.refusals.map(
+      (refusal) =>
+        `- ${project.repo}: could not open a spec review for #${refusal.supertask.number}: ${withoutTrailingStop(refusal.error)}`,
+    ),
+  ]);
+  return ["## Spec reviews opened", ...lines].join("\n");
 }
 
 /**
