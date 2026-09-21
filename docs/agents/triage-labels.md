@@ -81,3 +81,16 @@ opens one automatically.
   before `gh issue edit --add-label`.
 - Only read where the ticket carries no pull request binding — a review, apply-review or rebase
   ticket's own kind always wins.
+
+## Enhancement label
+
+Beside `needs-triage`, the label a freshly discovered ticket is born with: it says the ticket is
+new work rather than a report against existing behavior. Not one of the five canonical triage
+roles above — a category label the loop applies on its own.
+
+| Label         | Meaning                |
+| ------------- | ----------------------- |
+| `enhancement` | New feature or request |
+
+- A label may not exist yet in a given repo: create it on first use (`gh label create enhancement`)
+  before `gh issue edit --add-label`.
