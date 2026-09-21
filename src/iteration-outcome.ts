@@ -404,9 +404,7 @@ export interface Attempt<T extends Ticket = Ticket> {
    * The run estimate the gate's go-ahead charged for this ticket, per
    * `CONTEXT.md`'s "Run estimate". Absent from a ticket handed back ahead of
    * the gate, for its model or size labels: the gate never got a chance to
-   * charge one.
-   *
-   * TODO[#160]: read by the summary, to set a finished run's cost beside it.
+   * charge one. Read by the summary, to set a finished run's cost beside it.
    */
   estimateCharged?: TokenCount;
 }

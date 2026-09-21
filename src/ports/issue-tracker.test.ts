@@ -7,6 +7,7 @@ import {
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
   carriesReadyForAgent,
+  declaredSize,
   isApplyReviewTicket,
   isPullRequestTicket,
   isRebaseTicket,
@@ -252,6 +253,22 @@ describe("isReviewTicket, isApplyReviewTicket, isRebaseTicket and isPullRequestT
     assert.equal(isPullRequestTicket(applyReview), true);
     assert.equal(isPullRequestTicket(rebase), true);
     assert.equal(isPullRequestTicket(implementation), false);
+  });
+
+  it("reads an implementation ticket's own declared size", () => {
+    const sized = { ...implementation, sizeLabel: { kind: "declared" as const, size: "L" as const } };
+
+    assert.equal(declaredSize(sized), "L");
+  });
+
+  it("names no size for an implementation ticket that declares none", () => {
+    assert.equal(declaredSize(implementation), undefined);
+  });
+
+  it("names no size for a pull request ticket, whatever it declares", () => {
+    const sized = { ...review, sizeLabel: { kind: "declared" as const, size: "L" as const } };
+
+    assert.equal(declaredSize(sized), undefined);
   });
 });
 

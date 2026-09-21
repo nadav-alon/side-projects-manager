@@ -15,7 +15,7 @@ import type {
   UsageWindows,
   Usd,
 } from "./ports/index.ts";
-import { isPullRequestTicket, spendCeilingFor, tokenCount } from "./ports/index.ts";
+import { declaredSize, spendCeilingFor, tokenCount } from "./ports/index.ts";
 
 
 /** Why the loop stood down, and everything the developer needs to see why. */
@@ -264,19 +264,15 @@ function totalEstimate(
 }
 
 /**
- * The size `ticket` counts as, per `CONTEXT.md`'s "Run estimate": its own
- * declared size, for an implementation ticket that carries one, or
- * `unsizedCountsAs` otherwise. An unsized ticket, and every pull request
- * ticket whatever it declares — a review, an apply-review or a rebase never
- * inherits its parent's size — falls to `unsizedCountsAs`.
+ * The size `ticket` counts as, per `CONTEXT.md`'s "Run estimate": `ticket`'s
+ * own declared size (`declaredSize`), or `unsizedCountsAs` where it names
+ * none.
  *
  * What `runEstimate` charges in tokens and `spendCeilingForTicket` bounds in
  * dollars are the same size, resolved once here for both.
  */
 function sizeFor(ticket: Ticket, budget: Budget): Size {
-  return !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
-    ? ticket.sizeLabel.size
-    : budget.unsizedCountsAs;
+  return declaredSize(ticket) ?? budget.unsizedCountsAs;
 }
 
 /**

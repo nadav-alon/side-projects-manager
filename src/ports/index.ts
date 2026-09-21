@@ -33,6 +33,7 @@ export {
   TICKET_KINDS,
   backlogIn,
   carriesReadyForAgent,
+  declaredSize,
   discountPullRequestTickets,
   isApplyReviewTicket,
   isBlocked,
