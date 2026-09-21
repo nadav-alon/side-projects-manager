@@ -27,7 +27,7 @@ export interface SpecReviewSweepRefusal {
  * What sweeping one project came to: every spec review it opened, and every
  * refusal it met along the way. A supertask that still has an open sub-issue,
  * or that already carries one — the guard, per `CONTEXT.md`'s "Spec review
- * ticket" — appears in neither list, since neither is something to report.
+ * sweep" — appears in neither list, since neither is something to report.
  */
 export interface SpecReviewSweepOutcome {
   repo: RepoSlug;
@@ -36,7 +36,7 @@ export interface SpecReviewSweepOutcome {
 }
 
 /**
- * A spec review sweep of one project (`CONTEXT.md`'s "Spec review ticket",
+ * A spec review sweep of one project (`CONTEXT.md`'s "Spec review sweep",
  * issue #516): every supertask `openIssues` lists is asked, cheaply and from
  * `openIssues` alone, whether it still has an open sub-issue — a supertask
  * that does is left alone, no read spent on it. One that does not is asked,
@@ -68,6 +68,10 @@ export async function specReviewSweep(
 ): Promise<SpecReviewSweepOutcome> {
   const opened: Ticket[] = [];
   const refusals: SpecReviewSweepRefusal[] = [];
+  // Read at most once per sweep, lazily: a sweep that opens nothing still
+  // spends nothing, and every supertask that does need it this scan shares
+  // the one `gh pr list`, per `CONTEXT.md`'s "Spec review sweep".
+  let closingPullRequests: Promise<readonly ClosingPullRequest[]> | undefined;
 
   for (const { ticket: supertask } of openIssues.issues) {
     if (!isSupertask(supertask) || hasOpenSubIssue(supertask, openIssues.issues)) {
@@ -75,16 +79,23 @@ export async function specReviewSweep(
     }
 
     try {
+      // `openIssues` alone is only the cheap pre-filter above: a truncated
+      // backlog or a sub-issue in another repo can leave it blind to one
+      // still open, so `subIssues` — authoritative, per `CONTEXT.md`'s "Spec
+      // review sweep" — is asked again before the guard trusts it.
       const subIssues = await ports.tracker.listSubIssues(supertask);
-      if (subIssues.length === 0 || subIssues.some(alreadySpecReviewed)) {
+      if (
+        subIssues.length === 0 ||
+        subIssues.some(alreadySpecReviewed) ||
+        subIssues.some((sub) => !sub.closed)
+      ) {
         continue;
       }
 
-      const closingPullRequests =
-        await ports.repoHost.listPullRequestsClosingIssues(repo);
+      closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
       const specReview = await ports.tracker.createSpecReviewTicket(
         supertask,
-        specReviewBody(supertask, subIssues, closingPullRequests),
+        specReviewBody(supertask, subIssues, await closingPullRequests),
       );
       opened.push(specReview);
     } catch (error) {
@@ -99,9 +110,9 @@ export async function specReviewSweep(
  * Whether `ticket` has an open sub-issue among `issues` — of any kind,
  * unlike `selection.ts`'s own `hasNonPullRequestSubIssue`: a review, an
  * apply-review or a rebase ticket still open counts here exactly as an
- * implementation ticket would, per `CONTEXT.md`'s "Why the guard reads
- * closed sub-issues" — a spec review is not pull-request-bound, so it counts
- * toward its supertask's sub-issues like any other.
+ * implementation ticket would, per `CONTEXT.md`'s "Spec review sweep" — a
+ * spec review is not pull-request-bound, so it counts toward its
+ * supertask's sub-issues like any other.
  */
 function hasOpenSubIssue(ticket: Ticket, issues: readonly OpenIssue[]): boolean {
   return issues.some((issue) => issue.parent === ticket.number);
@@ -117,9 +128,9 @@ function alreadySpecReviewed(sub: SubIssue): boolean {
  * of `subIssues` — all of them closed, or `specReviewSweep` would never have
  * reached here — and, for each whose pull request `closingPullRequests`
  * names as not merged, that pull request's own number, branch and state.
- * Silent about the rest, per `CONTEXT.md`'s "Why disclose rather than
- * verify": a sub-issue closed with its pull request merged, or with none at
- * all, reads as intent rather than as a gap.
+ * Silent about the rest, per `CONTEXT.md`'s "Spec review sweep": a sub-issue
+ * closed with its pull request merged, or with none at all, reads as intent
+ * rather than as a gap.
  */
 function specReviewBody(
   supertask: Ticket,
@@ -130,6 +141,7 @@ function specReviewBody(
     `Reviews #${supertask.number}, now that every sub-issue has closed.`,
     "",
     "Sub-issues:",
+    "Each pull request fact below was read once, from the repo host, the moment this ticket opened; a sub-issue named with none either merged or never had a pull request.",
     ...subIssues.map((sub) => subIssueLine(sub, closingPullRequests)),
   ].join("\n");
 }
