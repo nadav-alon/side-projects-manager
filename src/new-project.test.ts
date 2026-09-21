@@ -72,8 +72,20 @@ describe("starting a new project", () => {
     await newProject(ports, IDEA);
 
     assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: MANAGER, paused: false, priority: priority(1) },
-      { repo: PILOT, paused: false },
+      { repo: MANAGER, paused: false, turbo: false, priority: priority(1) },
+      { repo: PILOT, paused: false, turbo: false },
+    ]);
+  });
+
+  it("does not touch an existing project's turbo consent in memory when it appends another (the write itself surviving a full rewrite is pinned in document-store.test.ts)", async () => {
+    const ports = fakeNewProjectPorts();
+    ports.store.register(MANAGER, { turbo: true });
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(await ports.store.loadRegistry(), [
+      { repo: MANAGER, paused: false, turbo: true },
+      { repo: PILOT, paused: false, turbo: false },
     ]);
   });
 
@@ -204,7 +216,7 @@ describe("registering a repo that already exists", () => {
     const report = await newProject(ports, { ...IDEA, existing: true });
 
     assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: PILOT, paused: true },
+      { repo: PILOT, paused: true, turbo: false },
     ]);
     assert.match(report.message, /unpause/);
   });
@@ -217,7 +229,7 @@ describe("registering a repo that already exists", () => {
     const report = await newProject(ports, { ...IDEA, existing: true });
 
     assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: PILOT, paused: false },
+      { repo: PILOT, paused: false, turbo: false },
     ]);
     assert.doesNotMatch(report.message, /unpause/);
   });
@@ -266,7 +278,7 @@ describe("refusing to start a project twice", () => {
     const report = await newProject(ports, { ...IDEA, existing: true });
 
     assert.deepEqual(await ports.store.loadRegistry(), [
-      { repo: PILOT, paused: true },
+      { repo: PILOT, paused: true, turbo: false },
     ]);
     assert.match(report.message, /already registered/i);
   });

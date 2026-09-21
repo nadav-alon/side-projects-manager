@@ -45,6 +45,7 @@ import type {
 } from "./ports/index.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
   REVIEWED_LABEL,
   hasAnnouncedOn,
@@ -102,6 +103,7 @@ import {
   type LimitRefused,
   type ModelRefused,
   type ModelSource,
+  type NotCommented,
   type NotLabelled,
   type ProviderFailed,
   type PullRequestResolved,
@@ -855,6 +857,7 @@ async function work(
       state,
       spendCeiling,
       model,
+      selection.project.turbo,
     );
   }
 
@@ -1367,11 +1370,35 @@ async function labelClosedPullRequest(
 }
 
 /**
+ * Posts `APPLY_REVIEW_COMMENT` on `pullRequest`, once a turbo project's
+ * review ticket has already closed — CONTEXT.md's "Turbo", ADR 0006. The
+ * fields returned fold straight into `Reviewed`: empty on success,
+ * `notCommented` naming the error otherwise.
+ *
+ * Never throws, same as `labelClosedPullRequest`: best effort, tried whether
+ * or not the label itself landed, since the ticket having closed is what
+ * matters. `summary.ts` renders `notCommented` to the developer.
+ */
+async function postTurboComment(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+): Promise<{ notCommented?: NotCommented }> {
+  try {
+    await ports.repoHost.postComment(pullRequest, APPLY_REVIEW_COMMENT);
+    return {};
+  } catch (error: unknown) {
+    return { notCommented: { error: errorMessage(error) } };
+  }
+}
+
+/**
  * A review ticket's own run: the reviewer examines the pull request the
  * ticket names and posts its findings there itself, in a container with no
  * write access to its clone. The loop's only remaining part is closing the
- * ticket once that finished, then labelling its pull request `reviewed` — a
- * review that posted needs nobody to close it by hand.
+ * ticket once that finished, then labelling its pull request `reviewed`
+ * and, for a turbo project (CONTEXT.md's "Turbo", ADR 0006), posting
+ * `/apply-review` on it as the developer would have typed — a review that
+ * posted needs nobody to close it, or act on it, by hand.
  *
  * Closing rests on the pull request actually carrying a new comment, not on
  * the sandbox process merely exiting clean: an agent can run the review skill
@@ -1387,8 +1414,11 @@ async function labelClosedPullRequest(
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
- * as it was, and the invocation carries on. A check, a close or a label that
- * fails after the review ran is reported on the iteration, never raised.
+ * as it was, and the invocation carries on. A check, a close, a label or a
+ * turbo comment that fails after the review ran is reported on the
+ * iteration, never raised — the turbo comment is tried whether or not the
+ * label landed, since it is the ticket having closed that matters, but it is
+ * never tried when closing itself failed.
  */
 async function runReview(
   ports: MorningLoopPorts,
@@ -1397,6 +1427,7 @@ async function runReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
+  turbo: boolean,
 ): Promise<Reviewed | LimitRefused | ProviderFailed | Failed | PullRequestResolved> {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
@@ -1470,7 +1501,16 @@ async function runReview(
     ticket.pullRequest.url,
     REVIEWED_LABEL,
   );
-  return { kind: "reviewed", review, tokensUsed: review.tokensUsed, ...labelled };
+  const commented = turbo
+    ? await postTurboComment(ports, ticket.pullRequest.url)
+    : {};
+  return {
+    kind: "reviewed",
+    review,
+    tokensUsed: review.tokensUsed,
+    ...labelled,
+    ...commented,
+  };
 }
 
 /** Hands back a review that left no findings on its pull request, as an agent that gave up. */

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
   pullRequestUrl,
   REVIEWED_LABEL,
@@ -66,6 +67,18 @@ describe("FakeRepoHost apply-review answers", () => {
     assert.deepEqual(host.labelled, [
       { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
       { pullRequest: OTHER, label: APPLIED_REVIEW_LABEL },
+    ]);
+  });
+
+  it("records every comment posted, in order", async () => {
+    const host = new FakeRepoHost();
+
+    await host.postComment(PULL_REQUEST, APPLY_REVIEW_COMMENT);
+    await host.postComment(OTHER, "Hello.");
+
+    assert.deepEqual(host.comments, [
+      { pullRequest: PULL_REQUEST, body: APPLY_REVIEW_COMMENT },
+      { pullRequest: OTHER, body: "Hello." },
     ]);
   });
 });

@@ -34,6 +34,7 @@ import { summaryFileName } from "../summary.ts";
 /** What the developer may say about a project when registering it. */
 export interface Registration {
   paused?: boolean;
+  turbo?: boolean;
   priority?: Priority;
 }
 
@@ -68,6 +69,7 @@ export class FakeStore implements Store {
     this.#registry.push({
       repo,
       paused: registration.paused ?? false,
+      turbo: registration.turbo ?? false,
       ...(registration.priority !== undefined && {
         priority: registration.priority,
       }),

@@ -125,6 +125,17 @@ function reviewedButNotLabelled(number: number): IterationOutcome {
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
+/** A turbo project's review ticket that closed cleanly but whose apply-review comment was refused. */
+function reviewedButNotCommented(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    notCommented: { error: "the pull request is locked" },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
 /** An apply-review ticket's own run that finished and closed its ticket cleanly. */
 function appliedReviewCleanly(number: number): IterationOutcome {
   const appliedReview: AppliedReview = {
@@ -311,6 +322,18 @@ describe("waitingSection", () => {
     ]);
   });
 
+  it("renders both the handover's reviewed line and its own waiting line, when a turbo review's comment was refused", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(185), 186),
+      reviewedButNotCommented(186),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`,
+      `- ${REPO} #186: ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself`,
+    ]);
+  });
+
   it("lists an applied-review iteration under waiting on you when its pull request could not be labelled, alongside its ready-for-review line", () => {
     const lines = waitingLines([appliedReviewButNotLabelled(184)]);
 
@@ -362,6 +385,15 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Reviewed ${REPO} #211: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself.`,
+    );
+  });
+
+  it("names the pull request and the error when a turbo review's comment was refused", () => {
+    const line = summaryLine(facts([reviewedButNotCommented(214)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO} #214: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself.`,
     );
   });
 

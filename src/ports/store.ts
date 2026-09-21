@@ -18,6 +18,12 @@ export interface RegisteredProject {
   repo: RepoSlug;
   /** Registered but never considered. */
   paused: boolean;
+  /**
+   * Standing consent to post `/apply-review` on this project's pull requests
+   * once their review ticket closes, in place of the developer typing it
+   * themselves. See CONTEXT.md's "Turbo" and ADR 0006.
+   */
+  turbo: boolean;
   /** Overrides least-recently-worked ordering. Absent for most projects. */
   priority?: Priority;
 }
