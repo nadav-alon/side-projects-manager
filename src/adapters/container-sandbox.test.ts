@@ -2068,6 +2068,24 @@ describe("containerSandbox.specReview", () => {
     assert.match(asked, /supertask/);
   });
 
+  it("tells the agent to report and stop where the ticket has no parent to review against", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /no parent/);
+    assert.match(asked, /report that/);
+  });
+
   it("asks for the repo reviewed against the supertask's body, and forbids committing or opening issues", async () => {
     const directory = await project();
     let asked = "";

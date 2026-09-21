@@ -1004,7 +1004,9 @@ async function specReviewOnClone(
  * sub-issue of, since that is the one place the association still exists:
  * nothing opens a spec review ticket automatically yet, so a developer opens
  * one by hand the way a review ticket already hangs off the ticket it
- * reviews, as a sub-issue of the supertask it is about.
+ * reviews, as a sub-issue of the supertask it is about. A ticket opened
+ * without a parent has nothing to review against, so the prompt tells the
+ * agent to say so and stop rather than reviewing the repo against nothing.
  *
  * Unlike `reviewPromptFor`, there is no pull request to post findings to:
  * the run reports instead, and its own output is what the caller hands back
@@ -1023,7 +1025,8 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
     `\`gh issue view ${ticket.number} --repo ${ticket.repo}\` first — name the repo explicitly`,
     "wherever gh needs one, since this clone's origin is a local path and gh cannot infer it —",
     `then find the supertask it is a sub-issue of (\`gh issue view ${ticket.number} --repo ${ticket.repo}`,
-    '--json parent`) and read that supertask\'s own body.',
+    '--json parent`) and read that supertask\'s own body. If it has no parent, report that this',
+    "ticket was opened with no supertask to review it against, and stop there.",
     "Review the whole repository against that body: gaps between its sub-issues, drift from the",
     "spec, and seams that do not line up.",
     "This is a review, not an implementation: do not commit or push anything — this checkout is",
