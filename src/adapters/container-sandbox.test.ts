@@ -3351,6 +3351,14 @@ fi`;
       calls.some((call) => call[0] === "kill"),
       "the stalled container's id was never handed to docker kill",
     );
+    const runCall = calls.find((call) => call[0] === "run");
+    const [clone] = (valueOf(runCall, "--volume") ?? "").split(":");
+    assert.notEqual(clone, undefined, "no clone was ever mounted");
+    assert.equal(
+      await exists(clone ?? ""),
+      false,
+      "the clone was not removed once the real container was confirmed gone",
+    );
   });
 
   it("passes no model argument when none is asked for", async (t) => {
