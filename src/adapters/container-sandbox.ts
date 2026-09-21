@@ -645,7 +645,7 @@ async function runOnClone(
         // afterwards — reported rather than thrown, so that spend is not lost
         // to a rejection the way it would be before the agent ever started.
         // Its transcript is just as real, and named the same way.
-        return withAgentFields(
+        return withTranscriptAndDiscoveryFields(
           {
             kind: "sandbox-failed",
             reason: errorMessage(error),
@@ -739,7 +739,7 @@ async function attempt(
   model: ModelName | undefined,
   transcriptsRoot: string,
   discoveriesRoot: string,
-): Promise<AgentRun> {
+): Promise<FinishedAgentRun> {
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
     await mkdtemp(
@@ -800,7 +800,7 @@ async function failedRun(
   transcriptDir: TranscriptDirectory,
   found: DiscoveriesFound,
   extra: { failure: string; providerFailure: string } | { failure: string; crashed: true },
-): Promise<AgentRun> {
+): Promise<FinishedAgentRun> {
   return finishAgentRun(
     { output: errorMessage(error), tokensUsed: tokenCount(0), ...extra },
     await findTranscript(transcriptDir),
@@ -837,6 +837,16 @@ interface DiscoveriesFound {
 }
 
 /**
+ * An `AgentRun` that has been through `finishAgentRun`: `discoveries` and
+ * `discoveriesDropped` are always set, never left to the `?` `AgentRun`
+ * itself carries for a `Container` implementation that never sets them.
+ */
+type FinishedAgentRun = AgentRun & {
+  discoveries: Discovery[];
+  discoveriesDropped: number;
+};
+
+/**
  * `agent`, with `transcript` set from `transcript` when there is one, and
  * `discoveries`/`discoveriesDropped` set from `found` — the one place a raw
  * `AgentRun` a `Container` returned becomes the one this file's
@@ -846,7 +856,7 @@ function finishAgentRun(
   agent: AgentRun,
   transcript: TranscriptPath | undefined,
   found: DiscoveriesFound,
-): AgentRun {
+): FinishedAgentRun {
   return {
     ...agent,
     ...(transcript === undefined ? {} : { transcript }),
@@ -861,23 +871,21 @@ function finishAgentRun(
  * repeats, so what only ever rides alongside `agent`'s own bookkeeping is
  * written once here rather than copied out at each call site. `transcript`
  * only added when `agent` found one; `discoveries` and `discoveriesDropped`
- * always added, `finishAgentRun` having already set them on every `agent`
- * this is ever called with.
+ * are always added — `agent`'s type guarantees `finishAgentRun` has already
+ * set them.
  */
-function withAgentFields<T extends object>(
+function withTranscriptAndDiscoveryFields<T extends object>(
   fields: T,
-  agent: AgentRun,
+  agent: FinishedAgentRun,
 ): T & {
   transcript?: TranscriptPath;
-  discoveries?: Discovery[];
-  discoveriesDropped?: number;
+  discoveries: Discovery[];
+  discoveriesDropped: number;
 } {
   return {
     ...fields,
-    ...(agent.discoveries === undefined ? {} : { discoveries: agent.discoveries }),
-    ...(agent.discoveriesDropped === undefined
-      ? {}
-      : { discoveriesDropped: agent.discoveriesDropped }),
+    discoveries: agent.discoveries,
+    discoveriesDropped: agent.discoveriesDropped,
     ...(agent.transcript === undefined ? {} : { transcript: agent.transcript }),
   };
 }
@@ -1225,13 +1233,13 @@ function wasCutOff(ending: Ending, agent: AgentRun): boolean {
  */
 function runOutcomeOf(
   ending: Ending,
-  agent: AgentRun,
+  agent: FinishedAgentRun,
   branch: Branch,
   commits: CommitSha[],
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
-  return withAgentFields(
+  return withTranscriptAndDiscoveryFields(
     {
       ...ending,
       ...(gist !== undefined && { gist }),
@@ -1245,10 +1253,10 @@ function runOutcomeOf(
 
 /** `endingOf`, as a review ends it: no branch or commits to carry. */
 function reviewOutcomeOf(
-  agent: AgentRun,
+  agent: FinishedAgentRun,
   model: ModelName | undefined,
 ): ReviewOutcome {
-  return withAgentFields(
+  return withTranscriptAndDiscoveryFields(
     { ...endingOf(agent, model), tokensUsed: agent.tokensUsed },
     agent,
   );
@@ -1563,7 +1571,7 @@ const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
  * request, whether the push was plain (apply-review) or forced (rebase).
  */
 function pushRejectedOutcomeOf(
-  agent: AgentRun,
+  agent: FinishedAgentRun,
   model: ModelName | undefined,
 ): ApplyReviewOutcome {
   const ending = endingOf(agent, model);
@@ -1575,7 +1583,7 @@ function pushRejectedOutcomeOf(
   ) {
     // Only a full hash is carried: an abbreviation cannot be compared with
     // the head the repo host reports. The push was rejected all the same.
-    return withAgentFields(
+    return withTranscriptAndDiscoveryFields(
       {
         kind: "gave-up",
         output: agent.output,
@@ -1586,7 +1594,7 @@ function pushRejectedOutcomeOf(
       agent,
     );
   }
-  return withAgentFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
+  return withTranscriptAndDiscoveryFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
 }
 
 /**
