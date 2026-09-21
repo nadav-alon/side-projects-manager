@@ -16,14 +16,17 @@ import { promisify } from "node:util";
 
 import { REASON_QUOTED } from "../hand-back.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { MANAGER_HOME } from "./manager-home.ts";
 import {
   AgentNeverRan,
   containerSandbox,
   dockerNeverRanMessage,
   SALVAGE_COMMIT_MESSAGE,
   TICKET_GIST_TAG,
+  TRANSCRIPTS_DIRECTORY,
   type Container,
   type Mount,
+  type PullRequestHead,
 } from "./container-sandbox.ts";
 import {
   branch,
@@ -59,11 +62,27 @@ import {
   PROVIDER_FAILURE_STDOUT,
   recordingGh,
   recordingDocker,
+  tempHome,
   valueOf,
   type RecordedDocker,
 } from "../testing/index.ts";
 
 const run = promisify(execFile);
+
+/**
+ * Where this file's own tests keep their transcripts — never the checkout's
+ * real `transcripts/` (`container-sandbox.ts`), so running this file never
+ * leaves directories behind in the repository itself.
+ */
+const TEST_HOME = await tempHome("container-sandbox-home");
+
+/** `containerSandbox`, with its transcripts kept under `TEST_HOME` rather than the checkout's own. */
+function testSandbox(
+  container?: Container,
+  pullRequestHead?: PullRequestHead,
+): Sandbox {
+  return containerSandbox(container, pullRequestHead, TEST_HOME);
+}
 
 /** The `kind` variant of `result`, absent if it ended any other way. */
 function variant<
@@ -294,7 +313,7 @@ describe("containerSandbox", () => {
   it("runs the agent on a clone of its own, never on the checkout", async () => {
     const directory = await project();
     const seen: string[] = [];
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       seen.push(mounted);
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -314,7 +333,7 @@ describe("containerSandbox", () => {
   it("gives the agent a repository that stands on its own", async () => {
     const directory = await project();
     let checked = false;
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       const git = await stat(path.join(mounted, ".git"));
       assert.ok(git.isDirectory(), ".git must be a directory, not a pointer");
       checked = true;
@@ -334,7 +353,7 @@ describe("containerSandbox", () => {
   it("tells the agent which GitHub repo its ticket is in", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -347,7 +366,7 @@ describe("containerSandbox", () => {
   it("asks for one commit per behavior, made as soon as that behavior's test passes, and still forbids pushing and opening a pull request", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -361,7 +380,7 @@ describe("containerSandbox", () => {
   it("asks docker for no model when the request names none", async () => {
     const directory = await project();
     let seen: string | undefined = "unset";
-    const sandbox = containerSandbox(async ({ model }) => {
+    const sandbox = testSandbox(async ({ model }) => {
       seen = model;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -374,7 +393,7 @@ describe("containerSandbox", () => {
   it("passes the request's model to the agent CLI as a single value", async () => {
     const directory = await project();
     let seen: string | undefined;
-    const sandbox = containerSandbox(async ({ model }) => {
+    const sandbox = testSandbox(async ({ model }) => {
       seen = model;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -391,7 +410,7 @@ describe("containerSandbox", () => {
 
   it("leaves the agent's commits on a branch named for the ticket", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
@@ -404,7 +423,7 @@ describe("containerSandbox", () => {
   it("leaves the branch the checkout is on untouched", async () => {
     const directory = await project();
     const before = await headOf(directory);
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
@@ -414,7 +433,7 @@ describe("containerSandbox", () => {
 
   it("returns every commit the agent made, oldest first", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting(["one.txt", "two.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt", "two.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
@@ -438,7 +457,7 @@ describe("containerSandbox", () => {
 
   it("returns the commits of a repository whose object ids are SHA-256", async () => {
     const directory = await project("sha256");
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
@@ -450,7 +469,7 @@ describe("containerSandbox", () => {
 
   it("reports no commits, and leaves no branch, when the agent committed nothing", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting([]));
+    const sandbox = testSandbox(agentCommitting([]));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
@@ -460,7 +479,7 @@ describe("containerSandbox", () => {
 
   it("returns the agent's own output and what the run cost", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       agentCommitting([], 42_000, "implemented the thing"),
     );
 
@@ -474,7 +493,7 @@ describe("containerSandbox", () => {
   it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -486,7 +505,7 @@ describe("containerSandbox", () => {
 
   it("carries a well-formed ticket gist off the last line of a finished run", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       agentCommitting(
         [],
         0,
@@ -504,7 +523,7 @@ describe("containerSandbox", () => {
 
   it("carries the gist even when the agent echoes the prompt's own backticks", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       agentCommitting(
         [],
         0,
@@ -522,7 +541,7 @@ describe("containerSandbox", () => {
 
   it("carries no gist when the agent gave none", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting([], 0, "implemented the thing"));
+    const sandbox = testSandbox(agentCommitting([], 0, "implemented the thing"));
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
@@ -531,7 +550,7 @@ describe("containerSandbox", () => {
 
   it("carries no gist when the tagged line is empty", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
     );
 
@@ -542,7 +561,7 @@ describe("containerSandbox", () => {
 
   it("carries no gist when the agent gave more than one line", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       agentCommitting(
         [],
         0,
@@ -562,7 +581,7 @@ describe("containerSandbox", () => {
       0,
       `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
     );
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       await commit(options);
       throw new Error("the agent gave up");
     });
@@ -577,7 +596,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     let clone = "";
     const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       clone = options.directory;
       return commit(options);
     });
@@ -593,7 +612,7 @@ describe("containerSandbox", () => {
   it("takes the clone away even when the agent fails", async () => {
     const directory = await project();
     let clone = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       clone = mounted;
       throw new Error("the agent gave up");
     });
@@ -611,7 +630,7 @@ describe("containerSandbox", () => {
   it("reports a failed agent rather than throwing, keeping what it did", async () => {
     const directory = await project();
     const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       await commit(options);
       throw new Error("the agent gave up");
     });
@@ -631,7 +650,7 @@ describe("containerSandbox", () => {
    */
   it("reports a limit refusal apart from a failed agent", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
@@ -645,7 +664,7 @@ describe("containerSandbox", () => {
 
   it("reports a limit refusal even when the CLI exits zero", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
     }));
@@ -662,7 +681,7 @@ describe("containerSandbox", () => {
   ]) {
     it(`reads "${refusal}" as a limit refusal`, async () => {
       const directory = await project();
-      const sandbox = containerSandbox(async () => ({
+      const sandbox = testSandbox(async () => ({
         output: refusal,
         tokensUsed: tokenCount(0),
         failure: "Command failed: docker run",
@@ -681,7 +700,7 @@ describe("containerSandbox", () => {
    */
   it("salvages a limit-refused run's uncommitted changes as one commit, and fetches its branch back", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
       return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
     });
@@ -702,7 +721,7 @@ describe("containerSandbox", () => {
 
   it("leaves a gitignored file out of a limit-refused run's salvage commit", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       await writeFile(path.join(mounted, ".gitignore"), "ignored.txt\n");
       await writeFile(path.join(mounted, "ignored.txt"), "should not be salvaged\n");
       await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
@@ -719,7 +738,7 @@ describe("containerSandbox", () => {
 
   it("makes no salvage commit for a limit-refused run that left nothing uncommitted", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
     }));
@@ -745,7 +764,7 @@ describe("containerSandbox", () => {
     it(`makes ${expectedCommits > 1 ? "a salvage commit" : "no salvage commit"} for a run that ${name}`, async () => {
       const directory = await project();
       const commit = agentCommitting(["one.txt"]);
-      const sandbox = containerSandbox(async (options) => {
+      const sandbox = testSandbox(async (options) => {
         const agent = await commit(options);
         await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
         if (mode === "crashed") {
@@ -772,7 +791,7 @@ describe("containerSandbox", () => {
   it("salvages a crashed run's uncommitted changes as one commit, and fetches its branch back", async () => {
     const directory = await project();
     const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       await commit(options);
       await writeFile(path.join(options.directory, "leftover.txt"), "unfinished\n");
       throw new Error("the container crashed");
@@ -791,7 +810,7 @@ describe("containerSandbox", () => {
 
   it("reports a failure while salvaging as the sandbox's own failure, keeping the spend", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       await writeFile(path.join(mounted, "leftover.txt"), "unfinished\n");
       // The clone itself is gone by the time the salvage commit is
       // attempted, so `git status` — the salvage's own first step — is what
@@ -809,7 +828,7 @@ describe("containerSandbox", () => {
 
   it("does not mistake a failed agent that quoted the limit for one refused by it", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: `The tests would not go green. The CLI says, on a spent limit:\n${LIMIT_REFUSAL}`,
       tokensUsed: tokenCount(1_000),
       failure: "Command failed: docker run",
@@ -823,7 +842,7 @@ describe("containerSandbox", () => {
 
   it("does not mistake a finished agent that mentions the limit for one refused by it", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: `Implemented the stand-down. The CLI says:\n${LIMIT_REFUSAL}`,
       tokensUsed: tokenCount(1_000),
     }));
@@ -835,7 +854,7 @@ describe("containerSandbox", () => {
 
   it("reports a provider failure apart from an agent that gave up", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN);
+    const sandbox = testSandbox(async () => PROVIDER_FAILED_RUN);
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
@@ -848,7 +867,7 @@ describe("containerSandbox", () => {
 
   it("does not mistake a finished agent that quotes an API error part-way through for a provider failure", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: `Implemented the retry. The CLI once said:\n${PROVIDER_FAILURE_PROSE}`,
       tokensUsed: tokenCount(1_000),
     }));
@@ -865,7 +884,7 @@ describe("containerSandbox", () => {
     // alone, before the exit code is known. `endingOf` is what must not read
     // that as a provider failure unless `failure` says the CLI exited
     // non-zero too.
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: PROVIDER_FAILURE_PROSE,
       tokensUsed: tokenCount(1_000),
       providerFailure: PROVIDER_FAILURE_PROSE,
@@ -878,7 +897,7 @@ describe("containerSandbox", () => {
 
   it("reports a model refusal apart from an agent that gave up", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: MODEL_REFUSAL_WORDS,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
@@ -901,7 +920,7 @@ describe("containerSandbox", () => {
 
   it("does not read a model refusal when the request named no model", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: MODEL_REFUSAL_WORDS,
       tokensUsed: tokenCount(0),
       failure: `the command exited with code 1: ${MODEL_REFUSAL_STDERR.trim()}`,
@@ -929,7 +948,7 @@ describe("containerSandbox", () => {
    */
   it("excludes the model-refused variant from its type for a run given no model", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting([]));
+    const sandbox = testSandbox(agentCommitting([]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -952,7 +971,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     let clone = "";
     let transcriptDirectory = "";
-    const sandbox = containerSandbox(async ({ directory: mounted, transcriptDirectory: seen }) => {
+    const sandbox = testSandbox(async ({ directory: mounted, transcriptDirectory: seen }) => {
       clone = mounted;
       transcriptDirectory = seen;
       throw new AgentNeverRan("docker is not running");
@@ -983,7 +1002,7 @@ describe("containerSandbox", () => {
     // The real container, which asks before it ever reaches docker — so this
     // needs no docker to run, and would pass the same with it.
     await assert.rejects(
-      containerSandbox().run({
+      testSandbox().run({
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -996,7 +1015,7 @@ describe("containerSandbox", () => {
 
   it("gives a ticket that comes round again a branch of its own", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const first = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const second = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
@@ -1018,7 +1037,7 @@ describe("containerSandbox", () => {
    */
   it("returns the agent's spend as a sandbox failure, rather than losing it to a rejection, when fetching its branch back into the checkout fails", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       const agent = await agentCommitting(["one.txt"], 42_000)(options);
       // The checkout the fetch would land in is gone by the time the agent
       // hands back, so the fetch — the only git step left — is what fails.
@@ -1036,7 +1055,7 @@ describe("containerSandbox", () => {
   it("runs agents side by side on one checkout", HANGS, async () => {
     const directory = await project();
     const held = heldAgents(2, agentCommitting(["one.txt"]));
-    const sandbox = containerSandbox(held.container);
+    const sandbox = testSandbox(held.container);
 
     const runs = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
@@ -1060,7 +1079,7 @@ describe("containerSandbox", () => {
   it("gives runs of one ticket in progress at once a branch each", HANGS, async () => {
     const directory = await project();
     const held = heldAgents(2, agentCommitting(["one.txt"]));
-    const sandbox = containerSandbox(held.container);
+    const sandbox = testSandbox(held.container);
 
     const runs = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
@@ -1088,7 +1107,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const elsewhere = await project();
     const cloned: string[] = [];
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       cloned.push(options.directory);
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1118,7 +1137,7 @@ describe("containerSandbox", () => {
     const lock = gate();
     let holding: Promise<void> | undefined;
     const commit = agentCommitting(["one.txt"]);
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       const agent = await commit(options);
       holding = withCheckoutLock(directory, () => lock.opened);
       return agent;
@@ -1130,7 +1149,7 @@ describe("containerSandbox", () => {
       .finally(() => {
         settled = true;
       });
-    const other = await containerSandbox(agentCommitting(["two.txt"])).run({
+    const other = await testSandbox(agentCommitting(["two.txt"])).run({
       ticket: TICKET,
       checkout: elsewhere,
       spendCeiling: CEILING,
@@ -1155,7 +1174,7 @@ describe("containerSandbox", () => {
     for (const name of names) {
       await run("git", ["-C", directory, "branch", name]);
     }
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     await assert.rejects(
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
@@ -1196,7 +1215,7 @@ describe("containerSandbox.run salvage", () => {
   it("resumes an existing salvage branch instead of a suffixed new one", async () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1213,7 +1232,7 @@ describe("containerSandbox.run salvage", () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1232,7 +1251,7 @@ describe("containerSandbox.run salvage", () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
-    const sandbox = containerSandbox(agentCommitting([]));
+    const sandbox = testSandbox(agentCommitting([]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1249,7 +1268,7 @@ describe("containerSandbox.run salvage", () => {
   it("updates the salvage branch in place rather than fetching back under a new name", async () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1268,7 +1287,7 @@ describe("containerSandbox.run salvage", () => {
   it("updates the salvage branch in place even when the agent reworks its possibly-broken last commit", async () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
-    const sandbox = containerSandbox(async ({ directory: cloneDirectory }) => {
+    const sandbox = testSandbox(async ({ directory: cloneDirectory }) => {
       await identify(cloneDirectory);
       await writeFile(
         path.join(cloneDirectory, "salvaged.txt"),
@@ -1303,7 +1322,7 @@ describe("containerSandbox.run salvage", () => {
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
     await run("git", ["-C", directory, "checkout", SALVAGE_BRANCH]);
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1318,7 +1337,7 @@ describe("containerSandbox.run salvage", () => {
 
   it("starts fresh, without error, when the named salvage branch is missing from the checkout", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(agentCommitting(["one.txt"]));
+    const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     const result = await sandbox.run({
       ticket: TICKET,
@@ -1335,7 +1354,7 @@ describe("containerSandbox.run salvage", () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1355,7 +1374,7 @@ describe("containerSandbox.run salvage", () => {
   it("says nothing about a cut-off run, and picks a branch the ordinary way, when no salvage branch is named", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1371,7 +1390,7 @@ describe("containerSandbox.run salvage", () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const held = heldAgents(2, agentCommitting(["one.txt"]));
-    const sandbox = containerSandbox(held.container);
+    const sandbox = testSandbox(held.container);
 
     const runs = Promise.all([
       sandbox.run({
@@ -1403,7 +1422,7 @@ describe("transcript", () => {
     const directory = await project();
     const seen: string[] = [];
     const foundInside: string[][] = [];
-    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+    const sandbox = testSandbox(async ({ transcriptDirectory }) => {
       seen.push(transcriptDirectory);
       // Read before anything is written into it: a directory that was never
       // created, or one reused from an earlier run, would still pass a bare
@@ -1418,10 +1437,47 @@ describe("transcript", () => {
     assert.deepEqual(foundInside[0], []);
   });
 
+  it("makes the transcript directory under transcripts/ in the manager home, not the system temp directory", async () => {
+    const directory = await project();
+    const home = await tempHome("container-sandbox-home");
+    const seen: string[] = [];
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      seen.push(transcriptDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, undefined, home);
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(path.dirname(seen[0] ?? ""), path.join(home, TRANSCRIPTS_DIRECTORY));
+  });
+
+  it("keeps transcripts under MANAGER_HOME by default, when no home is given", async () => {
+    const directory = await project();
+    const seen: string[] = [];
+    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+      seen.push(transcriptDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    try {
+      await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+      assert.equal(
+        path.dirname(seen[0] ?? ""),
+        path.join(MANAGER_HOME, TRANSCRIPTS_DIRECTORY),
+      );
+    } finally {
+      await rm(path.join(MANAGER_HOME, TRANSCRIPTS_DIRECTORY), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
   it("reports the transcript a finished run's container wrote", async () => {
     const directory = await project();
     let written = "";
-    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+    const sandbox = testSandbox(async ({ transcriptDirectory }) => {
       written = await writeTranscript(transcriptDirectory);
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1441,7 +1497,7 @@ describe("transcript", () => {
       await writeTranscript(transcriptDirectory);
       return { output: "", tokensUsed: tokenCount(0) };
     });
-    const sandbox = containerSandbox(held.container);
+    const sandbox = testSandbox(held.container);
 
     const first = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const second = sandbox.run({
@@ -1463,7 +1519,7 @@ describe("transcript", () => {
   it("still gives a reviewer, mounted read-only, a writable transcript location", async () => {
     const directory = await project();
     let mount: Mount | undefined;
-    const sandbox = containerSandbox(async (options) => {
+    const sandbox = testSandbox(async (options) => {
       mount = options.mount;
       // Written, not merely asserted absolute: a reviewer's read-only clone
       // mount must not have also made this one read-only.
@@ -1484,7 +1540,7 @@ describe("transcript", () => {
   it("reports the transcript an apply-review run's container wrote", async () => {
     const { directory } = await hostedProject();
     let written = "";
-    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+    const sandbox = testSandbox(async ({ transcriptDirectory }) => {
       written = await writeTranscript(transcriptDirectory);
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -1497,7 +1553,7 @@ describe("transcript", () => {
   it("reports the transcript a rebase run's container wrote", async () => {
     const { directory } = await hostedProject();
     let written = "";
-    const sandbox = containerSandbox(async ({ transcriptDirectory }) => {
+    const sandbox = testSandbox(async ({ transcriptDirectory }) => {
       written = await writeTranscript(transcriptDirectory);
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -1513,7 +1569,7 @@ describe("containerSandbox.review", () => {
     const directory = await project();
     const mounts: (Mount | undefined)[] = [];
     const seen: string[] = [];
-    const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
+    const sandbox = testSandbox(async ({ directory: mounted, mount }) => {
       seen.push(mounted);
       mounts.push(mount);
       return { output: "", tokensUsed: tokenCount(0) };
@@ -1534,7 +1590,7 @@ describe("containerSandbox.review", () => {
     const directory = await project();
     let seenModel: string | undefined;
     let seenMount: Mount | undefined;
-    const sandbox = containerSandbox(async ({ model, mount }) => {
+    const sandbox = testSandbox(async ({ model, mount }) => {
       seenModel = model;
       seenMount = mount;
       return { output: "", tokensUsed: tokenCount(0) };
@@ -1554,7 +1610,7 @@ describe("containerSandbox.review", () => {
   it("names the pull request to review, since the clone's origin can't say", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1580,7 +1636,7 @@ describe("containerSandbox.review", () => {
   it("asks for each finding posted inline, not as one aggregated comment", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1604,7 +1660,7 @@ describe("containerSandbox.review", () => {
   it("shows the reviewer the finding shape the repo host checks for, not a wording of its own", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1626,7 +1682,7 @@ describe("containerSandbox.review", () => {
   it("says the run is unattended, so the review is submitted without asking", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1651,7 +1707,7 @@ describe("containerSandbox.review", () => {
   it("forbids the reviewer from ever posting /apply-review", async () => {
     const directory = await project();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1674,7 +1730,7 @@ describe("containerSandbox.review", () => {
   it("creates no branch and leaves the checkout untouched, whatever the agent does", async () => {
     const directory = await project();
     const before = await headOf(directory);
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "",
       tokensUsed: tokenCount(0),
     }));
@@ -1691,7 +1747,7 @@ describe("containerSandbox.review", () => {
 
   it("returns the agent's own output and what the review cost", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "posted findings",
       tokensUsed: tokenCount(9_000),
     }));
@@ -1709,7 +1765,7 @@ describe("containerSandbox.review", () => {
 
   it("reports a failed agent rather than throwing", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => {
+    const sandbox = testSandbox(async () => {
       throw new Error("the agent gave up");
     });
 
@@ -1726,7 +1782,7 @@ describe("containerSandbox.review", () => {
 
   it("reports a limit refusal apart from a failed reviewer", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
@@ -1744,7 +1800,7 @@ describe("containerSandbox.review", () => {
 
   it("reports a provider failure apart from a failed reviewer", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN);
+    const sandbox = testSandbox(async () => PROVIDER_FAILED_RUN);
 
     const result = await sandbox.review({
       ticket: REVIEW_TICKET,
@@ -1761,7 +1817,7 @@ describe("containerSandbox.review", () => {
 
   it("reports a model refusal apart from a reviewer that gave up, naming the model and the CLI's words", async () => {
     const directory = await project();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: MODEL_REFUSAL_WORDS,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
@@ -1785,7 +1841,7 @@ describe("containerSandbox.review", () => {
   it("takes the clone away once the review finishes", async () => {
     const directory = await project();
     let clone = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       clone = mounted;
       return { output: "", tokensUsed: tokenCount(0) };
     });
@@ -1826,7 +1882,7 @@ describe("containerSandbox.review", () => {
     // The real container, which asks before it ever reaches docker — so this
     // needs no docker to run, and would pass the same with it.
     await assert.rejects(
-      containerSandbox().review({
+      testSandbox().review({
         ticket: REVIEW_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -1843,7 +1899,7 @@ describe("containerSandbox.review", () => {
       output: "",
       tokensUsed: tokenCount(0),
     }));
-    const sandbox = containerSandbox(held.container);
+    const sandbox = testSandbox(held.container);
 
     const both = Promise.all([
       sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
@@ -1942,7 +1998,7 @@ describe("containerSandbox.applyReview", () => {
   it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
     const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];
-    const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
+    const sandbox = testSandbox(async ({ directory: mounted, mount }) => {
       seen.push({
         mounted,
         mount,
@@ -1977,7 +2033,7 @@ describe("containerSandbox.applyReview", () => {
       const { directory, hosted, headCommit } = await hostedProject();
       await run("git", ["-C", directory, "remote", "set-url", "origin", ssh]);
       await withInsteadOf(t, "https://github.com/nadav-alon/pilot.git", hosted);
-      const sandbox = containerSandbox(
+      const sandbox = testSandbox(
         async ({ directory: mounted }) => ({
           output: await headOf(mounted),
           tokensUsed: tokenCount(0),
@@ -1994,7 +2050,7 @@ describe("containerSandbox.applyReview", () => {
   it("looks the head branch up from the ticket's own pull request", async () => {
     const { directory } = await hostedProject();
     const asked: string[] = [];
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => ({ output: "", tokensUsed: tokenCount(0) }),
       async (pullRequest) => {
         asked.push(pullRequest);
@@ -2015,7 +2071,7 @@ describe("containerSandbox.applyReview", () => {
   it("leaves the branch tracking the repo host, so the agent's plain push lands on the pull request", async () => {
     const { directory, hosted } = await hostedProject();
     let pushed = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       await identify(mounted);
       await writeFile(path.join(mounted, "applied.md"), "applied\n");
       await run("git", ["-C", mounted, "add", "."]);
@@ -2033,7 +2089,7 @@ describe("containerSandbox.applyReview", () => {
   it("fetches no branch back and creates none in the checkout, whatever the agent does", async () => {
     const { directory } = await hostedProject();
     const before = await headOf(directory);
-    const sandbox = containerSandbox(agentCommitting(["applied.md"]), headIsBranch);
+    const sandbox = testSandbox(agentCommitting(["applied.md"]), headIsBranch);
 
     await applyReviewOn(sandbox, directory);
 
@@ -2044,7 +2100,7 @@ describe("containerSandbox.applyReview", () => {
   it("names the pull request and invokes the apply-pr-review skill on it", async () => {
     const { directory } = await hostedProject();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2061,7 +2117,7 @@ describe("containerSandbox.applyReview", () => {
   it("asks the agent to push after each commit rather than once at the end", async () => {
     const { directory } = await hostedProject();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2074,7 +2130,7 @@ describe("containerSandbox.applyReview", () => {
   it("passes the model to the agent CLI", async () => {
     const { directory } = await hostedProject();
     let seen: string | undefined;
-    const sandbox = containerSandbox(async ({ model }) => {
+    const sandbox = testSandbox(async ({ model }) => {
       seen = model;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2091,7 +2147,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("returns the agent's own output and what the run cost", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "answered 3 threads",
       tokensUsed: tokenCount(9_000),
     }), headIsBranch);
@@ -2107,7 +2163,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reports a failed agent rather than throwing", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => {
+    const sandbox = testSandbox(async () => {
       throw new Error("the agent gave up");
     }, headIsBranch);
 
@@ -2124,7 +2180,7 @@ describe("containerSandbox.applyReview", () => {
       "Push rejected: the branch moved under me.",
       `Branch moved: ${MOVED_HEAD}`,
     ].join("\n");
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: report,
       tokensUsed: tokenCount(500),
     }), headIsBranch);
@@ -2141,7 +2197,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reads a moved head the agent followed with more words on the same line", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: `Branch moved: ${MOVED_HEAD} (was def5678)`,
       tokensUsed: tokenCount(0),
     }), headIsBranch);
@@ -2153,7 +2209,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "Branch moved: abc1234",
       tokensUsed: tokenCount(0),
     }), headIsBranch);
@@ -2169,7 +2225,7 @@ describe("containerSandbox.applyReview", () => {
     // The checkout sits on a stale copy of the head branch, which the clone inherits.
     await run("git", ["-C", directory, "switch", "--quiet", "--create", BRANCH]);
     let at = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       at = await headOf(mounted);
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2181,7 +2237,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reads no moved head from a line that names no commit", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "Branch moved: somewhere",
       tokensUsed: tokenCount(0),
     }), headIsBranch);
@@ -2193,7 +2249,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reports a limit refusal as a review run does", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
@@ -2210,7 +2266,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reports a provider failure as a review run does", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN, headIsBranch);
+    const sandbox = testSandbox(async () => PROVIDER_FAILED_RUN, headIsBranch);
 
     const result = await applyReviewOn(sandbox, directory);
 
@@ -2223,7 +2279,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("reports a model refusal as a review run does, naming the model and the CLI's words", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => ({
         output: MODEL_REFUSAL_WORDS,
         tokensUsed: tokenCount(0),
@@ -2253,7 +2309,7 @@ describe("containerSandbox.applyReview", () => {
   it("rejects, starting no agent, when the head branch cannot be looked up", async () => {
     const { directory } = await hostedProject();
     let started = false;
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => {
         started = true;
         return { output: "", tokensUsed: tokenCount(0) };
@@ -2273,7 +2329,7 @@ describe("containerSandbox.applyReview", () => {
   it("rejects, starting no agent, when the repo host has no such branch", async () => {
     const { directory } = await hostedProject();
     let started = false;
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => {
         started = true;
         return { output: "", tokensUsed: tokenCount(0) };
@@ -2291,7 +2347,7 @@ describe("containerSandbox.applyReview", () => {
     const { directory } = await hostedProject();
     await run("git", ["-C", directory, "remote", "set-url", "origin", "../pilot"]);
     let started = false;
-    const sandbox = containerSandbox(async () => {
+    const sandbox = testSandbox(async () => {
       started = true;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2305,7 +2361,7 @@ describe("containerSandbox.applyReview", () => {
 
   it("rejects as an infrastructure failure when the agent never ran", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => {
+    const sandbox = testSandbox(async () => {
       throw new AgentNeverRan("docker is not running");
     }, headIsBranch);
 
@@ -2318,7 +2374,7 @@ describe("containerSandbox.applyReview", () => {
   it("takes the clone away once the run ends", async () => {
     const { directory } = await hostedProject();
     let clone = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       clone = mounted;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2343,7 +2399,7 @@ describe("containerSandbox.applyReview", () => {
         `echo '${JSON.stringify({ headRefName: BRANCH, isCrossRepository: false })}'`,
       );
       let at = "";
-      const sandbox = containerSandbox(async ({ directory: mounted }) => {
+      const sandbox = testSandbox(async ({ directory: mounted }) => {
         at = await headOf(mounted);
         return { output: "", tokensUsed: tokenCount(0) };
       });
@@ -2368,7 +2424,7 @@ describe("containerSandbox.applyReview", () => {
         `echo '${JSON.stringify({ headRefName: BRANCH, isCrossRepository: true })}'`,
       );
       let started = false;
-      const sandbox = containerSandbox(async () => {
+      const sandbox = testSandbox(async () => {
         started = true;
         return { output: "", tokensUsed: tokenCount(0) };
       });
@@ -2386,7 +2442,7 @@ describe("containerSandbox.applyReview", () => {
       const { directory } = await hostedProject();
       await recordingGh(t, `echo '${JSON.stringify({ headRefName: BRANCH })}'`);
       let started = false;
-      const sandbox = containerSandbox(async () => {
+      const sandbox = testSandbox(async () => {
         started = true;
         return { output: "", tokensUsed: tokenCount(0) };
       });
@@ -2403,7 +2459,7 @@ describe("containerSandbox.applyReview", () => {
           `echo '${JSON.stringify({ headRefName, isCrossRepository: false })}'`,
         );
         let started = false;
-        const sandbox = containerSandbox(async () => {
+        const sandbox = testSandbox(async () => {
           started = true;
           return { output: "", tokensUsed: tokenCount(0) };
         });
@@ -2441,7 +2497,7 @@ describe("containerSandbox.rebase", () => {
   it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
     const seen: { mounted: string; mount: Mount; on: string; at: string }[] = [];
-    const sandbox = containerSandbox(async ({ directory: mounted, mount }) => {
+    const sandbox = testSandbox(async ({ directory: mounted, mount }) => {
       seen.push({
         mounted,
         mount,
@@ -2463,7 +2519,7 @@ describe("containerSandbox.rebase", () => {
   it("looks the head branch up from the ticket's own pull request", async () => {
     const { directory } = await hostedProject();
     const asked: string[] = [];
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => ({ output: "", tokensUsed: tokenCount(0) }),
       async (pullRequest) => {
         asked.push(pullRequest);
@@ -2479,7 +2535,7 @@ describe("containerSandbox.rebase", () => {
   it("leaves the branch tracking the repo host, so the agent's force-push lands on the pull request", async () => {
     const { directory, hosted } = await hostedProject();
     let pushed = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       await identify(mounted);
       await writeFile(path.join(mounted, "rebased.md"), "rebased\n");
       await run("git", ["-C", mounted, "add", "."]);
@@ -2499,7 +2555,7 @@ describe("containerSandbox.rebase", () => {
   it("fetches no branch back and creates none in the checkout, whatever the agent does", async () => {
     const { directory } = await hostedProject();
     const before = await headOf(directory);
-    const sandbox = containerSandbox(agentCommitting(["rebased.md"]), headIsBranch);
+    const sandbox = testSandbox(agentCommitting(["rebased.md"]), headIsBranch);
 
     await rebaseOn(sandbox, directory);
 
@@ -2510,7 +2566,7 @@ describe("containerSandbox.rebase", () => {
   it("names the pull request, invokes the rebase-pr skill on it, and says the run is unattended", async () => {
     const { directory } = await hostedProject();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2526,7 +2582,7 @@ describe("containerSandbox.rebase", () => {
   it("asks for one force-push at the end", async () => {
     const { directory } = await hostedProject();
     let asked = "";
-    const sandbox = containerSandbox(async ({ prompt }) => {
+    const sandbox = testSandbox(async ({ prompt }) => {
       asked = prompt;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2539,7 +2595,7 @@ describe("containerSandbox.rebase", () => {
   it("passes the model to the agent CLI", async () => {
     const { directory } = await hostedProject();
     let seen: string | undefined;
-    const sandbox = containerSandbox(async ({ model }) => {
+    const sandbox = testSandbox(async ({ model }) => {
       seen = model;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2557,7 +2613,7 @@ describe("containerSandbox.rebase", () => {
   it("asks the agent CLI for no model when none was given", async () => {
     const { directory } = await hostedProject();
     let seen: string | undefined = "unset";
-    const sandbox = containerSandbox(async ({ model }) => {
+    const sandbox = testSandbox(async ({ model }) => {
       seen = model;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2569,7 +2625,7 @@ describe("containerSandbox.rebase", () => {
 
   it("returns the agent's own output and what the run cost", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "rebased onto main, 1 conflict resolved",
       tokensUsed: tokenCount(9_000),
     }), headIsBranch);
@@ -2585,7 +2641,7 @@ describe("containerSandbox.rebase", () => {
 
   it("reports a failed agent rather than throwing", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => {
+    const sandbox = testSandbox(async () => {
       throw new Error("could not resolve the conflict");
     }, headIsBranch);
 
@@ -2602,7 +2658,7 @@ describe("containerSandbox.rebase", () => {
       "Push rejected: the branch moved under me.",
       `Branch moved: ${MOVED_HEAD}`,
     ].join("\n");
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: report,
       tokensUsed: tokenCount(500),
     }), headIsBranch);
@@ -2619,7 +2675,7 @@ describe("containerSandbox.rebase", () => {
 
   it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: "Branch moved: abc1234",
       tokensUsed: tokenCount(0),
     }), headIsBranch);
@@ -2632,7 +2688,7 @@ describe("containerSandbox.rebase", () => {
 
   it("reports a limit refusal as an apply-review run does", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => ({
+    const sandbox = testSandbox(async () => ({
       output: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
       failure: "Command failed: docker run",
@@ -2649,7 +2705,7 @@ describe("containerSandbox.rebase", () => {
 
   it("reports a provider failure as an apply-review run does", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => PROVIDER_FAILED_RUN, headIsBranch);
+    const sandbox = testSandbox(async () => PROVIDER_FAILED_RUN, headIsBranch);
 
     const result = await rebaseOn(sandbox, directory);
 
@@ -2662,7 +2718,7 @@ describe("containerSandbox.rebase", () => {
 
   it("reports a model refusal as an apply-review run does, naming the model and the CLI's words, told apart from a limit refusal", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => ({
         output: MODEL_REFUSAL_WORDS,
         tokensUsed: tokenCount(0),
@@ -2692,7 +2748,7 @@ describe("containerSandbox.rebase", () => {
   it("rejects, starting no agent, when the head branch cannot be looked up", async () => {
     const { directory } = await hostedProject();
     let started = false;
-    const sandbox = containerSandbox(
+    const sandbox = testSandbox(
       async () => {
         started = true;
         return { output: "", tokensUsed: tokenCount(0) };
@@ -2708,7 +2764,7 @@ describe("containerSandbox.rebase", () => {
 
   it("rejects as an infrastructure failure when the agent never ran", async () => {
     const { directory } = await hostedProject();
-    const sandbox = containerSandbox(async () => {
+    const sandbox = testSandbox(async () => {
       throw new AgentNeverRan("docker is not running");
     }, headIsBranch);
 
@@ -2718,7 +2774,7 @@ describe("containerSandbox.rebase", () => {
   it("takes the clone away once the run ends", async () => {
     const { directory } = await hostedProject();
     let clone = "";
-    const sandbox = containerSandbox(async ({ directory: mounted }) => {
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
       clone = mounted;
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
@@ -2808,7 +2864,7 @@ describe("containerSandbox with the real docker container", () => {
     withCredential(t, mount);
     const directory = await project();
     const docker = await recordingDocker(t, answer);
-    const result = await operation(containerSandbox(), directory);
+    const result = await operation(testSandbox(), directory);
     return { result, directory, docker };
   }
 
@@ -2991,7 +3047,7 @@ describe("containerSandbox with the real docker container", () => {
     });
 
     await assert.rejects(
-      containerSandbox().run({
+      testSandbox().run({
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -3099,7 +3155,7 @@ describe("containerSandbox with the real docker container", () => {
       }
     });
 
-    await containerSandbox().run({
+    await testSandbox().run({
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3653,7 +3709,7 @@ describe("containerSandbox with the real docker container", () => {
         await recordingDocker(t, dockerAnswering("", "", code));
 
         await assert.rejects(
-          containerSandbox().run({
+          testSandbox().run({
             ticket: TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -3678,7 +3734,7 @@ describe("containerSandbox with the real docker container", () => {
       });
 
       await assert.rejects(
-        containerSandbox().run({
+        testSandbox().run({
           ticket: TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -3695,7 +3751,7 @@ describe("containerSandbox with the real docker container", () => {
         const directory = await project();
         await recordingDocker(t, dockerAnswering("", "", code));
 
-        const result = await containerSandbox().run({
+        const result = await testSandbox().run({
           ticket: TICKET,
           checkout: directory,
           spendCeiling: CEILING,
