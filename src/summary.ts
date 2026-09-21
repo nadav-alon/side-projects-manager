@@ -1,5 +1,6 @@
 import type { StandDown } from "./budget-gate.ts";
 import { pullRequestResolutionPhrase } from "./close-comment.ts";
+import type { ConflictSweepOutcome, ConflictSweepRefusal } from "./conflict-sweep.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
@@ -42,6 +43,7 @@ import {
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  REBASE_COMMENT,
   REVIEWED_LABEL,
   declaredSize,
   isRebaseTicket,
@@ -110,6 +112,113 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
 }
 
 /**
+ * One project's conflict sweep activity, deduplicated across every sweep the
+ * invocation ran before a selection: the same pull request and action, met by
+ * several sweeps, appears once in the relevant list, and the same refusal
+ * appears once in `refusals`. Built by {@link conflictSweepGroups}, and read
+ * by both the summary line's short aside and the body's own section, so the
+ * two never drift apart on what counts as "changed" or "refused".
+ */
+interface ConflictSweepGroup {
+  repo: RepoSlug;
+  labelled: PullRequestUrl[];
+  unlabelled: PullRequestUrl[];
+  commented: PullRequestUrl[];
+  refusals: ConflictSweepRefusal[];
+}
+
+/** The key a refusal is deduplicated by: what it names, since a `"list"` refusal names no pull request. */
+function conflictSweepRefusalKey(
+  repo: RepoSlug,
+  refusal: ConflictSweepRefusal,
+): string {
+  return refusal.action === "list"
+    ? `${repo}|list|${refusal.error}`
+    : `${repo}|${refusal.action}|${refusal.pullRequest}|${refusal.error}`;
+}
+
+/**
+ * Every conflict sweep outcome of the invocation, grouped by project and
+ * deduplicated the way `CONTEXT.md`'s "Conflict sweep" and ADR 0007 describe:
+ * one invocation sweeps before every selection, so the same pull request and
+ * action, or the same refusal, can be met by several sweeps and is reported
+ * once. A project with nothing changed and nothing refused is left out
+ * entirely.
+ */
+function conflictSweepGroups(
+  conflictSweeps: ConflictSweepOutcome[],
+): ConflictSweepGroup[] {
+  const groups = new Map<RepoSlug, ConflictSweepGroup>();
+  const seenChanges = new Set<string>();
+  const seenRefusals = new Set<string>();
+
+  for (const outcome of conflictSweeps) {
+    let group = groups.get(outcome.repo);
+    if (group === undefined) {
+      group = { repo: outcome.repo, labelled: [], unlabelled: [], commented: [], refusals: [] };
+      groups.set(outcome.repo, group);
+    }
+
+    for (const change of outcome.changes) {
+      const key = `${outcome.repo}|${change.action}|${change.pullRequest}`;
+      if (seenChanges.has(key)) {
+        continue;
+      }
+      seenChanges.add(key);
+      switch (change.action) {
+        case "labelled":
+          group.labelled.push(change.pullRequest);
+          break;
+        case "unlabelled":
+          group.unlabelled.push(change.pullRequest);
+          break;
+        case "commented":
+          group.commented.push(change.pullRequest);
+          break;
+      }
+    }
+
+    for (const refusal of outcome.refusals) {
+      const key = conflictSweepRefusalKey(outcome.repo, refusal);
+      if (seenRefusals.has(key)) {
+        continue;
+      }
+      seenRefusals.add(key);
+      group.refusals.push(refusal);
+    }
+  }
+
+  return [...groups.values()].filter(
+    (group) =>
+      group.labelled.length > 0 ||
+      group.unlabelled.length > 0 ||
+      group.commented.length > 0 ||
+      group.refusals.length > 0,
+  );
+}
+
+/**
+ * The summary line's own short aside on conflict sweeps: present only when a
+ * sweep posted {@link REBASE_COMMENT} or was refused something, per the
+ * ticket's "the cases that need the developer's eye" — a label added or
+ * removed stays in the body alone.
+ */
+function conflictSweepAside(conflictSweeps: ConflictSweepOutcome[]): string {
+  const flagged = conflictSweepGroups(conflictSweeps).flatMap((group) => {
+    const bits = [
+      ...(group.commented.length > 0
+        ? [`posted ${REBASE_COMMENT} on ${group.commented.join(", ")}`]
+        : []),
+      ...(group.refusals.length > 0
+        ? [`refused ${group.refusals.length === 1 ? "once" : `${group.refusals.length} times`}`]
+        : []),
+    ];
+    return bits.length > 0 ? [`${group.repo} (${bits.join("; ")})`] : [];
+  });
+  return flagged.length > 0 ? ` Conflict sweep: ${flagged.join(", ")}.` : "";
+}
+
+/**
  * An error or reason, trimmed of trailing whitespace and then of at most one
  * trailing `.` it already ends with. Every call site interpolates this
  * either right before punctuation of its own, mid-sentence before more text,
@@ -136,6 +245,7 @@ export interface SummaryFacts {
   iterations: IterationOutcome[];
   standDown: InvocationStandDown | undefined;
   invocationFailure: string | undefined;
+  conflictSweeps: ConflictSweepOutcome[];
 }
 
 /** The summary in one line: the invocation's `message`, and the body's opening. */
@@ -152,7 +262,8 @@ export function summaryLine(facts: SummaryFacts): string {
 
   const passedOver = passedOverAside(projects);
   const missingLabel = missingSupertaskLabelAside(projects);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}`;
+  const sweeps = conflictSweepAside(facts.conflictSweeps);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -172,7 +283,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}`;
 }
 
 /**
@@ -244,9 +355,61 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
       ? undefined
       : attemptsSection(facts.iterations),
     waitingSection(facts.iterations, facts.projects),
+    conflictSweepSection(facts.conflictSweeps),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
+}
+
+/**
+ * One bullet per project's conflict sweep activity: a pull request labelled
+ * {@link NEEDS_REBASE_LABEL}, one that had it removed, one that had {@link
+ * REBASE_COMMENT} posted, and a refusal naming what it was trying and the
+ * error — each once, however many sweeps met it, per `conflictSweepGroups`.
+ * `undefined` when no sweep this invocation changed or was refused anything,
+ * so a morning whose sweeps found nothing renders the same body as before
+ * this section existed.
+ */
+function conflictSweepSection(
+  conflictSweeps: ConflictSweepOutcome[],
+): string | undefined {
+  const groups = conflictSweepGroups(conflictSweeps);
+  if (groups.length === 0) {
+    return undefined;
+  }
+  const lines = groups.flatMap((group) => [
+    ...(group.labelled.length === 0
+      ? []
+      : [`- ${group.repo}: labelled ${NEEDS_REBASE_LABEL} on ${group.labelled.join(", ")}`]),
+    ...(group.unlabelled.length === 0
+      ? []
+      : [`- ${group.repo}: removed ${NEEDS_REBASE_LABEL} from ${group.unlabelled.join(", ")}`]),
+    ...(group.commented.length === 0
+      ? []
+      : [`- ${group.repo}: posted ${REBASE_COMMENT} on ${group.commented.join(", ")}`]),
+    ...group.refusals.map((refusal) => conflictSweepRefusalLine(group.repo, refusal)),
+  ]);
+  return ["## Conflict sweeps", ...lines].join("\n");
+}
+
+/** One refusal a conflict sweep met, naming what it was trying and the error. */
+function conflictSweepRefusalLine(
+  repo: RepoSlug,
+  refusal: ConflictSweepRefusal,
+): string {
+  const error = withoutTrailingStop(refusal.error);
+  switch (refusal.action) {
+    case "list":
+      return `- ${repo}: could not list its open pull requests: ${error}`;
+    case "read":
+      return `- ${repo}: could not check ${refusal.pullRequest}'s mergeability: ${error}`;
+    case "label":
+      return `- ${repo}: could not label ${refusal.pullRequest} ${NEEDS_REBASE_LABEL}: ${error}`;
+    case "unlabel":
+      return `- ${repo}: could not remove ${NEEDS_REBASE_LABEL} from ${refusal.pullRequest}: ${error}`;
+    case "comment":
+      return `- ${repo}: could not post ${REBASE_COMMENT} on ${refusal.pullRequest}: ${error}`;
+  }
 }
 
 /**
