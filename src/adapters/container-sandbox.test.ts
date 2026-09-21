@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,8 +23,10 @@ import {
   AgentNeverRan,
   containerSandbox,
   dockerNeverRanMessage,
+  pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
   TICKET_GIST_TAG,
+  TRANSCRIPT_RETENTION_DAYS,
   TRANSCRIPTS_DIRECTORY,
   type Container,
   type Mount,
@@ -3783,5 +3787,78 @@ describe("dockerNeverRanMessage", () => {
     assert.match(message, /no such image/);
     assert.doesNotMatch(message, /docker run/);
     assert.doesNotMatch(message, /whole-prompt/);
+  });
+});
+
+describe("pruneOldTranscripts", () => {
+  const NOW = new Date();
+
+  /** Backdates `directory`'s modification time by `days` from `NOW`. */
+  async function age(directory: string, days: number): Promise<void> {
+    const then = new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
+    await utimes(directory, then, then);
+  }
+
+  it("removes a transcript directory last modified more than the retention period ago", async () => {
+    const home = await tempHome("prune-old");
+    const old = path.join(home, TRANSCRIPTS_DIRECTORY, "run-old");
+    await mkdir(old, { recursive: true });
+    await age(old, TRANSCRIPT_RETENTION_DAYS + 1);
+
+    await pruneOldTranscripts(NOW, home);
+
+    assert.equal(await exists(old), false);
+  });
+
+  it("keeps a transcript directory modified within the retention period", async () => {
+    const home = await tempHome("prune-old");
+    const fresh = path.join(home, TRANSCRIPTS_DIRECTORY, "run-fresh");
+    await mkdir(fresh, { recursive: true });
+    await age(fresh, TRANSCRIPT_RETENTION_DAYS - 1);
+
+    await pruneOldTranscripts(NOW, home);
+
+    assert.equal(await exists(fresh), true);
+  });
+
+  it("never touches a directory a run still in progress keeps writing to, however old its name would suggest", async () => {
+    const home = await tempHome("prune-old");
+    const inProgress = path.join(home, TRANSCRIPTS_DIRECTORY, "run-inprogress");
+    await mkdir(inProgress, { recursive: true });
+    await age(inProgress, TRANSCRIPT_RETENTION_DAYS + 5);
+    // The run itself just wrote into its own directory, the way the agent
+    // CLI does throughout a run — refreshing the directory's modification
+    // time the same instant, whatever it was before.
+    await writeFile(path.join(inProgress, "session.jsonl"), "{}");
+
+    await pruneOldTranscripts(NOW, home);
+
+    assert.equal(await exists(inProgress), true);
+  });
+
+  it("warns and carries on when a directory cannot be removed, rather than failing the invocation", async (t) => {
+    const home = await tempHome("prune-old");
+    const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
+    const stuck = path.join(transcriptsRoot, "run-stuck");
+    await mkdir(stuck, { recursive: true });
+    await age(stuck, TRANSCRIPT_RETENTION_DAYS + 1);
+    // Removing an entry needs write permission on its parent, not on itself.
+    await chmod(transcriptsRoot, 0o555);
+    t.after(() => chmod(transcriptsRoot, 0o755));
+    const warnings: string[] = [];
+    t.mock.method(console, "warn", (line: string) => {
+      warnings.push(line);
+    });
+
+    await assert.doesNotReject(pruneOldTranscripts(NOW, home));
+
+    assert.equal(await exists(stuck), true);
+    assert.ok(warnings.some((line) => line.includes(stuck)));
+  });
+
+  it("does nothing when transcripts/ does not exist yet", async () => {
+    const home = await tempHome("prune-old");
+
+    await assert.doesNotReject(pruneOldTranscripts(NOW, home));
   });
 });

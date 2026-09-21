@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -89,6 +89,57 @@ const TRANSCRIPT_MOUNT = "/home/node/.claude/projects";
 
 /** Where session transcripts are kept, as a directory under the manager home. */
 export const TRANSCRIPTS_DIRECTORY = "transcripts";
+
+/**
+ * How long a transcript directory is kept, from its last modification,
+ * before `pruneOldTranscripts` removes it.
+ */
+export const TRANSCRIPT_RETENTION_DAYS = 14;
+
+/**
+ * Removes transcript directories under `<home>/transcripts/` last modified
+ * more than `TRANSCRIPT_RETENTION_DAYS` before `now`, so the directory the
+ * durable comment on `attempt` describes as "never deleted" does not grow
+ * without bound. Meant to run once, at invocation start, before any run of
+ * the morning opens a directory of its own.
+ *
+ * Age is read from each directory's own modification time, not a name or a
+ * journal entry, so a run still in progress is never touched: `attempt` and
+ * everything it calls only ever write inside the one directory `mkdtemp`
+ * gave that run, which keeps that directory's modification time current for
+ * as long as the run keeps writing to it.
+ *
+ * A directory that cannot be removed — permissions, a file still open inside
+ * it — is warned about on stderr and left in place for the next invocation
+ * to try again; pruning is never what fails an invocation. A `transcripts/`
+ * that does not exist yet is not an error either: there is nothing to prune
+ * on a manager home that has never run a container.
+ */
+export async function pruneOldTranscripts(
+  now: Date,
+  home: string = MANAGER_HOME,
+): Promise<void> {
+  const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
+  const entries = await readdir(transcriptsRoot, { withFileTypes: true }).catch(
+    () => [],
+  );
+  const cutoffMs = now.getTime() - TRANSCRIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const directory = path.join(transcriptsRoot, entry.name);
+    const stats = await stat(directory).catch(() => undefined);
+    if (stats === undefined || stats.mtimeMs >= cutoffMs) {
+      continue;
+    }
+    await rm(directory, { recursive: true, force: true }).catch(
+      (error: unknown) => {
+        console.warn(`Left ${directory} behind: ${errorMessage(error)}`);
+      },
+    );
+  }
+}
 
 /** What one agent run in the container came back with. */
 export interface AgentRun {
