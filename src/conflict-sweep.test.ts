@@ -36,15 +36,17 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
   });
 
-  it("labels a conflicting pull request that does not carry needs-rebase", async () => {
+  it("labels a conflicting pull request that does not carry needs-rebase", async (t) => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
     ]);
     host.mergeStatus = () => "conflicting";
+    const readMergeStatus = t.mock.method(host, "readMergeStatus");
 
     const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
 
+    assert.equal(readMergeStatus.mock.callCount(), 1);
     assert.deepEqual(host.labelled, [{ pullRequest: PULL_REQUEST, label: NEEDS_REBASE }]);
     assert.deepEqual(outcome.changes, [
       { pullRequest: PULL_REQUEST, action: "labelled" },
