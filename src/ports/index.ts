@@ -11,6 +11,13 @@ export { cronMinute, isCronMinute } from "./cron-minute.ts";
 export type { CronMinute } from "./cron-minute.ts";
 export { day, isDay, localDay, localTimeOfMinute } from "./day.ts";
 export type { Day } from "./day.ts";
+export {
+  discoveryDirectory,
+  isDiscoveryDirectory,
+} from "./discovery-directory.ts";
+export type { DiscoveryDirectory } from "./discovery-directory.ts";
+export { DISCOVERY_KINDS, isDiscovery } from "./discovery.ts";
+export type { Discovery, DiscoveryKind } from "./discovery.ts";
 export { exitCode, isExitCode } from "./exit-code.ts";
 export type { ExitCode } from "./exit-code.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";

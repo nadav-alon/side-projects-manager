@@ -11,6 +11,8 @@ import type {
   Branch,
   Checkout,
   CommitSha,
+  Discovery,
+  DiscoveryDirectory,
   ModelName,
   ModelRefusal,
   PullRequestUrl,
@@ -38,8 +40,10 @@ import {
   branch,
   checkout,
   commitSha,
+  discoveryDirectory,
   isBranch,
   isCommitSha,
+  isDiscovery,
   isRemoteUrl,
   isTicketGist,
   milliseconds,
@@ -112,6 +116,21 @@ const TRANSCRIPT_MOUNT = "/home/node/.claude/projects";
 export const TRANSCRIPTS_DIRECTORY = "transcripts";
 
 /**
+ * Where the agent writes discoveries inside the container — see
+ * CONTEXT.md's "Discovery" and `promptFor`'s own instructions. `dockerCommand`
+ * mounts `RunOptions.discoveriesDirectory` here, writable whatever `Mount`
+ * the clone itself gets, so a review can file one exactly as a run can.
+ */
+const DISCOVERIES_MOUNT = "/discoveries";
+
+/**
+ * Where a run's own discoveries directory is made, as a directory under the
+ * manager home beside `TRANSCRIPTS_DIRECTORY`. Unlike a transcript, nothing
+ * keeps this once `attempt` has read it back — see `readDiscoveries`.
+ */
+export const DISCOVERIES_DIRECTORY = "discoveries";
+
+/**
  * How long a transcript directory is kept, from its last modification,
  * before `pruneOldTranscripts` removes it.
  */
@@ -142,6 +161,54 @@ export const STALL_TIMEOUT: Milliseconds = milliseconds(20 * 60 * 1000);
 const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
 
 /**
+ * Removes directories under `root` whose own last modification is older than
+ * `retention`. Shared by `pruneOldTranscripts` and `pruneOldDiscoveries`:
+ * both sweep a root of per-run directories `attempt` makes fresh with
+ * `mkdtemp`, and age is the only signal either has for "nothing is using
+ * this any more" — see `pruneOldTranscripts`'s own doc comment for why that
+ * is safe to read this way.
+ *
+ * A directory that cannot be removed — permissions, a file still open inside
+ * it — is warned about on stderr and left in place for the next invocation
+ * to try again; pruning is never what fails an invocation. A `root` that
+ * does not exist yet is not an error either: there is nothing to prune on a
+ * manager home that has never run a container. Any other failure to read the
+ * directory or a stat of one of its entries is warned about the same way a
+ * failed removal is, rather than silently pruning nothing.
+ */
+async function pruneStaleDirectories(
+  root: string,
+  retention: Milliseconds,
+  now: Date,
+): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(
+    (error: unknown) => {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        console.warn(`Could not read ${root}: ${errorMessage(error)}`);
+      }
+      return [];
+    },
+  );
+  const cutoffMs = now.getTime() - retention;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const directory = path.join(root, entry.name);
+    const stats = await stat(directory).catch((error: unknown) => {
+      if (!isErrorWithCode(error, "ENOENT")) {
+        console.warn(`Could not read ${directory}: ${errorMessage(error)}`);
+      }
+      return undefined;
+    });
+    if (stats === undefined || stats.mtimeMs >= cutoffMs) {
+      continue;
+    }
+    await removeOrWarn(directory);
+  }
+}
+
+/**
  * Removes transcript directories under `<home>/transcripts/` whose own last
  * modification is older than `TRANSCRIPT_RETENTION`, so transcripts — which
  * nothing else ever removes — do not grow the manager home without bound.
@@ -157,45 +224,39 @@ const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
  * (`../trigger-guard.ts`) serialises invocations, and this runs before any
  * run of the current invocation opens a directory, so every directory still
  * in use is minutes old, never close to the retention period.
- *
- * A directory that cannot be removed — permissions, a file still open inside
- * it — is warned about on stderr and left in place for the next invocation
- * to try again; pruning is never what fails an invocation. A `transcripts/`
- * that does not exist yet is not an error either: there is nothing to prune
- * on a manager home that has never run a container. Any other failure to
- * read the directory or a stat of one of its entries is warned about the
- * same way a failed removal is, rather than silently pruning nothing.
  */
 export async function pruneOldTranscripts(
   now: Date,
   home: string = MANAGER_HOME,
 ): Promise<void> {
-  const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
-  const entries = await readdir(transcriptsRoot, { withFileTypes: true }).catch(
-    (error: unknown) => {
-      if (!isErrorWithCode(error, "ENOENT")) {
-        console.warn(`Could not read ${transcriptsRoot}: ${errorMessage(error)}`);
-      }
-      return [];
-    },
+  await pruneStaleDirectories(
+    path.join(home, TRANSCRIPTS_DIRECTORY),
+    TRANSCRIPT_RETENTION,
+    now,
   );
-  const cutoffMs = now.getTime() - TRANSCRIPT_RETENTION;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const directory = path.join(transcriptsRoot, entry.name);
-    const stats = await stat(directory).catch((error: unknown) => {
-      if (!isErrorWithCode(error, "ENOENT")) {
-        console.warn(`Could not read ${directory}: ${errorMessage(error)}`);
-      }
-      return undefined;
-    });
-    if (stats === undefined || stats.mtimeMs >= cutoffMs) {
-      continue;
-    }
-    await removeOrWarn(directory);
-  }
+}
+
+/**
+ * Removes per-run discoveries directories under `<home>/discoveries/` whose
+ * own last modification is older than `TRANSCRIPT_RETENTION` — reused rather
+ * than a retention of its own, since a directory this stale can only mean
+ * one thing: `attempt`'s `finally` never got to remove it, because the
+ * manager process was killed mid-run. `attempt` removes its own discoveries
+ * directory once a run ends normally (see its own doc comment), so nothing
+ * this old is ever still in use; unlike a transcript, nobody ever wants to
+ * read a leaked discoveries directory back, but it still has to go so it
+ * does not grow the manager home without bound. Meant to run once, at
+ * invocation start, alongside `pruneOldTranscripts`.
+ */
+export async function pruneOldDiscoveries(
+  now: Date,
+  home: string = MANAGER_HOME,
+): Promise<void> {
+  await pruneStaleDirectories(
+    path.join(home, DISCOVERIES_DIRECTORY),
+    TRANSCRIPT_RETENTION,
+    now,
+  );
 }
 
 /** What one agent run in the container came back with. */
@@ -251,6 +312,16 @@ export interface AgentRun {
    * see `attempt`. Absent when nothing was found there.
    */
   transcript?: TranscriptPath;
+  /**
+   * What the agent filed under `RunOptions.discoveriesDirectory`, read back
+   * once the container has exited — see `attempt` and `readDiscoveries`. Set
+   * only by `attempt`, never by a `Container` implementation's own return,
+   * exactly as `transcript` is; always an array once set, empty when the
+   * agent filed none.
+   */
+  discoveries?: Discovery[];
+  /** How many files under `discoveriesDirectory` `readDiscoveries` dropped. Set only by `attempt`. */
+  discoveriesDropped?: number;
 }
 
 /**
@@ -306,6 +377,15 @@ export interface RunOptions {
    */
   transcriptDirectory: TranscriptDirectory;
   /**
+   * The host directory `dockerCommand` mounts at `DISCOVERIES_MOUNT`
+   * (`/discoveries`), writable whatever `mount` is — see CONTEXT.md's
+   * "Discovery". Made fresh per run by `attempt`, so two runs in progress at
+   * once never see each other's discoveries, and read back into the run's
+   * own outcome once the container has exited, rather than kept the way
+   * `transcriptDirectory` is.
+   */
+  discoveriesDirectory: DiscoveryDirectory;
+  /**
    * Aborted once `attempt`'s own idle watchdog (`watchForStall`) decides the
    * run has stalled — `attempt` owns the timer and calls this, `dockerContainer`
    * is what turns an abort into a dead container, by killing whatever
@@ -328,6 +408,19 @@ export interface RunOptions {
  * docker, a credential, or a network.
  */
 export type Container = (options: RunOptions) => Promise<AgentRun>;
+
+/**
+ * Where `attempt` makes a run's transcript and discoveries directories
+ * fresh, both under one manager home — see `TRANSCRIPTS_DIRECTORY` and
+ * `DISCOVERIES_DIRECTORY`. The two always travel together, derived from the
+ * same `home` in `containerSandbox` and threaded unchanged through every
+ * `*OnClone` function down to `attempt`, so they travel as one value rather
+ * than a pair of positional strings.
+ */
+interface SandboxRoots {
+  transcriptsRoot: string;
+  discoveriesRoot: string;
+}
 
 /**
  * The sandbox: one agent, in a container, on a throwaway clone of the project.
@@ -363,14 +456,17 @@ export function containerSandbox(
   pullRequestHead: PullRequestHead = ghPullRequestHead,
   home: string = MANAGER_HOME,
 ): Sandbox {
-  const transcriptsRoot = path.join(home, TRANSCRIPTS_DIRECTORY);
+  const roots: SandboxRoots = {
+    transcriptsRoot: path.join(home, TRANSCRIPTS_DIRECTORY),
+    discoveriesRoot: path.join(home, DISCOVERIES_DIRECTORY),
+  };
 
   function run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
   function run(
     request: RunRequest & { model?: undefined },
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   function run(request: RunRequest): Promise<RunOutcome> {
-    return runOnClone(container, request, transcriptsRoot);
+    return runOnClone(container, request, roots);
   }
 
   function review(
@@ -380,7 +476,7 @@ export function containerSandbox(
     request: ReviewRequest & { model?: undefined },
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   function review(request: ReviewRequest): Promise<ReviewOutcome> {
-    return reviewOnClone(container, request, transcriptsRoot);
+    return reviewOnClone(container, request, roots);
   }
 
   function applyReview(
@@ -392,7 +488,7 @@ export function containerSandbox(
   function applyReview(
     request: ApplyReviewRequest,
   ): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(container, pullRequestHead, request, transcriptsRoot);
+    return applyReviewOnClone(container, pullRequestHead, request, roots);
   }
 
   function rebase(
@@ -402,7 +498,7 @@ export function containerSandbox(
     request: RebaseRequest & { model?: undefined },
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   function rebase(request: RebaseRequest): Promise<RebaseOutcome> {
-    return rebaseOnClone(container, pullRequestHead, request, transcriptsRoot);
+    return rebaseOnClone(container, pullRequestHead, request, roots);
   }
 
   function specReview(
@@ -412,7 +508,7 @@ export function containerSandbox(
     request: SpecReviewRequest & { model?: undefined },
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
   function specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
-    return specReviewOnClone(container, request, transcriptsRoot);
+    return specReviewOnClone(container, request, roots);
   }
 
   return { run, review, applyReview, rebase, specReview };
@@ -455,7 +551,7 @@ async function withThrowawayClone<T>(
 async function runOnClone(
   container: Container,
   request: RunRequest,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -538,7 +634,7 @@ async function runOnClone(
           mount: "rw",
         },
         model,
-        transcriptsRoot,
+        roots,
       );
 
       // Set once the branch has actually reached the checkout, so a failure
@@ -592,7 +688,7 @@ async function runOnClone(
         // afterwards — reported rather than thrown, so that spend is not lost
         // to a rejection the way it would be before the agent ever started.
         // Its transcript is just as real, and named the same way.
-        return withTranscriptField(
+        return withTranscriptAndDiscoveryFields(
           {
             kind: "sandbox-failed",
             reason: errorMessage(error),
@@ -651,7 +747,8 @@ async function runOnClone(
  * that directory — and only that directory, never the durable root above it
  * — is removed before the error is rethrown rather than left behind empty; a
  * directory `findTranscript` was never even asked to look in, since the
- * caller only ever sees the thrown error.
+ * caller only ever sees the thrown error. Its discoveries directory is
+ * removed the same way, for the same reason.
  *
  * This is also where a stalled run is caught: `watchForStall` watches
  * `transcriptDir` for growth and aborts a `signal` of its own once none has
@@ -665,19 +762,35 @@ async function runOnClone(
  * `crashed`: the provider answered and then went quiet, which is the
  * provider's problem exactly as any other silence is — see CONTEXT.md's
  * "Provider failure".
+ *
+ * The discoveries directory (`DISCOVERIES_DIRECTORY`) is made fresh the same
+ * way, mounted at `DISCOVERIES_MOUNT`, and read back with `readDiscoveries`
+ * once the agent has run — whatever became of it, since a discovery filed
+ * before a gave-up or cut-off run stopped is still true (see CONTEXT.md's
+ * "Discovery"). Unlike the transcript directory, nothing keeps it once it has
+ * been read: it carries nothing a developer needs to read back off disk, so
+ * it is removed in `finally` rather than left for a retention period to
+ * catch up with.
  */
 async function attempt(
   container: Container,
   kind: RunKind,
-  options: Omit<RunOptions, "model" | "transcriptDirectory" | "signal">,
+  options: Omit<
+    RunOptions,
+    "model" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
+  >,
   model: ModelName | undefined,
-  transcriptsRoot: string,
-): Promise<AgentRun> {
+  { transcriptsRoot, discoveriesRoot }: SandboxRoots,
+): Promise<FinishedAgentRun> {
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
     await mkdtemp(
       path.join(transcriptsRoot, `${kind}-`),
     ),
+  );
+  await mkdir(discoveriesRoot, { recursive: true });
+  const discoveriesDir = discoveryDirectory(
+    await mkdtemp(path.join(discoveriesRoot, `${kind}-`)),
   );
   const controller = new AbortController();
   const watch = watchForStall(transcriptDir, controller);
@@ -685,23 +798,36 @@ async function attempt(
     const agent = await container({
       ...options,
       transcriptDirectory: transcriptDir,
+      discoveriesDirectory: discoveriesDir,
       signal: controller.signal,
       ...(model === undefined ? {} : { model }),
     });
-    return withTranscript(agent, await findTranscript(transcriptDir));
+    return finishAgentRun(
+      agent,
+      await findTranscript(transcriptDir),
+      await readDiscoveries(discoveriesDir),
+    );
   } catch (error: unknown) {
     if (error instanceof AgentNeverRan) {
       await removeOrWarn(transcriptDir);
       throw error;
     }
+    const found = await readDiscoveries(discoveriesDir);
     if (controller.signal.aborted) {
       const words = stallWords(watch.wroteTranscript());
-      return failedRun(error, transcriptDir, { failure: words, providerFailure: words });
+      return failedRun(error, transcriptDir, found, {
+        failure: words,
+        providerFailure: words,
+      });
     }
-    return failedRun(error, transcriptDir, { failure: errorMessage(error), crashed: true });
+    return failedRun(error, transcriptDir, found, {
+      failure: errorMessage(error),
+      crashed: true,
+    });
   } finally {
     controller.abort();
     await watch.stopped;
+    await removeOrWarn(discoveriesDir);
   }
 }
 
@@ -714,11 +840,13 @@ async function attempt(
 async function failedRun(
   error: unknown,
   transcriptDir: TranscriptDirectory,
+  found: DiscoveriesFound,
   extra: { failure: string; providerFailure: string } | { failure: string; crashed: true },
-): Promise<AgentRun> {
-  return withTranscript(
+): Promise<FinishedAgentRun> {
+  return finishAgentRun(
     { output: errorMessage(error), tokensUsed: tokenCount(0), ...extra },
     await findTranscript(transcriptDir),
+    found,
   );
 }
 
@@ -744,27 +872,64 @@ function stallWords(wroteTranscript: boolean): string {
     : `the run stalled: its transcript never appeared in the first ${minutes} minutes — check that the container is writing to it at all`;
 }
 
-/** `agent`, with `transcript` set from `found` when there is one to set. */
-function withTranscript(
-  agent: AgentRun,
-  found: TranscriptPath | undefined,
-): AgentRun {
-  return found === undefined ? agent : { ...agent, transcript: found };
+/** What `readDiscoveries` found under a run's discoveries directory. */
+interface DiscoveriesFound {
+  discoveries: Discovery[];
+  dropped: number;
 }
 
 /**
- * `fields`, with `transcript` added from `agent` when it found one — the one
- * spread every outcome-building function in this file repeats, so a field
- * that only ever rides alongside `agent.transcript` is written once here
- * rather than copied out at each call site.
+ * An `AgentRun` that has been through `finishAgentRun`: `discoveries` and
+ * `discoveriesDropped` are always set, never left to the `?` `AgentRun`
+ * itself carries for a `Container` implementation that never sets them.
  */
-function withTranscriptField<T extends object>(
-  fields: T,
+type FinishedAgentRun = AgentRun & {
+  discoveries: Discovery[];
+  discoveriesDropped: number;
+};
+
+/**
+ * `agent`, with `transcript` set from `transcript` when there is one, and
+ * `discoveries`/`discoveriesDropped` set from `found` — the one place a raw
+ * `AgentRun` a `Container` returned becomes the one this file's
+ * outcome-building functions read.
+ */
+function finishAgentRun(
   agent: AgentRun,
-): T & { transcript?: TranscriptPath } {
-  return agent.transcript === undefined
-    ? fields
-    : { ...fields, transcript: agent.transcript };
+  transcript: TranscriptPath | undefined,
+  found: DiscoveriesFound,
+): FinishedAgentRun {
+  return {
+    ...agent,
+    ...(transcript === undefined ? {} : { transcript }),
+    discoveries: found.discoveries,
+    discoveriesDropped: found.dropped,
+  };
+}
+
+/**
+ * `fields`, with `transcript`, `discoveries` and `discoveriesDropped` added
+ * from `agent` — the one spread every outcome-building function in this file
+ * repeats, so what only ever rides alongside `agent`'s own bookkeeping is
+ * written once here rather than copied out at each call site. `transcript`
+ * only added when `agent` found one; `discoveries` and `discoveriesDropped`
+ * are always added — `agent`'s type guarantees `finishAgentRun` has already
+ * set them.
+ */
+function withTranscriptAndDiscoveryFields<T extends object>(
+  fields: T,
+  agent: FinishedAgentRun,
+): T & {
+  transcript?: TranscriptPath;
+  discoveries: Discovery[];
+  discoveriesDropped: number;
+} {
+  return {
+    ...fields,
+    discoveries: agent.discoveries,
+    discoveriesDropped: agent.discoveriesDropped,
+    ...(agent.transcript === undefined ? {} : { transcript: agent.transcript }),
+  };
 }
 
 /**
@@ -791,6 +956,59 @@ async function findTranscript(
     }
   }
   return undefined;
+}
+
+/**
+ * The leading counter `DISCOVERY_INSTRUCTIONS` asks the agent to open a
+ * discovery's filename with, for `readDiscoveries`'s sort — names it as
+ * write order, rather than merely correlating with it the way a
+ * modification time only approximately does. A name with no leading number
+ * sorts after every numbered one, by name, so the order stays deterministic
+ * even then.
+ */
+function discoveryOrder(name: string): [number, string] {
+  const match = /^(\d+)/.exec(name);
+  return [match ? Number(match[1]) : Number.POSITIVE_INFINITY, name];
+}
+
+/**
+ * The discoveries written under `directory`, in the order they were written,
+ * and how many entries there did not carry one — see `Discovery` and
+ * `isDiscovery`, and CONTEXT.md's "Discovery". A file that is not valid
+ * JSON, or whose shape `isDiscovery` refuses, is dropped and counted rather
+ * than failing the run — and so is anything under `directory` that is not a
+ * plain file at all, a subdirectory or a symlink among them, since neither
+ * one is a discovery `isDiscovery` could ever accept.
+ */
+async function readDiscoveries(
+  directory: DiscoveryDirectory,
+): Promise<DiscoveriesFound> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    () => [],
+  );
+  const ordered = [...entries].sort((a, b) => {
+    const [aNumber, aName] = discoveryOrder(a.name);
+    const [bNumber, bName] = discoveryOrder(b.name);
+    return aNumber - bNumber || (aName < bName ? -1 : aName > bName ? 1 : 0);
+  });
+
+  const discoveries: Discovery[] = [];
+  let dropped = 0;
+  for (const entry of ordered) {
+    if (!entry.isFile()) {
+      dropped++;
+      continue;
+    }
+    const filePath = path.join(directory, entry.name);
+    const contents = await readFile(filePath, "utf8").catch(() => undefined);
+    const parsed = contents === undefined ? undefined : parse(contents);
+    if (isDiscovery(parsed)) {
+      discoveries.push({ kind: parsed.kind, title: parsed.title, body: parsed.body });
+    } else {
+      dropped++;
+    }
+  }
+  return { discoveries, dropped };
 }
 
 /**
@@ -1067,13 +1285,13 @@ function wasCutOff(ending: Ending, agent: AgentRun): boolean {
  */
 function runOutcomeOf(
   ending: Ending,
-  agent: AgentRun,
+  agent: FinishedAgentRun,
   branch: Branch,
   commits: CommitSha[],
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
-  return withTranscriptField(
+  return withTranscriptAndDiscoveryFields(
     {
       ...ending,
       ...(gist !== undefined && { gist }),
@@ -1087,10 +1305,10 @@ function runOutcomeOf(
 
 /** `endingOf`, as a review ends it: no branch or commits to carry. */
 function reviewOutcomeOf(
-  agent: AgentRun,
+  agent: FinishedAgentRun,
   model: ModelName | undefined,
 ): ReviewOutcome {
-  return withTranscriptField(
+  return withTranscriptAndDiscoveryFields(
     { ...endingOf(agent, model), tokensUsed: agent.tokensUsed },
     agent,
   );
@@ -1111,7 +1329,7 @@ async function reviewOnReadOnlyClone(
   kind: "review" | "spec-review",
   request: ReviewRequest | SpecReviewRequest,
   prompt: string,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<ReviewOutcome> {
   const { checkout: project, spendCeiling, model } = request;
 
@@ -1124,7 +1342,7 @@ async function reviewOnReadOnlyClone(
       kind,
       { directory: clone, prompt, spendCeiling, mount: "ro" },
       model,
-      transcriptsRoot,
+      roots,
     );
 
     return reviewOutcomeOf(agent, model);
@@ -1134,30 +1352,51 @@ async function reviewOnReadOnlyClone(
 async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<ReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
     "review",
     request,
     reviewPromptFor(request.ticket),
-    transcriptsRoot,
+    roots,
   );
 }
 
 async function specReviewOnClone(
   container: Container,
   request: SpecReviewRequest,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<SpecReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
     "spec-review",
     request,
     specReviewPromptFor(request.ticket),
-    transcriptsRoot,
+    roots,
   );
 }
+
+/**
+ * What every prompt tells the agent about filing a discovery — see
+ * CONTEXT.md's "Discovery". Closes `promptFor`, `reviewPromptFor`,
+ * `specReviewPromptFor`, `applyReviewPromptFor` and `rebasePromptFor` alike,
+ * so what a discovery is, where to file one and the one-suggestion limit read
+ * the same whatever kind of ticket the run is working — one wording rather
+ * than five copies to keep in step.
+ */
+const DISCOVERY_INSTRUCTIONS = [
+  "If you learn something about this ticket the developer has to act on, file a discovery: one JSON",
+  `file per discovery, written to ${DISCOVERIES_MOUNT}, named 1.json, 2.json and so on in the order`,
+  "you file them, shaped",
+  '`{"kind": "correction" | "prerequisite" | "clarification" | "suggestion", "title": "...", "body": "..."}`.',
+  "A correction says the ticket itself is wrong; a prerequisite says the work needs something nobody",
+  "ticketed — either is blocking: stop without committing further once you file one. A clarification",
+  "says the ticket is ambiguous, and how you read it; a suggestion is work worth doing that the",
+  "ticket does not cover — either is advisory: keep going. File at most one suggestion: your best,",
+  "and only one you would have acted on yourself had the ticket allowed it. Implementation detail",
+  "belongs in the commit and the pull request, never in a discovery.",
+].join(" ");
 
 /**
  * What the spec-reviewing agent is asked to do.
@@ -1202,6 +1441,7 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
     "find instead; your report is the whole of the work here.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
+    DISCOVERY_INSTRUCTIONS,
   ].join(" ");
 }
 
@@ -1299,7 +1539,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   pullRequestHead: PullRequestHead,
   request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
   promptFor: (ticket: T) => string,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
@@ -1312,7 +1552,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       kind,
       { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
       model,
-      transcriptsRoot,
+      roots,
     );
 
     return pushRejectedOutcomeOf(agent, model);
@@ -1323,7 +1563,7 @@ async function applyReviewOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<ApplyReviewOutcome> {
   return pushingRunOnClone(
     "apply-review",
@@ -1331,7 +1571,7 @@ async function applyReviewOnClone(
     pullRequestHead,
     request,
     applyReviewPromptFor,
-    transcriptsRoot,
+    roots,
   );
 }
 
@@ -1339,7 +1579,7 @@ async function rebaseOnClone(
   container: Container,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
-  transcriptsRoot: string,
+  roots: SandboxRoots,
 ): Promise<RebaseOutcome> {
   return pushingRunOnClone(
     "rebase",
@@ -1347,7 +1587,7 @@ async function rebaseOnClone(
     pullRequestHead,
     request,
     rebasePromptFor,
-    transcriptsRoot,
+    roots,
   );
 }
 
@@ -1372,7 +1612,7 @@ const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
  * request, whether the push was plain (apply-review) or forced (rebase).
  */
 function pushRejectedOutcomeOf(
-  agent: AgentRun,
+  agent: FinishedAgentRun,
   model: ModelName | undefined,
 ): ApplyReviewOutcome {
   const ending = endingOf(agent, model);
@@ -1384,7 +1624,7 @@ function pushRejectedOutcomeOf(
   ) {
     // Only a full hash is carried: an abbreviation cannot be compared with
     // the head the repo host reports. The push was rejected all the same.
-    return withTranscriptField(
+    return withTranscriptAndDiscoveryFields(
       {
         kind: "gave-up",
         output: agent.output,
@@ -1395,7 +1635,7 @@ function pushRejectedOutcomeOf(
       agent,
     );
   }
-  return withTranscriptField({ ...ending, tokensUsed: agent.tokensUsed }, agent);
+  return withTranscriptAndDiscoveryFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
 }
 
 /**
@@ -1486,6 +1726,8 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
     "If the push is rejected because the branch moved, stop, and end your report with the line",
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
+    "",
+    DISCOVERY_INSTRUCTIONS,
   ].join("\n");
 }
 
@@ -1519,6 +1761,8 @@ function rebasePromptFor(ticket: RebaseTicket): string {
     "If the push is rejected because the branch moved, stop, and end your report with the line",
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
+    "",
+    DISCOVERY_INSTRUCTIONS,
   ].join("\n");
 }
 
@@ -1564,6 +1808,7 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     "a run cut off part way should still leave reviewable progress on the",
     "branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
+    DISCOVERY_INSTRUCTIONS,
     `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
     "followed by one sentence saying what the ticket asked for — not what",
     "your diff did; the run is complete either way.",
@@ -1649,6 +1894,7 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "You post with the developer's own GitHub credential, so nothing marks a comment of yours",
     "apart from one the developer wrote. Never post a comment whose whole body is",
     "`/apply-review` — acting on this review is the developer's call, not yours.",
+    DISCOVERY_INSTRUCTIONS,
   ].join(" ");
 }
 
@@ -2086,6 +2332,7 @@ function dockerCommand(
     mount,
     model,
     transcriptDirectory,
+    discoveriesDirectory,
   }: RunOptions,
   cidFile: string,
 ): string[] {
@@ -2118,6 +2365,10 @@ function dockerCommand(
     // clone, so a reviewer's read-only mount says nothing about it.
     "--volume",
     `${transcriptDirectory}:${TRANSCRIPT_MOUNT}`,
+    // Always writable too, for the same reason: a review files a discovery
+    // exactly as a run does, even though its clone is read-only.
+    "--volume",
+    `${discoveriesDirectory}:${DISCOVERIES_MOUNT}`,
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "--env",

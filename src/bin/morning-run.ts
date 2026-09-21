@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   containerSandbox,
+  pruneOldDiscoveries,
   pruneOldTranscripts,
 } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
@@ -76,9 +77,10 @@ async function main(): Promise<void> {
   }
 
   // At invocation start, ahead of every other invocation-start step: nothing
-  // below opens a transcript directory of its own yet, so nothing this
-  // invocation is about to write can be mistaken for old.
+  // below opens a transcript or discoveries directory of its own yet, so
+  // nothing this invocation is about to write can be mistaken for old.
   await pruneOldTranscripts(systemClock.now());
+  await pruneOldDiscoveries(systemClock.now());
 
   // Before the loop rather than inside a run: a stale image fails every run it
   // starts, and whoever is watching should hear why before the first one.

@@ -23,7 +23,9 @@ import { MANAGER_HOME } from "./manager-home.ts";
 import {
   AgentNeverRan,
   containerSandbox,
+  DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,
+  pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
   STALL_TIMEOUT,
@@ -247,6 +249,44 @@ async function writeTranscript(
 }
 
 /**
+ * Writes one discovery JSON file into `discoveriesDirectory`, the way an
+ * agent would through its `/discoveries` mount.
+ */
+async function writeDiscovery(
+  discoveriesDirectory: string,
+  contents: unknown,
+  name: string,
+): Promise<string> {
+  const file = path.join(discoveriesDirectory, name);
+  await writeFile(
+    file,
+    typeof contents === "string" ? contents : JSON.stringify(contents),
+  );
+  return file;
+}
+
+/**
+ * Asserts `asked` states the four discovery kinds, the `/discoveries` path
+ * and shape, the blocking-kind rule and the one-suggestion limit —
+ * everything `DISCOVERY_INSTRUCTIONS` promises, whichever of the five
+ * entry points built the prompt. Shared rather than repeated at each: all
+ * five embed the one constant, so tightening its wording should mean
+ * editing one assertion, not five.
+ */
+function assertDiscoveryInstructions(asked: string): void {
+  assert.match(asked, /correction/);
+  assert.match(asked, /prerequisite/);
+  assert.match(asked, /clarification/);
+  assert.match(asked, /suggestion/);
+  assert.match(asked, /\/discoveries/);
+  assert.match(asked, /"kind"/);
+  assert.match(asked, /"title"/);
+  assert.match(asked, /"body"/);
+  assert.match(asked, /stop without committing further/);
+  assert.match(asked, /at most one suggestion/);
+}
+
+/**
  * Lets the real, un-mocked filesystem I/O `watchForStall`'s own poll started
  * catch up before the next assertion or `tick` — `t.mock.timers.tick` only
  * advances the virtual clock and runs due timers synchronously, so a poll's
@@ -424,6 +464,19 @@ describe("containerSandbox", () => {
 
     assert.match(asked, /Commit each behavior as its own commit.*as\s+soon as that behavior's test passes/);
     assert.match(asked, /do not push, and do\s+not open a pull request/);
+  });
+
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assertDiscoveryInstructions(asked);
   });
 
   it("asks docker for no model when the request names none", async () => {
@@ -1927,6 +1980,226 @@ describe("transcript", () => {
   });
 });
 
+describe("discoveries", () => {
+  it("hands the container a fresh, empty directory to write discoveries into", async () => {
+    const directory = await project();
+    const seen: string[] = [];
+    const foundInside: string[][] = [];
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      seen.push(discoveriesDirectory);
+      foundInside.push(await readdir(discoveriesDirectory));
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.ok(path.isAbsolute(seen[0] ?? ""));
+    assert.deepEqual(foundInside[0], []);
+  });
+
+  it("makes the discoveries directory under discoveries/ in the manager home, beside transcripts/", async () => {
+    const directory = await project();
+    const home = await tempHome("container-sandbox-home");
+    const seen: string[] = [];
+    const sandbox = containerSandbox(async ({ discoveriesDirectory }) => {
+      seen.push(discoveriesDirectory);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, undefined, home);
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(path.dirname(seen[0] ?? ""), path.join(home, DISCOVERIES_DIRECTORY));
+  });
+
+  it("carries the discoveries a finished run's agent filed, in the order it wrote them", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      // Written out of write order, on purpose: the filename's own counter,
+      // not the write itself, is what `readDiscoveries` must order by.
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "suggestion", title: "Add a retry", body: "Would have added retries myself." },
+        "2.json",
+      );
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
+        "1.json",
+      );
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.deepEqual(variant(result, "finished")?.discoveries, [
+      { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
+      { kind: "suggestion", title: "Add a retry", body: "Would have added retries myself." },
+    ]);
+    assert.equal(variant(result, "finished")?.discoveriesDropped, 0);
+  });
+
+  it("reports an empty list, not an error, when the agent filed no discoveries", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(agentCommitting([]));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.deepEqual(variant(result, "finished")?.discoveries, []);
+    assert.equal(variant(result, "finished")?.discoveriesDropped, 0);
+  });
+
+  it("drops and counts a file that is not valid JSON, and one of an unknown kind, leaving the run's outcome otherwise unchanged", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+        "1.json",
+      );
+      await writeDiscovery(discoveriesDirectory, "not json at all", "2.json");
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "observation", title: "x", body: "y" },
+        "3.json",
+      );
+      return { output: "implemented the thing", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "finished");
+    assert.deepEqual(variant(result, "finished")?.discoveries, [
+      { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+    ]);
+    assert.equal(variant(result, "finished")?.discoveriesDropped, 2);
+  });
+
+  it("drops and counts a subdirectory under the discoveries mount, rather than passing over it silently", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+        "1.json",
+      );
+      await mkdir(path.join(discoveriesDirectory, "2"));
+      return { output: "implemented the thing", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.deepEqual(variant(result, "finished")?.discoveries, [
+      { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+    ]);
+    assert.equal(variant(result, "finished")?.discoveriesDropped, 1);
+  });
+
+  it("carries discoveries filed by a run that gave up", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "prerequisite", title: "Needs a migration first", body: "The column does not exist yet." },
+        "1.json",
+      );
+      return { output: "could not proceed", tokensUsed: tokenCount(0), failure: "no permission" };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "gave-up");
+    assert.deepEqual(variant(result, "gave-up")?.discoveries, [
+      { kind: "prerequisite", title: "Needs a migration first", body: "The column does not exist yet." },
+    ]);
+  });
+
+  it("carries discoveries filed by a run that was cut off", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "correction", title: "Wrong repo", body: "This belongs in the other service." },
+        "1.json",
+      );
+      return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "limit-refused");
+    assert.deepEqual(variant(result, "limit-refused")?.discoveries, [
+      { kind: "correction", title: "Wrong repo", body: "This belongs in the other service." },
+    ]);
+  });
+
+  it("gives two runs in progress at once separate discoveries directories, neither seeing the other's", async () => {
+    const directory = await project();
+    const held = heldAgents(2, async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "suggestion", title: `Filed by ${discoveriesDirectory}`, body: "Only mine." },
+        "1.json",
+      );
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+    const sandbox = testSandbox(held.container);
+
+    const first = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const second = sandbox.run({
+      ticket: { ...TICKET, number: issueNumber(8) },
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+    await held.allInProgress;
+    held.release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    const firstTitle = variant(firstResult, "finished")?.discoveries?.[0]?.title;
+    const secondTitle = variant(secondResult, "finished")?.discoveries?.[0]?.title;
+    assert.notEqual(firstTitle, undefined);
+    assert.notEqual(secondTitle, undefined);
+    assert.notEqual(firstTitle, secondTitle);
+  });
+
+  it("still gives a reviewer, mounted read-only, a writable discoveries location", async () => {
+    const directory = await project();
+    let mount: Mount | undefined;
+    const sandbox = testSandbox(async (options) => {
+      mount = options.mount;
+      // Written, not merely asserted absolute: a reviewer's read-only clone
+      // mount must not have also made this one read-only.
+      await writeDiscovery(
+        options.discoveriesDirectory,
+        { kind: "clarification", title: "Read narrowly", body: "Only the touched module." },
+        "1.json",
+      );
+      return { output: "posted", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(mount, "ro");
+    assert.equal(variant(result, "finished")?.discoveries?.length, 1);
+  });
+
+  it("removes the discoveries directory once the run has ended", async () => {
+    const directory = await project();
+    let seen = "";
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      seen = discoveriesDirectory;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(await exists(seen), false);
+  });
+});
+
 describe("containerSandbox.review", () => {
   it("mounts a clone of its own, read-only", async () => {
     const directory = await project();
@@ -1989,6 +2262,23 @@ describe("containerSandbox.review", () => {
       new RegExp(REVIEW_TICKET.pullRequest.url.replace(/\//g, "\\/")),
     );
     assert.match(asked, /mattpocock-skills:code-review/);
+  });
+
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assertDiscoveryInstructions(asked);
   });
 
   /**
@@ -2339,6 +2629,23 @@ describe("containerSandbox.specReview", () => {
     assert.match(asked, new RegExp(`#${SPEC_REVIEW_TICKET.number}\\b`));
     assert.match(asked, /--json parent/);
     assert.match(asked, /supertask/);
+  });
+
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assertDiscoveryInstructions(asked);
   });
 
   it("tells the agent to report and stop where the ticket has no parent to review against", async () => {
@@ -2711,6 +3018,19 @@ describe("containerSandbox.applyReview", () => {
     assert.match(asked, /Push after each commit rather than once at the end/);
   });
 
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assertDiscoveryInstructions(asked);
+  });
+
   it("passes the model to the agent CLI", async () => {
     const { directory } = await hostedProject();
     let seen: string | undefined;
@@ -2742,6 +3062,8 @@ describe("containerSandbox.applyReview", () => {
       kind: "finished",
       output: "answered 3 threads",
       tokensUsed: tokenCount(9_000),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -2845,6 +3167,8 @@ describe("containerSandbox.applyReview", () => {
       kind: "limit-refused",
       words: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -2858,6 +3182,8 @@ describe("containerSandbox.applyReview", () => {
       kind: "provider-failed",
       words: PROVIDER_FAILURE_JSON_RESULT,
       tokensUsed: tokenCount(0),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -2887,6 +3213,8 @@ describe("containerSandbox.applyReview", () => {
         words: MODEL_REFUSAL_WORDS,
       },
       tokensUsed: tokenCount(0),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -3176,6 +3504,19 @@ describe("containerSandbox.rebase", () => {
     assert.match(asked, /force-push with `--force-with-lease`/);
   });
 
+  it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
+    const { directory } = await hostedProject();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await rebaseOn(sandbox, directory);
+
+    assertDiscoveryInstructions(asked);
+  });
+
   it("passes the model to the agent CLI", async () => {
     const { directory } = await hostedProject();
     let seen: string | undefined;
@@ -3220,6 +3561,8 @@ describe("containerSandbox.rebase", () => {
       kind: "finished",
       output: "rebased onto main, 1 conflict resolved",
       tokensUsed: tokenCount(9_000),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -3284,6 +3627,8 @@ describe("containerSandbox.rebase", () => {
       kind: "limit-refused",
       words: LIMIT_REFUSAL,
       tokensUsed: tokenCount(0),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -3297,6 +3642,8 @@ describe("containerSandbox.rebase", () => {
       kind: "provider-failed",
       words: PROVIDER_FAILURE_JSON_RESULT,
       tokensUsed: tokenCount(0),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -3326,6 +3673,8 @@ describe("containerSandbox.rebase", () => {
         words: MODEL_REFUSAL_WORDS,
       },
       tokensUsed: tokenCount(0),
+      discoveries: [],
+      discoveriesDropped: 0,
     });
   });
 
@@ -3430,6 +3779,11 @@ describe("containerSandbox with the real docker container", () => {
     return volumesOf(call).some((volume) =>
       volume.endsWith(":/home/node/.claude/projects"),
     );
+  }
+
+  /** Whether `call` mounts anything, writable, at the agent's discoveries location. */
+  function mountsDiscoveries(call: string[] | undefined): boolean {
+    return volumesOf(call).some((volume) => volume.endsWith(":/discoveries"));
   }
 
   /**
@@ -3780,6 +4134,36 @@ fi`;
 
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
+    assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+  });
+
+  it("mounts a fresh, writable directory at the agent's discoveries location", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.ok(mountsDiscoveries(call));
+  });
+
+  it("mounts the discoveries directory writable even for a read-only review", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({
+          ticket: REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+      "ro",
+    );
+
+    const [call] = await docker.calls();
+    assert.ok(mountsDiscoveries(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
   });
 
@@ -4598,5 +4982,44 @@ describe("pruneOldTranscripts", () => {
     await assert.doesNotReject(pruneOldTranscripts(NOW, home));
 
     assert.ok(warnings.some((line) => line.includes(transcriptsRoot)));
+  });
+});
+
+describe("pruneOldDiscoveries", () => {
+  const NOW = new Date();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  /** Backdates `directory`'s modification time by `offsetMs` from `NOW`. */
+  async function age(directory: string, offsetMs: number): Promise<void> {
+    const then = new Date(NOW.getTime() - offsetMs);
+    await utimes(directory, then, then);
+  }
+
+  it("removes a discoveries directory last modified more than the retention period ago, leaked by a manager killed mid-run", async () => {
+    const home = await tempHome("prune-old");
+    const leaked = path.join(home, DISCOVERIES_DIRECTORY, "run-old");
+    await mkdir(leaked, { recursive: true });
+    await age(leaked, TRANSCRIPT_RETENTION + DAY_MS);
+
+    await pruneOldDiscoveries(NOW, home);
+
+    assert.equal(await exists(leaked), false);
+  });
+
+  it("keeps a discoveries directory modified within the retention period", async () => {
+    const home = await tempHome("prune-old");
+    const fresh = path.join(home, DISCOVERIES_DIRECTORY, "run-fresh");
+    await mkdir(fresh, { recursive: true });
+    await age(fresh, TRANSCRIPT_RETENTION - DAY_MS);
+
+    await pruneOldDiscoveries(NOW, home);
+
+    assert.equal(await exists(fresh), true);
+  });
+
+  it("does nothing when discoveries/ does not exist yet", async () => {
+    const home = await tempHome("prune-old");
+
+    await assert.doesNotReject(pruneOldDiscoveries(NOW, home));
   });
 });

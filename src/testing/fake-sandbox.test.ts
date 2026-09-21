@@ -16,6 +16,7 @@ import {
 import type {
   ApplyReviewOutcome,
   ApplyReviewTicket,
+  Discovery,
   RebaseOutcome,
   RebaseTicket,
   ReviewTicket,
@@ -160,6 +161,35 @@ describe("FakeSandbox", () => {
       commits: [],
       output: "done",
       tokensUsed: tokenCount(0),
+    });
+  });
+
+  it("can be told what discoveries a run returns", async () => {
+    const sandbox = new FakeSandbox();
+    const worked = branch("issue-7-do-the-thing");
+    const discoveries: Discovery[] = [
+      { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
+    ];
+    sandbox.result = () => ({
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      discoveries,
+      discoveriesDropped: 2,
+    });
+
+    const run = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+
+    assert.deepEqual(run, {
+      kind: "finished",
+      branch: worked,
+      commits: [],
+      output: "done",
+      tokensUsed: tokenCount(0),
+      discoveries,
+      discoveriesDropped: 2,
     });
   });
 
