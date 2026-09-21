@@ -102,7 +102,7 @@ What a project looks like before its first run: no entry in the state document. 
 _Avoid_: unworked, new, cold
 
 **Manager home**:
-The manager's own checkout, holding the registry and the state document, both committed. Distinct from the managed location, which is where projects are cloned to.
+The manager's own checkout, holding the registry and the state document, both committed, and a gitignored `transcripts/` directory of session transcripts. Distinct from the managed location, which is where projects are cloned to.
 _Avoid_: config directory, data directory, root
 
 **Managed location**:
@@ -383,7 +383,7 @@ The repository one run happens in: cloned from the project's checkout, deleted w
 _Avoid_: workspace, worktree (it is neither), scratch directory
 
 **Session transcript**:
-The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a directory under `transcripts/` in `MANAGER_HOME` made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards. `MANAGER_HOME` rather than the system temp directory, which is not durable enough to outlive a restart.
+The agent CLI's own record of one run, written inside the container as it goes. Named in the run's own outcome, at a directory under `transcripts/` in the manager home made fresh for that run so two in progress at once never collide, and kept there once the container is gone — unlike the throwaway clone, so a run that hung or spent oddly can still be read back afterwards. Gitignored like `trigger.log` rather than committed.
 _Avoid_: log, session log, output
 
 **Harness**:
