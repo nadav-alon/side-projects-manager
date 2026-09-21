@@ -8,7 +8,9 @@ import {
   APPLY_REVIEW_COMMENT,
   DEFAULT_BUDGET,
   MergeabilityUnknown,
+  NEEDS_REBASE,
   READY_FOR_HUMAN_LABEL,
+  REBASE_COMMENT,
   REVIEWED_LABEL,
   backlogIn,
   branch,
@@ -5588,6 +5590,163 @@ describe("morningLoop", () => {
         );
       });
     });
+  });
+
+  describe("the conflict sweep", () => {
+    const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
+
+    it("labels a conflicting pull request of a non-paused project before selecting", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      ports.repoHost.mergeStatus = () => "conflicting";
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
+      ]);
+    });
+
+    it("never sweeps a paused project", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { paused: true });
+      const listOpenPullRequests = t.mock.method(ports.repoHost, "listOpenPullRequests");
+
+      await morningLoop(ports);
+
+      assert.equal(listOpenPullRequests.mock.callCount(), 0);
+    });
+
+    it("still sweeps once on an invocation in which nothing is eligible", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      ports.repoHost.mergeStatus = () => "conflicting";
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.deepEqual(ports.repoHost.labelled, [
+        { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
+      ]);
+    });
+
+    it("tells a turbo project's sweep it is turbo", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { turbo: true });
+      ports.repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      ports.repoHost.mergeStatus = () => "conflicting";
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+    });
+
+    it("does not tell a plain project's sweep it is turbo", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      ports.repoHost.mergeStatus = () => "conflicting";
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.comments, []);
+    });
+
+    it("a sweep's refusal does not stop selection or fail the invocation", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      ports.repoHost.listOpenPullRequests = async () => {
+        throw new Error("host unreachable");
+      };
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.deepEqual(
+        report.iterations.map((iteration) => iteration.ticket.number),
+        [7],
+      );
+    });
+
+    it("carries every sweep outcome into the summary", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      ports.repoHost.mergeStatus = () => "conflicting";
+
+      await morningLoop(ports);
+
+      const body = ports.tracker.summaries[0]?.body ?? "";
+      assert.match(body, /## Conflict sweeps/);
+      assert.match(
+        body,
+        new RegExp(`- ${PILOT}: labelled needs-rebase on ${PULL_REQUEST}`),
+      );
+    });
+
+    it(
+      "never runs two sweeps of the same project at the same time, even with iterations in progress",
+      HANGS,
+      async (t) => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.store.budget = {
+          ...DEFAULT_BUDGET,
+          maxConcurrentIterations: iterationLimit(2),
+        };
+        const ticket1 = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(1),
+          title: "Ticket 1",
+        });
+        const ticket2 = ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(2),
+          title: "Ticket 2",
+        });
+        ports.sandbox.hold();
+
+        let inFlight = 0;
+        let overlapped = false;
+        const list = ports.repoHost.listOpenPullRequests.bind(ports.repoHost);
+        t.mock.method(
+          ports.repoHost,
+          "listOpenPullRequests",
+          async (repo: typeof PILOT) => {
+            if (inFlight > 0) {
+              overlapped = true;
+            }
+            inFlight++;
+            try {
+              return await list(repo);
+            } finally {
+              inFlight--;
+            }
+          },
+        );
+
+        const invocation = morningLoop(ports);
+        await ports.sandbox.whenHeld(2);
+        ports.sandbox.release(ticket1);
+        ports.sandbox.release(ticket2);
+        await invocation;
+
+        assert.equal(overlapped, false);
+      },
+    );
   });
 
   /**

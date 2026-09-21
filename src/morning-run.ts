@@ -123,6 +123,7 @@ import {
   summaryTitle,
   type SummaryFacts,
 } from "./summary.ts";
+import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 
 /**
  * The one write on the tracker that `ports/issue-tracker.ts` deliberately
@@ -354,6 +355,9 @@ export async function morningLoop(
   // stays empty if the invocation never gets that far, the same as an
   // invocation that got that far but found an empty registry.
   let outcomes: ProjectOutcome[] = [];
+  // Populated from `selecting.sweeps()` alongside `outcomes`: every conflict
+  // sweep the invocation ran, one per non-paused project per selection.
+  let sweepOutcomes: ConflictSweepOutcome[] = [];
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -558,6 +562,7 @@ export async function morningLoop(
       // same partial account `iterations` already carries for the runs made
       // before it.
       outcomes = selecting.verdicts();
+      sweepOutcomes = selecting.sweeps();
       // State is written back at the end of every invocation, including one that
       // worked nothing and one whose run failed part way, so that a machine
       // which has run the loop always has a state document to read next morning.
@@ -590,8 +595,7 @@ export async function morningLoop(
     iterations,
     standDown,
     invocationFailure,
-    // TODO[#553]: carry the invocation's own conflict sweep outcomes here.
-    conflictSweeps: [],
+    conflictSweeps: sweepOutcomes,
   };
   const line = summaryLine(facts);
   const outcome = outcomeOf(iterations, standDown, invocationFailure);
