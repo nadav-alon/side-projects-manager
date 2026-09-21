@@ -7,8 +7,10 @@ import {
   NEEDS_REBASE_LABEL,
   pullRequestLabel,
   pullRequestUrl,
+  REBASE_COMMENT,
   repoSlug,
 } from "./ports/index.ts";
+import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -17,6 +19,7 @@ const NO_OPEN_ISSUES = { issues: [], truncated: false };
 
 const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
 const OTHER_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/8");
+const THIRD_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
 
 describe("conflictSweep", () => {
   it("never reads or labels a pull request whose body names no closed ticket", async (t) => {
@@ -170,6 +173,162 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome.changes, [
       { pullRequest: OTHER_PULL_REQUEST, action: "unlabelled" },
     ]);
+  });
+
+  describe("turbo", () => {
+    it("posts /rebase on a conflicting pull request with no open rebase ticket", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+
+      const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+
+      assert.deepEqual(host.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+      assert.deepEqual(outcome.changes, [
+        { pullRequest: PULL_REQUEST, action: "labelled" },
+        { pullRequest: PULL_REQUEST, action: "commented" },
+      ]);
+    });
+
+    it("never posts /rebase in a project that is not turbo", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+
+      const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
+
+      assert.deepEqual(host.comments, []);
+      assert.deepEqual(outcome.changes, [
+        { pullRequest: PULL_REQUEST, action: "labelled" },
+      ]);
+    });
+
+    it("posts nothing while an open rebase ticket is eligible for the pull request", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+      const tracker = new FakeIssueTracker();
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(2),
+        title: "Rebase #1",
+        pullRequest: { kind: "rebase", url: PULL_REQUEST },
+      });
+      const openIssues = await tracker.listOpenIssues(PILOT);
+
+      const outcome = await conflictSweep(host, PILOT, true, openIssues);
+
+      assert.deepEqual(host.comments, []);
+      assert.equal(
+        outcome.changes.some((change) => change.action === "commented"),
+        false,
+      );
+    });
+
+    it("posts nothing while the open rebase ticket was handed back to the developer", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+      const tracker = new FakeIssueTracker();
+      tracker.addIneligibleTicket(PILOT, {
+        number: issueNumber(2),
+        title: "Rebase #1",
+        pullRequest: { kind: "rebase", url: PULL_REQUEST },
+      });
+      const openIssues = await tracker.listOpenIssues(PILOT);
+
+      const outcome = await conflictSweep(host, PILOT, true, openIssues);
+
+      assert.deepEqual(host.comments, []);
+      assert.equal(
+        outcome.changes.some((change) => change.action === "commented"),
+        false,
+      );
+    });
+
+    it("posts /rebase on each of three conflicting pull requests, with no cap", async () => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+        { url: OTHER_PULL_REQUEST, labels: [], closes: issueNumber(2) },
+        { url: THIRD_PULL_REQUEST, labels: [], closes: issueNumber(3) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+
+      const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+
+      assert.deepEqual(
+        host.comments.map((comment) => comment.pullRequest),
+        [PULL_REQUEST, OTHER_PULL_REQUEST, THIRD_PULL_REQUEST],
+      );
+      assert.deepEqual(
+        outcome.changes.filter((change) => change.action === "commented"),
+        [
+          { pullRequest: PULL_REQUEST, action: "commented" },
+          { pullRequest: OTHER_PULL_REQUEST, action: "commented" },
+          { pullRequest: THIRD_PULL_REQUEST, action: "commented" },
+        ],
+      );
+    });
+
+    it("posts /rebase even when labelling the pull request was refused", async (t) => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+      t.mock.method(host, "labelPullRequest", async () => {
+        throw new Error("label does not exist");
+      });
+
+      const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+
+      assert.deepEqual(host.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+      assert.deepEqual(
+        outcome.refusals.find((refusal) => refusal.action === "label"),
+        { action: "label", pullRequest: PULL_REQUEST, error: "label does not exist" },
+      );
+      assert.deepEqual(
+        outcome.changes.find((change) => change.action === "commented"),
+        { pullRequest: PULL_REQUEST, action: "commented" },
+      );
+    });
+
+    it("records a refused comment and carries on to the next pull request", async (t) => {
+      const host = new FakeRepoHost();
+      host.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+        { url: OTHER_PULL_REQUEST, labels: [], closes: issueNumber(2) },
+      ]);
+      host.mergeStatus = () => "conflicting";
+      t.mock.method(host, "postComment", async (pullRequest: typeof PULL_REQUEST) => {
+        if (pullRequest === PULL_REQUEST) {
+          throw new Error("comment refused");
+        }
+      });
+
+      const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+
+      assert.deepEqual(
+        outcome.refusals.filter((refusal) => refusal.action === "comment"),
+        [{ action: "comment", pullRequest: PULL_REQUEST, error: "comment refused" }],
+      );
+      assert.deepEqual(
+        outcome.changes.filter((change) => change.action === "commented"),
+        [{ pullRequest: OTHER_PULL_REQUEST, action: "commented" }],
+      );
+    });
   });
 
   it("ends the project's sweep on a refused listing, without a per-pull-request refusal", async (t) => {

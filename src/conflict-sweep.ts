@@ -6,9 +6,28 @@ import type {
   RepoHost,
   RepoSlug,
 } from "./ports/index.ts";
-import { NEEDS_REBASE_LABEL, pullRequestLabel } from "./ports/index.ts";
+import {
+  isRebaseTicket,
+  NEEDS_REBASE_LABEL,
+  pullRequestLabel,
+  REBASE_COMMENT,
+} from "./ports/index.ts";
 
 const NEEDS_REBASE = pullRequestLabel(NEEDS_REBASE_LABEL);
+
+/**
+ * Whether an open issue in `openIssues` is a rebase ticket bound to
+ * `pullRequest`, whatever that issue's own labels — a rebase ticket handed
+ * back to the developer still counts, per `CONTEXT.md`'s "Conflict sweep".
+ */
+function hasOpenRebaseTicketFor(
+  openIssues: OpenIssues,
+  pullRequest: PullRequestUrl,
+): boolean {
+  return openIssues.issues.some(
+    ({ ticket }) => isRebaseTicket(ticket) && ticket.pullRequest.url === pullRequest,
+  );
+}
 
 /**
  * The one thing each candidate pull request of a sweep does: reading its
@@ -65,10 +84,18 @@ export interface ConflictSweepOutcome {
  * mergeable now, and a ticket still open finds nothing to rebase and closes
  * itself. An `"unknown"` one is left exactly as it is, for the next sweep.
  *
- * Best effort throughout: a refused read, label or unlabel is recorded in
- * the outcome and the sweep carries on with the next pull request, never
- * throwing. A refused listing is the one exception — with no list, there is
- * nothing left to sweep — and ends the project's sweep on the spot.
+ * In a turbo project, a conflicting pull request also gets {@link
+ * REBASE_COMMENT} posted on it — even when labelling it was refused — unless
+ * `openIssues` already holds an open rebase ticket bound to its url, whatever
+ * that ticket's own labels: a rebase ticket handed back to the developer
+ * still stops the sweep asking again. Every conflicting pull request gets
+ * its own: there is no cap. A project that is not turbo never posts.
+ *
+ * Best effort throughout: a refused read, label, unlabel or comment is
+ * recorded in the outcome and the sweep carries on with the next pull
+ * request, never throwing. A refused listing is the one exception — with no
+ * list, there is nothing left to sweep — and ends the project's sweep on the
+ * spot.
  */
 export async function conflictSweep(
   repoHost: RepoHost,
@@ -133,6 +160,19 @@ export async function conflictSweep(
       } catch (error) {
         refusals.push({
           action: "label",
+          pullRequest: pullRequest.url,
+          error: errorMessage(error),
+        });
+      }
+    }
+
+    if (turbo && !hasOpenRebaseTicketFor(openIssues, pullRequest.url)) {
+      try {
+        await repoHost.postComment(pullRequest.url, REBASE_COMMENT);
+        changes.push({ pullRequest: pullRequest.url, action: "commented" });
+      } catch (error) {
+        refusals.push({
+          action: "comment",
           pullRequest: pullRequest.url,
           error: errorMessage(error),
         });

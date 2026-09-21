@@ -39,6 +39,18 @@ export const DECLINED_REPLY_PREFIX = "Declined: ";
 export const APPLY_REVIEW_COMMENT = "/apply-review";
 
 /**
+ * The bare comment the conflict sweep posts on a turbo project's conflicting
+ * pull request, standing in for the developer typing `/rebase` themselves.
+ * `.github/workflows/rebase.yml` matches a comment's trimmed body against
+ * this exactly, so any marker or trailing note here would silently stop the
+ * chain — a named constant beside {@link APPLY_REVIEW_COMMENT}, for the same
+ * reason that one is named rather than spelled inline, keeps the manager's
+ * spelling and the workflow's from drifting apart unnoticed. See
+ * `CONTEXT.md`'s "Conflict sweep" and ADR 0007.
+ */
+export const REBASE_COMMENT = "/rebase";
+
+/**
  * One finding a review posts, in the shape the reviewer is told to post it
  * (`reviewPromptFor` in `container-sandbox.ts`, via {@link reviewFindingTemplate})
  * and {@link RepoHost.hasReviewFindings} checks a pull request for: an inline

@@ -123,6 +123,7 @@ export {
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
   OPEN_PULL_REQUEST_LIMIT,
+  REBASE_COMMENT,
   resolveNeedsRebase,
   REVIEW_FINDING_FIELDS,
   reviewFindingTemplate,
