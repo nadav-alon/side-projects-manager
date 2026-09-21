@@ -22,6 +22,7 @@ import type {
   RunOutcome,
   RunProviderFailed,
   Salvaged,
+  SpecReviewTicket,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -185,6 +186,7 @@ export type Iteration =
   | Reviewed
   | AppliedReview
   | Rebased
+  | SpecReviewed
   | PullRequestResolved
   | LimitRefused
   | ProviderFailed
@@ -479,6 +481,7 @@ export type IterationOutcome =
   | (Attempt<ReviewTicket> & Reviewed)
   | (Attempt<ApplyReviewTicket> & AppliedReview)
   | (Attempt<RebaseTicket> & Rebased)
+  | (Attempt<SpecReviewTicket> & SpecReviewed)
   | (Attempt<PullRequestTicket> & PullRequestResolved)
   | (Attempt & LimitRefused)
   | (Attempt & ProviderFailed)
@@ -615,6 +618,27 @@ export interface Rebased {
 export interface RebaseNotClosed {
   kind: "check-failed" | "label-failed" | "close-failed";
   error: string;
+}
+
+/**
+ * A spec review ticket's own run that finished without the agent giving up.
+ * Unlike a review, apply-review or rebase ticket's own success, this never
+ * closes the ticket: a spec review is not bound to a pull request for a
+ * `pullRequestState` check to ever resolve, and there is nowhere to post its
+ * findings but the ticket itself — so it ends in hand-back exactly as a
+ * gave-up run does, per CONTEXT.md's "Spec review ticket", with `review`'s
+ * own output as the comment. A run that gave up is `Failed` instead.
+ */
+export interface SpecReviewed {
+  kind: "spec-reviewed";
+  review: ReviewFinished;
+  /**
+   * What the run spent. Always equal to `review.tokensUsed` — duplicated
+   * here for the same reason as `Finished.tokensUsed`.
+   */
+  tokensUsed: TokenCount;
+  /** What became of the ticket's own hand-back. */
+  handedBack: HandBackRecord;
 }
 
 /**
