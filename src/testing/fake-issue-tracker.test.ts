@@ -287,6 +287,23 @@ describe("FakeIssueTracker", () => {
   });
 });
 
+describe("FakeIssueTracker.comment", () => {
+  it("records the comment and touches no label", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    await tracker.comment(ticket, "Found something while working this.");
+
+    assert.deepEqual(tracker.comments, [
+      { ticket, comment: "Found something while working this." },
+    ]);
+    assert.equal(tracker.carriesLabel(ticket, READY_FOR_AGENT_LABEL), true);
+  });
+});
+
 /** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */
 describe("FakeIssueTracker — model labels", () => {
   it("names no model for a ticket without a model label", async () => {

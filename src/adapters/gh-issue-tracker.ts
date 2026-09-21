@@ -290,6 +290,16 @@ export function ghIssueTracker(
       }
       return "handed-back";
     },
+
+    async comment(ticket: Ticket, comment: string): Promise<void> {
+      await execFileAsync("gh", [
+        "issue",
+        "comment",
+        ...issueArgs(ticket),
+        "--body",
+        comment,
+      ]);
+    },
   };
 }
 

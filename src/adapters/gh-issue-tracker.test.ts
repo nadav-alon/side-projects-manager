@@ -604,6 +604,43 @@ describe("ghIssueTracker.handBack", () => {
   });
 });
 
+describe("ghIssueTracker.comment", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const TICKET: Ticket = {
+    repo: PILOT,
+    number: issueNumber(7),
+    title: "Add the thing",
+  };
+
+  it("posts the given text on the ticket, in its own repo", async (t) => {
+    const gh = await recordingGh(t, "");
+
+    await ghIssueTracker().comment(TICKET, "Found something while working this.");
+
+    const comment = callWith(await gh.calls(), "issue", "comment");
+    assert.ok(comment, "the ticket should be commented on");
+    assert.ok(comment.includes("7"));
+    assert.equal(valueOf(comment, "--repo"), PILOT);
+    assert.equal(
+      valueOf(comment, "--body"),
+      "Found something while working this.",
+    );
+  });
+
+  it("touches no label", async (t) => {
+    const gh = await recordingGh(t, "");
+
+    await ghIssueTracker().comment(TICKET, "Found something while working this.");
+
+    const calls = await gh.calls();
+    assert.equal(callWith(calls, "--add-label"), undefined);
+    assert.equal(callWith(calls, "--remove-label"), undefined);
+    assert.equal(callWith(calls, "issue", "edit"), undefined);
+    assert.equal(callWith(calls, "issue", "close"), undefined);
+  });
+});
+
 /**
  * One issue as `gh issue list` answers for it: every field the adapter asks
  * for, filled in as a ticket with none of it — no body, sub-issues, blockers

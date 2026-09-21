@@ -50,6 +50,12 @@ export interface FakeHandback {
   comment: string;
 }
 
+/** One plain comment the fake was given, in the order it was posted. */
+export interface FakeComment {
+  ticket: Ticket;
+  comment: string;
+}
+
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
  * without what the fake works out on each listing — no `eligible`,
@@ -105,6 +111,9 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly reviewTickets: FakeReviewTicket[] = [];
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
+
+  /** Plain comments posted, in the order they were posted. */
+  readonly comments: FakeComment[] = [];
 
   /** The review tickets closed, in the order they were closed. */
   readonly closedReviewTickets: ReviewTicket[] = [];
@@ -323,6 +332,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     entry?.labels.delete(READY_FOR_AGENT_LABEL);
     entry?.labels.add(READY_FOR_HUMAN_LABEL);
     return "handed-back";
+  }
+
+  /** Records the comment. Touches no label, the way the real tracker's plain comment does. */
+  async comment(ticket: Ticket, comment: string): Promise<void> {
+    this.comments.push({ ticket, comment });
   }
 
   /**

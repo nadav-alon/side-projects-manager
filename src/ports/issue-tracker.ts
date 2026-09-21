@@ -604,6 +604,13 @@ export interface IssueTracker {
   handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome>;
 
   /**
+   * Posts `comment` on `ticket` and touches no label — the plain half of
+   * what `handBack` does atomically with a relabel, for a note that is not
+   * itself a hand-back: nothing about it is specific to a run ending.
+   */
+  comment(ticket: Ticket, comment: string): Promise<void>;
+
+  /**
    * Closes `ticket`, once its review has been posted, and takes
    * ready-for-agent off it. One of the two tickets the loop ever closes
    * itself, both pull request tickets: a review that finished needs nobody
