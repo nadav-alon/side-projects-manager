@@ -19,9 +19,35 @@ TRIGGER_SCRIPT="$REPO_DIR/src/bin/morning-run.ts"
 LOG_FILE="${SIDE_PROJECTS_MANAGER_HOME:-$REPO_DIR}/trigger.log"
 NODE_BIN="$(command -v node)"
 
+# Cron runs with PATH=/usr/bin:/bin, so a tool installed anywhere else —
+# `gh` in ~/.local/bin, say — resolves from this shell and then fails with
+# ENOENT on every firing. The line carries its own PATH instead: the
+# directory of every tool the loop shells out to, as this shell resolves it,
+# ahead of the system directories. `gh` and `git` are required; the rest are
+# included when present.
+cron_path() {
+  local tool dir dirs=()
+  for tool in gh git; do
+    if ! command -v "$tool" >/dev/null; then
+      echo "install-triggers: '$tool' is not on PATH; the loop cannot run without it." >&2
+      exit 1
+    fi
+  done
+  for tool in node gh git docker claude; do
+    command -v "$tool" >/dev/null || continue
+    dir="$(dirname "$(command -v "$tool")")"
+    [[ " ${dirs[*]-} " == *" $dir "* ]] || dirs+=("$dir")
+  done
+  for dir in /usr/local/bin /usr/bin /bin; do
+    [[ " ${dirs[*]} " == *" $dir "* ]] || dirs+=("$dir")
+  done
+  (IFS=:; echo "${dirs[*]}")
+}
+CRON_PATH="$(cron_path)"
+
 CRON_MARKER_OLD="# side-projects-manager: daily schedule (see scripts/install-triggers.sh)"
 CRON_MARKER="# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)"
-CRON_LINE="0 * * * * $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
+CRON_LINE="0 * * * * PATH=\"$CRON_PATH\" $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
 
 RC_BEGIN="# >>> side-projects-manager: logon guard >>>"
 RC_END="# <<< side-projects-manager: logon guard <<<"
