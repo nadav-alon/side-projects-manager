@@ -24,6 +24,7 @@ import {
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
+  type SpecReviewed,
 } from "./iteration-outcome.ts";
 import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
@@ -38,6 +39,7 @@ import type {
   RunFinished,
   Salvaged,
   Size,
+  SpecReviewTicket,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -548,6 +550,8 @@ function waitingSection(
       }
       case "rebased":
         return [rebasedWaitingLine(iteration)];
+      case "spec-reviewed":
+        return specReviewWaitingLine(iteration);
       // Closed outright, so nothing here waits on the developer — unless the
       // close itself failed, which leaves the ticket eligible and waiting the
       // same way a review or a rebase left open does.
@@ -778,6 +782,7 @@ function ranNothing(iteration: IterationOutcome): boolean {
       );
     case "finished":
     case "reviewed":
+    case "spec-reviewed":
     case "limit-refused":
     case "provider-failed":
     case "budget-exhausted":
@@ -862,6 +867,8 @@ function describeIteration(iteration: IterationOutcome): string {
       return `${appliedReviewSummary(iteration)}${transcriptNote(iteration.review?.transcript)}`;
     case "rebased":
       return `${rebasedSummary(iteration)}${transcriptNote(iteration.rebase?.transcript)}`;
+    case "spec-reviewed":
+      return `${specReviewSummary(iteration)}${transcriptNote(iteration.review.transcript)}`;
     case "pull-request-resolved":
       return pullRequestResolvedSummary(iteration);
     case "finished":
@@ -1089,6 +1096,45 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
     case "close-failed":
       return `${still} — ${pullRequest} no longer conflicts, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
   }
+}
+
+/** A spec review iteration, with the ticket it worked. */
+type SpecReviewedIteration = Attempt<SpecReviewTicket> & SpecReviewed;
+
+/**
+ * How a spec review ticket's iteration reads to the developer: that it ran
+ * and reported. Unlike a review, apply-review or rebase ticket's own
+ * success, a spec review never closes its ticket — its findings are the
+ * hand-back comment itself, per CONTEXT.md's "Spec review ticket" — so this
+ * names only that it ran, plus whatever `handedBackNow` says when the
+ * hand-back itself was refused.
+ */
+function specReviewSummary(iteration: SpecReviewedIteration): string {
+  const { repo, ticket, handedBack } = iteration;
+  const now =
+    handedBack.outcome === "refused"
+      ? ` ${handedBackNow(`#${ticket.number}`, handedBack)}`
+      : "";
+  return `Spec-reviewed ${repo} #${ticket.number}: its findings are on the ticket.${now}`;
+}
+
+/**
+ * The Waiting-on-you line for a spec review iteration: relabelled for a
+ * human with its findings on the ticket, or still eligible when the
+ * hand-back itself failed. Nothing when an overlapping run had already
+ * closed the ticket — left exactly as it found it.
+ */
+function specReviewWaitingLine(iteration: SpecReviewedIteration): string[] {
+  const { repo, ticket, handedBack } = iteration;
+  if (handedBack.outcome === "refused") {
+    return [stillEligibleLine(iteration)];
+  }
+  if (handedBack.outcome === "already-closed") {
+    return [];
+  }
+  return [
+    `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its findings are on the ticket`,
+  ];
 }
 
 /** A pull request ticket iteration, with the ticket it worked. */

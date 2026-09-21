@@ -23,6 +23,7 @@ import {
   type Branch,
   type ReviewTicket,
   type Size,
+  type SpecReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
@@ -260,6 +261,46 @@ function reviewInfrastructureFailure(number: number): IterationOutcome {
   };
 }
 
+function specReviewTicket(number: number): SpecReviewTicket {
+  return { repo: REPO, number: issueNumber(number), title: `Spec review ${number}`, specReview: true };
+}
+
+/** A spec review ticket's own run that finished and was handed back cleanly. */
+function specReviewedCleanly(number: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: specReviewTicket(number),
+    kind: "spec-reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
+    tokensUsed: tokenCount(500),
+    handedBack: { outcome: "handed-back" },
+  };
+}
+
+/** A spec review ticket's own run that finished, but whose own hand-back was refused. */
+function specReviewedNotHandedBack(number: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: specReviewTicket(number),
+    kind: "spec-reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
+    tokensUsed: tokenCount(500),
+    handedBack: { outcome: "refused", reason: "the tracker was unreachable" },
+  };
+}
+
+/** A spec review ticket's own run that finished on a ticket an overlapping run had already closed. */
+function specReviewedAlreadyClosed(number: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: specReviewTicket(number),
+    kind: "spec-reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
+    tokensUsed: tokenCount(500),
+    handedBack: { outcome: "already-closed" },
+  };
+}
+
 function facts(iterations: IterationOutcome[]): SummaryFacts {
   return {
     projects: [],
@@ -433,6 +474,28 @@ describe("waitingSection", () => {
       ],
     );
   });
+
+  it("relabels a finished spec review for a human, with its findings on the ticket", () => {
+    const lines = waitingLines([specReviewedCleanly(194)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #194: relabelled ready-for-human — its findings are on the ticket`,
+    ]);
+  });
+
+  it("leaves a spec review still eligible when its own hand-back was refused", () => {
+    const lines = waitingLines([specReviewedNotHandedBack(195)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #195: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+    ]);
+  });
+
+  it("renders nothing for a spec review whose ticket an overlapping run had already closed", () => {
+    const lines = waitingLines([specReviewedAlreadyClosed(196)]);
+
+    assert.deepEqual(lines, []);
+  });
 });
 
 describe("attemptsSection", () => {
@@ -505,6 +568,12 @@ describe("attemptsSection", () => {
     const lines = attemptsLines([iteration]);
 
     assert.match(lines[0] ?? "", /750,000 tokens, estimate unknown/);
+  });
+
+  it("names a spec review's own ticket, since its findings are on the ticket rather than a pull request", () => {
+    const lines = attemptsLines([specReviewedCleanly(307)]);
+
+    assert.match(lines[0] ?? "", new RegExp(`Spec-reviewed ${REPO} #307: its findings are on the ticket\\.`));
   });
 });
 
