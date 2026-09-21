@@ -1509,7 +1509,7 @@ async function runReview(
   }
 
   if (review.kind === "gave-up") {
-    return handReviewBack(ports, "review", ticket, review, review.reason);
+    return handReviewBack(ports, ticket, review, review.reason);
   }
 
   let posted: boolean;
@@ -1529,7 +1529,6 @@ async function runReview(
   if (!posted) {
     return handReviewBack(
       ports,
-      "review",
       ticket,
       review,
       `the agent ran but posted nothing to ${ticket.pullRequest.url}`,
@@ -1570,15 +1569,14 @@ async function runReview(
  */
 async function handReviewBack(
   ports: MorningLoopPorts,
-  ticketKind: "review" | "spec-review",
-  ticket: Ticket,
+  ticket: ReviewTicket | SpecReviewTicket,
   review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
   const failure: GaveUp = { kind: "gave-up", reason };
   const handedBack = await handBack(ports, ticket, {
     ...failure,
-    ticketKind,
+    ticketKind: ticketKind(ticket),
     output: review.output,
     ...transcriptField(review.transcript),
   });
@@ -1641,7 +1639,7 @@ async function runSpecReview(
     return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
   }
   if (review.kind === "gave-up") {
-    return handReviewBack(ports, "spec-review", ticket, review, review.reason);
+    return handReviewBack(ports, ticket, review, review.reason);
   }
 
   const handedBack = await handBack(ports, ticket, {

@@ -530,6 +530,17 @@ export type TicketKind = (typeof TICKET_KINDS)[number];
  * else a spec review where it carries the spec review label, else an
  * implementation.
  */
+export function ticketKind<T extends Ticket>(
+  ticket: T,
+): T extends ReviewTicket
+  ? "review"
+  : T extends ApplyReviewTicket
+    ? "apply-review"
+    : T extends RebaseTicket
+      ? "rebase"
+      : T extends SpecReviewTicket
+        ? "spec-review"
+        : TicketKind;
 export function ticketKind(ticket: Ticket): TicketKind {
   if (ticket.pullRequest !== undefined) {
     return ticket.pullRequest.kind;
