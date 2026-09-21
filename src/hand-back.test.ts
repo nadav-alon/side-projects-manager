@@ -14,7 +14,7 @@ import {
   transcriptPath,
   type Ticket,
 } from "./ports/index.ts";
-import { FakeIssueTracker, FakeRepoHost } from "./testing/index.ts";
+import { endsWithTranscript, FakeIssueTracker, FakeRepoHost } from "./testing/index.ts";
 
 const REPO = repoSlug("nadav-alon/pilot");
 const CHECKOUT = checkout(`${FakeRepoHost.MANAGED_LOCATION}/${REPO}`);
@@ -201,7 +201,7 @@ describe("handBack", () => {
 
       assert.match(
         tracker.handbacks[0]?.comment ?? "",
-        new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+        endsWithTranscript(TRANSCRIPT),
       );
     });
 
@@ -248,7 +248,7 @@ describe("handBack", () => {
 
     assert.match(
       tracker.handbacks[0]?.comment ?? "",
-      new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+      endsWithTranscript(TRANSCRIPT),
     );
   });
 
@@ -286,7 +286,7 @@ describe("handBack", () => {
 
     assert.match(
       tracker.handbacks[0]?.comment ?? "",
-      new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+      endsWithTranscript(TRANSCRIPT),
     );
   });
 
@@ -322,7 +322,7 @@ describe("handBack", () => {
 
     assert.match(
       tracker.handbacks[0]?.comment ?? "",
-      new RegExp(`Transcript: \`${TRANSCRIPT}\`\\.$`),
+      endsWithTranscript(TRANSCRIPT),
     );
   });
 
