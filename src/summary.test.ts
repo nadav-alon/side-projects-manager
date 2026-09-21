@@ -21,6 +21,7 @@ import {
   type ApplyReviewTicket,
   type Branch,
   type ReviewTicket,
+  type Size,
   type Ticket,
 } from "./ports/index.ts";
 import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
@@ -72,25 +73,56 @@ function applyReviewTicket(number: number): ApplyReviewTicket {
   return { repo: REPO, number: issueNumber(number), title: `Apply review ${number}`, pullRequest: { kind: "apply-review", url: PULL_REQUEST } };
 }
 
-/** A finished run that opened a pull request and queued `reviewNumber` to review it. */
-function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOutcome {
-  const finished: Finished = {
+/** A finished run's own outcome, spending `tokensUsed` on `branchName`, with `handover` if given one. */
+function finishedRun(
+  tokensUsed: number,
+  branchName: string,
+  handover?: Finished["handover"],
+): Finished {
+  return {
     kind: "finished",
     run: {
       kind: "finished",
-      branch: branch("agent/171"),
+      branch: branch(branchName),
       commits: [commitSha("a".repeat(40))],
-      tokensUsed: tokenCount(1000),
+      tokensUsed: tokenCount(tokensUsed),
       output: "done",
     },
-    tokensUsed: tokenCount(1000),
-    handover: {
-      pullRequest: PULL_REQUEST,
-      reviewTicket: reviewTicket(reviewNumber),
-    },
+    tokensUsed: tokenCount(tokensUsed),
+    ...(handover === undefined ? {} : { handover }),
     handedBack: { outcome: "handed-back" },
   };
-  return { repo: REPO, ticket, ...finished };
+}
+
+/** A finished run that opened a pull request and queued `reviewNumber` to review it. */
+function finishedWithHandover(ticket: Ticket, reviewNumber: number): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket,
+    ...finishedRun(1000, "agent/171", {
+      pullRequest: PULL_REQUEST,
+      reviewTicket: reviewTicket(reviewNumber),
+    }),
+  };
+}
+
+/** A finished run with no handover, spending `tokensUsed` against `estimateCharged`. */
+function finishedSpending(
+  ticket: Ticket,
+  tokensUsed: number,
+  estimateCharged: number,
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket,
+    estimateCharged: tokenCount(estimateCharged),
+    ...finishedRun(tokensUsed, "agent/900"),
+  };
+}
+
+/** `implementationTicket(number)`, declaring `size` as its size label. */
+function sizedTicket(number: number, size: Size): Ticket {
+  return { ...implementationTicket(number), sizeLabel: { kind: "declared", size } };
 }
 
 /** A review ticket's own run that finished and closed its ticket cleanly. */
@@ -121,6 +153,17 @@ function reviewedButNotLabelled(number: number): IterationOutcome {
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
     notLabelled: { error: "the label already existed with different case" },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
+/** A turbo project's review ticket that closed cleanly but whose apply-review comment was refused. */
+function reviewedButNotCommented(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    notCommented: { error: "the pull request is locked" },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
@@ -209,17 +252,30 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
   };
 }
 
-function waitingLines(iterations: IterationOutcome[]): string[] {
+/** The bullet lines of the section starting at `marker`, cut off at `until` if given. */
+function sectionLines(
+  iterations: IterationOutcome[],
+  marker: string,
+  until?: string,
+): string[] {
   const body = summaryBody(facts(iterations), "line");
-  const marker = "## Waiting on you";
   const index = body.indexOf(marker);
   if (index === -1) {
     return [];
   }
-  return body
-    .slice(index + marker.length)
+  const rest = body.slice(index + marker.length);
+  const end = until === undefined ? -1 : rest.indexOf(until);
+  return (end === -1 ? rest : rest.slice(0, end))
     .split("\n")
     .filter((line) => line.startsWith("- "));
+}
+
+function waitingLines(iterations: IterationOutcome[]): string[] {
+  return sectionLines(iterations, "## Waiting on you");
+}
+
+function attemptsLines(iterations: IterationOutcome[]): string[] {
+  return sectionLines(iterations, "## Attempts", "## Waiting on you");
 }
 
 describe("waitingSection", () => {
@@ -311,6 +367,18 @@ describe("waitingSection", () => {
     ]);
   });
 
+  it("renders both the handover's reviewed line and its own waiting line, when a turbo review's comment was refused", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(185), 186),
+      reviewedButNotCommented(186),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`,
+      `- ${REPO} #186: ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself`,
+    ]);
+  });
+
   it("lists an applied-review iteration under waiting on you when its pull request could not be labelled, alongside its ready-for-review line", () => {
     const lines = waitingLines([appliedReviewButNotLabelled(184)]);
 
@@ -349,6 +417,112 @@ describe("waitingSection", () => {
   });
 });
 
+describe("attemptsSection", () => {
+  it("shows tokens spent beside the run estimate with no flag when under it", () => {
+    const lines = attemptsLines([finishedSpending(implementationTicket(300), 1_400_000, 2_000_000)]);
+
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] ?? "", /1,400,000 \/ 2,000,000 tokens/);
+    assert.doesNotMatch(lines[0] ?? "", /over its/);
+  });
+
+  it("shows no flag when the run landed exactly on its estimate", () => {
+    const lines = attemptsLines([finishedSpending(implementationTicket(301), 2_000_000, 2_000_000)]);
+
+    assert.doesNotMatch(lines[0] ?? "", /over its/);
+  });
+
+  it("flags a run that spent past its estimate, naming its declared size", () => {
+    const lines = attemptsLines([finishedSpending(sizedTicket(302, "S"), 600_000, 500_000)]);
+
+    assert.match(lines[0] ?? "", /600,000 \/ 500,000 tokens, over its S estimate/);
+  });
+
+  it("names the flag unsized when the over-estimate ticket carries no size label", () => {
+    const lines = attemptsLines([finishedSpending(implementationTicket(303), 2_500_000, 2_000_000)]);
+
+    assert.match(lines[0] ?? "", /2,500,000 \/ 2,000,000 tokens, over its unsized estimate/);
+  });
+
+  it("flags a pull request ticket unsized even when it carries its own size label, since that is never counted", () => {
+    const ticket: ReviewTicket = { ...reviewTicket(304), sizeLabel: { kind: "declared", size: "XL" } };
+    const reviewed: Reviewed = {
+      kind: "reviewed",
+      review: { kind: "finished", tokensUsed: tokenCount(3_000_000), output: "posted" },
+      tokensUsed: tokenCount(3_000_000),
+    };
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket,
+      estimateCharged: tokenCount(2_000_000),
+      ...reviewed,
+    };
+
+    const lines = attemptsLines([iteration]);
+
+    assert.match(lines[0] ?? "", /over its unsized estimate/);
+  });
+
+  it("says cost unknown when nothing recorded what a failed run spent", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(305),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "handed-back" },
+    };
+
+    const lines = attemptsLines([iteration]);
+
+    assert.match(lines[0] ?? "", /cost unknown/);
+  });
+
+  it("says the estimate is unknown, rather than dropping it silently, should a worked run ever carry none", () => {
+    const iteration: IterationOutcome = {
+      repo: REPO,
+      ticket: implementationTicket(306),
+      ...finishedRun(750_000, "agent/306"),
+    };
+
+    const lines = attemptsLines([iteration]);
+
+    assert.match(lines[0] ?? "", /750,000 tokens, estimate unknown/);
+  });
+});
+
+describe("a ticket handed back for an unusable size label", () => {
+  function unusableSizeLabel(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: {
+        kind: "unusable-size-label",
+        reason: "size:XXL names no size the budget document knows",
+        labels: ["size:XXL"],
+      },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  it("says the ticket was not run and why, in the one-line summary", () => {
+    const line = summaryLine(facts([unusableSizeLabel(306)]));
+
+    assert.match(
+      line,
+      /#306 was not run, because size:XXL names no size the budget document knows\. Handed back for a human\./,
+    );
+  });
+
+  it("lists it under waiting on you, quoting its size labels — like an unusable model label", () => {
+    const lines = waitingLines([unusableSizeLabel(307)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #307: relabelled ready-for-human — fix its size label (size:XXL)`,
+    ]);
+  });
+});
+
 describe("summaryLine", () => {
   it("reads a reviewed iteration exactly as today when notLabelled is absent", () => {
     const line = summaryLine(facts([reviewedCleanly(210)]));
@@ -362,6 +536,15 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Reviewed ${REPO} #211: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself.`,
+    );
+  });
+
+  it("names the pull request and the error when a turbo review's comment was refused", () => {
+    const line = summaryLine(facts([reviewedButNotCommented(214)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO} #214: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself.`,
     );
   });
 
@@ -492,6 +675,44 @@ describe("summaryLine", () => {
 
       assert.match(line, /5-hour/);
       assert.match(line, /estimate/i);
+    });
+
+    it("shows what was used, the estimate charged, what was spendable and when it resets, for a weekly-reserve estimate-caused stand-down", () => {
+      const used = tokenCount(SPENDABLE_THIS_WEEK - 1);
+      const line = standDownLine(
+        gateStandDown({
+          reason: "weekly-reserve-estimate",
+          tokensUsed: used,
+        }),
+      );
+
+      assert.match(line, new RegExp(used.toLocaleString("en-US")));
+      assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
+      assert.match(
+        line,
+        /2,000,000 tokens charged as the run estimate/,
+      );
+      assert.match(line, /run estimate \(plus any in-progress estimates\)/);
+      assert.match(line, new RegExp(RESETS_AT.toISOString()));
+    });
+
+    it("shows what was used, the estimate charged, what was spendable and when it resets, for a 5-hour-window estimate-caused stand-down", () => {
+      const used = tokenCount(SPENDABLE_THIS_WEEK - 1);
+      const line = standDownLine(
+        gateStandDown({
+          reason: "five-hour-window-estimate",
+          tokensUsed: used,
+        }),
+      );
+
+      assert.match(line, new RegExp(used.toLocaleString("en-US")));
+      assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
+      assert.match(
+        line,
+        /2,000,000 tokens charged as the run estimate/,
+      );
+      assert.match(line, /run estimate \(plus any in-progress estimates\)/);
+      assert.match(line, new RegExp(RESETS_AT.toISOString()));
     });
   });
 

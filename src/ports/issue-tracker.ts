@@ -443,6 +443,19 @@ export function isPullRequestTicket(
   return ticket.pullRequest !== undefined;
 }
 
+/**
+ * The size `ticket` itself declares, or `undefined` where it names none: an
+ * unsized ticket, or any pull request ticket, which never inherits its
+ * parent's size, per `CONTEXT.md`'s "Size label". Resolved once here so the
+ * run estimate and the developer-facing size flag apply their own fallback
+ * to the same fact rather than to two copies of it.
+ */
+export function declaredSize(ticket: Ticket): Size | undefined {
+  return !isPullRequestTicket(ticket) && ticket.sizeLabel?.kind === "declared"
+    ? ticket.sizeLabel.size
+    : undefined;
+}
+
 /** The kinds of ticket the loop runs, each of which may have its own model. */
 export const TICKET_KINDS = [
   "implementation",

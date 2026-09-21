@@ -35,6 +35,8 @@ export {
   backlogIn,
   carriesReadyForAgent,
   carriesSupertaskLabel,
+  declaredSize,
+  discountPullRequestTickets,
   isApplyReviewTicket,
   isBlocked,
   isPullRequestTicket,
@@ -114,6 +116,7 @@ export { isRemoteUrl, remoteUrl } from "./remote-url.ts";
 export type { RemoteUrl } from "./remote-url.ts";
 export {
   APPLIED_REPLY_PREFIX,
+  APPLY_REVIEW_COMMENT,
   APPLY_REVIEW_MARKER,
   DECLINED_REPLY_PREFIX,
   isMarkedReply,

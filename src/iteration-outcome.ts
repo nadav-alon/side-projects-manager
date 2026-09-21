@@ -404,9 +404,7 @@ export interface Attempt<T extends Ticket = Ticket> {
    * The run estimate the gate's go-ahead charged for this ticket, per
    * `CONTEXT.md`'s "Run estimate". Absent from a ticket handed back ahead of
    * the gate, for its model or size labels: the gate never got a chance to
-   * charge one.
-   *
-   * TODO[#160]: read by the summary, to set a finished run's cost beside it.
+   * charge one. Read by the summary, to set a finished run's cost beside it.
    */
   estimateCharged?: TokenCount;
 }
@@ -450,6 +448,23 @@ export interface Reviewed {
    * — the ticket did close.
    */
   notLabelled?: NotLabelled;
+  /**
+   * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006) and the
+   * repo host refused `APPLY_REVIEW_COMMENT` on the pull request. Tried after
+   * the label step, whatever became of it — a refused label does not stop
+   * turbo, only a `notClosed` does — so this is absent both for a project
+   * that is not turbo and for one whose comment posted fine.
+   */
+  notCommented?: NotCommented;
+}
+
+/**
+ * Why turbo's own `APPLY_REVIEW_COMMENT` could not be posted on a review
+ * ticket's pull request, and the error that stopped it. As `NotLabelled`: a
+ * refusal here is reported rather than retried, and never reopens the ticket.
+ */
+export interface NotCommented {
+  error: string;
 }
 
 /**

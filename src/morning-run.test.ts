@@ -5,6 +5,7 @@ import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration
 import { morningLoop, type InvocationReport } from "./morning-run.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   READY_FOR_HUMAN_LABEL,
@@ -49,6 +50,7 @@ import {
   PROVIDER_FAILURE_PROSE,
   gate,
   type FakePorts,
+  type Registration,
   fakePorts,
   spent,
   verdicts,
@@ -106,8 +108,8 @@ const PULL_REQUEST = pullRequestUrl(
 );
 
 /** A review ticket, eligible like any other, naming the pull request it asks about. */
-function queued(ports: FakePorts): ReviewTicket {
-  ports.store.register(PILOT);
+function queued(ports: FakePorts, registration: Registration = {}): ReviewTicket {
+  ports.store.register(PILOT, registration);
   return ports.tracker.addEligibleTicket(PILOT, {
     number: issueNumber(42),
     title: "Review the draft pull request for #7",
@@ -1551,6 +1553,82 @@ describe("morningLoop", () => {
         outcome?.kind === "reviewed" ? outcome.notClosed : undefined,
         undefined,
       );
+    });
+
+    describe("turbo", () => {
+      it("posts the apply-review comment once a turbo project's review ticket closes", async () => {
+        const ports = fakePorts();
+        queued(ports, { turbo: true });
+        postedAFinding(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.comments, [
+          { pullRequest: PULL_REQUEST, body: APPLY_REVIEW_COMMENT },
+        ]);
+      });
+
+      it("posts nothing for a project that is not turbo", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        postedAFinding(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.comments, []);
+      });
+
+      it("posts the comment even when the reviewed label failed", async (t) => {
+        const ports = fakePorts();
+        queued(ports, { turbo: true });
+        postedAFinding(ports);
+        t.mock.method(ports.repoHost, "labelPullRequest", async () => {
+          throw new Error("label does not exist");
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.comments, [
+          { pullRequest: PULL_REQUEST, body: APPLY_REVIEW_COMMENT },
+        ]);
+      });
+
+      it("posts no comment when the review ticket could not be closed", async (t) => {
+        const ports = fakePorts();
+        queued(ports, { turbo: true });
+        postedAFinding(ports);
+        t.mock.method(ports.tracker, "closeReviewTicket", async () => {
+          throw new Error("issue is locked");
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.comments, []);
+      });
+
+      it("reports a refused comment without reopening the review ticket", async (t) => {
+        const ports = fakePorts();
+        const ticket = queued(ports, { turbo: true });
+        postedAFinding(ports);
+        t.mock.method(ports.repoHost, "postComment", async () => {
+          throw new Error("pull request is locked");
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+        const outcome = report.iterations[0];
+        assert.equal(outcome?.kind, "reviewed");
+        assert.equal(
+          outcome?.kind === "reviewed" ? outcome.notCommented?.error : undefined,
+          "pull request is locked",
+        );
+        assert.equal(
+          outcome?.kind === "reviewed" ? outcome.notClosed : undefined,
+          undefined,
+        );
+        assert.match(report.message, /pull request is locked/);
+      });
     });
 
     it("adds no label when the review ticket cannot be closed", async (t) => {
@@ -4933,8 +5011,8 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       const body = ports.tracker.summaries[0]?.body ?? "";
-      assert.match(body, /42,000 tokens/);
-      assert.match(body, /3,000 tokens/);
+      assert.match(body, /42,000 \/ 2,000,000 tokens/);
+      assert.match(body, /3,000 \/ 2,000,000 tokens/);
     });
 
     it("lists a queued review as waiting on the developer", async () => {

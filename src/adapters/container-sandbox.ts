@@ -1212,7 +1212,9 @@ function gistFrom(output: string): TicketGist | undefined {
  * The reviewer posts with the developer's own `GH_TOKEN`, so an apply-review
  * workflow watching for that comment cannot tell the reviewer's from the
  * developer's by author. Acting on the review is the developer's call, never
- * the reviewer's.
+ * the reviewer's — turbo mode (CONTEXT.md's "Turbo", ADR 0006) does not
+ * change that: it is the manager posting on the developer's standing say-so,
+ * given once in the registry rather than typed here.
  */
 function reviewPromptFor(ticket: ReviewTicket): string {
   return [

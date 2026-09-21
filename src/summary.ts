@@ -13,6 +13,7 @@ import {
   type Handover,
   type IterationOutcome,
   type NotClosed,
+  type NotCommented,
   type NotLabelled,
   type PullRequestResolved,
   type Rebased,
@@ -30,16 +31,19 @@ import type {
   ReviewTicket,
   RunFinished,
   Salvaged,
+  Size,
   Ticket,
   TokenCount,
   TranscriptPath,
 } from "./ports/index.ts";
 import {
   APPLIED_REVIEW_LABEL,
+  APPLY_REVIEW_COMMENT,
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   REVIEWED_LABEL,
+  declaredSize,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -246,20 +250,57 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
 }
 
 /**
- * One bullet per attempt this invocation made, its outcome, its cost, and the
- * model it was started on. An attempt that started no run names neither.
+ * One bullet per attempt this invocation made, its outcome, its cost beside
+ * its run estimate, and the model it was started on. An attempt that started
+ * no run names neither.
  */
 function attemptsSection(iterations: IterationOutcome[]): string {
   const lines = iterations.map((iteration) => {
     if (ranNothing(iteration)) {
       return `- ${describeIteration(iteration)} — nothing run`;
     }
-    const spent = iteration.tokensUsed;
-    const cost =
-      spent === undefined ? " — cost unknown" : ` — ${tokens(spent)} tokens`;
-    return `- ${describeIteration(iteration)}${cost} on ${iteration.model ?? "the image's model"}`;
+    return `- ${describeIteration(iteration)}${costClause(iteration)} on ${iteration.model ?? "the image's model"}`;
   });
   return ["## Attempts", ...lines].join("\n");
+}
+
+/**
+ * What a worked iteration's cost reads as: unknown when nothing recorded it,
+ * beside the run estimate the gate charged, or — when it spent past that
+ * estimate — the same, flagged with the ticket's own size label, or
+ * "unsized" where it names none, so the developer knows whether to raise the
+ * ticket's own size in the budget document or, for "unsized", the size
+ * `unsizedCountsAs` names there. Per `CONTEXT.md`'s "Run estimate": nothing
+ * here revises the estimate itself.
+ *
+ * The estimate is itself absent only for a ticket handed back ahead of the
+ * gate (`iteration-outcome.ts`'s `Attempt.estimateCharged`), which never
+ * reaches here — every iteration this is called for ran, so the gate
+ * consulted it and charged one. Said as unknown rather than silently
+ * dropped, on the chance that invariant ever stops holding.
+ */
+function costClause(iteration: IterationOutcome): string {
+  const spent = iteration.tokensUsed;
+  if (spent === undefined) {
+    return " — cost unknown";
+  }
+  const estimate = iteration.estimateCharged;
+  if (estimate === undefined) {
+    return ` — ${tokens(spent)} tokens, estimate unknown`;
+  }
+  const beside = `${tokens(spent)} / ${tokens(estimate)} tokens`;
+  return spent > estimate
+    ? ` — ${beside}, over its ${sizeFlag(iteration.ticket)} estimate`
+    : ` — ${beside}`;
+}
+
+/**
+ * The size `ticket` reads as to the developer: its own declared size, or
+ * "unsized" — never a pull request ticket's own size label, which is read
+ * but never counted, per `CONTEXT.md`'s "Size label".
+ */
+function sizeFlag(ticket: Ticket): Size | "unsized" {
+  return declaredSize(ticket) ?? "unsized";
 }
 
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
@@ -301,13 +342,19 @@ function waitingSection(
   const reviewOutcomes = workedReviewOutcomes(iterations);
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
-      case "reviewed":
+      case "reviewed": {
         if (reviewLeftOpen(iteration)) {
           return [notClosedLine(iteration, iteration.notClosed)];
         }
-        return iteration.notLabelled === undefined
-          ? []
-          : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)];
+        return [
+          ...(iteration.notLabelled === undefined
+            ? []
+            : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)]),
+          ...(iteration.notCommented === undefined
+            ? []
+            : [notCommentedLine(iteration, iteration.notCommented)]),
+        ];
+      }
       case "applied-review": {
         const waiting = appliedReviewWaitingLine(iteration);
         if (!appliedReviewNotLabelled(iteration)) {
@@ -658,13 +705,19 @@ function handbackNote(finished: Finished): string {
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, notClosed, notLabelled } = iteration;
+  const { repo, ticket, notClosed, notLabelled, notCommented } = iteration;
   switch (notClosed?.kind) {
     case undefined: {
       const posted = `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
-      return notLabelled === undefined
-        ? posted
-        : `${posted} ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
+      const labelNote =
+        notLabelled === undefined
+          ? ""
+          : ` ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
+      const commentNote =
+        notCommented === undefined
+          ? ""
+          : ` ${notCommentedNote(ticket.pullRequest.url, notCommented)}.`;
+      return `${posted}${labelNote}${commentNote}`;
     }
     case "check-failed":
       return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
@@ -701,6 +754,34 @@ function notLabelledLine(
   notLabelled: NotLabelled,
 ): string {
   return `- ${repo} #${ticket.number}: ${notLabelledNote(ticket.pullRequest.url, label, notLabelled)}`;
+}
+
+/**
+ * The sentence a turbo project's refused comment reads as, wherever it is
+ * said: read at `notCommentedLine`, and inline at the end of `reviewSummary`'s
+ * clean-outcome sentence — so a refused comment is said one way rather than
+ * in two wordings that drift apart from each other. CONTEXT.md's "Turbo",
+ * ADR 0006.
+ */
+function notCommentedNote(
+  pullRequest: PullRequestUrl,
+  { error }: NotCommented,
+): string {
+  return `${pullRequest} could not be posted ${APPLY_REVIEW_COMMENT} on: ${withoutTrailingStop(error)}; comment it yourself`;
+}
+
+/**
+ * The Waiting-on-you line for a turbo review iteration whose closed ticket's
+ * pull request could not be commented on. Read at the `reviewed` case in
+ * `waitingSection`, once it has ruled out `notClosed`: the comment is tried
+ * only after the ticket has already closed, so the two never both apply to
+ * the same iteration.
+ */
+function notCommentedLine(
+  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
+  notCommented: NotCommented,
+): string {
+  return `- ${repo} #${ticket.number}: ${notCommentedNote(ticket.pullRequest.url, notCommented)}`;
 }
 
 /** The Waiting-on-you line for a review that ran but left its ticket open. */
@@ -947,11 +1028,11 @@ function standDownReason(standDown: StandDown): string {
     case "weekly-reserve":
       return `spending more of the week would eat into the reserve (${spent} spendable this week)`;
     case "weekly-reserve-estimate":
-      return `${spent} spendable this week, but the run estimate would eat into the reserve (${estimate})`;
+      return `${spent} spendable this week, but the run estimate (plus any in-progress estimates) would eat into the reserve (${estimate})`;
     case "five-hour-window":
       return `the 5-hour window is spent (${spent})`;
     case "five-hour-window-estimate":
-      return `the 5-hour window has ${spent} spent, but the run estimate would spend the rest (${estimate})`;
+      return `the 5-hour window has ${spent} spent, but the run estimate (plus any in-progress estimates) would spend the rest (${estimate})`;
   }
 }
 
