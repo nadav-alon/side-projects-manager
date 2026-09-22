@@ -960,16 +960,27 @@ async function work(
     };
   }
   if (run.kind === "limit-refused") {
-    const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
-    return withDiscoveries(
-      cutOffRunOutcome(run, discard),
-      await routeRunDiscoveries(
-        ports.tracker,
-        selection.ticket,
-        run.discoveries,
-        run.discoveriesDropped,
-      ),
+    // Routed before the branch is salvaged: a blocking discovery is no less
+    // true for the provider having refused the run, so it hands the ticket
+    // back — discarding the branch, per CONTEXT.md's "Discard" — rather than
+    // salvaging it for a next run the ticket has already been declared wrong
+    // for. See CONTEXT.md's "Discovery" and "Hand back".
+    const routed = await routeRunDiscoveries(
+      ports.tracker,
+      selection.ticket,
+      run.discoveries,
+      run.discoveriesDropped,
     );
+    if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+      await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+      salvages.clear(selection.ticket);
+      return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
+        checkout,
+        run,
+      });
+    }
+    const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
+    return withDiscoveries(cutOffRunOutcome(run, discard), routed);
   }
   if (run.kind === "budget-exhausted") {
     // Salvaged exactly as a limit refusal's branch is — its own ceiling says
@@ -983,16 +994,25 @@ async function work(
     );
   }
   if (run.kind === "provider-failed") {
-    const discard = await discardBranch(ports.repoHost, checkout, run);
-    return withDiscoveries(
-      cutOffRunOutcome(run, discard),
-      await routeRunDiscoveries(
-        ports.tracker,
-        selection.ticket,
-        run.discoveries,
-        run.discoveriesDropped,
-      ),
+    // Routed before the branch is discarded, as a limit refusal's is above:
+    // a blocking discovery hands the ticket back rather than leaving it
+    // eligible for a later firing to select again.
+    const routed = await routeRunDiscoveries(
+      ports.tracker,
+      selection.ticket,
+      run.discoveries,
+      run.discoveriesDropped,
     );
+    if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+      await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+      salvages.clear(selection.ticket);
+      return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
+        checkout,
+        run,
+      });
+    }
+    const discard = await discardBranch(ports.repoHost, checkout, run);
+    return withDiscoveries(cutOffRunOutcome(run, discard), routed);
   }
   if (run.kind === "model-refused") {
     // A model refusal ends the ticket's run on its own terms, whatever it
@@ -1260,11 +1280,13 @@ async function handModelRefusedBack(
  * Hands a ticket back for a blocking discovery — a correction or a
  * prerequisite the run filed — per CONTEXT.md's "Discovery" and "Hand back":
  * the run's own ticket is handed back exactly as a gave-up run's is, whatever
- * the agent went on to commit or would otherwise have finished. `worked`
- * names the branch an implementation run left, so its own hand-back discards
- * it; a review, apply-review or rebase ticket's own run never creates one, so
- * `worked` is left out. `routed.crossTarget` is named on the hand-back only
- * when it is set — a pull request ticket's run, whose discoveries land on its
+ * the agent went on to commit, would otherwise have finished, or was cut off
+ * by the provider mid-run — the correction or prerequisite is no less true
+ * for the provider having run out. `worked` names the branch an
+ * implementation run left, so its own hand-back discards it; a review,
+ * apply-review or rebase ticket's own run never creates one, so `worked` is
+ * left out. `routed.crossTarget` is named on the hand-back only when it is
+ * set — a pull request ticket's run, whose discoveries land on its
  * implementation ticket rather than the ticket handed back here.
  */
 async function discoveryBlockedOutcome(
@@ -1273,7 +1295,10 @@ async function discoveryBlockedOutcome(
   routed: RoutedDiscoveries,
   tokensUsed: TokenCount,
   transcript: TranscriptPath | undefined,
-  worked?: { checkout: Checkout; run: RunFinished | RunGaveUp },
+  worked?: {
+    checkout: Checkout;
+    run: RunFinished | RunGaveUp | RunLimitRefused | RunProviderFailed;
+  },
 ): Promise<DiscoveryBlocked> {
   const { crossTarget: target } = routed;
   const handedBack = await handBack(ports, ticket, {

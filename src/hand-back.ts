@@ -172,8 +172,15 @@ export type HandBackEnding =
        * instead of the ticket handed back here.
        */
       target?: Ticket;
-      /** The branch a finished or gave-up implementation run left. Present only for an implementation ticket, the only kind with one to discard. */
-      worked?: { checkout: Checkout; run: RunFinished | RunGaveUp };
+      /**
+       * The branch a finished, gave-up or cut-off implementation run left.
+       * Present only for an implementation ticket, the only kind with one to
+       * discard.
+       */
+      worked?: {
+        checkout: Checkout;
+        run: RunFinished | RunGaveUp | RunLimitRefused | RunProviderFailed;
+      };
       transcript?: TranscriptPath;
     };
 
