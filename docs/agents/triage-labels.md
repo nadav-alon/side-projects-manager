@@ -56,7 +56,8 @@ ticket to `ready-for-agent`; the budget document is what sets the tokens each on
 
 Declares a ticket a container for its work rather than work of its own, per `CONTEXT.md`'s
 "Supertask". Applied by hand — the loop only ever reads it, never applies it itself. Triage applies
-it whenever it breaks a ticket into sub-issues, so the container reads as one from the start.
+it whenever triage itself breaks a ticket into sub-issues, so the container reads as one from the
+start — never for the pull request tickets the loop opens against a ticket.
 
 | Label       | Meaning                                                                |
 | ----------- | ----------------------------------------------------------------------- |
