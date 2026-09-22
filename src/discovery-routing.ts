@@ -145,7 +145,7 @@ export async function routeDiscoveries(
  * read off `IssueTracker.listOpenIssues` the way `selection.ts` and
  * `spec-review-sweep.ts` already read a sub-issue's parent.
  */
-export type DiscoveryTarget = { ticket: Ticket } | { error: string };
+type DiscoveryTarget = { ticket: Ticket } | { error: string };
 
 async function discoveryTargetFor(
   tracker: Pick<IssueTracker, "listOpenIssues">,
