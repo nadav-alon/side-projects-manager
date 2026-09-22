@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
+import type { DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard } from "./hand-back.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import type {
@@ -22,6 +23,7 @@ import {
   transcriptPath,
   type ApplyReviewTicket,
   type Branch,
+  type Discovery,
   type ReviewTicket,
   type Size,
   type SpecReviewTicket,
@@ -262,6 +264,41 @@ function reviewInfrastructureFailure(number: number): IterationOutcome {
   };
 }
 
+/** A discovery, correction by default, overridable to any of the four kinds. */
+function discovery(overrides: Partial<Discovery> = {}): Discovery {
+  return {
+    kind: "correction",
+    title: "The ticket names the wrong file",
+    body: "It should touch src/widget.ts, not src/gadget.ts.",
+    ...overrides,
+  };
+}
+
+/** A routing with nothing filed, dropped or refused — override whichever a test needs. */
+function routing(overrides: Partial<DiscoveryRouting> = {}): DiscoveryRouting {
+  return {
+    filed: [],
+    suggestionsDropped: 0,
+    refused: [],
+    ...overrides,
+  };
+}
+
+/** An implementation ticket's own run handed back for a blocking discovery carried by `discoveryRouting`. */
+function discoveryBlocked(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    kind: "discovery-blocked",
+    routing: discoveryRouting,
+    tokensUsed: tokenCount(500),
+    handedBack: { outcome: "handed-back" },
+  };
+}
+
 function specReviewTicket(number: number): SpecReviewTicket {
   return { repo: REPO, number: issueNumber(number), title: `Spec review ${number}`, specReview: true };
 }
@@ -447,6 +484,68 @@ describe("waitingSection", () => {
       `- ${REPO}: ${PULL_REQUEST} — ready for review`,
       `- ${REPO} #184: ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself`,
     ]);
+  });
+
+  describe("a blocking-discovery hand-back", () => {
+    it("lists the ticket under waiting on you, worded apart from a gave-up hand-back and an infrastructure failure", () => {
+      const lines = waitingLines([
+        discoveryBlocked(196, routing({
+          filed: [{ discovery: discovery(), action: "commented" }],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #196: relabelled ready-for-human — the ticket is the problem, not the run: it filed a correction`,
+      ]);
+    });
+
+    it("names the discovered ticket a prerequisite opened", () => {
+      const lines = waitingLines([
+        discoveryBlocked(197, routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite" }),
+              action: "discovered-ticket",
+              ticket: implementationTicket(201),
+            },
+          ],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #197: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as #201`,
+      ]);
+    });
+
+    it("still lists the ticket as eligible when the hand-back itself was refused, same as any other kind", () => {
+      const iteration: IterationOutcome = {
+        repo: REPO,
+        ticket: implementationTicket(202),
+        kind: "discovery-blocked",
+        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        tokensUsed: tokenCount(500),
+        handedBack: { outcome: "refused", reason: "the tracker was unreachable" },
+      };
+
+      const lines = waitingLines([iteration]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #202: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+      ]);
+    });
+
+    it("renders nothing when an overlapping run had already closed the ticket", () => {
+      const iteration: IterationOutcome = {
+        repo: REPO,
+        ticket: implementationTicket(203),
+        kind: "discovery-blocked",
+        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        tokensUsed: tokenCount(500),
+        handedBack: { outcome: "already-closed" },
+      };
+
+      assert.deepEqual(waitingLines([iteration]), []);
+    });
   });
 
   it("does not split the list in two when an infrastructure failure's reason ends in a newline", () => {
@@ -684,6 +783,68 @@ describe("summaryLine", () => {
     const line = summaryLine(facts([iteration]));
 
     assert.match(line, /the run would not start on #184/);
+  });
+
+  describe("a blocking-discovery hand-back", () => {
+    it("reads apart from a gave-up hand-back and an infrastructure failure", () => {
+      const line = summaryLine(facts([discoveryBlocked(190, routing({
+        filed: [{ discovery: discovery(), action: "commented" }],
+      }))]));
+
+      assert.match(line, /the ticket is the problem, not the run/);
+      assert.doesNotMatch(line, /the agent gave up/);
+      assert.doesNotMatch(line, /the sandbox or checkout failed/);
+    });
+
+    it("names the correction", () => {
+      const line = summaryLine(facts([discoveryBlocked(191, routing({
+        filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }],
+      }))]));
+
+      assert.match(line, /a correction/);
+    });
+
+    it("names the discovered ticket a filed prerequisite opened", () => {
+      const line = summaryLine(facts([discoveryBlocked(192, routing({
+        filed: [
+          {
+            discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+            action: "discovered-ticket",
+            ticket: implementationTicket(199),
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a prerequisite, opened as #199/);
+    });
+
+    it("names a refused blocking discovery by its kind and why, naming no ticket", () => {
+      const line = summaryLine(facts([discoveryBlocked(193, routing({
+        refused: [
+          {
+            discovery: discovery({ kind: "prerequisite" }),
+            reason: "the tracker was unreachable",
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a prerequisite the tracker refused to file: the tracker was unreachable/);
+    });
+
+    it("joins more than one blocking discovery", () => {
+      const line = summaryLine(facts([discoveryBlocked(194, routing({
+        filed: [
+          { discovery: discovery({ kind: "correction" }), action: "commented" },
+          {
+            discovery: discovery({ kind: "prerequisite" }),
+            action: "discovered-ticket",
+            ticket: implementationTicket(198),
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a correction; a prerequisite, opened as #198/);
+    });
   });
 
   /**

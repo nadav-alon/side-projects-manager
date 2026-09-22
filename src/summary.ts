@@ -5,6 +5,8 @@ import type {
   ConflictSweepOutcome,
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
+import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
+import type { DiscoveryRouting } from "./discovery-routing.ts";
 import type {
   SpecReviewSweepOutcome,
   SpecReviewSweepRefusal,
@@ -587,6 +589,47 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
   return declaredSize(ticket) ?? "unsized";
 }
 
+/**
+ * The blocking discoveries a discovery-blocked run's own `routing` carries,
+ * each as the phrase `describeIteration` and `discoveryBlockedWaitingLine`
+ * both read: a correction or a prerequisite, filed — naming the discovered
+ * ticket a prerequisite opened — or refused, naming why. Read from `routing`
+ * rather than recomputing the ticket's own hand-back wording, so the summary
+ * and the ticket comment can drift in phrasing without drifting in fact.
+ */
+function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
+  const filed = routing.filed.flatMap((filed) =>
+    isBlockingDiscoveryKind(filed.discovery.kind)
+      ? [
+          filed.action === "discovered-ticket"
+            ? `a ${filed.discovery.kind}, opened as #${filed.ticket.number}`
+            : `a ${filed.discovery.kind}`,
+        ]
+      : [],
+  );
+  const refused = routing.refused.flatMap((refused) =>
+    isBlockingDiscoveryKind(refused.discovery.kind)
+      ? [`a ${refused.discovery.kind} the tracker refused to file: ${withoutTrailingStop(refused.reason)}`]
+      : [],
+  );
+  return [...filed, ...refused];
+}
+
+/**
+ * The Waiting-on-you line for a ticket handed back for a blocking discovery
+ * that landed: worded apart from a gave-up hand-back's bare relabel and from
+ * an infrastructure failure's still-eligible line, since neither the agent
+ * nor the setup is what stopped this ticket — the ticket itself is.
+ */
+function discoveryBlockedWaitingLine(iteration: {
+  repo: RepoSlug;
+  ticket: Ticket;
+  routing: DiscoveryRouting;
+}): string {
+  const blocking = blockingDiscoveryPhrases(iteration.routing).join("; ");
+  return `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the ticket is the problem, not the run: it filed ${blocking}`;
+}
+
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
 function stillEligibleLine(iteration: {
   repo: RepoSlug;
@@ -676,12 +719,20 @@ function waitingSection(
         return [];
       case "failed":
         return waitingOnFailure(iteration);
-      // A blocking discovery's own hand-back, exactly as a finished run's is:
-      // nothing waits on the developer unless the tracker refused the call.
-      case "discovery-blocked":
-        return iteration.handedBack.outcome === "refused"
-          ? [stillEligibleLine(iteration)]
-          : [];
+      // A blocking discovery's own hand-back: waits on the developer, worded
+      // apart from a gave-up hand-back and an infrastructure failure, unless
+      // an overlapping run already closed the ticket first or the tracker
+      // refused the hand-back call itself.
+      case "discovery-blocked": {
+        const { handedBack } = iteration;
+        if (handedBack.outcome === "refused") {
+          return [stillEligibleLine(iteration)];
+        }
+        if (handedBack.outcome === "already-closed") {
+          return [];
+        }
+        return [discoveryBlockedWaitingLine(iteration)];
+      }
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
@@ -981,8 +1032,10 @@ function describeIteration(iteration: IterationOutcome): string {
       return pullRequestResolvedSummary(iteration);
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
-    case "discovery-blocked":
-      return `Worked ${iteration.repo} #${iteration.ticket.number}: a blocking discovery handed it back.${transcriptNote(iteration.transcript)}`;
+    case "discovery-blocked": {
+      const blocking = blockingDiscoveryPhrases(iteration.routing).join("; ");
+      return `Worked ${iteration.repo} #${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
+    }
   }
 }
 
