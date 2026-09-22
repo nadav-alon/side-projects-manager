@@ -1863,7 +1863,12 @@ async function handReviewBack(
  *
  * Unlike `runReview`, there is no pull request to check already resolved, and
  * no posted-findings check to make: the run's own output is the whole of its
- * findings, whatever it is.
+ * findings, whatever it is. Its discoveries are routed exactly as a review's
+ * are, per CONTEXT.md's "Discovery" — against the supertask this ticket
+ * reviews rather than against the ticket itself — and a correction or a
+ * prerequisite among them hands the ticket back discovery-blocked rather
+ * than as a finished spec review, the same way a blocking discovery replaces
+ * a review's own success.
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket
@@ -1876,7 +1881,9 @@ async function runSpecReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed> {
+): Promise<
+  SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
+> {
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
@@ -1890,7 +1897,15 @@ async function runSpecReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return cutOffReviewOutcome(review);
+    return withDiscoveries(
+      cutOffReviewOutcome(review),
+      await routeRunDiscoveries(
+        ports.tracker,
+        ticket,
+        review.discoveries,
+        review.discoveriesDropped,
+      ),
+    );
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1900,8 +1915,18 @@ async function runSpecReview(
   if (review.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
   }
+
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the finished path below, per
+  // CONTEXT.md's "Discovery" and "Hand back".
+  const routing = await routeOrBlock(ports, ticket, review);
+  if ("blocked" in routing) {
+    return routing.blocked;
+  }
+  const { routed } = routing;
+
   if (review.kind === "gave-up") {
-    return handReviewBack(ports, ticket, review, review.reason);
+    return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
   }
 
   const handedBack = await handBack(ports, ticket, {
@@ -1909,7 +1934,8 @@ async function runSpecReview(
     output: review.output,
     ...transcriptField(review.transcript),
   });
-  return { kind: "spec-reviewed", review, tokensUsed: review.tokensUsed, handedBack };
+  const specReviewed: SpecReviewed = { kind: "spec-reviewed", review, tokensUsed: review.tokensUsed, handedBack };
+  return withDiscoveries(specReviewed, routed);
 }
 
 /**

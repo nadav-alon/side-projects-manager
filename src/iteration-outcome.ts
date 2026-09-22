@@ -712,6 +712,10 @@ export interface SpecReviewed {
   tokensUsed: TokenCount;
   /** What became of the ticket's own hand-back. */
   handedBack: HandBackRecord;
+  /** As `Finished.discoveries`. */
+  discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`: the supertask `discoveries` landed on, present only when the run filed any. */
+  target?: Ticket;
 }
 
 /**
