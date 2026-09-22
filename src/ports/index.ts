@@ -116,6 +116,7 @@ export type {
   Abandoning,
   ContainerStarted,
   IterationSelected,
+  JournalUnreadable,
   Progress,
   ProgressEvent,
   ProviderLimited,

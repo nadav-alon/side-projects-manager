@@ -346,11 +346,38 @@ export interface MorningLoopOptions {
    * This invocation's own journal record identity, given by whichever entry
    * point opened it — the loop does not know its own invocation record
    * otherwise. Used to free worked-today entries a dead in-flight invocation
-   * recorded; see CONTEXT.md's "Worked today". Absent in a test that calls
-   * `morningLoop` directly, with no lease and no journal record: nothing is
-   * freed, and behaviour is unchanged.
+   * recorded; see CONTEXT.md's "Worked today". Absent when no entry point
+   * opened a journal record: nothing is freed.
    */
   invocation?: OpenInvocation;
+}
+
+/**
+ * `invocation`'s own identity paired with the journal as it stands, for
+ * `workedTickets` to tell a worked-today entry a dead in-flight invocation
+ * recorded apart from one still protected. `undefined` when `invocation`
+ * itself is absent — no lease, no journal identity at all. When the journal
+ * cannot be read, `invocation`'s own identity is kept regardless — stamping
+ * what this invocation records stays independent of freeing — but
+ * `workedTickets` still frees nothing; said on `progress` as
+ * `journal-unreadable` rather than swallowed.
+ */
+async function currentInvocation(
+  ports: MorningLoopPorts,
+  invocation: OpenInvocation | undefined,
+): Promise<CurrentInvocation | undefined> {
+  if (invocation === undefined) {
+    return undefined;
+  }
+  try {
+    return { self: invocation, journal: await ports.store.loadJournal() };
+  } catch (error: unknown) {
+    notify(ports.progress, {
+      kind: "journal-unreadable",
+      error: errorMessage(error),
+    });
+    return { self: invocation };
+  }
 }
 
 /**
@@ -389,28 +416,6 @@ export interface MorningLoopOptions {
  * loop would otherwise start something, never by cutting short what is already
  * in progress, whose work is the very thing stopping by hand should keep.
  */
-/**
- * `invocation`'s own identity paired with the journal as it stands, for
- * `workedTickets` to tell a worked-today entry a dead in-flight invocation
- * recorded apart from one still protected. `undefined` when `invocation`
- * itself is absent — no lease, no journal record — or the journal could not
- * be read: either way, `workedTickets` frees nothing, and the invocation
- * still runs.
- */
-async function currentInvocation(
-  ports: MorningLoopPorts,
-  invocation: OpenInvocation | undefined,
-): Promise<CurrentInvocation | undefined> {
-  if (invocation === undefined) {
-    return undefined;
-  }
-  try {
-    return { self: invocation, journal: await ports.store.loadJournal() };
-  } catch {
-    return undefined;
-  }
-}
-
 export async function morningLoop(
   ports: MorningLoopPorts,
   { stop, invocation }: MorningLoopOptions = {},

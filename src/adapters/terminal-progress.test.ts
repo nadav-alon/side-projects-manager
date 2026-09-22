@@ -121,6 +121,20 @@ describe("terminalProgress", () => {
     assert.match(lines[0] as string, /5-hour limit reached/);
   });
 
+  it("says the journal could not be read, naming the error, when checking for a dead invocation's entries fails", (t) => {
+    const progress = terminalProgress();
+
+    const lines = capturedStderr(t, () =>
+      progress.note({
+        kind: "journal-unreadable",
+        error: "journal.json: not valid JSON",
+      }),
+    );
+
+    assert.equal(lines.length, 1);
+    assert.match(lines[0] as string, /journal.json: not valid JSON/);
+  });
+
   it("says nothing was left running when the developer's second interrupt finds nothing in flight", (t) => {
     const progress = terminalProgress();
 

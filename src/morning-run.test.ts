@@ -977,6 +977,39 @@ describe("morningLoop", () => {
         assert.match(body, /nadav-alon\/pilot #432/);
         assert.match(body, /7563/);
       });
+
+      it("frees nothing, but still stamps a newly recorded ticket with its own identity and says so on progress, when the journal cannot be read", async (t) => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.repoHost.mergeStatus = () => "clean";
+        const pullRequest = pullRequestUrl(
+          "https://github.com/nadav-alon/pilot/pull/12",
+        );
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(44),
+          title: "Rebase the draft pull request for #7",
+          pullRequest: { kind: "rebase", url: pullRequest },
+        });
+        t.mock.method(ports.tracker, "closeRebaseTicket", async () => {
+          throw new Error("issue is locked");
+        });
+        await ports.store.openInvocation(SELF);
+        const progress = new FakeProgress();
+        ports.progress = progress;
+        t.mock.method(ports.store, "loadJournal", async () => {
+          throw new Error("journal.json: not valid JSON");
+        });
+
+        await morningLoop(ports, { invocation: SELF });
+
+        assert.deepEqual(
+          (await ports.store.loadState()).workedToday?.tickets,
+          [{ repo: PILOT, number: issueNumber(44), recordedBy: SELF }],
+        );
+        assert.ok(
+          progress.events.some((event) => event.kind === "journal-unreadable"),
+        );
+      });
     });
   });
 

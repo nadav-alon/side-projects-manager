@@ -77,6 +77,17 @@ export interface Abandoning {
   kind: "abandoning";
 }
 
+/**
+ * The journal could not be read when checking for worked-today entries a
+ * dead in-flight invocation recorded. Nothing is freed this invocation, but
+ * it still runs and still stamps its own identity on what it records — see
+ * CONTEXT.md's "Worked today".
+ */
+export interface JournalUnreadable {
+  kind: "journal-unreadable";
+  error: string;
+}
+
 /** Something worth telling whoever is watching an invocation, the instant it happens. */
 export type ProgressEvent =
   | IterationSelected
@@ -84,7 +95,8 @@ export type ProgressEvent =
   | ContainerStarted
   | RunEnded
   | ProviderLimited
-  | Abandoning;
+  | Abandoning
+  | JournalUnreadable;
 
 /**
  * Reports something that just happened. Nothing here is ever read back — the

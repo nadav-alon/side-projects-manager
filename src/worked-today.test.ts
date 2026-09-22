@@ -122,5 +122,22 @@ describe("workedTickets", () => {
         tickets: [{ repo: PILOT, number: issueNumber(500), recordedBy: SELF }],
       });
     });
+
+    it("frees nothing, but still stamps a newly selected ticket with this invocation's identity, when the journal could not be read", () => {
+      const stored = storedWith(DEAD);
+
+      const worked = workedTickets(stored, TODAY, { self: SELF });
+      worked.record({ repo: PILOT, number: issueNumber(500) }, TODAY);
+
+      assert.equal(worked.passesOver(TICKET), true);
+      assert.deepEqual(worked.freed(), []);
+      assert.deepEqual(worked.workedToday(), {
+        day: TODAY,
+        tickets: [
+          { ...TICKET, recordedBy: DEAD },
+          { repo: PILOT, number: issueNumber(500), recordedBy: SELF },
+        ],
+      });
+    });
   });
 });

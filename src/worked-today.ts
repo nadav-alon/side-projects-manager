@@ -11,13 +11,17 @@ import {
 /**
  * The invocation running now, and the journal as it stood when it started:
  * what `workedTickets` needs to tell a worked-today entry recorded by a dead
- * in-flight invocation apart from one still protected. Absent when the
- * caller has no lease and no journal record — as in a test that builds
- * `workedTickets` directly — in which case nothing is freed.
+ * in-flight invocation apart from one still protected. `self` is used to
+ * stamp every entry this invocation records, whether or not `journal` is
+ * available to free anything with. Absent entirely when the caller has no
+ * lease and no journal identity at all — as in a test that builds
+ * `workedTickets` directly — in which case nothing is freed and nothing is
+ * stamped either.
  */
 export interface CurrentInvocation {
   self: OpenInvocation;
-  journal: Journal;
+  /** Absent when the journal could not be read: frees nothing, same as an empty one would. */
+  journal?: Journal;
 }
 
 /** One worked-today entry freed because the invocation that recorded it died. */
@@ -67,12 +71,11 @@ export interface WorkedTickets {
  * day but `today` says nothing about today, so it reads as nothing worked yet.
  *
  * `current`, when given, is used once, on construction, to free every entry
- * recorded by an invocation still in flight in its journal: the invocation
- * lease means only one invocation runs at a time, so any other in-flight
- * record belongs to one that died before it could close. `current` absent —
- * no lease, no journal record — frees nothing, same as an entry naming no
- * invocation, one whose invocation closed, one whose invocation is missing
- * from the journal, or one recorded by this same invocation.
+ * a dead in-flight invocation recorded — see CONTEXT.md's "Worked today".
+ * `current` absent, or its journal unreadable, frees nothing, same as an
+ * entry naming no invocation, one whose invocation closed, one whose
+ * invocation is missing from the journal, or one recorded by this same
+ * invocation.
  */
 export function workedTickets(
   stored: WorkedToday | undefined,
@@ -115,12 +118,13 @@ function freeDeadInvocations(
   stored: WorkedToday | undefined,
   current: CurrentInvocation | undefined,
 ): { kept: WorkedToday | undefined; freed: FreedWorkedTicket[] } {
-  if (stored === undefined || current === undefined) {
+  if (stored === undefined || current === undefined || current.journal === undefined) {
     return { kept: stored, freed: [] };
   }
+  const { self, journal } = current;
   const freed: FreedWorkedTicket[] = [];
   const kept = stored.tickets.filter((ticket) => {
-    const dead = deadInvocationOf(ticket.recordedBy, current);
+    const dead = deadInvocationOf(ticket.recordedBy, self, journal);
     if (dead === undefined) {
       return true;
     }
@@ -131,20 +135,21 @@ function freeDeadInvocations(
 }
 
 /**
- * `recordedBy`, if it names an invocation still in flight in `current`'s
- * journal and is not `current.self` — the invocation's own record is in
- * flight while it runs, so it never counts as dead. `undefined` for an entry
- * naming no invocation, this invocation, one whose record has closed, or one
- * missing from the journal entirely (pruned, say): every one of those stays
- * passed over, as today.
+ * `recordedBy`, if it names an invocation still in flight in `journal` and
+ * is not `self` — the invocation's own record is in flight while it runs, so
+ * it never counts as dead. `undefined` for an entry naming no invocation,
+ * this invocation, one whose record has closed, or one missing from the
+ * journal entirely (pruned, say): every one of those stays passed over, as
+ * today.
  */
 function deadInvocationOf(
   recordedBy: OpenInvocation | undefined,
-  current: CurrentInvocation,
+  self: OpenInvocation,
+  journal: Journal,
 ): OpenInvocation | undefined {
-  if (recordedBy === undefined || sameInvocation(current.self, recordedBy)) {
+  if (recordedBy === undefined || sameInvocation(self, recordedBy)) {
     return undefined;
   }
-  const record = findInvocationRecord(current.journal.records, recordedBy);
+  const record = findInvocationRecord(journal.records, recordedBy);
   return record !== undefined && !isClosedInvocation(record) ? recordedBy : undefined;
 }

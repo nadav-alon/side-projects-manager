@@ -70,6 +70,11 @@ export function terminalProgress(): Progress {
         case "abandoning":
           line(abandoningLine([...running.values()]));
           return;
+        case "journal-unreadable":
+          line(
+            `The journal could not be read, so nothing is freed this invocation: ${event.error}`,
+          );
+          return;
       }
     },
   };
