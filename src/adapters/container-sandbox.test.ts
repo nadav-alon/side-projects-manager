@@ -2666,7 +2666,7 @@ describe("containerSandbox.specReview", () => {
     assert.match(asked, /report that/);
   });
 
-  it("asks for the repo reviewed against the supertask's body, and forbids committing or opening issues", async () => {
+  it("asks for the repo reviewed against the supertask's body, and forbids committing or pushing", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
@@ -2682,7 +2682,26 @@ describe("containerSandbox.specReview", () => {
 
     assert.match(asked, /gaps between its sub-issues, drift from the/);
     assert.match(asked, /do not commit or push anything/);
-    assert.match(asked, /do not open issues of your own/);
+  });
+
+  it("says filing a discovery is the one way the run opens or comments on anything, never that it must not open issues", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /filing a discovery below is the/);
+    assert.match(asked, /one way this run opens or comments on anything else/);
+    assert.doesNotMatch(asked, /do not open issues/);
+    assert.doesNotMatch(asked, /never open issues/);
   });
 
   it("says the run is unattended, so it reports without asking", async () => {
