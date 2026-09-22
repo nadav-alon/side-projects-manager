@@ -152,6 +152,46 @@ function queuedSpecReview(ports: FakePorts, registration: Registration = {}): Ti
   });
 }
 
+const PULL_REQUEST_TICKET_TITLE = {
+  review: "Review the draft pull request for #7",
+  "apply-review": "Apply the review on the draft pull request for #7",
+  rebase: "Rebase the draft pull request for #7",
+} as const;
+
+/**
+ * The implementation ticket #7, and a `kind` ticket on it, as the review,
+ * `/apply-review` or `/rebase` workflow would open one as its own sub-issue —
+ * shared by every pull-request ticket kind's own "a blocking discovery"
+ * tests, which otherwise open the identical preamble under a different name.
+ * An apply-review ticket needs an open thread to have anything to apply, and
+ * a rebase ticket needs a conflicting pull request to have anything to
+ * rebase; a review ticket needs neither.
+ */
+function queuedWithImplementation(
+  ports: FakePorts,
+  kind: keyof typeof PULL_REQUEST_TICKET_TITLE,
+): { implementation: Ticket; pullRequestTicket: Ticket } {
+  ports.store.register(PILOT);
+  if (kind === "apply-review") {
+    ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+  }
+  if (kind === "rebase") {
+    ports.repoHost.mergeStatus = () => "conflicting";
+  }
+  const implementation = ports.tracker.addEligibleTicket(PILOT, {
+    number: issueNumber(7),
+    title: "Add the thing",
+  });
+  const numbers = { review: 42, "apply-review": 43, rebase: 44 } as const;
+  const pullRequestTicket = ports.tracker.addEligibleTicket(PILOT, {
+    number: issueNumber(numbers[kind]),
+    title: PULL_REQUEST_TICKET_TITLE[kind],
+    pullRequest: { kind, url: PULL_REQUEST },
+    parent: issueNumber(7),
+  });
+  return { implementation, pullRequestTicket };
+}
+
 describe("morningLoop", () => {
   it("reports a dry queue when nothing is registered", async () => {
     const ports = fakePorts();
@@ -2290,28 +2330,12 @@ describe("morningLoop", () => {
     });
 
     describe("a blocking discovery", () => {
-      /** The implementation ticket #7, and a review ticket queued as its own sub-issue, as `createReviewTicket` links one. */
-      function queuedWithImplementation(ports: FakePorts): {
-        implementation: Ticket;
-        review: ReviewTicket;
-      } {
-        ports.store.register(PILOT);
-        const implementation = ports.tracker.addEligibleTicket(PILOT, {
-          number: issueNumber(7),
-          title: "Add the thing",
-        });
-        const review = ports.tracker.addEligibleTicket(PILOT, {
-          number: issueNumber(42),
-          title: "Review the draft pull request for #7",
-          pullRequest: { kind: "review", url: PULL_REQUEST },
-          parent: issueNumber(7),
-        }) as ReviewTicket;
-        return { implementation, review };
-      }
-
       it("opens a discovered ticket that blocks the implementation ticket, and hands back the review ticket, not the implementation ticket", async () => {
         const ports = fakePorts();
-        const { implementation, review } = queuedWithImplementation(ports);
+        const { implementation, pullRequestTicket: review } = queuedWithImplementation(
+          ports,
+          "review",
+        );
         postedAFinding(ports);
         ports.sandbox.reviewResult = () => ({
           kind: "finished",
@@ -2340,7 +2364,7 @@ describe("morningLoop", () => {
 
       it("hands back the review ticket for a gave-up run that also filed a correction, not as a gave-up run", async () => {
         const ports = fakePorts();
-        const { review } = queuedWithImplementation(ports);
+        const { pullRequestTicket: review } = queuedWithImplementation(ports, "review");
         ports.sandbox.reviewResult = () => ({
           kind: "gave-up",
           output: "I could not tell what to review",
@@ -2366,7 +2390,7 @@ describe("morningLoop", () => {
 
       it("proceeds as normal for a clarification or a suggestion, filing them on the implementation ticket", async () => {
         const ports = fakePorts();
-        queuedWithImplementation(ports);
+        queuedWithImplementation(ports, "review");
         postedAFinding(ports);
         ports.sandbox.reviewResult = () => ({
           kind: "finished",
@@ -3049,31 +3073,12 @@ describe("morningLoop", () => {
     });
 
     describe("a blocking discovery", () => {
-      /** The implementation ticket #7, and an apply-review ticket on it, as the /apply-review workflow would open one as a sub-issue. */
-      function queuedWithImplementation(
-        ports: FakePorts,
-        threads = 1,
-      ): { implementation: Ticket; applyReview: ApplyReviewTicket } {
-        ports.store.register(PILOT);
-        for (let opened = 0; opened < threads; opened++) {
-          ports.repoHost.openApplyReviewThread(PULL_REQUEST);
-        }
-        const implementation = ports.tracker.addEligibleTicket(PILOT, {
-          number: issueNumber(7),
-          title: "Add the thing",
-        });
-        const applyReview = ports.tracker.addEligibleTicket(PILOT, {
-          number: issueNumber(43),
-          title: "Apply the review on the draft pull request for #7",
-          pullRequest: { kind: "apply-review", url: PULL_REQUEST },
-          parent: issueNumber(7),
-        }) as ApplyReviewTicket;
-        return { implementation, applyReview };
-      }
-
       it("opens a discovered ticket that blocks the implementation ticket, and hands back the apply-review ticket, not the implementation ticket", async () => {
         const ports = fakePorts();
-        const { implementation, applyReview } = queuedWithImplementation(ports);
+        const { implementation, pullRequestTicket: applyReview } = queuedWithImplementation(
+          ports,
+          "apply-review",
+        );
         ports.sandbox.applyReviewResult = () => {
           ports.repoHost.answerApplyReviewThread(
             PULL_REQUEST,
@@ -3619,28 +3624,12 @@ describe("morningLoop", () => {
     });
 
     describe("a blocking discovery", () => {
-      /** The implementation ticket #7, and a rebase ticket on it, as the /rebase workflow would open one as a sub-issue. */
-      function queuedWithImplementation(
-        ports: FakePorts,
-      ): { implementation: Ticket; rebase: RebaseTicket } {
-        ports.store.register(PILOT);
-        ports.repoHost.mergeStatus = () => "conflicting";
-        const implementation = ports.tracker.addEligibleTicket(PILOT, {
-          number: issueNumber(7),
-          title: "Add the thing",
-        });
-        const rebase = ports.tracker.addEligibleTicket(PILOT, {
-          number: issueNumber(44),
-          title: "Rebase the draft pull request for #7",
-          pullRequest: { kind: "rebase", url: PULL_REQUEST },
-          parent: issueNumber(7),
-        }) as RebaseTicket;
-        return { implementation, rebase };
-      }
-
       it("opens a discovered ticket that blocks the implementation ticket, and hands back the rebase ticket, not the implementation ticket", async () => {
         const ports = fakePorts();
-        const { implementation, rebase } = queuedWithImplementation(ports);
+        const { implementation, pullRequestTicket: rebase } = queuedWithImplementation(
+          ports,
+          "rebase",
+        );
         ports.sandbox.rebaseResult = () => {
           ports.repoHost.mergeStatus = () => "clean";
           return {
