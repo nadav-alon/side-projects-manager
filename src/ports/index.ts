@@ -91,6 +91,7 @@ export {
   findInvocationRecord,
   isClosedInvocation,
   isInvocationOutcome,
+  sameInvocation,
 } from "./journal.ts";
 export type {
   InvocationClosing,

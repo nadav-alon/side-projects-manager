@@ -3,6 +3,7 @@ import {
   findInvocationRecord,
   isClosedInvocation,
   recordWorked,
+  sameInvocation,
   ticketKey,
   unrecordWorked,
 } from "./ports/index.ts";
@@ -136,7 +137,7 @@ function deadInvocationOf(
   recordedBy: OpenInvocation | undefined,
   current: CurrentInvocation,
 ): OpenInvocation | undefined {
-  if (recordedBy === undefined || findInvocationRecord([current.self], recordedBy) !== undefined) {
+  if (recordedBy === undefined || sameInvocation(current.self, recordedBy)) {
     return undefined;
   }
   const record = findInvocationRecord(current.journal.records, recordedBy);
