@@ -1405,10 +1405,10 @@ const DISCOVERY_INSTRUCTIONS = [
  * issue: the clone's origin is a local path, so nothing GitHub-shaped can be
  * inferred from it. The supertask it reviews against is not named here —
  * the agent reads it for itself, as the parent issue this ticket is a
- * sub-issue of, the way a review ticket already hangs off the ticket it
- * reviews, as a sub-issue of the supertask it is about. A ticket opened
- * without a parent has nothing to review against, so the prompt tells the
- * agent to say so and stop rather than reviewing the repo against nothing.
+ * sub-issue of — the supertask it is about — the way a review ticket
+ * already hangs off the ticket it reviews. A ticket opened without a
+ * parent has nothing to review against, so the prompt tells the agent to
+ * say so and stop rather than reviewing the repo against nothing.
  *
  * Unlike `reviewPromptFor`, there is no pull request to post findings to:
  * the run reports instead, and its own output is what the caller hands back
