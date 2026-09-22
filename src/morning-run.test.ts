@@ -5279,7 +5279,50 @@ describe("morningLoop", () => {
       assert.ok(!backlog.some((ticket) => ticket.number === review.number));
     });
 
-    it("still routes a refused apply-review's discoveries onto its implementation ticket, without handing either back", async () => {
+    it("still routes a refused apply-review's advisory discoveries onto its implementation ticket, without handing either back", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      const applyReview = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(43),
+        title: "Apply the review on the draft pull request for #7",
+        pullRequest: { kind: "apply-review", url: PULL_REQUEST },
+        parent: issueNumber(7),
+      });
+      ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "clarification",
+            title: "What 'the thing' means",
+            body: "Read as the button.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.comments.length, 1);
+      assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
+      assert.deepEqual(ports.tracker.handbacks, []);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+      assert.ok(backlog.some((ticket) => ticket.number === applyReview.number));
+      const limitRefusedIteration = report.iterations[0];
+      assert.equal(
+        limitRefusedIteration?.kind === "limit-refused"
+          ? limitRefusedIteration.discoveries?.filed.length
+          : undefined,
+        1,
+      );
+    });
+
+    it("hands the apply-review ticket back for a blocking discovery a refused run filed, not the implementation ticket", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, {
@@ -5308,18 +5351,13 @@ describe("morningLoop", () => {
 
       const report = await morningLoop(ports);
 
-      assert.equal(ports.tracker.comments.length, 1);
-      assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
-      assert.deepEqual(ports.tracker.handbacks, []);
+      assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      const handback = ports.tracker.handbacks[0];
+      assert.equal(handback?.ticket.number, applyReview.number);
+      assert.notEqual(handback?.ticket.number, issueNumber(7));
+      assert.match(handback?.comment ?? "", /blocking discovery/);
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
-      assert.ok(backlog.some((ticket) => ticket.number === applyReview.number));
-      const limitRefusedIteration = report.iterations[0];
-      assert.equal(
-        limitRefusedIteration?.kind === "limit-refused"
-          ? limitRefusedIteration.discoveries?.filed.length
-          : undefined,
-        1,
-      );
+      assert.ok(!backlog.some((ticket) => ticket.number === applyReview.number));
     });
 
     it("still routes a refused rebase's discoveries onto its implementation ticket, without handing either back", async () => {
