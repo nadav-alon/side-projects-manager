@@ -14,6 +14,7 @@ import type {
   ModelDefaults,
   ModelName,
   ModelRefusal,
+  OpenInvocation,
   Progress,
   ProjectState,
   PullRequestLabel,
@@ -75,7 +76,12 @@ import {
   type Selection,
 } from "./selection.ts";
 import { salvageRecords, type Salvages } from "./salvages.ts";
-import { workedTickets, type WorkedTickets } from "./worked-today.ts";
+import {
+  workedTickets,
+  type CurrentInvocation,
+  type FreedWorkedTicket,
+  type WorkedTickets,
+} from "./worked-today.ts";
 import {
   appliedReviewComment,
   pullRequestResolvedComment,
@@ -336,6 +342,15 @@ export interface MorningLoopOptions {
    * and are reported, and the summary publishes.
    */
   stop?: AbortSignal;
+  /**
+   * This invocation's own journal record identity, given by whichever entry
+   * point opened it — the loop does not know its own invocation record
+   * otherwise. Used to free worked-today entries a dead in-flight invocation
+   * recorded; see CONTEXT.md's "Worked today". Absent in a test that calls
+   * `morningLoop` directly, with no lease and no journal record: nothing is
+   * freed, and behaviour is unchanged.
+   */
+  invocation?: OpenInvocation;
 }
 
 /**
@@ -374,9 +389,31 @@ export interface MorningLoopOptions {
  * loop would otherwise start something, never by cutting short what is already
  * in progress, whose work is the very thing stopping by hand should keep.
  */
+/**
+ * `invocation`'s own identity paired with the journal as it stands, for
+ * `workedTickets` to tell a worked-today entry a dead in-flight invocation
+ * recorded apart from one still protected. `undefined` when `invocation`
+ * itself is absent — no lease, no journal record — or the journal could not
+ * be read: either way, `workedTickets` frees nothing, and the invocation
+ * still runs.
+ */
+async function currentInvocation(
+  ports: MorningLoopPorts,
+  invocation: OpenInvocation | undefined,
+): Promise<CurrentInvocation | undefined> {
+  if (invocation === undefined) {
+    return undefined;
+  }
+  try {
+    return { self: invocation, journal: await ports.store.loadJournal() };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function morningLoop(
   ports: MorningLoopPorts,
-  { stop }: MorningLoopOptions = {},
+  { stop, invocation }: MorningLoopOptions = {},
 ): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
   const today = localDay(startedAt);
@@ -394,6 +431,9 @@ export async function morningLoop(
   // review sweep the invocation ran, one per non-paused project per
   // selection.
   let specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
+  // Populated from `worked.freed()` once `worked` exists: every ticket a dead
+  // in-flight invocation had recorded, freed for this invocation to select.
+  let freedTickets: FreedWorkedTicket[] = [];
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -407,7 +447,12 @@ export async function morningLoop(
     const stored = await ports.store.loadState();
     announcedOn = stored.announcedOn;
     const projects = new Map(stored.projects);
-    const worked = workedTickets(stored.workedToday, today);
+    const worked = workedTickets(
+      stored.workedToday,
+      today,
+      await currentInvocation(ports, invocation),
+    );
+    freedTickets = worked.freed();
     const salvages = salvageRecords(stored.salvages);
     stateToSave = (): State => {
       const workedToday = worked.workedToday();
@@ -645,6 +690,7 @@ export async function morningLoop(
     invocationFailure,
     conflictSweeps: sweepOutcomes,
     specReviewSweeps: specReviewSweepOutcomes,
+    freedFromDeadInvocation: freedTickets,
   };
   const line = summaryLine(facts);
   const outcome = outcomeOf(iterations, standDown, invocationFailure);

@@ -20,6 +20,7 @@ import {
   issueNumber,
   localDay,
   modelName,
+  processId,
   pullRequestUrl,
   reserveFraction,
   reviewTitle,
@@ -30,6 +31,7 @@ import {
   type ApplyReviewTicket,
   type CommitSha,
   type Discovery,
+  type OpenInvocation,
   type RebaseTicket,
   type ReviewTicket,
   type RunFinished,
@@ -863,6 +865,118 @@ describe("morningLoop", () => {
         (await ports.store.loadState()).workedToday?.tickets,
         [{ repo: PILOT, number: issueNumber(42) }],
       );
+    });
+
+    describe("freed from a dead invocation", () => {
+      const DEAD: OpenInvocation = {
+        openedAt: new Date("2026-09-19T08:09:00.000Z"),
+        process: processId(7563),
+      };
+      const SELF: OpenInvocation = {
+        openedAt: new Date("2026-09-19T09:56:00.000Z"),
+        process: processId(9001),
+      };
+
+      it("selects a ticket a dead in-flight invocation recorded as worked today", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        const report = await morningLoop(ports, { invocation: SELF });
+
+        assert.ok(
+          report.iterations.some(
+            (iteration) => iteration.ticket.number === issueNumber(432),
+          ),
+        );
+      });
+
+      it("keeps a ticket passed over when the invocation that recorded it has closed", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        await ports.store.closeInvocation(DEAD, {
+          closedAt: new Date("2026-09-19T08:20:00.000Z"),
+          outcome: "work-selected",
+          projects: [],
+        });
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        const report = await morningLoop(ports, { invocation: SELF });
+
+        assert.equal(
+          report.iterations.some(
+            (iteration) => iteration.ticket.number === issueNumber(432),
+          ),
+          false,
+        );
+      });
+
+      it("leaves a ticket passed over when morningLoop is given no invocation identity", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(
+          report.iterations.some(
+            (iteration) => iteration.ticket.number === issueNumber(432),
+          ),
+          false,
+        );
+      });
+
+      it("names the freed ticket and the in-flight invocation it came from in the summary", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        await morningLoop(ports, { invocation: SELF });
+
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.match(body, /## Freed from a dead invocation/);
+        assert.match(body, /nadav-alon\/pilot #432/);
+        assert.match(body, /7563/);
+      });
     });
   });
 
