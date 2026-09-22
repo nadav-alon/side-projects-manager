@@ -397,13 +397,19 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
 /**
  * The routing a discovery-carrying iteration reports, and the ticket its
  * discoveries landed on when that differs from the one it worked itself —
- * `discovery-blocked`'s own fields, or `discoveries`/`target` for every other
- * kind that can carry a `DiscoveryRouting`. `undefined` for a kind that never
- * routes discoveries at all, or one whose run filed and dropped nothing.
+ * named once and shared with `discoveryLines`, which reads the same shape.
+ */
+type DiscoveryFacts = { routing: DiscoveryRouting; target?: Ticket };
+
+/**
+ * `discoveryFactsOf`'s answer: `discovery-blocked`'s own fields, or
+ * `discoveries`/`target` for every other kind that can carry a
+ * `DiscoveryRouting`. `undefined` for a kind that never routes discoveries at
+ * all, or one whose run filed and dropped nothing.
  */
 function discoveryFactsOf(
   iteration: IterationOutcome,
-): { routing: DiscoveryRouting; target?: Ticket } | undefined {
+): DiscoveryFacts | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
       return { routing: iteration.routing, ...(iteration.target !== undefined && { target: iteration.target }) };
@@ -430,11 +436,10 @@ function discoveryFactsOf(
 /**
  * Every discovery a run filed, dropped or was refused, per CONTEXT.md's
  * "Discovery" and "Dropped discovery" — so nothing a run filed under
- * `/discoveries` disappears silently, whether it landed, was capped, was
- * malformed, or the tracker refused to write it. `undefined` when no
- * iteration this invocation made carries anything to say, so the section is
- * absent entirely on a morning with no discoveries — the same summary as
- * today.
+ * `/discoveries` disappears silently, whether it landed, was capped, was not
+ * valid JSON or named an unknown kind, or the tracker refused to write it.
+ * `undefined` when no iteration this invocation made carries anything to say,
+ * so the section is absent entirely on a morning with no discoveries.
  */
 function discoveriesSection(iterations: IterationOutcome[]): string | undefined {
   const lines = iterations.flatMap((iteration) => {
@@ -448,20 +453,24 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  * One bullet per advisory discovery `routing` filed — naming the ticket a
  * comment landed on, or the discovered ticket a suggestion opened — plus one
  * for a positive count of suggestions the cap dropped, one for a positive
- * count of files `/discoveries` dropped for being malformed, and one per
- * refused write, blocking or advisory alike. A blocking discovery's own kind
- * and outcome is said instead by the iteration's own line and Waiting-on-you
- * entry; listed here too, alongside a refused write, is only what happened to
- * the write itself.
+ * count of files `/discoveries` dropped for not being valid JSON or naming an
+ * unknown kind, and one per refused write, blocking or advisory alike. A
+ * blocking discovery filed by a `discovery-blocked` iteration has its own kind
+ * and outcome said instead by that iteration's own line and Waiting-on-you
+ * entry, so it is left out here; one filed by any other kind — a cut-off run,
+ * which files exactly as a finished one does but is never handed back for it,
+ * per CONTEXT.md's "Limit refusal" and "Provider failure" — has nowhere else
+ * to be said, and is listed here like any advisory discovery. Alongside a
+ * refused write, either way, only what happened to the write itself is said.
  */
 function discoveryLines(
-  iteration: { repo: RepoSlug; ticket: Ticket },
-  { routing, target }: { routing: DiscoveryRouting; target?: Ticket },
+  iteration: { repo: RepoSlug; ticket: Ticket; kind: IterationOutcome["kind"] },
+  { routing, target }: DiscoveryFacts,
 ): string[] {
   const who = `${iteration.repo} #${iteration.ticket.number}`;
   const landedOn = target === undefined ? `#${iteration.ticket.number}` : `#${target.number}`;
   const filed = routing.filed.flatMap((filed) => {
-    if (isBlockingDiscoveryKind(filed.discovery.kind)) {
+    if (iteration.kind === "discovery-blocked" && isBlockingDiscoveryKind(filed.discovery.kind)) {
       return [];
     }
     const where =

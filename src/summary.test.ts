@@ -55,6 +55,14 @@ function limitRefused(number: number, discard: Discard): IterationOutcome {
   };
 }
 
+/** A limit-refused run that filed `discoveryRouting` before the provider stopped it — never handed back for it, per CONTEXT.md's "Limit refusal". */
+function limitRefusedWithDiscoveries(number: number, discoveryRouting: DiscoveryRouting): IterationOutcome {
+  return {
+    ...(limitRefused(number, { kind: "none" }) as Extract<IterationOutcome, { kind: "limit-refused" }>),
+    discoveries: discoveryRouting,
+  };
+}
+
 /** An implementation ticket's own run its spend ceiling stopped, discarding or salvaging its branch as `discard` says. */
 function budgetExhausted(number: number, discard: Discard): IterationOutcome {
   return {
@@ -688,12 +696,25 @@ describe("discoveriesSection", () => {
     ]);
   });
 
-  it("omits a blocking discovery from its own list — that is said by the iteration's own line and waiting entry", () => {
+  it("omits a blocking discovery from a discovery-blocked iteration's own list — that is said by its own line and waiting entry", () => {
     const lines = discoveriesLines([
-      finishedWithDiscoveries(225, routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] })),
+      discoveryBlocked(225, routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] })),
     ]);
 
     assert.deepEqual(lines, []);
+  });
+
+  it("lists a blocking discovery filed by a cut-off run, which nothing else in the summary says", () => {
+    const lines = discoveriesLines([
+      limitRefusedWithDiscoveries(
+        226,
+        routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #226: commented on #226 — correction, "The ticket names the wrong file"`,
+    ]);
   });
 
   it("counts the suggestions the cap dropped", () => {
