@@ -508,11 +508,9 @@ function discoveryLines(
 
 /**
  * One bullet per ticket freed because a dead in-flight invocation had
- * recorded it as worked today — CONTEXT.md's "Worked today": the invocation
- * lease means only one invocation runs at a time, so any other invocation
- * record still in flight when this one started belongs to one that died
- * before it could close. Names the invocation each freed ticket came from, by
- * its opened-at instant and pid. `undefined` when nothing was freed this way.
+ * recorded it as worked today — CONTEXT.md's "Freed". Names the invocation
+ * each freed ticket came from, by its opened-at instant and pid. `undefined`
+ * when nothing was freed this way.
  */
 function freedFromDeadInvocationSection(
   freed: FreedWorkedTicket[],
@@ -522,7 +520,7 @@ function freedFromDeadInvocationSection(
   }
   const lines = freed.map(
     ({ ticket, invocation }) =>
-      `- ${ticket.repo} #${ticket.number}: freed — recorded by the invocation opened ${localDay(invocation.openedAt)} ${localTimeOfMinute(invocation.openedAt)} by process ${invocation.process}, still in flight`,
+      `- ${ticket.repo} #${ticket.number}: freed — recorded by the invocation opened ${localDay(invocation.openedAt)} ${localTimeOfMinute(invocation.openedAt)} by process ${invocation.process}, never closed`,
   );
   return ["## Freed from a dead invocation", ...lines].join("\n");
 }

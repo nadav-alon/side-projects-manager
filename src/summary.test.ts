@@ -1883,7 +1883,7 @@ describe("freed from a dead invocation", () => {
 
     assert.match(section, new RegExp(`- ${REPO} #432: freed`));
     assert.match(section, /process 7563/);
-    assert.match(section, /still in flight/);
+    assert.match(section, /never closed/);
   });
 
   it("names every ticket a dead invocation freed, not just one", () => {
