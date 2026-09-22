@@ -171,6 +171,26 @@ describe("specReviewSweep", () => {
     );
   });
 
+  it("opens a spec review rather than re-parenting one already linked elsewhere with a matching title", async () => {
+    const { tracker, repoHost, supertask } = await sweptSupertask();
+    const elsewhere = tracker.addSupertask(PILOT, {
+      number: issueNumber(7),
+      title: "Some other supertask",
+    });
+    tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(99),
+      title: specReviewTitle(supertask),
+      parent: elsewhere.number,
+    });
+    const openIssues = await tracker.listOpenIssues(PILOT);
+
+    const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    assert.deepEqual(tracker.linkedSpecReviewTickets, []);
+    assert.equal(outcome.opened.length, 1);
+    assert.equal(outcome.refusals.length, 0);
+  });
+
   it("records a refusal and opens no duplicate when linking an already-opened spec review fails", async () => {
     const { tracker, repoHost, supertask } = await sweptSupertask();
     tracker.addSpecReviewTicket(PILOT, {

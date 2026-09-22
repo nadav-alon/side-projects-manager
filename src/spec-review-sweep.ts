@@ -149,12 +149,10 @@ function alreadySpecReviewed(sub: SubIssue): boolean {
 
 /**
  * The spec review `specReviewSweep` already opened for `supertask`, if one
- * is sitting among `issues` unlinked — carrying the spec-review label and
- * the exact title {@link specReviewTitle} gives a spec review for
- * `supertask`. Reached only once `alreadySpecReviewed` has found none
- * linked, so a match here is, by construction, not yet one of `supertask`'s
- * own sub-issues — the tracker created it and the link that should have
- * followed never landed.
+ * is sitting among `issues` unlinked — carrying the spec-review label, the
+ * exact title {@link specReviewTitle} gives a spec review for `supertask`,
+ * and no parent of its own, so a spec review someone hand-linked to a
+ * different supertask is never mistaken for a match and re-parented.
  */
 function findFloatingSpecReview(
   supertask: Ticket,
@@ -162,7 +160,10 @@ function findFloatingSpecReview(
 ): Ticket | undefined {
   const title = specReviewTitle(supertask);
   return issues.find(
-    (issue) => issue.ticket.specReview === true && issue.ticket.title === title,
+    (issue) =>
+      issue.ticket.specReview === true &&
+      issue.ticket.title === title &&
+      issue.parent === undefined,
   )?.ticket;
 }
 
