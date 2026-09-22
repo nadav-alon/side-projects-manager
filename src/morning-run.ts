@@ -1599,7 +1599,10 @@ async function runReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return cutOffReviewOutcome(review);
+    return withDiscoveries(
+      cutOffReviewOutcome(review),
+      await routeRunDiscoveries(ports.tracker, ticket, review.discoveries),
+    );
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1848,7 +1851,10 @@ async function runApplyReview(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return cutOffReviewOutcome(run);
+    return withDiscoveries(
+      cutOffReviewOutcome(run),
+      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries),
+    );
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
@@ -2058,7 +2064,10 @@ async function runRebase(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return cutOffReviewOutcome(run);
+    return withDiscoveries(
+      cutOffReviewOutcome(run),
+      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries),
+    );
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
