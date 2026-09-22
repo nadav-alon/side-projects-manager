@@ -533,6 +533,45 @@ describe("FakeIssueTracker — sub-issues", () => {
       { parent: supertask, body: "Reviews #40.", ticket: specReview },
     ]);
   });
+
+  it("links a floating spec review already in the backlog to its supertask", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+    const floating = tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(99),
+      title: "Spec review for #40",
+    });
+
+    await tracker.linkSpecReviewTicket(floating, supertask, "Reviews #40.");
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const listed = issues.find((issue) => issue.ticket.number === floating.number);
+    assert.equal(listed?.parent, 40);
+    assert.deepEqual(tracker.linkedSpecReviewTickets, [
+      { parent: supertask, body: "Reviews #40.", ticket: { ...floating, specReview: true } },
+    ]);
+  });
+
+  it("refuses to link a ticket the backlog never saw", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+    const neverAdded: Ticket = {
+      repo: PILOT,
+      number: issueNumber(99),
+      title: "Spec review for #40",
+      specReview: true,
+    };
+
+    await assert.rejects(
+      tracker.linkSpecReviewTicket(neverAdded, supertask, "Reviews #40."),
+    );
+  });
 });
 
 /** The same readings `ghIssueTracker`'s own tests check, from the labels the fake holds. */

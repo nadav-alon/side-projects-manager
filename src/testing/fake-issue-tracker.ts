@@ -468,6 +468,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * relation `createSpecReviewTicket` gives the one it creates. Recorded in
    * `linkedSpecReviewTickets` rather than `specReviewTickets`: nothing was
    * opened, only linked.
+   *
+   * Throws where `specReview` names no ticket this fake holds, the same as
+   * the real tracker fails in `issueIdOf`, long before the POST: a test
+   * handing this a `Ticket` the backlog never saw should not pass as if the
+   * link succeeded.
    */
   async linkSpecReviewTicket(
     specReview: Ticket,
@@ -475,9 +480,10 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     body: string,
   ): Promise<void> {
     const entry = this.#find(specReview);
-    if (entry !== undefined) {
-      entry.issue.parent = supertask.number;
+    if (entry === undefined) {
+      throw new Error(`#${specReview.number} in ${specReview.repo} is not a known ticket`);
     }
+    entry.issue.parent = supertask.number;
     this.linkedSpecReviewTickets.push({
       parent: supertask,
       body,
