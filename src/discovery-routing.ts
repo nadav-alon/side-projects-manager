@@ -73,10 +73,13 @@ export function blockingDiscoveriesOf(discoveries: readonly Discovery[]): Discov
 /**
  * Files one discovery against `target`: a comment for a correction or a
  * clarification, a discovered ticket for a prerequisite — blocking `target`
- * — or a suggestion — no edge. `runTicket` names what the comment or the
- * discovered ticket's body says this was discovered while working, per
- * `discoveredBody`, so a discovery landing on a different ticket than the one
- * that found it still reads in context.
+ * — or a suggestion — no edge. For a comment, `runTicket` names what
+ * `discoveredBody` says this was discovered while working, so a discovery
+ * landing on a different ticket than the one that found it still reads in
+ * context; a discovered ticket's own body names `target` that way instead —
+ * `createDiscoveredTicket`'s callers build it from the ticket they were
+ * handed, per `discoveredBody`, so it reads as discovered while working the
+ * ticket it blocks or rides alongside, not the run that found it.
  */
 async function fileDiscovery(
   tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
