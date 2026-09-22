@@ -165,7 +165,7 @@ project per iteration. Within that project: rebase, apply-review, review and spe
 first, in that same order; then ticket priority, read from `priority:1`–`priority:3` labels (smallest
 wins when several are present, anything else is ignored); then lowest issue number. Ticket priority
 never influences which project is chosen.
-A backlog is read up to 100 tickets, the newest ones — a newly prioritised ticket costs more to miss
+A backlog is read up to 300 tickets, the newest ones — a newly prioritised ticket costs more to miss
 than an old one — and a truncated backlog is named in the summary's waiting section.
 
 **The budget gate.** Before each run the ledger computes 5-hour and weekly token totals from local
