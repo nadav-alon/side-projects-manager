@@ -1682,15 +1682,14 @@ async function runReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return withDiscoveries(
-      cutOffReviewOutcome(review),
-      await routeRunDiscoveries(
-        ports.tracker,
-        ticket,
-        review.discoveries,
-        review.discoveriesDropped,
-      ),
-    );
+    // Routed through the same blocking check as the run's own gave-up and
+    // otherwise-successful paths below: a correction or prerequisite the run
+    // filed is no less true for the provider having cut it off.
+    const routing = await routeOrBlock(ports, ticket, review);
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
+    return withDiscoveries(cutOffReviewOutcome(review), routing.routed);
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
