@@ -115,7 +115,10 @@ export interface ProjectOutcome {
 export interface SelectionPorts {
   tracker: Pick<
     IssueTracker,
-    "listOpenIssues" | "listSubIssues" | "createSpecReviewTicket"
+    | "listOpenIssues"
+    | "listSubIssues"
+    | "createSpecReviewTicket"
+    | "linkSpecReviewTicket"
   >;
   store: Pick<Store, "loadRegistry">;
   repoHost: ConflictSweepRepoHost & SpecReviewSweepPorts["repoHost"];

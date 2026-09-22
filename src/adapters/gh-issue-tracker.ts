@@ -270,6 +270,20 @@ export function ghIssueTracker(
       return specReview;
     },
 
+    async linkSpecReviewTicket(
+      specReview: Ticket,
+      supertask: Ticket,
+      body: string,
+    ): Promise<void> {
+      try {
+        await linkToParent(specReview, supertask, body);
+      } catch (error) {
+        throw new Error(
+          `#${specReview.number} in ${specReview.repo} is already a spec review for #${supertask.number}, but could not link it to #${supertask.number}: ${errorMessage(error)}`,
+        );
+      }
+    },
+
     async listSubIssues(ticket: Ticket): Promise<SubIssue[]> {
       // `--paginate`, so a supertask with more sub-issues than fit in one
       // page is read whole rather than truncated to the first — the guard

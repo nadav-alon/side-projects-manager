@@ -6,6 +6,7 @@ import {
   isSpecReviewTicket,
   issueNumber,
   repoSlug,
+  specReviewTitle,
   SPEC_REVIEW_SIZE_LABEL,
   type OpenIssues,
   type Ticket,
@@ -144,6 +145,85 @@ describe("specReviewSweep", () => {
 
     assert.deepEqual(outcome.opened, []);
     assert.deepEqual(tracker.specReviewTickets, []);
+  });
+
+  it("recognises a spec review it already opened but never linked, and links it instead of opening a duplicate", async () => {
+    const { tracker, repoHost, supertask } = await sweptSupertask();
+    const floating = tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(99),
+      title: specReviewTitle(supertask),
+    });
+    const openIssues = await tracker.listOpenIssues(PILOT);
+
+    const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    assert.deepEqual(outcome.opened, []);
+    assert.deepEqual(outcome.refusals, []);
+    assert.deepEqual(tracker.specReviewTickets, []);
+    assert.equal(tracker.linkedSpecReviewTickets.length, 1);
+    assert.equal(tracker.linkedSpecReviewTickets[0]?.ticket.number, floating.number);
+    assert.equal(tracker.linkedSpecReviewTickets[0]?.parent.number, supertask.number);
+
+    const subIssues = await tracker.listSubIssues(supertask);
+    assert.equal(
+      subIssues.some((sub) => sub.ticket.number === floating.number),
+      true,
+    );
+  });
+
+  it("records a refusal and opens no duplicate when linking an already-opened spec review fails", async () => {
+    const { tracker, repoHost, supertask } = await sweptSupertask();
+    tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(99),
+      title: specReviewTitle(supertask),
+    });
+    const openIssues = await tracker.listOpenIssues(PILOT);
+    tracker.linkSpecReviewTicket = async () => {
+      throw new Error("link refused");
+    };
+
+    const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    assert.deepEqual(outcome.opened, []);
+    assert.deepEqual(tracker.specReviewTickets, []);
+    assert.equal(outcome.refusals.length, 1);
+    assert.equal(outcome.refusals[0]?.supertask.number, supertask.number);
+    assert.equal(outcome.refusals[0]?.error, "link refused");
+  });
+
+  it("links the still-floating spec review on a later sweep once a prior link failure clears", async () => {
+    const { tracker, repoHost, supertask } = await sweptSupertask();
+    const floating = tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(99),
+      title: specReviewTitle(supertask),
+    });
+    const failingOpenIssues = await tracker.listOpenIssues(PILOT);
+    const realLink = tracker.linkSpecReviewTicket.bind(tracker);
+    tracker.linkSpecReviewTicket = async () => {
+      throw new Error("link refused");
+    };
+    const firstOutcome = await specReviewSweep(
+      { tracker, repoHost },
+      PILOT,
+      failingOpenIssues,
+    );
+    assert.equal(firstOutcome.refusals.length, 1);
+    assert.deepEqual(firstOutcome.opened, []);
+
+    tracker.linkSpecReviewTicket = realLink;
+    const laterOpenIssues = await tracker.listOpenIssues(PILOT);
+
+    const secondOutcome = await specReviewSweep(
+      { tracker, repoHost },
+      PILOT,
+      laterOpenIssues,
+    );
+
+    assert.deepEqual(secondOutcome.opened, []);
+    assert.deepEqual(secondOutcome.refusals, []);
+    assert.deepEqual(tracker.specReviewTickets, []);
+    assert.equal(tracker.linkedSpecReviewTickets.length, 1);
+    assert.equal(tracker.linkedSpecReviewTickets[0]?.ticket.number, floating.number);
   });
 
   it("gives each nested supertask its own spec review as its own sub-issues close", async () => {

@@ -652,6 +652,20 @@ export interface IssueTracker {
    */
   createSpecReviewTicket(ticket: Ticket, body: string): Promise<Ticket>;
   /**
+   * Links `specReview` — a spec review ticket for `supertask` that a prior
+   * sweep already opened but could not link, found unlinked by its title and
+   * its spec-review label rather than by any sub-issue relation — as
+   * `supertask`'s sub-issue now, in place of opening a duplicate. `body` is
+   * `specReviewBody`'s own text, recomposed by the caller exactly as
+   * {@link createSpecReviewTicket} would for a new one: only ever written
+   * where the tracker has no native sub-issue relation, in which case it
+   * replaces `specReview`'s own body outright, the same fallback
+   * {@link createSpecReviewTicket} takes.
+   *
+   * `supertask` is read, never written, same as {@link createSpecReviewTicket}.
+   */
+  linkSpecReviewTicket(specReview: Ticket, supertask: Ticket, body: string): Promise<void>;
+  /**
    * Opens a review ticket against `ticket` — a sub-issue asking for the draft
    * pull request at `pullRequest` to be reviewed — and answers with it.
    *

@@ -9,15 +9,18 @@ import type {
   SubIssue,
   Ticket,
 } from "./ports/index.ts";
-import { isSupertask } from "./ports/index.ts";
+import { isSupertask, specReviewTitle } from "./ports/index.ts";
 
 /** The two ports one sweep reads and writes through, narrowed to what it calls. */
 export interface SpecReviewSweepPorts {
-  tracker: Pick<IssueTracker, "listSubIssues" | "createSpecReviewTicket">;
+  tracker: Pick<
+    IssueTracker,
+    "listSubIssues" | "createSpecReviewTicket" | "linkSpecReviewTicket"
+  >;
   repoHost: Pick<RepoHost, "listPullRequestsClosingIssues">;
 }
 
-/** One supertask a sweep could not open a spec review for, and why. */
+/** One supertask a sweep could not open or link a spec review for, and why. */
 export interface SpecReviewSweepRefusal {
   supertask: Ticket;
   error: string;
@@ -26,8 +29,10 @@ export interface SpecReviewSweepRefusal {
 /**
  * What sweeping one project came to: every spec review it opened, and every
  * refusal it met along the way. A supertask that still has an open sub-issue,
- * or that already carries one — the guard, per `CONTEXT.md`'s "Spec review
- * sweep" — appears in neither list, since neither is something to report.
+ * that already carries one — the guard, per `CONTEXT.md`'s "Spec review
+ * sweep" — or whose floating spec review this sweep found and linked rather
+ * than opened, appears in neither list, since none of the three is something
+ * to report.
  */
 export interface SpecReviewSweepOutcome {
   repo: RepoSlug;
@@ -51,6 +56,16 @@ export interface SpecReviewSweepOutcome {
  * every sub-issue `listSubIssues` found, and — read once here, at exactly
  * this instant, through {@link RepoHost.listPullRequestsClosingIssues} — the
  * branch and state of whichever of them has a pull request still unmerged.
+ *
+ * Before that spec review is opened, `openIssues` is searched once more —
+ * this time for an issue carrying the spec-review label and the exact title
+ * a spec review for this supertask is given, per {@link specReviewTitle} —
+ * since a prior sweep can have created one and failed only at the link that
+ * would have made it a sub-issue: `listSubIssues` reads by that relation
+ * alone and is blind to a ticket the create half of the pair still left
+ * floating. Found, it is linked instead of duplicated; not found, a spec
+ * review opens exactly as it always has (`CONTEXT.md`'s "Spec review sweep",
+ * issue #640).
  *
  * Nested supertasks need nothing special: each is itself just another ticket
  * `openIssues` lists carrying the supertask label, asked and guarded the same
@@ -93,10 +108,19 @@ export async function specReviewSweep(
       }
 
       closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
-      const specReview = await ports.tracker.createSpecReviewTicket(
-        supertask,
-        specReviewBody(supertask, subIssues, await closingPullRequests),
-      );
+      const body = specReviewBody(supertask, subIssues, await closingPullRequests);
+
+      // `subIssues` alone cannot see one a prior sweep opened but never
+      // linked — it carries no sub-issue relation to find it by — so
+      // `openIssues`, already read once for the whole sweep, is searched by
+      // title and label instead.
+      const floating = findFloatingSpecReview(supertask, openIssues.issues);
+      if (floating !== undefined) {
+        await ports.tracker.linkSpecReviewTicket(floating, supertask, body);
+        continue;
+      }
+
+      const specReview = await ports.tracker.createSpecReviewTicket(supertask, body);
       opened.push(specReview);
     } catch (error) {
       refusals.push({ supertask, error: errorMessage(error) });
@@ -121,6 +145,25 @@ function hasOpenSubIssue(ticket: Ticket, issues: readonly OpenIssue[]): boolean 
 /** Whether `sub` is a spec review already opened for its supertask — the guard itself. */
 function alreadySpecReviewed(sub: SubIssue): boolean {
   return sub.ticket.specReview === true;
+}
+
+/**
+ * The spec review `specReviewSweep` already opened for `supertask`, if one
+ * is sitting among `issues` unlinked — carrying the spec-review label and
+ * the exact title {@link specReviewTitle} gives a spec review for
+ * `supertask`. Reached only once `alreadySpecReviewed` has found none
+ * linked, so a match here is, by construction, not yet one of `supertask`'s
+ * own sub-issues — the tracker created it and the link that should have
+ * followed never landed.
+ */
+function findFloatingSpecReview(
+  supertask: Ticket,
+  issues: readonly OpenIssue[],
+): Ticket | undefined {
+  const title = specReviewTitle(supertask);
+  return issues.find(
+    (issue) => issue.ticket.specReview === true && issue.ticket.title === title,
+  )?.ticket;
 }
 
 /**

@@ -2118,6 +2118,87 @@ describe("ghIssueTracker.createSpecReviewTicket", () => {
   });
 });
 
+describe("ghIssueTracker.linkSpecReviewTicket", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const SUPERTASK: Ticket = {
+    repo: PILOT,
+    number: issueNumber(40),
+    title: "Too big for one run",
+  };
+
+  const SPEC_REVIEW: Ticket = {
+    repo: PILOT,
+    number: issueNumber(50),
+    title: "Spec review for #40",
+    specReview: true,
+  };
+
+  /** The spec review's database id, which is what the sub-issues endpoint takes. */
+  const SPEC_REVIEW_ID = "2159872999";
+
+  const WORKING = [
+    `case "$1 $2" in`,
+    `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+    `  *) : ;;`,
+    `esac`,
+  ].join("\n");
+
+  it("hangs the existing spec review off the supertask with the tracker's own sub-issue relationship", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40.");
+
+    const link = callWith(await gh.calls(), "api", "--method", "POST");
+    assert.ok(link, "the spec review should be linked as a sub-issue");
+    assert.ok(link.includes("repos/nadav-alon/pilot/issues/40/sub_issues"));
+    assert.equal(valueOf(link, "-F"), `sub_issue_id=${SPEC_REVIEW_ID}`);
+  });
+
+  it("never creates a new issue — only links the one it was given", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40.");
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.equal(create, undefined);
+  });
+
+  it("falls back to a parent reference in its body where sub-issues are unavailable", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+        `  "api --method") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40.");
+
+    const edit = callWith(await gh.calls(), "issue", "edit");
+    assert.ok(edit, "the spec review's body should carry the reference instead");
+    assert.equal(valueOf(edit, "--repo"), PILOT);
+    const body = valueOf(edit, "--body") ?? "";
+    assert.match(body, /^Part of #40\./);
+    assert.match(body, /Reviews #40\.$/);
+  });
+
+  it("says so, naming both tickets, when linking fails", async (t) => {
+    await recordingGh(
+      t,
+      [`case "$1 $2" in`, `  *) echo "denied" >&2; exit 1 ;;`, `esac`].join("\n"),
+    );
+
+    await assert.rejects(
+      ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40."),
+      /#50 in nadav-alon\/pilot is already a spec review for #40, but could not link it to #40/,
+    );
+  });
+});
+
 describe("ghIssueTracker.listSubIssues", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
 

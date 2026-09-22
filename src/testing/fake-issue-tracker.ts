@@ -151,6 +151,8 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly reviewTickets: FakeReviewTicket[] = [];
   /** The spec review tickets opened, in the order they were opened. */
   readonly specReviewTickets: FakeSpecReviewTicket[] = [];
+  /** The spec review tickets linked to a supertask without being opened, in link order — see {@link linkSpecReviewTicket}. */
+  readonly linkedSpecReviewTickets: FakeSpecReviewTicket[] = [];
   /** Tickets handed back, in the order they were handed back. */
   readonly handbacks: FakeHandback[] = [];
 
@@ -457,6 +459,30 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const opened: Ticket = { ...specReview, specReview: true };
     this.specReviewTickets.push({ parent: ticket, body, ticket: opened });
     return opened;
+  }
+
+  /**
+   * Links `specReview` — a spec review ticket already in the backlog,
+   * carrying the spec review label but no `parent` of its own, the way
+   * `addSpecReviewTicket` leaves one — as `supertask`'s sub-issue, the same
+   * relation `createSpecReviewTicket` gives the one it creates. Recorded in
+   * `linkedSpecReviewTickets` rather than `specReviewTickets`: nothing was
+   * opened, only linked.
+   */
+  async linkSpecReviewTicket(
+    specReview: Ticket,
+    supertask: Ticket,
+    body: string,
+  ): Promise<void> {
+    const entry = this.#find(specReview);
+    if (entry !== undefined) {
+      entry.issue.parent = supertask.number;
+    }
+    this.linkedSpecReviewTickets.push({
+      parent: supertask,
+      body,
+      ticket: { ...specReview, specReview: true },
+    });
   }
 
   async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
