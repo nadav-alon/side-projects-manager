@@ -96,6 +96,32 @@ describe("routeDiscoveries", () => {
     assert.equal(routing.suggestionsDropped, 0);
   });
 
+  it("does not spend the suggestion cap on a refused first suggestion, so the next one is filed", async (t) => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const realCreateDiscoveredTicket = tracker.createDiscoveredTicket.bind(tracker);
+    let calls = 0;
+    t.mock.method(tracker, "createDiscoveredTicket", async (...args: Parameters<typeof tracker.createDiscoveredTicket>) => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("the tracker refused the ticket");
+      }
+      return realCreateDiscoveredTicket(...args);
+    });
+    const suggestions = [
+      discovery({ kind: "suggestion", title: "First" }),
+      discovery({ kind: "suggestion", title: "Second" }),
+    ];
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, suggestions);
+
+    assert.equal(routing.refused.length, 1);
+    assert.equal(routing.refused[0]?.discovery.title, "First");
+    assert.equal(routing.filed.length, 1);
+    assert.equal(routing.filed[0]?.discovery.title, "Second");
+    assert.equal(routing.suggestionsDropped, 0);
+  });
+
   it("reports a refused write without stopping the rest", async (t) => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());

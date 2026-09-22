@@ -120,15 +120,15 @@ export async function routeDiscoveries(
   let suggestionsDropped = 0;
 
   for (const discovery of discoveries) {
-    if (discovery.kind === "suggestion") {
-      if (suggestionFiled) {
-        suggestionsDropped += 1;
-        continue;
-      }
-      suggestionFiled = true;
+    if (discovery.kind === "suggestion" && suggestionFiled) {
+      suggestionsDropped += 1;
+      continue;
     }
     try {
       filed.push(await fileDiscovery(tracker, runTicket, target, discovery));
+      if (discovery.kind === "suggestion") {
+        suggestionFiled = true;
+      }
     } catch (error: unknown) {
       refused.push({ discovery, reason: errorMessage(error) });
     }
