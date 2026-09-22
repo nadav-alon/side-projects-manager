@@ -78,8 +78,8 @@ export function workedTickets(
   today: Day,
   current?: CurrentInvocation,
 ): WorkedTickets {
-  const today0 = stored?.day === today ? stored : undefined;
-  const { kept, freed } = freeDeadInvocations(today0, current);
+  const storedToday = stored?.day === today ? stored : undefined;
+  const { kept, freed } = freeDeadInvocations(storedToday, current);
   let record = kept;
   const passedOver = new Set(record?.tickets.map(ticketKey));
 
