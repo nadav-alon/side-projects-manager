@@ -139,6 +139,15 @@ export interface Salvage extends WorkedTicket {
 export type Salvaged = Pick<Salvage, "branch" | "stopShorts">;
 
 /**
+ * `ticket` as a salvage record names it: its project and its number there,
+ * and nothing else. `recordedBy` belongs only to the worked-today record —
+ * dropped here rather than trusted to be absent from every caller.
+ */
+function salvageTicket({ repo, number }: WorkedTicket): { repo: RepoSlug; number: IssueNumber } {
+  return { repo, number };
+}
+
+/**
  * `previous` with `ticket`'s salvage recorded as a stop-short — a limit
  * refusal or a budget exhaustion — on `branch`: `stopShorts` one more than an
  * existing record for `ticket` already carried, or 1 for a ticket salvaged
@@ -150,7 +159,7 @@ export function recordStopShortSalvage(
   branch: Branch,
 ): Salvage[] {
   const stopShorts = (salvageFor(previous, ticket)?.stopShorts ?? 0) + 1;
-  return withSalvage(previous, { ...workedTicket(ticket), branch, stopShorts });
+  return withSalvage(previous, { ...salvageTicket(ticket), branch, stopShorts });
 }
 
 /**
@@ -165,7 +174,7 @@ export function recordInfrastructureFailureSalvage(
   branch: Branch,
 ): Salvage[] {
   const stopShorts = salvageFor(previous, ticket)?.stopShorts ?? 0;
-  return withSalvage(previous, { ...workedTicket(ticket), branch, stopShorts });
+  return withSalvage(previous, { ...salvageTicket(ticket), branch, stopShorts });
 }
 
 /** `previous` with `salvage` recorded in place of any earlier one for the same ticket. */
