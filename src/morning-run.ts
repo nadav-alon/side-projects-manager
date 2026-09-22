@@ -1000,7 +1000,7 @@ async function work(
   }
   if (run.kind === "finished") {
     const routed = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
-    if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+    if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
       await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
       salvages.clear(selection.ticket);
       return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
@@ -1018,7 +1018,7 @@ async function work(
   // via `discardStaleSalvage`, the branch it names — the same as any other
   // gave-up run's branch.
   const routedGaveUp = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
-  if (routedGaveUp !== undefined && hasBlockingDiscovery(routedGaveUp.routing)) {
+  if (routedGaveUp !== undefined && hasBlockingDiscovery(routedGaveUp.discoveries)) {
     await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
     return discoveryBlockedOutcome(ports, selection.ticket, routedGaveUp, run.tokensUsed, run.transcript, {
@@ -1259,7 +1259,7 @@ async function discoveryBlockedOutcome(
   const target = routed.target.number === ticket.number ? undefined : routed.target;
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
-    discoveries: blockingDiscoveriesOf(routed.routing),
+    discoveries: blockingDiscoveriesOf(routed.discoveries),
     ...(target !== undefined && { target }),
     ...(worked !== undefined && { worked }),
     ...transcriptField(transcript),
@@ -1617,7 +1617,7 @@ async function runReview(
   // discovery replaces both the gave-up and the found-nothing-posted path
   // below, per CONTEXT.md's "Discovery" and "Hand back".
   const routed = await routeRunDiscoveries(ports.tracker, ticket, review.discoveries);
-  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
     return discoveryBlockedOutcome(ports, ticket, routed, review.tokensUsed, review.transcript);
   }
 
@@ -1867,7 +1867,7 @@ async function runApplyReview(
   // discovery replaces both the gave-up and the thread-left-unanswered path
   // below, per CONTEXT.md's "Discovery" and "Hand back".
   const routed = await routeRunDiscoveries(ports.tracker, ticket, run.discoveries);
-  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
     return discoveryBlockedOutcome(ports, ticket, routed, run.tokensUsed, run.transcript);
   }
 
@@ -2080,7 +2080,7 @@ async function runRebase(
   // discovery replaces both the gave-up and the still-conflicting path
   // below, per CONTEXT.md's "Discovery" and "Hand back".
   const routed = await routeRunDiscoveries(ports.tracker, ticket, run.discoveries);
-  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
     return discoveryBlockedOutcome(ports, ticket, routed, run.tokensUsed, run.transcript);
   }
 

@@ -6,7 +6,6 @@ import {
   hasBlockingDiscovery,
   routeDiscoveries,
   routeRunDiscoveries,
-  type DiscoveryRouting,
 } from "./discovery-routing.ts";
 import { issueNumber, pullRequestUrl, type Discovery } from "./ports/index.ts";
 import { FakeIssueTracker, PILOT } from "./testing/index.ts";
@@ -148,35 +147,26 @@ describe("routeDiscoveries", () => {
 
 describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
   it("is false when every discovery is advisory", () => {
-    const routing: DiscoveryRouting = {
-      filed: [{ discovery: discovery({ kind: "suggestion" }), action: "commented" }],
-      suggestionsDropped: 0,
-      refused: [],
-    };
-    assert.equal(hasBlockingDiscovery(routing), false);
-    assert.deepEqual(blockingDiscoveriesOf(routing), []);
+    const discoveries = [discovery({ kind: "suggestion" })];
+    assert.equal(hasBlockingDiscovery(discoveries), false);
+    assert.deepEqual(blockingDiscoveriesOf(discoveries), []);
   });
 
-  it("is true for a filed correction or prerequisite", () => {
+  it("is true for a correction or a prerequisite, filed or refused makes no difference", () => {
     const correction = discovery({ kind: "correction" });
-    const routing: DiscoveryRouting = {
-      filed: [{ discovery: correction, action: "commented" }],
-      suggestionsDropped: 0,
-      refused: [],
-    };
-    assert.equal(hasBlockingDiscovery(routing), true);
-    assert.deepEqual(blockingDiscoveriesOf(routing), [correction]);
+    assert.equal(hasBlockingDiscovery([correction]), true);
+    assert.deepEqual(blockingDiscoveriesOf([correction]), [correction]);
   });
 
-  it("is true for a refused correction or prerequisite too — the refusal is the tracker's problem, not the ticket's", () => {
-    const prerequisite = discovery({ kind: "prerequisite" });
-    const routing: DiscoveryRouting = {
-      filed: [],
-      suggestionsDropped: 0,
-      refused: [{ discovery: prerequisite, reason: "the tracker is down" }],
-    };
-    assert.equal(hasBlockingDiscovery(routing), true);
-    assert.deepEqual(blockingDiscoveriesOf(routing), [prerequisite]);
+  it("keeps the agent's own order across a mix of advisory and blocking kinds", () => {
+    const clarification = discovery({ kind: "clarification", title: "First" });
+    const correction = discovery({ kind: "correction", title: "Second" });
+    const prerequisite = discovery({ kind: "prerequisite", title: "Third" });
+
+    assert.deepEqual(blockingDiscoveriesOf([clarification, correction, prerequisite]), [
+      correction,
+      prerequisite,
+    ]);
   });
 });
 

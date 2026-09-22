@@ -40,9 +40,11 @@ export interface RefusedDiscovery {
  *
  * A discovery the tracker refused to write is counted in `refused` rather
  * than `filed`, but still counts toward whether the run's ticket carries a
- * blocking discovery — see `hasBlockingDiscovery` — since the refusal is the
- * tracker's problem, not a reason to treat what the agent found as though it
- * never happened.
+ * blocking discovery, since the refusal is the tracker's problem, not a
+ * reason to treat what the agent found as though it never happened —
+ * see `hasBlockingDiscovery`, which reads the run's own discoveries rather
+ * than this split, so it need not care which side of it a discovery landed
+ * on.
  */
 export interface DiscoveryRouting {
   filed: FiledDiscovery[];
@@ -50,26 +52,22 @@ export interface DiscoveryRouting {
   refused: RefusedDiscovery[];
 }
 
-/** Every discovery `routing` filed or was refused, blocking and advisory alike. */
-function everyDiscoveryIn(routing: DiscoveryRouting): Discovery[] {
-  return [
-    ...routing.filed.map((filed) => filed.discovery),
-    ...routing.refused.map((refused) => refused.discovery),
-  ];
+/**
+ * Whether `discoveries` names a correction or a prerequisite — either blocks
+ * the run's own ticket from finishing normally. Takes the run's own
+ * discoveries rather than a `DiscoveryRouting`: neither blocking kind is ever
+ * dropped by the suggestion cap, so every one reaches `filed` or `refused`
+ * regardless, and reading `discoveries` directly keeps the agent's own order
+ * rather than the filed-then-refused order `DiscoveryRouting` splits them
+ * into.
+ */
+export function hasBlockingDiscovery(discoveries: readonly Discovery[]): boolean {
+  return discoveries.some((discovery) => isBlockingDiscoveryKind(discovery.kind));
 }
 
-/** Whether `routing` filed or was refused a correction or a prerequisite — either blocks the run's own ticket from finishing normally. */
-export function hasBlockingDiscovery(routing: DiscoveryRouting): boolean {
-  return everyDiscoveryIn(routing).some((discovery) =>
-    isBlockingDiscoveryKind(discovery.kind),
-  );
-}
-
-/** The correction and prerequisite discoveries `routing` filed or was refused, in the order the agent filed them. */
-export function blockingDiscoveriesOf(routing: DiscoveryRouting): Discovery[] {
-  return everyDiscoveryIn(routing).filter((discovery) =>
-    isBlockingDiscoveryKind(discovery.kind),
-  );
+/** The correction and prerequisite discoveries among `discoveries`, in the order the agent filed them. */
+export function blockingDiscoveriesOf(discoveries: readonly Discovery[]): Discovery[] {
+  return discoveries.filter((discovery) => isBlockingDiscoveryKind(discovery.kind));
 }
 
 /**
@@ -168,10 +166,16 @@ async function discoveryTargetFor(
     : { ticket: parent };
 }
 
-/** `routeRunDiscoveries`'s answer: the target its discoveries were routed against, and what became of every one of them. */
+/**
+ * `routeRunDiscoveries`'s answer: the target its discoveries were routed
+ * against, what became of every one of them, and the run's own discoveries in
+ * the order the agent filed them — for `hasBlockingDiscovery` and
+ * `blockingDiscoveriesOf`, which read this rather than `routing`.
+ */
 export interface RoutedDiscoveries {
   target: Ticket;
   routing: DiscoveryRouting;
+  discoveries: readonly Discovery[];
 }
 
 /**
@@ -208,10 +212,12 @@ export async function routeRunDiscoveries(
           reason: resolved.error,
         })),
       },
+      discoveries,
     };
   }
   return {
     target: resolved.ticket,
     routing: await routeDiscoveries(tracker, ticket, resolved.ticket, discoveries),
+    discoveries,
   };
 }

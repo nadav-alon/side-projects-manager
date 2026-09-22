@@ -1434,6 +1434,23 @@ describe("morningLoop", () => {
         assert.match(discoveries?.refused[0]?.reason ?? "", /refused the comment/);
         assert.equal(discoveries?.filed.length, 1);
       });
+
+      it("still hands the ticket back for a blocking discovery the tracker refused to comment", async (t) => {
+        const ports = fakePorts();
+        const ticket = ran(ports, { discoveries: [correction()] });
+        t.mock.method(ports.tracker, "comment", async () => {
+          throw new Error("the tracker refused the comment");
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.ok(handback, "the ticket should have been handed back");
+        assert.match(handback.comment, /blocking discovery/);
+      });
     });
   });
 
