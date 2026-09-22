@@ -317,7 +317,7 @@ The usage limit the provider itself enforces, which the manager learns of only t
 _Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
 
 **Limit refusal**:
-A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back: its ticket is left exactly as it was, an implementation run's work is salvaged, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way.
+A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent CLI's whole answer is the provider's own words, reset included. Neither gave up nor finished, so never handed back on its own account: its ticket is left exactly as it was, an implementation run's work is salvaged, what it spent is recorded, and the invocation stands down, since every run after it would be refused the same way — except when the run also filed a blocking discovery, which hands the ticket back instead, discarding rather than salvaging whatever it committed, exactly as CONTEXT.md's **Discovery** says for any other run.
 _Avoid_: interrupted, limit reached, rate-limited
 
 **Model refusal**:
@@ -325,7 +325,7 @@ A run, implementation, review, apply-review or rebase, that the agent CLI would 
 _Avoid_: bad model, model error, invalid model
 
 **Provider failure**:
-A run, implementation, review, apply-review or rebase, that the agent started but the provider never answered: down, overloaded or unreachable — or one that answered and then went silent mid-stream, which reads the same as never answering once the run is killed for having gone quiet. The provider is the problem, not the ticket, the agent or the setup, so it is neither gave up nor an infrastructure failure, and never handed back: its ticket is left exactly as it was, for a later firing to select again.
+A run, implementation, review, apply-review or rebase, that the agent started but the provider never answered: down, overloaded or unreachable — or one that answered and then went silent mid-stream, which reads the same as never answering once the run is killed for having gone quiet. The provider is the problem, not the ticket, the agent or the setup, so it is neither gave up nor an infrastructure failure, and never handed back on its own account: its ticket is left exactly as it was, for a later firing to select again — except when the run also filed a blocking discovery, which hands the ticket back instead, exactly as CONTEXT.md's **Discovery** says for any other run.
 _Avoid_: outage, API error, provider down
 
 **Stalled run**:
