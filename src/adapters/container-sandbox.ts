@@ -1437,6 +1437,7 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
     "one way this run opens or comments on anything else.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
+    "A discovery you file below is about that supertask, not about this ticket.",
     DISCOVERY_INSTRUCTIONS,
   ].join(" ");
 }
