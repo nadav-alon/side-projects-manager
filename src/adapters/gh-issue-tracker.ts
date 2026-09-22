@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
-  Discovery,
+  DiscoveredTicketRequest,
   HandBackOutcome,
   IssueNumber,
   IssueTracker,
@@ -348,7 +348,7 @@ export function ghIssueTracker(
 
     async createDiscoveredTicket(
       ticket: Ticket,
-      discovery: Discovery,
+      discovery: DiscoveredTicketRequest,
     ): Promise<Ticket> {
       await ensureLabel(ticket.repo, NEEDS_TRIAGE_LABEL);
       await ensureLabel(ticket.repo, ENHANCEMENT_LABEL);

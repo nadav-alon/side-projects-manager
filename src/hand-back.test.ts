@@ -431,6 +431,82 @@ describe("handBack", () => {
     });
   });
 
+  describe("a blocking discovery", () => {
+    it("discards an implementation ticket's branch and quotes the correction, not a gave-up comment", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "discovery-blocked",
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            body: "It should touch src/widget.ts, not src/gadget.ts.",
+          },
+        ],
+        worked: {
+          checkout: CHECKOUT,
+          run: {
+            kind: "finished",
+            branch: BRANCH,
+            commits: [commitSha("c0ffee1")],
+            tokensUsed: tokenCount(42_000),
+            output: "Found a correction while working this.",
+          },
+        },
+      });
+
+      assert.deepEqual(repoHost.discarded, [{ directory: CHECKOUT, branch: BRANCH }]);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /blocking discovery/);
+      assert.doesNotMatch(comment, /the agent gave up/);
+      assert.match(comment, /The ticket names the wrong file/);
+      assert.match(comment, /src\/widget\.ts/);
+      assert.match(comment, /branch it worked on has been discarded/);
+      assert.equal(tracker.carriesLabel(ticket, "ready-for-human"), true);
+    });
+
+    it("names the implementation ticket for a pull request ticket, and discards nothing", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, reviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "discovery-blocked",
+        discoveries: [
+          {
+            kind: "prerequisite",
+            title: "Needs the widget port first",
+            body: "There is no widget port to review against yet.",
+          },
+        ],
+        target: { ...implementationTicket(), repo: REPO },
+      });
+
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.equal(tracker.handbacks[0]?.ticket.number, ticket.number);
+      assert.match(comment, /Needs the widget port first/);
+      assert.match(comment, /implementation ticket, #7/);
+    });
+
+    it("names the transcript's host path when the run left one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, reviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "discovery-blocked",
+        discoveries: [
+          { kind: "correction", title: "Wrong ticket", body: "This is stale." },
+        ],
+        target: { ...implementationTicket(), repo: REPO },
+        transcript: TRANSCRIPT,
+      });
+
+      assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
+  });
+
   describe("unusable model labels", () => {
     it("names conflicting model labels", async () => {
       const { tracker, repoHost } = ports();

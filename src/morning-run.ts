@@ -6,6 +6,7 @@ import type {
   Checkout,
   Clock,
   Day,
+  Discovery,
   InvocationOutcome as JournaledInvocationOutcome,
   IssueTracker,
   IssueUrl,
@@ -29,6 +30,7 @@ import type {
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
+  RunGaveUp,
   RunLimitRefused,
   RunModelRefused,
   RunOutcome,
@@ -85,6 +87,12 @@ import {
   type Discard,
   type HandBackRecord,
 } from "./hand-back.ts";
+import {
+  blockingDiscoveriesOf,
+  hasBlockingDiscovery,
+  routeRunDiscoveries,
+  type RoutedDiscoveries,
+} from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
 import {
   budgetExhaustedReviewOutcome,
@@ -99,6 +107,7 @@ import {
   type AppliedReview,
   type BudgetExhausted,
   type CutOff,
+  type DiscoveryBlocked,
   type Failed,
   type Finished,
   type GaveUp,
@@ -811,13 +820,13 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
  *
  * An infrastructure failure, a limit refusal or a provider failure says
  * nothing about the ticket at all, so it always frees it. A finished, a
- * spec-reviewed or a failed run frees it exactly when its own hand-back
- * landed — `"handed-back"` or `"already-closed"` — and leaves it recorded
- * when the tracker refused the call. A review, an apply-review, a rebase or a
- * resolved pull request frees it exactly when it closed without a
- * `notClosed`, and leaves it recorded when one is set — the ticket is still
- * ready-for-agent, due to come round again on its own, so the record still
- * has something to protect.
+ * spec-reviewed, a discovery-blocked or a failed run frees it exactly when
+ * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
+ * leaves it recorded when the tracker refused the call. A review, an
+ * apply-review, a rebase or a resolved pull request frees it exactly when it
+ * closed without a `notClosed`, and leaves it recorded when one is set — the
+ * ticket is still ready-for-agent, due to come round again on its own, so the
+ * record still has something to protect.
  */
 function freesTicketToday(iteration: Iteration): boolean {
   switch (iteration.kind) {
@@ -827,6 +836,7 @@ function freesTicketToday(iteration: Iteration): boolean {
       return true;
     case "finished":
     case "spec-reviewed":
+    case "discovery-blocked":
       return iteration.handedBack.outcome !== "refused";
     case "failed":
       return (
@@ -950,9 +960,10 @@ async function work(
     };
   }
   if (run.kind === "limit-refused") {
-    return cutOffRunOutcome(
-      run,
-      await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run),
+    const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
+    return withDiscoveries(
+      cutOffRunOutcome(run, discard),
+      await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries),
     );
   }
   if (run.kind === "budget-exhausted") {
@@ -967,7 +978,11 @@ async function work(
     );
   }
   if (run.kind === "provider-failed") {
-    return cutOffRunOutcome(run, await discardBranch(ports.repoHost, checkout, run));
+    const discard = await discardBranch(ports.repoHost, checkout, run);
+    return withDiscoveries(
+      cutOffRunOutcome(run, discard),
+      await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries),
+    );
   }
   if (run.kind === "model-refused") {
     // A model refusal ends the ticket's run on its own terms, whatever it
@@ -984,16 +999,26 @@ async function work(
       { checkout, run },
     );
   }
+  // Routed before either of the run's own endings — finished or gave up — is
+  // decided: a blocking discovery replaces both, per CONTEXT.md's "Discovery"
+  // and "Hand back". Either way the ticket's salvage record is discarded —
+  // and, via `discardStaleSalvage`, the branch it names — the same as any
+  // other gave-up run's branch; see CONTEXT.md's "Salvage".
+  const routed = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+    salvages.clear(selection.ticket);
+    return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
+      checkout,
+      run,
+    });
+  }
   if (run.kind === "finished") {
     await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
-    return handOver(ports, run, checkout, selection.ticket);
+    return withDiscoveries(await handOver(ports, run, checkout, selection.ticket), routed);
   }
 
-  // A run that gave up ends on its own terms, whatever it continued from: see
-  // CONTEXT.md's "Salvage", which discards a ticket's salvage record — and,
-  // via `discardStaleSalvage`, the branch it names — the same as any other
-  // gave-up run's branch.
   await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
   salvages.clear(selection.ticket);
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
@@ -1011,7 +1036,16 @@ async function work(
     ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
     handedBack,
+    ...(routed !== undefined && { discoveries: routed.routing }),
   };
+}
+
+/** `iteration`, with `routed`'s own routing attached — unchanged when there was nothing to route. */
+function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"] }>(
+  iteration: T,
+  routed: RoutedDiscoveries | undefined,
+): T {
+  return routed === undefined ? iteration : { ...iteration, discoveries: routed.routing };
 }
 
 /**
@@ -1194,6 +1228,72 @@ async function handModelRefusedBack(
     failure,
     handedBack,
   };
+}
+
+/**
+ * Hands a ticket back for a blocking discovery — a correction or a
+ * prerequisite the run filed — per CONTEXT.md's "Discovery" and "Hand back":
+ * the run's own ticket is handed back exactly as a gave-up run's is, whatever
+ * the agent went on to commit or would otherwise have finished. `worked`
+ * names the branch an implementation run left, so its own hand-back discards
+ * it; a review, apply-review or rebase ticket's own run never creates one, so
+ * `worked` is left out. `routed.target` is named on the hand-back only when it
+ * differs from `ticket` — a pull request ticket's run, whose discoveries land
+ * on its implementation ticket rather than the ticket handed back here.
+ */
+async function discoveryBlockedOutcome(
+  ports: MorningLoopPorts,
+  ticket: Ticket,
+  routed: RoutedDiscoveries,
+  tokensUsed: TokenCount,
+  transcript: TranscriptPath | undefined,
+  worked?: { checkout: Checkout; run: RunFinished | RunGaveUp },
+): Promise<DiscoveryBlocked> {
+  const target = routed.target.number === ticket.number ? undefined : routed.target;
+  const handedBack = await handBack(ports, ticket, {
+    kind: "discovery-blocked",
+    discoveries: blockingDiscoveriesOf(routed.discoveries),
+    ...(target !== undefined && { target }),
+    ...(worked !== undefined && { worked }),
+    ...transcriptField(transcript),
+  });
+  return {
+    kind: "discovery-blocked",
+    routing: routed.routing,
+    ...(target !== undefined && { target }),
+    tokensUsed,
+    ...(transcript !== undefined && { transcript }),
+    handedBack,
+  };
+}
+
+/**
+ * Routes `outcome`'s own discoveries against `ticket` and, when one of them
+ * blocks, hands the ticket back for it — shared by a review, apply-review or
+ * rebase run's own gave-up and otherwise-successful paths, each of which
+ * replaces both with a blocking discovery's hand-back the same way, per
+ * CONTEXT.md's "Discovery" and "Hand back". Neither ever passes
+ * `discoveryBlockedOutcome`'s `worked`: none of the three ever creates a
+ * branch.
+ */
+async function routeOrBlock(
+  ports: MorningLoopPorts,
+  ticket: Ticket,
+  outcome: { tokensUsed: TokenCount; transcript?: TranscriptPath; discoveries?: Discovery[] },
+): Promise<{ routed: RoutedDiscoveries | undefined } | { blocked: DiscoveryBlocked }> {
+  const routed = await routeRunDiscoveries(ports.tracker, ticket, outcome.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+    return {
+      blocked: await discoveryBlockedOutcome(
+        ports,
+        ticket,
+        routed,
+        outcome.tokensUsed,
+        outcome.transcript,
+      ),
+    };
+  }
+  return { routed };
 }
 
 /**
@@ -1491,7 +1591,13 @@ async function runReview(
   model: ResolvedModel | undefined,
   turbo: boolean,
 ): Promise<
-  Reviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+  | Reviewed
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | PullRequestResolved
+  | DiscoveryBlocked
 > {
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
     ports.tracker.closeReviewTicket(ticket, comment),
@@ -1515,7 +1621,10 @@ async function runReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return cutOffReviewOutcome(review);
+    return withDiscoveries(
+      cutOffReviewOutcome(review),
+      await routeRunDiscoveries(ports.tracker, ticket, review.discoveries),
+    );
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1526,8 +1635,17 @@ async function runReview(
     return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
   }
 
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the found-nothing-posted path
+  // below, per CONTEXT.md's "Discovery" and "Hand back".
+  const routing = await routeOrBlock(ports, ticket, review);
+  if ("blocked" in routing) {
+    return routing.blocked;
+  }
+  const { routed } = routing;
+
   if (review.kind === "gave-up") {
-    return handReviewBack(ports, ticket, review, review.reason);
+    return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
   }
 
   let posted: boolean;
@@ -1537,31 +1655,36 @@ async function runReview(
       startedAt,
     );
   } catch (error: unknown) {
-    return {
+    const checkFailed: Reviewed = {
       kind: "reviewed",
       review,
       tokensUsed: review.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(checkFailed, routed);
   }
   if (!posted) {
-    return handReviewBack(
-      ports,
-      ticket,
-      review,
-      `the agent ran but posted nothing to ${ticket.pullRequest.url}`,
+    return withDiscoveries(
+      await handReviewBack(
+        ports,
+        ticket,
+        review,
+        `the agent ran but posted nothing to ${ticket.pullRequest.url}`,
+      ),
+      routed,
     );
   }
 
   try {
     await ports.tracker.closeReviewTicket(ticket);
   } catch (error: unknown) {
-    return {
+    const closeFailed: Reviewed = {
       kind: "reviewed",
       review,
       tokensUsed: review.tokensUsed,
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(closeFailed, routed);
   }
   const labelled = await labelClosedPullRequest(
     ports,
@@ -1571,13 +1694,14 @@ async function runReview(
   const commented = turbo
     ? await postTurboComment(ports, ticket.pullRequest.url)
     : {};
-  return {
+  const reviewed: Reviewed = {
     kind: "reviewed",
     review,
     tokensUsed: review.tokensUsed,
     ...labelled,
     ...commented,
   };
+  return withDiscoveries(reviewed, routed);
 }
 
 /**
@@ -1701,7 +1825,13 @@ async function runApplyReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
-  AppliedReview | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+  | AppliedReview
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | PullRequestResolved
+  | DiscoveryBlocked
 > {
   const pullRequest = ticket.pullRequest.url;
 
@@ -1744,7 +1874,10 @@ async function runApplyReview(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return cutOffReviewOutcome(run);
+    return withDiscoveries(
+      cutOffReviewOutcome(run),
+      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries),
+    );
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
@@ -1752,8 +1885,18 @@ async function runApplyReview(
   if (run.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
   }
+
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the thread-left-unanswered path
+  // below, per CONTEXT.md's "Discovery" and "Hand back".
+  const routing = await routeOrBlock(ports, ticket, run);
+  if ("blocked" in routing) {
+    return routing.blocked;
+  }
+  const { routed } = routing;
+
   if (run.kind === "gave-up") {
-    return handApplyReviewBack(ports, ticket, run, run.reason);
+    return withDiscoveries(await handApplyReviewBack(ports, ticket, run, run.reason), routed);
   }
 
   let answers: ApplyReviewAnswers;
@@ -1763,30 +1906,35 @@ async function runApplyReview(
       startedAt,
     );
   } catch (error: unknown) {
-    return {
+    const checkFailed: AppliedReview = {
       kind: "applied-review",
       review: run,
       tokensUsed: run.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(checkFailed, routed);
   }
   if (answers.unanswered > 0) {
     const threads =
       answers.unanswered === 1 ? "1 thread" : `${answers.unanswered} threads`;
-    return handApplyReviewBack(
-      ports,
-      ticket,
-      run,
-      `the agent finished with ${threads} left unanswered on ${pullRequest}`,
+    return withDiscoveries(
+      await handApplyReviewBack(
+        ports,
+        ticket,
+        run,
+        `the agent finished with ${threads} left unanswered on ${pullRequest}`,
+      ),
+      routed,
     );
   }
 
-  return finishApplyReview(ports, ticket, {
+  const finished = await finishApplyReview(ports, ticket, {
     kind: "applied-review",
     review: run,
     tokensUsed: run.tokensUsed,
     answers: { applied: answers.appliedSince, declined: answers.declinedSince },
   });
+  return withDiscoveries(finished, routed);
 }
 
 /**
@@ -1889,7 +2037,13 @@ async function runRebase(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
-  Rebased | LimitRefused | ProviderFailed | BudgetExhausted | Failed | PullRequestResolved
+  | Rebased
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | PullRequestResolved
+  | DiscoveryBlocked
 > {
   const pullRequest = ticket.pullRequest.url;
 
@@ -1934,7 +2088,10 @@ async function runRebase(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return cutOffReviewOutcome(run);
+    return withDiscoveries(
+      cutOffReviewOutcome(run),
+      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries),
+    );
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
@@ -1942,34 +2099,49 @@ async function runRebase(
   if (run.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, run.refusal, run.tokensUsed, run.transcript);
   }
+
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the still-conflicting path
+  // below, per CONTEXT.md's "Discovery" and "Hand back".
+  const routing = await routeOrBlock(ports, ticket, run);
+  if ("blocked" in routing) {
+    return routing.blocked;
+  }
+  const { routed } = routing;
+
   if (run.kind === "gave-up") {
-    return handRebaseBack(ports, ticket, run, run.reason);
+    return withDiscoveries(await handRebaseBack(ports, ticket, run, run.reason), routed);
   }
 
   try {
     needsRebase = await ports.repoHost.needsRebase(pullRequest);
   } catch (error: unknown) {
-    return {
+    const checkFailed: Rebased = {
       kind: "rebased",
       rebase: run,
       tokensUsed: run.tokensUsed,
       notClosed: { kind: "check-failed", error: errorMessage(error) },
     };
+    return withDiscoveries(checkFailed, routed);
   }
   if (needsRebase) {
-    return handRebaseBack(
-      ports,
-      ticket,
-      run,
-      `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+    return withDiscoveries(
+      await handRebaseBack(
+        ports,
+        ticket,
+        run,
+        `the agent finished, but ${pullRequest} still conflicts with its base branch`,
+      ),
+      routed,
     );
   }
 
-  return finishRebase(ports, ticket, {
+  const finished = await finishRebase(ports, ticket, {
     kind: "rebased",
     rebase: run,
     tokensUsed: run.tokensUsed,
   });
+  return withDiscoveries(finished, routed);
 }
 
 /**

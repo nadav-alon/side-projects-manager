@@ -71,6 +71,23 @@ describe("FakeIssueTracker", () => {
     assert.equal(tracker.carriesLabel(ticket, READY_FOR_HUMAN_LABEL), false);
   });
 
+  it("links a review ticket to the ticket it reviews, as a sub-issue", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+
+    const listed = issues.find((issue) => issue.ticket.number === review.number);
+    assert.equal(listed?.parent, ticket.number);
+  });
+
   it("no longer lists a review ticket, nor carries ready-for-agent on it, once closed", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {

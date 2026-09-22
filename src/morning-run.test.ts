@@ -29,6 +29,7 @@ import {
   usd,
   type ApplyReviewTicket,
   type CommitSha,
+  type Discovery,
   type RebaseTicket,
   type ReviewTicket,
   type RunFinished,
@@ -78,6 +79,11 @@ function budgetExhausted(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "budget-exhausted" ? iteration : undefined;
 }
 
+/** The discovery-blocked half of an iteration outcome — undefined if it ended any other way. */
+function discoveryBlocked(iteration: IterationOutcome | undefined) {
+  return iteration?.kind === "discovery-blocked" ? iteration : undefined;
+}
+
 /** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
 function gateRefusal(report: InvocationReport) {
   const standDown = report.standDown;
@@ -108,7 +114,8 @@ function ranWith(iteration: IterationOutcome | undefined) {
     iteration.kind === "applied-review" ||
     iteration.kind === "rebased" ||
     iteration.kind === "spec-reviewed" ||
-    iteration.kind === "pull-request-resolved"
+    iteration.kind === "pull-request-resolved" ||
+    iteration.kind === "discovery-blocked"
     ? undefined
     : iteration.run;
 }
@@ -143,6 +150,46 @@ function queuedSpecReview(ports: FakePorts, registration: Registration = {}): Ti
     number: issueNumber(51),
     title: "Review the loop spec",
   });
+}
+
+const PULL_REQUEST_TICKET_TITLE = {
+  review: "Review the draft pull request for #7",
+  "apply-review": "Apply the review on the draft pull request for #7",
+  rebase: "Rebase the draft pull request for #7",
+} as const;
+
+/**
+ * The implementation ticket #7, and a `kind` ticket on it, as the review,
+ * `/apply-review` or `/rebase` workflow would open one as its own sub-issue —
+ * shared by every pull-request ticket kind's own "a blocking discovery"
+ * tests, which otherwise open the identical preamble under a different name.
+ * An apply-review ticket needs an open thread to have anything to apply, and
+ * a rebase ticket needs a conflicting pull request to have anything to
+ * rebase; a review ticket needs neither.
+ */
+function queuedWithImplementation(
+  ports: FakePorts,
+  kind: keyof typeof PULL_REQUEST_TICKET_TITLE,
+): { implementation: Ticket; pullRequestTicket: Ticket } {
+  ports.store.register(PILOT);
+  if (kind === "apply-review") {
+    ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+  }
+  if (kind === "rebase") {
+    ports.repoHost.mergeStatus = () => "conflicting";
+  }
+  const implementation = ports.tracker.addEligibleTicket(PILOT, {
+    number: issueNumber(7),
+    title: "Add the thing",
+  });
+  const numbers = { review: 42, "apply-review": 43, rebase: 44 } as const;
+  const pullRequestTicket = ports.tracker.addEligibleTicket(PILOT, {
+    number: issueNumber(numbers[kind]),
+    title: PULL_REQUEST_TICKET_TITLE[kind],
+    pullRequest: { kind, url: PULL_REQUEST },
+    parent: issueNumber(7),
+  });
+  return { implementation, pullRequestTicket };
 }
 
 describe("morningLoop", () => {
@@ -1007,6 +1054,7 @@ describe("morningLoop", () => {
         commits?: CommitSha[];
         failure?: string;
         gist?: TicketGist;
+        discoveries?: Discovery[];
       } = {},
     ): Ticket {
       ports.store.register(PILOT);
@@ -1023,6 +1071,7 @@ describe("morningLoop", () => {
               output: "",
               tokensUsed: tokenCount(42_000),
               ...(run.gist !== undefined && { gist: run.gist }),
+              ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
             }
           : {
               kind: "gave-up",
@@ -1031,6 +1080,7 @@ describe("morningLoop", () => {
               output: "",
               reason: run.failure,
               tokensUsed: tokenCount(42_000),
+              ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
             };
       return ticket;
     }
@@ -1301,6 +1351,146 @@ describe("morningLoop", () => {
       assert.match(report.message, /the tracker is unreachable/);
       assert.match(report.message, /still ready-for-agent/);
       assert.match(report.message, new RegExp(BRANCH));
+    });
+
+    describe("a blocking discovery", () => {
+      function correction(overrides: Partial<Discovery> = {}): Discovery {
+        return {
+          kind: "correction",
+          title: "The ticket names the wrong file",
+          body: "It should touch src/widget.ts, not src/gadget.ts.",
+          ...overrides,
+        };
+      }
+
+      it("is discarded, opens no pull request, and hands back the ticket with the correction in a comment", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports, { discoveries: [correction()] });
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        assert.equal(pullRequestOf(report.iterations[0]), undefined);
+        assert.deepEqual(ports.repoHost.discarded, [
+          { directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`, branch: BRANCH },
+        ]);
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.ok(handback, "the ticket should have been handed back");
+        assert.match(handback.comment, /blocking discovery/);
+        assert.match(handback.comment, /The ticket names the wrong file/);
+        assert.equal(discoveryBlocked(report.iterations[0])?.kind, "discovery-blocked");
+      });
+
+      it("still discards and hands back a run the agent would otherwise have finished, even though it committed", async () => {
+        const ports = fakePorts();
+        ran(ports, { discoveries: [correction()], commits: [commitSha("c0ffee1")] });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+      });
+
+      it("hands back a run that gave up as a blocking discovery, not as a gave-up run", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports, {
+          failure: "the tests would not go green",
+          discoveries: [correction()],
+        });
+
+        await morningLoop(ports);
+
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.match(handback?.comment ?? "", /blocking discovery/);
+        assert.doesNotMatch(handback?.comment ?? "", /the agent gave up/);
+      });
+
+      it("proceeds exactly as normal for a clarification or a suggestion, filing them on the target", async () => {
+        const ports = fakePorts();
+        ran(ports, {
+          discoveries: [
+            { kind: "clarification", title: "What 'the thing' means", body: "Read as the button." },
+            { kind: "suggestion", title: "Worth a retry", body: "Consider retrying on failure." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(pullRequestOf(report.iterations[0]), FakeRepoHost.RUN_PULL_REQUEST);
+        assert.equal(ports.tracker.comments.length, 1);
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        const finished = report.iterations[0];
+        assert.equal(finished?.kind, "finished");
+        assert.equal(
+          finished?.kind === "finished" ? finished.discoveries?.filed.length : undefined,
+          2,
+        );
+      });
+
+      it("files only the first of two suggestions, reporting one dropped", async () => {
+        const ports = fakePorts();
+        ran(ports, {
+          discoveries: [
+            { kind: "suggestion", title: "First", body: "..." },
+            { kind: "suggestion", title: "Second", body: "..." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.title, "First");
+        const finished = report.iterations[0];
+        assert.equal(
+          finished?.kind === "finished" ? finished.discoveries?.suggestionsDropped : undefined,
+          1,
+        );
+      });
+
+      it("reports a refused tracker write without losing the rest", async (t) => {
+        const ports = fakePorts();
+        let calls = 0;
+        t.mock.method(ports.tracker, "comment", async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error("the tracker refused the comment");
+          }
+        });
+        ran(ports, {
+          discoveries: [
+            { kind: "clarification", title: "First", body: "..." },
+            { kind: "clarification", title: "Second", body: "..." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        const finished = report.iterations[0];
+        const discoveries = finished?.kind === "finished" ? finished.discoveries : undefined;
+        assert.equal(discoveries?.refused.length, 1);
+        assert.match(discoveries?.refused[0]?.reason ?? "", /refused the comment/);
+        assert.equal(discoveries?.filed.length, 1);
+      });
+
+      it("still hands the ticket back for a blocking discovery the tracker refused to comment", async (t) => {
+        const ports = fakePorts();
+        const ticket = ran(ports, { discoveries: [correction()] });
+        t.mock.method(ports.tracker, "comment", async () => {
+          throw new Error("the tracker refused the comment");
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.ok(handback, "the ticket should have been handed back");
+        assert.match(handback.comment, /blocking discovery/);
+      });
     });
   });
 
@@ -2138,6 +2328,90 @@ describe("morningLoop", () => {
         new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
       );
     });
+
+    describe("a blocking discovery", () => {
+      it("opens a discovered ticket that blocks the implementation ticket, and hands back the review ticket, not the implementation ticket", async () => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: review } = queuedWithImplementation(
+          ports,
+          "review",
+        );
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: "There is no widget port to review against yet.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.blocking, true);
+        assert.deepEqual(ports.tracker.closedReviewTickets, []);
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, review.number);
+        assert.notEqual(handback?.ticket.number, implementation.number);
+        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
+
+      it("hands back the review ticket for a gave-up run that also filed a correction, not as a gave-up run", async () => {
+        const ports = fakePorts();
+        const { pullRequestTicket: review } = queuedWithImplementation(ports, "review");
+        ports.sandbox.reviewResult = () => ({
+          kind: "gave-up",
+          output: "I could not tell what to review",
+          reason: "the diff made no sense",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            {
+              kind: "correction",
+              title: "The ticket names the wrong file",
+              body: "It should touch src/widget.ts.",
+            },
+          ],
+        });
+
+        await morningLoop(ports);
+
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === review.number,
+        );
+        assert.match(handback?.comment ?? "", /blocking discovery/);
+        assert.doesNotMatch(handback?.comment ?? "", /the agent gave up/);
+      });
+
+      it("proceeds as normal for a clarification or a suggestion, filing them on the implementation ticket", async () => {
+        const ports = fakePorts();
+        queuedWithImplementation(ports, "review");
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            { kind: "clarification", title: "What #7 means", body: "Read as the button." },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.comments.length, 1);
+        assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
+        assert.deepEqual(
+          ports.tracker.closedReviewTickets.map((ticket) => ticket.number),
+          [issueNumber(42)],
+        );
+        assert.equal(report.iterations[0]?.kind, "reviewed");
+      });
+    });
   });
 
   describe("a spec review ticket, selected", () => {
@@ -2797,6 +3071,49 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.match(report.message, /closed without merging/);
     });
+
+    describe("a blocking discovery", () => {
+      it("opens a discovered ticket that blocks the implementation ticket, and hands back the apply-review ticket, not the implementation ticket", async () => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: applyReview } = queuedWithImplementation(
+          ports,
+          "apply-review",
+        );
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            0,
+            "applied",
+            "the reason",
+            DURING_THE_RUN,
+          );
+          return {
+            kind: "finished",
+            output: "answered",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: "There is no widget port to apply the review against yet.",
+              },
+            ],
+          };
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.blocking, true);
+        assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, applyReview.number);
+        assert.notEqual(handback?.ticket.number, implementation.number);
+        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
+    });
   });
 
   describe("a rebase ticket, selected", () => {
@@ -3304,6 +3621,42 @@ describe("morningLoop", () => {
       assert.deepEqual(closed?.ticket, ticket);
       assert.match(closed?.comment ?? "", /closed without merging/);
       assert.match(report.message, /closed without merging/);
+    });
+
+    describe("a blocking discovery", () => {
+      it("opens a discovered ticket that blocks the implementation ticket, and hands back the rebase ticket, not the implementation ticket", async () => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: rebase } = queuedWithImplementation(
+          ports,
+          "rebase",
+        );
+        ports.sandbox.rebaseResult = () => {
+          ports.repoHost.mergeStatus = () => "clean";
+          return {
+            kind: "finished",
+            output: "rebased",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: "There is no widget port to rebase against yet.",
+              },
+            ],
+          };
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 1);
+        assert.equal(ports.tracker.discoveredTickets[0]?.blocking, true);
+        assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, rebase.number);
+        assert.notEqual(handback?.ticket.number, implementation.number);
+        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
     });
   });
 
@@ -4612,6 +4965,36 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("still routes a refused run's discoveries, without handing the ticket back for a blocking one", async () => {
+      const ports = threeTickets();
+      ports.sandbox.result = (ticket) => ({
+        kind: "limit-refused",
+        branch: branch(`issue-${ticket.number}`),
+        commits: [],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            body: "It should touch src/widget.ts.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.comments.length, 1);
+      assert.deepEqual(ports.tracker.handbacks, []);
+      const limitRefusedIteration = report.iterations[0];
+      assert.equal(
+        limitRefusedIteration?.kind === "limit-refused"
+          ? limitRefusedIteration.discoveries?.filed.length
+          : undefined,
+        1,
+      );
+    });
+
     it("discards a refused run's branch when it carries no commits, and leaves any existing salvage record unchanged", async () => {
       const ports = threeTickets();
       ports.store.markSalvaged(
@@ -4741,6 +5124,134 @@ describe("morningLoop", () => {
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.ok(backlog.some((ticket) => ticket.number === review.number));
       assert.equal(report.standDown?.reason, "provider-limit");
+    });
+
+    it("still routes a refused review's discoveries onto its implementation ticket, without handing either back", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      const review = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(42),
+        title: "Review the draft pull request for #7",
+        pullRequest: { kind: "review", url: PULL_REQUEST },
+        parent: issueNumber(7),
+      });
+      ports.sandbox.reviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            body: "It should touch src/widget.ts.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.comments.length, 1);
+      assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
+      assert.deepEqual(ports.tracker.handbacks, []);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+      assert.ok(backlog.some((ticket) => ticket.number === review.number));
+      const limitRefusedIteration = report.iterations[0];
+      assert.equal(
+        limitRefusedIteration?.kind === "limit-refused"
+          ? limitRefusedIteration.discoveries?.filed.length
+          : undefined,
+        1,
+      );
+    });
+
+    it("still routes a refused apply-review's discoveries onto its implementation ticket, without handing either back", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      const applyReview = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(43),
+        title: "Apply the review on the draft pull request for #7",
+        pullRequest: { kind: "apply-review", url: PULL_REQUEST },
+        parent: issueNumber(7),
+      });
+      ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            body: "It should touch src/widget.ts.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.comments.length, 1);
+      assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
+      assert.deepEqual(ports.tracker.handbacks, []);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+      assert.ok(backlog.some((ticket) => ticket.number === applyReview.number));
+      const limitRefusedIteration = report.iterations[0];
+      assert.equal(
+        limitRefusedIteration?.kind === "limit-refused"
+          ? limitRefusedIteration.discoveries?.filed.length
+          : undefined,
+        1,
+      );
+    });
+
+    it("still routes a refused rebase's discoveries onto its implementation ticket, without handing either back", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      const rebase = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(44),
+        title: "Rebase the draft pull request for #7",
+        pullRequest: { kind: "rebase", url: PULL_REQUEST },
+        parent: issueNumber(7),
+      });
+      ports.repoHost.mergeStatus = () => "conflicting";
+      ports.sandbox.rebaseResult = () => ({
+        kind: "limit-refused",
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The ticket names the wrong file",
+            body: "It should touch src/widget.ts.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.tracker.comments.length, 1);
+      assert.equal(ports.tracker.comments[0]?.ticket.number, issueNumber(7));
+      assert.deepEqual(ports.tracker.handbacks, []);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+      assert.ok(backlog.some((ticket) => ticket.number === rebase.number));
+      const limitRefusedIteration = report.iterations[0];
+      assert.equal(
+        limitRefusedIteration?.kind === "limit-refused"
+          ? limitRefusedIteration.discoveries?.filed.length
+          : undefined,
+        1,
+      );
     });
   });
 

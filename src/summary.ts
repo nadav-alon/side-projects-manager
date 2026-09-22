@@ -676,6 +676,12 @@ function waitingSection(
         return [];
       case "failed":
         return waitingOnFailure(iteration);
+      // A blocking discovery's own hand-back, exactly as a finished run's is:
+      // nothing waits on the developer unless the tracker refused the call.
+      case "discovery-blocked":
+        return iteration.handedBack.outcome === "refused"
+          ? [stillEligibleLine(iteration)]
+          : [];
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
@@ -887,6 +893,7 @@ function ranNothing(iteration: IterationOutcome): boolean {
     case "limit-refused":
     case "provider-failed":
     case "budget-exhausted":
+    case "discovery-blocked":
       return false;
   }
 }
@@ -974,6 +981,8 @@ function describeIteration(iteration: IterationOutcome): string {
       return pullRequestResolvedSummary(iteration);
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
+    case "discovery-blocked":
+      return `Worked ${iteration.repo} #${iteration.ticket.number}: a blocking discovery handed it back.${transcriptNote(iteration.transcript)}`;
   }
 }
 
