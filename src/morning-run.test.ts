@@ -4757,6 +4757,50 @@ describe("morningLoop", () => {
       assert.equal(report.standDown.ticket.number, 2);
     });
 
+    it("stands down for a limit-refused run that also filed a blocking discovery, and no further iteration starts", HANGS, async () => {
+      const ports = backlogOf(4, 3);
+      ports.sandbox.result = (ticket) =>
+        ticket.number === 2
+          ? {
+              ...limitRefusedOn(ticket),
+              discoveries: [
+                {
+                  kind: "correction",
+                  title: "The ticket names the wrong file",
+                  body: "It should touch src/widget.ts.",
+                },
+              ],
+            }
+          : resultOf(ticket);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(3);
+      ports.sandbox.release(ticketOf(2));
+      ports.sandbox.release(ticketOf(3));
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      // Ticket 4 never starts: the discovery-blocked iteration on ticket 2
+      // still stands the invocation down, exactly as a plain limit refusal
+      // does.
+      assert.deepEqual(numbersOf(ports.sandbox.runs), [1, 2, 3]);
+      assert.deepEqual(
+        report.iterations.map((i) => [i.ticket.number, i.kind]),
+        [
+          [1, "finished"],
+          [2, "discovery-blocked"],
+          [3, "finished"],
+        ],
+      );
+      assert.ok(report.standDown?.reason === "provider-limit");
+      assert.equal(report.standDown.ticket.number, 2);
+      assert.ok(report.standDown.handedBack);
+      const handback = ports.tracker.handbacks.find((entry) => entry.ticket.number === 2);
+      assert.ok(handback, "ticket 2 should have been handed back");
+      assert.match(report.message, /pilot #2 was handed back for the blocking discovery it filed/);
+    });
+
     it("reports iterations in the order they started, not the order they finished", HANGS, async () => {
       const ports = backlogOf(2, 2);
       ports.sandbox.hold();
@@ -5057,6 +5101,10 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      assert.deepEqual(
+        report.iterations[0]?.kind === "discovery-blocked" ? report.iterations[0].cutOff : undefined,
+        { kind: "limit-refused", limitRefusal: LIMIT_REFUSAL },
+      );
       const handback = ports.tracker.handbacks.find(
         (entry) => entry.ticket.number === ticket.number,
       );
@@ -5067,6 +5115,10 @@ describe("morningLoop", () => {
       ]);
       const state = await ports.store.loadState();
       assert.equal(state.salvages, undefined);
+      assert.ok(report.standDown?.reason === "provider-limit");
+      assert.equal(report.standDown.ticket.number, ticket.number);
+      assert.ok(report.standDown.handedBack);
+      assert.match(report.message, /pilot #7 was handed back for the blocking discovery it filed/);
     });
 
     it("discards a refused run's branch when it carries no commits, and leaves any existing salvage record unchanged", async () => {
@@ -5277,6 +5329,52 @@ describe("morningLoop", () => {
       assert.match(handback?.comment ?? "", /blocking discovery/);
       const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
       assert.ok(!backlog.some((ticket) => ticket.number === review.number));
+      assert.ok(report.standDown?.reason === "provider-limit");
+      assert.equal(report.standDown.ticket.number, review.number);
+      assert.ok(report.standDown.handedBack);
+    });
+
+    it("hands the review ticket back for a blocking discovery a provider-failed review filed, and still stands down", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      const review = ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(42),
+        title: "Review the draft pull request for #7",
+        pullRequest: { kind: "review", url: PULL_REQUEST },
+        parent: issueNumber(7),
+      });
+      ports.sandbox.reviewResult = () => ({
+        kind: "provider-failed",
+        words: PROVIDER_FAILURE_PROSE,
+        tokensUsed: tokenCount(0),
+        discoveries: [
+          {
+            kind: "prerequisite",
+            title: "Needs the widget port first",
+            body: "There is no widget port to build this against yet.",
+          },
+        ],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      assert.deepEqual(
+        report.iterations[0]?.kind === "discovery-blocked" ? report.iterations[0].cutOff : undefined,
+        { kind: "provider-failed", providerFailure: PROVIDER_FAILURE_PROSE },
+      );
+      const handback = ports.tracker.handbacks[0];
+      assert.equal(handback?.ticket.number, review.number);
+      assert.match(handback?.comment ?? "", /blocking discovery/);
+      const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+      assert.ok(!backlog.some((ticket) => ticket.number === review.number));
+      assert.ok(report.standDown?.reason === "provider-failure");
+      assert.equal(report.standDown.ticket.number, review.number);
+      assert.ok(report.standDown.handedBack);
     });
 
     it("still routes a refused apply-review's advisory discoveries onto its implementation ticket, without handing either back", async () => {
@@ -5651,6 +5749,10 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      assert.deepEqual(
+        report.iterations[0]?.kind === "discovery-blocked" ? report.iterations[0].cutOff : undefined,
+        { kind: "provider-failed", providerFailure: PROVIDER_FAILURE_PROSE },
+      );
       const handback = ports.tracker.handbacks.find(
         (entry) => entry.ticket.number === ticket.number,
       );
@@ -5659,6 +5761,12 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.discarded, [
         { directory: checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`), branch: branch("issue-7") },
       ]);
+      const state = await ports.store.loadState();
+      assert.equal(state.salvages, undefined);
+      assert.ok(report.standDown?.reason === "provider-failure");
+      assert.equal(report.standDown.ticket.number, ticket.number);
+      assert.ok(report.standDown.handedBack);
+      assert.match(report.message, /pilot #7 was handed back for the blocking discovery it filed/);
     });
   });
 

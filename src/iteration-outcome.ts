@@ -220,10 +220,9 @@ export interface LimitRefused {
   discard: Discard;
   /**
    * What a cut-off run's own discoveries came to, per CONTEXT.md's
-   * "Discovery": acted on exactly as a finished or a gave-up run's are, since
-   * a discovery filed before the provider stopped the run is still true —
-   * but never a reason to hand the ticket back, which stays eligible whatever
-   * it found. Absent when the run filed none.
+   * "Discovery" — always advisory here, since a correction or a prerequisite
+   * would have made this a `DiscoveryBlocked` iteration instead, carrying its
+   * cut-off in `DiscoveryBlocked.cutOff`. Absent when the run filed none.
    */
   discoveries?: DiscoveryRouting;
   /** As `DiscoveryBlocked.target`: the ticket `discoveries` landed on, present only when it differs from the ticket this iteration itself worked. */
@@ -274,9 +273,35 @@ export interface ProviderFailed {
  */
 export type CutOff = LimitRefused | ProviderFailed;
 
-/** Whether `iteration` is cut off — CONTEXT.md's "Cut off" — rather than any other kind of ending. */
-export function isCutOff(iteration: Iteration): iteration is CutOff {
-  return iteration.kind === "limit-refused" || iteration.kind === "provider-failed";
+/**
+ * A cut-off carried by a `DiscoveryBlocked` iteration, as `LimitRefused` or
+ * `ProviderFailed`'s own words rather than the run's — present only when a
+ * limit refusal or a provider failure cut the run off before it filed the
+ * blocking discovery that handed its ticket back instead. See CONTEXT.md's
+ * "Discovery".
+ */
+export type DiscoveryBlockedCutOff =
+  | { kind: "limit-refused"; limitRefusal: string }
+  | { kind: "provider-failed"; providerFailure: string };
+
+/**
+ * `iteration`'s own cut-off — CONTEXT.md's "Cut off" — whichever way it
+ * carries one: a `LimitRefused` or `ProviderFailed` iteration's own kind, or
+ * a `DiscoveryBlocked` iteration's `cutOff`. `undefined` for every other
+ * kind, and for a `DiscoveryBlocked` iteration whose run was never cut off —
+ * which is also how a caller tells whether `iteration` is cut off at all.
+ */
+export function cutOffOf(iteration: Iteration): DiscoveryBlockedCutOff | undefined {
+  if (iteration.kind === "limit-refused") {
+    return { kind: "limit-refused", limitRefusal: iteration.limitRefusal };
+  }
+  if (iteration.kind === "provider-failed") {
+    return { kind: "provider-failed", providerFailure: iteration.providerFailure };
+  }
+  if (iteration.kind === "discovery-blocked") {
+    return iteration.cutOff;
+  }
+  return undefined;
 }
 
 /** `x`'s own `transcript`, spread beside the rest of an outcome's fields — present only when `x` carries one. */
@@ -709,6 +734,15 @@ export interface DiscoveryBlocked {
   transcript?: TranscriptPath;
   /** What became of the ticket's own hand-back. */
   handedBack: HandBackRecord;
+  /**
+   * The cut-off this iteration also carries, present only when a limit
+   * refusal or a provider failure cut the run off before it filed the
+   * blocking discovery — per CONTEXT.md's "Discovery": the invocation stands
+   * down over it exactly as it would without the discovery, read by
+   * `cutOffOf` alongside `LimitRefused` and `ProviderFailed`'s own kind.
+   * Absent for a run that finished or gave up on its own before filing one.
+   */
+  cutOff?: DiscoveryBlockedCutOff;
 }
 
 /**

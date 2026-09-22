@@ -319,11 +319,12 @@ export function summaryLine(facts: SummaryFacts): string {
 
 /**
  * Why the invocation stood down, and what that left waiting. The gate names
- * the project it turned away and when the window resets; a limit refusal
- * names the ticket it refused, which is still eligible, and quotes the reset
- * the provider gave. A provider failure, as a limit refusal, names the ticket
- * it stopped and quotes what the provider said. A developer's stop names
- * nothing: they already know why.
+ * the project it turned away and when the window resets. A limit refusal
+ * names the ticket it refused and quotes what the provider said: still
+ * eligible and due to come round again, unless its run also filed a blocking
+ * discovery, in which case it says the ticket was handed back instead — see
+ * CONTEXT.md's "Discovery". A provider failure says the same, as a limit
+ * refusal. A developer's stop names nothing: they already know why.
  *
  * `when` is whether any run came before the stand-down, which only changes
  * how the gate's refused project, or a developer's stop, is introduced.
@@ -338,12 +339,15 @@ function whyStoodDown(
       : "stopped by hand before any run started.";
   }
   if (standDown.reason === "provider-limit" || standDown.reason === "provider-failure") {
-    const { ticket } = standDown;
+    const { ticket, handedBack } = standDown;
     const said =
       standDown.reason === "provider-limit"
         ? withoutTrailingStop(standDown.limitRefusal)
         : `a provider failure stopped it: ${withoutTrailingStop(standDown.providerFailure)}`;
-    return `${said}. ${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+    const ticketNote = handedBack
+      ? `${ticket.repo} #${ticket.number} was handed back for the blocking discovery it filed.`
+      : `${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+    return `${said}. ${ticketNote}`;
   }
   const ready =
     when === "next" ? "was ready to work next" : "was ready to work";
