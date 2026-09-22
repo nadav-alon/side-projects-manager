@@ -1010,7 +1010,7 @@ describe("summaryLine", () => {
         ],
       }))]));
 
-      assert.match(line, /a prerequisite the tracker refused to file: the tracker was unreachable/);
+      assert.match(line, /a prerequisite that could not be filed: the tracker was unreachable/);
     });
 
     it("joins more than one blocking discovery", () => {

@@ -698,9 +698,13 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
  * The blocking discoveries a discovery-blocked run's own `routing` carries,
  * each as the phrase `describeIteration` and `discoveryBlockedWaitingLine`
  * both read: a correction or a prerequisite, filed — naming the discovered
- * ticket a prerequisite opened — or refused, naming why. Read from `routing`
- * rather than recomputing the ticket's own hand-back wording, so the summary
- * and the ticket comment can drift in phrasing without drifting in fact.
+ * ticket a prerequisite opened — or refused, naming why. Worded the same
+ * neutral way `discoveryLines` words a refused write, rather than naming the
+ * tracker: `routeRunDiscoveries` refuses every discovery the same way when it
+ * cannot even resolve a target for them, which is not the tracker's doing.
+ * Read from `routing` rather than recomputing the ticket's own hand-back
+ * wording, so the summary and the ticket comment can drift in phrasing
+ * without drifting in fact.
  */
 function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
   const filed = routing.filed.flatMap((filed) =>
@@ -714,10 +718,15 @@ function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
   );
   const refused = routing.refused.flatMap((refused) =>
     isBlockingDiscoveryKind(refused.discovery.kind)
-      ? [`a ${refused.discovery.kind} the tracker refused to file: ${withoutTrailingStop(refused.reason)}`]
+      ? [`a ${refused.discovery.kind} that could not be filed: ${withoutTrailingStop(refused.reason)}`]
       : [],
   );
   return [...filed, ...refused];
+}
+
+/** `blockingDiscoveryPhrases`, joined the one way both of its callers read it. */
+function blockingDiscoveryClause(routing: DiscoveryRouting): string {
+  return blockingDiscoveryPhrases(routing).join("; ");
 }
 
 /**
@@ -731,7 +740,7 @@ function discoveryBlockedWaitingLine(iteration: {
   ticket: Ticket;
   routing: DiscoveryRouting;
 }): string {
-  const blocking = blockingDiscoveryPhrases(iteration.routing).join("; ");
+  const blocking = blockingDiscoveryClause(iteration.routing);
   return `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the ticket is the problem, not the run: it filed ${blocking}`;
 }
 
@@ -1138,7 +1147,7 @@ function describeIteration(iteration: IterationOutcome): string {
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
     case "discovery-blocked": {
-      const blocking = blockingDiscoveryPhrases(iteration.routing).join("; ");
+      const blocking = blockingDiscoveryClause(iteration.routing);
       return `Worked ${iteration.repo} #${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
     }
   }
