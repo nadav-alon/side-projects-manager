@@ -1010,6 +1010,27 @@ describe("morningLoop", () => {
           progress.events.some((event) => event.kind === "journal-unreadable"),
         );
       });
+
+      it("still publishes a summary naming a freed ticket, even with a dry queue on a day already announced", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+        ports.store.markAnnouncedOn(TODAY);
+
+        const report = await morningLoop(ports, { invocation: SELF });
+
+        assert.equal(report.outcome, "dry-queue");
+        assert.equal(ports.tracker.summaries.length, 1);
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.match(body, /## Freed from a dead invocation/);
+        assert.match(body, /nadav-alon\/pilot #432/);
+      });
     });
   });
 

@@ -700,13 +700,19 @@ export async function morningLoop(
   const line = summaryLine(facts);
   const outcome = outcomeOf(iterations, standDown, invocationFailure);
 
-  // An invocation that worked something always publishes. A quiet or broken
-  // one — dry queue, stand-down, invocation failure — publishes only if
+  // An invocation that worked something, or freed a ticket a dead invocation
+  // had recorded, always publishes — a freed ticket must be named somewhere,
+  // never only erased from the state document. A quiet or broken one — dry
+  // queue, stand-down, invocation failure, nothing freed — publishes only if
   // nothing has been announced yet today, so a firing every hour reports one
   // quiet morning rather than up to twenty-four.
   let summaryLocation: IssueUrl | undefined;
   let summaryFailure: SummaryFailure | undefined;
-  if (outcome === "work-selected" || !hasAnnouncedOn(announcedOn, today)) {
+  if (
+    outcome === "work-selected" ||
+    freedTickets.length > 0 ||
+    !hasAnnouncedOn(announcedOn, today)
+  ) {
     const body = summaryBody(facts, line);
     // Last, so a morning that worked something still gets its state recorded
     // above even if the tracker refuses this. Never thrown: a summary issue
