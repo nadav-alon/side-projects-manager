@@ -1752,13 +1752,13 @@ describe("spec review sweeps", () => {
     assert.match(section, new RegExp(`- ${OTHER_REPO}: opened #20 \\(Spec review for #10\\)`));
   });
 
-  it("names the supertask and the error for a refusal, in the body", () => {
+  it("names the supertask and the error for an open refusal, in the body", () => {
     const supertask = implementationTicket(40);
     const sweeps: SpecReviewSweepOutcome[] = [
       {
         repo: REPO,
         opened: [],
-        refusals: [{ supertask, error: "tracker unreachable" }],
+        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
       },
     ];
 
@@ -1770,11 +1770,28 @@ describe("spec review sweeps", () => {
     );
   });
 
+  it("names the supertask and the error for a link refusal, without claiming an open was tried", () => {
+    const supertask = implementationTicket(40);
+    const sweeps: SpecReviewSweepOutcome[] = [
+      {
+        repo: REPO,
+        opened: [],
+        refusals: [{ supertask, action: "link", error: "denied" }],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Spec review sweep"));
+
+    assert.match(section, new RegExp(`- ${REPO}: could not link an existing spec review to #40: denied`));
+    assert.doesNotMatch(section, /could not open a spec review/);
+  });
+
   it("dedupes a refusal a later scan the same invocation met again for the same supertask", () => {
     const supertask = implementationTicket(40);
     const sweeps: SpecReviewSweepOutcome[] = [
-      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
-      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+      { repo: REPO, opened: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
+      { repo: REPO, opened: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
     ];
 
     const body = bodyOf(sweeps);
@@ -1809,7 +1826,11 @@ describe("spec review sweeps", () => {
   it("mentions the sweep in the summary line when it was refused something", () => {
     const supertask = implementationTicket(40);
     const refused = factsWithSpecReviewSweeps([
-      { repo: REPO, opened: [], refusals: [{ supertask, error: "tracker unreachable" }] },
+      {
+        repo: REPO,
+        opened: [],
+        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+      },
     ]);
 
     assert.match(

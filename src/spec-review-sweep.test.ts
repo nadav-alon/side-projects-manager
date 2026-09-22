@@ -191,6 +191,22 @@ describe("specReviewSweep", () => {
     assert.equal(outcome.refusals.length, 0);
   });
 
+  it("records an open refusal when creating a spec review fails", async () => {
+    const { tracker, repoHost, supertask } = await sweptSupertask();
+    tracker.createSpecReviewTicket = async () => {
+      throw new Error("create refused");
+    };
+
+    const openIssues = await tracker.listOpenIssues(PILOT);
+    const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    assert.deepEqual(outcome.opened, []);
+    assert.equal(outcome.refusals.length, 1);
+    assert.equal(outcome.refusals[0]?.supertask.number, supertask.number);
+    assert.equal(outcome.refusals[0]?.action, "open");
+    assert.equal(outcome.refusals[0]?.error, "create refused");
+  });
+
   it("records a refusal and opens no duplicate when linking an already-opened spec review fails", async () => {
     const { tracker, repoHost, supertask } = await sweptSupertask();
     tracker.addSpecReviewTicket(PILOT, {
@@ -208,6 +224,7 @@ describe("specReviewSweep", () => {
     assert.deepEqual(tracker.specReviewTickets, []);
     assert.equal(outcome.refusals.length, 1);
     assert.equal(outcome.refusals[0]?.supertask.number, supertask.number);
+    assert.equal(outcome.refusals[0]?.action, "link");
     assert.equal(outcome.refusals[0]?.error, "link refused");
   });
 
@@ -407,6 +424,7 @@ describe("specReviewSweep", () => {
       outcome.refusals.map((refusal) => refusal.supertask.number),
       [40],
     );
+    assert.equal(outcome.refusals[0]?.action, "read");
     assert.equal(outcome.refusals[0]?.error, "tracker unavailable");
     assert.equal(outcome.opened.length, 1);
     assert.equal(outcome.opened[0]?.number, 62);

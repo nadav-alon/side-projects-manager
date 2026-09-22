@@ -20,9 +20,17 @@ export interface SpecReviewSweepPorts {
   repoHost: Pick<RepoHost, "listPullRequestsClosingIssues">;
 }
 
-/** One supertask a sweep could not open or link a spec review for, and why. */
+/**
+ * One supertask a sweep could not finish a spec review for, and why: `action`
+ * says which step refused — `"read"` for the sub-issue or pull-request reads
+ * that come before either an open or a link is attempted, so neither is
+ * asserted to have happened; `"open"` for a failed {@link
+ * IssueTracker.createSpecReviewTicket}; `"link"` for a failed {@link
+ * IssueTracker.linkSpecReviewTicket}, of a spec review that already exists.
+ */
 export interface SpecReviewSweepRefusal {
   supertask: Ticket;
+  action: "read" | "open" | "link";
   error: string;
 }
 
@@ -93,12 +101,14 @@ export async function specReviewSweep(
       continue;
     }
 
+    let subIssues: SubIssue[];
+    let body: string;
     try {
       // `openIssues` alone is only the cheap pre-filter above: a truncated
       // backlog or a sub-issue in another repo can leave it blind to one
       // still open, so `subIssues` — authoritative, per `CONTEXT.md`'s "Spec
       // review sweep" — is asked again before the guard trusts it.
-      const subIssues = await ports.tracker.listSubIssues(supertask);
+      subIssues = await ports.tracker.listSubIssues(supertask);
       if (
         subIssues.length === 0 ||
         subIssues.some(alreadySpecReviewed) ||
@@ -108,28 +118,39 @@ export async function specReviewSweep(
       }
 
       closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
-      const body = specReviewBody(supertask, subIssues, await closingPullRequests);
+      body = specReviewBody(supertask, subIssues, await closingPullRequests);
+    } catch (error) {
+      // Neither an open nor a link has been attempted yet, so the refusal
+      // must not read as either — `"read"` is the whole story so far.
+      refusals.push({ supertask, action: "read", error: errorMessage(error) });
+      continue;
+    }
 
-      // `subIssues` alone cannot see one a prior sweep opened but never
-      // linked — it carries no sub-issue relation to find it by — so
-      // `openIssues`, already read once for the whole sweep, is searched by
-      // title and label instead. Unlike the `listSubIssues` guard above, this
-      // search has no authoritative fallback: `openIssues` is newest-first
-      // and capped, so a floating spec review is missed only where the
-      // backlog is truncated and it has sat unlinked long enough to fall off
-      // the read — an authoritative search would cost a `gh issue list`
-      // filtered by label and title per supertask, every sweep, to catch a
-      // case this narrow.
-      const floating = findFloatingSpecReview(supertask, openIssues.issues);
-      if (floating !== undefined) {
+    // `subIssues` alone cannot see one a prior sweep opened but never
+    // linked — it carries no sub-issue relation to find it by — so
+    // `openIssues`, already read once for the whole sweep, is searched by
+    // title and label instead. Unlike the `listSubIssues` guard above, this
+    // search has no authoritative fallback: `openIssues` is newest-first
+    // and capped, so a floating spec review is missed only where the
+    // backlog is truncated and it has sat unlinked long enough to fall off
+    // the read — an authoritative search would cost a `gh issue list`
+    // filtered by label and title per supertask, every sweep, to catch a
+    // case this narrow.
+    const floating = findFloatingSpecReview(supertask, openIssues.issues);
+    if (floating !== undefined) {
+      try {
         await ports.tracker.linkSpecReviewTicket(floating, supertask, body);
-        continue;
+      } catch (error) {
+        refusals.push({ supertask, action: "link", error: errorMessage(error) });
       }
+      continue;
+    }
 
+    try {
       const specReview = await ports.tracker.createSpecReviewTicket(supertask, body);
       opened.push(specReview);
     } catch (error) {
-      refusals.push({ supertask, error: errorMessage(error) });
+      refusals.push({ supertask, action: "open", error: errorMessage(error) });
     }
   }
 
