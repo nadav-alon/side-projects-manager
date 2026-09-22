@@ -473,11 +473,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * the real tracker fails in `issueIdOf`, long before the POST: a test
    * handing this a `Ticket` the backlog never saw should not pass as if the
    * link succeeded.
+   *
+   * `body` is lazy on the real port, only ever called where the tracker has
+   * no native sub-issue relation; the fake has no such distinction, so it
+   * calls `body` every time, keeping `linkedSpecReviewTickets` inspectable
+   * the same way regardless.
    */
   async linkSpecReviewTicket(
     specReview: Ticket,
     supertask: Ticket,
-    body: string,
+    body: () => Promise<string>,
   ): Promise<void> {
     const entry = this.#find(specReview);
     if (entry === undefined) {
@@ -486,7 +491,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     entry.issue.parent = supertask.number;
     this.linkedSpecReviewTickets.push({
       parent: supertask,
-      body,
+      body: await body(),
       ticket: { ...specReview, specReview: true },
     });
   }

@@ -102,7 +102,6 @@ export async function specReviewSweep(
     }
 
     let subIssues: SubIssue[];
-    let body: string;
     try {
       // `openIssues` alone is only the cheap pre-filter above: a truncated
       // backlog or a sub-issue in another repo can leave it blind to one
@@ -116,9 +115,6 @@ export async function specReviewSweep(
       ) {
         continue;
       }
-
-      closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
-      body = specReviewBody(supertask, subIssues, await closingPullRequests);
     } catch (error) {
       // Neither an open nor a link has been attempted yet, so the refusal
       // must not read as either — `"read"` is the whole story so far.
@@ -139,7 +135,14 @@ export async function specReviewSweep(
     const floating = findFloatingSpecReview(supertask, openIssues.issues);
     if (floating !== undefined) {
       try {
-        await ports.tracker.linkSpecReviewTicket(floating, supertask, body);
+        // `body` is composed only if the tracker actually falls back to it —
+        // native sub-issues never call it, so a link that succeeds the
+        // ordinary way never spends the `gh pr list` disclosure read below,
+        // and never overwrites `floating`'s own existing text with it.
+        await ports.tracker.linkSpecReviewTicket(floating, supertask, async () => {
+          closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
+          return specReviewBody(supertask, subIssues, await closingPullRequests);
+        });
       } catch (error) {
         refusals.push({ supertask, action: "link", error: errorMessage(error) });
       }
@@ -147,6 +150,8 @@ export async function specReviewSweep(
     }
 
     try {
+      closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
+      const body = specReviewBody(supertask, subIssues, await closingPullRequests);
       const specReview = await ports.tracker.createSpecReviewTicket(supertask, body);
       opened.push(specReview);
     } catch (error) {

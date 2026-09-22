@@ -2147,7 +2147,7 @@ describe("ghIssueTracker.linkSpecReviewTicket", () => {
   it("hangs the existing spec review off the supertask with the tracker's own sub-issue relationship", async (t) => {
     const gh = await recordingGh(t, WORKING);
 
-    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40.");
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, async () => "Reviews #40.");
 
     const link = callWith(await gh.calls(), "api", "--method", "POST");
     assert.ok(link, "the spec review should be linked as a sub-issue");
@@ -2158,10 +2158,22 @@ describe("ghIssueTracker.linkSpecReviewTicket", () => {
   it("never creates a new issue — only links the one it was given", async (t) => {
     const gh = await recordingGh(t, WORKING);
 
-    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40.");
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, async () => "Reviews #40.");
 
     const create = callWith(await gh.calls(), "issue", "create");
     assert.equal(create, undefined);
+  });
+
+  it("never calls body where the tracker's own sub-issue relationship links it", async (t) => {
+    await recordingGh(t, WORKING);
+    let called = false;
+
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, async () => {
+      called = true;
+      return "Reviews #40.";
+    });
+
+    assert.equal(called, false);
   });
 
   it("falls back to a parent reference in its body where sub-issues are unavailable", async (t) => {
@@ -2176,7 +2188,7 @@ describe("ghIssueTracker.linkSpecReviewTicket", () => {
       ].join("\n"),
     );
 
-    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40.");
+    await ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, async () => "Reviews #40.");
 
     const edit = callWith(await gh.calls(), "issue", "edit");
     assert.ok(edit, "the spec review's body should carry the reference instead");
@@ -2193,7 +2205,7 @@ describe("ghIssueTracker.linkSpecReviewTicket", () => {
     );
 
     await assert.rejects(
-      ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, "Reviews #40."),
+      ghIssueTracker().linkSpecReviewTicket(SPEC_REVIEW, SUPERTASK, async () => "Reviews #40."),
       /#50 in nadav-alon\/pilot is already a spec review for #40, but could not link it to #40/,
     );
   });

@@ -215,7 +215,7 @@ export function ghIssueTracker(
       await linkOrExplain(
         review,
         ticket,
-        reviewBody(ticket, pullRequest),
+        async () => reviewBody(ticket, pullRequest),
         `Opened #${review.number} in ${review.repo} to review ${pullRequest}, the draft pull request for #${ticket.number}`,
       );
       return review;
@@ -262,7 +262,7 @@ export function ghIssueTracker(
       await linkOrExplain(
         specReview,
         ticket,
-        body,
+        async () => body,
         `Opened #${specReview.number} in ${specReview.repo} as a spec review for #${ticket.number}`,
       );
       return specReview;
@@ -271,7 +271,7 @@ export function ghIssueTracker(
     async linkSpecReviewTicket(
       specReview: Ticket,
       supertask: Ticket,
-      body: string,
+      body: () => Promise<string>,
     ): Promise<void> {
       await linkOrExplain(
         specReview,
@@ -630,7 +630,7 @@ function bindingMatching(
 async function linkOrExplain(
   child: Ticket,
   parent: Ticket,
-  body: string,
+  body: () => Promise<string>,
   opening: string,
 ): Promise<void> {
   try {
@@ -655,13 +655,18 @@ async function linkOrExplain(
  * that has sub-issues and could not be asked, and writing the reference into
  * the body would answer it by quietly downgrading the relationship forever.
  *
+ * `body` is called at most once, and only in that fallback: where sub-issues
+ * are native, as they ordinarily are, the POST alone links `child`, and a
+ * caller that only ever composes `body` for this one unlikely path is spared
+ * composing it on every other.
+ *
  * Only `child`'s own body: the parent is a ticket the developer wrote and
  * this is not the place to edit it.
  */
 async function linkToParent(
   child: Ticket,
   parent: Ticket,
-  body: string,
+  body: () => Promise<string>,
 ): Promise<void> {
   const id = await issueIdOf(child);
 
@@ -683,7 +688,7 @@ async function linkToParent(
       "edit",
       ...issueArgs(child),
       "--body",
-      `Part of #${parent.number}.\n\n${body}`,
+      `Part of #${parent.number}.\n\n${await body()}`,
     ]);
   }
 }

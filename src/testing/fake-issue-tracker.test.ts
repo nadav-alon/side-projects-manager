@@ -545,7 +545,7 @@ describe("FakeIssueTracker — sub-issues", () => {
       title: "Spec review for #40",
     });
 
-    await tracker.linkSpecReviewTicket(floating, supertask, "Reviews #40.");
+    await tracker.linkSpecReviewTicket(floating, supertask, async () => "Reviews #40.");
 
     const { issues } = await tracker.listOpenIssues(PILOT);
     const listed = issues.find((issue) => issue.ticket.number === floating.number);
@@ -569,7 +569,7 @@ describe("FakeIssueTracker — sub-issues", () => {
     };
 
     await assert.rejects(
-      tracker.linkSpecReviewTicket(neverAdded, supertask, "Reviews #40."),
+      tracker.linkSpecReviewTicket(neverAdded, supertask, async () => "Reviews #40."),
     );
   });
 });
