@@ -4,7 +4,12 @@ import type {
   IssueTracker,
   Ticket,
 } from "./ports/index.ts";
-import { discoveredBody, isPullRequestTicket, isSpecReviewTicket } from "./ports/index.ts";
+import {
+  discoveredBody,
+  isPullRequestTicket,
+  isSpecReviewTicket,
+  targetNoun,
+} from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
 
 /**
@@ -179,9 +184,7 @@ async function discoveryTargetFor(
     return { ticket: parent };
   }
   return {
-    error: isSpecReviewTicket(ticket)
-      ? `could not find the supertask #${ticket.number} is a sub-issue of`
-      : `could not find the implementation ticket #${ticket.number} is a sub-issue of`,
+    error: `could not find the ${targetNoun(ticket)} #${ticket.number} is a sub-issue of`,
   };
 }
 

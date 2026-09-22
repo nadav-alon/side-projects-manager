@@ -61,6 +61,7 @@ export {
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,
+  targetNoun,
   ticketKind,
   ticketPrioritiesIn,
 } from "./issue-tracker.ts";

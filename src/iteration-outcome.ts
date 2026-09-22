@@ -714,7 +714,7 @@ export interface SpecReviewed {
   handedBack: HandBackRecord;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`: the supertask `discoveries` landed on, present only when the run filed any. */
+  /** As `DiscoveryBlocked.target`. */
   target?: Ticket;
 }
 
@@ -723,16 +723,17 @@ export interface SpecReviewed {
  * discovery, per CONTEXT.md's "Discovery" and "Hand back". The run's own
  * ticket is handed back exactly as a gave-up run's is, whatever the agent
  * went on to commit or would otherwise have finished: no pull request opens,
- * and no review, apply-review or rebase closes. For a pull request ticket,
- * "the run's own ticket" is the pull request ticket itself — `target` names
- * the implementation ticket its discoveries landed on instead, absent for an
- * implementation run, whose target is its own ticket.
+ * and no review, apply-review or rebase closes. For a pull request or a spec
+ * review ticket, "the run's own ticket" is the pull request or spec review
+ * ticket itself — `target` names the implementation ticket or supertask its
+ * discoveries landed on instead, absent for an implementation run, whose
+ * target is its own ticket.
  */
 export interface DiscoveryBlocked {
   kind: "discovery-blocked";
   /** What every discovery the run filed came to, blocking and advisory alike. */
   routing: DiscoveryRouting;
-  /** As `HandBackEnding`'s own `target`: present only for a pull request ticket. */
+  /** As `HandBackEnding`'s own `target`: present only for a pull request or a spec review ticket. */
   target?: Ticket;
   tokensUsed: TokenCount;
   transcript?: TranscriptPath;

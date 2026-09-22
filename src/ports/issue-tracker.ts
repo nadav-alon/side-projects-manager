@@ -607,6 +607,17 @@ export function ticketKind(ticket: Ticket): TicketKind {
 }
 
 /**
+ * What `ticket`'s discoveries land on, named for a developer-facing comment:
+ * a spec review ticket's is its supertask, every other kind's is its
+ * implementation ticket. The one place this two-way choice is made, so
+ * `discoveryTargetFor` and a discovery-blocked hand-back's comment can never
+ * disagree on the noun.
+ */
+export function targetNoun(ticket: Ticket): "supertask" | "implementation ticket" {
+  return ticketKind(ticket) === "spec-review" ? "supertask" : "implementation ticket";
+}
+
+/**
  * Reads and writes the tickets the loop works from.
  *
  * Only the read path, the hand-back and the review are declared. The rest of

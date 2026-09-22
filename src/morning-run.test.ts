@@ -12,7 +12,6 @@ import {
   READY_FOR_HUMAN_LABEL,
   REBASE_COMMENT,
   REVIEWED_LABEL,
-  SPEC_REVIEW_LABEL,
   backlogIn,
   branch,
   checkout,
@@ -160,20 +159,15 @@ function queuedSpecReview(ports: FakePorts, registration: Registration = {}): Ti
  * every "a spec review ticket, selected" discovery test, which otherwise
  * opens the identical preamble under a different name.
  */
-function queuedSpecReviewWithSupertask(
+async function queuedSpecReviewWithSupertask(
   ports: FakePorts,
-): { supertask: Ticket; specReview: Ticket } {
+): Promise<{ supertask: Ticket; specReview: Ticket }> {
   ports.store.register(PILOT);
   const supertask = ports.tracker.addSupertask(PILOT, {
     number: issueNumber(50),
     title: "Too big for one run",
   });
-  const specReview = ports.tracker.addEligibleTicket(PILOT, {
-    number: issueNumber(51),
-    title: "Review the loop spec",
-    parent: issueNumber(50),
-  });
-  ports.tracker.addLabel(specReview, SPEC_REVIEW_LABEL);
+  const specReview = await ports.tracker.createSpecReviewTicket(supertask, "Review it.");
   return { supertask, specReview };
 }
 
@@ -2614,10 +2608,10 @@ describe("morningLoop", () => {
     describe("a blocking discovery", () => {
       it("opens a discovered ticket that blocks the supertask, and hands back the spec review ticket, not the supertask", async () => {
         const ports = fakePorts();
-        const { supertask, specReview } = queuedSpecReviewWithSupertask(ports);
+        const { supertask, specReview } = await queuedSpecReviewWithSupertask(ports);
         ports.sandbox.specReviewResult = () => ({
           kind: "finished",
-          output: "",
+          output: "DRIFT REPORT: the retry policy never landed",
           tokensUsed: tokenCount(1_000),
           discoveries: [
             {
@@ -2636,12 +2630,13 @@ describe("morningLoop", () => {
         assert.equal(handback?.ticket.number, specReview.number);
         assert.notEqual(handback?.ticket.number, supertask.number);
         assert.match(handback?.comment ?? "", /supertask, #50/);
+        assert.match(handback?.comment ?? "", /DRIFT REPORT/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
 
       it("hands back the spec review for a gave-up run that also filed a correction, not as a gave-up run", async () => {
         const ports = fakePorts();
-        const { specReview } = queuedSpecReviewWithSupertask(ports);
+        const { specReview } = await queuedSpecReviewWithSupertask(ports);
         ports.sandbox.specReviewResult = () => ({
           kind: "gave-up",
           output: "I could not tell what to review",
@@ -2667,7 +2662,7 @@ describe("morningLoop", () => {
 
       it("proceeds as normal for a clarification or a suggestion, filing them on the supertask and naming it as the spec-reviewed iteration's target", async () => {
         const ports = fakePorts();
-        const { supertask } = queuedSpecReviewWithSupertask(ports);
+        const { supertask } = await queuedSpecReviewWithSupertask(ports);
         ports.sandbox.specReviewResult = () => ({
           kind: "finished",
           output: "no drift found",
