@@ -2157,10 +2157,14 @@ async function runRebase(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return withDiscoveries(
-      cutOffReviewOutcome(run),
-      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries, run.discoveriesDropped),
-    );
+    // Routed through the same blocking check as the run's own gave-up and
+    // otherwise-successful paths below: a correction or prerequisite the run
+    // filed is no less true for the provider having cut it off.
+    const routing = await routeOrBlock(ports, ticket, run);
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
+    return withDiscoveries(cutOffReviewOutcome(run), routing.routed);
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
