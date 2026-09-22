@@ -386,11 +386,107 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
       ? undefined
       : attemptsSection(facts.iterations),
     waitingSection(facts.iterations, facts.projects),
+    discoveriesSection(facts.iterations),
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
+}
+
+/**
+ * The routing a discovery-carrying iteration reports, and the ticket its
+ * discoveries landed on when that differs from the one it worked itself —
+ * `discovery-blocked`'s own fields, or `discoveries`/`target` for every other
+ * kind that can carry a `DiscoveryRouting`. `undefined` for a kind that never
+ * routes discoveries at all, or one whose run filed and dropped nothing.
+ */
+function discoveryFactsOf(
+  iteration: IterationOutcome,
+): { routing: DiscoveryRouting; target?: Ticket } | undefined {
+  switch (iteration.kind) {
+    case "discovery-blocked":
+      return { routing: iteration.routing, ...(iteration.target !== undefined && { target: iteration.target }) };
+    case "finished":
+    case "failed":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "limit-refused":
+    case "provider-failed":
+      return iteration.discoveries === undefined
+        ? undefined
+        : {
+            routing: iteration.discoveries,
+            ...(iteration.target !== undefined && { target: iteration.target }),
+          };
+    case "budget-exhausted":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+      return undefined;
+  }
+}
+
+/**
+ * Every discovery a run filed, dropped or was refused, per CONTEXT.md's
+ * "Discovery" and "Dropped discovery" — so nothing a run filed under
+ * `/discoveries` disappears silently, whether it landed, was capped, was
+ * malformed, or the tracker refused to write it. `undefined` when no
+ * iteration this invocation made carries anything to say, so the section is
+ * absent entirely on a morning with no discoveries — the same summary as
+ * today.
+ */
+function discoveriesSection(iterations: IterationOutcome[]): string | undefined {
+  const lines = iterations.flatMap((iteration) => {
+    const facts = discoveryFactsOf(iteration);
+    return facts === undefined ? [] : discoveryLines(iteration, facts);
+  });
+  return lines.length === 0 ? undefined : ["## Discoveries", ...lines].join("\n");
+}
+
+/**
+ * One bullet per advisory discovery `routing` filed — naming the ticket a
+ * comment landed on, or the discovered ticket a suggestion opened — plus one
+ * for a positive count of suggestions the cap dropped, one for a positive
+ * count of files `/discoveries` dropped for being malformed, and one per
+ * refused write, blocking or advisory alike. A blocking discovery's own kind
+ * and outcome is said instead by the iteration's own line and Waiting-on-you
+ * entry; listed here too, alongside a refused write, is only what happened to
+ * the write itself.
+ */
+function discoveryLines(
+  iteration: { repo: RepoSlug; ticket: Ticket },
+  { routing, target }: { routing: DiscoveryRouting; target?: Ticket },
+): string[] {
+  const who = `${iteration.repo} #${iteration.ticket.number}`;
+  const landedOn = target === undefined ? `#${iteration.ticket.number}` : `#${target.number}`;
+  const filed = routing.filed.flatMap((filed) => {
+    if (isBlockingDiscoveryKind(filed.discovery.kind)) {
+      return [];
+    }
+    const where =
+      filed.action === "discovered-ticket"
+        ? `opened #${filed.ticket.number}`
+        : `commented on ${landedOn}`;
+    return [`- ${who}: ${where} — ${filed.discovery.kind}, "${filed.discovery.title}"`];
+  });
+  const droppedSuggestions =
+    routing.suggestionsDropped === 0
+      ? []
+      : [
+          `- ${who}: dropped ${routing.suggestionsDropped === 1 ? "1 suggestion" : `${routing.suggestionsDropped} suggestions`} past the one already filed`,
+        ];
+  const droppedFiles =
+    routing.discoveriesDropped === 0
+      ? []
+      : [
+          `- ${who}: dropped ${routing.discoveriesDropped === 1 ? "1 file" : `${routing.discoveriesDropped} files`} under /discoveries — not valid JSON, or naming an unknown kind`,
+        ];
+  const refused = routing.refused.map(
+    (refused) =>
+      `- ${who}: could not file a ${refused.discovery.kind} ("${refused.discovery.title}"): ${withoutTrailingStop(refused.reason)}`,
+  );
+  return [...filed, ...droppedSuggestions, ...droppedFiles, ...refused];
 }
 
 /**

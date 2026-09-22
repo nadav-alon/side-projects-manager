@@ -377,6 +377,41 @@ function attemptsLines(iterations: IterationOutcome[]): string[] {
   return sectionLines(iterations, "## Attempts", "## Waiting on you");
 }
 
+function discoveriesLines(iterations: IterationOutcome[]): string[] {
+  return sectionLines(iterations, "## Discoveries");
+}
+
+/** A finished run that filed `discoveryRouting`, landing on `target` when given one. */
+function finishedWithDiscoveries(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+  target?: Ticket,
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    ...finishedRun(500, "agent/900"),
+    discoveries: discoveryRouting,
+    ...(target !== undefined && { target }),
+  };
+}
+
+/** A review ticket's own run that closed cleanly, but had filed `discoveryRouting` landing on `target`. */
+function reviewedWithDiscoveries(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+  target?: Ticket,
+): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    discoveries: discoveryRouting,
+    ...(target !== undefined && { target }),
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
 describe("waitingSection", () => {
   it("renders one line naming the pull request as reviewed, when the review ticket was reviewed this invocation", () => {
     const lines = waitingLines([
@@ -597,6 +632,131 @@ describe("waitingSection", () => {
     const lines = waitingLines([specReviewedAlreadyClosed(196)]);
 
     assert.deepEqual(lines, []);
+  });
+});
+
+describe("discoveriesSection", () => {
+  it("is absent entirely when no iteration carries any discoveries — the same summary as today", () => {
+    const body = summaryBody(facts([finishedWithHandover(implementationTicket(220), 221)]), "line");
+
+    assert.doesNotMatch(body, /## Discoveries/);
+  });
+
+  it("lists a filed clarification or correction with the ticket it commented on", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        222,
+        routing({ filed: [{ discovery: discovery({ kind: "clarification" }), action: "commented" }] }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #222: commented on #222 — clarification, "The ticket names the wrong file"`,
+    ]);
+  });
+
+  it("lists a filed suggestion with the discovered ticket it opened", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        223,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "suggestion", title: "Worth a retry" }),
+              action: "discovered-ticket",
+              ticket: implementationTicket(230),
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [`- ${REPO} #223: opened #230 — suggestion, "Worth a retry"`]);
+  });
+
+  it("names the implementation ticket a review's discovery landed on, not the review ticket itself", () => {
+    const lines = discoveriesLines([
+      reviewedWithDiscoveries(
+        224,
+        routing({ filed: [{ discovery: discovery({ kind: "clarification" }), action: "commented" }] }),
+        implementationTicket(7),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #224: commented on #7 — clarification, "The ticket names the wrong file"`,
+    ]);
+  });
+
+  it("omits a blocking discovery from its own list — that is said by the iteration's own line and waiting entry", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(225, routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] })),
+    ]);
+
+    assert.deepEqual(lines, []);
+  });
+
+  it("counts the suggestions the cap dropped", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(226, routing({ suggestionsDropped: 2 })),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #226: dropped 2 suggestions past the one already filed`,
+    ]);
+  });
+
+  it("counts a single dropped suggestion in the singular", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(227, routing({ suggestionsDropped: 1 })),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #227: dropped 1 suggestion past the one already filed`,
+    ]);
+  });
+
+  it("counts the files /discoveries dropped for being malformed", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(228, routing({ discoveriesDropped: 3 })),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #228: dropped 3 files under /discoveries — not valid JSON, or naming an unknown kind`,
+    ]);
+  });
+
+  it("names a refused discovery, blocking or advisory alike, with why", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        229,
+        routing({
+          refused: [
+            { discovery: discovery({ kind: "clarification" }), reason: "the tracker was unreachable" },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #229: could not file a clarification ("The ticket names the wrong file"): the tracker was unreachable`,
+    ]);
+  });
+
+  it("lists a discovery-blocked run's own advisory discovery alongside its blocking one", () => {
+    const lines = discoveriesLines([
+      discoveryBlocked(
+        231,
+        routing({
+          filed: [
+            { discovery: discovery({ kind: "prerequisite" }), action: "discovered-ticket", ticket: implementationTicket(240) },
+            { discovery: discovery({ kind: "suggestion", title: "Worth a retry" }), action: "discovered-ticket", ticket: implementationTicket(241) },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [`- ${REPO} #231: opened #241 — suggestion, "Worth a retry"`]);
   });
 });
 
