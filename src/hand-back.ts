@@ -301,7 +301,7 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
     case "spec-review-finished":
       return specReviewFindingsComment(ending);
     case "discovery-blocked":
-      return discoveryBlockedComment(ending, discard);
+      return discoveryBlockedComment(ticket, ending, discard);
   }
 }
 
@@ -490,24 +490,26 @@ function specReviewFindingsComment(ending: {
  * What a ticket is told when its run filed a blocking discovery: a
  * correction or a prerequisite, in the agent's own words — never described as
  * a run that gave up, even when the same run also did. `target`, present only
- * for a pull request ticket, names the implementation ticket the discoveries
- * were separately filed against; inlined here regardless, so the ticket being
- * handed back carries the whole of what was found even if that other write
- * was itself refused.
+ * for a pull request or a spec review ticket, names the implementation ticket
+ * or the supertask the discoveries were separately filed against; inlined
+ * here regardless, so the ticket being handed back carries the whole of what
+ * was found even if that other write was itself refused.
  */
 function discoveryBlockedComment(
+  ticket: Ticket,
   ending: Extract<HandBackEnding, { kind: "discovery-blocked" }>,
   discard: Discard,
 ): string {
   const findings = ending.discoveries
     .map((discovery) => `**${discovery.kind}**: ${discovery.title}\n\n${discovery.body}`)
     .join("\n\n---\n\n");
+  const targetName = ticketKind(ticket) === "spec-review" ? "supertask" : "implementation ticket";
   return [
     `The morning loop ran this ticket and found a blocking discovery: a correction or a prerequisite, not a run that gave up.`,
     findings,
     ...(ending.target === undefined
       ? []
-      : [`Also filed against the implementation ticket, #${ending.target.number}.`]),
+      : [`Also filed against the ${targetName}, #${ending.target.number}.`]),
     ...branchNote(ending.worked?.run.branch, discard),
     notRetried(),
     ...transcriptNote(ending.transcript),

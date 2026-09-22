@@ -490,6 +490,28 @@ describe("handBack", () => {
       assert.match(comment, /implementation ticket, #7/);
     });
 
+    it("names the supertask for a spec review ticket, rather than calling it an implementation ticket", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, specReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "discovery-blocked",
+        discoveries: [
+          {
+            kind: "correction",
+            title: "The spec no longer matches",
+            body: "The retry-policy sub-issue changed what #66 describes.",
+          },
+        ],
+        target: { ...implementationTicket(), repo: REPO },
+      });
+
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /supertask, #7/);
+      assert.doesNotMatch(comment, /implementation ticket, #7/);
+    });
+
     it("names the transcript's host path when the run left one", async () => {
       const { tracker, repoHost } = ports();
       const ticket = eligible(tracker, reviewTicket());
