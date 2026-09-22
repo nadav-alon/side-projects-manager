@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
+import type { DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard } from "./hand-back.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import type {
@@ -22,6 +23,7 @@ import {
   transcriptPath,
   type ApplyReviewTicket,
   type Branch,
+  type Discovery,
   type ReviewTicket,
   type Size,
   type SpecReviewTicket,
@@ -50,6 +52,14 @@ function limitRefused(number: number, discard: Discard): IterationOutcome {
     limitRefusal: LIMIT_REFUSAL,
     tokensUsed: tokenCount(500),
     discard,
+  };
+}
+
+/** A limit-refused run that filed `discoveryRouting` before the provider stopped it — never handed back for it, per CONTEXT.md's "Limit refusal". */
+function limitRefusedWithDiscoveries(number: number, discoveryRouting: DiscoveryRouting): IterationOutcome {
+  return {
+    ...(limitRefused(number, { kind: "none" }) as Extract<IterationOutcome, { kind: "limit-refused" }>),
+    discoveries: discoveryRouting,
   };
 }
 
@@ -262,6 +272,42 @@ function reviewInfrastructureFailure(number: number): IterationOutcome {
   };
 }
 
+/** A discovery, correction by default, overridable to any of the four kinds. */
+function discovery(overrides: Partial<Discovery> = {}): Discovery {
+  return {
+    kind: "correction",
+    title: "The ticket names the wrong file",
+    body: "It should touch src/widget.ts, not src/gadget.ts.",
+    ...overrides,
+  };
+}
+
+/** A routing with nothing filed, dropped or refused — override whichever a test needs. */
+function routing(overrides: Partial<DiscoveryRouting> = {}): DiscoveryRouting {
+  return {
+    filed: [],
+    suggestionsDropped: 0,
+    refused: [],
+    discoveriesDropped: 0,
+    ...overrides,
+  };
+}
+
+/** An implementation ticket's own run handed back for a blocking discovery carried by `discoveryRouting`. */
+function discoveryBlocked(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    kind: "discovery-blocked",
+    routing: discoveryRouting,
+    tokensUsed: tokenCount(500),
+    handedBack: { outcome: "handed-back" },
+  };
+}
+
 function specReviewTicket(number: number): SpecReviewTicket {
   return { repo: REPO, number: issueNumber(number), title: `Spec review ${number}`, specReview: true };
 }
@@ -337,6 +383,41 @@ function waitingLines(iterations: IterationOutcome[]): string[] {
 
 function attemptsLines(iterations: IterationOutcome[]): string[] {
   return sectionLines(iterations, "## Attempts", "## Waiting on you");
+}
+
+function discoveriesLines(iterations: IterationOutcome[]): string[] {
+  return sectionLines(iterations, "## Discoveries");
+}
+
+/** A finished run that filed `discoveryRouting`, landing on `target` when given one. */
+function finishedWithDiscoveries(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+  target?: Ticket,
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    ...finishedRun(500, "agent/900"),
+    discoveries: discoveryRouting,
+    ...(target !== undefined && { target }),
+  };
+}
+
+/** A review ticket's own run that closed cleanly, but had filed `discoveryRouting` landing on `target`. */
+function reviewedWithDiscoveries(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+  target?: Ticket,
+): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    discoveries: discoveryRouting,
+    ...(target !== undefined && { target }),
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
 describe("waitingSection", () => {
@@ -449,6 +530,68 @@ describe("waitingSection", () => {
     ]);
   });
 
+  describe("a blocking-discovery hand-back", () => {
+    it("lists the ticket under waiting on you, worded apart from a gave-up hand-back and an infrastructure failure", () => {
+      const lines = waitingLines([
+        discoveryBlocked(196, routing({
+          filed: [{ discovery: discovery(), action: "commented" }],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #196: relabelled ready-for-human — the ticket is the problem, not the run: it filed a correction`,
+      ]);
+    });
+
+    it("names the discovered ticket a prerequisite opened", () => {
+      const lines = waitingLines([
+        discoveryBlocked(197, routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite" }),
+              action: "discovered-ticket",
+              ticket: implementationTicket(201),
+            },
+          ],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #197: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as #201`,
+      ]);
+    });
+
+    it("still lists the ticket as eligible when the hand-back itself was refused, same as any other kind", () => {
+      const iteration: IterationOutcome = {
+        repo: REPO,
+        ticket: implementationTicket(202),
+        kind: "discovery-blocked",
+        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        tokensUsed: tokenCount(500),
+        handedBack: { outcome: "refused", reason: "the tracker was unreachable" },
+      };
+
+      const lines = waitingLines([iteration]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #202: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+      ]);
+    });
+
+    it("renders nothing when an overlapping run had already closed the ticket", () => {
+      const iteration: IterationOutcome = {
+        repo: REPO,
+        ticket: implementationTicket(203),
+        kind: "discovery-blocked",
+        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        tokensUsed: tokenCount(500),
+        handedBack: { outcome: "already-closed" },
+      };
+
+      assert.deepEqual(waitingLines([iteration]), []);
+    });
+  });
+
   it("does not split the list in two when an infrastructure failure's reason ends in a newline", () => {
     const first: IterationOutcome = {
       repo: REPO,
@@ -497,6 +640,144 @@ describe("waitingSection", () => {
     const lines = waitingLines([specReviewedAlreadyClosed(196)]);
 
     assert.deepEqual(lines, []);
+  });
+});
+
+describe("discoveriesSection", () => {
+  it("is absent entirely when no iteration carries any discoveries — the same summary as today", () => {
+    const body = summaryBody(facts([finishedWithHandover(implementationTicket(220), 221)]), "line");
+
+    assert.doesNotMatch(body, /## Discoveries/);
+  });
+
+  it("lists a filed clarification or correction with the ticket it commented on", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        222,
+        routing({ filed: [{ discovery: discovery({ kind: "clarification" }), action: "commented" }] }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #222: commented on #222 — clarification, "The ticket names the wrong file"`,
+    ]);
+  });
+
+  it("lists a filed suggestion with the discovered ticket it opened", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        223,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "suggestion", title: "Worth a retry" }),
+              action: "discovered-ticket",
+              ticket: implementationTicket(230),
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [`- ${REPO} #223: opened #230 — suggestion, "Worth a retry"`]);
+  });
+
+  it("names the implementation ticket a review's discovery landed on, not the review ticket itself", () => {
+    const lines = discoveriesLines([
+      reviewedWithDiscoveries(
+        224,
+        routing({ filed: [{ discovery: discovery({ kind: "clarification" }), action: "commented" }] }),
+        implementationTicket(7),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #224: commented on #7 — clarification, "The ticket names the wrong file"`,
+    ]);
+  });
+
+  it("omits a blocking discovery from a discovery-blocked iteration's own list — that is said by its own line and waiting entry", () => {
+    const lines = discoveriesLines([
+      discoveryBlocked(225, routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] })),
+    ]);
+
+    assert.deepEqual(lines, []);
+  });
+
+  it("lists a blocking discovery filed by a cut-off run, which nothing else in the summary says", () => {
+    const lines = discoveriesLines([
+      limitRefusedWithDiscoveries(
+        226,
+        routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #226: commented on #226 — correction, "The ticket names the wrong file"`,
+    ]);
+  });
+
+  it("counts the suggestions the cap dropped", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(226, routing({ suggestionsDropped: 2 })),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #226: dropped 2 suggestions past the one already filed`,
+    ]);
+  });
+
+  it("counts a single dropped suggestion in the singular", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(227, routing({ suggestionsDropped: 1 })),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #227: dropped 1 suggestion past the one already filed`,
+    ]);
+  });
+
+  it("counts the files /discoveries dropped for being malformed", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(228, routing({ discoveriesDropped: 3 })),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #228: dropped 3 files under /discoveries — not valid JSON, or naming an unknown kind`,
+    ]);
+  });
+
+  it("names a refused discovery, blocking or advisory alike, with why", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        229,
+        routing({
+          refused: [
+            { discovery: discovery({ kind: "clarification" }), reason: "the tracker was unreachable" },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #229: could not file a clarification ("The ticket names the wrong file"): the tracker was unreachable`,
+    ]);
+  });
+
+  it("lists a discovery-blocked run's own advisory discovery alongside its blocking one", () => {
+    const lines = discoveriesLines([
+      discoveryBlocked(
+        231,
+        routing({
+          filed: [
+            { discovery: discovery({ kind: "prerequisite" }), action: "discovered-ticket", ticket: implementationTicket(240) },
+            { discovery: discovery({ kind: "suggestion", title: "Worth a retry" }), action: "discovered-ticket", ticket: implementationTicket(241) },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [`- ${REPO} #231: opened #241 — suggestion, "Worth a retry"`]);
   });
 });
 
@@ -684,6 +965,68 @@ describe("summaryLine", () => {
     const line = summaryLine(facts([iteration]));
 
     assert.match(line, /the run would not start on #184/);
+  });
+
+  describe("a blocking-discovery hand-back", () => {
+    it("reads apart from a gave-up hand-back and an infrastructure failure", () => {
+      const line = summaryLine(facts([discoveryBlocked(190, routing({
+        filed: [{ discovery: discovery(), action: "commented" }],
+      }))]));
+
+      assert.match(line, /the ticket is the problem, not the run/);
+      assert.doesNotMatch(line, /the agent gave up/);
+      assert.doesNotMatch(line, /the sandbox or checkout failed/);
+    });
+
+    it("names the correction", () => {
+      const line = summaryLine(facts([discoveryBlocked(191, routing({
+        filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }],
+      }))]));
+
+      assert.match(line, /a correction/);
+    });
+
+    it("names the discovered ticket a filed prerequisite opened", () => {
+      const line = summaryLine(facts([discoveryBlocked(192, routing({
+        filed: [
+          {
+            discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+            action: "discovered-ticket",
+            ticket: implementationTicket(199),
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a prerequisite, opened as #199/);
+    });
+
+    it("names a refused blocking discovery by its kind and why, naming no ticket", () => {
+      const line = summaryLine(facts([discoveryBlocked(193, routing({
+        refused: [
+          {
+            discovery: discovery({ kind: "prerequisite" }),
+            reason: "the tracker was unreachable",
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a prerequisite that could not be filed: the tracker was unreachable/);
+    });
+
+    it("joins more than one blocking discovery", () => {
+      const line = summaryLine(facts([discoveryBlocked(194, routing({
+        filed: [
+          { discovery: discovery({ kind: "correction" }), action: "commented" },
+          {
+            discovery: discovery({ kind: "prerequisite" }),
+            action: "discovered-ticket",
+            ticket: implementationTicket(198),
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a correction; a prerequisite, opened as #198/);
+    });
   });
 
   /**

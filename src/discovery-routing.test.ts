@@ -171,25 +171,27 @@ describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
 });
 
 describe("routeRunDiscoveries", () => {
-  it("answers undefined when the run filed nothing", async () => {
+  it("answers undefined when the run filed nothing and dropped nothing", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
 
     assert.equal(await routeRunDiscoveries(tracker, ticket, undefined), undefined);
     assert.equal(await routeRunDiscoveries(tracker, ticket, []), undefined);
+    assert.equal(await routeRunDiscoveries(tracker, ticket, [], 0), undefined);
   });
 
-  it("routes an implementation run's discoveries against its own ticket", async () => {
+  it("routes an implementation run's discoveries against its own ticket, naming no crossTarget", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
 
     const routed = await routeRunDiscoveries(tracker, ticket, [discovery()]);
 
     assert.equal(routed?.target.number, ticket.number);
+    assert.equal(routed?.crossTarget, undefined);
     assert.equal(routed?.routing.filed.length, 1);
   });
 
-  it("routes a review run's discoveries against the implementation ticket it belongs to", async () => {
+  it("routes a review run's discoveries against the implementation ticket it belongs to, naming it as crossTarget", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
     const review = await tracker.createReviewTicket(
@@ -202,7 +204,45 @@ describe("routeRunDiscoveries", () => {
     ]);
 
     assert.equal(routed?.target.number, ticket.number);
+    assert.equal(routed?.crossTarget?.number, ticket.number);
     assert.equal(tracker.discoveredTickets[0]?.discoveredWhile.number, ticket.number);
+  });
+
+  it("carries a positive discoveriesDropped through onto the routing even when nothing was filed", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+
+    const routed = await routeRunDiscoveries(tracker, ticket, [], 2);
+
+    assert.equal(routed?.routing.discoveriesDropped, 2);
+    assert.equal(routed?.routing.filed.length, 0);
+  });
+
+  it("never resolves a target for a pull request ticket that only dropped files, since nothing would be routed against it", async (t) => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
+
+    const routed = await routeRunDiscoveries(tracker, review, [], 2);
+
+    assert.equal(routed?.target.number, review.number);
+    assert.equal(routed?.crossTarget, undefined);
+    assert.equal(routed?.routing.discoveriesDropped, 2);
+    assert.equal(listOpenIssues.mock.callCount(), 0);
+  });
+
+  it("carries discoveriesDropped through alongside filed discoveries", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+
+    const routed = await routeRunDiscoveries(tracker, ticket, [discovery()], 3);
+
+    assert.equal(routed?.routing.discoveriesDropped, 3);
+    assert.equal(routed?.routing.filed.length, 1);
   });
 
   it("refuses every discovery when a pull request ticket's implementation ticket cannot be found", async () => {

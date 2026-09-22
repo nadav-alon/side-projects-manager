@@ -963,7 +963,12 @@ async function work(
     const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
     return withDiscoveries(
       cutOffRunOutcome(run, discard),
-      await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries),
+      await routeRunDiscoveries(
+        ports.tracker,
+        selection.ticket,
+        run.discoveries,
+        run.discoveriesDropped,
+      ),
     );
   }
   if (run.kind === "budget-exhausted") {
@@ -981,7 +986,12 @@ async function work(
     const discard = await discardBranch(ports.repoHost, checkout, run);
     return withDiscoveries(
       cutOffRunOutcome(run, discard),
-      await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries),
+      await routeRunDiscoveries(
+        ports.tracker,
+        selection.ticket,
+        run.discoveries,
+        run.discoveriesDropped,
+      ),
     );
   }
   if (run.kind === "model-refused") {
@@ -1004,7 +1014,12 @@ async function work(
   // and "Hand back". Either way the ticket's salvage record is discarded —
   // and, via `discardStaleSalvage`, the branch it names — the same as any
   // other gave-up run's branch; see CONTEXT.md's "Salvage".
-  const routed = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
+  const routed = await routeRunDiscoveries(
+    ports.tracker,
+    selection.ticket,
+    run.discoveries,
+    run.discoveriesDropped,
+  );
   if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
     await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
@@ -1029,23 +1044,34 @@ async function work(
     checkout,
     run,
   });
-  return {
+  const gaveUp: Failed = {
     kind: "failed",
     run,
     tokensUsed: run.tokensUsed,
     ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
     handedBack,
-    ...(routed !== undefined && { discoveries: routed.routing }),
   };
+  return withDiscoveries(gaveUp, routed);
 }
 
-/** `iteration`, with `routed`'s own routing attached — unchanged when there was nothing to route. */
-function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"] }>(
+/**
+ * `iteration`, with `routed`'s own routing — and, when it names one, the
+ * ticket its discoveries landed on — attached. Unchanged when there was
+ * nothing to route.
+ */
+function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"]; target?: Ticket }>(
   iteration: T,
   routed: RoutedDiscoveries | undefined,
 ): T {
-  return routed === undefined ? iteration : { ...iteration, discoveries: routed.routing };
+  if (routed === undefined) {
+    return iteration;
+  }
+  return {
+    ...iteration,
+    discoveries: routed.routing,
+    ...(routed.crossTarget !== undefined && { target: routed.crossTarget }),
+  };
 }
 
 /**
@@ -1237,9 +1263,9 @@ async function handModelRefusedBack(
  * the agent went on to commit or would otherwise have finished. `worked`
  * names the branch an implementation run left, so its own hand-back discards
  * it; a review, apply-review or rebase ticket's own run never creates one, so
- * `worked` is left out. `routed.target` is named on the hand-back only when it
- * differs from `ticket` — a pull request ticket's run, whose discoveries land
- * on its implementation ticket rather than the ticket handed back here.
+ * `worked` is left out. `routed.crossTarget` is named on the hand-back only
+ * when it is set — a pull request ticket's run, whose discoveries land on its
+ * implementation ticket rather than the ticket handed back here.
  */
 async function discoveryBlockedOutcome(
   ports: MorningLoopPorts,
@@ -1249,7 +1275,7 @@ async function discoveryBlockedOutcome(
   transcript: TranscriptPath | undefined,
   worked?: { checkout: Checkout; run: RunFinished | RunGaveUp },
 ): Promise<DiscoveryBlocked> {
-  const target = routed.target.number === ticket.number ? undefined : routed.target;
+  const { crossTarget: target } = routed;
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
     discoveries: blockingDiscoveriesOf(routed.discoveries),
@@ -1279,9 +1305,19 @@ async function discoveryBlockedOutcome(
 async function routeOrBlock(
   ports: MorningLoopPorts,
   ticket: Ticket,
-  outcome: { tokensUsed: TokenCount; transcript?: TranscriptPath; discoveries?: Discovery[] },
+  outcome: {
+    tokensUsed: TokenCount;
+    transcript?: TranscriptPath;
+    discoveries?: Discovery[];
+    discoveriesDropped?: number;
+  },
 ): Promise<{ routed: RoutedDiscoveries | undefined } | { blocked: DiscoveryBlocked }> {
-  const routed = await routeRunDiscoveries(ports.tracker, ticket, outcome.discoveries);
+  const routed = await routeRunDiscoveries(
+    ports.tracker,
+    ticket,
+    outcome.discoveries,
+    outcome.discoveriesDropped,
+  );
   if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
     return {
       blocked: await discoveryBlockedOutcome(
@@ -1623,7 +1659,12 @@ async function runReview(
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
     return withDiscoveries(
       cutOffReviewOutcome(review),
-      await routeRunDiscoveries(ports.tracker, ticket, review.discoveries),
+      await routeRunDiscoveries(
+        ports.tracker,
+        ticket,
+        review.discoveries,
+        review.discoveriesDropped,
+      ),
     );
   }
   if (review.kind === "budget-exhausted") {
@@ -1876,7 +1917,7 @@ async function runApplyReview(
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
     return withDiscoveries(
       cutOffReviewOutcome(run),
-      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries),
+      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries, run.discoveriesDropped),
     );
   }
   if (run.kind === "budget-exhausted") {
@@ -2090,7 +2131,7 @@ async function runRebase(
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
     return withDiscoveries(
       cutOffReviewOutcome(run),
-      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries),
+      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries, run.discoveriesDropped),
     );
   }
   if (run.kind === "budget-exhausted") {

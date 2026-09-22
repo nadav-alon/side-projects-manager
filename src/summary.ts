@@ -5,6 +5,8 @@ import type {
   ConflictSweepOutcome,
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
+import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
+import type { DiscoveryRouting } from "./discovery-routing.ts";
 import type {
   SpecReviewSweepOutcome,
   SpecReviewSweepRefusal,
@@ -384,11 +386,116 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
       ? undefined
       : attemptsSection(facts.iterations),
     waitingSection(facts.iterations, facts.projects),
+    discoveriesSection(facts.iterations),
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
+}
+
+/**
+ * The routing a discovery-carrying iteration reports, and the ticket its
+ * discoveries landed on when that differs from the one it worked itself —
+ * named once and shared with `discoveryLines`, which reads the same shape.
+ */
+type DiscoveryFacts = { routing: DiscoveryRouting; target?: Ticket };
+
+/**
+ * `discoveryFactsOf`'s answer: `discovery-blocked`'s own fields, or
+ * `discoveries`/`target` for every other kind that can carry a
+ * `DiscoveryRouting`. `undefined` for a kind that never routes discoveries at
+ * all, or one whose run filed and dropped nothing.
+ */
+function discoveryFactsOf(
+  iteration: IterationOutcome,
+): DiscoveryFacts | undefined {
+  switch (iteration.kind) {
+    case "discovery-blocked":
+      return { routing: iteration.routing, ...(iteration.target !== undefined && { target: iteration.target }) };
+    case "finished":
+    case "failed":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "limit-refused":
+    case "provider-failed":
+      return iteration.discoveries === undefined
+        ? undefined
+        : {
+            routing: iteration.discoveries,
+            ...(iteration.target !== undefined && { target: iteration.target }),
+          };
+    case "budget-exhausted":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+      return undefined;
+  }
+}
+
+/**
+ * Every discovery a run filed, dropped or was refused, per CONTEXT.md's
+ * "Discovery" and "Dropped discovery" — so nothing a run filed under
+ * `/discoveries` disappears silently, whether it landed, was capped, was not
+ * valid JSON or named an unknown kind, or the tracker refused to write it.
+ * `undefined` when no iteration this invocation made carries anything to say,
+ * so the section is absent entirely on a morning with no discoveries.
+ */
+function discoveriesSection(iterations: IterationOutcome[]): string | undefined {
+  const lines = iterations.flatMap((iteration) => {
+    const facts = discoveryFactsOf(iteration);
+    return facts === undefined ? [] : discoveryLines(iteration, facts);
+  });
+  return lines.length === 0 ? undefined : ["## Discoveries", ...lines].join("\n");
+}
+
+/**
+ * One bullet per advisory discovery `routing` filed — naming the ticket a
+ * comment landed on, or the discovered ticket a suggestion opened — plus one
+ * for a positive count of suggestions the cap dropped, one for a positive
+ * count of files `/discoveries` dropped for not being valid JSON or naming an
+ * unknown kind, and one per refused write, blocking or advisory alike. A
+ * blocking discovery filed by a `discovery-blocked` iteration has its own kind
+ * and outcome said instead by that iteration's own line and Waiting-on-you
+ * entry, so it is left out here; one filed by any other kind — a cut-off run,
+ * which files exactly as a finished one does but is never handed back for it,
+ * per CONTEXT.md's "Limit refusal" and "Provider failure" — has nowhere else
+ * to be said, and is listed here like any advisory discovery. Alongside a
+ * refused write, either way, only what happened to the write itself is said.
+ */
+function discoveryLines(
+  iteration: { repo: RepoSlug; ticket: Ticket; kind: IterationOutcome["kind"] },
+  { routing, target }: DiscoveryFacts,
+): string[] {
+  const who = `${iteration.repo} #${iteration.ticket.number}`;
+  const landedOn = target === undefined ? `#${iteration.ticket.number}` : `#${target.number}`;
+  const filed = routing.filed.flatMap((filed) => {
+    if (iteration.kind === "discovery-blocked" && isBlockingDiscoveryKind(filed.discovery.kind)) {
+      return [];
+    }
+    const where =
+      filed.action === "discovered-ticket"
+        ? `opened #${filed.ticket.number}`
+        : `commented on ${landedOn}`;
+    return [`- ${who}: ${where} — ${filed.discovery.kind}, "${filed.discovery.title}"`];
+  });
+  const droppedSuggestions =
+    routing.suggestionsDropped === 0
+      ? []
+      : [
+          `- ${who}: dropped ${routing.suggestionsDropped === 1 ? "1 suggestion" : `${routing.suggestionsDropped} suggestions`} past the one already filed`,
+        ];
+  const droppedFiles =
+    routing.discoveriesDropped === 0
+      ? []
+      : [
+          `- ${who}: dropped ${routing.discoveriesDropped === 1 ? "1 file" : `${routing.discoveriesDropped} files`} under /discoveries — not valid JSON, or naming an unknown kind`,
+        ];
+  const refused = routing.refused.map(
+    (refused) =>
+      `- ${who}: could not file a ${refused.discovery.kind} ("${refused.discovery.title}"): ${withoutTrailingStop(refused.reason)}`,
+  );
+  return [...filed, ...droppedSuggestions, ...droppedFiles, ...refused];
 }
 
 /**
@@ -587,6 +694,56 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
   return declaredSize(ticket) ?? "unsized";
 }
 
+/**
+ * The blocking discoveries a discovery-blocked run's own `routing` carries,
+ * each as the phrase `describeIteration` and `discoveryBlockedWaitingLine`
+ * both read: a correction or a prerequisite, filed — naming the discovered
+ * ticket a prerequisite opened — or refused, naming why. Worded the same
+ * neutral way `discoveryLines` words a refused write, rather than naming the
+ * tracker: `routeRunDiscoveries` refuses every discovery the same way when it
+ * cannot even resolve a target for them, which is not the tracker's doing.
+ * Read from `routing` rather than recomputing the ticket's own hand-back
+ * wording, so the summary and the ticket comment can drift in phrasing
+ * without drifting in fact.
+ */
+function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
+  const filed = routing.filed.flatMap((filed) =>
+    isBlockingDiscoveryKind(filed.discovery.kind)
+      ? [
+          filed.action === "discovered-ticket"
+            ? `a ${filed.discovery.kind}, opened as #${filed.ticket.number}`
+            : `a ${filed.discovery.kind}`,
+        ]
+      : [],
+  );
+  const refused = routing.refused.flatMap((refused) =>
+    isBlockingDiscoveryKind(refused.discovery.kind)
+      ? [`a ${refused.discovery.kind} that could not be filed: ${withoutTrailingStop(refused.reason)}`]
+      : [],
+  );
+  return [...filed, ...refused];
+}
+
+/** `blockingDiscoveryPhrases`, joined the one way both of its callers read it. */
+function blockingDiscoveryClause(routing: DiscoveryRouting): string {
+  return blockingDiscoveryPhrases(routing).join("; ");
+}
+
+/**
+ * The Waiting-on-you line for a ticket handed back for a blocking discovery
+ * that landed: worded apart from a gave-up hand-back's bare relabel and from
+ * an infrastructure failure's still-eligible line, since neither the agent
+ * nor the setup is what stopped this ticket — the ticket itself is.
+ */
+function discoveryBlockedWaitingLine(iteration: {
+  repo: RepoSlug;
+  ticket: Ticket;
+  routing: DiscoveryRouting;
+}): string {
+  const blocking = blockingDiscoveryClause(iteration.routing);
+  return `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the ticket is the problem, not the run: it filed ${blocking}`;
+}
+
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
 function stillEligibleLine(iteration: {
   repo: RepoSlug;
@@ -676,12 +833,20 @@ function waitingSection(
         return [];
       case "failed":
         return waitingOnFailure(iteration);
-      // A blocking discovery's own hand-back, exactly as a finished run's is:
-      // nothing waits on the developer unless the tracker refused the call.
-      case "discovery-blocked":
-        return iteration.handedBack.outcome === "refused"
-          ? [stillEligibleLine(iteration)]
-          : [];
+      // A blocking discovery's own hand-back: waits on the developer, worded
+      // apart from a gave-up hand-back and an infrastructure failure, unless
+      // an overlapping run already closed the ticket first or the tracker
+      // refused the hand-back call itself.
+      case "discovery-blocked": {
+        const { handedBack } = iteration;
+        if (handedBack.outcome === "refused") {
+          return [stillEligibleLine(iteration)];
+        }
+        if (handedBack.outcome === "already-closed") {
+          return [];
+        }
+        return [discoveryBlockedWaitingLine(iteration)];
+      }
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
@@ -981,8 +1146,10 @@ function describeIteration(iteration: IterationOutcome): string {
       return pullRequestResolvedSummary(iteration);
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
-    case "discovery-blocked":
-      return `Worked ${iteration.repo} #${iteration.ticket.number}: a blocking discovery handed it back.${transcriptNote(iteration.transcript)}`;
+    case "discovery-blocked": {
+      const blocking = blockingDiscoveryClause(iteration.routing);
+      return `Worked ${iteration.repo} #${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
+    }
   }
 }
 

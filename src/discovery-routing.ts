@@ -50,6 +50,14 @@ export interface DiscoveryRouting {
   filed: FiledDiscovery[];
   suggestionsDropped: number;
   refused: RefusedDiscovery[];
+  /**
+   * How many files under the run's own `/discoveries` mount never became a
+   * `Discovery` at all — CONTEXT.md's **Dropped discovery**: not valid JSON,
+   * or naming a kind outside the four. Always present, 0 when the run left
+   * none, so a reader never has to check for absence the way `filed` and
+   * `refused` items themselves do.
+   */
+  discoveriesDropped: number;
 }
 
 /**
@@ -107,13 +115,17 @@ async function fileDiscovery(
  * "Discovery": at most the first suggestion is filed, the rest dropped and
  * counted; every correction, prerequisite and clarification is filed. A
  * discovery the tracker refuses is reported in `refused` rather than stopping
- * the rest — one refusal never costs the ones behind it.
+ * the rest — one refusal never costs the ones behind it. `discoveriesDropped`
+ * is passed straight through onto the answer, unread here: this function
+ * never sees the raw files a run's `/discoveries` mount held, only the ones
+ * that parsed.
  */
 export async function routeDiscoveries(
   tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
   runTicket: Ticket,
   target: Ticket,
   discoveries: readonly Discovery[],
+  discoveriesDropped = 0,
 ): Promise<DiscoveryRouting> {
   const filed: FiledDiscovery[] = [];
   const refused: RefusedDiscovery[] = [];
@@ -135,7 +147,7 @@ export async function routeDiscoveries(
     }
   }
 
-  return { filed, suggestionsDropped, refused };
+  return { filed, suggestionsDropped, refused, discoveriesDropped };
 }
 
 /**
@@ -177,6 +189,15 @@ async function discoveryTargetFor(
  */
 export interface RoutedDiscoveries {
   target: Ticket;
+  /**
+   * `target`, but present only when it differs from the ticket whose run
+   * these discoveries are — a pull request ticket's run, whose discoveries
+   * land on its implementation ticket instead of the ticket the run itself
+   * worked. Absent for an implementation run, whose target is its own
+   * ticket. Precomputed here, once, rather than by every reader comparing
+   * `target` against the ticket it already has in hand.
+   */
+  crossTarget?: Ticket;
   routing: DiscoveryRouting;
   discoveries: readonly Discovery[];
 }
@@ -184,22 +205,40 @@ export interface RoutedDiscoveries {
 /**
  * Resolves `ticket`'s discovery target and routes `discoveries` against it, in
  * one call — the one entry point `morning-run.ts` needs. Answers `undefined`
- * when there is nothing to route: `discoveries` is absent or empty, which is
- * the ordinary case for a run that filed none.
+ * when there is nothing to route: `discoveries` is absent or empty and
+ * `discoveriesDropped` is 0, which is the ordinary case for a run that filed
+ * nothing and dropped nothing.
  *
- * A target that cannot be resolved — a pull request ticket whose implementation
- * ticket `listOpenIssues` does not report, most likely a truncated backlog —
- * refuses every discovery with that same reason, `ticket` itself standing in
- * for the target nothing could be filed against, rather than losing what the
- * agent found.
+ * A run that dropped files but filed no discovery never resolves a target at
+ * all: there is nothing to file against one, so nothing here would ever read
+ * it back, and resolving one anyway would cost a pull request ticket's run a
+ * `listOpenIssues` call — the out-of-scope `morningRun` behaviour #598's
+ * ticket bars — for no reason at all. `target` reads as `ticket` itself in
+ * this case, same as every other run whose target never differs from the
+ * ticket it worked.
+ *
+ * A target that cannot be resolved for a run that did file something — a pull
+ * request ticket whose implementation ticket `listOpenIssues` does not
+ * report, most likely a truncated backlog — refuses every discovery with that
+ * same reason, `ticket` itself standing in for the target nothing could be
+ * filed against, rather than losing what the agent found.
  */
 export async function routeRunDiscoveries(
   tracker: Pick<IssueTracker, "listOpenIssues" | "comment" | "createDiscoveredTicket">,
   ticket: Ticket,
   discoveries: readonly Discovery[] | undefined,
+  discoveriesDropped = 0,
 ): Promise<RoutedDiscoveries | undefined> {
-  if (discoveries === undefined || discoveries.length === 0) {
+  const found = discoveries ?? [];
+  if (found.length === 0 && discoveriesDropped === 0) {
     return undefined;
+  }
+  if (found.length === 0) {
+    return {
+      target: ticket,
+      routing: { filed: [], suggestionsDropped: 0, refused: [], discoveriesDropped },
+      discoveries: found,
+    };
   }
   const resolved = await discoveryTargetFor(tracker, ticket).catch(
     (error: unknown): DiscoveryTarget => ({ error: errorMessage(error) }),
@@ -210,17 +249,21 @@ export async function routeRunDiscoveries(
       routing: {
         filed: [],
         suggestionsDropped: 0,
-        refused: discoveries.map((discovery) => ({
+        refused: found.map((discovery) => ({
           discovery,
           reason: resolved.error,
         })),
+        discoveriesDropped,
       },
-      discoveries,
+      discoveries: found,
     };
   }
+  const crossTarget =
+    resolved.ticket.number === ticket.number ? undefined : resolved.ticket;
   return {
     target: resolved.ticket,
-    routing: await routeDiscoveries(tracker, ticket, resolved.ticket, discoveries),
-    discoveries,
+    ...(crossTarget !== undefined && { crossTarget }),
+    routing: await routeDiscoveries(tracker, ticket, resolved.ticket, found, discoveriesDropped),
+    discoveries: found,
   };
 }
