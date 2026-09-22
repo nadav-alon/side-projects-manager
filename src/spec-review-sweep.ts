@@ -113,7 +113,13 @@ export async function specReviewSweep(
       // `subIssues` alone cannot see one a prior sweep opened but never
       // linked — it carries no sub-issue relation to find it by — so
       // `openIssues`, already read once for the whole sweep, is searched by
-      // title and label instead.
+      // title and label instead. Unlike the `listSubIssues` guard above, this
+      // search has no authoritative fallback: `openIssues` is newest-first
+      // and capped, so a floating spec review is missed only where the
+      // backlog is truncated and it has sat unlinked long enough to fall off
+      // the read — an authoritative search would cost a `gh issue list`
+      // filtered by label and title per supertask, every sweep, to catch a
+      // case this narrow.
       const floating = findFloatingSpecReview(supertask, openIssues.issues);
       if (floating !== undefined) {
         await ports.tracker.linkSpecReviewTicket(floating, supertask, body);
