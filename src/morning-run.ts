@@ -6,6 +6,7 @@ import type {
   Checkout,
   Clock,
   Day,
+  Discovery,
   InvocationOutcome as JournaledInvocationOutcome,
   IssueTracker,
   IssueUrl,
@@ -998,34 +999,26 @@ async function work(
       { checkout, run },
     );
   }
+  // Routed before either of the run's own endings — finished or gave up — is
+  // decided: a blocking discovery replaces both, per CONTEXT.md's "Discovery"
+  // and "Hand back". Either way the ticket's salvage record is discarded —
+  // and, via `discardStaleSalvage`, the branch it names — the same as any
+  // other gave-up run's branch; see CONTEXT.md's "Salvage".
+  const routed = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+    salvages.clear(selection.ticket);
+    return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
+      checkout,
+      run,
+    });
+  }
   if (run.kind === "finished") {
-    const routed = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
-    if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
-      await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-      salvages.clear(selection.ticket);
-      return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
-        checkout,
-        run,
-      });
-    }
     await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     salvages.clear(selection.ticket);
     return withDiscoveries(await handOver(ports, run, checkout, selection.ticket), routed);
   }
 
-  // A run that gave up ends on its own terms, whatever it continued from: see
-  // CONTEXT.md's "Salvage", which discards a ticket's salvage record — and,
-  // via `discardStaleSalvage`, the branch it names — the same as any other
-  // gave-up run's branch.
-  const routedGaveUp = await routeRunDiscoveries(ports.tracker, selection.ticket, run.discoveries);
-  if (routedGaveUp !== undefined && hasBlockingDiscovery(routedGaveUp.discoveries)) {
-    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-    salvages.clear(selection.ticket);
-    return discoveryBlockedOutcome(ports, selection.ticket, routedGaveUp, run.tokensUsed, run.transcript, {
-      checkout,
-      run,
-    });
-  }
   await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
   salvages.clear(selection.ticket);
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
@@ -1043,7 +1036,7 @@ async function work(
     ...(run.transcript !== undefined && { transcript: run.transcript }),
     failure,
     handedBack,
-    ...(routedGaveUp !== undefined && { discoveries: routedGaveUp.routing }),
+    ...(routed !== undefined && { discoveries: routed.routing }),
   };
 }
 
@@ -1272,6 +1265,35 @@ async function discoveryBlockedOutcome(
     ...(transcript !== undefined && { transcript }),
     handedBack,
   };
+}
+
+/**
+ * Routes `outcome`'s own discoveries against `ticket` and, when one of them
+ * blocks, hands the ticket back for it — shared by a review, apply-review or
+ * rebase run's own gave-up and otherwise-successful paths, each of which
+ * replaces both with a blocking discovery's hand-back the same way, per
+ * CONTEXT.md's "Discovery" and "Hand back". Neither ever passes
+ * `discoveryBlockedOutcome`'s `worked`: none of the three ever creates a
+ * branch.
+ */
+async function routeOrBlock(
+  ports: MorningLoopPorts,
+  ticket: Ticket,
+  outcome: { tokensUsed: TokenCount; transcript?: TranscriptPath; discoveries?: Discovery[] },
+): Promise<{ routed: RoutedDiscoveries | undefined } | { blocked: DiscoveryBlocked }> {
+  const routed = await routeRunDiscoveries(ports.tracker, ticket, outcome.discoveries);
+  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+    return {
+      blocked: await discoveryBlockedOutcome(
+        ports,
+        ticket,
+        routed,
+        outcome.tokensUsed,
+        outcome.transcript,
+      ),
+    };
+  }
+  return { routed };
 }
 
 /**
@@ -1616,10 +1638,11 @@ async function runReview(
   // Routed before either of the run's own endings is decided: a blocking
   // discovery replaces both the gave-up and the found-nothing-posted path
   // below, per CONTEXT.md's "Discovery" and "Hand back".
-  const routed = await routeRunDiscoveries(ports.tracker, ticket, review.discoveries);
-  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
-    return discoveryBlockedOutcome(ports, ticket, routed, review.tokensUsed, review.transcript);
+  const routing = await routeOrBlock(ports, ticket, review);
+  if ("blocked" in routing) {
+    return routing.blocked;
   }
+  const { routed } = routing;
 
   if (review.kind === "gave-up") {
     return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
@@ -1866,10 +1889,11 @@ async function runApplyReview(
   // Routed before either of the run's own endings is decided: a blocking
   // discovery replaces both the gave-up and the thread-left-unanswered path
   // below, per CONTEXT.md's "Discovery" and "Hand back".
-  const routed = await routeRunDiscoveries(ports.tracker, ticket, run.discoveries);
-  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
-    return discoveryBlockedOutcome(ports, ticket, routed, run.tokensUsed, run.transcript);
+  const routing = await routeOrBlock(ports, ticket, run);
+  if ("blocked" in routing) {
+    return routing.blocked;
   }
+  const { routed } = routing;
 
   if (run.kind === "gave-up") {
     return withDiscoveries(await handApplyReviewBack(ports, ticket, run, run.reason), routed);
@@ -2079,10 +2103,11 @@ async function runRebase(
   // Routed before either of the run's own endings is decided: a blocking
   // discovery replaces both the gave-up and the still-conflicting path
   // below, per CONTEXT.md's "Discovery" and "Hand back".
-  const routed = await routeRunDiscoveries(ports.tracker, ticket, run.discoveries);
-  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
-    return discoveryBlockedOutcome(ports, ticket, routed, run.tokensUsed, run.transcript);
+  const routing = await routeOrBlock(ports, ticket, run);
+  if ("blocked" in routing) {
+    return routing.blocked;
   }
+  const { routed } = routing;
 
   if (run.kind === "gave-up") {
     return withDiscoveries(await handRebaseBack(ports, ticket, run, run.reason), routed);
