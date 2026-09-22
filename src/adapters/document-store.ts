@@ -62,7 +62,6 @@ import {
   isRepoSlug,
   isSize,
   keptSummaryPath,
-  workedTicket,
   isReserveFraction,
   isTokenCount,
   isUsd,
@@ -666,10 +665,13 @@ function parseDayField(value: unknown, where: string): Day {
 }
 
 /**
- * `{ "day": "2026-01-01", "tickets": [{ "repo": "owner/repo", "number": 7 }] }`
+ * `{ "day": "2026-01-01", "tickets": [{ "repo": "owner/repo", "number": 7,
+ *    "recordedBy": { "openedAt": "…", "process": 123 } }] }`
  *
  * Read as written, whatever day it names: whether that day is today is the
- * loop's to judge, since only the loop has a clock.
+ * loop's to judge, since only the loop has a clock. `recordedBy` is absent on
+ * an entry written before it existed, read the same as one naming an
+ * invocation no longer in the journal.
  */
 function parseWorkedToday(value: unknown, where: string): WorkedToday {
   const recorded = parseDayField(fieldOf(value, "day", where), `${where}: "day"`);
@@ -693,7 +695,30 @@ function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
       `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
     );
   }
-  return { repo, number };
+  return {
+    repo,
+    number,
+    ...recordedByField(fieldOf(ticket, "recordedBy", where), where),
+  };
+}
+
+function recordedByField(
+  value: unknown,
+  where: string,
+): { recordedBy?: OpenInvocation } {
+  if (value === undefined) {
+    return {};
+  }
+  const recordedByWhere = `${where}: "recordedBy"`;
+  return {
+    recordedBy: {
+      openedAt: parseInstant(
+        fieldOf(value, "openedAt", recordedByWhere),
+        `${recordedByWhere}: "openedAt"`,
+      ),
+      process: processField(fieldOf(value, "process", recordedByWhere), recordedByWhere),
+    },
+  };
 }
 
 function parseProjectStates(
@@ -811,7 +836,16 @@ function formatState(state: State): string {
 
   const workedToday = state.workedToday && {
     day: state.workedToday.day,
-    tickets: state.workedToday.tickets.map(workedTicket),
+    tickets: state.workedToday.tickets.map((ticket) => ({
+      repo: ticket.repo,
+      number: ticket.number,
+      ...(ticket.recordedBy !== undefined && {
+        recordedBy: {
+          openedAt: ticket.recordedBy.openedAt.toISOString(),
+          process: ticket.recordedBy.process,
+        },
+      }),
+    })),
   };
 
   const salvages = state.salvages?.map((salvage) => ({ ...salvage }));

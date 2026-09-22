@@ -100,14 +100,26 @@ export function ticketKey(ticket: WorkedTicket): string {
  * `ticket` as the state document names it, and nothing more: a whole `Ticket`
  * passes for one, but its title and labels are not the record's to keep.
  */
-export function workedTicket({ repo, number }: WorkedTicket): WorkedTicket {
-  return { repo, number };
+export function workedTicket({
+  repo,
+  number,
+  recordedBy,
+}: WorkedTicket): WorkedTicket {
+  return { repo, number, ...(recordedBy !== undefined && { recordedBy }) };
 }
 
 /** A ticket as the state document names it: its project, and its number there. */
 export interface WorkedTicket {
   repo: RepoSlug;
   number: IssueNumber;
+  /**
+   * The invocation that recorded this entry, using the journal's own
+   * identity for an invocation record — see `findInvocationRecord`. Absent
+   * for an entry written before this field existed, which reads the same as
+   * one whose invocation is not in flight: still passed over for the rest of
+   * the day, never freed. See CONTEXT.md's "Worked today".
+   */
+  recordedBy?: OpenInvocation;
 }
 
 /**
