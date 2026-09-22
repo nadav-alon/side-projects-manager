@@ -209,11 +209,19 @@ export interface RoutedDiscoveries {
  * `discoveriesDropped` is 0, which is the ordinary case for a run that filed
  * nothing and dropped nothing.
  *
- * A target that cannot be resolved — a pull request ticket whose implementation
- * ticket `listOpenIssues` does not report, most likely a truncated backlog —
- * refuses every discovery with that same reason, `ticket` itself standing in
- * for the target nothing could be filed against, rather than losing what the
- * agent found.
+ * A run that dropped files but filed no discovery never resolves a target at
+ * all: there is nothing to file against one, so nothing here would ever read
+ * it back, and resolving one anyway would cost a pull request ticket's run a
+ * `listOpenIssues` call — the out-of-scope `morningRun` behaviour #598's
+ * ticket bars — for no reason at all. `target` reads as `ticket` itself in
+ * this case, same as every other run whose target never differs from the
+ * ticket it worked.
+ *
+ * A target that cannot be resolved for a run that did file something — a pull
+ * request ticket whose implementation ticket `listOpenIssues` does not
+ * report, most likely a truncated backlog — refuses every discovery with that
+ * same reason, `ticket` itself standing in for the target nothing could be
+ * filed against, rather than losing what the agent found.
  */
 export async function routeRunDiscoveries(
   tracker: Pick<IssueTracker, "listOpenIssues" | "comment" | "createDiscoveredTicket">,
@@ -224,6 +232,13 @@ export async function routeRunDiscoveries(
   const found = discoveries ?? [];
   if (found.length === 0 && discoveriesDropped === 0) {
     return undefined;
+  }
+  if (found.length === 0) {
+    return {
+      target: ticket,
+      routing: { filed: [], suggestionsDropped: 0, refused: [], discoveriesDropped },
+      discoveries: found,
+    };
   }
   const resolved = await discoveryTargetFor(tracker, ticket).catch(
     (error: unknown): DiscoveryTarget => ({ error: errorMessage(error) }),

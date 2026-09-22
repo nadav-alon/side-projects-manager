@@ -218,6 +218,23 @@ describe("routeRunDiscoveries", () => {
     assert.equal(routed?.routing.filed.length, 0);
   });
 
+  it("never resolves a target for a pull request ticket that only dropped files, since nothing would be routed against it", async (t) => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
+
+    const routed = await routeRunDiscoveries(tracker, review, [], 2);
+
+    assert.equal(routed?.target.number, review.number);
+    assert.equal(routed?.crossTarget, undefined);
+    assert.equal(routed?.routing.discoveriesDropped, 2);
+    assert.equal(listOpenIssues.mock.callCount(), 0);
+  });
+
   it("carries discoveriesDropped through alongside filed discoveries", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
