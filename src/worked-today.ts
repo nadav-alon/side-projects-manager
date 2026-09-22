@@ -105,6 +105,11 @@ export function workedTickets(
 /**
  * `stored` with every entry recorded by a dead in-flight invocation taken
  * off it, and those entries reported so the summary can name them.
+ *
+ * Removed rather than merely left unpassed-over: it keeps the ticket free
+ * even if the dead record is later pruned past the journal limit, and avoids
+ * a duplicate entry once the ticket is re-selected and re-recorded under
+ * this invocation's own identity.
  */
 function freeDeadInvocations(
   stored: WorkedToday | undefined,
