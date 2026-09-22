@@ -1055,6 +1055,7 @@ describe("morningLoop", () => {
         failure?: string;
         gist?: TicketGist;
         discoveries?: Discovery[];
+        discoveriesDropped?: number;
       } = {},
     ): Ticket {
       ports.store.register(PILOT);
@@ -1072,6 +1073,9 @@ describe("morningLoop", () => {
               tokensUsed: tokenCount(42_000),
               ...(run.gist !== undefined && { gist: run.gist }),
               ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
+              ...(run.discoveriesDropped !== undefined && {
+                discoveriesDropped: run.discoveriesDropped,
+              }),
             }
           : {
               kind: "gave-up",
@@ -1081,6 +1085,9 @@ describe("morningLoop", () => {
               reason: run.failure,
               tokensUsed: tokenCount(42_000),
               ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
+              ...(run.discoveriesDropped !== undefined && {
+                discoveriesDropped: run.discoveriesDropped,
+              }),
             };
       return ticket;
     }
@@ -1490,6 +1497,31 @@ describe("morningLoop", () => {
         );
         assert.ok(handback, "the ticket should have been handed back");
         assert.match(handback.comment, /blocking discovery/);
+      });
+
+      it("carries how many files the run dropped through onto the finished iteration's own routing", async () => {
+        const ports = fakePorts();
+        ran(ports, {
+          discoveries: [{ kind: "clarification", title: "First", body: "..." }],
+          discoveriesDropped: 2,
+        });
+
+        const report = await morningLoop(ports);
+
+        const finished = report.iterations[0];
+        assert.equal(
+          finished?.kind === "finished" ? finished.discoveries?.discoveriesDropped : undefined,
+          2,
+        );
+      });
+
+      it("names no target on an implementation run's own discovery-blocked iteration, whose target is its own ticket", async () => {
+        const ports = fakePorts();
+        ran(ports, { discoveries: [correction()] });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(discoveryBlocked(report.iterations[0])?.target, undefined);
       });
     });
   });
@@ -2388,9 +2420,9 @@ describe("morningLoop", () => {
         assert.doesNotMatch(handback?.comment ?? "", /the agent gave up/);
       });
 
-      it("proceeds as normal for a clarification or a suggestion, filing them on the implementation ticket", async () => {
+      it("proceeds as normal for a clarification or a suggestion, filing them on the implementation ticket and naming it as the reviewed iteration's target", async () => {
         const ports = fakePorts();
-        queuedWithImplementation(ports, "review");
+        const { implementation } = queuedWithImplementation(ports, "review");
         postedAFinding(ports);
         ports.sandbox.reviewResult = () => ({
           kind: "finished",
@@ -2409,7 +2441,12 @@ describe("morningLoop", () => {
           ports.tracker.closedReviewTickets.map((ticket) => ticket.number),
           [issueNumber(42)],
         );
-        assert.equal(report.iterations[0]?.kind, "reviewed");
+        const [iteration] = report.iterations;
+        assert.equal(iteration?.kind, "reviewed");
+        assert.equal(
+          iteration?.kind === "reviewed" ? iteration.target?.number : undefined,
+          implementation.number,
+        );
       });
     });
   });

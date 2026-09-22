@@ -280,6 +280,7 @@ function routing(overrides: Partial<DiscoveryRouting> = {}): DiscoveryRouting {
     filed: [],
     suggestionsDropped: 0,
     refused: [],
+    discoveriesDropped: 0,
     ...overrides,
   };
 }

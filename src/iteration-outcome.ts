@@ -226,6 +226,8 @@ export interface LimitRefused {
    * it found. Absent when the run filed none.
    */
   discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`: the ticket `discoveries` landed on, present only when it differs from the ticket this iteration itself worked. */
+  target?: Ticket;
 }
 
 /**
@@ -260,6 +262,8 @@ export interface ProviderFailed {
   discard: Discard;
   /** As `LimitRefused.discoveries`. */
   discoveries?: DiscoveryRouting;
+  /** As `LimitRefused.target`. */
+  target?: Ticket;
 }
 
 /**
@@ -414,6 +418,8 @@ export interface Finished {
    * filed none.
    */
   discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`. */
+  target?: Ticket;
 }
 
 /**
@@ -464,6 +470,8 @@ export type Failed = {
    * which this module never routes discoveries for.
    */
   discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`. */
+  target?: Ticket;
 } & (
   | { failure: InfrastructureFailure }
   /** What became of the ticket's own hand-back. */
@@ -553,6 +561,8 @@ export interface Reviewed {
   notCommented?: NotCommented;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`. */
+  target?: Ticket;
 }
 
 /**
@@ -614,6 +624,8 @@ export interface AppliedReview {
   notLabelled?: NotLabelled;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`. */
+  target?: Ticket;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
@@ -646,6 +658,8 @@ export interface Rebased {
   notClosed?: RebaseNotClosed;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
+  /** As `DiscoveryBlocked.target`. */
+  target?: Ticket;
 }
 
 /** Why a rebase iteration left its ticket open, and the error that stopped it. */
