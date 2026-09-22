@@ -4,7 +4,7 @@ import type {
   IssueTracker,
   Ticket,
 } from "./ports/index.ts";
-import { discoveredBody, isPullRequestTicket } from "./ports/index.ts";
+import { discoveredBody, isPullRequestTicket, isSpecReviewTicket } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
 
 /**
@@ -154,7 +154,8 @@ export async function routeDiscoveries(
  * The ticket a run's discoveries are about, per CONTEXT.md's "Discovery": an
  * implementation run's own ticket, or — for a review, apply-review or rebase
  * run — the implementation ticket its pull request ticket is a sub-issue of,
- * read off `IssueTracker.listOpenIssues` the way `selection.ts` and
+ * or — for a spec review run — the supertask it is a sub-issue of, read off
+ * `IssueTracker.listOpenIssues` the way `selection.ts` and
  * `spec-review-sweep.ts` already read a sub-issue's parent.
  */
 type DiscoveryTarget = { ticket: Ticket } | { error: string };
@@ -163,7 +164,7 @@ async function discoveryTargetFor(
   tracker: Pick<IssueTracker, "listOpenIssues">,
   ticket: Ticket,
 ): Promise<DiscoveryTarget> {
-  if (!isPullRequestTicket(ticket)) {
+  if (!isPullRequestTicket(ticket) && !isSpecReviewTicket(ticket)) {
     return { ticket };
   }
   const { issues } = await tracker.listOpenIssues(ticket.repo);
@@ -174,11 +175,14 @@ async function discoveryTargetFor(
     parentNumber === undefined
       ? undefined
       : issues.find((issue) => issue.ticket.number === parentNumber)?.ticket;
-  return parent === undefined
-    ? {
-        error: `could not find the implementation ticket #${ticket.number} is a sub-issue of`,
-      }
-    : { ticket: parent };
+  if (parent !== undefined) {
+    return { ticket: parent };
+  }
+  return {
+    error: isSpecReviewTicket(ticket)
+      ? `could not find the supertask #${ticket.number} is a sub-issue of`
+      : `could not find the implementation ticket #${ticket.number} is a sub-issue of`,
+  };
 }
 
 /**
@@ -193,9 +197,10 @@ export interface RoutedDiscoveries {
    * `target`, but present only when it differs from the ticket whose run
    * these discoveries are — a pull request ticket's run, whose discoveries
    * land on its implementation ticket instead of the ticket the run itself
-   * worked. Absent for an implementation run, whose target is its own
-   * ticket. Precomputed here, once, rather than by every reader comparing
-   * `target` against the ticket it already has in hand.
+   * worked, or a spec review run's, whose discoveries land on its supertask.
+   * Absent for an implementation run, whose target is its own ticket.
+   * Precomputed here, once, rather than by every reader comparing `target`
+   * against the ticket it already has in hand.
    */
   crossTarget?: Ticket;
   routing: DiscoveryRouting;
@@ -218,10 +223,11 @@ export interface RoutedDiscoveries {
  * ticket it worked.
  *
  * A target that cannot be resolved for a run that did file something — a pull
- * request ticket whose implementation ticket `listOpenIssues` does not
- * report, most likely a truncated backlog — refuses every discovery with that
- * same reason, `ticket` itself standing in for the target nothing could be
- * filed against, rather than losing what the agent found.
+ * request ticket whose implementation ticket, or a spec review ticket whose
+ * supertask, `listOpenIssues` does not report, most likely a truncated
+ * backlog — refuses every discovery with that same reason, `ticket` itself
+ * standing in for the target nothing could be filed against, rather than
+ * losing what the agent found.
  */
 export async function routeRunDiscoveries(
   tracker: Pick<IssueTracker, "listOpenIssues" | "comment" | "createDiscoveredTicket">,
