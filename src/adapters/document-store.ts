@@ -709,15 +709,14 @@ function recordedByField(
   if (value === undefined) {
     return {};
   }
-  const recordedByWhere = `${where}: "recordedBy"`;
+  return { recordedBy: parseOpenInvocation(value, `${where}: "recordedBy"`) };
+}
+
+/** The `openedAt` + `process` pair identifying an invocation, read from `value`. */
+function parseOpenInvocation(value: unknown, where: string): OpenInvocation {
   return {
-    recordedBy: {
-      openedAt: parseInstant(
-        fieldOf(value, "openedAt", recordedByWhere),
-        `${recordedByWhere}: "openedAt"`,
-      ),
-      process: processField(fieldOf(value, "process", recordedByWhere), recordedByWhere),
-    },
+    openedAt: parseInstant(fieldOf(value, "openedAt", where), `${where}: "openedAt"`),
+    process: processField(fieldOf(value, "process", where), where),
   };
 }
 
@@ -840,10 +839,7 @@ function formatState(state: State): string {
       repo: ticket.repo,
       number: ticket.number,
       ...(ticket.recordedBy !== undefined && {
-        recordedBy: {
-          openedAt: ticket.recordedBy.openedAt.toISOString(),
-          process: ticket.recordedBy.process,
-        },
+        recordedBy: formatOpenInvocation(ticket.recordedBy),
       }),
     })),
   };
@@ -903,11 +899,7 @@ function parseInvocationRecord(
 ): InvocationRecord {
   rejectUnknownFields(record, RECORD_FIELDS, "field", where);
 
-  const openedAt = parseInstant(
-    fieldOf(record, "openedAt", where),
-    `${where}: "openedAt"`,
-  );
-  const process = processField(fieldOf(record, "process", where), where);
+  const { openedAt, process } = parseOpenInvocation(record, where);
 
   const closedAt = fieldOf(record, "closedAt", where);
   if (closedAt === undefined) {
@@ -1034,10 +1026,14 @@ function exitCodeField(value: unknown, where: string): { exitCode?: ExitCode } {
 }
 
 /** Indented and newline-terminated: the document is read in diffs. */
+/** The `openedAt` + `process` pair identifying an invocation, as the document names them. */
+function formatOpenInvocation(open: OpenInvocation): { openedAt: string; process: ProcessId } {
+  return { openedAt: open.openedAt.toISOString(), process: open.process };
+}
+
 function formatJournal(journal: Journal): string {
   const records = journal.records.map((record) => ({
-    openedAt: record.openedAt.toISOString(),
-    process: record.process,
+    ...formatOpenInvocation(record),
     ...(record.closedAt !== undefined && {
       closedAt: record.closedAt.toISOString(),
       outcome: record.outcome,
