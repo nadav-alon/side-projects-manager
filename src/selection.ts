@@ -519,8 +519,9 @@ function compareTickets(
  * separate passes: rebases before apply-reviews before reviews before spec
  * reviews before implementations, then explicit priority, then least
  * recently worked. Each level only breaks ties the level before it left
- * standing, so a pull request ticket is never outranked by priority and
- * priority is never outranked by how long a project has waited.
+ * standing, so a pull request ticket or a spec review ticket is never
+ * outranked by priority and priority is never outranked by how long a
+ * project has waited.
  *
  * A project without a priority sorts after every project that has one, and a
  * project never worked sorts before every project that has been — it is, by
