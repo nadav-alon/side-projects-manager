@@ -494,8 +494,9 @@ export function summaryFileName(startedAt: Date): string {
  * full. `message` stays the one line a terminal or a trigger's own log wants;
  * this is the fuller account — every attempt with its cost, and what is now
  * waiting on the developer — the issue itself carries. `line` is passed in
- * rather than recomputed from `facts`: the caller already built it for
- * `message`, and it reads the same either way.
+ * rather than recomputed from `facts`: `composeInvocationReport` composes it
+ * once and threads it through to both `message` and this body, and it reads
+ * the same either way.
  */
 export function summaryBody(facts: SummaryFacts, line: string): string {
   return [
