@@ -7,10 +7,15 @@ import {
   branch,
   day,
   issueNumber,
+  processId,
   repoSlug,
   tokenCount,
+  type InvocationRecord,
+  type Journal,
+  type OpenInvocation,
   type State,
   type WorkedTicket,
+  type WorkedToday,
 } from "./ports/index.ts";
 import { FakeStore } from "./testing/index.ts";
 
@@ -23,6 +28,29 @@ const TICKET_7: WorkedTicket = { repo: PILOT, number: issueNumber(7) };
 const TICKET_8: WorkedTicket = { repo: PILOT, number: issueNumber(8) };
 
 const EMPTY_STATE: State = { projects: new Map() };
+
+const SELF: OpenInvocation = {
+  openedAt: new Date("2026-01-01T09:56:00.000Z"),
+  process: processId(9001),
+};
+
+const DEAD: OpenInvocation = {
+  openedAt: new Date("2026-01-01T08:09:00.000Z"),
+  process: processId(7563),
+};
+
+/** A state document holding `TICKET_7` worked today, recorded by `recordedBy`. */
+function storedWith(recordedBy?: OpenInvocation): State {
+  const workedToday: WorkedToday = {
+    day: TODAY,
+    tickets: [{ ...TICKET_7, ...(recordedBy !== undefined && { recordedBy }) }],
+  };
+  return { projects: new Map(), workedToday };
+}
+
+function journalOf(records: InvocationRecord[]): Journal {
+  return { records };
+}
 
 /**
  * A store whose `saveState` can be told to fail on command — for pinning
@@ -241,6 +269,128 @@ describe("stateSession", () => {
       assert.deepEqual(saved.workedToday, { day: TODAY, tickets: [TICKET_8] });
       assert.equal(saved.projects.get(PILOT)?.runs[0]?.tokensUsed, 200_000);
       assert.equal(saved.projects.get(MANAGER)?.runs[0]?.tokensUsed, 300_000);
+    });
+  });
+
+  describe("freeing a dead invocation's entries", () => {
+    it("frees a ticket recorded by an invocation still in flight when this one acquires the lease", () => {
+      const journal = journalOf([{ ...DEAD }, { ...SELF }]);
+
+      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
+        self: SELF,
+        journal,
+      });
+
+      assert.equal(session.passesOver(TICKET_7), false);
+      assert.deepEqual(session.freed(), [
+        { ticket: { ...TICKET_7, recordedBy: DEAD }, invocation: DEAD },
+      ]);
+    });
+
+    it("saves the freed entry off the record, so a later firing today may select it", async () => {
+      const store = new FakeStore();
+      const journal = journalOf([{ ...DEAD }, { ...SELF }]);
+
+      const session = stateSession({ store }, storedWith(DEAD), TODAY, {
+        self: SELF,
+        journal,
+      });
+      await session.save();
+
+      assert.deepEqual((await store.loadState()).workedToday, { day: TODAY, tickets: [] });
+    });
+
+    it("does not free a ticket recorded by an invocation that closed", () => {
+      const journal = journalOf([
+        {
+          ...DEAD,
+          closedAt: new Date("2026-01-01T08:20:00.000Z"),
+          outcome: "work-selected",
+          projects: [],
+        },
+        { ...SELF },
+      ]);
+
+      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
+        self: SELF,
+        journal,
+      });
+
+      assert.equal(session.passesOver(TICKET_7), true);
+      assert.deepEqual(session.freed(), []);
+    });
+
+    it("does not free a ticket recorded by the current invocation itself", () => {
+      const journal = journalOf([{ ...SELF }]);
+
+      const session = stateSession({ store: new FakeStore() }, storedWith(SELF), TODAY, {
+        self: SELF,
+        journal,
+      });
+
+      assert.equal(session.passesOver(TICKET_7), true);
+      assert.deepEqual(session.freed(), []);
+    });
+
+    it("does not free a ticket whose invocation record is missing from the journal", () => {
+      const journal = journalOf([{ ...SELF }]);
+
+      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
+        self: SELF,
+        journal,
+      });
+
+      assert.equal(session.passesOver(TICKET_7), true);
+      assert.deepEqual(session.freed(), []);
+    });
+
+    it("reads a worked-today entry that names no invocation as today, not freed", () => {
+      const journal = journalOf([{ ...SELF }]);
+
+      const session = stateSession({ store: new FakeStore() }, storedWith(undefined), TODAY, {
+        self: SELF,
+        journal,
+      });
+
+      assert.equal(session.passesOver(TICKET_7), true);
+      assert.deepEqual(session.freed(), []);
+    });
+
+    it("frees nothing when no current invocation identity is given", () => {
+      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY);
+
+      assert.equal(session.passesOver(TICKET_7), true);
+      assert.deepEqual(session.freed(), []);
+    });
+
+    it("stamps a newly selected ticket with the current invocation's own identity", async () => {
+      const store = new FakeStore();
+      const journal = journalOf([{ ...SELF }]);
+
+      const session = stateSession({ store }, EMPTY_STATE, TODAY, { self: SELF, journal });
+      await session.ticketSelected(TICKET_8, TODAY);
+
+      assert.deepEqual((await store.loadState()).workedToday, {
+        day: TODAY,
+        tickets: [{ ...TICKET_8, recordedBy: SELF }],
+      });
+    });
+
+    it("frees nothing, but still stamps a newly selected ticket, when the journal could not be read", async () => {
+      const store = new FakeStore();
+
+      const session = stateSession({ store }, storedWith(DEAD), TODAY, { self: SELF });
+      await session.ticketSelected(TICKET_8, TODAY);
+
+      assert.equal(session.passesOver(TICKET_7), true);
+      assert.deepEqual(session.freed(), []);
+      assert.deepEqual((await store.loadState()).workedToday, {
+        day: TODAY,
+        tickets: [
+          { ...TICKET_7, recordedBy: DEAD },
+          { ...TICKET_8, recordedBy: SELF },
+        ],
+      });
     });
   });
 });

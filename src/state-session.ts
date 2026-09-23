@@ -1,18 +1,51 @@
 import type {
   Day,
+  Journal,
+  OpenInvocation,
   ProjectState,
   RepoSlug,
   RunCost,
   State,
   Store,
   WorkedTicket,
+  WorkedToday,
 } from "./ports/index.ts";
-import { recordRun, recordWorked, ticketKey, unrecordWorked } from "./ports/index.ts";
+import {
+  findInvocationRecord,
+  isClosedInvocation,
+  recordRun,
+  recordWorked,
+  sameInvocation,
+  ticketKey,
+  unrecordWorked,
+} from "./ports/index.ts";
 import {
   failedOnInfrastructure,
   handedBackFailure,
   type Iteration,
 } from "./iteration-outcome.ts";
+
+/**
+ * The invocation running now, and the journal as it stood when it started:
+ * what a state session needs to tell a worked-today entry recorded by a dead
+ * in-flight invocation apart from one still protected. `self` is used to
+ * stamp every entry this invocation records, whether or not `journal` is
+ * available to free anything with. Absent entirely when the caller has no
+ * lease and no journal identity at all — as in a test that builds a session
+ * directly — in which case nothing is freed and nothing is stamped either.
+ */
+export interface CurrentInvocation {
+  self: OpenInvocation;
+  /** Absent when the journal could not be read: frees nothing, same as an empty one would. */
+  journal?: Journal;
+}
+
+/** One worked-today entry freed because the invocation that recorded it died. */
+export interface FreedWorkedTicket {
+  ticket: WorkedTicket;
+  /** The dead invocation's own record: its opened-at instant and pid. */
+  invocation: OpenInvocation;
+}
 
 /** The one port a state session needs: writing the whole state document back. */
 export interface StateSessionPorts {
@@ -97,6 +130,13 @@ export interface StateSession {
    */
   projectStates(): ReadonlyMap<RepoSlug, ProjectState>;
 
+  /**
+   * Every ticket freed on construction because a dead in-flight invocation
+   * had recorded it — CONTEXT.md's "Worked today". Fixed for the life of this
+   * session: nothing recorded or unrecorded during the invocation adds to it.
+   */
+  freed(): FreedWorkedTicket[];
+
   /** Saves the whole state document once, `rest` folded in as `ticketSelected` does. */
   save(rest?: StateSessionRest): Promise<void>;
 }
@@ -107,14 +147,25 @@ export interface StateSession {
  * it opened on. A worked-today record for any day but `today` says nothing
  * about today, so it reads as nothing worked yet: CONTEXT.md's "Worked
  * today".
+ *
+ * `current`, when given, is used once, on construction, to free every entry
+ * a dead in-flight invocation recorded — see CONTEXT.md's "Worked today".
+ * `current` absent, or its journal unreadable, frees nothing, same as an
+ * entry naming no invocation, one whose invocation closed, one whose
+ * invocation is missing from the journal, or one recorded by this same
+ * invocation.
  */
 export function stateSession(
   ports: StateSessionPorts,
   stored: State,
   today: Day,
+  current?: CurrentInvocation,
 ): StateSession {
   const projects = new Map(stored.projects);
-  let record = stored.workedToday?.day === today ? stored.workedToday : undefined;
+  const storedToday =
+    stored.workedToday?.day === today ? stored.workedToday : undefined;
+  const { kept, freed } = freeDeadInvocations(storedToday, current);
+  let record = kept;
   // Never shrinks, unlike `record`: selection passes over every ticket the
   // record held when the invocation started and every ticket it recorded
   // since, for the whole invocation, even one later taken back off `record`.
@@ -122,7 +173,9 @@ export function stateSession(
 
   const doRecord = (ticket: WorkedTicket, day: Day): void => {
     passedOver.add(ticketKey(ticket));
-    record = recordWorked(record, ticket, day);
+    const recorded: WorkedTicket =
+      current === undefined ? ticket : { ...ticket, recordedBy: current.self };
+    record = recordWorked(record, recorded, day);
   };
   const doUnrecord = (ticket: WorkedTicket): void => {
     if (record !== undefined) {
@@ -158,8 +211,58 @@ export function stateSession(
       }
     },
     projectStates: () => projects,
+    freed: () => freed,
     save: (rest = {}) => ports.store.saveState(buildState(rest)),
   };
+}
+
+/**
+ * `stored` with every entry recorded by a dead in-flight invocation taken
+ * off it, and those entries reported so the summary can name them.
+ *
+ * Removed rather than merely left unpassed-over: it keeps the ticket free
+ * even if the dead record is later pruned past the journal limit, and avoids
+ * a duplicate entry once the ticket is re-selected and re-recorded under
+ * this invocation's own identity.
+ */
+function freeDeadInvocations(
+  stored: WorkedToday | undefined,
+  current: CurrentInvocation | undefined,
+): { kept: WorkedToday | undefined; freed: FreedWorkedTicket[] } {
+  if (stored === undefined || current === undefined || current.journal === undefined) {
+    return { kept: stored, freed: [] };
+  }
+  const { self, journal } = current;
+  const freed: FreedWorkedTicket[] = [];
+  const kept = stored.tickets.filter((ticket) => {
+    const dead = deadInvocationOf(ticket.recordedBy, self, journal);
+    if (dead === undefined) {
+      return true;
+    }
+    freed.push({ ticket, invocation: dead });
+    return false;
+  });
+  return { kept: { day: stored.day, tickets: kept }, freed };
+}
+
+/**
+ * `recordedBy`, if it names an invocation still in flight in `journal` and
+ * is not `self` — the invocation's own record is in flight while it runs, so
+ * it never counts as dead. `undefined` for an entry naming no invocation,
+ * this invocation, one whose record has closed, or one missing from the
+ * journal entirely (pruned, say): every one of those stays passed over, as
+ * today.
+ */
+function deadInvocationOf(
+  recordedBy: OpenInvocation | undefined,
+  self: OpenInvocation,
+  journal: Journal,
+): OpenInvocation | undefined {
+  if (recordedBy === undefined || sameInvocation(self, recordedBy)) {
+    return undefined;
+  }
+  const record = findInvocationRecord(journal.records, recordedBy);
+  return record !== undefined && !isClosedInvocation(record) ? recordedBy : undefined;
 }
 
 /**

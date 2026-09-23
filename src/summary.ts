@@ -35,7 +35,7 @@ import {
   type SpecReviewed,
 } from "./iteration-outcome.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
-import type { FreedWorkedTicket } from "./worked-today.ts";
+import type { FreedWorkedTicket } from "./state-session.ts";
 import type {
   ApplyReviewTicket,
   IssueUrl,
