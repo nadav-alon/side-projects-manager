@@ -2061,6 +2061,25 @@ describe("discoveries", () => {
     assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
   });
 
+  it("keeps a discovery whose ready field is malformed, treating it as not ready rather than dropping it", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "correction", title: "Wrong ticket", body: "This is already built.", ready: "true" },
+        "1.json",
+      );
+      return { output: "could not proceed", tokensUsed: tokenCount(0), failure: "no permission" };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "gave-up");
+    assert.deepEqual(variant(result, "gave-up")?.discoveries, [
+      { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+    ]);
+  });
+
   it("reports an empty list, not an error, when the agent filed no discoveries", async () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([]));

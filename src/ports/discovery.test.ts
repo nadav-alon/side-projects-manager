@@ -52,10 +52,10 @@ describe("isDiscovery", () => {
     );
   });
 
-  it("rejects a ready that is not a boolean", () => {
+  it("accepts a ready that is not a boolean: a malformed optional field costs ready, not the discovery", () => {
     assert.equal(
       isDiscovery({ kind: "suggestion", title: "x", body: "y", ready: "true" }),
-      false,
+      true,
     );
   });
 

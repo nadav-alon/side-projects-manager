@@ -47,27 +47,27 @@ function isDiscoveryKind(value: unknown): value is DiscoveryKind {
 
 /**
  * Whether `value` is a well-formed discovery: one of the four kinds, a title
- * and a body, and a `ready` that is either absent or a boolean. What a
- * discovery file must parse as to count — anything else is dropped and
- * counted rather than failing the run (see `container-sandbox.ts`'s
- * `readDiscoveries`). Silent on whether either string is empty:
- * `DISCOVERY_INSTRUCTIONS` never asks the agent for a non-empty one, so
- * nothing here can hold it to that.
+ * and a body. What a discovery file must parse as to count — anything else is
+ * dropped and counted rather than failing the run (see
+ * `container-sandbox.ts`'s `readDiscoveries`). Silent on whether either
+ * string is empty: `DISCOVERY_INSTRUCTIONS` never asks the agent for a
+ * non-empty one, so nothing here can hold it to that.
+ *
+ * `ready` is not checked here, deliberately: it is optional and additive, so
+ * a malformed value — a non-boolean an agent handwrote into the JSON — should
+ * cost the discovery its ready state, not the whole discovery, blocking kinds
+ * included. `readDiscoveries` reads `ready` itself, keeping only `=== true`.
  */
 export function isDiscovery(value: unknown): value is Discovery {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  const { kind, title, body, ready } = value as {
+  const { kind, title, body } = value as {
     kind?: unknown;
     title?: unknown;
     body?: unknown;
-    ready?: unknown;
   };
   return (
-    isDiscoveryKind(kind) &&
-    typeof title === "string" &&
-    typeof body === "string" &&
-    (ready === undefined || typeof ready === "boolean")
+    isDiscoveryKind(kind) && typeof title === "string" && typeof body === "string"
   );
 }

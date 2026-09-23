@@ -1007,7 +1007,7 @@ async function readDiscoveries(
         kind: parsed.kind,
         title: parsed.title,
         body: parsed.body,
-        ...(parsed.ready !== undefined && { ready: parsed.ready }),
+        ...(parsed.ready === true && { ready: true }),
       });
     } else {
       dropped++;
