@@ -470,6 +470,21 @@ describe("containerSandbox", () => {
     assert.match(asked, /do not push, and do\s+not open a pull request/);
   });
 
+  it("asks for a self-caused nit fixed in its own commit, and any other nit listed under the fixed heading in the pull request body", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /nit your own change causes.*is fixed in that same commit/);
+    assert.match(asked, /Any other nit you notice is not a discovery/);
+    assert.match(asked, /## Nits.*in the pull request body/);
+  });
+
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
     const directory = await project();
     let asked = "";
