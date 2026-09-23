@@ -23,6 +23,8 @@ import type {
   RepoSlug,
   ReviewFinished,
   ReviewGaveUp,
+  ReviewLimitRefused,
+  ReviewProviderFailed,
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
@@ -108,6 +110,7 @@ import {
   type AheadOfGateFailure,
   type AppliedReview,
   type BudgetExhausted,
+  type CutOff,
   type DiscoveryBlocked,
   type DiscoveryBlockedCutOff,
   type Failed,
@@ -1125,6 +1128,31 @@ async function routeOrBlock(
 }
 
 /**
+ * Routes a limit-refused or provider-failed review, apply-review, rebase or
+ * spec review run's discoveries, or blocks on them — the one place the
+ * convention is spelled out, rather than once per run kind that can hit a
+ * cut-off: a correction or prerequisite the run filed is no less true for the
+ * provider having cut it off. Still carries its cut-off, so the invocation
+ * stands down over it exactly as it would without the discovery.
+ * `toCutOffOutcome` builds `run`'s own cut-off outcome, once routing clears
+ * it to go ahead.
+ */
+async function routeCutOffOrBlock(
+  ports: MorningLoopPorts,
+  ticket: Ticket,
+  run: ReviewLimitRefused | ReviewProviderFailed,
+  toCutOffOutcome: (run: ReviewLimitRefused | ReviewProviderFailed) => CutOff,
+): Promise<CutOff | DiscoveryBlocked> {
+  const routing = await routeOrBlock(ports, ticket, run, {
+    cutOff: discoveryBlockedCutOff(run),
+  });
+  if ("blocked" in routing) {
+    return routing.blocked;
+  }
+  return withDiscoveries(toCutOffOutcome(run), routing.routed);
+}
+
+/**
  * Discards `ticket`'s previously salvaged branch, if it names one other than
  * `keeping` — the branch the run just ending left, salvaged, discarded, or
  * handed over. Every write to a salvage record replaces or clears the branch
@@ -1464,18 +1492,7 @@ async function runReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    // Routed through the same blocking check as the run's own gave-up and
-    // otherwise-successful paths below: a correction or prerequisite the run
-    // filed is no less true for the provider having cut it off. Still
-    // carries its cut-off, so the invocation stands down over it exactly as
-    // it would without the discovery.
-    const routing = await routeOrBlock(ports, ticket, review, {
-      cutOff: discoveryBlockedCutOff(review),
-    });
-    if ("blocked" in routing) {
-      return routing.blocked;
-    }
-    return withDiscoveries(cutOffReviewOutcome(review), routing.routed);
+    return routeCutOffOrBlock(ports, ticket, review, cutOffReviewOutcome);
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
