@@ -100,3 +100,18 @@ roles above — a category label the loop applies on its own.
 
 - A label may not exist yet in a given repo: create it on first use (`gh label create enhancement`)
   before `gh issue edit --add-label`.
+
+## Ready discovery label
+
+Beside `ready-for-agent`, `size:S` and `enhancement`, the label a ready discovery's ticket is born
+with, per `CONTEXT.md`'s "Ready discovery". Marks the ticket's origin for good, even once its own
+`ready-for-agent` comes off: what the chain guard reads to tell that a discovery filed while working
+this ticket is one hop into a chain of unreviewed work.
+
+| Label              | Meaning                                          |
+| ------------------- | ------------------------------------------------ |
+| `ready-discovery`  | Born from a discovery its filer declared ready.  |
+
+- A label may not exist yet in a given repo: create it on first use (`gh label create ready-discovery`)
+  before `gh issue edit --add-label`.
+- Applied by the loop alone, at the ticket's creation, and never removed by anything afterward.
