@@ -576,6 +576,12 @@ function unusableSizeLabel(ticket: Ticket): UnusableSizeLabel | undefined {
  * firing the same day from selecting the ticket again. One that landed frees
  * it per `freesTicketToday`. Nothing is cloned or spent, since no run ever
  * starts.
+ *
+ * Carries `ticketSelected`'s own failure contract along with its guarantee: a
+ * save that fails takes the ticket back off the record and rethrows, so the
+ * hand-back this call was about to post never goes out, and the throw
+ * escapes to `morningLoop`'s own outer catch — a store fault here aborts the
+ * whole invocation, the same as one on the pre-sandbox path.
  */
 async function handBackAheadOfGate(
   ports: MorningLoopPorts,
