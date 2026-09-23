@@ -10,6 +10,7 @@ import type {
   Ticket,
   TicketKind,
   TicketPriority,
+  WorkedTicket,
 } from "./ports/index.ts";
 import {
   backlogIn,
@@ -29,12 +30,20 @@ import {
   type SpecReviewSweepOutcome,
   type SpecReviewSweepPorts,
 } from "./spec-review-sweep.ts";
-import type { InvocationState } from "./invocation-state.ts";
 
 /** The project an iteration works, and the ticket it works there. */
 export interface Selection {
   project: RegisteredProject;
   ticket: Ticket;
+}
+
+/**
+ * The one thing selection needs from the invocation's state: whether it has
+ * already passed a ticket over for the rest of the invocation. Named for
+ * just this seam, so selection needs nothing from `invocation-state.ts`.
+ */
+export interface PassesOverTickets {
+  passesOver(ticket: WorkedTicket): boolean;
 }
 
 /** What became of one registered project. */
@@ -176,17 +185,17 @@ export interface InvocationSelection {
 
 /**
  * Builds one invocation's selection, starting from `projectStates` and
- * `worked` as the invocation opened with. Both are read live rather than
- * copied: `projectStates` is the same map the state session records a
- * finished run's cost into, and `worked` is the state session itself, which
- * the loop records and unrecords tickets on between iterations, so a change
- * either makes between two calls to `next` is exactly what the next scan
- * sees.
+ * `passingOver` as the invocation opened with. Both are read live rather
+ * than copied: `projectStates` is the same map the invocation's state
+ * records a finished run's cost into, and `passingOver` is the invocation's
+ * state itself, which the loop records and unrecords tickets on between
+ * iterations, so a change either makes between two calls to `next` is
+ * exactly what the next scan sees.
  */
 export function invocationSelection(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
-  worked: Pick<InvocationState, "passesOver">,
+  passingOver: PassesOverTickets,
 ): InvocationSelection {
   // Registry order falls out of insertion order for free: a `Map` iterates
   // in the order its keys were first set, and a repo is always set here the
@@ -208,7 +217,7 @@ export function invocationSelection(
       scan(
         ports,
         projectStates,
-        worked,
+        passingOver,
         outcomesByRepo,
         sweepOutcomes,
         specReviewSweepOutcomes,
@@ -259,15 +268,15 @@ interface ScanFindings {
  * A paused project is passed over without asking the tracker or the repo
  * host anything, because paused means never considered — and never swept.
  * A project left with no selectable ticket reads as already worked today
- * when at least one eligible ticket is in `worked`, and reads the same as an
- * empty backlog otherwise — including when every ticket left is merely
- * blocked or a supertask. Either way it was still swept: both sweeps run
- * whether or not anything turns out eligible.
+ * when `passingOver` already passes over at least one eligible ticket, and
+ * reads the same as an empty backlog otherwise — including when every
+ * ticket left is merely blocked or a supertask. Either way it was still
+ * swept: both sweeps run whether or not anything turns out eligible.
  */
 async function scan(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
-  worked: Pick<InvocationState, "passesOver">,
+  passingOver: PassesOverTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
   sweepOutcomes: ConflictSweepOutcome[],
   specReviewSweepOutcomes: SpecReviewSweepOutcome[],
@@ -330,7 +339,7 @@ async function scan(
     }
     const ticketPriorities = ticketPrioritiesIn(open);
     const { tickets, truncated: backlogTruncated } = backlogIn(open);
-    const backlog = tickets.filter((ticket) => !worked.passesOver(ticket));
+    const backlog = tickets.filter((ticket) => !passingOver.passesOver(ticket));
     // A ticket carrying the supertask label is a container, not work of its
     // own — set aside here rather than in the tracker's query, so the rule
     // can be exercised against the fake, which reads the same label, and the
@@ -371,9 +380,10 @@ async function scan(
 
     if (ticket === undefined) {
       // Nothing here is selectable, but that is only "already worked today"
-      // when `worked` is why: at least one eligible ticket this scan found is
-      // in it. A backlog left with nothing but blocked tickets or supertasks,
-      // none of them in `worked`, reads the same as an empty one.
+      // when `passingOver` is why: at least one eligible ticket this scan
+      // found is passed over. A backlog left with nothing but blocked
+      // tickets or supertasks, none of them passed over, reads the same as
+      // an empty one.
       const verdict =
         tickets.length > backlog.length
           ? "already-worked-today"
