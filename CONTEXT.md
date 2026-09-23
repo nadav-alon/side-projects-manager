@@ -38,7 +38,7 @@ The tickets the loop has worked on the current local calendar day, recorded in t
 
 A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts.
 
-It counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close.
+A ticket counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close.
 
 Everything else comes off the record again the moment its own iteration ends, and a later firing the same day — one triggered by a developer re-applying ready-for-agent by hand included — may select it: a hand-back that landed, a close that landed, and, saying nothing about the ticket at all, an infrastructure failure, a provider failure, a limit refusal or a budget exhaustion — except a provider failure or a limit refusal that also filed a blocking discovery, which counts as any other hand-back does (see **Discovery**).
 
