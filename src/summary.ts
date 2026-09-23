@@ -582,9 +582,9 @@ function specReviewSweepRefusalKey(
   return `${repo}|${refusal.supertask.number}`;
 }
 
-/** The key a spec review sweep link is deduplicated by: the project and the supertask it was linked to. */
+/** The key a spec review sweep link is deduplicated by: the project, the supertask and the spec review it was linked to. */
 function specReviewSweepLinkKey(repo: RepoSlug, link: SpecReviewSweepLink): string {
-  return `${repo}|${link.supertask.number}`;
+  return `${repo}|${link.supertask.number}|${link.specReview.number}`;
 }
 
 /**
