@@ -18,7 +18,6 @@ import { workLocation } from "./hand-back.ts";
 import {
   countsAsWork,
   failedOnInfrastructure,
-  handedBackAheadOfGate,
   handedBackFailure,
   ranNothing,
   type AppliedReview,
