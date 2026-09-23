@@ -55,23 +55,6 @@ function journalOf(records: InvocationRecord[]): Journal {
   return { records };
 }
 
-/**
- * A store whose `saveState` can be told to fail on command — for pinning
- * `ticketSelected`'s own rollback, which `FakeStore` alone cannot arrange
- * since it never fails.
- */
-class FlakyStore {
-  saved: State[] = [];
-  fails = false;
-
-  async saveState(state: State): Promise<void> {
-    if (this.fails) {
-      throw new Error("disk full");
-    }
-    this.saved.push(state);
-  }
-}
-
 describe("invocationState", () => {
   describe("passesOver", () => {
     it("passes over a ticket the state document already recorded today", async () => {
@@ -113,20 +96,22 @@ describe("invocationState", () => {
       });
     });
 
-    it("takes the ticket back off the record when the save itself fails, and still lets the failure reach the caller", async () => {
-      const store = new FlakyStore();
+    it("takes the ticket back off the record when the save itself fails, and still lets the failure reach the caller", async (t) => {
+      const store = new FakeStore();
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
-      store.fails = true;
+      const saveState = t.mock.method(store, "saveState", async () => {
+        throw new Error("disk full");
+      });
 
       await assert.rejects(
         invocation.ticketSelected(TICKET_7, TODAY),
         /disk full/,
       );
 
-      store.fails = false;
+      saveState.mock.restore();
       await invocation.save();
 
-      assert.deepEqual(store.saved.at(-1)?.workedToday?.tickets, []);
+      assert.deepEqual((await store.loadState()).workedToday?.tickets, []);
     });
   });
 
