@@ -112,8 +112,13 @@ export interface InvocationState {
    */
   recordWorked(ticket: WorkedTicket, day: Day): void;
 
-  /** Takes `ticket` back off the worked-today record, in memory only. */
-  unrecordWorked(ticket: WorkedTicket): void;
+  /**
+   * Takes `ticket` back off the worked-today record because the invocation
+   * stopped between `ticketSelected`'s own save and the sandbox it was
+   * saved ahead of — so the ticket was never actually worked, and a later
+   * firing the same day should be free to pick it up again.
+   */
+  selectionAbandoned(ticket: WorkedTicket): void;
 
   /**
    * Takes `ticket` back off the worked-today record when `iteration`'s own
@@ -193,7 +198,7 @@ export function invocationState(
   return {
     passesOver: (ticket) => passedOver.has(ticketKey(ticket)),
     recordWorked: doRecord,
-    unrecordWorked: doUnrecord,
+    selectionAbandoned: doUnrecord,
     ticketSelected: async (ticket, day, rest = {}) => {
       doRecord(ticket, day);
       try {

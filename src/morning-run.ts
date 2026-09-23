@@ -417,7 +417,7 @@ export async function morningLoop(
           invocationStateRest(announcedOn, salvages.record()),
         );
         if (stopped()) {
-          state.unrecordWorked(ticket);
+          state.selectionAbandoned(ticket);
           break;
         }
 

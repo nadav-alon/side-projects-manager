@@ -91,7 +91,7 @@ describe("invocationState", () => {
       const invocation = invocationState({ store: new FakeStore() }, EMPTY_STATE, TODAY);
 
       invocation.recordWorked(TICKET_7, TODAY);
-      invocation.unrecordWorked(TICKET_7);
+      invocation.selectionAbandoned(TICKET_7);
 
       assert.equal(invocation.passesOver(TICKET_7), true);
     });
