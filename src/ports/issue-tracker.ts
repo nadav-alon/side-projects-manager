@@ -864,7 +864,7 @@ export const SPEC_REVIEW_SIZE_LABEL = `${SIZE_LABEL_PREFIX}L`;
  * itself ready only when its work is that small. The one place the literal
  * lives.
  */
-export const READY_DISCOVERY_SIZE_LABEL = `${SIZE_LABEL_PREFIX}S`;
+export const SIZE_S_LABEL = `${SIZE_LABEL_PREFIX}S`;
 
 /**
  * The title a spec review ticket carries. Names the supertask it reviews, the

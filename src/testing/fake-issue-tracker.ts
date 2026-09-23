@@ -18,9 +18,9 @@ import {
   ENHANCEMENT_LABEL,
   NEEDS_TRIAGE_LABEL,
   READY_DISCOVERY_LABEL,
-  READY_DISCOVERY_SIZE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
@@ -531,7 +531,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * the way the real tracker's own `createDiscoveredTicket` does: absent or
    * false carries `NEEDS_TRIAGE_LABEL` and `ENHANCEMENT_LABEL`, never
    * `READY_FOR_AGENT_LABEL`; `true` carries `READY_FOR_AGENT_LABEL`,
-   * `READY_DISCOVERY_SIZE_LABEL` and `ENHANCEMENT_LABEL` instead, plus
+   * `SIZE_S_LABEL` and `ENHANCEMENT_LABEL` instead, plus
    * `READY_DISCOVERY_LABEL` for the chain guard. Numbered above every ticket
    * the repo has, the way `createReviewTicket` numbers a review. Asking for
    * `discovery.blocking` adds `ticket`'s number to its own open blockers, the
@@ -552,7 +552,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     );
     this.addLabel(discovered, ENHANCEMENT_LABEL);
     if (ready) {
-      this.addLabel(discovered, READY_DISCOVERY_SIZE_LABEL);
+      this.addLabel(discovered, SIZE_S_LABEL);
       this.addLabel(discovered, READY_DISCOVERY_LABEL);
     }
 

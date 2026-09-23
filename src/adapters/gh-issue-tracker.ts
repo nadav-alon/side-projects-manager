@@ -22,9 +22,9 @@ import {
   ENHANCEMENT_LABEL,
   NEEDS_TRIAGE_LABEL,
   READY_DISCOVERY_LABEL,
-  READY_DISCOVERY_SIZE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   carriesReadyDiscoveryLabel,
@@ -366,7 +366,7 @@ export function ghIssueTracker(
     ): Promise<Ticket> {
       const ready = discovery.ready === true;
       const labels: Array<keyof typeof LABEL_DESCRIPTIONS> = ready
-        ? [READY_FOR_AGENT_LABEL, READY_DISCOVERY_SIZE_LABEL, ENHANCEMENT_LABEL, READY_DISCOVERY_LABEL]
+        ? [READY_FOR_AGENT_LABEL, SIZE_S_LABEL, ENHANCEMENT_LABEL, READY_DISCOVERY_LABEL]
         : [NEEDS_TRIAGE_LABEL, ENHANCEMENT_LABEL];
       for (const label of labels) {
         await ensureLabel(ticket.repo, label);
@@ -475,7 +475,7 @@ const LABEL_DESCRIPTIONS = {
   [SPEC_REVIEW_LABEL]:
     "Reviews the repo against a supertask's body; reports, never commits.",
   [SPEC_REVIEW_SIZE_LABEL]: "Larger than M, smaller than XL",
-  [READY_DISCOVERY_SIZE_LABEL]: "Smallest",
+  [SIZE_S_LABEL]: "Smallest",
   [READY_DISCOVERY_LABEL]: "Born from a discovery its filer declared ready",
 } as const;
 
