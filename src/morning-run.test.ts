@@ -2803,6 +2803,107 @@ describe("morningLoop", () => {
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
 
+      it("hands the spec review ticket back for a blocking discovery a refused spec review filed, not the supertask, and still stands down", async () => {
+        const ports = fakePorts();
+        const { supertask, specReview } = await queuedSpecReviewWithSupertask(ports);
+        ports.sandbox.specReviewResult = () => ({
+          kind: "limit-refused",
+          words: LIMIT_REFUSAL,
+          tokensUsed: tokenCount(0),
+          discoveries: [
+            {
+              kind: "correction",
+              title: "The supertask names the wrong repo",
+              body: "It should review the pilot repo, not this one.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+        assert.deepEqual(
+          report.iterations[0]?.kind === "discovery-blocked" ? report.iterations[0].cutOff : undefined,
+          { kind: "limit-refused", limitRefusal: LIMIT_REFUSAL },
+        );
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, specReview.number);
+        assert.notEqual(handback?.ticket.number, supertask.number);
+        assert.match(handback?.comment ?? "", /blocking discovery/);
+        const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+        assert.ok(!backlog.some((ticket) => ticket.number === specReview.number));
+        assert.ok(report.standDown?.reason === "provider-limit");
+        assert.equal(report.standDown.ticket.number, specReview.number);
+        assert.ok(report.standDown.handedBack);
+      });
+
+      it("hands the spec review ticket back for a blocking discovery a provider-failed spec review filed, and still stands down", async () => {
+        const ports = fakePorts();
+        const { supertask, specReview } = await queuedSpecReviewWithSupertask(ports);
+        ports.sandbox.specReviewResult = () => ({
+          kind: "provider-failed",
+          words: PROVIDER_FAILURE_PROSE,
+          tokensUsed: tokenCount(0),
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the retry-policy sub-issue done first",
+              body: "The spec cannot be reviewed until #48 lands.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+        assert.deepEqual(
+          report.iterations[0]?.kind === "discovery-blocked" ? report.iterations[0].cutOff : undefined,
+          { kind: "provider-failed", providerFailure: PROVIDER_FAILURE_PROSE },
+        );
+        const handback = ports.tracker.handbacks[0];
+        assert.equal(handback?.ticket.number, specReview.number);
+        assert.notEqual(handback?.ticket.number, supertask.number);
+        assert.match(handback?.comment ?? "", /blocking discovery/);
+        const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+        assert.ok(!backlog.some((ticket) => ticket.number === specReview.number));
+        assert.ok(report.standDown?.reason === "provider-failure");
+        assert.equal(report.standDown.ticket.number, specReview.number);
+        assert.ok(report.standDown.handedBack);
+      });
+
+      it("still routes a cut-off spec review's advisory discoveries onto the supertask, without handing either back", async () => {
+        const ports = fakePorts();
+        const { supertask, specReview } = await queuedSpecReviewWithSupertask(ports);
+        ports.sandbox.specReviewResult = () => ({
+          kind: "limit-refused",
+          words: LIMIT_REFUSAL,
+          tokensUsed: tokenCount(0),
+          discoveries: [
+            {
+              kind: "clarification",
+              title: "What #50 means",
+              body: "Read as covering every sub-issue.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.kind, "limit-refused");
+        assert.equal(ports.tracker.comments.length, 1);
+        assert.equal(ports.tracker.comments[0]?.ticket.number, supertask.number);
+        assert.deepEqual(ports.tracker.handbacks, []);
+        const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+        assert.ok(backlog.some((ticket) => ticket.number === specReview.number));
+        const limitRefusedIteration = report.iterations[0];
+        assert.equal(
+          limitRefusedIteration?.kind === "limit-refused"
+            ? limitRefusedIteration.discoveries?.filed.length
+            : undefined,
+          1,
+        );
+      });
+
       it("hands back the spec review for a gave-up run that also filed a correction, not as a gave-up run", async () => {
         const ports = fakePorts();
         const { specReview } = await queuedSpecReviewWithSupertask(ports);
