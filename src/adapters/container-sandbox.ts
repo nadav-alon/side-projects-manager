@@ -650,8 +650,8 @@ async function runOnClone(
         // dropping it with the clone: see `Salvage` in CONTEXT.md.
         // `needsSalvage` covers a limit refusal, its own spend ceiling
         // stopping it, and a container that crashed once the agent had
-        // started — the ways a run stops without the agent itself ending it.
-        // A run that finished, gave up on its own account, or was refused its
+        // started — the endings it treats as worth salvaging. A run that
+        // finished, gave up on its own account, or was refused its
         // model ended on its own terms, and keeps nothing uncommitted.
         if (needsSalvage(ending, agent)) {
           await salvageUncommitted(clone);
@@ -1260,16 +1260,16 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
 }
 
 /**
- * Whether an implementation run stopped before its own agent ended it — a
+ * Whether an implementation run left uncommitted work worth salvaging: a
  * limit refusal, its own spend ceiling stopping it, or a container that
- * crashed once the agent had started — and so left uncommitted work worth
- * salvaging: see **Salvage** in CONTEXT.md. `ending` alone cannot tell a
- * crashed container apart from an agent that gave up on its own account,
- * since `endingOf` reads both as `"gave-up"`; `agent.crashed` is `attempt`'s
- * own record of which one this was.
+ * crashed once the agent had started — see **Salvage** in CONTEXT.md.
+ * `ending` alone cannot tell a crashed container apart from an agent that
+ * gave up on its own account, since `endingOf` reads both as `"gave-up"`;
+ * `agent.crashed` is `attempt`'s own record of which one this was.
  *
- * A provider failure is cut off in CONTEXT.md's sense, but deliberately not
- * salvaged, so it is absent here: see CONTEXT.md's **Cut off** entry.
+ * A provider failure also stops a run before its own agent ends it, but
+ * CONTEXT.md's **Salvage** entry does not include it, so it is absent here:
+ * see CONTEXT.md's **Cut off** entry.
  */
 function needsSalvage(ending: Ending, agent: AgentRun): boolean {
   return (
