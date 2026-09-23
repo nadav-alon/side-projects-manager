@@ -1767,18 +1767,7 @@ async function runApplyReview(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    // Routed through the same blocking check as the run's own gave-up and
-    // otherwise-successful paths below: a correction or prerequisite the run
-    // filed is no less true for the provider having cut it off. Still
-    // carries its cut-off, so the invocation stands down over it exactly as
-    // it would without the discovery.
-    const routing = await routeOrBlock(ports, ticket, run, {
-      cutOff: discoveryBlockedCutOff(run),
-    });
-    if ("blocked" in routing) {
-      return routing.blocked;
-    }
-    return withDiscoveries(cutOffReviewOutcome(run), routing.routed);
+    return routeCutOffOrBlock(ports, ticket, run, cutOffReviewOutcome);
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
