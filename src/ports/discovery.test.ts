@@ -41,6 +41,24 @@ describe("isDiscovery", () => {
     assert.equal(isDiscovery(undefined), false);
   });
 
+  it("accepts a well-formed discovery with ready true or false", () => {
+    assert.equal(
+      isDiscovery({ kind: "suggestion", title: "x", body: "y", ready: true }),
+      true,
+    );
+    assert.equal(
+      isDiscovery({ kind: "prerequisite", title: "x", body: "y", ready: false }),
+      true,
+    );
+  });
+
+  it("rejects a ready that is not a boolean", () => {
+    assert.equal(
+      isDiscovery({ kind: "suggestion", title: "x", body: "y", ready: "true" }),
+      false,
+    );
+  });
+
   it("narrows to DiscoveryKind once accepted", () => {
     const value: unknown = { kind: "clarification", title: "x", body: "y" };
     if (isDiscovery(value)) {
