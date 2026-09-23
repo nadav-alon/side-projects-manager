@@ -1980,7 +1980,7 @@ describe("composeInvocationReport", () => {
     };
   }
 
-  it("composes the same line and body a caller building them separately would get, without being handed one back", async () => {
+  it("reports the line as its message, and publishes the body built from the same facts", async () => {
     const built = facts([gaveUp(7)]);
     const tracker = recordingTracker();
 
