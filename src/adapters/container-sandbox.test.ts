@@ -286,6 +286,8 @@ function assertDiscoveryInstructions(asked: string): void {
   assert.match(asked, /at most one suggestion/);
   assert.match(asked, /"ready": true/);
   assert.match(asked, /agent brief/);
+  assert.match(asked, /names, glossary entries, prose, comments or wrapping is a nit/);
+  assert.match(asked, /a nit is never filed as a discovery/);
 }
 
 /**
