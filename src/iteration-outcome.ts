@@ -783,7 +783,21 @@ export interface PullRequestResolved {
  * knows — and so never started a run: nothing was spent, and on no model.
  */
 export function handedBackAheadOfGate(iteration: Iteration): boolean {
-  return iteration.kind === "failed" && isAheadOfGateFailure(iteration.failure);
+  switch (iteration.kind) {
+    case "failed":
+      return isAheadOfGateFailure(iteration.failure);
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return false;
+  }
 }
 
 function isAheadOfGateFailure(
@@ -870,7 +884,21 @@ export function failureOf(
  * failure that leaves its ticket eligible, and that a trigger exits non-zero on.
  */
 export function failedOnInfrastructure(iteration: Iteration): boolean {
-  return failureOf(iteration)?.kind === "infrastructure";
+  switch (iteration.kind) {
+    case "failed":
+      return iteration.failure.kind === "infrastructure";
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return false;
+  }
 }
 
 /**
