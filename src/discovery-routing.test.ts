@@ -244,6 +244,33 @@ describe("routeDiscoveries", () => {
     assert.equal(tracker.carriesLabel(opened, READY_FOR_AGENT_LABEL), false);
   });
 
+  it("falls back to needs-triage when a review run's discovery lands on an implementation ticket born from a ready discovery", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    tracker.addLabel(ticket, READY_DISCOVERY_LABEL);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const bornReady = issues.find((issue) => issue.ticket.number === ticket.number)?.ticket;
+    assert.ok(bornReady !== undefined);
+    const reviewTicket = await tracker.createReviewTicket(
+      bornReady,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+    const suggestion = discovery({
+      kind: "suggestion",
+      title: "Worth adding a retry",
+      body: AGENT_BRIEF_BODY,
+      ready: true,
+    });
+
+    const routing = await routeDiscoveries(tracker, reviewTicket, bornReady, [suggestion]);
+
+    const [filed] = routing.filed;
+    const opened = filed?.action === "discovered-ticket" ? filed.ticket : undefined;
+    assert.ok(opened);
+    assert.equal(tracker.carriesLabel(opened, NEEDS_TRIAGE_LABEL), true);
+    assert.equal(tracker.carriesLabel(opened, READY_FOR_AGENT_LABEL), false);
+  });
+
   it("ignores ready on a correction or a clarification: both still become comments", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());

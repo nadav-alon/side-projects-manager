@@ -115,16 +115,19 @@ export function isAgentBrief(body: string): boolean {
  * only the filer's own claim, so this still checks the two things that are
  * not the filer's to decide. `body` must read as an agent brief
  * (`isAgentBrief`) — a bare `ready: true` on an ordinary-shaped body changes
- * nothing. And `runTicket` — the ticket the run declaring it is working —
- * must not itself carry `readyDiscovery`: a ticket already born from a ready
+ * nothing. And `target` — the ticket the discovery is filed against — must
+ * not itself carry `readyDiscovery`: a ticket already born from a ready
  * discovery is one hop into a chain of unreviewed work, and a second hop
- * falls back to needs-triage rather than compounding it.
+ * falls back to needs-triage rather than compounding it. `target` rather than
+ * the run's own ticket, so a review, apply-review or rebase run — whose own
+ * ticket never carries `readyDiscovery`, only the implementation ticket its
+ * discoveries land on might — still closes the chain.
  */
-function opensReady(runTicket: Ticket, discovery: Discovery): boolean {
+function opensReady(target: Ticket, discovery: Discovery): boolean {
   return (
     discovery.ready === true &&
     isAgentBrief(discovery.body) &&
-    runTicket.readyDiscovery !== true
+    target.readyDiscovery !== true
   );
 }
 
@@ -138,10 +141,10 @@ function opensReady(runTicket: Ticket, discovery: Discovery): boolean {
  * discovered ticket's own body names `target` that way instead —
  * `createDiscoveredTicket`'s callers build it from the ticket they were
  * handed, per `discoveredBody`, so it reads as discovered while working the
- * ticket it blocks or rides alongside, not the run that found it. `runTicket`
- * is also what `opensReady` reads for the chain guard, never `target`: it is
- * the ticket the run itself was working that may or may not have come from a
- * ready discovery, whatever ticket the discovery is filed against.
+ * ticket it blocks or rides alongside, not the run that found it. `target` is
+ * also what `opensReady` reads for the chain guard: whatever ticket the run
+ * itself was working, it is `target` that may or may not have come from a
+ * ready discovery.
  */
 async function fileDiscovery(
   tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
@@ -160,7 +163,7 @@ async function fileDiscovery(
     title: discovery.title,
     body: discovery.body,
     blocking: discovery.kind === "prerequisite",
-    ready: opensReady(runTicket, discovery),
+    ready: opensReady(target, discovery),
   });
   return { discovery, action: "discovered-ticket", ticket };
 }
