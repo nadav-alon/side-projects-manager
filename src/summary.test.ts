@@ -1955,7 +1955,12 @@ describe("composeInvocationReport", () => {
     };
   }
 
-  /** A `SummaryTracker` that records every summary it is asked to publish, answering with a fresh issue address each time — built here rather than reusing the fuller `FakeIssueTracker`, since composing a report needs nothing else the tracker port can do. */
+  /**
+   * A `SummaryTracker` that records every summary it is asked to publish,
+   * answering with a fresh issue address each time — built here rather than
+   * reusing the fuller `FakeIssueTracker`, since composing a report needs
+   * nothing else the tracker port can do.
+   */
   function recordingTracker(): SummaryTracker & {
     published: { title: string; body: string }[];
   } {
