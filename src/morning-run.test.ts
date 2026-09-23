@@ -6324,6 +6324,32 @@ describe("morningLoop", () => {
     });
 
     describe("a ticket whose size label names no size the budget document knows", () => {
+      /**
+       * Runs the invocation, returning the state as it was saved the instant
+       * the ticket's hand-back comment was posted — the sibling of
+       * `savedWhenRunStarted` above, for the ahead-of-gate path. Unlike
+       * `Sandbox.run`, `IssueTracker.handBack` (`ports/issue-tracker.ts:722`)
+       * carries a single signature, so the mock can bind straight through to
+       * the original rather than reimplementing it.
+       */
+      async function savedWhenHandedBack(
+        ports: FakePorts,
+        t: TestContext,
+      ): Promise<State | undefined> {
+        let saved: State | undefined;
+        const original = ports.tracker.handBack.bind(ports.tracker);
+        t.mock.method(
+          ports.tracker,
+          "handBack",
+          async (handedBackTicket: Ticket, comment: string) => {
+            saved = await ports.store.loadState();
+            return original(handedBackTicket, comment);
+          },
+        );
+        await morningLoop(ports);
+        return saved;
+      }
+
       it("is handed back before the gate, and never run", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "size:XXL");
@@ -6356,14 +6382,8 @@ describe("morningLoop", () => {
       it("saves the worked-today record before the hand-back is posted, so a process stopped mid-post still leaves it recorded", async (t) => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "size:XXL");
-        let saved: State | undefined;
-        const original = ports.tracker.handBack.bind(ports.tracker);
-        t.mock.method(ports.tracker, "handBack", async (handedBackTicket: Ticket, comment: string) => {
-          saved = await ports.store.loadState();
-          return original(handedBackTicket, comment);
-        });
 
-        await morningLoop(ports);
+        const saved = await savedWhenHandedBack(ports, t);
 
         assert.deepEqual(saved?.workedToday, {
           day: localDay(FROZEN_NOW),
