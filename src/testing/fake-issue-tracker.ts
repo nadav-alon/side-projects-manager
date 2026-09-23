@@ -15,12 +15,8 @@ import type {
   Ticket,
 } from "../ports/index.ts";
 import {
-  ENHANCEMENT_LABEL,
-  NEEDS_TRIAGE_LABEL,
-  READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
-  SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
@@ -29,6 +25,7 @@ import {
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
   discoveredBody,
+  discoveredTicketLabels,
   issueNumber,
   issueUrl,
   modelLabelOf,
@@ -527,33 +524,29 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Opens a discovered ticket. `discovery.ready` decides its state and size,
-   * the way the real tracker's own `createDiscoveredTicket` does: absent or
-   * false carries `NEEDS_TRIAGE_LABEL` and `ENHANCEMENT_LABEL`, never
-   * `READY_FOR_AGENT_LABEL`; `true` carries `READY_FOR_AGENT_LABEL`,
-   * `SIZE_S_LABEL` and `ENHANCEMENT_LABEL` instead, plus
-   * `READY_DISCOVERY_LABEL` for the chain guard. Numbered above every ticket
-   * the repo has, the way `createReviewTicket` numbers a review. Asking for
-   * `discovery.blocking` adds `ticket`'s number to its own open blockers, the
-   * same fact `openBlockers` reports from on the next `listOpenIssues`.
+   * Opens a discovered ticket, carrying `discoveredTicketLabels(ready)` — the
+   * same set the real tracker's own `createDiscoveredTicket` builds a ticket
+   * from. Numbered above every ticket the repo has, the way `createReviewTicket`
+   * numbers a review. Asking for `discovery.blocking` adds `ticket`'s number
+   * to its own open blockers, the same fact `openBlockers` reports from on
+   * the next `listOpenIssues`.
    */
   async createDiscoveredTicket(
     ticket: Ticket,
     discovery: DiscoveredTicketRequest,
   ): Promise<Ticket> {
     const ready = discovery.ready === true;
+    const [firstLabel, ...restLabels] = discoveredTicketLabels(ready);
     const discovered = this.#add(
       ticket.repo,
       {
         number: this.#nextNumber(ticket.repo, ticket),
         title: discovery.title,
       },
-      ready ? READY_FOR_AGENT_LABEL : NEEDS_TRIAGE_LABEL,
+      firstLabel,
     );
-    this.addLabel(discovered, ENHANCEMENT_LABEL);
-    if (ready) {
-      this.addLabel(discovered, SIZE_S_LABEL);
-      this.addLabel(discovered, READY_DISCOVERY_LABEL);
+    for (const label of restLabels) {
+      this.addLabel(discovered, label);
     }
 
     // `blocked` — what actually happened — rather than `discovery.blocking`

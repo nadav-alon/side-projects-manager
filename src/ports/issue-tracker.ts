@@ -867,6 +867,22 @@ export const SPEC_REVIEW_SIZE_LABEL = `${SIZE_LABEL_PREFIX}L`;
 export const SIZE_S_LABEL = `${SIZE_LABEL_PREFIX}S`;
 
 /**
+ * The labels `IssueTracker.createDiscoveredTicket` opens a ticket with, per
+ * `ready`: needs-triage and enhancement where it is not, ready-for-agent,
+ * size:S, enhancement and the ready discovery label where it is. Beside the
+ * port so the real tracker and the fake open a ticket carrying the very same
+ * set, in the very same order, rather than each restating it by hand where
+ * the two could drift apart unnoticed.
+ */
+export function discoveredTicketLabels(
+  ready: boolean,
+): readonly [string, string, ...string[]] {
+  return ready
+    ? [READY_FOR_AGENT_LABEL, SIZE_S_LABEL, ENHANCEMENT_LABEL, READY_DISCOVERY_LABEL]
+    : [NEEDS_TRIAGE_LABEL, ENHANCEMENT_LABEL];
+}
+
+/**
  * The title a spec review ticket carries. Names the supertask it reviews, the
  * way `reviewTitle` names the ticket its review is for, so a backlog is read
  * as a list of titles that already tells a spec review apart from anything

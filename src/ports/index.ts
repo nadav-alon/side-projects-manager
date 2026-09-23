@@ -52,6 +52,7 @@ export {
   carriesSupertaskLabel,
   declaredSize,
   discoveredBody,
+  discoveredTicketLabels,
   isApplyReviewTicket,
   isBlocked,
   isPullRequestTicket,

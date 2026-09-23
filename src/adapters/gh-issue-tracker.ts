@@ -32,6 +32,7 @@ import {
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
   discoveredBody,
+  discoveredTicketLabels,
   isIssueNumber,
   isIssueUrl,
   isPullRequestUrl,
@@ -365,9 +366,12 @@ export function ghIssueTracker(
       discovery: DiscoveredTicketRequest,
     ): Promise<Ticket> {
       const ready = discovery.ready === true;
-      const labels: Array<keyof typeof LABEL_DESCRIPTIONS> = ready
-        ? [READY_FOR_AGENT_LABEL, SIZE_S_LABEL, ENHANCEMENT_LABEL, READY_DISCOVERY_LABEL]
-        : [NEEDS_TRIAGE_LABEL, ENHANCEMENT_LABEL];
+      // Every label `discoveredTicketLabels` names is already a key of
+      // `LABEL_DESCRIPTIONS` below; the cast trades that for one place both
+      // this tracker and the fake build the set from.
+      const labels = discoveredTicketLabels(ready) as unknown as Array<
+        keyof typeof LABEL_DESCRIPTIONS
+      >;
       for (const label of labels) {
         await ensureLabel(ticket.repo, label);
       }
