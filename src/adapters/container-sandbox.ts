@@ -1915,6 +1915,8 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     `\`{"event": "COMMENT", "comments": [${reviewFindingTemplate()}, ...]}\`,`,
     "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
     "sit on — a one-line summary, or a finding that spans the whole change.",
+    `Read the pull request body's \`${NIT_SECTION_HEADING}\` section, if it has one, and post each nit`,
+    "worth doing as a review finding of its own, exactly like any other finding.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered. Posting",
     "the review is the job, so submit it without asking for confirmation — a review that stops at",
     "\"shall I submit?\" has posted nothing.",

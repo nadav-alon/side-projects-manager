@@ -2341,6 +2341,26 @@ describe("containerSandbox.review", () => {
     assertDiscoveryInstructions(asked);
   });
 
+  it("asks the reviewer to read the pull request body's Nits section and post each worth doing as a finding", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(
+      asked,
+      /Read the pull request body's `## Nits` section.*post each nit\s+worth doing as a review finding/,
+    );
+  });
+
   /**
    * The skill's own last step only aggregates the two reports — posting is
    * the prompt's to spell out, and a finding dropped as one summary comment
