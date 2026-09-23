@@ -29,7 +29,7 @@ import {
   type SpecReviewSweepOutcome,
   type SpecReviewSweepPorts,
 } from "./spec-review-sweep.ts";
-import type { WorkedTickets } from "./worked-today.ts";
+import type { StateSession } from "./state-session.ts";
 
 /** The project an iteration works, and the ticket it works there. */
 export interface Selection {
@@ -177,15 +177,16 @@ export interface InvocationSelection {
 /**
  * Builds one invocation's selection, starting from `projectStates` and
  * `worked` as the invocation opened with. Both are read live rather than
- * copied: `projectStates` is the same map `morningLoop` records a finished
- * run's cost into, and `worked` is the same tracker it calls `record` and
- * `unrecord` on between iterations, so a change either makes between two
- * calls to `next` is exactly what the next scan sees.
+ * copied: `projectStates` is the same map the state session records a
+ * finished run's cost into, and `worked` is the state session itself, which
+ * the loop records and unrecords tickets on between iterations, so a change
+ * either makes between two calls to `next` is exactly what the next scan
+ * sees.
  */
 export function invocationSelection(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
-  worked: WorkedTickets,
+  worked: Pick<StateSession, "passesOver">,
 ): InvocationSelection {
   // Registry order falls out of insertion order for free: a `Map` iterates
   // in the order its keys were first set, and a repo is always set here the
@@ -266,7 +267,7 @@ interface ScanFindings {
 async function scan(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
-  worked: WorkedTickets,
+  worked: Pick<StateSession, "passesOver">,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
   sweepOutcomes: ConflictSweepOutcome[],
   specReviewSweepOutcomes: SpecReviewSweepOutcome[],

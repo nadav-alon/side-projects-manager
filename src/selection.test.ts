@@ -6,7 +6,7 @@ import {
   type InvocationSelection,
   type Selection,
 } from "./selection.ts";
-import { workedTickets, type WorkedTickets } from "./worked-today.ts";
+import { stateSession, type StateSession } from "./state-session.ts";
 import {
   issueNumber,
   localDay,
@@ -45,9 +45,9 @@ async function open(
     today?: Day;
     repoHost?: FakeRepoHost;
   } = {},
-): Promise<{ selection: InvocationSelection; worked: WorkedTickets }> {
+): Promise<{ selection: InvocationSelection; worked: StateSession }> {
   const state = await store.loadState();
-  const worked = workedTickets(state.workedToday, today);
+  const worked = stateSession({ store }, state, today);
   return {
     selection: invocationSelection(
       { tracker, store, repoHost },
@@ -65,7 +65,7 @@ async function open(
  */
 async function drain(
   selection: InvocationSelection,
-  worked: WorkedTickets,
+  worked: StateSession,
   today: Day = TODAY,
 ): Promise<Selection[]> {
   const selections: Selection[] = [];
@@ -75,7 +75,7 @@ async function drain(
       return selections;
     }
     selections.push(chosen);
-    worked.record(chosen.ticket, today);
+    worked.recordWorked(chosen.ticket, today);
   }
 }
 
@@ -144,7 +144,7 @@ describe("invocationSelection", () => {
     const { selection, worked } = await open(store, tracker);
 
     const first = await selection.next();
-    worked.record(first!.ticket, TODAY);
+    worked.recordWorked(first!.ticket, TODAY);
     await selection.next();
 
     // Twice each: once to select PILOT's one ticket, and again once it is
@@ -163,7 +163,7 @@ describe("invocationSelection", () => {
     const { selection, worked } = await open(store, tracker);
 
     const first = await selection.next();
-    worked.record(first!.ticket, TODAY);
+    worked.recordWorked(first!.ticket, TODAY);
     // Registered only after the first scan, as the developer hand-editing
     // the registry mid-morning would leave it.
     store.register(MANAGER);
@@ -205,7 +205,7 @@ describe("invocationSelection", () => {
     const { selection, worked } = await open(store, tracker);
 
     const first = await selection.next();
-    worked.record(first!.ticket, TODAY);
+    worked.recordWorked(first!.ticket, TODAY);
     // A second scan of the same backlog finds nothing left to select — the
     // sticky verdict from the first scan is what must survive it.
     const second = await selection.next();
