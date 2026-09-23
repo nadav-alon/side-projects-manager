@@ -87,6 +87,13 @@ export function invocationStateRest(
  * length, the same as `InvocationSelection` and `InvocationBudgetGate`: the
  * worked-today record and the project map it owns are read live by both, so
  * a change either makes between two calls is exactly what the next one sees.
+ *
+ * Safe with overlapping iterations: two calls that change the record or the
+ * project map never lose each other's change, since both only ever run
+ * synchronously between one `await` and the next. And every save is queued
+ * onto the one before it, so two overlapping saves land in the order they
+ * were made rather than whichever the runtime happens to settle first — a
+ * newer snapshot never loses to a stale one still in flight.
  */
 export interface InvocationState {
   /** Whether selection passes `ticket` over for the rest of this invocation. */
@@ -195,6 +202,20 @@ export function invocationState(
     ...(rest.salvages !== undefined && { salvages: rest.salvages }),
   });
 
+  // Every save is chained onto this, so two overlapping calls always write
+  // in the order they were made rather than whichever the runtime happens
+  // to settle first — `state` itself is still built eagerly, at call time,
+  // so each save's own snapshot is exactly what its caller saw.
+  let queued: Promise<unknown> = Promise.resolve();
+  const doSave = (state: State): Promise<void> => {
+    const saved = queued.then(
+      () => ports.store.saveState(state),
+      () => ports.store.saveState(state),
+    );
+    queued = saved.catch(() => {});
+    return saved;
+  };
+
   return {
     passesOver: (ticket) => passedOver.has(ticketKey(ticket)),
     recordWorked: doRecord,
@@ -202,7 +223,7 @@ export function invocationState(
     ticketSelected: async (ticket, day, rest = {}) => {
       doRecord(ticket, day);
       try {
-        await ports.store.saveState(buildState(rest));
+        await doSave(buildState(rest));
       } catch (error: unknown) {
         doUnrecord(ticket);
         throw error;
@@ -218,7 +239,7 @@ export function invocationState(
     },
     projectStates: () => projects,
     freed: () => freed,
-    save: (rest = {}) => ports.store.saveState(buildState(rest)),
+    save: (rest = {}) => doSave(buildState(rest)),
   };
 }
 
