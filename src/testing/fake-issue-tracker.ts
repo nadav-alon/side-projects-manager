@@ -17,11 +17,14 @@ import type {
 import {
   ENHANCEMENT_LABEL,
   NEEDS_TRIAGE_LABEL,
+  READY_DISCOVERY_LABEL,
+  READY_DISCOVERY_SIZE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
+  carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
@@ -99,26 +102,28 @@ export interface FakeDiscoveredTicket {
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
  * without what the fake works out on each listing — no `eligible`,
- * `modelLabel`, `sizeLabel`, `supertask` or `specReview`, which come from the
- * labels it carries — and `openBlockerNumbers` optional, since most tests
- * give none.
+ * `modelLabel`, `sizeLabel`, `supertask`, `specReview` or `readyDiscovery`,
+ * which come from the labels it carries — and `openBlockerNumbers` optional,
+ * since most tests give none.
  */
 type StoredIssue = Omit<
   Ticket,
-  "modelLabel" | "sizeLabel" | "supertask" | "specReview"
+  "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"
 > &
   Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
 
 /**
  * A ticket as a test hands it to the fake. No `modelLabel`, `sizeLabel`,
- * `supertask` or `specReview`, not even on a wider `Ticket`: the fake reads
- * all four from the labels a ticket holds, the way the real tracker does.
+ * `supertask`, `specReview` or `readyDiscovery`, not even on a wider
+ * `Ticket`: the fake reads all five from the labels a ticket holds, the way
+ * the real tracker does.
  */
 type TicketInput = Omit<StoredIssue, "repo"> & {
   modelLabel?: never;
   sizeLabel?: never;
   supertask?: never;
   specReview?: never;
+  readyDiscovery?: never;
 };
 
 /** One entry the fake holds: the open issue, and the labels it carries. */
@@ -320,11 +325,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * `entry` as a `Ticket`: its eligibility-independent facts, plus the model
-   * label, size label, supertask status and spec review status the real
-   * tracker reads from the labels it holds at the time of the call — so a
-   * label changed between calls changes what the next call returns. Shared by
-   * `listOpenIssues` and `listSubIssues`, the fake's two readers of a stored
-   * issue as a ticket.
+   * label, size label, supertask status, spec review status and ready
+   * discovery status the real tracker reads from the labels it holds at the
+   * time of the call — so a label changed between calls changes what the
+   * next call returns. Shared by `listOpenIssues` and `listSubIssues`, the
+   * fake's two readers of a stored issue as a ticket.
    */
   #ticketOf(entry: Stored): Ticket {
     const { parent: _parent, openBlockerNumbers: _openBlockerNumbers, ...ticket } =
@@ -333,12 +338,14 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const sizeLabel = sizeLabelOf(entry.labels);
     const supertask = carriesSupertaskLabel(entry.labels);
     const specReview = carriesSpecReviewLabel(entry.labels);
+    const readyDiscovery = carriesReadyDiscoveryLabel(entry.labels);
     return {
       ...ticket,
       ...(modelLabel !== undefined && { modelLabel }),
       ...(sizeLabel !== undefined && { sizeLabel }),
       ...(supertask && { supertask }),
       ...(specReview && { specReview }),
+      ...(readyDiscovery && { readyDiscovery }),
     };
   }
 
@@ -520,26 +527,34 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Opens a discovered ticket carrying `NEEDS_TRIAGE_LABEL` and
-   * `ENHANCEMENT_LABEL` — never `READY_FOR_AGENT_LABEL` — numbered above
-   * every ticket the repo has, the way `createReviewTicket` numbers a
-   * review. Asking for `discovery.blocking` adds `ticket`'s number to its own
-   * open blockers, the same fact `openBlockers` reports from on the next
-   * `listOpenIssues`.
+   * Opens a discovered ticket. `discovery.ready` decides its state and size,
+   * the way the real tracker's own `createDiscoveredTicket` does: absent or
+   * false carries `NEEDS_TRIAGE_LABEL` and `ENHANCEMENT_LABEL`, never
+   * `READY_FOR_AGENT_LABEL`; `true` carries `READY_FOR_AGENT_LABEL`,
+   * `READY_DISCOVERY_SIZE_LABEL` and `ENHANCEMENT_LABEL` instead, plus
+   * `READY_DISCOVERY_LABEL` for the chain guard. Numbered above every ticket
+   * the repo has, the way `createReviewTicket` numbers a review. Asking for
+   * `discovery.blocking` adds `ticket`'s number to its own open blockers, the
+   * same fact `openBlockers` reports from on the next `listOpenIssues`.
    */
   async createDiscoveredTicket(
     ticket: Ticket,
     discovery: DiscoveredTicketRequest,
   ): Promise<Ticket> {
+    const ready = discovery.ready === true;
     const discovered = this.#add(
       ticket.repo,
       {
         number: this.#nextNumber(ticket.repo, ticket),
         title: discovery.title,
       },
-      NEEDS_TRIAGE_LABEL,
+      ready ? READY_FOR_AGENT_LABEL : NEEDS_TRIAGE_LABEL,
     );
     this.addLabel(discovered, ENHANCEMENT_LABEL);
+    if (ready) {
+      this.addLabel(discovered, READY_DISCOVERY_SIZE_LABEL);
+      this.addLabel(discovered, READY_DISCOVERY_LABEL);
+    }
 
     // `blocked` — what actually happened — rather than `discovery.blocking`
     // — what was asked for: a ticket built by hand rather than through
@@ -558,14 +573,15 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       }
     }
 
+    const opened: Ticket = { ...discovered, ...(ready && { readyDiscovery: true }) };
     this.discoveredTickets.push({
       discoveredWhile: ticket,
       title: discovery.title,
       body: discoveredBody(ticket, discovery.body),
       blocking: blocked,
-      ticket: discovered,
+      ticket: opened,
     });
-    return discovered;
+    return opened;
   }
 
   /**

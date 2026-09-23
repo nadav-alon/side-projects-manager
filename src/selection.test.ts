@@ -640,7 +640,7 @@ describe("invocationSelection", () => {
     function reviewOf(
       parent: Ticket,
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"> {
       return {
         number: issueNumber(number),
         title: reviewTitle(parent),
@@ -651,7 +651,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for the review on `SOME_PULL_REQUEST` to be applied. */
     function applyReviewTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"> {
       return {
         number: issueNumber(number),
         title: `Apply the review on ${SOME_PULL_REQUEST}`,
@@ -662,7 +662,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for `SOME_PULL_REQUEST` to be rebased. */
     function rebaseTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"> {
       return {
         number: issueNumber(number),
         title: `Rebase ${SOME_PULL_REQUEST}`,

@@ -62,9 +62,16 @@ export const ENHANCEMENT_LABEL = "enhancement";
 
 /**
  * What `IssueTracker.createDiscoveredTicket` opens a ticket from: a title
- * and body the caller supplies, and whether the ticket it names should be
- * blocked by the new one. `blocking` absent or false opens the ticket with
- * no edge at all.
+ * and body the caller supplies, whether the ticket it names should be
+ * blocked by the new one, and whether the new ticket is itself a **ready
+ * discovery**. `blocking` absent or false opens the ticket with no edge at
+ * all; `ready` absent or false is today's behavior — born needs-triage.
+ *
+ * `ready` is the caller's own decision, already weighed against
+ * `discovery-routing.ts`'s bar (an agent-brief body, and the chain guard) —
+ * this request carries only the answer, not the discovery's `ready` flag
+ * or its body, so a caller that skipped that check cannot open a ready
+ * ticket by accident.
  *
  * Not itself a `Ticket` — nothing has been opened yet — so it is named for
  * the glossary's own **Discovery**, the thing the caller is reporting. Named
@@ -77,6 +84,7 @@ export interface DiscoveredTicketRequest {
   title: string;
   body: string;
   blocking?: boolean;
+  ready?: boolean;
 }
 
 /**
@@ -288,6 +296,12 @@ export interface PullRequestBinding {
  * listing on every call. Absent means the ticket names no size — an unsized
  * ticket, per `CONTEXT.md`'s "Size label". A review ticket reads its own
  * labels, never its parent's, and never inherits a size from it.
+ *
+ * `readyDiscovery` is the fact the chain guard reads: whether the ticket
+ * carries the ready discovery label, from that same listing — per
+ * `CONTEXT.md`'s "Ready discovery", it was itself born from a ready
+ * discovery, so a discovery filed while working it may not declare itself
+ * ready in turn. Absent, never `false`, where it carries none.
  */
 export interface Ticket {
   /** The project the ticket lives in. */
@@ -301,6 +315,7 @@ export interface Ticket {
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
   sizeLabel?: SizeLabel;
+  readyDiscovery?: true;
 }
 
 /**
@@ -341,6 +356,25 @@ export const SPEC_REVIEW_LABEL = "spec-review";
  */
 export function carriesSpecReviewLabel(labels: Iterable<string>): boolean {
   return carriesLabel(labels, SPEC_REVIEW_LABEL);
+}
+
+/**
+ * The label that marks a ticket as born from a ready discovery, per
+ * `CONTEXT.md`'s "Ready discovery": what the chain guard reads to tell that
+ * a ticket's own run declaring another discovery ready is one hop into a
+ * chain of unreviewed work, so that discovery falls back to needs-triage.
+ * Applied once, at creation, and never removed — even once the ticket's own
+ * ready-for-agent comes off, the ticket's origin does not change. The one
+ * place the literal lives; every adapter reads it from here.
+ */
+export const READY_DISCOVERY_LABEL = "ready-discovery";
+
+/**
+ * Whether `labels` include the ready discovery label. Beside the port so the
+ * real tracker and the fake read it alike.
+ */
+export function carriesReadyDiscoveryLabel(labels: Iterable<string>): boolean {
+  return carriesLabel(labels, READY_DISCOVERY_LABEL);
 }
 
 /**
@@ -730,15 +764,23 @@ export interface IssueTracker {
 
   /**
    * Opens an issue in the same repo as `ticket` — a ticket discovered while
-   * working `ticket`, not a sub-issue of it — labelled needs-triage and
-   * enhancement, never ready-for-agent: the maintainer triages it like any
-   * other report. Its body is `discovery.body` followed by a line naming
-   * `ticket`, per `discoveredBody`.
+   * working `ticket`, not a sub-issue of it. Its body is `discovery.body`
+   * followed by a line naming `ticket`, per `discoveredBody`.
+   *
+   * `discovery.ready` decides which state and size it is born carrying, per
+   * `CONTEXT.md`'s "Ready discovery": absent or false, it is labelled
+   * needs-triage and enhancement, never ready-for-agent — the maintainer
+   * triages it like any other report, same as today. `true` labels it
+   * ready-for-agent, size:S and enhancement instead, skipping needs-triage
+   * outright, and also marks it with the ready discovery label — never
+   * removed — so a later run working it is told, through `Ticket.readyDiscovery`,
+   * that it was itself born this way, for the chain guard.
    *
    * `discovery.blocking` also adds a native `blocked_by` edge, so `ticket`
    * is blocked by the new issue until it closes — for a discovery serious
    * enough that `ticket`'s own work should wait on it. Left unset or false,
-   * no edge is added.
+   * no edge is added. Independent of `ready`: a ready prerequisite still
+   * blocks its ticket, same as any other prerequisite.
    *
    * Answers with the new ticket either way. Where the edge is asked for and
    * refused, the created issue is not lost: the rejection names it, since a
@@ -815,6 +857,14 @@ export function reviewTitle(ticket: Ticket): string {
  * implementation applies it.
  */
 export const SPEC_REVIEW_SIZE_LABEL = `${SIZE_LABEL_PREFIX}L`;
+
+/**
+ * The size label a ready discovery's ticket is born carrying, per
+ * `CONTEXT.md`'s "Ready discovery": `size:S`, since a discovery declares
+ * itself ready only when its work is that small. The one place the literal
+ * lives.
+ */
+export const READY_DISCOVERY_SIZE_LABEL = `${SIZE_LABEL_PREFIX}S`;
 
 /**
  * The title a spec review ticket carries. Names the supertask it reviews, the

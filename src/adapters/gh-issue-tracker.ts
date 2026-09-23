@@ -21,10 +21,13 @@ import type {
 import {
   ENHANCEMENT_LABEL,
   NEEDS_TRIAGE_LABEL,
+  READY_DISCOVERY_LABEL,
+  READY_DISCOVERY_SIZE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
+  carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
@@ -361,8 +364,13 @@ export function ghIssueTracker(
       ticket: Ticket,
       discovery: DiscoveredTicketRequest,
     ): Promise<Ticket> {
-      await ensureLabel(ticket.repo, NEEDS_TRIAGE_LABEL);
-      await ensureLabel(ticket.repo, ENHANCEMENT_LABEL);
+      const ready = discovery.ready === true;
+      const labels: Array<keyof typeof LABEL_DESCRIPTIONS> = ready
+        ? [READY_FOR_AGENT_LABEL, READY_DISCOVERY_SIZE_LABEL, ENHANCEMENT_LABEL, READY_DISCOVERY_LABEL]
+        : [NEEDS_TRIAGE_LABEL, ENHANCEMENT_LABEL];
+      for (const label of labels) {
+        await ensureLabel(ticket.repo, label);
+      }
 
       const { stdout } = await execFileAsync("gh", [
         "issue",
@@ -371,10 +379,7 @@ export function ghIssueTracker(
         ticket.repo,
         "--title",
         discovery.title,
-        "--label",
-        NEEDS_TRIAGE_LABEL,
-        "--label",
-        ENHANCEMENT_LABEL,
+        ...labels.flatMap((label) => ["--label", label]),
         "--body",
         discoveredBody(ticket, discovery.body),
       ]);
@@ -383,6 +388,7 @@ export function ghIssueTracker(
         repo: ticket.repo,
         number: issueNumberIn(stdout, ticket.repo),
         title: discovery.title,
+        ...(ready && { readyDiscovery: true }),
       };
 
       if (discovery.blocking === true) {
@@ -469,6 +475,8 @@ const LABEL_DESCRIPTIONS = {
   [SPEC_REVIEW_LABEL]:
     "Reviews the repo against a supertask's body; reports, never commits.",
   [SPEC_REVIEW_SIZE_LABEL]: "Larger than M, smaller than XL",
+  [READY_DISCOVERY_SIZE_LABEL]: "Smallest",
+  [READY_DISCOVERY_LABEL]: "Born from a discovery its filer declared ready",
 } as const;
 
 /**
@@ -830,13 +838,23 @@ function isInRepo(url: string, repo: RepoSlug): boolean {
  * `ticketKind` always prefers the pull request binding's own kind — but read
  * unconditionally, the same way `supertask` is: the tracker reports the
  * fact, and it is `ticketKind`'s job to weigh it.
+ *
+ * `readyDiscovery` is read unconditionally too, the same way: whatever kind
+ * of ticket this is, whether it carries the ready discovery label is a fact
+ * about its origin, not about its current kind.
  */
 function labelDerivedTicketFields(
   body: string,
   labels: string[],
 ): Pick<
   Ticket,
-  "pullRequest" | "modelLabel" | "priority" | "sizeLabel" | "supertask" | "specReview"
+  | "pullRequest"
+  | "modelLabel"
+  | "priority"
+  | "sizeLabel"
+  | "supertask"
+  | "specReview"
+  | "readyDiscovery"
 > {
   const pullRequest = pullRequestBoundIn(body);
   const modelLabel = modelLabelOf(labels);
@@ -844,9 +862,11 @@ function labelDerivedTicketFields(
   const sizeLabel = sizeLabelOf(labels);
   const supertask = carriesSupertaskLabel(labels);
   const specReview = carriesSpecReviewLabel(labels);
+  const readyDiscovery = carriesReadyDiscoveryLabel(labels);
   return {
     ...(supertask && { supertask }),
     ...(specReview && { specReview }),
+    ...(readyDiscovery && { readyDiscovery }),
     ...(pullRequest !== undefined && { pullRequest }),
     ...(modelLabel !== undefined && { modelLabel }),
     ...(priority !== undefined && { priority }),
