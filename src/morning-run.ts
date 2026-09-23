@@ -14,7 +14,6 @@ import type {
   ModelRefusal,
   OpenInvocation,
   Progress,
-  ProjectState,
   PullRequestLabel,
   PullRequestState,
   PullRequestTicket,
@@ -38,7 +37,6 @@ import type {
   Salvaged,
   Sandbox,
   SpecReviewTicket,
-  State,
   Store,
   Ticket,
   TokenCount,
@@ -59,7 +57,6 @@ import {
   isSpecReviewTicket,
   localDay,
   notify,
-  recordRun,
   ticketKind,
   tokenCount,
 } from "./ports/index.ts";
@@ -74,11 +71,12 @@ import {
 } from "./selection.ts";
 import { salvageRecords, type Salvages } from "./salvages.ts";
 import {
-  workedTickets,
+  invocationState,
+  invocationStateRest,
   type CurrentInvocation,
   type FreedWorkedTicket,
-  type WorkedTickets,
-} from "./worked-today.ts";
+  type InvocationState,
+} from "./invocation-state.ts";
 import {
   appliedReviewComment,
   pullRequestResolvedComment,
@@ -104,8 +102,6 @@ import {
   cutOffOf,
   cutOffReviewOutcome,
   cutOffRunOutcome,
-  failedOnInfrastructure,
-  handedBackFailure,
   type AheadOfGateFailure,
   type AppliedReview,
   type BudgetExhausted,
@@ -200,14 +196,14 @@ export interface MorningLoopOptions {
 }
 
 /**
- * `invocation`'s own identity paired with the journal as it stands, for
- * `workedTickets` to tell a worked-today entry a dead in-flight invocation
+ * `invocation`'s own identity paired with the journal as it stands, for the
+ * state session to tell a worked-today entry a dead in-flight invocation
  * recorded apart from one still protected. `undefined` when `invocation`
  * itself is absent — no lease, no journal identity at all. When the journal
  * cannot be read, `invocation`'s own identity is kept regardless — stamping
- * what this invocation records stays independent of freeing — but
- * `workedTickets` still frees nothing; said on `progress` as
- * `journal-unreadable` rather than swallowed.
+ * what this invocation records stays independent of freeing — but the
+ * session still frees nothing; said on `progress` as `journal-unreadable`
+ * rather than swallowed.
  */
 async function currentInvocation(
   ports: MorningLoopPorts,
@@ -294,36 +290,29 @@ export async function morningLoop(
   // when the loop's own plumbing broke before that point — there is nothing
   // to write back then, as the final `catch` below already notes.
   let announcedOn: Day | undefined;
-  let stateToSave: (() => State) | undefined;
+  let saveState: (() => Promise<void>) | undefined;
   try {
     const stored = await ports.store.loadState();
     announcedOn = stored.announcedOn;
-    const projects = new Map(stored.projects);
-    const worked = workedTickets(
-      stored.workedToday,
+    const salvages = salvageRecords(stored.salvages);
+    const state = invocationState(
+      { store: ports.store },
+      stored,
       today,
+      () => invocationStateRest(announcedOn, salvages.record()),
       await currentInvocation(ports, invocation),
     );
-    freedTickets = worked.freed();
-    const salvages = salvageRecords(stored.salvages);
-    stateToSave = (): State => {
-      const workedToday = worked.workedToday();
-      const salvageRecord = salvages.record();
-      return {
-        projects,
-        ...(workedToday !== undefined && { workedToday }),
-        ...(announcedOn !== undefined && { announcedOn }),
-        ...(salvageRecord !== undefined && { salvages: salvageRecord }),
-      };
-    };
+    freedTickets = state.freed();
+    saveState = () => state.save();
     const modelDefaults = await ports.store.loadModelDefaults();
     // Built once and kept for the whole invocation, not once per iteration:
     // it is what remembers a project's "selected" verdict across scans and
     // where each registered project first landed in registry order.
-    const selecting = invocationSelection(ports, projects, worked);
-    // Built once too, over the same live `projects` map: a run recorded
-    // between two consultations is exactly what the next one counts.
-    const gate = invocationBudgetGate(ports, projects);
+    const selecting = invocationSelection(ports, state.projectStates(), state);
+    // Built once too, over the invocation's own live view of recorded runs: a
+    // run recorded between two consultations is exactly what the next one
+    // counts.
+    const gate = invocationBudgetGate(ports, state.projectStates());
     // Keyed by each iteration's own completion, so the tickets an in-progress
     // consultation names are exactly the ones still running when it asks —
     // never the one it is asking on behalf of, which is passed separately.
@@ -393,7 +382,7 @@ export async function morningLoop(
               chosen.project.repo,
               ticket,
               unusableLabel,
-              worked,
+              state,
             ),
           );
           continue;
@@ -423,10 +412,9 @@ export async function morningLoop(
         // killed mid-run never reaches the final save, and would otherwise
         // free the ticket for the next firing the same day. Recorded, too, is
         // what keeps a ticket in progress from being selected again.
-        worked.record(ticket, localDay(ports.clock.now()));
-        await ports.store.saveState(stateToSave());
+        await state.ticketSelected(ticket, localDay(ports.clock.now()));
         if (stopped()) {
-          worked.unrecord(ticket);
+          state.selectionAbandoned(ticket);
           break;
         }
 
@@ -437,7 +425,7 @@ export async function morningLoop(
         const completion: Promise<void> = work(
           ports,
           chosen,
-          projects,
+          state,
           spendCeilingForTicket(ticket, budget),
           model,
           salvages,
@@ -462,9 +450,7 @@ export async function morningLoop(
               // record has nothing left to protect, and a developer who
               // re-applies ready-for-agent the same day gets a later firing
               // rather than silence.
-              if (freesTicketToday(iteration)) {
-                worked.unrecord(ticket);
-              }
+              state.iterationEnded(ticket, iteration);
 
               // A cut-off run — a limit refusal or a provider failure,
               // direct or carried by a discovery-blocked iteration whose run
@@ -513,7 +499,7 @@ export async function morningLoop(
       // which has run the loop always has a state document to read next morning.
       // A run that fell over still spent tokens, and the morning it spent them
       // on is exactly the one worth having recorded.
-      await ports.store.saveState(stateToSave());
+      await saveState();
     }
     if (thrown.length > 0) {
       throw thrown[0];
@@ -558,9 +544,9 @@ export async function morningLoop(
   // when there is a state document to fold it back into. A fault saving it is
   // the state document's, not the publish's, and must never read back as a
   // publish that failed when the summary in fact went out.
-  if (report.summaryLocation !== undefined && stateToSave !== undefined) {
+  if (report.summaryLocation !== undefined && saveState !== undefined) {
     announcedOn = today;
-    await ports.store.saveState(stateToSave());
+    await saveState();
   }
 
   return report;
@@ -641,14 +627,12 @@ async function handBackAheadOfGate(
   repo: RepoSlug,
   ticket: Ticket,
   ending: AheadOfGateFailure,
-  worked: WorkedTickets,
+  invocation: Pick<InvocationState, "recordWorked" | "iterationEnded">,
 ): Promise<IterationOutcome> {
-  worked.record(ticket, localDay(ports.clock.now()));
+  invocation.recordWorked(ticket, localDay(ports.clock.now()));
   const handedBack = await handBack(ports, ticket, ending);
   const iteration: Failed = { kind: "failed", failure: ending, handedBack };
-  if (freesTicketToday(iteration)) {
-    worked.unrecord(ticket);
-  }
+  invocation.iterationEnded(ticket, iteration);
   return { repo, ticket, ...iteration };
 }
 
@@ -683,45 +667,6 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
 }
 
 /**
- * Whether `iteration` frees its ticket to be selected again today —
- * CONTEXT.md's "Worked today" rule: the persisted record protects only the
- * tickets the loop tried and failed to take off the queue itself.
- *
- * An infrastructure failure, a limit refusal or a provider failure says
- * nothing about the ticket at all, so it always frees it. A finished, a
- * spec-reviewed, a discovery-blocked or a failed run frees it exactly when
- * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
- * leaves it recorded when the tracker refused the call. A review, an
- * apply-review, a rebase or a resolved pull request frees it exactly when it
- * closed without a `notClosed`, and leaves it recorded when one is set — the
- * ticket is still ready-for-agent, due to come round again on its own, so the
- * record still has something to protect.
- */
-function freesTicketToday(iteration: Iteration): boolean {
-  switch (iteration.kind) {
-    case "limit-refused":
-    case "provider-failed":
-    case "budget-exhausted":
-      return true;
-    case "finished":
-    case "spec-reviewed":
-    case "discovery-blocked":
-      return iteration.handedBack.outcome !== "refused";
-    case "failed":
-      return (
-        failedOnInfrastructure(iteration) ||
-        (handedBackFailure(iteration) &&
-          iteration.handedBack.outcome !== "refused")
-      );
-    case "reviewed":
-    case "applied-review":
-    case "rebased":
-    case "pull-request-resolved":
-      return iteration.notClosed === undefined;
-  }
-}
-
-/**
  * The second step: run the selected ticket and record what that cost. An
  * implementation ticket hands its work over as a draft pull request with a
  * review queued against it, or — when the agent gave up — puts the ticket back
@@ -741,7 +686,7 @@ function freesTicketToday(iteration: Iteration): boolean {
 async function work(
   ports: MorningLoopPorts,
   selection: Selection,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvages: Salvages,
@@ -751,7 +696,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      state,
+      invocation,
       spendCeiling,
       model,
     );
@@ -761,7 +706,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      state,
+      invocation,
       spendCeiling,
       model,
     );
@@ -771,7 +716,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      state,
+      invocation,
       spendCeiling,
       model,
       selection.project.turbo,
@@ -782,7 +727,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      state,
+      invocation,
       spendCeiling,
       model,
     );
@@ -791,7 +736,7 @@ async function work(
   const returned = await attemptRun(
     ports,
     selection,
-    state,
+    invocation,
     spendCeiling,
     model,
     salvages.get(selection.ticket)?.branch,
@@ -1324,7 +1269,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   repo: RepoSlug,
   ticket: Ticket,
   spendCeiling: Usd,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   sandboxCall: (checkout: Checkout) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
@@ -1371,13 +1316,10 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     tokensUsed: outcome.tokensUsed,
   });
 
-  state.set(
-    repo,
-    recordRun(state.get(repo), {
-      at: ports.clock.now(),
-      tokensUsed: outcome.tokensUsed,
-    }),
-  );
+  invocation.recordRunCost(repo, {
+    at: ports.clock.now(),
+    tokensUsed: outcome.tokensUsed,
+  });
 
   return { kind: "ran", outcome, checkout };
 }
@@ -1402,7 +1344,7 @@ function infrastructureFailure(error: unknown): Failed {
 async function attemptRun(
   ports: MorningLoopPorts,
   selection: Selection,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvageBranch: Branch | undefined,
@@ -1410,7 +1352,7 @@ async function attemptRun(
   const { ticket } = selection;
   const repo = selection.project.repo;
 
-  return runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
+  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1551,7 +1493,7 @@ async function runReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ReviewTicket,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   turbo: boolean,
@@ -1572,7 +1514,7 @@ async function runReview(
   }
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
@@ -1731,13 +1673,13 @@ async function runSpecReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: SpecReviewTicket,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
   SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
 > {
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
     model === undefined
@@ -1827,7 +1769,7 @@ async function runApplyReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ApplyReviewTicket,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -1862,7 +1804,7 @@ async function runApplyReview(
     return finishApplyReview(ports, ticket, { kind: "applied-review" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
@@ -2047,7 +1989,7 @@ async function runRebase(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: RebaseTicket,
-  state: Map<RepoSlug, ProjectState>,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -2084,7 +2026,7 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
