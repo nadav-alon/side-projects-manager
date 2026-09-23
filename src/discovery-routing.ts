@@ -89,13 +89,17 @@ export function blockingDiscoveriesOf(discoveries: readonly Discovery[]): Discov
  * out of scope — the same shape triage itself writes when it hands a ticket
  * to an agent. Matched loosely, by keyword rather than by heading syntax or
  * order, since the filer writes prose, not a form; "behaviour" is accepted
- * beside "behavior" for the same reason.
+ * beside "behavior" for the same reason. Anchored to the start of a line,
+ * with an optional markdown heading or bold marker before the phrase, so a
+ * body that merely mentions all four phrases in passing — inside one
+ * sentence, say — does not clear the gate a real brief's own section
+ * openers do.
  */
 const AGENT_BRIEF_SECTIONS = [
-  /current behaviou?r/i,
-  /desired behaviou?r/i,
-  /acceptance criteria/i,
-  /out of scope/i,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?current behaviou?r/im,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?desired behaviou?r/im,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?acceptance criteria/im,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?out of scope/im,
 ];
 
 /**

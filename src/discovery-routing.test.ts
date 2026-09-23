@@ -342,6 +342,26 @@ describe("isAgentBrief", () => {
   it("rejects plain prose with none of the sections", () => {
     assert.equal(isAgentBrief("Worth adding a retry with backoff."), false);
   });
+
+  it("rejects prose that merely mentions all four phrases in passing, rather than opening sections with them", () => {
+    assert.equal(
+      isAgentBrief(
+        "Retries are out of scope for now, and the current behavior and desired behavior are " +
+          "both unclear without writing the acceptance criteria first.",
+      ),
+      false,
+    );
+  });
+
+  it("accepts a bold-labelled brief, the shape the ticket's own body uses", () => {
+    const body = [
+      "**Current behavior:** the retry loop hammers the API on every failure.",
+      "**Desired behavior:** it should back off between attempts.",
+      "**Acceptance criteria:** a failed call waits before its next attempt.",
+      "**Out of scope:** a configurable backoff strategy.",
+    ].join("\n\n");
+    assert.equal(isAgentBrief(body), true);
+  });
 });
 
 describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
