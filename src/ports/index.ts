@@ -91,6 +91,7 @@ export {
   findInvocationRecord,
   isClosedInvocation,
   isInvocationOutcome,
+  sameInvocation,
 } from "./journal.ts";
 export type {
   InvocationClosing,
@@ -115,6 +116,7 @@ export type {
   Abandoning,
   ContainerStarted,
   IterationSelected,
+  JournalUnreadable,
   Progress,
   ProgressEvent,
   ProviderLimited,

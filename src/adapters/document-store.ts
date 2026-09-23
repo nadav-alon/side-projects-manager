@@ -62,7 +62,6 @@ import {
   isRepoSlug,
   isSize,
   keptSummaryPath,
-  workedTicket,
   isReserveFraction,
   isTokenCount,
   isUsd,
@@ -666,10 +665,13 @@ function parseDayField(value: unknown, where: string): Day {
 }
 
 /**
- * `{ "day": "2026-01-01", "tickets": [{ "repo": "owner/repo", "number": 7 }] }`
+ * `{ "day": "2026-01-01", "tickets": [{ "repo": "owner/repo", "number": 7,
+ *    "recordedBy": { "openedAt": "…", "process": 123 } }] }`
  *
  * Read as written, whatever day it names: whether that day is today is the
- * loop's to judge, since only the loop has a clock.
+ * loop's to judge, since only the loop has a clock. `recordedBy` is absent on
+ * an entry written before it existed, read the same as one naming an
+ * invocation no longer in the journal.
  */
 function parseWorkedToday(value: unknown, where: string): WorkedToday {
   const recorded = parseDayField(fieldOf(value, "day", where), `${where}: "day"`);
@@ -693,7 +695,29 @@ function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
       `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
     );
   }
-  return { repo, number };
+  return {
+    repo,
+    number,
+    ...recordedByField(fieldOf(ticket, "recordedBy", where), where),
+  };
+}
+
+function recordedByField(
+  value: unknown,
+  where: string,
+): { recordedBy?: OpenInvocation } {
+  if (value === undefined) {
+    return {};
+  }
+  return { recordedBy: parseOpenInvocation(value, `${where}: "recordedBy"`) };
+}
+
+/** The `openedAt` + `process` pair identifying an invocation, read from `value`. */
+function parseOpenInvocation(value: unknown, where: string): OpenInvocation {
+  return {
+    openedAt: parseInstant(fieldOf(value, "openedAt", where), `${where}: "openedAt"`),
+    process: processField(fieldOf(value, "process", where), where),
+  };
 }
 
 function parseProjectStates(
@@ -811,7 +835,13 @@ function formatState(state: State): string {
 
   const workedToday = state.workedToday && {
     day: state.workedToday.day,
-    tickets: state.workedToday.tickets.map(workedTicket),
+    tickets: state.workedToday.tickets.map((ticket) => ({
+      repo: ticket.repo,
+      number: ticket.number,
+      ...(ticket.recordedBy !== undefined && {
+        recordedBy: formatOpenInvocation(ticket.recordedBy),
+      }),
+    })),
   };
 
   const salvages = state.salvages?.map((salvage) => ({ ...salvage }));
@@ -869,11 +899,7 @@ function parseInvocationRecord(
 ): InvocationRecord {
   rejectUnknownFields(record, RECORD_FIELDS, "field", where);
 
-  const openedAt = parseInstant(
-    fieldOf(record, "openedAt", where),
-    `${where}: "openedAt"`,
-  );
-  const process = processField(fieldOf(record, "process", where), where);
+  const { openedAt, process } = parseOpenInvocation(record, where);
 
   const closedAt = fieldOf(record, "closedAt", where);
   if (closedAt === undefined) {
@@ -1000,10 +1026,14 @@ function exitCodeField(value: unknown, where: string): { exitCode?: ExitCode } {
 }
 
 /** Indented and newline-terminated: the document is read in diffs. */
+/** The `openedAt` + `process` pair identifying an invocation, as the document names them. */
+function formatOpenInvocation(open: OpenInvocation): { openedAt: string; process: ProcessId } {
+  return { openedAt: open.openedAt.toISOString(), process: open.process };
+}
+
 function formatJournal(journal: Journal): string {
   const records = journal.records.map((record) => ({
-    openedAt: record.openedAt.toISOString(),
-    process: record.process,
+    ...formatOpenInvocation(record),
     ...(record.closedAt !== undefined && {
       closedAt: record.closedAt.toISOString(),
       outcome: record.outcome,

@@ -14,6 +14,7 @@ import type {
   ModelDefaults,
   ModelName,
   ModelRefusal,
+  OpenInvocation,
   Progress,
   ProjectState,
   PullRequestLabel,
@@ -75,7 +76,12 @@ import {
   type Selection,
 } from "./selection.ts";
 import { salvageRecords, type Salvages } from "./salvages.ts";
-import { workedTickets, type WorkedTickets } from "./worked-today.ts";
+import {
+  workedTickets,
+  type CurrentInvocation,
+  type FreedWorkedTicket,
+  type WorkedTickets,
+} from "./worked-today.ts";
 import {
   appliedReviewComment,
   pullRequestResolvedComment,
@@ -336,6 +342,42 @@ export interface MorningLoopOptions {
    * and are reported, and the summary publishes.
    */
   stop?: AbortSignal;
+  /**
+   * This invocation's own journal record identity, given by whichever entry
+   * point opened it — the loop does not know its own invocation record
+   * otherwise. Used to free worked-today entries a dead in-flight invocation
+   * recorded; see CONTEXT.md's "Worked today". Absent when no entry point
+   * opened a journal record: nothing is freed.
+   */
+  invocation?: OpenInvocation;
+}
+
+/**
+ * `invocation`'s own identity paired with the journal as it stands, for
+ * `workedTickets` to tell a worked-today entry a dead in-flight invocation
+ * recorded apart from one still protected. `undefined` when `invocation`
+ * itself is absent — no lease, no journal identity at all. When the journal
+ * cannot be read, `invocation`'s own identity is kept regardless — stamping
+ * what this invocation records stays independent of freeing — but
+ * `workedTickets` still frees nothing; said on `progress` as
+ * `journal-unreadable` rather than swallowed.
+ */
+async function currentInvocation(
+  ports: MorningLoopPorts,
+  invocation: OpenInvocation | undefined,
+): Promise<CurrentInvocation | undefined> {
+  if (invocation === undefined) {
+    return undefined;
+  }
+  try {
+    return { self: invocation, journal: await ports.store.loadJournal() };
+  } catch (error: unknown) {
+    notify(ports.progress, {
+      kind: "journal-unreadable",
+      error: errorMessage(error),
+    });
+    return { self: invocation };
+  }
 }
 
 /**
@@ -376,7 +418,7 @@ export interface MorningLoopOptions {
  */
 export async function morningLoop(
   ports: MorningLoopPorts,
-  { stop }: MorningLoopOptions = {},
+  { stop, invocation }: MorningLoopOptions = {},
 ): Promise<InvocationReport> {
   const startedAt = ports.clock.now();
   const today = localDay(startedAt);
@@ -394,6 +436,9 @@ export async function morningLoop(
   // review sweep the invocation ran, one per non-paused project per
   // selection.
   let specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
+  // Populated from `worked.freed()` once `worked` exists: every ticket a dead
+  // in-flight invocation had recorded, freed for this invocation to select.
+  let freedTickets: FreedWorkedTicket[] = [];
 
   let standDown: InvocationStandDown | undefined;
   let invocationFailure: string | undefined;
@@ -407,7 +452,12 @@ export async function morningLoop(
     const stored = await ports.store.loadState();
     announcedOn = stored.announcedOn;
     const projects = new Map(stored.projects);
-    const worked = workedTickets(stored.workedToday, today);
+    const worked = workedTickets(
+      stored.workedToday,
+      today,
+      await currentInvocation(ports, invocation),
+    );
+    freedTickets = worked.freed();
     const salvages = salvageRecords(stored.salvages);
     stateToSave = (): State => {
       const workedToday = worked.workedToday();
@@ -645,17 +695,24 @@ export async function morningLoop(
     invocationFailure,
     conflictSweeps: sweepOutcomes,
     specReviewSweeps: specReviewSweepOutcomes,
+    freedFromDeadInvocation: freedTickets,
   };
   const line = summaryLine(facts);
   const outcome = outcomeOf(iterations, standDown, invocationFailure);
 
-  // An invocation that worked something always publishes. A quiet or broken
-  // one — dry queue, stand-down, invocation failure — publishes only if
+  // An invocation that worked something, or freed a ticket a dead invocation
+  // had recorded, always publishes — a freed ticket must be named somewhere,
+  // never only erased from the state document. A quiet or broken one — dry
+  // queue, stand-down, invocation failure, nothing freed — publishes only if
   // nothing has been announced yet today, so a firing every hour reports one
   // quiet morning rather than up to twenty-four.
   let summaryLocation: IssueUrl | undefined;
   let summaryFailure: SummaryFailure | undefined;
-  if (outcome === "work-selected" || !hasAnnouncedOn(announcedOn, today)) {
+  if (
+    outcome === "work-selected" ||
+    freedTickets.length > 0 ||
+    !hasAnnouncedOn(announcedOn, today)
+  ) {
     const body = summaryBody(facts, line);
     // Last, so a morning that worked something still gets its state recorded
     // above even if the tracker refuses this. Never thrown: a summary issue

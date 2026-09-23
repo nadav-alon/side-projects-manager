@@ -34,6 +34,7 @@ import {
 } from "./iteration-outcome.ts";
 import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
+import type { FreedWorkedTicket } from "./worked-today.ts";
 import type {
   ApplyReviewTicket,
   PullRequestLabel,
@@ -271,6 +272,8 @@ export interface SummaryFacts {
   invocationFailure: string | undefined;
   conflictSweeps: ConflictSweepOutcome[];
   specReviewSweeps: SpecReviewSweepOutcome[];
+  /** Every ticket freed because a dead in-flight invocation had recorded it. */
+  freedFromDeadInvocation: FreedWorkedTicket[];
 }
 
 /**
@@ -393,6 +396,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     discoveriesSection(facts.iterations),
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
+    freedFromDeadInvocationSection(facts.freedFromDeadInvocation),
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
@@ -500,6 +504,25 @@ function discoveryLines(
       `- ${who}: could not file a ${refused.discovery.kind} ("${refused.discovery.title}"): ${withoutTrailingStop(refused.reason)}`,
   );
   return [...filed, ...droppedSuggestions, ...droppedFiles, ...refused];
+}
+
+/**
+ * One bullet per ticket freed because a dead in-flight invocation had
+ * recorded it as worked today — CONTEXT.md's "Freed". Names the invocation
+ * each freed ticket came from, by its opened-at instant and pid. `undefined`
+ * when nothing was freed this way.
+ */
+function freedFromDeadInvocationSection(
+  freed: FreedWorkedTicket[],
+): string | undefined {
+  if (freed.length === 0) {
+    return undefined;
+  }
+  const lines = freed.map(
+    ({ ticket, invocation }) =>
+      `- ${ticket.repo} #${ticket.number}: freed — recorded by the invocation opened ${localDay(invocation.openedAt)} ${localTimeOfMinute(invocation.openedAt)} by process ${invocation.process}, never closed`,
+  );
+  return ["## Freed from a dead invocation", ...lines].join("\n");
 }
 
 /**

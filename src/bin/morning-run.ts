@@ -106,7 +106,10 @@ async function main(): Promise<void> {
       store,
       progress,
     },
-    { stop: stopOnInterrupt(progress) },
+    {
+      stop: stopOnInterrupt(progress),
+      ...(opened !== undefined && { invocation: opened }),
+    },
   );
 
   console.log(report.message);

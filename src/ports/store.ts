@@ -100,14 +100,26 @@ export function ticketKey(ticket: WorkedTicket): string {
  * `ticket` as the state document names it, and nothing more: a whole `Ticket`
  * passes for one, but its title and labels are not the record's to keep.
  */
-export function workedTicket({ repo, number }: WorkedTicket): WorkedTicket {
-  return { repo, number };
+export function workedTicket({
+  repo,
+  number,
+  recordedBy,
+}: WorkedTicket): WorkedTicket {
+  return { repo, number, ...(recordedBy !== undefined && { recordedBy }) };
 }
 
 /** A ticket as the state document names it: its project, and its number there. */
 export interface WorkedTicket {
   repo: RepoSlug;
   number: IssueNumber;
+  /**
+   * The invocation that recorded this entry, using the journal's own
+   * identity for an invocation record — see `findInvocationRecord`. Absent
+   * for an entry written before this field existed, which reads the same as
+   * one whose invocation is not in flight: still passed over for the rest of
+   * the day, never freed. See CONTEXT.md's "Worked today".
+   */
+  recordedBy?: OpenInvocation;
 }
 
 /**
@@ -127,6 +139,15 @@ export interface Salvage extends WorkedTicket {
 export type Salvaged = Pick<Salvage, "branch" | "stopShorts">;
 
 /**
+ * `ticket` as a salvage record names it: its project and its number there,
+ * and nothing else. `recordedBy` belongs only to the worked-today record —
+ * dropped here rather than trusted to be absent from every caller.
+ */
+function salvageTicket({ repo, number }: WorkedTicket): { repo: RepoSlug; number: IssueNumber } {
+  return { repo, number };
+}
+
+/**
  * `previous` with `ticket`'s salvage recorded as a stop-short — a limit
  * refusal or a budget exhaustion — on `branch`: `stopShorts` one more than an
  * existing record for `ticket` already carried, or 1 for a ticket salvaged
@@ -138,7 +159,7 @@ export function recordStopShortSalvage(
   branch: Branch,
 ): Salvage[] {
   const stopShorts = (salvageFor(previous, ticket)?.stopShorts ?? 0) + 1;
-  return withSalvage(previous, { ...workedTicket(ticket), branch, stopShorts });
+  return withSalvage(previous, { ...salvageTicket(ticket), branch, stopShorts });
 }
 
 /**
@@ -153,7 +174,7 @@ export function recordInfrastructureFailureSalvage(
   branch: Branch,
 ): Salvage[] {
   const stopShorts = salvageFor(previous, ticket)?.stopShorts ?? 0;
-  return withSalvage(previous, { ...workedTicket(ticket), branch, stopShorts });
+  return withSalvage(previous, { ...salvageTicket(ticket), branch, stopShorts });
 }
 
 /** `previous` with `salvage` recorded in place of any earlier one for the same ticket. */

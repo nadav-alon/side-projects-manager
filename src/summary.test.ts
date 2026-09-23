@@ -17,6 +17,7 @@ import {
   branch,
   commitSha,
   issueNumber,
+  processId,
   pullRequestUrl,
   repoSlug,
   tokenCount,
@@ -24,6 +25,7 @@ import {
   type ApplyReviewTicket,
   type Branch,
   type Discovery,
+  type OpenInvocation,
   type ReviewTicket,
   type Size,
   type SpecReviewTicket,
@@ -356,6 +358,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     invocationFailure: undefined,
     conflictSweeps: [],
     specReviewSweeps: [],
+    freedFromDeadInvocation: [],
   };
 }
 
@@ -1057,6 +1060,7 @@ describe("summaryLine", () => {
         invocationFailure: undefined,
         conflictSweeps: [],
         specReviewSweeps: [],
+        freedFromDeadInvocation: [],
       });
     }
 
@@ -1201,6 +1205,7 @@ describe("summaryLine", () => {
       invocationFailure: "the process crashed.",
       conflictSweeps: [],
       specReviewSweeps: [],
+      freedFromDeadInvocation: [],
     });
 
     assert.match(line, /The invocation did not finish: the process crashed\./);
@@ -1262,6 +1267,7 @@ describe("summaryLine", () => {
       invocationFailure: undefined,
       conflictSweeps: [],
       specReviewSweeps: [],
+      freedFromDeadInvocation: [],
     });
 
     assert.match(line, /Nothing to do: skipped/);
@@ -1837,5 +1843,61 @@ describe("spec review sweeps", () => {
       summaryLine(refused),
       new RegExp(`Spec review sweep: ${REPO} \\(refused once\\)`),
     );
+  });
+});
+
+describe("freed from a dead invocation", () => {
+  const INVOCATION: OpenInvocation = {
+    openedAt: new Date("2026-09-19T08:09:00.000Z"),
+    process: processId(7563),
+  };
+
+  it("renders nothing extra, byte for byte, when nothing was freed", () => {
+    const withoutFreed = facts([]);
+    const withEmptyFreed: SummaryFacts = {
+      ...facts([]),
+      freedFromDeadInvocation: [],
+    };
+
+    const line = summaryLine(withoutFreed);
+    assert.equal(
+      summaryBody(withEmptyFreed, summaryLine(withEmptyFreed)),
+      summaryBody(withoutFreed, line),
+    );
+    assert.doesNotMatch(line, /Freed from a dead invocation/);
+  });
+
+  it("names a freed ticket and the in-flight invocation it came from", () => {
+    const built: SummaryFacts = {
+      ...facts([]),
+      freedFromDeadInvocation: [
+        {
+          ticket: { repo: REPO, number: issueNumber(432) },
+          invocation: INVOCATION,
+        },
+      ],
+    };
+
+    const body = summaryBody(built, summaryLine(built));
+    const section = body.slice(body.indexOf("## Freed from a dead invocation"));
+
+    assert.match(section, new RegExp(`- ${REPO} #432: freed`));
+    assert.match(section, /process 7563/);
+    assert.match(section, /never closed/);
+  });
+
+  it("names every ticket a dead invocation freed, not just one", () => {
+    const built: SummaryFacts = {
+      ...facts([]),
+      freedFromDeadInvocation: [
+        { ticket: { repo: REPO, number: issueNumber(432) }, invocation: INVOCATION },
+        { ticket: { repo: REPO, number: issueNumber(434) }, invocation: INVOCATION },
+      ],
+    };
+
+    const body = summaryBody(built, summaryLine(built));
+
+    assert.match(body, new RegExp(`- ${REPO} #432: freed`));
+    assert.match(body, new RegExp(`- ${REPO} #434: freed`));
   });
 });

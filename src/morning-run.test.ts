@@ -20,6 +20,7 @@ import {
   issueNumber,
   localDay,
   modelName,
+  processId,
   pullRequestUrl,
   reserveFraction,
   reviewTitle,
@@ -30,6 +31,7 @@ import {
   type ApplyReviewTicket,
   type CommitSha,
   type Discovery,
+  type OpenInvocation,
   type RebaseTicket,
   type ReviewTicket,
   type RunFinished,
@@ -863,6 +865,172 @@ describe("morningLoop", () => {
         (await ports.store.loadState()).workedToday?.tickets,
         [{ repo: PILOT, number: issueNumber(42) }],
       );
+    });
+
+    describe("freed from a dead invocation", () => {
+      const DEAD: OpenInvocation = {
+        openedAt: new Date("2026-09-19T08:09:00.000Z"),
+        process: processId(7563),
+      };
+      const SELF: OpenInvocation = {
+        openedAt: new Date("2026-09-19T09:56:00.000Z"),
+        process: processId(9001),
+      };
+
+      it("selects a ticket a dead in-flight invocation recorded as worked today", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        const report = await morningLoop(ports, { invocation: SELF });
+
+        assert.ok(
+          report.iterations.some(
+            (iteration) => iteration.ticket.number === issueNumber(432),
+          ),
+        );
+      });
+
+      it("keeps a ticket passed over when the invocation that recorded it has closed", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        await ports.store.closeInvocation(DEAD, {
+          closedAt: new Date("2026-09-19T08:20:00.000Z"),
+          outcome: "work-selected",
+          projects: [],
+        });
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        const report = await morningLoop(ports, { invocation: SELF });
+
+        assert.equal(
+          report.iterations.some(
+            (iteration) => iteration.ticket.number === issueNumber(432),
+          ),
+          false,
+        );
+      });
+
+      it("leaves a ticket passed over when morningLoop is given no invocation identity", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(
+          report.iterations.some(
+            (iteration) => iteration.ticket.number === issueNumber(432),
+          ),
+          false,
+        );
+      });
+
+      it("names the freed ticket and the in-flight invocation it came from in the summary", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        await morningLoop(ports, { invocation: SELF });
+
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.match(body, /## Freed from a dead invocation/);
+        assert.match(body, /nadav-alon\/pilot #432/);
+        assert.match(body, /7563/);
+      });
+
+      it("frees nothing, but still stamps a newly recorded ticket with its own identity and says so on progress, when the journal cannot be read", async (t) => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.repoHost.mergeStatus = () => "clean";
+        const pullRequest = pullRequestUrl(
+          "https://github.com/nadav-alon/pilot/pull/12",
+        );
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(44),
+          title: "Rebase the draft pull request for #7",
+          pullRequest: { kind: "rebase", url: pullRequest },
+        });
+        t.mock.method(ports.tracker, "closeRebaseTicket", async () => {
+          throw new Error("issue is locked");
+        });
+        await ports.store.openInvocation(SELF);
+        const progress = new FakeProgress();
+        ports.progress = progress;
+        t.mock.method(ports.store, "loadJournal", async () => {
+          throw new Error("journal.json: not valid JSON");
+        });
+
+        await morningLoop(ports, { invocation: SELF });
+
+        assert.deepEqual(
+          (await ports.store.loadState()).workedToday?.tickets,
+          [{ repo: PILOT, number: issueNumber(44), recordedBy: SELF }],
+        );
+        assert.ok(
+          progress.events.some((event) => event.kind === "journal-unreadable"),
+        );
+      });
+
+      it("still publishes a summary naming a freed ticket, even with a dry queue on a day already announced", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+        ports.store.markAnnouncedOn(TODAY);
+
+        const report = await morningLoop(ports, { invocation: SELF });
+
+        assert.equal(report.outcome, "dry-queue");
+        assert.equal(ports.tracker.summaries.length, 1);
+        const body = ports.tracker.summaries[0]?.body ?? "";
+        assert.match(body, /## Freed from a dead invocation/);
+        assert.match(body, /nadav-alon\/pilot #432/);
+      });
     });
   });
 

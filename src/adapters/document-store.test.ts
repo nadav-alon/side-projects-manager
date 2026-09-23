@@ -837,6 +837,48 @@ describe("the state document", () => {
     assert.deepEqual(await store.loadState(), state);
   });
 
+  it("survives a round trip with which invocation recorded a ticket worked today", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      workedToday: {
+        day: day("2026-01-01"),
+        tickets: [
+          {
+            repo: PILOT,
+            number: issueNumber(7),
+            recordedBy: {
+              openedAt: new Date("2026-01-01T08:09:00.000Z"),
+              process: processId(7563),
+            },
+          },
+        ],
+      },
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("reads a ticket worked today that names no invocation as recorded by none", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          workedToday: {
+            day: "2026-01-01",
+            tickets: [{ repo: PILOT, number: 7 }],
+          },
+        }),
+      }),
+    );
+
+    const { workedToday } = await store.loadState();
+
+    assert.deepEqual(workedToday?.tickets, [{ repo: PILOT, number: issueNumber(7) }]);
+  });
+
   it("rejects tickets worked today recorded against something that is not a day", async () => {
     const store = documentStore(
       await home({

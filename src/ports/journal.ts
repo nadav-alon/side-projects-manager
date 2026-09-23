@@ -109,20 +109,23 @@ export function isClosedInvocation(
 }
 
 /**
+ * Whether `a` and `b` name the same invocation: same `openedAt` instant, same
+ * process — a domain rule every store implementation shares, not an adapter
+ * detail either is free to redecide.
+ */
+export function sameInvocation(a: OpenInvocation, b: OpenInvocation): boolean {
+  return a.openedAt.getTime() === b.openedAt.getTime() && a.process === b.process;
+}
+
+/**
  * The record in `records` opened at `opened`'s instant by `opened`'s
- * process, whatever its closed state. Same `openedAt` instant, same process
- * is what identifies a record — a domain rule every store implementation
- * shares, not an adapter detail either is free to redecide.
+ * process, whatever its closed state.
  */
 export function findInvocationRecord(
   records: readonly InvocationRecord[],
   opened: OpenInvocation,
 ): InvocationRecord | undefined {
-  return records.find(
-    (record) =>
-      record.openedAt.getTime() === opened.openedAt.getTime() &&
-      record.process === opened.process,
-  );
+  return records.find((record) => sameInvocation(record, opened));
 }
 
 /**
