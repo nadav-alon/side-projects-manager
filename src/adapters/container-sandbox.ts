@@ -1266,7 +1266,8 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
  * since `endingOf` reads both as `"gave-up"`; `agent.crashed` is `attempt`'s
  * own record of which one this was.
  *
- * TODO[#242]: a provider failure is cut off too, and is not salvaged here.
+ * A provider failure is cut off too, but deliberately not salvaged: see
+ * CONTEXT.md's **Cut off** entry.
  */
 function wasCutOff(ending: Ending, agent: AgentRun): boolean {
   return (

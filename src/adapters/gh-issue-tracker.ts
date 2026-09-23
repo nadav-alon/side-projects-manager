@@ -576,8 +576,6 @@ const APPLY_REVIEW_BODY =
  * hand — read back the same way `REVIEW_BODY` and `APPLY_REVIEW_BODY` are:
  * matched per line, so it survives beside a `Part of #N.` line or any other
  * the body carries.
- *
- * TODO[#295]: the workflow itself.
  */
 const REBASE_BODY =
   /^Rebase (\S+), the draft pull request opened for #\d+\.$/m;
