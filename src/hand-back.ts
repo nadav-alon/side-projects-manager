@@ -57,6 +57,17 @@ export type Discard =
   | ({ kind: "salvaged" } & Salvaged);
 
 /**
+ * The branch a finished, gave-up or cut-off implementation run left, worth
+ * discarding when its ticket is handed back instead of finishing normally —
+ * named once so a kind added to the union is one edit, not two kept in step
+ * by hand.
+ */
+export type WorkedBranch = {
+  checkout: Checkout;
+  run: RunFinished | RunGaveUp | RunLimitRefused | RunProviderFailed;
+};
+
+/**
  * What became of the loop's own attempt to give a ticket back to the
  * developer: relabelled ready-for-human, found already closed by an
  * overlapping run, or the tracker call itself refused — carrying why. One
@@ -172,8 +183,12 @@ export type HandBackEnding =
        * instead of the ticket handed back here.
        */
       target?: Ticket;
-      /** The branch a finished or gave-up implementation run left. Present only for an implementation ticket, the only kind with one to discard. */
-      worked?: { checkout: Checkout; run: RunFinished | RunGaveUp };
+      /**
+       * The branch a finished, gave-up or cut-off implementation run left.
+       * Present only for an implementation ticket, the only kind with one to
+       * discard.
+       */
+      worked?: WorkedBranch;
       transcript?: TranscriptPath;
     };
 

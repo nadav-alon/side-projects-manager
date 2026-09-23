@@ -86,6 +86,7 @@ import {
   handBack,
   type Discard,
   type HandBackRecord,
+  type WorkedBranch,
 } from "./hand-back.ts";
 import {
   blockingDiscoveriesOf,
@@ -97,17 +98,17 @@ import { errorMessage } from "./error-message.ts";
 import {
   budgetExhaustedReviewOutcome,
   budgetExhaustedRunOutcome,
+  cutOffOf,
   cutOffReviewOutcome,
   cutOffRunOutcome,
   failedOnInfrastructure,
   handedBackAheadOfGate,
   handedBackFailure,
-  isCutOff,
   type AheadOfGateFailure,
   type AppliedReview,
   type BudgetExhausted,
-  type CutOff,
   type DiscoveryBlocked,
+  type DiscoveryBlockedCutOff,
   type Failed,
   type Finished,
   type GaveUp,
@@ -269,8 +270,14 @@ export interface ProviderLimitStandDown {
   reason: "provider-limit";
   /** What the provider said, reset time included, word for word. */
   limitRefusal: string;
-  /** The ticket whose run it refused, left eligible exactly as it was. */
+  /** The ticket whose run it refused. */
   ticket: Ticket;
+  /**
+   * Whether `ticket` was handed back for a blocking discovery its run filed
+   * before the provider refused it, rather than left eligible exactly as it
+   * was — per CONTEXT.md's "Discovery", true only when the hand-back landed.
+   */
+  handedBack: boolean;
 }
 
 /**
@@ -282,8 +289,10 @@ export interface ProviderFailureStandDown {
   reason: "provider-failure";
   /** What the CLI said, word for word. */
   providerFailure: string;
-  /** The ticket whose run it stopped, left eligible exactly as it was. */
+  /** The ticket whose run it stopped. */
   ticket: Ticket;
+  /** As `ProviderLimitStandDown.handedBack`. */
+  handedBack: boolean;
 }
 
 /**
@@ -302,11 +311,21 @@ export type InvocationStandDown =
   | ProviderFailureStandDown
   | DeveloperStandDown;
 
-/** `iteration`'s own cut-off reason, as the stand-down it triggers. */
-function cutOffStandDown(iteration: CutOff, ticket: Ticket): InvocationStandDown {
-  return iteration.kind === "limit-refused"
-    ? { reason: "provider-limit", limitRefusal: iteration.limitRefusal, ticket }
-    : { reason: "provider-failure", providerFailure: iteration.providerFailure, ticket };
+/**
+ * `cutOff`'s own reason, as the stand-down it triggers on `ticket` — the same
+ * stand-down whether `cutOff` came from a plain limit refusal or provider
+ * failure, or from a discovery-blocked iteration that also carried one.
+ * `handedBack` is `iteration`'s own, so the wording can say what became of
+ * the ticket named.
+ */
+function cutOffStandDown(
+  cutOff: DiscoveryBlockedCutOff,
+  ticket: Ticket,
+  handedBack: boolean,
+): InvocationStandDown {
+  return cutOff.kind === "limit-refused"
+    ? { reason: "provider-limit", limitRefusal: cutOff.limitRefusal, ticket, handedBack }
+    : { reason: "provider-failure", providerFailure: cutOff.providerFailure, ticket, handedBack };
 }
 
 /** What a trigger may hand the loop beyond its ports. */
@@ -550,13 +569,19 @@ export async function morningLoop(
                 worked.unrecord(ticket);
               }
 
-              // A cut-off run — a limit refusal or a provider failure —
-              // stops every run after it the same way, so nothing further
-              // starts. The iterations already in progress are left to
-              // finish on their own.
-              if (isCutOff(iteration)) {
-                standDown ??= cutOffStandDown(iteration, ticket);
-                if (iteration.kind === "limit-refused") {
+              // A cut-off run — a limit refusal or a provider failure,
+              // direct or carried by a discovery-blocked iteration whose run
+              // was cut off before it filed the blocking discovery — stops
+              // every run after it the same way, so nothing further starts.
+              // The iterations already in progress are left to finish on
+              // their own.
+              const cutOff = cutOffOf(iteration);
+              if (cutOff !== undefined) {
+                const handedBack =
+                  iteration.kind === "discovery-blocked" &&
+                  iteration.handedBack.outcome !== "refused";
+                standDown ??= cutOffStandDown(cutOff, ticket, handedBack);
+                if (cutOff.kind === "limit-refused") {
                   // Announced the instant the provider refuses, not only once
                   // the invocation report is written — the developer would
                   // otherwise hear nothing until every iteration still in
@@ -564,7 +589,7 @@ export async function morningLoop(
                   notify(ports.progress, {
                     kind: "provider-limited",
                     ticket,
-                    limitRefusal: iteration.limitRefusal,
+                    limitRefusal: cutOff.limitRefusal,
                   });
                 }
               }
@@ -960,16 +985,22 @@ async function work(
     };
   }
   if (run.kind === "limit-refused") {
+    // Routed before the branch is salvaged: a blocking discovery is no less
+    // true for the provider having refused the run, so it hands the ticket
+    // back — discarding the branch, per CONTEXT.md's "Discard" — rather than
+    // salvaging it for a next run the ticket has already been declared wrong
+    // for. See CONTEXT.md's "Discovery" and "Hand back". Still carries its
+    // cut-off, so the invocation stands down over it exactly as it would
+    // without the discovery.
+    const routing = await routeOrBlock(ports, selection.ticket, run, {
+      worked: { checkout, salvages, run },
+      cutOff: discoveryBlockedCutOff(run),
+    });
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
     const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
-    return withDiscoveries(
-      cutOffRunOutcome(run, discard),
-      await routeRunDiscoveries(
-        ports.tracker,
-        selection.ticket,
-        run.discoveries,
-        run.discoveriesDropped,
-      ),
-    );
+    return withDiscoveries(cutOffRunOutcome(run, discard), routing.routed);
   }
   if (run.kind === "budget-exhausted") {
     // Salvaged exactly as a limit refusal's branch is — its own ceiling says
@@ -983,23 +1014,25 @@ async function work(
     );
   }
   if (run.kind === "provider-failed") {
+    // Routed before the branch is discarded, as a limit refusal's is above:
+    // a blocking discovery hands the ticket back rather than leaving it
+    // eligible for a later firing to select again. Still carries its
+    // cut-off, exactly as a limit refusal's block does above.
+    const routing = await routeOrBlock(ports, selection.ticket, run, {
+      worked: { checkout, salvages, run },
+      cutOff: discoveryBlockedCutOff(run),
+    });
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
     const discard = await discardBranch(ports.repoHost, checkout, run);
-    return withDiscoveries(
-      cutOffRunOutcome(run, discard),
-      await routeRunDiscoveries(
-        ports.tracker,
-        selection.ticket,
-        run.discoveries,
-        run.discoveriesDropped,
-      ),
-    );
+    return withDiscoveries(cutOffRunOutcome(run, discard), routing.routed);
   }
   if (run.kind === "model-refused") {
     // A model refusal ends the ticket's run on its own terms, whatever it
-    // continued from, so it clears the ticket's salvage record — and, via
-    // `discardStaleSalvage`, the branch it names. See CONTEXT.md's "Salvage".
-    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-    salvages.clear(selection.ticket);
+    // continued from, so it retires the ticket's salvage record. See
+    // CONTEXT.md's "Salvage".
+    await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     return handModelRefusedBack(
       ports,
       selection.ticket,
@@ -1011,31 +1044,21 @@ async function work(
   }
   // Routed before either of the run's own endings — finished or gave up — is
   // decided: a blocking discovery replaces both, per CONTEXT.md's "Discovery"
-  // and "Hand back". Either way the ticket's salvage record is discarded —
-  // and, via `discardStaleSalvage`, the branch it names — the same as any
-  // other gave-up run's branch; see CONTEXT.md's "Salvage".
-  const routed = await routeRunDiscoveries(
-    ports.tracker,
-    selection.ticket,
-    run.discoveries,
-    run.discoveriesDropped,
-  );
-  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
-    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-    salvages.clear(selection.ticket);
-    return discoveryBlockedOutcome(ports, selection.ticket, routed, run.tokensUsed, run.transcript, {
-      checkout,
-      run,
-    });
+  // and "Hand back". Either way the ticket's salvage record is retired, the
+  // same as any other gave-up run's branch; see CONTEXT.md's "Salvage".
+  const routing = await routeOrBlock(ports, selection.ticket, run, {
+    worked: { checkout, salvages, run },
+  });
+  if ("blocked" in routing) {
+    return routing.blocked;
   }
+  const { routed } = routing;
   if (run.kind === "finished") {
-    await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-    salvages.clear(selection.ticket);
+    await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     return withDiscoveries(await handOver(ports, run, checkout, selection.ticket), routed);
   }
 
-  await discardStaleSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-  salvages.clear(selection.ticket);
+  await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
   const failure: GaveUp = { kind: "gave-up", reason: run.reason };
   const handedBack = await handBack(ports, selection.ticket, {
     ...failure,
@@ -1257,15 +1280,34 @@ async function handModelRefusedBack(
 }
 
 /**
+ * `run`'s own cut-off, as `DiscoveryBlocked.cutOff` carries it — the one
+ * place a limit refusal or a provider failure's own words become the shape
+ * `routeOrBlock` attaches when it blocks a cut-off run, for every run kind
+ * that can hit one.
+ */
+function discoveryBlockedCutOff(run: {
+  kind: "limit-refused" | "provider-failed";
+  words: string;
+}): DiscoveryBlockedCutOff {
+  return run.kind === "limit-refused"
+    ? { kind: "limit-refused", limitRefusal: run.words }
+    : { kind: "provider-failed", providerFailure: run.words };
+}
+
+/**
  * Hands a ticket back for a blocking discovery — a correction or a
  * prerequisite the run filed — per CONTEXT.md's "Discovery" and "Hand back":
  * the run's own ticket is handed back exactly as a gave-up run's is, whatever
- * the agent went on to commit or would otherwise have finished. `worked`
- * names the branch an implementation run left, so its own hand-back discards
- * it; a review, apply-review or rebase ticket's own run never creates one, so
- * `worked` is left out. `routed.crossTarget` is named on the hand-back only
- * when it is set — a pull request ticket's run, whose discoveries land on its
- * implementation ticket rather than the ticket handed back here.
+ * the agent went on to commit, would otherwise have finished, or was cut off
+ * by the provider mid-run — the correction or prerequisite is no less true
+ * for the provider having run out. `worked` names the branch an
+ * implementation run left, so its own hand-back discards it; a review,
+ * apply-review or rebase ticket's own run never creates one, so `worked` is
+ * left out. `routed.crossTarget` is named on the hand-back only when it is
+ * set — a pull request ticket's run, whose discoveries land on its
+ * implementation ticket rather than the ticket handed back here. `cutOff` is
+ * set only when the run that filed the discovery was also cut off, so the
+ * iteration still carries what stands the invocation down.
  */
 async function discoveryBlockedOutcome(
   ports: MorningLoopPorts,
@@ -1273,7 +1315,8 @@ async function discoveryBlockedOutcome(
   routed: RoutedDiscoveries,
   tokensUsed: TokenCount,
   transcript: TranscriptPath | undefined,
-  worked?: { checkout: Checkout; run: RunFinished | RunGaveUp },
+  worked?: WorkedBranch,
+  cutOff?: DiscoveryBlockedCutOff,
 ): Promise<DiscoveryBlocked> {
   const { crossTarget: target } = routed;
   const handedBack = await handBack(ports, ticket, {
@@ -1290,17 +1333,22 @@ async function discoveryBlockedOutcome(
     tokensUsed,
     ...(transcript !== undefined && { transcript }),
     handedBack,
+    ...(cutOff !== undefined && { cutOff }),
   };
 }
 
 /**
  * Routes `outcome`'s own discoveries against `ticket` and, when one of them
- * blocks, hands the ticket back for it — shared by a review, apply-review or
- * rebase run's own gave-up and otherwise-successful paths, each of which
- * replaces both with a blocking discovery's hand-back the same way, per
- * CONTEXT.md's "Discovery" and "Hand back". Neither ever passes
- * `discoveryBlockedOutcome`'s `worked`: none of the three ever creates a
- * branch.
+ * blocks, hands the ticket back for it — shared by every run kind's own
+ * gave-up, otherwise-successful and cut-off paths alike, each of which
+ * replaces its ending with a blocking discovery's hand-back the same way, per
+ * CONTEXT.md's "Discovery" and "Hand back". `worked` names the branch an
+ * implementation run left — a review, apply-review or rebase run never
+ * creates one, so its own calls leave it out — and, when given, is also the
+ * salvage record a block retires: discarded and cleared exactly as any other
+ * ending that leaves nothing to resume does, per CONTEXT.md's "Salvage".
+ * `cutOff` is set only on a cut-off run's own call, so a block still carries
+ * what stands the invocation down.
  */
 async function routeOrBlock(
   ports: MorningLoopPorts,
@@ -1311,6 +1359,10 @@ async function routeOrBlock(
     discoveries?: Discovery[];
     discoveriesDropped?: number;
   },
+  options?: {
+    worked?: WorkedBranch & { salvages: Salvages };
+    cutOff?: DiscoveryBlockedCutOff;
+  },
 ): Promise<{ routed: RoutedDiscoveries | undefined } | { blocked: DiscoveryBlocked }> {
   const routed = await routeRunDiscoveries(
     ports.tracker,
@@ -1319,6 +1371,10 @@ async function routeOrBlock(
     outcome.discoveriesDropped,
   );
   if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+    const { worked } = options ?? {};
+    if (worked !== undefined) {
+      await retireSalvage(ports, worked.checkout, worked.salvages, ticket, worked.run.branch);
+    }
     return {
       blocked: await discoveryBlockedOutcome(
         ports,
@@ -1326,6 +1382,8 @@ async function routeOrBlock(
         routed,
         outcome.tokensUsed,
         outcome.transcript,
+        worked !== undefined ? { checkout: worked.checkout, run: worked.run } : undefined,
+        options?.cutOff,
       ),
     };
   }
@@ -1361,6 +1419,24 @@ async function discardStaleSalvage(
   } catch {
     // Best-effort cleanup of a branch nothing names any more: see above.
   }
+}
+
+/**
+ * Retires `ticket`'s salvage record for a run ending that leaves nothing to
+ * resume: `discardStaleSalvage`'s own discard of the branch it names, if any,
+ * followed by clearing the record itself — the two always happen together,
+ * since an ending that discards a stale salvage this way never has one worth
+ * keeping either.
+ */
+async function retireSalvage(
+  ports: MorningLoopPorts,
+  checkout: Checkout,
+  salvages: Salvages,
+  ticket: Ticket,
+  keeping: Branch,
+): Promise<void> {
+  await discardStaleSalvage(ports, checkout, salvages, ticket, keeping);
+  salvages.clear(ticket);
 }
 
 /** What `runInSandbox` came back with, before its caller reads what kind of outcome it was. */
@@ -1657,15 +1733,18 @@ async function runReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return withDiscoveries(
-      cutOffReviewOutcome(review),
-      await routeRunDiscoveries(
-        ports.tracker,
-        ticket,
-        review.discoveries,
-        review.discoveriesDropped,
-      ),
-    );
+    // Routed through the same blocking check as the run's own gave-up and
+    // otherwise-successful paths below: a correction or prerequisite the run
+    // filed is no less true for the provider having cut it off. Still
+    // carries its cut-off, so the invocation stands down over it exactly as
+    // it would without the discovery.
+    const routing = await routeOrBlock(ports, ticket, review, {
+      cutOff: discoveryBlockedCutOff(review),
+    });
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
+    return withDiscoveries(cutOffReviewOutcome(review), routing.routed);
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1915,10 +1994,18 @@ async function runApplyReview(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return withDiscoveries(
-      cutOffReviewOutcome(run),
-      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries, run.discoveriesDropped),
-    );
+    // Routed through the same blocking check as the run's own gave-up and
+    // otherwise-successful paths below: a correction or prerequisite the run
+    // filed is no less true for the provider having cut it off. Still
+    // carries its cut-off, so the invocation stands down over it exactly as
+    // it would without the discovery.
+    const routing = await routeOrBlock(ports, ticket, run, {
+      cutOff: discoveryBlockedCutOff(run),
+    });
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
+    return withDiscoveries(cutOffReviewOutcome(run), routing.routed);
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
@@ -2129,10 +2216,18 @@ async function runRebase(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return withDiscoveries(
-      cutOffReviewOutcome(run),
-      await routeRunDiscoveries(ports.tracker, ticket, run.discoveries, run.discoveriesDropped),
-    );
+    // Routed through the same blocking check as the run's own gave-up and
+    // otherwise-successful paths below: a correction or prerequisite the run
+    // filed is no less true for the provider having cut it off. Still
+    // carries its cut-off, so the invocation stands down over it exactly as
+    // it would without the discovery.
+    const routing = await routeOrBlock(ports, ticket, run, {
+      cutOff: discoveryBlockedCutOff(run),
+    });
+    if ("blocked" in routing) {
+      return routing.blocked;
+    }
+    return withDiscoveries(cutOffReviewOutcome(run), routing.routed);
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
