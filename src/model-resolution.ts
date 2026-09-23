@@ -20,7 +20,7 @@ export interface ResolvedModel {
  * refusal to start, for model labels no run could be started on.
  */
 export type ModelResolution =
-  | ({ kind: "resolved" } & ResolvedModel)
+  | { kind: "resolved"; model: ResolvedModel }
   | { kind: "none" }
   | { kind: "refused"; failure: UnusableModelLabel };
 
@@ -56,12 +56,12 @@ export function resolveModel(
         },
       };
     case "named":
-      return { kind: "resolved", name: label.name, source: "model label" };
+      return { kind: "resolved", model: { name: label.name, source: "model label" } };
     case undefined: {
       const name = defaults[ticketKind(ticket)];
       return name === undefined
         ? { kind: "none" }
-        : { kind: "resolved", name, source: "model defaults" };
+        : { kind: "resolved", model: { name, source: "model defaults" } };
     }
   }
 }

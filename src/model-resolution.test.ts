@@ -46,19 +46,19 @@ describe("resolveModel", () => {
       name: "a named model label, with no model defaults at all",
       ticket: implementationTicket(["model:opus"]),
       defaults: {},
-      expected: { kind: "resolved", name: modelName("opus"), source: "model label" },
+      expected: { kind: "resolved", model: { name: modelName("opus"), source: "model label" } },
     },
     {
       name: "a named model label, over a model default for the same kind",
       ticket: implementationTicket(["model:opus"]),
       defaults: { implementation: modelName("haiku") },
-      expected: { kind: "resolved", name: modelName("opus"), source: "model label" },
+      expected: { kind: "resolved", model: { name: modelName("opus"), source: "model label" } },
     },
     {
       name: "no label, and a model default for the ticket's own kind",
       ticket: implementationTicket(),
       defaults: { implementation: modelName("haiku") },
-      expected: { kind: "resolved", name: modelName("haiku"), source: "model defaults" },
+      expected: { kind: "resolved", model: { name: modelName("haiku"), source: "model defaults" } },
     },
     {
       name: "no label, and a model default for a different kind",
@@ -76,7 +76,7 @@ describe("resolveModel", () => {
       name: "a review ticket's own kind is read, not its parent's implementation default",
       ticket: reviewTicket(),
       defaults: { review: modelName("sonnet") },
-      expected: { kind: "resolved", name: modelName("sonnet"), source: "model defaults" },
+      expected: { kind: "resolved", model: { name: modelName("sonnet"), source: "model defaults" } },
     },
     {
       name: "conflicting model labels, whatever the model defaults say",
