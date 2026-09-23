@@ -19,6 +19,7 @@ import {
   failedOnInfrastructure,
   handedBackAheadOfGate,
   handedBackFailure,
+  ranNothing,
   type AppliedReview,
   type Attempt,
   type BudgetExhausted,
@@ -1409,35 +1410,6 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
       return [
         `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its size label (${failure.labels.join(", ")})`,
       ];
-  }
-}
-
-/**
- * Whether `iteration` started no run: a ticket handed back before one could
- * start, or a pull request ticket that found nothing to do. A switch on every
- * kind, so an iteration kind added later has to say which it is.
- */
-function ranNothing(iteration: IterationOutcome): boolean {
-  switch (iteration.kind) {
-    case "applied-review":
-      return iteration.review === undefined;
-    case "rebased":
-      return iteration.rebase === undefined;
-    case "pull-request-resolved":
-      return true;
-    case "failed":
-      return (
-        handedBackAheadOfGate(iteration) ||
-        iteration.failure.kind === "unsettled-mergeability"
-      );
-    case "finished":
-    case "reviewed":
-    case "spec-reviewed":
-    case "limit-refused":
-    case "provider-failed":
-    case "budget-exhausted":
-    case "discovery-blocked":
-      return false;
   }
 }
 

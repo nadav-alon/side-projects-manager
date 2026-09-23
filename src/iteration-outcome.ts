@@ -782,9 +782,7 @@ export interface PullRequestResolved {
  * unusable model labels, or a size label naming no size the budget document
  * knows — and so never started a run: nothing was spent, and on no model.
  */
-export function handedBackAheadOfGate(
-  iteration: IterationOutcome,
-): boolean {
+export function handedBackAheadOfGate(iteration: Iteration): boolean {
   return iteration.kind === "failed" && isAheadOfGateFailure(iteration.failure);
 }
 
@@ -796,6 +794,35 @@ function isAheadOfGateFailure(
     failure.kind === "unusable-model-label" ||
     failure.kind === "unusable-size-label"
   );
+}
+
+/**
+ * Whether `iteration` started no run: a ticket handed back before one could
+ * start, or a pull request ticket that found nothing to do. A switch on every
+ * kind, so an iteration kind added later has to say which it is.
+ */
+export function ranNothing(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "applied-review":
+      return iteration.review === undefined;
+    case "rebased":
+      return iteration.rebase === undefined;
+    case "pull-request-resolved":
+      return true;
+    case "failed":
+      return (
+        handedBackAheadOfGate(iteration) ||
+        iteration.failure.kind === "unsettled-mergeability"
+      );
+    case "finished":
+    case "reviewed":
+    case "spec-reviewed":
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return false;
+  }
 }
 
 /** Why `iteration` failed: undefined when it ended any other way, or there was none. */
