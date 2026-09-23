@@ -6353,6 +6353,24 @@ describe("morningLoop", () => {
         );
       });
 
+      it("saves the worked-today record before the hand-back is posted, so a process stopped mid-post still leaves it recorded", async (t) => {
+        const { ports, ticket } = oneTicket();
+        ports.tracker.addLabel(ticket, "size:XXL");
+        let saved: State | undefined;
+        const original = ports.tracker.handBack.bind(ports.tracker);
+        t.mock.method(ports.tracker, "handBack", async (handedBackTicket: Ticket, comment: string) => {
+          saved = await ports.store.loadState();
+          return original(handedBackTicket, comment);
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(saved?.workedToday, {
+          day: localDay(FROZEN_NOW),
+          tickets: [{ repo: PILOT, number: issueNumber(7) }],
+        });
+      });
+
       it("is handed back even when the gate then stands the morning down, which still reads as a stand-down", async () => {
         const { ports, ticket } = oneTicket();
         ports.tracker.addLabel(ticket, "size:XXL");

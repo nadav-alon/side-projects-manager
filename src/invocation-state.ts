@@ -111,9 +111,10 @@ export interface InvocationState {
   ticketSelected(ticket: WorkedTicket, day: Day): Promise<void>;
 
   /**
-   * Records `ticket` as worked on `day`, in memory only — for a ticket handed
-   * back ahead of the gate, whose iteration never reaches the sandbox and so
-   * carries none of `ticketSelected`'s own save-at-once guarantee.
+   * Records `ticket` as worked on `day`, in memory only, carrying none of
+   * `ticketSelected`'s own save-at-once guarantee — for a caller that folds
+   * the record into its own explicit `save` afterwards, or a test seeding a
+   * worked-today record directly.
    */
   recordWorked(ticket: WorkedTicket, day: Day): void;
 

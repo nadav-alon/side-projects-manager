@@ -570,19 +570,21 @@ function unusableSizeLabel(ticket: Ticket): UnusableSizeLabel | undefined {
 /**
  * Hands `ticket` back ahead of the gate, for `ending`: unusable model labels,
  * or a size label naming no size the budget document knows. Recorded as
- * worked today before the hand-back, so a hand-back the tracker refuses still
- * keeps a later firing the same day from selecting the ticket again, and one
- * that landed frees it per `freesTicketToday`. Nothing is cloned or spent,
- * since no run ever starts.
+ * worked today and saved before the hand-back is posted — `ticketSelected`'s
+ * own save-at-once guarantee, so a process stopped mid-post still leaves the
+ * ticket recorded, and a hand-back the tracker refuses still keeps a later
+ * firing the same day from selecting the ticket again. One that landed frees
+ * it per `freesTicketToday`. Nothing is cloned or spent, since no run ever
+ * starts.
  */
 async function handBackAheadOfGate(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: Ticket,
   ending: AheadOfGateFailure,
-  invocation: Pick<InvocationState, "recordWorked" | "iterationEnded">,
+  invocation: Pick<InvocationState, "ticketSelected" | "iterationEnded">,
 ): Promise<IterationOutcome> {
-  invocation.recordWorked(ticket, localDay(ports.clock.now()));
+  await invocation.ticketSelected(ticket, localDay(ports.clock.now()));
   const handedBack = await handBack(ports, ticket, ending);
   const iteration: Failed = { kind: "failed", failure: ending, handedBack };
   invocation.iterationEnded(ticket, iteration);
