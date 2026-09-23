@@ -43,6 +43,7 @@ import {
   summaryBody,
   summaryLine,
   type GateStandDown,
+  type InvocationStandDown,
   type SummaryFacts,
   type SummaryTracker,
 } from "./summary.ts";
@@ -2159,6 +2160,14 @@ describe("composeInvocationReport", () => {
     };
   }
 
+  /** The stand-down a limit refusal on `implementationTicket(7)` triggers, per CONTEXT.md's "Limit refusal". */
+  const LIMIT_REFUSED_STAND_DOWN: InvocationStandDown = {
+    reason: "provider-limit",
+    limitRefusal: LIMIT_REFUSAL,
+    ticket: implementationTicket(7),
+    handedBack: false,
+  };
+
   /**
    * A `SummaryTracker` that records every summary it is asked to publish,
    * answering with a fresh issue address each time — built here rather than
@@ -2225,6 +2234,22 @@ describe("composeInvocationReport", () => {
     );
   });
 
+  it("reports work-selected, and always publishes, when a run happened alongside a limit-refused one", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([gaveUp(7), limitRefused(8, { kind: "none" })]),
+        standDown: { reason: "stopped" },
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "work-selected");
+    assert.equal(tracker.published.length, 1);
+  });
+
   it("reports a stand-down that ran nothing as stood-down", async () => {
     const report = await composeInvocationReport(recordingTracker(), {
       startedAt: STARTED_AT,
@@ -2243,6 +2268,51 @@ describe("composeInvocationReport", () => {
     });
 
     assert.equal(report.outcome, "stood-down");
+  });
+
+  it("reports a stand-down with limit-refused and ahead-of-gate iterations as stood-down", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" }), aheadOfGate(8)]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+  });
+
+  it("does not publish a stand-down with only limit-refused iterations when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" })]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 0);
+  });
+
+  it("publishes a stand-down with only limit-refused iterations when today is not yet announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" })]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 1);
   });
 
   it("does not publish a quiet morning when today is already announced", async () => {

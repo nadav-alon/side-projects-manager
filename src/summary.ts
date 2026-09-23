@@ -565,23 +565,57 @@ export interface InvocationReport {
 }
 
 /**
+ * Whether `iteration` counts as work when classifying the invocation's
+ * outcome: not a ticket handed back ahead of the gate, and not a run the
+ * provider limit refused. A limit refusal never happened — CONTEXT.md's
+ * "Limit refusal" says it leaves the ticket exactly as it found it — so it
+ * counts for nothing here, the same way a hand-back ahead of the gate does
+ * not. A provider failure still counts as work: the provider was reached and
+ * the run was cut off, rather than refused before it started.
+ *
+ * A switch on every kind, so an iteration kind added later has to say which
+ * it is — as `ranNothing` does. The two disagree on a limit refusal on
+ * purpose: `ranNothing` says it ran (tokens were spent reaching the refusal),
+ * while this one says it is not work (nothing landed against the ticket).
+ */
+function countsAsWork(iteration: IterationOutcome): boolean {
+  switch (iteration.kind) {
+    case "limit-refused":
+      return false;
+    case "failed":
+      return !handedBackAheadOfGate(iteration);
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return true;
+  }
+}
+
+/**
  * What this invocation came to: whether it worked something, stood down —
  * before or after working something — ran into nothing to do, or never
  * finished at all.
  *
  * A ticket handed back ahead of the gate — for its model or size labels —
- * was never run, so it does not count as work when the morning then stood
- * down: a stand-down that ran nothing reads as one, whatever was handed back
- * before it. Without a stand-down, that hand-back is still work an iteration
- * selected.
+ * was never run, and neither was a run the provider limit refused, so
+ * neither counts as work when the morning then stood down: a stand-down that
+ * ran nothing reads as one, whatever was handed back or refused before it.
+ * Without a stand-down, either kind of non-work is still work an iteration
+ * selected. A limit refusal that also filed a blocking discovery is a
+ * `discovery-blocked` iteration instead, and does count: the discovery needs
+ * the developer.
  */
 function outcomeOf(facts: SummaryFacts): InvocationOutcome {
   if (facts.invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  const worked = facts.iterations.some(
-    (iteration) => !handedBackAheadOfGate(iteration),
-  );
+  const worked = facts.iterations.some(countsAsWork);
   if (worked) {
     return "work-selected";
   }
