@@ -72,8 +72,13 @@ describe("resolveModel", () => {
       defaults: {},
       expected: { kind: "none" },
     },
+    // A review ticket whose parent carries a model label is not a case this
+    // table can express: `Ticket` carries no link to a parent, and
+    // non-inheritance is fixed at the tracker port, out of this ticket's
+    // scope. This case only shows a review ticket reads the `review` entry
+    // of the model defaults, not the `implementation` one.
     {
-      name: "a review ticket's own kind is read, not its parent's implementation default",
+      name: "a review ticket reads the model defaults' review entry, not its implementation entry",
       ticket: reviewTicket(),
       defaults: { review: modelName("sonnet") },
       expected: { kind: "resolved", model: { name: modelName("sonnet"), source: "model defaults" } },
