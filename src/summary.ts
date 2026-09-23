@@ -629,8 +629,7 @@ export interface InvocationReportInputs {
  * issue landed, or the summary a failed publish left composed but homeless.
  *
  * Composes the line once and reuses it for both `message` and, when
- * publishing, the issue body: nothing here asks a caller to hand back a line
- * it already built for itself.
+ * publishing, the issue body.
  *
  * An invocation that worked something, or freed a ticket a dead invocation
  * had recorded, always publishes — a freed ticket must be named somewhere,
