@@ -30,10 +30,11 @@ export interface Discovery {
    * no decision to the developer, so the ticket it opens may skip triage.
    * Only ever read on a prerequisite or a suggestion — a correction or a
    * clarification never opens a ticket, so this is ignored on either, per
-   * `discovery-routing.ts`. Absent or `false` leaves today's behavior in
-   * place; declaring `ready` is not by itself enough — `discovery-routing.ts`
-   * still checks the body reads as an agent brief and that the ticket the
-   * filer is working was not itself born from a ready discovery.
+   * `discovery-routing.ts`. Absent or `false` opens the ticket needs-triage,
+   * as any other discovery does; declaring `ready` is not by itself enough —
+   * `discovery-routing.ts` still checks the body reads as an agent brief and
+   * that the ticket the discovery is filed against was not itself born from
+   * a ready discovery.
    */
   ready?: boolean;
 }
