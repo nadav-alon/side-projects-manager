@@ -167,9 +167,12 @@ export interface InvocationSelection {
    * each ran — one per non-paused project per scan, as `sweeps` is for the
    * conflict sweep. A supertask a sweep opened a spec review for is not one a
    * later scan the same invocation finds again: its own new sub-issue is
-   * what the next scan's fresh `listOpenIssues` sees, so — unlike the
-   * conflict sweep's own changes — nothing here is ever the same supertask
-   * twice.
+   * what the next scan's fresh `listOpenIssues` sees. A link is not the same:
+   * linking a floating spec review makes it a sub-issue too, but only a
+   * later scan's own re-read of `listOpenIssues` sees that, so the same
+   * floating spec review can be found, and linked again, by a later scan the
+   * same invocation ran — left for `summary.ts` to deduplicate, same as
+   * `sweeps`' own refusals.
    */
   specReviewSweeps(): SpecReviewSweepOutcome[];
 }
@@ -197,9 +200,10 @@ export function invocationSelection(
   // whole run to `summary.ts`, which is what dedupes a change or a refusal
   // met by more than one scan.
   const sweepOutcomes: ConflictSweepOutcome[] = [];
-  // Appended to by every scan, same as `sweepOutcomes` — but never carries
-  // the same supertask twice, per `specReviewSweeps`'s own doc, so nothing
-  // here needs deduplicating the way `sweepOutcomes` does.
+  // Appended to by every scan, never deduplicated here: same as
+  // `sweepOutcomes`, `specReviewSweeps()` hands the whole run to
+  // `summary.ts`, which is what dedupes a link or a refusal met by more than
+  // one scan.
   const specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
 
   return {
