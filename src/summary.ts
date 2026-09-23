@@ -682,8 +682,7 @@ function specReviewSweepSection(
       (ticket) => `- ${project.repo}: opened #${ticket.number} (${ticket.title})`,
     ),
     ...project.linked.map(
-      (link) =>
-        `- ${project.repo}: linked #${link.specReview.number} (${link.specReview.title}) to #${link.supertask.number}`,
+      (link) => `- ${project.repo}: linked #${link.specReview.number} (${link.specReview.title})`,
     ),
     ...project.refusals.map((refusal) => specReviewSweepRefusalLine(project.repo, refusal)),
   ]);

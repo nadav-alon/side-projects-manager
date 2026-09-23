@@ -1909,7 +1909,7 @@ describe("spec review sweeps", () => {
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Spec review sweep"));
 
-    assert.match(section, new RegExp(`- ${REPO}: linked #68 \\(Spec review for #40\\) to #40`));
+    assert.match(section, new RegExp(`- ${REPO}: linked #68 \\(Spec review for #40\\)`));
     assert.doesNotMatch(section, /- .*: opened #68/);
   });
 
@@ -1956,7 +1956,7 @@ describe("spec review sweeps", () => {
     ];
 
     const body = bodyOf(sweeps);
-    const matches = body.match(/linked #68 \(Spec review for #40\) to #40/g);
+    const matches = body.match(/linked #68 \(Spec review for #40\)/g);
 
     assert.equal(matches?.length, 1);
     assert.match(
