@@ -18,6 +18,8 @@ import {
   commitSha,
   issueNumber,
   issueUrl,
+  localDay,
+  localTimeOfMinute,
   processId,
   pullRequestUrl,
   repoSlug,
@@ -2104,7 +2106,10 @@ describe("composeInvocationReport", () => {
     const line = summaryLine(built);
     assert.equal(report.message, line);
     assert.equal(tracker.published[0]?.body, summaryBody(built, line));
-    assert.equal(tracker.published[0]?.title, `Morning loop summary — 2026-03-05 14:37`);
+    assert.equal(
+      tracker.published[0]?.title,
+      `Morning loop summary — ${localDay(STARTED_AT)} ${localTimeOfMinute(STARTED_AT)}`,
+    );
   });
 
   it("publishes a morning that worked something even when today is already announced", async () => {
