@@ -123,7 +123,8 @@ export interface InvocationState {
 
   /**
    * Takes `ticket` back off the worked-today record when `iteration`'s own
-   * ending frees it — CONTEXT.md's "Worked today", `freesTicketToday` below.
+   * ending frees it — CONTEXT.md's "Worked today", `freesTicketToday` in
+   * `iteration-outcome.ts`.
    */
   iterationEnded(ticket: WorkedTicket, iteration: Iteration): void;
 
