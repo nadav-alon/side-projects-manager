@@ -554,8 +554,8 @@ export interface InvocationReport {
   summaryFailure?: SummaryFailure;
   /**
    * See CONTEXT.md's "Needs attention". The entry point
-   * (`bin/morning-run.ts`) exits non-zero exactly when this is true, rather
-   * than working the same rule out for itself.
+   * (`bin/morning-run.ts`) reads this field rather than working the same
+   * rule out for itself.
    */
   needsAttention: boolean;
   /** One line, suitable for printing to a terminal or into the summary issue. */
