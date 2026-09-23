@@ -65,7 +65,7 @@ export const ENHANCEMENT_LABEL = "enhancement";
  * and body the caller supplies, whether the ticket it names should be
  * blocked by the new one, and whether the new ticket is itself a **ready
  * discovery**. `blocking` absent or false opens the ticket with no edge at
- * all; `ready` absent or false is today's behavior — born needs-triage.
+ * all; `ready` absent or false opens it needs-triage and enhancement.
  *
  * `ready` is the caller's own decision, already weighed against
  * `discovery-routing.ts`'s bar (an agent-brief body, and the chain guard) —
@@ -770,7 +770,7 @@ export interface IssueTracker {
    * `discovery.ready` decides which state and size it is born carrying, per
    * `CONTEXT.md`'s "Ready discovery": absent or false, it is labelled
    * needs-triage and enhancement, never ready-for-agent — the maintainer
-   * triages it like any other report, same as today. `true` labels it
+   * triages it like any other report. `true` labels it
    * ready-for-agent, size:S and enhancement instead, skipping needs-triage
    * outright, and also marks it with the ready discovery label — never
    * removed — so a later run working it is told, through `Ticket.readyDiscovery`,
