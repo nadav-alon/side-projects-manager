@@ -4,6 +4,7 @@ import type {
   OpenIssue,
   Priority,
   ProjectState,
+  PullRequestUrl,
   RegisteredProject,
   RepoSlug,
   Store,
@@ -17,6 +18,7 @@ import {
   isBlocked,
   isPullRequestTicket,
   isSupertask,
+  openRebaseTicketFor,
   ticketKind,
   ticketPrioritiesIn,
 } from "./ports/index.ts";
@@ -215,6 +217,8 @@ export function invocationSelection(
   // `summary.ts`, which is what dedupes a link or a refusal met by more than
   // one scan.
   const specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
+  // See `scan`'s own comment on `pendingRebasePosts`.
+  const pendingRebasePosts = new Set<PullRequestUrl>();
 
   return {
     next: () =>
@@ -225,6 +229,7 @@ export function invocationSelection(
         outcomesByRepo,
         sweepOutcomes,
         specReviewSweepOutcomes,
+        pendingRebasePosts,
       ),
     verdicts: () => [...outcomesByRepo.values()],
     sweeps: () => [...sweepOutcomes],
@@ -284,6 +289,7 @@ async function scan(
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
   sweepOutcomes: ConflictSweepOutcome[],
   specReviewSweepOutcomes: SpecReviewSweepOutcome[],
+  pendingRebasePosts: Set<PullRequestUrl>,
 ): Promise<Selection | undefined> {
   const outcomes = new Map<RepoSlug, ProjectOutcome>();
   const candidates: Candidate[] = [];
@@ -310,25 +316,40 @@ async function scan(
     // A rebase ticket takes a moment to exist once posted: `open`, read at
     // the top of this scan, may still show no open rebase ticket for a pull
     // request an earlier scan of this same invocation already commented on.
-    // `alreadyPosted` — every url this invocation has already commented on,
-    // regardless of project — holds `/rebase` to once per pull request
-    // without a second tracker read.
-    const alreadyPosted = new Set(
-      sweepOutcomes.flatMap((swept) =>
-        swept.changes
-          .filter((change) => change.action === "commented")
-          .map((change) => change.pullRequest),
-      ),
+    // `pendingRebasePosts` — every url some scan of this invocation has
+    // commented on whose rebase ticket no scan's listing has shown open yet,
+    // regardless of project — holds `/rebase` off such a pull request without
+    // a second tracker read. A url drops out the moment a listing (this
+    // project's own, the only one that could ever bind a ticket to it) shows
+    // its rebase ticket open, so a pull request whose ticket has since closed
+    // and conflicts again is posted on afresh, same as one never posted on
+    // before.
+    //
+    // A url can also stay pending longer than that: `openRebaseTicketFor`
+    // reads `false` for a pull request with an open rebase ticket the
+    // listing simply didn't reach, when `open.truncated`, and reads `false`
+    // just the same for a rebase ticket that opened and closed entirely
+    // between two scans, since no scan's listing ever caught it open. Both
+    // fall out of the design issue #710 asked for — a listing showing the
+    // ticket open is what clears a url — rather than being a gap in it.
+    for (const pullRequest of pendingRebasePosts) {
+      if (openRebaseTicketFor(open, pullRequest)) {
+        pendingRebasePosts.delete(pullRequest);
+      }
+    }
+    const swept = await conflictSweep(
+      ports.repoHost,
+      project.repo,
+      project.turbo,
+      open,
+      pendingRebasePosts,
     );
-    sweepOutcomes.push(
-      await conflictSweep(
-        ports.repoHost,
-        project.repo,
-        project.turbo,
-        open,
-        alreadyPosted,
-      ),
-    );
+    sweepOutcomes.push(swept);
+    for (const change of swept.changes) {
+      if (change.action === "commented") {
+        pendingRebasePosts.add(change.pullRequest);
+      }
+    }
     // Before selection, same as the conflict sweep, and over the same
     // listing: a supertask this opens a spec review for is a fact about the
     // repo, not about which ticket this scan goes on to select.

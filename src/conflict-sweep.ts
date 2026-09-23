@@ -96,7 +96,7 @@ export interface ConflictSweepOutcome {
  * In a turbo project, a conflicting pull request also gets {@link
  * REBASE_COMMENT} posted on it — even when labelling it was refused — unless
  * `openIssues` already holds an open rebase ticket bound to its url, whatever
- * that ticket's own labels, or `alreadyPosted` names its url: a rebase
+ * that ticket's own labels, or `pendingRebasePosts` names its url: a rebase
  * ticket handed back to the developer, or a comment this same invocation
  * already posted while its ticket was still being opened, both stop the
  * sweep asking again. Every conflicting pull request gets its own: there is
@@ -113,7 +113,7 @@ export async function conflictSweep(
   repo: RepoSlug,
   turbo: boolean,
   openIssues: OpenIssues,
-  alreadyPosted: ReadonlySet<PullRequestUrl> = new Set(),
+  pendingRebasePosts: ReadonlySet<PullRequestUrl> = new Set(),
 ): Promise<ConflictSweepOutcome> {
   const changes: ConflictSweepChange[] = [];
   const refusals: ConflictSweepRefusal[] = [];
@@ -186,7 +186,7 @@ export async function conflictSweep(
     if (
       turbo &&
       !openRebaseTicketFor(openIssues, pullRequest.url) &&
-      !alreadyPosted.has(pullRequest.url)
+      !pendingRebasePosts.has(pullRequest.url)
     ) {
       await attempt("comment", pullRequest.url, () =>
         repoHost.postComment(pullRequest.url, REBASE_COMMENT),

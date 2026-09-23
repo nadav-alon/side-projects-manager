@@ -276,7 +276,7 @@ describe("conflictSweep", () => {
       );
     });
 
-    it("posts nothing while alreadyPosted already names the pull request", async () => {
+    it("posts nothing while pendingRebasePosts already names the pull request", async () => {
       const host = new FakeRepoHost();
       host.setOpenPullRequests(PILOT, [
         { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
