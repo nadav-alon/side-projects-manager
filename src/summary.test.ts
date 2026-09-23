@@ -1956,6 +1956,24 @@ describe("composeInvocationReport", () => {
   }
 
   /**
+   * A ticket handed back ahead of the gate, for an unusable model label — it
+   * was never run, so it does not count as work when deciding the outcome.
+   */
+  function aheadOfGate(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: {
+        kind: "unusable-model-label",
+        reason: "model:foo names no model this loop runs",
+        labels: ["model:foo"],
+      },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  /**
    * A `SummaryTracker` that records every summary it is asked to publish,
    * answering with a fresh issue address each time — built here rather than
    * reusing the fuller `FakeIssueTracker`, since composing a report needs
@@ -2016,6 +2034,26 @@ describe("composeInvocationReport", () => {
       report.summaryLocation,
       issueUrl("https://github.com/nadav-alon/side-projects-manager/issues/1"),
     );
+  });
+
+  it("reports a stand-down that ran nothing as stood-down", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: { ...facts([]), standDown: { reason: "stopped" } },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+  });
+
+  it("reports a stand-down as stood-down even with an iteration handed back ahead of the gate", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: { ...facts([aheadOfGate(7)]), standDown: { reason: "stopped" } },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
   });
 
   it("does not publish a quiet morning when today is already announced", async () => {
