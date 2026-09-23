@@ -1003,7 +1003,12 @@ async function readDiscoveries(
     const contents = await readFile(filePath, "utf8").catch(() => undefined);
     const parsed = contents === undefined ? undefined : parse(contents);
     if (isDiscovery(parsed)) {
-      discoveries.push({ kind: parsed.kind, title: parsed.title, body: parsed.body });
+      discoveries.push({
+        kind: parsed.kind,
+        title: parsed.title,
+        body: parsed.body,
+        ...(parsed.ready !== undefined && { ready: parsed.ready }),
+      });
     } else {
       dropped++;
     }

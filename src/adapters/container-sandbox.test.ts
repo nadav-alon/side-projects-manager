@@ -2040,6 +2040,27 @@ describe("discoveries", () => {
     assert.equal(variant(result, "finished")?.discoveriesDropped, 0);
   });
 
+  it("carries a discovery's ready flag through from the file on disk", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        {
+          kind: "suggestion",
+          title: "Add a retry",
+          body: "Would have added retries myself.",
+          ready: true,
+        },
+        "1.json",
+      );
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
+  });
+
   it("reports an empty list, not an error, when the agent filed no discoveries", async () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([]));
