@@ -592,11 +592,7 @@ function outcomeOf(facts: SummaryFacts): InvocationOutcome {
   return facts.iterations.length > 0 ? "work-selected" : "dry-queue";
 }
 
-/**
- * `InvocationReport.needsAttention`, per its own doc: an invocation that
- * never finished, an iteration the sandbox or checkout itself failed on, or a
- * summary that was composed but never published.
- */
+/** {@link InvocationReport.needsAttention}, per its own doc. */
 function needsAttention(
   outcome: InvocationOutcome,
   iterations: IterationOutcome[],
