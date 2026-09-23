@@ -9,25 +9,38 @@ import type {
   SubIssue,
   Ticket,
 } from "./ports/index.ts";
-import { isSupertask } from "./ports/index.ts";
+import { isSupertask, specReviewTitle } from "./ports/index.ts";
 
 /** The two ports one sweep reads and writes through, narrowed to what it calls. */
 export interface SpecReviewSweepPorts {
-  tracker: Pick<IssueTracker, "listSubIssues" | "createSpecReviewTicket">;
+  tracker: Pick<
+    IssueTracker,
+    "listSubIssues" | "createSpecReviewTicket" | "linkSpecReviewTicket"
+  >;
   repoHost: Pick<RepoHost, "listPullRequestsClosingIssues">;
 }
 
-/** One supertask a sweep could not open a spec review for, and why. */
+/**
+ * One supertask a sweep could not finish a spec review for, and why: `action`
+ * says which step refused — `"read"` for the sub-issue or pull-request reads
+ * that come before either an open or a link is attempted, so neither is
+ * asserted to have happened; `"open"` for a failed {@link
+ * IssueTracker.createSpecReviewTicket}; `"link"` for a failed {@link
+ * IssueTracker.linkSpecReviewTicket}, of a spec review that already exists.
+ */
 export interface SpecReviewSweepRefusal {
   supertask: Ticket;
+  action: "read" | "open" | "link";
   error: string;
 }
 
 /**
  * What sweeping one project came to: every spec review it opened, and every
  * refusal it met along the way. A supertask that still has an open sub-issue,
- * or that already carries one — the guard, per `CONTEXT.md`'s "Spec review
- * sweep" — appears in neither list, since neither is something to report.
+ * that already carries one — the guard, per `CONTEXT.md`'s "Spec review
+ * sweep" — or whose floating spec review this sweep found and linked rather
+ * than opened, appears in neither list, since none of the three is something
+ * to report.
  */
 export interface SpecReviewSweepOutcome {
   repo: RepoSlug;
@@ -51,6 +64,16 @@ export interface SpecReviewSweepOutcome {
  * every sub-issue `listSubIssues` found, and — read once here, at exactly
  * this instant, through {@link RepoHost.listPullRequestsClosingIssues} — the
  * branch and state of whichever of them has a pull request still unmerged.
+ *
+ * Before that spec review is opened, `openIssues` is searched once more —
+ * this time for an issue carrying the spec-review label and the exact title
+ * a spec review for this supertask is given, per {@link specReviewTitle} —
+ * since a prior sweep can have created one and failed only at the link that
+ * would have made it a sub-issue: `listSubIssues` reads by that relation
+ * alone and is blind to a ticket the create half of the pair still left
+ * floating. Found, it is linked instead of duplicated; not found, a spec
+ * review opens exactly as it always has (`CONTEXT.md`'s "Spec review sweep",
+ * issue #640).
  *
  * Nested supertasks need nothing special: each is itself just another ticket
  * `openIssues` lists carrying the supertask label, asked and guarded the same
@@ -78,12 +101,13 @@ export async function specReviewSweep(
       continue;
     }
 
+    let subIssues: SubIssue[];
     try {
       // `openIssues` alone is only the cheap pre-filter above: a truncated
       // backlog or a sub-issue in another repo can leave it blind to one
       // still open, so `subIssues` — authoritative, per `CONTEXT.md`'s "Spec
       // review sweep" — is asked again before the guard trusts it.
-      const subIssues = await ports.tracker.listSubIssues(supertask);
+      subIssues = await ports.tracker.listSubIssues(supertask);
       if (
         subIssues.length === 0 ||
         subIssues.some(alreadySpecReviewed) ||
@@ -91,15 +115,47 @@ export async function specReviewSweep(
       ) {
         continue;
       }
+    } catch (error) {
+      // Neither an open nor a link has been attempted yet, so the refusal
+      // must not read as either — `"read"` is the whole story so far.
+      refusals.push({ supertask, action: "read", error: errorMessage(error) });
+      continue;
+    }
 
+    // `subIssues` alone cannot see one a prior sweep opened but never
+    // linked — it carries no sub-issue relation to find it by — so
+    // `openIssues`, already read once for the whole sweep, is searched by
+    // title and label instead. Unlike the `listSubIssues` guard above, this
+    // search has no authoritative fallback: `openIssues` is newest-first
+    // and capped, so a floating spec review is missed only where the
+    // backlog is truncated and it has sat unlinked long enough to fall off
+    // the read — an authoritative search would cost a `gh issue list`
+    // filtered by label and title per supertask, every sweep, to catch a
+    // case this narrow.
+    const floating = findFloatingSpecReview(supertask, openIssues.issues);
+    if (floating !== undefined) {
+      try {
+        // `body` is composed only if the tracker actually falls back to it —
+        // native sub-issues never call it, so a link that succeeds the
+        // ordinary way never spends the `gh pr list` disclosure read below,
+        // and never overwrites `floating`'s own existing text with it.
+        await ports.tracker.linkSpecReviewTicket(floating, supertask, async () => {
+          closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
+          return specReviewBody(supertask, subIssues, await closingPullRequests);
+        });
+      } catch (error) {
+        refusals.push({ supertask, action: "link", error: errorMessage(error) });
+      }
+      continue;
+    }
+
+    try {
       closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
-      const specReview = await ports.tracker.createSpecReviewTicket(
-        supertask,
-        specReviewBody(supertask, subIssues, await closingPullRequests),
-      );
+      const body = specReviewBody(supertask, subIssues, await closingPullRequests);
+      const specReview = await ports.tracker.createSpecReviewTicket(supertask, body);
       opened.push(specReview);
     } catch (error) {
-      refusals.push({ supertask, error: errorMessage(error) });
+      refusals.push({ supertask, action: "open", error: errorMessage(error) });
     }
   }
 
@@ -121,6 +177,26 @@ function hasOpenSubIssue(ticket: Ticket, issues: readonly OpenIssue[]): boolean 
 /** Whether `sub` is a spec review already opened for its supertask — the guard itself. */
 function alreadySpecReviewed(sub: SubIssue): boolean {
   return sub.ticket.specReview === true;
+}
+
+/**
+ * The spec review `specReviewSweep` already opened for `supertask`, if one
+ * is sitting among `issues` unlinked — carrying the spec-review label, the
+ * exact title {@link specReviewTitle} gives a spec review for `supertask`,
+ * and no parent of its own, so a spec review someone hand-linked to a
+ * different supertask is never mistaken for a match and re-parented.
+ */
+function findFloatingSpecReview(
+  supertask: Ticket,
+  issues: readonly OpenIssue[],
+): Ticket | undefined {
+  const title = specReviewTitle(supertask);
+  return issues.find(
+    (issue) =>
+      issue.ticket.specReview === true &&
+      issue.ticket.title === title &&
+      issue.parent === undefined,
+  )?.ticket;
 }
 
 /**

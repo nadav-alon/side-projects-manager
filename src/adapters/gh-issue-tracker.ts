@@ -207,18 +207,17 @@ export function ghIssueTracker(
         pullRequest: { kind: "review", url: pullRequest },
       };
 
-      try {
-        await linkToParent(review, ticket, reviewBody(ticket, pullRequest));
-      } catch (error) {
-        // The review exists and is eligible, so the morning's work is not lost
-        // — but it is floating free of the ticket that earned it, and nothing
-        // else will notice that. The pull request is named because it is the
-        // thing the morning was for, and this error is where the developer
-        // finds out about it.
-        throw new Error(
-          `Opened #${review.number} in ${review.repo} to review ${pullRequest}, the draft pull request for #${ticket.number}, but could not link it to #${ticket.number}: ${errorMessage(error)}`,
-        );
-      }
+      // The review exists and is eligible, so the morning's work is not lost
+      // even if the link below fails — but it is floating free of the ticket
+      // that earned it, and nothing else will notice that. The pull request
+      // is named because it is the thing the morning was for, and a failure
+      // here is where the developer finds out about it.
+      await linkOrExplain(
+        review,
+        ticket,
+        async () => reviewBody(ticket, pullRequest),
+        `Opened #${review.number} in ${review.repo} to review ${pullRequest}, the draft pull request for #${ticket.number}`,
+      );
       return review;
     },
 
@@ -256,18 +255,30 @@ export function ghIssueTracker(
         specReview: true,
       };
 
-      try {
-        await linkToParent(specReview, ticket, body);
-      } catch (error) {
-        // As `createReviewTicket`: the spec review exists and is eligible, so
-        // the morning's work is not lost — but it is floating free of the
-        // supertask it reviews, and this error is where the developer finds
-        // out about it.
-        throw new Error(
-          `Opened #${specReview.number} in ${specReview.repo} as a spec review for #${ticket.number}, but could not link it to #${ticket.number}: ${errorMessage(error)}`,
-        );
-      }
+      // As `createReviewTicket`: the spec review exists and is eligible, so
+      // the morning's work is not lost even if the link below fails — but it
+      // is floating free of the supertask it reviews, and a failure here is
+      // where the developer finds out about it.
+      await linkOrExplain(
+        specReview,
+        ticket,
+        async () => body,
+        `Opened #${specReview.number} in ${specReview.repo} as a spec review for #${ticket.number}`,
+      );
       return specReview;
+    },
+
+    async linkSpecReviewTicket(
+      specReview: Ticket,
+      supertask: Ticket,
+      body: () => Promise<string>,
+    ): Promise<void> {
+      await linkOrExplain(
+        specReview,
+        supertask,
+        body,
+        `#${specReview.number} in ${specReview.repo} is already a spec review for #${supertask.number}`,
+      );
     },
 
     async listSubIssues(ticket: Ticket): Promise<SubIssue[]> {
@@ -611,6 +622,27 @@ function bindingMatching(
 }
 
 /**
+ * {@link linkToParent}, wrapped with the one failure shape every caller that
+ * links a freshly created or found ticket needs: `opening` names what already
+ * happened — the child exists, or was found — up to "but could not link it
+ * to #N", which this appends itself.
+ */
+async function linkOrExplain(
+  child: Ticket,
+  parent: Ticket,
+  body: () => Promise<string>,
+  opening: string,
+): Promise<void> {
+  try {
+    await linkToParent(child, parent, body);
+  } catch (error) {
+    throw new Error(
+      `${opening}, but could not link it to #${parent.number}: ${errorMessage(error)}`,
+    );
+  }
+}
+
+/**
  * Hangs `child` off `parent` as a sub-issue, the relationship GitHub shows in
  * its own UI — the review a review ticket earns, or the spec review a
  * supertask earns.
@@ -623,13 +655,18 @@ function bindingMatching(
  * that has sub-issues and could not be asked, and writing the reference into
  * the body would answer it by quietly downgrading the relationship forever.
  *
+ * `body` is called at most once, and only in that fallback: where sub-issues
+ * are native, as they ordinarily are, the POST alone links `child`, and a
+ * caller that only ever composes `body` for this one unlikely path is spared
+ * composing it on every other.
+ *
  * Only `child`'s own body: the parent is a ticket the developer wrote and
  * this is not the place to edit it.
  */
 async function linkToParent(
   child: Ticket,
   parent: Ticket,
-  body: string,
+  body: () => Promise<string>,
 ): Promise<void> {
   const id = await issueIdOf(child);
 
@@ -651,7 +688,7 @@ async function linkToParent(
       "edit",
       ...issueArgs(child),
       "--body",
-      `Part of #${parent.number}.\n\n${body}`,
+      `Part of #${parent.number}.\n\n${await body()}`,
     ]);
   }
 }

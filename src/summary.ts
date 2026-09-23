@@ -636,12 +636,30 @@ function specReviewSweepSection(
     ...project.opened.map(
       (ticket) => `- ${project.repo}: opened #${ticket.number} (${ticket.title})`,
     ),
-    ...project.refusals.map(
-      (refusal) =>
-        `- ${project.repo}: could not open a spec review for #${refusal.supertask.number}: ${withoutTrailingStop(refusal.error)}`,
-    ),
+    ...project.refusals.map((refusal) => specReviewSweepRefusalLine(project.repo, refusal)),
   ]);
   return ["## Spec review sweep", ...lines].join("\n");
+}
+
+/**
+ * One spec review sweep refusal, naming the supertask and the error, phrased
+ * by which step refused — a refusal from the read that comes before either is
+ * attempted must not read as an open or a link that never happened, the way
+ * a single fixed phrase for every refusal once did.
+ */
+function specReviewSweepRefusalLine(
+  repo: RepoSlug,
+  refusal: SpecReviewSweepRefusal,
+): string {
+  const error = withoutTrailingStop(refusal.error);
+  switch (refusal.action) {
+    case "read":
+      return `- ${repo}: could not check #${refusal.supertask.number} for a spec review: ${error}`;
+    case "open":
+      return `- ${repo}: could not open a spec review for #${refusal.supertask.number}: ${error}`;
+    case "link":
+      return `- ${repo}: could not link an existing spec review to #${refusal.supertask.number}: ${error}`;
+  }
 }
 
 /**
