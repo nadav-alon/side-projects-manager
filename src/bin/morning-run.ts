@@ -121,9 +121,9 @@ async function main(): Promise<void> {
   );
 
   // Whatever triggers the loop reads a morning by its exit code, so a broken
-  // setup exits non-zero even though it reported cleanly — see
-  // `InvocationReport.needsAttention` (summary.ts) for which outcomes those
-  // are and why an agent that merely gave up is not one of them.
+  // setup exits non-zero even though it reported cleanly — see CONTEXT.md's
+  // "Needs attention" for which outcomes those are and why an agent that
+  // merely gave up is not one of them.
   if (report.needsAttention) {
     process.exitCode = 1;
   }

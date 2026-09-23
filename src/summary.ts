@@ -589,7 +589,7 @@ function outcomeOf(facts: SummaryFacts): InvocationOutcome {
   return facts.iterations.length > 0 ? "work-selected" : "dry-queue";
 }
 
-/** {@link InvocationReport.needsAttention}, per its own doc. */
+/** {@link InvocationReport.needsAttention}, per CONTEXT.md's "Needs attention". */
 function needsAttention(
   outcome: InvocationOutcome,
   iterations: IterationOutcome[],
