@@ -7,8 +7,10 @@ import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   ENHANCEMENT_LABEL,
   NEEDS_TRIAGE_LABEL,
+  READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SIZE_S_LABEL,
   isSpecReviewTicket,
   isSupertask,
   issueNumber,
@@ -694,7 +696,7 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
     const create = callWith(await gh.calls(), "issue", "create");
     assert.ok(create, "the ticket should be created with `gh issue create`");
     assert.ok(create.includes(READY_FOR_AGENT_LABEL));
-    assert.ok(create.includes("size:S"));
+    assert.ok(create.includes(SIZE_S_LABEL));
     assert.ok(create.includes(ENHANCEMENT_LABEL));
     assert.ok(!create.includes(NEEDS_TRIAGE_LABEL));
   });
@@ -709,7 +711,7 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
 
     const create = callWith(await gh.calls(), "issue", "create");
     assert.ok(create);
-    assert.ok(create.includes("ready-discovery"));
+    assert.ok(create.includes(READY_DISCOVERY_LABEL));
     assert.equal(discovered.readyDiscovery, true);
   });
 
