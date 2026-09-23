@@ -852,17 +852,17 @@ describe("containerSandbox", () => {
   });
 
   /**
-   * Only a run cut off rather than ended by its own agent gets a salvage
-   * commit: a limit refusal (above), its own spend ceiling stopping it, or a
-   * container that crashed once the agent had started. A run that finished or
-   * gave up through its own exit ended on its own terms, and keeps
-   * `leftover.txt` uncommitted, exactly as the agent left it.
+   * Only a run stopped before its own agent ended it gets a salvage commit: a
+   * limit refusal (above), its own spend ceiling stopping it, or a container
+   * that crashed once the agent had started. A run that finished or gave up
+   * through its own exit ended on its own terms, and keeps `leftover.txt`
+   * uncommitted, exactly as the agent left it.
    */
   for (const [name, mode, expectedCommits, expectedKind] of [
     ["finished", "finished", 1, "finished"],
     ["gave up through its own exit", "gave-up", 1, "gave-up"],
     ["was stopped by its own spend ceiling", "budget-exhausted", 2, "budget-exhausted"],
-    ["was cut off by a container that crashed after it started", "crashed", 2, "gave-up"],
+    ["was stopped by a container that crashed after it started", "crashed", 2, "gave-up"],
   ] as const) {
     it(`makes ${expectedCommits > 1 ? "a salvage commit" : "no salvage commit"} for a run that ${name}`, async () => {
       const directory = await project();
@@ -1609,11 +1609,11 @@ describe("containerSandbox", () => {
   });
 });
 
-/** The name a salvage branch left behind by an earlier cut-off run carries in these tests. */
+/** The name a salvage branch left behind by an earlier stopped-short run carries in these tests. */
 const SALVAGE_BRANCH = branch(`${BRANCH}-2`);
 
 /**
- * Leaves `name` in `directory` as an earlier cut-off run's salvage would:
+ * Leaves `name` in `directory` as an earlier stopped-short run's salvage would:
  * branched off `main`, carrying one commit marked as `SALVAGE_COMMIT_MESSAGE`
  * — see `Salvage` in CONTEXT.md. Leaves the checkout back on `main`, exactly
  * as a real run's clone is fetched into an otherwise-untouched checkout.
@@ -1782,12 +1782,12 @@ describe("containerSandbox.run salvage", () => {
       salvageBranch: SALVAGE_BRANCH,
     });
 
-    assert.match(asked, /earlier run on this ticket was cut off/);
+    assert.match(asked, /earlier run on this ticket stopped before its own agent ended it/);
     assert.match(asked, /Continue that work rather than starting over/);
     assert.match(asked, /possibly-broken commit made by the sandbox/);
   });
 
-  it("says nothing about a cut-off run, and picks a branch the ordinary way, when no salvage branch is named", async () => {
+  it("says nothing about a stopped-short run, and picks a branch the ordinary way, when no salvage branch is named", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
@@ -1797,7 +1797,7 @@ describe("containerSandbox.run salvage", () => {
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.doesNotMatch(asked, /earlier run on this ticket was cut off/);
+    assert.doesNotMatch(asked, /earlier run on this ticket stopped before its own agent ended it/);
     assert.doesNotMatch(asked, /Continue that work rather than starting over/);
     assert.equal(variant(result, "finished")?.branch, BRANCH);
   });

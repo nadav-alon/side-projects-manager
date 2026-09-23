@@ -302,8 +302,8 @@ export interface AgentRun {
    * already started, rather than the agent's own exit setting `failure` the
    * normal way. `attempt` is the only place that can tell the two apart —
    * once it returns, a container that crashed and an agent that gave up on
-   * its own look the same — so this is how `wasCutOff` recovers it. Never set
-   * by a `Container` implementation's own return.
+   * its own look the same — so this is how `needsSalvage` recovers it. Never
+   * set by a `Container` implementation's own return.
    */
   crashed?: true;
   /**
@@ -645,14 +645,15 @@ async function runOnClone(
       try {
         const ending = endingOf(agent, model);
 
-        // Salvaged before the commits are counted, so a cut-off run's own
-        // uncommitted work is not dropped with the clone: see `Salvage` in
-        // CONTEXT.md. `wasCutOff` covers a limit refusal, its own spend
-        // ceiling stopping it, and a container that crashed once the agent
-        // had started — the ways a run stops without the agent itself ending
-        // it. A run that finished, gave up on its own account, or was refused
-        // its model ended on its own terms, and keeps nothing uncommitted.
-        if (wasCutOff(ending, agent)) {
+        // Salvaged before the commits are counted, so a run stopped before
+        // its agent ended it keeps its own uncommitted work rather than
+        // dropping it with the clone: see `Salvage` in CONTEXT.md.
+        // `needsSalvage` covers a limit refusal, its own spend ceiling
+        // stopping it, and a container that crashed once the agent had
+        // started — the ways a run stops without the agent itself ending it.
+        // A run that finished, gave up on its own account, or was refused its
+        // model ended on its own terms, and keeps nothing uncommitted.
+        if (needsSalvage(ending, agent)) {
           await salvageUncommitted(clone);
         }
 
@@ -717,8 +718,9 @@ async function runOnClone(
  * process exited non-zero is the silent failure this adapter exists to avoid,
  * so the throw becomes a result the loop can record and report — marked
  * `crashed`, since this is the one place that knows the container itself
- * threw rather than the agent's own exit reporting a failure, and `wasCutOff`
- * needs that to decide whether the run left anything to salvage.
+ * threw rather than the agent's own exit reporting a failure, and
+ * `needsSalvage` needs that to decide whether the run left anything to
+ * salvage.
  *
  * Except a container that never started the agent. That has none of the three
  * to lose, and reporting it as a run would post "the agent gave up" on a ticket
@@ -1258,18 +1260,18 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
 }
 
 /**
- * Whether an implementation run was cut off rather than ended by its own
- * agent — a limit refusal, its own spend ceiling stopping it, or a container
- * that crashed once the agent had started — and so left uncommitted work
- * worth salvaging: see **Salvage** in CONTEXT.md. `ending` alone cannot tell
- * a crashed container apart from an agent that gave up on its own account,
+ * Whether an implementation run stopped before its own agent ended it — a
+ * limit refusal, its own spend ceiling stopping it, or a container that
+ * crashed once the agent had started — and so left uncommitted work worth
+ * salvaging: see **Salvage** in CONTEXT.md. `ending` alone cannot tell a
+ * crashed container apart from an agent that gave up on its own account,
  * since `endingOf` reads both as `"gave-up"`; `agent.crashed` is `attempt`'s
  * own record of which one this was.
  *
  * A provider failure is cut off in CONTEXT.md's sense, but deliberately not
  * salvaged, so it is absent here: see CONTEXT.md's **Cut off** entry.
  */
-function wasCutOff(ending: Ending, agent: AgentRun): boolean {
+function needsSalvage(ending: Ending, agent: AgentRun): boolean {
   return (
     ending.kind === "limit-refused" ||
     ending.kind === "budget-exhausted" ||
@@ -1794,11 +1796,11 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     "— and follow this repo's own agent instructions and coding standards.",
     ...(salvageBranch !== undefined
       ? [
-          "An earlier run on this ticket was cut off, and its work is already on",
-          "the branch you are on. Continue that work rather than starting over.",
-          "Its last commit may be a possibly-broken commit made by the sandbox",
-          "itself rather than by an agent, once the earlier run was cut off —",
-          "check it, and fix or rework it as needed.",
+          "An earlier run on this ticket stopped before its own agent ended it,",
+          "and its work is already on the branch you are on. Continue that work",
+          "rather than starting over. Its last commit may be a possibly-broken",
+          "commit made by the sandbox itself rather than by an agent, once the",
+          "earlier run stopped short — check it, and fix or rework it as needed.",
         ]
       : []),
     "Commit each behavior as its own commit, its test and its code together, as",
@@ -2012,7 +2014,7 @@ async function mergeBase(
  * copy of the literal.
  */
 export const SALVAGE_COMMIT_MESSAGE =
-  "Sandbox salvage: committed by the sandbox after the run was cut off. May not build or pass tests.";
+  "Sandbox salvage: committed by the sandbox after the run stopped before its agent ended it. May not build or pass tests.";
 
 /**
  * The manager's own git identity, the same one `Dockerfile` gives every
@@ -2029,9 +2031,9 @@ const SANDBOX_GIT_IDENTITY = {
 /**
  * Commits everything left uncommitted in `clone` as one commit, marked as a
  * salvage rather than the agent's own work — see `Salvage` in CONTEXT.md. A
- * no-op when the agent left nothing uncommitted, tracked or not: a cut-off run
- * that had already committed everything gets no empty commit marking a
- * cut-off that changed nothing.
+ * no-op when the agent left nothing uncommitted, tracked or not: a run that
+ * had already committed everything before it stopped gets no empty commit
+ * marking a salvage that changed nothing.
  *
  * `git status --porcelain` already leaves out anything `.gitignore` covers,
  * and `add --all` stages exactly what it lists — an untracked file the agent

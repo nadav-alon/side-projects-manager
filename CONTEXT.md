@@ -219,7 +219,7 @@ What becomes of the branch of a run that gave up or filed a blocking discovery: 
 _Avoid_: clean up, delete
 
 **Salvage**:
-What becomes of the work an implementation run left when it was cut off rather than ended by its agent — a limit refusal, an infrastructure failure after the agent started, or its own spend ceiling stopping it: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch — except a limit refusal that also filed a blocking discovery, whose branch is discarded instead (see **Discovery**). Nothing about the ticket changes otherwise. A run that continues on a salvage and then gives up is discarded, salvage and all.
+What becomes of the work an implementation run left when it was stopped before its agent ended it — a limit refusal, an infrastructure failure after the agent started, or its own spend ceiling stopping it: its uncommitted changes committed as they stand, marked as possibly broken, and its branch kept in the project checkout, never pushed, for the ticket's next run to continue on, as that run's own branch — except a limit refusal that also filed a blocking discovery, whose branch is discarded instead (see **Discovery**). Nothing about the ticket changes otherwise. A run that continues on a salvage and then gives up is discarded, salvage and all.
 _Avoid_: leftover, WIP branch, partial run, resume branch
 
 **Backlog**:
