@@ -576,7 +576,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "unusable-size-label",
-        reason: "its size label names no size the budget document knows (size:XXL)",
         labels: ["size:XXL"],
       });
 
@@ -591,7 +590,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "unusable-size-label",
-        reason: "its size label names no size the budget document knows (size:XXL)",
         labels: ["size:XXL"],
       });
 

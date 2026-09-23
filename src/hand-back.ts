@@ -33,7 +33,8 @@ import {
   targetNoun,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
-import { labelList, modelProblem } from "./model-resolution.ts";
+import { modelProblem } from "./model-resolution.ts";
+import { sizeProblem } from "./size-resolution.ts";
 import { tail } from "./tail.ts";
 
 /**
@@ -294,11 +295,13 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
         fix,
       );
     }
-    case "unusable-size-label":
+    case "unusable-size-label": {
+      const { problem, fix } = sizeProblem(ending);
       return notRunAheadOfGateComment(
-        `its size label names no size the budget document knows (${labelList(ending.labels)}): a size label is \`${SIZE_LABEL_PREFIX}<size>\`, one of ${SIZES.join(", ")}`,
-        "fix or remove it",
+        `${problem}: a size label is \`${SIZE_LABEL_PREFIX}<size>\`, one of ${SIZES.join(", ")}`,
+        fix,
       );
+    }
     case "unsettled-mergeability":
       return unsettledMergeabilityComment(ending);
     case "handover-failed":

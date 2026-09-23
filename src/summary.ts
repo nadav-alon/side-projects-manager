@@ -36,6 +36,7 @@ import {
   type SpecReviewed,
 } from "./iteration-outcome.ts";
 import { modelProblem } from "./model-resolution.ts";
+import { sizeProblem } from "./size-resolution.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type { FreedWorkedTicket } from "./invocation-state.ts";
 import type {
@@ -1405,10 +1406,12 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
       return [
         `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`,
       ];
-    case "unusable-size-label":
+    case "unusable-size-label": {
+      const { problem, fix } = sizeProblem(failure);
       return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its size label (${failure.labels.join(", ")})`,
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${problem}, so ${fix}`,
       ];
+    }
   }
 }
 
@@ -1880,8 +1883,9 @@ function stoppedBecause(iteration: Attempt & Failed): string {
     case "conflicting-model-labels":
     case "unusable-model-label":
       return `${which} was not run, because ${withoutTrailingStop(modelProblem(iteration.ticket, failure).problem)}. ${now}`;
-    case "unsettled-mergeability":
     case "unusable-size-label":
+      return `${which} was not run, because ${withoutTrailingStop(sizeProblem(failure).problem)}. ${now}`;
+    case "unsettled-mergeability":
       return `${which} was not run, because ${withoutTrailingStop(failure.reason)}. ${now}`;
   }
 }

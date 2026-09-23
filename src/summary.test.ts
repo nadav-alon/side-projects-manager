@@ -917,7 +917,6 @@ describe("a ticket handed back for an unusable size label", () => {
       kind: "failed",
       failure: {
         kind: "unusable-size-label",
-        reason: "size:XXL names no size the budget document knows",
         labels: ["size:XXL"],
       },
       handedBack: { outcome: "handed-back" },
@@ -929,7 +928,7 @@ describe("a ticket handed back for an unusable size label", () => {
 
     assert.match(
       line,
-      /#306 was not run, because size:XXL names no size the budget document knows\. Handed back for a human\./,
+      /#306 was not run, because its size label names no size the budget document knows \(`size:XXL`\)\. Handed back for a human\./,
     );
   });
 
@@ -937,7 +936,7 @@ describe("a ticket handed back for an unusable size label", () => {
     const lines = waitingLines([unusableSizeLabel(307)]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #307: relabelled ready-for-human — fix its size label (size:XXL)`,
+      `- ${REPO} #307: relabelled ready-for-human — its size label names no size the budget document knows (\`size:XXL\`), so fix or remove it`,
     ]);
   });
 });

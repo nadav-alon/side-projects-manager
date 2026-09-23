@@ -16,11 +16,7 @@ export function unusableSizeLabel(ticket: Ticket): UnusableSizeLabel | undefined
   if (isPullRequestTicket(ticket) || label?.kind !== "unusable") {
     return undefined;
   }
-  return {
-    kind: "unusable-size-label",
-    reason: `its size label names no size the budget document knows (${label.labels.join(", ")})`,
-    labels: label.labels,
-  };
+  return { kind: "unusable-size-label", labels: label.labels };
 }
 
 /** Why a size failure happened, and the imperative fix for it — mirrors `ModelProblem`. */

@@ -40,7 +40,6 @@ describe("unusableSizeLabel", () => {
   it("names the offending labels for a size label naming no recognised size", () => {
     assert.deepEqual(unusableSizeLabel(implementationTicket(["size:XXL"])), {
       kind: "unusable-size-label",
-      reason: "its size label names no size the budget document knows (size:XXL)",
       labels: ["size:XXL"],
     });
   });
@@ -54,7 +53,6 @@ describe("sizeProblem", () => {
   it("names the labels and says to fix or remove it, leaving the expected shape to the hand-back comment", () => {
     const { problem, fix } = sizeProblem({
       kind: "unusable-size-label",
-      reason: "its size label names no size the budget document knows (size:XXL)",
       labels: ["size:XXL"],
     });
 
