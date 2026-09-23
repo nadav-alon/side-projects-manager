@@ -33,7 +33,7 @@ import {
   sizeLabelOf,
   specReviewTitle,
 } from "../ports/index.ts";
-import type { SummaryTracker } from "../morning-run.ts";
+import type { SummaryTracker } from "../summary.ts";
 
 /** One summary issue the fake was asked to publish, in the order asked. */
 export interface FakeSummary {

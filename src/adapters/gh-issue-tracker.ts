@@ -38,7 +38,7 @@ import {
   sizeLabelOf,
   specReviewTitle,
 } from "../ports/index.ts";
-import type { SummaryTracker } from "../morning-run.ts";
+import type { SummaryTracker } from "../summary.ts";
 import { errorMessage } from "../error-message.ts";
 import { expectField } from "./expect-field.ts";
 import { MANAGER_HOME } from "./manager-home.ts";

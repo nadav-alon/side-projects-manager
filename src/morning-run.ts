@@ -141,23 +141,10 @@ import {
   summaryLine,
   summaryTitle,
   type SummaryFacts,
+  type SummaryTracker,
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
-
-/**
- * The one write on the tracker that `ports/issue-tracker.ts` deliberately
- * leaves undeclared: publishing the invocation's summary issue. Declared
- * here, by the code that needs it, per that port's own note.
- *
- * Every other tracker method writes into a project's repo, named by a ticket
- * it is handed. This one names nothing, because it always lands in the
- * tracker's own repo rather than a project's — the manager reports on itself.
- */
-export interface SummaryTracker {
-  /** Publishes the summary issue, and answers with where it landed. */
-  publishSummary(title: string, body: string): Promise<IssueUrl>;
-}
 
 /**
  * The seven outside-world dependencies of the loop. Everything it knows about

@@ -37,6 +37,7 @@ import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type { FreedWorkedTicket } from "./worked-today.ts";
 import type {
   ApplyReviewTicket,
+  IssueUrl,
   PullRequestLabel,
   PullRequestTicket,
   PullRequestUrl,
@@ -65,6 +66,20 @@ import {
   localDay,
   localTimeOfMinute,
 } from "./ports/index.ts";
+
+/**
+ * The one write on the tracker that `ports/issue-tracker.ts` deliberately
+ * leaves undeclared: publishing the invocation's summary issue. Declared
+ * here, beside the summary it publishes, per that port's own note.
+ *
+ * Every other tracker method writes into a project's repo, named by a ticket
+ * it is handed. This one names nothing, because it always lands in the
+ * tracker's own repo rather than a project's — the manager reports on itself.
+ */
+export interface SummaryTracker {
+  /** Publishes the summary issue, and answers with where it landed. */
+  publishSummary(title: string, body: string): Promise<IssueUrl>;
+}
 
 /** How a verdict reads to the developer. A selected project was not skipped. */
 function skipReason(verdict: ProjectVerdict): string | undefined {
