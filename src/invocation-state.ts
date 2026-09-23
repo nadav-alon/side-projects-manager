@@ -19,11 +19,7 @@ import {
   ticketKey,
   unrecordWorked,
 } from "./ports/index.ts";
-import {
-  failedOnInfrastructure,
-  handedBackFailure,
-  type Iteration,
-} from "./iteration-outcome.ts";
+import { freesTicketToday, type Iteration } from "./iteration-outcome.ts";
 
 /**
  * The invocation running now, and the journal as it stood when it started:
@@ -127,7 +123,8 @@ export interface InvocationState {
 
   /**
    * Takes `ticket` back off the worked-today record when `iteration`'s own
-   * ending frees it — CONTEXT.md's "Worked today", `freesTicketToday` below.
+   * ending frees it — CONTEXT.md's "Worked today", `freesTicketToday` in
+   * `iteration-outcome.ts`.
    */
   iterationEnded(ticket: WorkedTicket, iteration: Iteration): void;
 
@@ -294,43 +291,4 @@ function deadInvocationOf(
   }
   const record = findInvocationRecord(journal.records, recordedBy);
   return record !== undefined && !isClosedInvocation(record) ? recordedBy : undefined;
-}
-
-/**
- * Whether `iteration` frees its ticket to be selected again today —
- * CONTEXT.md's "Worked today" rule: the persisted record protects only the
- * tickets the loop tried and failed to take off the queue itself.
- *
- * An infrastructure failure, a limit refusal or a provider failure says
- * nothing about the ticket at all, so it always frees it. A finished, a
- * spec-reviewed, a discovery-blocked or a failed run frees it exactly when
- * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
- * leaves it recorded when the tracker refused the call. A review, an
- * apply-review, a rebase or a resolved pull request frees it exactly when it
- * closed without a `notClosed`, and leaves it recorded when one is set — the
- * ticket is still ready-for-agent, due to come round again on its own, so the
- * record still has something to protect.
- */
-function freesTicketToday(iteration: Iteration): boolean {
-  switch (iteration.kind) {
-    case "limit-refused":
-    case "provider-failed":
-    case "budget-exhausted":
-      return true;
-    case "finished":
-    case "spec-reviewed":
-    case "discovery-blocked":
-      return iteration.handedBack.outcome !== "refused";
-    case "failed":
-      return (
-        failedOnInfrastructure(iteration) ||
-        (handedBackFailure(iteration) &&
-          iteration.handedBack.outcome !== "refused")
-      );
-    case "reviewed":
-    case "applied-review":
-    case "rebased":
-    case "pull-request-resolved":
-      return iteration.notClosed === undefined;
-  }
 }

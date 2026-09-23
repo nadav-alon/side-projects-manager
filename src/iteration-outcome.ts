@@ -782,10 +782,22 @@ export interface PullRequestResolved {
  * unusable model labels, or a size label naming no size the budget document
  * knows — and so never started a run: nothing was spent, and on no model.
  */
-export function handedBackAheadOfGate(
-  iteration: IterationOutcome,
-): boolean {
-  return iteration.kind === "failed" && isAheadOfGateFailure(iteration.failure);
+export function handedBackAheadOfGate(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "failed":
+      return isAheadOfGateFailure(iteration.failure);
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return false;
+  }
 }
 
 function isAheadOfGateFailure(
@@ -796,6 +808,68 @@ function isAheadOfGateFailure(
     failure.kind === "unusable-model-label" ||
     failure.kind === "unusable-size-label"
   );
+}
+
+/**
+ * Whether `iteration` counts as work when classifying the invocation's
+ * outcome: not a ticket handed back ahead of the gate, and not a run the
+ * provider limit refused. A limit refusal never happened — CONTEXT.md's
+ * "Limit refusal" says it leaves the ticket exactly as it found it — so it
+ * counts for nothing here, the same way a hand-back ahead of the gate does
+ * not. A provider failure still counts as work: the provider was reached and
+ * the run was cut off, rather than refused before it started.
+ *
+ * A switch on every kind, so an iteration kind added later has to say which
+ * it is — as `ranNothing` does. The two disagree on a limit refusal on
+ * purpose: `ranNothing` says it ran (tokens were spent reaching the refusal),
+ * while this one says it is not work (nothing landed against the ticket).
+ */
+export function countsAsWork(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "limit-refused":
+      return false;
+    case "failed":
+      return !handedBackAheadOfGate(iteration);
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return true;
+  }
+}
+
+/**
+ * Whether `iteration` started no run: a ticket handed back before one could
+ * start, or a pull request ticket that found nothing to do. A switch on every
+ * kind, so an iteration kind added later has to say which it is.
+ */
+export function ranNothing(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "applied-review":
+      return iteration.review === undefined;
+    case "rebased":
+      return iteration.rebase === undefined;
+    case "pull-request-resolved":
+      return true;
+    case "failed":
+      return (
+        handedBackAheadOfGate(iteration) ||
+        iteration.failure.kind === "unsettled-mergeability"
+      );
+    case "finished":
+    case "reviewed":
+    case "spec-reviewed":
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return false;
+  }
 }
 
 /** Why `iteration` failed: undefined when it ended any other way, or there was none. */
@@ -810,5 +884,58 @@ export function failureOf(
  * failure that leaves its ticket eligible, and that a trigger exits non-zero on.
  */
 export function failedOnInfrastructure(iteration: Iteration): boolean {
-  return failureOf(iteration)?.kind === "infrastructure";
+  switch (iteration.kind) {
+    case "failed":
+      return iteration.failure.kind === "infrastructure";
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return false;
+  }
+}
+
+/**
+ * Whether `iteration` frees its ticket to be selected again today —
+ * CONTEXT.md's "Worked today" rule: the persisted record protects only the
+ * tickets the loop tried and failed to take off the queue itself.
+ *
+ * An infrastructure failure, a limit refusal or a provider failure says
+ * nothing about the ticket at all, so it always frees it. A finished, a
+ * spec-reviewed, a discovery-blocked or a failed run frees it exactly when
+ * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
+ * leaves it recorded when the tracker refused the call. A review, an
+ * apply-review, a rebase or a resolved pull request frees it exactly when it
+ * closed without a `notClosed`, and leaves it recorded when one is set — the
+ * ticket is still ready-for-agent, due to come round again on its own, so the
+ * record still has something to protect.
+ */
+export function freesTicketToday(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+      return true;
+    case "finished":
+    case "spec-reviewed":
+    case "discovery-blocked":
+      return iteration.handedBack.outcome !== "refused";
+    case "failed":
+      return (
+        failedOnInfrastructure(iteration) ||
+        (handedBackFailure(iteration) &&
+          iteration.handedBack.outcome !== "refused")
+      );
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "pull-request-resolved":
+      return iteration.notClosed === undefined;
+  }
 }
