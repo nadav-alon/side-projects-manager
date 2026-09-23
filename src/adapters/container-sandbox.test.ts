@@ -284,6 +284,8 @@ function assertDiscoveryInstructions(asked: string): void {
   assert.match(asked, /"body"/);
   assert.match(asked, /stop without committing further/);
   assert.match(asked, /at most one suggestion/);
+  assert.match(asked, /"ready": true/);
+  assert.match(asked, /agent brief/);
 }
 
 /**
