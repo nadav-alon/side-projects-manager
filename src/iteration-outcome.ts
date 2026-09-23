@@ -797,6 +797,39 @@ function isAheadOfGateFailure(
 }
 
 /**
+ * Whether `iteration` counts as work when classifying the invocation's
+ * outcome: not a ticket handed back ahead of the gate, and not a run the
+ * provider limit refused. A limit refusal never happened — CONTEXT.md's
+ * "Limit refusal" says it leaves the ticket exactly as it found it — so it
+ * counts for nothing here, the same way a hand-back ahead of the gate does
+ * not. A provider failure still counts as work: the provider was reached and
+ * the run was cut off, rather than refused before it started.
+ *
+ * A switch on every kind, so an iteration kind added later has to say which
+ * it is — as `ranNothing` does. The two disagree on a limit refusal on
+ * purpose: `ranNothing` says it ran (tokens were spent reaching the refusal),
+ * while this one says it is not work (nothing landed against the ticket).
+ */
+export function countsAsWork(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "limit-refused":
+      return false;
+    case "failed":
+      return !handedBackAheadOfGate(iteration);
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "pull-request-resolved":
+    case "provider-failed":
+    case "budget-exhausted":
+    case "discovery-blocked":
+      return true;
+  }
+}
+
+/**
  * Whether `iteration` started no run: a ticket handed back before one could
  * start, or a pull request ticket that found nothing to do. A switch on every
  * kind, so an iteration kind added later has to say which it is.

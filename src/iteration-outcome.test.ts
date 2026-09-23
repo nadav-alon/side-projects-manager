@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { ranNothing, type Failed, type Iteration } from "./iteration-outcome.ts";
+import { countsAsWork, ranNothing, type Failed, type Iteration } from "./iteration-outcome.ts";
 import { branch, commitSha, tokenCount } from "./ports/index.ts";
 
 /** A failed iteration handed back ahead of the gate, for an unusable model label. */
@@ -98,5 +98,60 @@ describe("ranNothing", () => {
     };
 
     assert.equal(ranNothing(iteration), false);
+  });
+});
+
+describe("countsAsWork", () => {
+  it("does not count a limit refusal as work, since it never happened", () => {
+    const iteration: Iteration = {
+      kind: "limit-refused",
+      limitRefusal: "the provider limit refused this run",
+      tokensUsed: tokenCount(500),
+      discard: { kind: "none" },
+    };
+
+    assert.equal(countsAsWork(iteration), false);
+  });
+
+  it("does not count a ticket handed back ahead of the gate as work", () => {
+    assert.equal(countsAsWork(AHEAD_OF_GATE_FAILURE), false);
+  });
+
+  it("counts a ticket the agent gave up on mid-run as work", () => {
+    const iteration: Iteration = {
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "handed-back" },
+    };
+
+    assert.equal(countsAsWork(iteration), true);
+  });
+
+  it("counts a provider failure as work, since the provider was reached", () => {
+    const iteration: Iteration = {
+      kind: "provider-failed",
+      providerFailure: "the provider is down",
+      tokensUsed: tokenCount(0),
+      discard: { kind: "none" },
+    };
+
+    assert.equal(countsAsWork(iteration), true);
+  });
+
+  it("counts a finished run as work", () => {
+    const iteration: Iteration = {
+      kind: "finished",
+      run: {
+        kind: "finished",
+        branch: branch("agent/171"),
+        commits: [commitSha("a".repeat(40))],
+        tokensUsed: tokenCount(1_000),
+        output: "done",
+      },
+      tokensUsed: tokenCount(1_000),
+      handedBack: { outcome: "handed-back" },
+    };
+
+    assert.equal(countsAsWork(iteration), true);
   });
 });
