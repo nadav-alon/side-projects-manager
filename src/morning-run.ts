@@ -23,8 +23,6 @@ import type {
   RepoSlug,
   ReviewFinished,
   ReviewGaveUp,
-  ReviewLimitRefused,
-  ReviewProviderFailed,
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
@@ -111,6 +109,7 @@ import {
   type AppliedReview,
   type BudgetExhausted,
   type CutOff,
+  type CutOffRun,
   type DiscoveryBlocked,
   type DiscoveryBlockedCutOff,
   type Failed,
@@ -713,22 +712,19 @@ async function work(
     };
   }
   if (run.kind === "limit-refused") {
-    // Routed before the branch is salvaged: a blocking discovery is no less
-    // true for the provider having refused the run, so it hands the ticket
-    // back — discarding the branch, per CONTEXT.md's "Discard" — rather than
-    // salvaging it for a next run the ticket has already been declared wrong
-    // for. See CONTEXT.md's "Discovery" and "Hand back". Still carries its
-    // cut-off, so the invocation stands down over it exactly as it would
-    // without the discovery.
-    const routing = await routeOrBlock(ports, selection.ticket, run, {
-      worked: { checkout, salvages, run },
-      cutOff: discoveryBlockedCutOff(run),
-    });
-    if ("blocked" in routing) {
-      return routing.blocked;
-    }
-    const discard = await salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run);
-    return withDiscoveries(cutOffRunOutcome(run, discard), routing.routed);
+    // Salvaged rather than discarded, unlike a provider failure's branch
+    // below: a next run for this ticket can still resume on it, per
+    // CONTEXT.md's "Cut off" and "Salvage".
+    return routeCutOffDiscoveriesOrBlock(
+      ports,
+      selection.ticket,
+      run,
+      (run) =>
+        salvageableBranchOutcome(ports, checkout, salvages, selection.ticket, run).then((discard) =>
+          cutOffRunOutcome(run, discard),
+        ),
+      { checkout, salvages, run },
+    );
   }
   if (run.kind === "budget-exhausted") {
     // Salvaged exactly as a limit refusal's branch is — its own ceiling says
@@ -742,19 +738,15 @@ async function work(
     );
   }
   if (run.kind === "provider-failed") {
-    // Routed before the branch is discarded, as a limit refusal's is above:
-    // a blocking discovery hands the ticket back rather than leaving it
-    // eligible for a later firing to select again. Still carries its
-    // cut-off, exactly as a limit refusal's block does above.
-    const routing = await routeOrBlock(ports, selection.ticket, run, {
-      worked: { checkout, salvages, run },
-      cutOff: discoveryBlockedCutOff(run),
-    });
-    if ("blocked" in routing) {
-      return routing.blocked;
-    }
-    const discard = await discardBranch(ports.repoHost, checkout, run);
-    return withDiscoveries(cutOffRunOutcome(run, discard), routing.routed);
+    // Discarded, same as any other cut-off run's branch, per CONTEXT.md's
+    // "Cut off" — unlike a limit refusal's above, kept as a salvage.
+    return routeCutOffDiscoveriesOrBlock(
+      ports,
+      selection.ticket,
+      run,
+      (run) => discardBranch(ports.repoHost, checkout, run).then((discard) => cutOffRunOutcome(run, discard)),
+      { checkout, salvages, run },
+    );
   }
   if (run.kind === "model-refused") {
     // A model refusal ends the ticket's run on its own terms, whatever it
@@ -1128,28 +1120,33 @@ async function routeOrBlock(
 }
 
 /**
- * Routes a limit-refused or provider-failed review, apply-review, rebase or
- * spec review run's discoveries, or blocks on them — the one place the
- * convention is spelled out, rather than once per run kind that can hit a
- * cut-off: a correction or prerequisite the run filed is no less true for the
+ * Routes a cut-off run's discoveries, or blocks on them — the one place the
+ * convention is spelled out, routed through the same blocking check as the
+ * run's own gave-up and otherwise-successful paths call `routeOrBlock` for:
+ * a correction or prerequisite the run filed is no less true for the
  * provider having cut it off. Still carries its cut-off, so the invocation
- * stands down over it exactly as it would without the discovery.
- * `toCutOffOutcome` builds `run`'s own cut-off outcome, once routing clears
- * it to go ahead.
+ * stands down over it exactly as it would without the discovery. `worked`
+ * names the branch an implementation run left, as `routeOrBlock`'s own does;
+ * a review, apply-review, rebase or spec review run never creates one, so
+ * its own calls leave it out. `toCutOffOutcome` builds `run`'s own cut-off
+ * outcome once routing clears it to go ahead — async, since an
+ * implementation run's still needs its branch's discard decided first.
  */
-async function routeCutOffOrBlock(
+async function routeCutOffDiscoveriesOrBlock<Run extends CutOffRun>(
   ports: MorningLoopPorts,
   ticket: Ticket,
-  run: ReviewLimitRefused | ReviewProviderFailed,
-  toCutOffOutcome: (run: ReviewLimitRefused | ReviewProviderFailed) => CutOff,
+  run: Run,
+  toCutOffOutcome: (run: Run) => CutOff | Promise<CutOff>,
+  worked?: WorkedBranch & { salvages: Salvages },
 ): Promise<CutOff | DiscoveryBlocked> {
   const routing = await routeOrBlock(ports, ticket, run, {
+    ...(worked !== undefined && { worked }),
     cutOff: discoveryBlockedCutOff(run),
   });
   if ("blocked" in routing) {
     return routing.blocked;
   }
-  return withDiscoveries(toCutOffOutcome(run), routing.routed);
+  return withDiscoveries(await toCutOffOutcome(run), routing.routed);
 }
 
 /**
@@ -1492,7 +1489,7 @@ async function runReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return routeCutOffOrBlock(ports, ticket, review, cutOffReviewOutcome);
+    return routeCutOffDiscoveriesOrBlock(ports, ticket, review, cutOffReviewOutcome);
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1645,7 +1642,7 @@ async function runSpecReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return routeCutOffOrBlock(ports, ticket, review, cutOffReviewOutcome);
+    return routeCutOffDiscoveriesOrBlock(ports, ticket, review, cutOffReviewOutcome);
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1767,7 +1764,7 @@ async function runApplyReview(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return routeCutOffOrBlock(ports, ticket, run, cutOffReviewOutcome);
+    return routeCutOffDiscoveriesOrBlock(ports, ticket, run, cutOffReviewOutcome);
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
@@ -1978,7 +1975,7 @@ async function runRebase(
   const { outcome: run } = result;
 
   if (run.kind === "limit-refused" || run.kind === "provider-failed") {
-    return routeCutOffOrBlock(ports, ticket, run, cutOffReviewOutcome);
+    return routeCutOffDiscoveriesOrBlock(ports, ticket, run, cutOffReviewOutcome);
   }
   if (run.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(run);
