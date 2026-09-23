@@ -1619,6 +1619,46 @@ describe("invocationSelection", () => {
       assert.equal(commented.length, 1);
     });
 
+    it("posts /rebase again once a scan's listing has shown its rebase ticket and that ticket has since closed, in the same invocation", async () => {
+      // Unlike the "at most once" case above: once a scan's own listing has
+      // shown the rebase ticket open, the guard's job is done. A later scan
+      // whose listing shows that ticket closed, with the pull request
+      // conflicting again, must post afresh rather than staying guarded for
+      // the rest of the invocation.
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      const repoHost = new FakeRepoHost();
+      store.register(PILOT, { turbo: true });
+      repoHost.setOpenPullRequests(PILOT, [
+        { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+      ]);
+      repoHost.mergeStatus = () => "conflicting";
+      const { selection } = await open(store, tracker, { repoHost });
+
+      await selection.next();
+
+      const rebaseTicket = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(2),
+        title: "Rebase #1",
+        pullRequest: { kind: "rebase", url: PULL_REQUEST },
+      });
+      await selection.next();
+
+      tracker.closeOutOfBand(rebaseTicket);
+      await selection.next();
+
+      assert.deepEqual(repoHost.comments, [
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+        { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
+      ]);
+      const commented = selection
+        .sweeps()
+        .flatMap((swept) =>
+          swept.changes.filter((change) => change.action === "commented"),
+        );
+      assert.equal(commented.length, 2);
+    });
+
     it("reuses the open issues read selection already makes, rather than listing again", async (t) => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();
