@@ -2864,6 +2864,8 @@ describe("morningLoop", () => {
         assert.equal(handback?.ticket.number, specReview.number);
         assert.notEqual(handback?.ticket.number, supertask.number);
         assert.match(handback?.comment ?? "", /blocking discovery/);
+        const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
+        assert.ok(!backlog.some((ticket) => ticket.number === specReview.number));
         assert.ok(report.standDown?.reason === "provider-failure");
         assert.equal(report.standDown.ticket.number, specReview.number);
         assert.ok(report.standDown.handedBack);
@@ -2893,6 +2895,13 @@ describe("morningLoop", () => {
         assert.deepEqual(ports.tracker.handbacks, []);
         const { tickets: backlog } = backlogIn(await ports.tracker.listOpenIssues(PILOT));
         assert.ok(backlog.some((ticket) => ticket.number === specReview.number));
+        const limitRefusedIteration = report.iterations[0];
+        assert.equal(
+          limitRefusedIteration?.kind === "limit-refused"
+            ? limitRefusedIteration.discoveries?.filed.length
+            : undefined,
+          1,
+        );
       });
 
       it("hands back the spec review for a gave-up run that also filed a correction, not as a gave-up run", async () => {
