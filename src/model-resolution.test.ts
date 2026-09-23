@@ -88,10 +88,9 @@ describe("resolveModel", () => {
       ticket: implementationTicket(["model:opus", "model:haiku"]),
       defaults: { implementation: modelName("sonnet") },
       expected: {
-        kind: "refused",
+        kind: "unusable",
         failure: {
           kind: "conflicting-model-labels",
-          reason: "it carries more than one model label (model:opus, model:haiku)",
           labels: ["model:opus", "model:haiku"],
         },
       },
@@ -101,10 +100,9 @@ describe("resolveModel", () => {
       ticket: implementationTicket(["model:"]),
       defaults: { implementation: modelName("sonnet") },
       expected: {
-        kind: "refused",
+        kind: "unusable",
         failure: {
           kind: "unusable-model-label",
-          reason: "its model label names no usable model (model:)",
           labels: ["model:"],
         },
       },
@@ -125,7 +123,7 @@ describe("modelRefused", () => {
     const failure = modelRefused(ticket, { model: modelName("opus"), words: "unknown model opus" });
 
     assert.equal(failure.source, "model label");
-    assert.match(failure.reason, /from the model label/);
+    assert.match(modelProblem(ticket, failure).problem, /model label/);
   });
 
   it("names the model defaults as the source, for a ticket carrying no model label", () => {
@@ -134,7 +132,7 @@ describe("modelRefused", () => {
     const failure = modelRefused(ticket, { model: modelName("haiku"), words: "unknown model haiku" });
 
     assert.equal(failure.source, "model defaults");
-    assert.match(failure.reason, /from the model defaults/);
+    assert.match(modelProblem(ticket, failure).problem, /model defaults/);
   });
 });
 
@@ -142,7 +140,6 @@ describe("modelProblem", () => {
   it("names the labels and says to keep one, for conflicting model labels", () => {
     const { problem, fix } = modelProblem(implementationTicket(), {
       kind: "conflicting-model-labels",
-      reason: "it carries more than one model label (model:opus, model:haiku)",
       labels: ["model:opus", "model:haiku"],
     });
 
@@ -151,21 +148,20 @@ describe("modelProblem", () => {
     assert.match(fix, /keep one/i);
   });
 
-  it("names the labels and the expected shape, for an unusable model label", () => {
+  it("names the labels, but leaves the expected shape to the hand-back comment, for an unusable model label", () => {
     const { problem, fix } = modelProblem(implementationTicket(), {
       kind: "unusable-model-label",
-      reason: "its model label names no usable model (model:)",
       labels: ["model:"],
     });
 
     assert.match(problem, /`model:`/);
+    assert.doesNotMatch(problem, /model:<name>/);
     assert.match(fix, /fix or remove it/);
   });
 
   it("points at the model label, for a model refusal sourced from one", () => {
     const { problem, fix } = modelProblem(implementationTicket(["model:opus"]), {
       kind: "model-refused",
-      reason: "the agent CLI refused the model opus (from the model label): unknown model opus",
       refusal: { model: modelName("opus"), words: "unknown model opus" },
       source: "model label",
     });
@@ -177,7 +173,6 @@ describe("modelProblem", () => {
   it("points at models.json and the ticket's own kind, for a model refusal sourced from the defaults", () => {
     const { problem, fix } = modelProblem(reviewTicket(), {
       kind: "model-refused",
-      reason: "the agent CLI refused the model haiku (from the model defaults): unknown model haiku",
       refusal: { model: modelName("haiku"), words: "unknown model haiku" },
       source: "model defaults",
     });

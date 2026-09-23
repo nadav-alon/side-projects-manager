@@ -4,7 +4,7 @@ import type {
   ModelRefusal,
   Ticket,
 } from "./ports/index.ts";
-import { MODEL_LABEL_PREFIX, MODEL_NAME_SHAPE, ticketKind } from "./ports/index.ts";
+import { MODEL_LABEL_PREFIX, ticketKind } from "./ports/index.ts";
 import type { ModelRefused, ModelSource, UnusableModelLabel } from "./iteration-outcome.ts";
 
 /** The model a ticket's run is started on, and what named it. */
@@ -16,13 +16,19 @@ export interface ResolvedModel {
 /**
  * What resolving a ticket's model against the model defaults comes to, per
  * `CONTEXT.md`'s "Model label" and "Model defaults": a model and its source,
- * no model at all — leaving the sandbox image's own pin in force — or a
- * refusal to start, for model labels no run could be started on.
+ * no model at all — leaving the sandbox image's own pin in force — or model
+ * labels no run could be started on.
+ *
+ * `kind: "unusable"` names what the failure carries (`UnusableModelLabel`),
+ * rather than reusing "refused": `CONTEXT.md`'s "Model refusal" is the agent
+ * CLI turning a model down after a run was attempted, which `modelRefused`,
+ * below, has its own name for — the same word for both would blur two terms
+ * the glossary keeps apart.
  */
 export type ModelResolution =
   | { kind: "resolved"; model: ResolvedModel }
   | { kind: "none" }
-  | { kind: "refused"; failure: UnusableModelLabel };
+  | { kind: "unusable"; failure: UnusableModelLabel };
 
 /**
  * Resolves `ticket`'s model against `defaults`. The ticket's own model label
@@ -39,21 +45,13 @@ export function resolveModel(
   switch (label?.kind) {
     case "conflicting":
       return {
-        kind: "refused",
-        failure: {
-          kind: "conflicting-model-labels",
-          reason: `it carries more than one model label (${label.labels.join(", ")})`,
-          labels: label.labels,
-        },
+        kind: "unusable",
+        failure: { kind: "conflicting-model-labels", labels: label.labels },
       };
     case "unusable":
       return {
-        kind: "refused",
-        failure: {
-          kind: "unusable-model-label",
-          reason: `its model label names no usable model (${label.labels.join(", ")})`,
-          labels: label.labels,
-        },
+        kind: "unusable",
+        failure: { kind: "unusable-model-label", labels: label.labels },
       };
     case "named":
       return { kind: "resolved", model: { name: label.name, source: "model label" } };
@@ -84,19 +82,19 @@ export function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefuse
     ticket.modelLabel?.kind === "named" && ticket.modelLabel.name === refusal.model
       ? "model label"
       : "model defaults";
-  return {
-    kind: "model-refused",
-    reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
-    refusal,
-    source,
-  };
+  return { kind: "model-refused", refusal, source };
 }
 
 /**
- * What is wrong with a model failure, and the imperative fix for it — the one
+ * Why a model failure happened, and the imperative fix for it — the one
  * source `hand-back.ts`'s comment and `summary.ts`'s one-line digest both read
- * from, so the wording for an unusable model label or a model refusal never
- * drifts between the two.
+ * from, so the wording never drifts between the two.
+ *
+ * `problem` carries only the "why": for `"unusable-model-label"`, the label
+ * shape a model label must take stays out of it, and `hand-back.ts`'s own
+ * comment appends that on its own, since it is an instruction for fixing the
+ * ticket, not the reason it failed, and a `problem` other callers render into
+ * a half-sentence has no room for it.
  */
 export interface ModelProblem {
   /** What is wrong, fit for the middle of a sentence. */
@@ -118,7 +116,7 @@ export function modelProblem(
       };
     case "unusable-model-label":
       return {
-        problem: `its model label names no model a run could be started on (${labelList(failure.labels)}): a model label is \`${MODEL_LABEL_PREFIX}<name>\`, with ${MODEL_NAME_SHAPE}`,
+        problem: `its model label names no model a run could be started on (${labelList(failure.labels)})`,
         fix: "fix or remove it",
       };
     case "model-refused":
@@ -134,6 +132,7 @@ export function modelProblem(
   }
 }
 
-function labelList(labels: readonly string[]): string {
+/** `labels`, backtick-quoted and comma-joined for a sentence. */
+export function labelList(labels: readonly string[]): string {
   return labels.map((label) => `\`${label}\``).join(", ");
 }

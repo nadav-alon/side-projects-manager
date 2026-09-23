@@ -1842,10 +1842,11 @@ function stoppedBecause(iteration: Attempt & Failed): string {
     case "handover-failed":
       return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${withoutTrailingStop(failure.reason)}. ${now}`;
     case "model-refused":
-      return `${which} was not worked, because ${withoutTrailingStop(failure.reason)}. ${now}`;
-    case "unsettled-mergeability":
+      return `${which} was not worked, because ${withoutTrailingStop(modelProblem(iteration.ticket, failure).problem)}. ${now}`;
     case "conflicting-model-labels":
     case "unusable-model-label":
+      return `${which} was not run, because ${withoutTrailingStop(modelProblem(iteration.ticket, failure).problem)}. ${now}`;
+    case "unsettled-mergeability":
     case "unusable-size-label":
       return `${which} was not run, because ${withoutTrailingStop(failure.reason)}. ${now}`;
   }

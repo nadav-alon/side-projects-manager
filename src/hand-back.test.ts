@@ -377,7 +377,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "model-refused",
-        reason: "the agent CLI refused the model opus (from the model label): unknown model opus",
         refusal: { model: modelName("opus"), words: "unknown model opus" },
         source: "model label",
         worked: {
@@ -404,7 +403,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "model-refused",
-        reason: "the agent CLI refused the model haiku (from the model defaults): unknown model haiku",
         refusal: { model: modelName("haiku"), words: "unknown model haiku" },
         source: "model defaults",
       });
@@ -421,7 +419,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "model-refused",
-        reason: "the agent CLI refused the model haiku (from the model defaults): unknown model haiku",
         refusal: { model: modelName("haiku"), words: "unknown model haiku" },
         source: "model defaults",
         transcript: TRANSCRIPT,
@@ -536,7 +533,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "conflicting-model-labels",
-        reason: "it carries more than one model label (model:opus, model:haiku)",
         labels: ["model:opus", "model:haiku"],
       });
 
@@ -552,7 +548,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "conflicting-model-labels",
-        reason: "it carries more than one model label (Model:Opus, model:haiku)",
         labels: ["Model:Opus", "model:haiku"],
       });
 
@@ -567,7 +562,6 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "unusable-model-label",
-        reason: "its model label names no usable model (model:)",
         labels: ["model:"],
       });
 

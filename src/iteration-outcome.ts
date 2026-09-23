@@ -96,10 +96,13 @@ export type ModelSource = "model label" | "model defaults";
  * A model refusal: the agent CLI would not start on the model the run was
  * given. The ticket's model is the problem, so the ticket is handed back —
  * but the agent never gave up, and the setup did its part.
+ *
+ * Carries no `reason` of its own: `modelProblem` in `model-resolution.ts` is
+ * the one source of wording for it, read afresh wherever it is needed rather
+ * than duplicated into a field here.
  */
 export interface ModelRefused {
   kind: "model-refused";
-  reason: string;
   refusal: ModelRefusal;
   /** What named the refused model: the ticket's model label or the model defaults. */
   source: ModelSource;
@@ -109,10 +112,12 @@ export interface ModelRefused {
  * A ticket whose model labels no run could be started on — two or more that
  * disagree, or one naming no usable model — caught at selection, so nothing
  * was cloned, run or spent.
+ *
+ * Carries no `reason` of its own, for the same reason `ModelRefused` does
+ * not: `modelProblem` is the one source of wording.
  */
 export interface UnusableModelLabel {
   kind: "conflicting-model-labels" | "unusable-model-label";
-  reason: string;
   /** The model labels at fault, as the ticket carries them. */
   labels: readonly string[];
 }

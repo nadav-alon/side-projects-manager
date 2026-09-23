@@ -369,7 +369,7 @@ export async function morningLoop(
         // developer the ticket they need to fix.
         const resolution = resolveModel(ticket, modelDefaults);
         const unusableLabel =
-          resolution.kind === "refused" ? resolution.failure : unusableSizeLabel(ticket);
+          resolution.kind === "unusable" ? resolution.failure : unusableSizeLabel(ticket);
         if (unusableLabel !== undefined) {
           outcomeSlots.push(
             await handBackAheadOfGate(

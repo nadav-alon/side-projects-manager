@@ -25,13 +25,15 @@ import type {
   TranscriptPath,
 } from "./ports/index.ts";
 import {
+  MODEL_LABEL_PREFIX,
+  MODEL_NAME_SHAPE,
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
   SIZES,
   targetNoun,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
-import { modelProblem } from "./model-resolution.ts";
+import { labelList, modelProblem } from "./model-resolution.ts";
 import { tail } from "./tail.ts";
 
 /**
@@ -281,10 +283,16 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
       return gaveUpCommentFor(ending, discard);
     case "model-refused":
       return modelRefusalComment(ticket, ending, discard);
-    case "conflicting-model-labels":
-    case "unusable-model-label": {
+    case "conflicting-model-labels": {
       const { problem, fix } = modelProblem(ticket, ending);
       return notRunAheadOfGateComment(problem, fix);
+    }
+    case "unusable-model-label": {
+      const { problem, fix } = modelProblem(ticket, ending);
+      return notRunAheadOfGateComment(
+        `${problem}: a model label is \`${MODEL_LABEL_PREFIX}<name>\`, with ${MODEL_NAME_SHAPE}`,
+        fix,
+      );
     }
     case "unusable-size-label":
       return notRunAheadOfGateComment(
@@ -424,10 +432,6 @@ function modelRefusalComment(
     notRetried(fix),
     ...transcriptNote(ending.transcript),
   ].join("\n\n");
-}
-
-function labelList(labels: readonly string[]): string {
-  return labels.map((label) => `\`${label}\``).join(", ");
 }
 
 /**
