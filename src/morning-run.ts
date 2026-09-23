@@ -9,8 +9,6 @@ import type {
   Discovery,
   IssueTracker,
   IterationLimit,
-  ModelDefaults,
-  ModelName,
   ModelRefusal,
   OpenInvocation,
   Progress,
@@ -71,6 +69,11 @@ import {
 } from "./selection.ts";
 import { salvageRecords, type Salvages } from "./salvages.ts";
 import {
+  modelRefused,
+  resolveModel,
+  type ResolvedModel,
+} from "./model-resolution.ts";
+import {
   invocationState,
   invocationStateRest,
   type CurrentInvocation,
@@ -115,8 +118,6 @@ import {
   type Iteration,
   type IterationOutcome,
   type LimitRefused,
-  type ModelRefused,
-  type ModelSource,
   type NotCommented,
   type NotLabelled,
   type ProviderFailed,
@@ -125,7 +126,6 @@ import {
   type Reviewed,
   type SpecReviewed,
   type UnsettledMergeability,
-  type UnusableModelLabel,
   type UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import {
@@ -152,12 +152,6 @@ export interface MorningLoopPorts {
   clock: Clock;
   store: Store;
   progress: Progress;
-}
-
-/** The model a ticket's run is started on, and what named it. */
-export interface ResolvedModel {
-  name: ModelName;
-  source: ModelSource;
 }
 
 /**
@@ -373,8 +367,9 @@ export async function morningLoop(
         // Ahead of the gate as well as of the run: handing a ticket back
         // spends nothing, so a morning the gate refuses still gives the
         // developer the ticket they need to fix.
+        const resolution = resolveModel(ticket, modelDefaults);
         const unusableLabel =
-          unusableModelLabel(ticket) ?? unusableSizeLabel(ticket);
+          resolution.kind === "unusable" ? resolution.failure : unusableSizeLabel(ticket);
         if (unusableLabel !== undefined) {
           outcomeSlots.push(
             await handBackAheadOfGate(
@@ -419,7 +414,7 @@ export async function morningLoop(
         }
 
         const { repo } = chosen.project;
-        const model = resolveModel(ticket, modelDefaults);
+        const model = resolution.kind === "resolved" ? resolution.model : undefined;
         // Reported where it started, however long it then takes to finish.
         const slot = outcomeSlots.push(undefined) - 1;
         const completion: Promise<void> = work(
@@ -553,48 +548,6 @@ export async function morningLoop(
 }
 
 /**
- * The model `ticket`'s run is started on: the one its own model label names,
- * else the model defaults' entry for its kind, else none, which leaves the
- * sandbox image's pin in force.
- */
-function resolveModel(
-  ticket: Ticket,
-  modelDefaults: ModelDefaults,
-): ResolvedModel | undefined {
-  if (ticket.modelLabel?.kind === "named") {
-    return { name: ticket.modelLabel.name, source: "model label" };
-  }
-  const name = modelDefaults[ticketKind(ticket)];
-  return name === undefined ? undefined : { name, source: "model defaults" };
-}
-
-/**
- * Why no run can be started on `ticket`'s model labels, absent when they
- * name one model or none. Never falls back to the model defaults: the
- * developer asked for a model, and another one is not what they asked for.
- */
-function unusableModelLabel(ticket: Ticket): UnusableModelLabel | undefined {
-  const label = ticket.modelLabel;
-  switch (label?.kind) {
-    case undefined:
-    case "named":
-      return undefined;
-    case "conflicting":
-      return {
-        kind: "conflicting-model-labels",
-        reason: `it carries more than one model label (${label.labels.join(", ")})`,
-        labels: label.labels,
-      };
-    case "unusable":
-      return {
-        kind: "unusable-model-label",
-        reason: `its model label names no usable model (${label.labels.join(", ")})`,
-        labels: label.labels,
-      };
-  }
-}
-
-/**
  * Why no run can be started on `ticket`'s size label, absent when it names a
  * recognised size, names none, or belongs to a pull request ticket — whose
  * size label `runEstimate` (`budget-gate.ts`) always ignores, so it is never
@@ -634,31 +587,6 @@ async function handBackAheadOfGate(
   const iteration: Failed = { kind: "failed", failure: ending, handedBack };
   invocation.iterationEnded(ticket, iteration);
   return { repo, ticket, ...iteration };
-}
-
-/**
- * A model refusal, as the failure its ticket is handed back with.
- *
- * `source` is worked out again from `ticket` rather than threaded through
- * from `resolveModel`'s own answer: a `"model-refused"` outcome can only come
- * back from a run the sandbox was actually given a model for (`Sandbox.run`'s
- * own overload rules that out for a run given none), and the model it names
- * is always the one that run was given — so which of the ticket's own model
- * label or the model defaults that was is a fact of `ticket`, not something
- * this needs handed to it separately, and there is no "given no model" case
- * left here to guard against.
- */
-function modelRefused(ticket: Ticket, refusal: ModelRefusal): ModelRefused {
-  const source: ModelSource =
-    ticket.modelLabel?.kind === "named" && ticket.modelLabel.name === refusal.model
-      ? "model label"
-      : "model defaults";
-  return {
-    kind: "model-refused",
-    reason: `the agent CLI refused the model ${refusal.model} (from the ${source}): ${refusal.words}`,
-    refusal,
-    source,
-  };
 }
 
 /** The `transcript` field a `handBack` ending wants, present only when `transcript` is. */

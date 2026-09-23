@@ -9,10 +9,13 @@ import type {
   AppliedReview,
   Finished,
   IterationOutcome,
+  ModelRefused,
   PullRequestResolved,
   Reviewed,
   SpecReviewed,
+  UnusableModelLabel,
 } from "./iteration-outcome.ts";
+import { modelProblem } from "./model-resolution.ts";
 import {
   branch,
   commitSha,
@@ -20,6 +23,7 @@ import {
   issueUrl,
   localDay,
   localTimeOfMinute,
+  modelName,
   processId,
   pullRequestUrl,
   repoSlug,
@@ -933,6 +937,102 @@ describe("a ticket handed back for an unusable size label", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO} #307: relabelled ready-for-human — fix its size label (size:XXL)`,
+    ]);
+  });
+});
+
+describe("a ticket handed back for a model problem", () => {
+  function conflictingModelLabels(number: number): {
+    iteration: IterationOutcome;
+    ticket: Ticket;
+    failure: UnusableModelLabel;
+  } {
+    const ticket = implementationTicket(number);
+    const failure: UnusableModelLabel = {
+      kind: "conflicting-model-labels",
+      labels: ["model:opus", "model:haiku"],
+    };
+    return {
+      ticket,
+      failure,
+      iteration: {
+        repo: REPO,
+        ticket,
+        kind: "failed",
+        failure,
+        handedBack: { outcome: "handed-back" },
+      },
+    };
+  }
+
+  function unusableModelLabel(number: number): {
+    iteration: IterationOutcome;
+    ticket: Ticket;
+    failure: UnusableModelLabel;
+  } {
+    const ticket = implementationTicket(number);
+    const failure: UnusableModelLabel = { kind: "unusable-model-label", labels: ["model:"] };
+    return {
+      ticket,
+      failure,
+      iteration: {
+        repo: REPO,
+        ticket,
+        kind: "failed",
+        failure,
+        handedBack: { outcome: "handed-back" },
+      },
+    };
+  }
+
+  function modelRefused(number: number): {
+    iteration: IterationOutcome;
+    ticket: Ticket;
+    failure: ModelRefused;
+  } {
+    const ticket = implementationTicket(number);
+    const failure: ModelRefused = {
+      kind: "model-refused",
+      refusal: { model: modelName("opus"), words: "unknown model opus" },
+      source: "model label",
+    };
+    return {
+      ticket,
+      failure,
+      iteration: {
+        repo: REPO,
+        ticket,
+        kind: "failed",
+        failure,
+        handedBack: { outcome: "handed-back" },
+      },
+    };
+  }
+
+  it("reads the same wording modelProblem gives for conflicting model labels — the one source hand-back.ts's own comment reads too", () => {
+    const { iteration, ticket, failure } = conflictingModelLabels(308);
+    const { problem, fix } = modelProblem(ticket, failure);
+
+    assert.deepEqual(waitingLines([iteration]), [
+      `- ${REPO} #308: relabelled ready-for-human — ${problem}, so ${fix}`,
+    ]);
+  });
+
+  it("reads the same wording modelProblem gives for an unusable model label — the one source hand-back.ts's own comment reads too", () => {
+    const { iteration, ticket, failure } = unusableModelLabel(310);
+    const { problem, fix } = modelProblem(ticket, failure);
+
+    assert.deepEqual(waitingLines([iteration]), [
+      `- ${REPO} #310: relabelled ready-for-human — ${problem}, so ${fix}`,
+    ]);
+  });
+
+  it("reads the same wording modelProblem gives for a model refusal — the one source hand-back.ts's own comment reads too", () => {
+    const { iteration, ticket, failure } = modelRefused(309);
+    const { problem, fix } = modelProblem(ticket, failure);
+
+    assert.deepEqual(waitingLines([iteration]), [
+      `- ${REPO} #309: relabelled ready-for-human — ${problem}, so ${fix}`,
     ]);
   });
 });
@@ -2054,11 +2154,7 @@ describe("composeInvocationReport", () => {
       repo: REPO,
       ticket: implementationTicket(number),
       kind: "failed",
-      failure: {
-        kind: "unusable-model-label",
-        reason: "model:foo names no model this loop runs",
-        labels: ["model:foo"],
-      },
+      failure: { kind: "unusable-model-label", labels: ["model:foo"] },
       handedBack: { outcome: "handed-back" },
     };
   }

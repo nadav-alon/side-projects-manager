@@ -4381,7 +4381,8 @@ describe("morningLoop", () => {
         run?.kind === "gave-up" ? run.commits : undefined,
         [commitSha("c0ffee1")],
       );
-      assert.equal(failureOf(report.iterations[0])?.reason, GAVE_UP);
+      const failure = failureOf(report.iterations[0]);
+      assert.equal(failure?.kind === "gave-up" ? failure.reason : undefined, GAVE_UP);
     });
 
     it("names the run's transcript in the hand-back comment, when it left one", async () => {
@@ -6448,12 +6449,12 @@ describe("morningLoop", () => {
         const infrastructure = /would not start|fix the setup|sandbox or checkout failed/;
         assert.doesNotMatch(report.message, /gave up/);
         assert.doesNotMatch(report.message, infrastructure);
-        assert.match(report.message, /refused the model opus/);
+        assert.match(report.message, /refused the model `opus`/);
         const body = ports.tracker.summaries[0]?.body ?? "";
         assert.doesNotMatch(body, /gave up/);
         assert.doesNotMatch(body, infrastructure);
         assert.match(body, /Waiting on you/);
-        assert.match(body, /pilot #7: relabelled ready-for-human — the model opus/);
+        assert.match(body, /pilot #7: relabelled ready-for-human — the agent CLI refused the model/);
       });
     });
 
