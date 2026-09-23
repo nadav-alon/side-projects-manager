@@ -4,10 +4,12 @@ import { describe, it } from "node:test";
 import { issueNumber } from "./issue-number.ts";
 import {
   MODEL_LABEL_PREFIX,
+  READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
   SPEC_REVIEW_LABEL,
   SUPERTASK_LABEL,
+  carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
   carriesSupertaskLabel,
@@ -200,6 +202,18 @@ describe("carriesSpecReviewLabel", () => {
   it("finds nothing in labels without it", () => {
     assert.equal(carriesSpecReviewLabel(["ready-for-agent", "review"]), false);
     assert.equal(carriesSpecReviewLabel([]), false);
+  });
+});
+
+describe("carriesReadyDiscoveryLabel", () => {
+  it("finds the ready discovery label among other labels, whatever its case", () => {
+    assert.equal(carriesReadyDiscoveryLabel(["bug", READY_DISCOVERY_LABEL]), true);
+    assert.equal(carriesReadyDiscoveryLabel(["Ready-Discovery"]), true);
+  });
+
+  it("finds nothing in labels without it", () => {
+    assert.equal(carriesReadyDiscoveryLabel(["ready-for-agent", "size:S"]), false);
+    assert.equal(carriesReadyDiscoveryLabel([]), false);
   });
 });
 
