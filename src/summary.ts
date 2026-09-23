@@ -8,6 +8,7 @@ import type {
 import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
 import type { DiscoveryRouting } from "./discovery-routing.ts";
 import type {
+  SpecReviewSweepLink,
   SpecReviewSweepOutcome,
   SpecReviewSweepRefusal,
 } from "./spec-review-sweep.ts";
@@ -581,21 +582,32 @@ function specReviewSweepRefusalKey(
   return `${repo}|${refusal.supertask.number}`;
 }
 
+/** The key a spec review sweep link is deduplicated by: the project and the supertask it was linked to. */
+function specReviewSweepLinkKey(repo: RepoSlug, link: SpecReviewSweepLink): string {
+  return `${repo}|${link.supertask.number}`;
+}
+
 /**
  * One project's spec review sweep activity, grouped across every sweep the
  * invocation ran. Unlike a conflict sweep's own changes, a supertask a sweep
  * opened a spec review for is never met by a later scan the same invocation
  * — its own new sub-issue is what the next scan sees — so `opened` needs no
- * deduplicating. A refusal is different: a supertask whose `listSubIssues`
- * read failed changes nothing about the project, so a later scan the same
- * invocation meets it, and refuses it, again — deduplicated the same way
- * {@link conflictSweepProjects} dedupes its own refusals. A project with
- * nothing opened and nothing refused is left out entirely.
+ * deduplicating. A link is different: linking a floating spec review does
+ * not change what a later scan's own `openIssues` reads, since only an open
+ * spec review's own re-read does that, so the same floating spec review can
+ * be found, and linked again, by a later scan the same invocation ran —
+ * deduplicated the same way a refusal is. A refusal too: a supertask whose
+ * `listSubIssues` read failed changes nothing about the project, so a later
+ * scan the same invocation meets it, and refuses it, again — deduplicated
+ * the same way {@link conflictSweepProjects} dedupes its own refusals. A
+ * project with nothing opened, nothing linked and nothing refused is left
+ * out entirely.
  */
 function specReviewSweepProjects(
   specReviewSweeps: SpecReviewSweepOutcome[],
 ): SpecReviewSweepOutcome[] {
   const projects = new Map<RepoSlug, SpecReviewSweepOutcome>();
+  const seenLinks = new Set<string>();
   const seenRefusals = new Set<string>();
 
   for (const swept of specReviewSweeps) {
@@ -605,6 +617,15 @@ function specReviewSweepProjects(
       projects.set(swept.repo, project);
     }
     project.opened.push(...swept.opened);
+
+    for (const link of swept.linked) {
+      const key = specReviewSweepLinkKey(swept.repo, link);
+      if (seenLinks.has(key)) {
+        continue;
+      }
+      seenLinks.add(key);
+      project.linked.push(link);
+    }
 
     for (const refusal of swept.refusals) {
       const key = specReviewSweepRefusalKey(swept.repo, refusal);
@@ -616,21 +637,25 @@ function specReviewSweepProjects(
     }
   }
   return [...projects.values()].filter(
-    (project) => project.opened.length > 0 || project.refusals.length > 0,
+    (project) =>
+      project.opened.length > 0 || project.linked.length > 0 || project.refusals.length > 0,
   );
 }
 
 /**
  * The summary line's own short aside on spec review sweeps: present only when
- * a sweep opened one or was refused something — the developer's ticket to
- * pick up starts the same as any other, so an opened spec review earns a
- * place on the line itself rather than only in the body.
+ * a sweep opened one, linked one or was refused something — the developer's
+ * ticket to pick up starts the same as any other, so an opened or linked
+ * spec review earns a place on the line itself rather than only in the body.
  */
 function specReviewSweepAside(specReviewSweeps: SpecReviewSweepOutcome[]): string {
   const flagged = specReviewSweepProjects(specReviewSweeps).flatMap((project) => {
     const bits = [
       ...(project.opened.length > 0
         ? [`opened ${numbers(project.opened)}`]
+        : []),
+      ...(project.linked.length > 0
+        ? [`linked ${numbers(project.linked.map((link) => link.specReview))}`]
         : []),
       ...(project.refusals.length > 0
         ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]
@@ -643,10 +668,12 @@ function specReviewSweepAside(specReviewSweeps: SpecReviewSweepOutcome[]): strin
 
 /**
  * One bullet per project's spec review sweep activity: a spec review it
- * opened, and a refusal naming the supertask and the error — each once,
+ * opened, one it found floating and linked instead, worded distinctly from
+ * an opened one so a developer who read a prior refusal sees it was
+ * resolved, and a refusal naming the supertask and the error — each once,
  * however many sweeps met it, per `specReviewSweepProjects`. `undefined`
- * when no sweep this invocation opened or was refused anything, so the
- * section is absent entirely.
+ * when no sweep this invocation opened, linked or was refused anything, so
+ * the section is absent entirely.
  */
 function specReviewSweepSection(
   specReviewSweeps: SpecReviewSweepOutcome[],
@@ -658,6 +685,10 @@ function specReviewSweepSection(
   const lines = projects.flatMap((project) => [
     ...project.opened.map(
       (ticket) => `- ${project.repo}: opened #${ticket.number} (${ticket.title})`,
+    ),
+    ...project.linked.map(
+      (link) =>
+        `- ${project.repo}: linked #${link.specReview.number} (${link.specReview.title}) to #${link.supertask.number}`,
     ),
     ...project.refusals.map((refusal) => specReviewSweepRefusalLine(project.repo, refusal)),
   ]);

@@ -1759,7 +1759,7 @@ describe("spec review sweeps", () => {
     return summaryBody(built, summaryLine(built));
   }
 
-  it("renders nothing extra, byte for byte, when no sweep opened or refused anything", () => {
+  it("renders nothing extra, byte for byte, when no sweep opened, linked or refused anything", () => {
     const projects = [{ repo: REPO, verdict: "no-eligible-tickets" as const }];
     const withoutSweeps: SummaryFacts = { ...facts([]), projects };
     const withEmptySweeps: SummaryFacts = {
@@ -1796,7 +1796,8 @@ describe("spec review sweeps", () => {
       {
         repo: REPO,
         opened: [],
-        linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+        linked: [],
+        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
       },
     ];
 
@@ -1814,7 +1815,8 @@ describe("spec review sweeps", () => {
       {
         repo: REPO,
         opened: [],
-        linked: [], refusals: [{ supertask, action: "link", error: "denied" }],
+        linked: [],
+        refusals: [{ supertask, action: "link", error: "denied" }],
       },
     ];
 
@@ -1828,8 +1830,18 @@ describe("spec review sweeps", () => {
   it("dedupes a refusal a later scan the same invocation met again for the same supertask", () => {
     const supertask = implementationTicket(40);
     const sweeps: SpecReviewSweepOutcome[] = [
-      { repo: REPO, opened: [], linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
-      { repo: REPO, opened: [], linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
+      {
+        repo: REPO,
+        opened: [],
+        linked: [],
+        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+      },
+      {
+        repo: REPO,
+        opened: [],
+        linked: [],
+        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+      },
     ];
 
     const body = bodyOf(sweeps);
@@ -1855,7 +1867,12 @@ describe("spec review sweeps", () => {
 
   it("names every opened spec review, not just a count", () => {
     const opened = factsWithSpecReviewSweeps([
-      { repo: REPO, opened: [specReview(40, 68), specReview(10, 20)], linked: [], refusals: [] },
+      {
+        repo: REPO,
+        opened: [specReview(40, 68), specReview(10, 20)],
+        linked: [],
+        refusals: [],
+      },
     ]);
 
     assert.match(summaryLine(opened), /opened #68, #20/);
@@ -1867,13 +1884,84 @@ describe("spec review sweeps", () => {
       {
         repo: REPO,
         opened: [],
-        linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+        linked: [],
+        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
       },
     ]);
 
     assert.match(
       summaryLine(refused),
       new RegExp(`Spec review sweep: ${REPO} \\(refused once\\)`),
+    );
+  });
+
+  it("names the spec review it linked and the supertask it was linked to, in the body, distinct from an opened line", () => {
+    const supertask = implementationTicket(40);
+    const sweeps: SpecReviewSweepOutcome[] = [
+      {
+        repo: REPO,
+        opened: [],
+        linked: [{ supertask, specReview: specReview(40, 68) }],
+        refusals: [],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Spec review sweep"));
+
+    assert.match(section, new RegExp(`- ${REPO}: linked #68 \\(Spec review for #40\\) to #40`));
+    assert.doesNotMatch(section, /- .*: opened #68/);
+  });
+
+  it("mentions the sweep in the summary line when it linked a floating spec review", () => {
+    const supertask = implementationTicket(40);
+    const linked = factsWithSpecReviewSweeps([
+      {
+        repo: REPO,
+        opened: [],
+        linked: [{ supertask, specReview: specReview(40, 68) }],
+        refusals: [],
+      },
+    ]);
+
+    assert.match(
+      summaryLine(linked),
+      new RegExp(`Spec review sweep: ${REPO} \\(linked #68\\)`),
+    );
+  });
+
+  it("keeps a project whose only spec review sweep activity is a link, rather than filtering it out as nothing to report", () => {
+    const supertask = implementationTicket(40);
+    const linked = factsWithSpecReviewSweeps([
+      {
+        repo: REPO,
+        opened: [],
+        linked: [{ supertask, specReview: specReview(40, 68) }],
+        refusals: [],
+      },
+    ]);
+
+    const body = bodyOf(linked.specReviewSweeps);
+
+    assert.match(summaryLine(linked), /Spec review sweep:/);
+    assert.match(body, /## Spec review sweep/);
+  });
+
+  it("dedupes a link a later scan the same invocation met again for the same supertask", () => {
+    const supertask = implementationTicket(40);
+    const link = { supertask, specReview: specReview(40, 68) };
+    const sweeps: SpecReviewSweepOutcome[] = [
+      { repo: REPO, opened: [], linked: [link], refusals: [] },
+      { repo: REPO, opened: [], linked: [link], refusals: [] },
+    ];
+
+    const body = bodyOf(sweeps);
+    const matches = body.match(/linked #68 \(Spec review for #40\) to #40/g);
+
+    assert.equal(matches?.length, 1);
+    assert.match(
+      summaryLine(factsWithSpecReviewSweeps(sweeps)),
+      new RegExp(`Spec review sweep: ${REPO} \\(linked #68\\)`),
     );
   });
 });
