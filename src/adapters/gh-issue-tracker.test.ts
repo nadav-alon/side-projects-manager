@@ -7,8 +7,10 @@ import { ghIssueTracker } from "./gh-issue-tracker.ts";
 import {
   ENHANCEMENT_LABEL,
   NEEDS_TRIAGE_LABEL,
+  READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  SIZE_S_LABEL,
   isSpecReviewTicket,
   isSupertask,
   issueNumber,
@@ -681,6 +683,36 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
     assert.ok(create.includes(NEEDS_TRIAGE_LABEL));
     assert.ok(create.includes(ENHANCEMENT_LABEL));
     assert.ok(!create.includes(READY_FOR_AGENT_LABEL));
+  });
+
+  it("creates a ready discovery's ticket carrying ready-for-agent, size:S and enhancement, never needs-triage", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createDiscoveredTicket(TICKET, {
+      ...DISCOVERY,
+      ready: true,
+    });
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create, "the ticket should be created with `gh issue create`");
+    assert.ok(create.includes(READY_FOR_AGENT_LABEL));
+    assert.ok(create.includes(SIZE_S_LABEL));
+    assert.ok(create.includes(ENHANCEMENT_LABEL));
+    assert.ok(!create.includes(NEEDS_TRIAGE_LABEL));
+  });
+
+  it("marks a ready discovery's ticket with the ready discovery label, for the chain guard", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    const discovered = await ghIssueTracker().createDiscoveredTicket(TICKET, {
+      ...DISCOVERY,
+      ready: true,
+    });
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.ok(create.includes(READY_DISCOVERY_LABEL));
+    assert.equal(discovered.readyDiscovery, true);
   });
 
   it("creates both labels first, since a project may have neither", async (t) => {

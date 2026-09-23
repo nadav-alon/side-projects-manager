@@ -84,15 +84,71 @@ export function blockingDiscoveriesOf(discoveries: readonly Discovery[]): Discov
 }
 
 /**
+ * The sections an agent brief must name, per `CONTEXT.md`'s "Ready
+ * discovery": current behavior, desired behavior, acceptance criteria and
+ * out of scope — the same shape triage itself writes when it hands a ticket
+ * to an agent. Matched loosely, by keyword rather than by heading syntax or
+ * order, since the filer writes prose, not a form; "behaviour" is accepted
+ * beside "behavior" for the same reason. Anchored to the start of a line,
+ * with an optional markdown heading or bold marker before the phrase, so a
+ * body that merely mentions all four phrases in passing — inside one
+ * sentence, say — does not clear the gate a real brief's own section
+ * openers do.
+ */
+const AGENT_BRIEF_SECTIONS = [
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?current behaviou?r/im,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?desired behaviou?r/im,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?acceptance criteria/im,
+  /^\s*(?:#{1,6}\s*|\*{1,2}\s*)?out of scope/im,
+];
+
+/**
+ * Whether `body` reads as an agent brief: every section
+ * `AGENT_BRIEF_SECTIONS` names is somewhere in the text. What a ready
+ * discovery's body must be, per `CONTEXT.md`'s "Ready discovery" — a
+ * discovery that declares itself ready but is not shaped like a brief falls
+ * back to needs-triage all the same, per `fileDiscovery`.
+ */
+export function isAgentBrief(body: string): boolean {
+  return AGENT_BRIEF_SECTIONS.every((section) => section.test(body));
+}
+
+/**
+ * Whether a prerequisite or a suggestion declaring itself ready actually
+ * opens ready, per `CONTEXT.md`'s "Ready discovery": `discovery.ready` is
+ * only the filer's own claim, so this still checks the two things that are
+ * not the filer's to decide. `body` must read as an agent brief
+ * (`isAgentBrief`) — a bare `ready: true` on an ordinary-shaped body changes
+ * nothing. And `target` — the ticket the discovery is filed against — must
+ * not itself carry `readyDiscovery`: a ticket already born from a ready
+ * discovery is one hop into a chain of unreviewed work, and a second hop
+ * falls back to needs-triage rather than compounding it. `target` rather than
+ * the run's own ticket, so a review, apply-review or rebase run — whose own
+ * ticket never carries `readyDiscovery`, only the implementation ticket its
+ * discoveries land on might — still closes the chain.
+ */
+function opensReady(target: Ticket, discovery: Discovery): boolean {
+  return (
+    discovery.ready === true &&
+    isAgentBrief(discovery.body) &&
+    target.readyDiscovery !== true
+  );
+}
+
+/**
  * Files one discovery against `target`: a comment for a correction or a
  * clarification, a discovered ticket for a prerequisite — blocking `target`
- * — or a suggestion — no edge. For a comment, `runTicket` names what
- * `discoveredBody` says this was discovered while working, so a discovery
- * landing on a different ticket than the one that found it still reads in
- * context; a discovered ticket's own body names `target` that way instead —
+ * — or a suggestion — no edge, opened ready per `opensReady` where either
+ * declares itself one. For a comment, `runTicket` names what `discoveredBody`
+ * says this was discovered while working, so a discovery landing on a
+ * different ticket than the one that found it still reads in context; a
+ * discovered ticket's own body names `target` that way instead —
  * `createDiscoveredTicket`'s callers build it from the ticket they were
  * handed, per `discoveredBody`, so it reads as discovered while working the
- * ticket it blocks or rides alongside, not the run that found it.
+ * ticket it blocks or rides alongside, not the run that found it. `target` is
+ * also what `opensReady` reads for the chain guard: whatever ticket the run
+ * itself was working, it is `target` that may or may not have come from a
+ * ready discovery.
  */
 async function fileDiscovery(
   tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
@@ -111,6 +167,7 @@ async function fileDiscovery(
     title: discovery.title,
     body: discovery.body,
     blocking: discovery.kind === "prerequisite",
+    ready: opensReady(target, discovery),
   });
   return { discovery, action: "discovered-ticket", ticket };
 }

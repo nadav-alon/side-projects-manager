@@ -284,6 +284,8 @@ function assertDiscoveryInstructions(asked: string): void {
   assert.match(asked, /"body"/);
   assert.match(asked, /stop without committing further/);
   assert.match(asked, /at most one suggestion/);
+  assert.match(asked, /"ready": true/);
+  assert.match(asked, /agent brief/);
 }
 
 /**
@@ -2036,6 +2038,46 @@ describe("discoveries", () => {
       { kind: "suggestion", title: "Add a retry", body: "Would have added retries myself." },
     ]);
     assert.equal(variant(result, "finished")?.discoveriesDropped, 0);
+  });
+
+  it("carries a discovery's ready flag through from the file on disk", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        {
+          kind: "suggestion",
+          title: "Add a retry",
+          body: "Would have added retries myself.",
+          ready: true,
+        },
+        "1.json",
+      );
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
+  });
+
+  it("keeps a discovery whose ready field is malformed, treating it as not ready rather than dropping it", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        { kind: "correction", title: "Wrong ticket", body: "This is already built.", ready: "true" },
+        "1.json",
+      );
+      return { output: "could not proceed", tokensUsed: tokenCount(0), failure: "no permission" };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(result.kind, "gave-up");
+    assert.deepEqual(variant(result, "gave-up")?.discoveries, [
+      { kind: "correction", title: "Wrong ticket", body: "This is already built." },
+    ]);
   });
 
   it("reports an empty list, not an error, when the agent filed no discoveries", async () => {

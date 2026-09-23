@@ -1003,7 +1003,12 @@ async function readDiscoveries(
     const contents = await readFile(filePath, "utf8").catch(() => undefined);
     const parsed = contents === undefined ? undefined : parse(contents);
     if (isDiscovery(parsed)) {
-      discoveries.push({ kind: parsed.kind, title: parsed.title, body: parsed.body });
+      discoveries.push({
+        kind: parsed.kind,
+        title: parsed.title,
+        body: parsed.body,
+        ...(parsed.ready === true && { ready: true }),
+      });
     } else {
       dropped++;
     }
@@ -1380,11 +1385,12 @@ async function specReviewOnClone(
 
 /**
  * What every prompt tells the agent about filing a discovery — see
- * CONTEXT.md's "Discovery". Closes `promptFor`, `reviewPromptFor`,
- * `specReviewPromptFor`, `applyReviewPromptFor` and `rebasePromptFor` alike,
- * so what a discovery is, where to file one and the one-suggestion limit read
- * the same whatever kind of ticket the run is working — one wording rather
- * than five copies to keep in step.
+ * CONTEXT.md's "Discovery" and "Ready discovery". Closes `promptFor`,
+ * `reviewPromptFor`, `specReviewPromptFor`, `applyReviewPromptFor` and
+ * `rebasePromptFor` alike, so what a discovery is, where to file one, the
+ * one-suggestion limit and the ready bar read the same whatever kind of
+ * ticket the run is working — one wording rather than five copies to keep in
+ * step.
  */
 const DISCOVERY_INSTRUCTIONS = [
   "If you learn something about this ticket the developer has to act on, file a discovery: one JSON",
@@ -1397,6 +1403,12 @@ const DISCOVERY_INSTRUCTIONS = [
   "ticket does not cover — either is advisory: keep going. File at most one suggestion: your best,",
   "and only one you would have acted on yourself had the ticket allowed it. Implementation detail",
   "belongs in the commit and the pull request, never in a discovery.",
+  "A prerequisite or a suggestion may add `\"ready\": true` when it leaves no decision to the",
+  "developer: behavior fully determined, one seam, acceptance criteria writable now, size S. Declare",
+  "it only then — a ready discovery's ticket skips triage and goes straight to an agent. Its body",
+  "must itself read as an agent brief: current behavior, desired behavior, acceptance criteria, out",
+  "of scope — anything else is triaged as normal, ready or not. Never set it on a correction or a",
+  "clarification: neither opens a ticket, so it changes nothing there.",
 ].join(" ");
 
 /**

@@ -16,6 +16,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   repoSlug,
+  SIZE_S_LABEL,
   ticketPriority,
   type ApplyReviewTicket,
   type RebaseTicket,
@@ -342,6 +343,47 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
       tracker.carriesLabel(discovered, READY_FOR_AGENT_LABEL),
       false,
     );
+  });
+
+  it("opens a ready ticket carrying ready-for-agent, size:S and enhancement, never needs-triage", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+      ready: true,
+    });
+
+    assert.equal(tracker.carriesLabel(discovered, READY_FOR_AGENT_LABEL), true);
+    assert.equal(tracker.carriesLabel(discovered, SIZE_S_LABEL), true);
+    assert.equal(tracker.carriesLabel(discovered, ENHANCEMENT_LABEL), true);
+    assert.equal(tracker.carriesLabel(discovered, NEEDS_TRIAGE_LABEL), false);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === discovered.number);
+    assert.equal(found?.eligible, true);
+  });
+
+  it("marks a ready ticket with the ready discovery label, for the chain guard", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const discovered = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+      ready: true,
+    });
+
+    assert.equal(discovered.readyDiscovery, true);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === discovered.number);
+    assert.equal(found?.ticket.readyDiscovery, true);
   });
 
   it("numbers it above every ticket the repo has, and lists it as ineligible", async () => {

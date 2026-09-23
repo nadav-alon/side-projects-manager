@@ -25,6 +25,18 @@ export interface Discovery {
   title: string;
   /** The discovery itself, in the agent's own words. */
   body: string;
+  /**
+   * Declares the discovery a **ready discovery**, per CONTEXT.md: it leaves
+   * no decision to the developer, so the ticket it opens may skip triage.
+   * Only ever read on a prerequisite or a suggestion — a correction or a
+   * clarification never opens a ticket, so this is ignored on either, per
+   * `discovery-routing.ts`. Absent or `false` opens the ticket needs-triage,
+   * as any other discovery does; declaring `ready` is not by itself enough —
+   * `discovery-routing.ts` still checks the body reads as an agent brief and
+   * that the ticket the discovery is filed against was not itself born from
+   * a ready discovery.
+   */
+  ready?: boolean;
 }
 
 function isDiscoveryKind(value: unknown): value is DiscoveryKind {
@@ -35,12 +47,17 @@ function isDiscoveryKind(value: unknown): value is DiscoveryKind {
 }
 
 /**
- * Whether `value` is a well-formed discovery: one of the four kinds, and a
- * title and a body. What a discovery file must parse as to count — anything
- * else is dropped and counted rather than failing the run (see
+ * Whether `value` is a well-formed discovery: one of the four kinds, a title
+ * and a body. What a discovery file must parse as to count — anything else is
+ * dropped and counted rather than failing the run (see
  * `container-sandbox.ts`'s `readDiscoveries`). Silent on whether either
  * string is empty: `DISCOVERY_INSTRUCTIONS` never asks the agent for a
  * non-empty one, so nothing here can hold it to that.
+ *
+ * `ready` is not checked here, deliberately: it is optional and additive, so
+ * a malformed value — a non-boolean an agent handwrote into the JSON — should
+ * cost the discovery its ready state, not the whole discovery, blocking kinds
+ * included. `readDiscoveries` reads `ready` itself, keeping only `=== true`.
  */
 export function isDiscovery(value: unknown): value is Discovery {
   if (typeof value !== "object" || value === null) {
@@ -52,8 +69,6 @@ export function isDiscovery(value: unknown): value is Discovery {
     body?: unknown;
   };
   return (
-    isDiscoveryKind(kind) &&
-    typeof title === "string" &&
-    typeof body === "string"
+    isDiscoveryKind(kind) && typeof title === "string" && typeof body === "string"
   );
 }
