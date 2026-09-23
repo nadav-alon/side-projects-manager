@@ -163,6 +163,9 @@ describe("specReviewSweep", () => {
     assert.equal(tracker.linkedSpecReviewTickets.length, 1);
     assert.equal(tracker.linkedSpecReviewTickets[0]?.ticket.number, floating.number);
     assert.equal(tracker.linkedSpecReviewTickets[0]?.parent.number, supertask.number);
+    assert.equal(outcome.linked.length, 1);
+    assert.equal(outcome.linked[0]?.specReview.number, floating.number);
+    assert.equal(outcome.linked[0]?.supertask.number, supertask.number);
 
     const subIssues = await tracker.listSubIssues(supertask);
     assert.equal(
@@ -222,6 +225,7 @@ describe("specReviewSweep", () => {
 
     assert.deepEqual(outcome.opened, []);
     assert.deepEqual(tracker.specReviewTickets, []);
+    assert.deepEqual(outcome.linked, []);
     assert.equal(outcome.refusals.length, 1);
     assert.equal(outcome.refusals[0]?.supertask.number, supertask.number);
     assert.equal(outcome.refusals[0]?.action, "link");
@@ -246,6 +250,7 @@ describe("specReviewSweep", () => {
     );
     assert.equal(firstOutcome.refusals.length, 1);
     assert.deepEqual(firstOutcome.opened, []);
+    assert.deepEqual(firstOutcome.linked, []);
 
     tracker.linkSpecReviewTicket = realLink;
     const laterOpenIssues = await tracker.listOpenIssues(PILOT);
@@ -261,6 +266,9 @@ describe("specReviewSweep", () => {
     assert.deepEqual(tracker.specReviewTickets, []);
     assert.equal(tracker.linkedSpecReviewTickets.length, 1);
     assert.equal(tracker.linkedSpecReviewTickets[0]?.ticket.number, floating.number);
+    assert.equal(secondOutcome.linked.length, 1);
+    assert.equal(secondOutcome.linked[0]?.specReview.number, floating.number);
+    assert.equal(secondOutcome.linked[0]?.supertask.number, supertask.number);
   });
 
   it("gives each nested supertask its own spec review as its own sub-issues close", async () => {
@@ -438,7 +446,7 @@ describe("specReviewSweep", () => {
 
     const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
 
-    assert.deepEqual(outcome, { repo: PILOT, opened: [], refusals: [] });
+    assert.deepEqual(outcome, { repo: PILOT, opened: [], linked: [], refusals: [] });
   });
 
   it("answers with no opened tickets and no refusals for no open issues at all", async () => {
@@ -448,6 +456,6 @@ describe("specReviewSweep", () => {
 
     const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
 
-    assert.deepEqual(outcome, { repo: PILOT, opened: [], refusals: [] });
+    assert.deepEqual(outcome, { repo: PILOT, opened: [], linked: [], refusals: [] });
   });
 });

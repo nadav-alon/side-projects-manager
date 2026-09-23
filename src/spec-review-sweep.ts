@@ -34,17 +34,24 @@ export interface SpecReviewSweepRefusal {
   error: string;
 }
 
+/** One floating spec review a sweep found already open, and linked to the supertask it reviews rather than opening a duplicate. */
+export interface SpecReviewSweepLink {
+  supertask: Ticket;
+  specReview: Ticket;
+}
+
 /**
- * What sweeping one project came to: every spec review it opened, and every
+ * What sweeping one project came to: every spec review it opened, every one
+ * it found floating and linked instead of opening a duplicate, and every
  * refusal it met along the way. A supertask that still has an open sub-issue,
- * that already carries one — the guard, per `CONTEXT.md`'s "Spec review
- * sweep" — or whose floating spec review this sweep found and linked rather
- * than opened, appears in neither list, since none of the three is something
- * to report.
+ * or that already carries a spec review among its sub-issues — the guard,
+ * per `CONTEXT.md`'s "Spec review sweep" — appears in none of the three,
+ * since neither is something to report.
  */
 export interface SpecReviewSweepOutcome {
   repo: RepoSlug;
   opened: Ticket[];
+  linked: SpecReviewSweepLink[];
   refusals: SpecReviewSweepRefusal[];
 }
 
@@ -90,6 +97,7 @@ export async function specReviewSweep(
   openIssues: OpenIssues,
 ): Promise<SpecReviewSweepOutcome> {
   const opened: Ticket[] = [];
+  const linked: SpecReviewSweepLink[] = [];
   const refusals: SpecReviewSweepRefusal[] = [];
   // Read at most once per sweep, lazily: a sweep that opens nothing still
   // spends nothing, and every supertask that does need it this scan shares
@@ -143,6 +151,7 @@ export async function specReviewSweep(
           closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
           return specReviewBody(supertask, subIssues, await closingPullRequests);
         });
+        linked.push({ supertask, specReview: floating });
       } catch (error) {
         refusals.push({ supertask, action: "link", error: errorMessage(error) });
       }
@@ -159,7 +168,7 @@ export async function specReviewSweep(
     }
   }
 
-  return { repo, opened, refusals };
+  return { repo, opened, linked, refusals };
 }
 
 /**

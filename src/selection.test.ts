@@ -1780,8 +1780,8 @@ describe("invocationSelection", () => {
       await selection.next();
 
       assert.deepEqual(selection.specReviewSweeps(), [
-        { repo: PILOT, opened: [], refusals: [] },
-        { repo: PILOT, opened: [], refusals: [] },
+        { repo: PILOT, opened: [], linked: [], refusals: [] },
+        { repo: PILOT, opened: [], linked: [], refusals: [] },
       ]);
     });
 

@@ -1765,7 +1765,7 @@ describe("spec review sweeps", () => {
     const withEmptySweeps: SummaryFacts = {
       ...facts([]),
       projects,
-      specReviewSweeps: [{ repo: REPO, opened: [], refusals: [] }],
+      specReviewSweeps: [{ repo: REPO, opened: [], linked: [], refusals: [] }],
     };
 
     const line = summaryLine(withoutSweeps);
@@ -1779,8 +1779,8 @@ describe("spec review sweeps", () => {
 
   it("names the spec review it opened and the supertask it reviews, in the body", () => {
     const sweeps: SpecReviewSweepOutcome[] = [
-      { repo: REPO, opened: [specReview(40, 68)], refusals: [] },
-      { repo: OTHER_REPO, opened: [specReview(10, 20)], refusals: [] },
+      { repo: REPO, opened: [specReview(40, 68)], linked: [], refusals: [] },
+      { repo: OTHER_REPO, opened: [specReview(10, 20)], linked: [], refusals: [] },
     ];
 
     const body = bodyOf(sweeps);
@@ -1796,7 +1796,7 @@ describe("spec review sweeps", () => {
       {
         repo: REPO,
         opened: [],
-        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+        linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
       },
     ];
 
@@ -1814,7 +1814,7 @@ describe("spec review sweeps", () => {
       {
         repo: REPO,
         opened: [],
-        refusals: [{ supertask, action: "link", error: "denied" }],
+        linked: [], refusals: [{ supertask, action: "link", error: "denied" }],
       },
     ];
 
@@ -1828,8 +1828,8 @@ describe("spec review sweeps", () => {
   it("dedupes a refusal a later scan the same invocation met again for the same supertask", () => {
     const supertask = implementationTicket(40);
     const sweeps: SpecReviewSweepOutcome[] = [
-      { repo: REPO, opened: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
-      { repo: REPO, opened: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
+      { repo: REPO, opened: [], linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
+      { repo: REPO, opened: [], linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }] },
     ];
 
     const body = bodyOf(sweeps);
@@ -1844,7 +1844,7 @@ describe("spec review sweeps", () => {
 
   it("mentions the sweep in the summary line when it opened a spec review", () => {
     const opened = factsWithSpecReviewSweeps([
-      { repo: REPO, opened: [specReview(40, 68)], refusals: [] },
+      { repo: REPO, opened: [specReview(40, 68)], linked: [], refusals: [] },
     ]);
 
     assert.match(
@@ -1855,7 +1855,7 @@ describe("spec review sweeps", () => {
 
   it("names every opened spec review, not just a count", () => {
     const opened = factsWithSpecReviewSweeps([
-      { repo: REPO, opened: [specReview(40, 68), specReview(10, 20)], refusals: [] },
+      { repo: REPO, opened: [specReview(40, 68), specReview(10, 20)], linked: [], refusals: [] },
     ]);
 
     assert.match(summaryLine(opened), /opened #68, #20/);
@@ -1867,7 +1867,7 @@ describe("spec review sweeps", () => {
       {
         repo: REPO,
         opened: [],
-        refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
+        linked: [], refusals: [{ supertask, action: "open", error: "tracker unreachable" }],
       },
     ]);
 

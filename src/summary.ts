@@ -601,7 +601,7 @@ function specReviewSweepProjects(
   for (const swept of specReviewSweeps) {
     let project = projects.get(swept.repo);
     if (project === undefined) {
-      project = { repo: swept.repo, opened: [], refusals: [] };
+      project = { repo: swept.repo, opened: [], linked: [], refusals: [] };
       projects.set(swept.repo, project);
     }
     project.opened.push(...swept.opened);
