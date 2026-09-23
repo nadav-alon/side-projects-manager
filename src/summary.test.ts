@@ -2149,6 +2149,64 @@ describe("composeInvocationReport", () => {
     assert.equal(report.outcome, "stood-down");
   });
 
+  it("reports a stand-down with only limit-refused iterations as stood-down", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" })]),
+        standDown: { reason: "stopped" },
+      },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+  });
+
+  it("reports a stand-down with limit-refused and ahead-of-gate iterations as stood-down", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" }), aheadOfGate(8)]),
+        standDown: { reason: "stopped" },
+      },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+  });
+
+  it("does not publish a stand-down with only limit-refused iterations when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" })]),
+        standDown: { reason: "stopped" },
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 0);
+  });
+
+  it("publishes a stand-down with only limit-refused iterations when today is not yet announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "none" })]),
+        standDown: { reason: "stopped" },
+      },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 1);
+  });
+
   it("does not publish a quiet morning when today is already announced", async () => {
     const tracker = recordingTracker();
 

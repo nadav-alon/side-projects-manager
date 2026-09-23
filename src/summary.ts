@@ -564,23 +564,35 @@ export interface InvocationReport {
 }
 
 /**
+ * Whether `iteration` counts as work when classifying the invocation's
+ * outcome: not a ticket handed back ahead of the gate, and not a run the
+ * provider limit refused. A limit refusal never happened — CONTEXT.md's
+ * "Limit refusal" says it leaves the ticket exactly as it found it — so it
+ * counts for nothing here, the same way a hand-back ahead of the gate does
+ * not. A provider failure stays counted as work: unlike a limit refusal, it
+ * is out of scope here (issue #609).
+ */
+function countsAsWork(iteration: IterationOutcome): boolean {
+  return !handedBackAheadOfGate(iteration) && iteration.kind !== "limit-refused";
+}
+
+/**
  * What this invocation came to: whether it worked something, stood down —
  * before or after working something — ran into nothing to do, or never
  * finished at all.
  *
  * A ticket handed back ahead of the gate — for its model or size labels —
- * was never run, so it does not count as work when the morning then stood
- * down: a stand-down that ran nothing reads as one, whatever was handed back
- * before it. Without a stand-down, that hand-back is still work an iteration
+ * was never run, and neither was a run the provider limit refused, so
+ * neither counts as work when the morning then stood down: a stand-down that
+ * ran nothing reads as one, whatever was handed back or refused before it.
+ * Without a stand-down, either kind of non-work is still work an iteration
  * selected.
  */
 function outcomeOf(facts: SummaryFacts): InvocationOutcome {
   if (facts.invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  const worked = facts.iterations.some(
-    (iteration) => !handedBackAheadOfGate(iteration),
-  );
+  const worked = facts.iterations.some(countsAsWork);
   if (worked) {
     return "work-selected";
   }
