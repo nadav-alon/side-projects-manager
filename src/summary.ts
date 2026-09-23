@@ -589,19 +589,14 @@ function specReviewSweepLinkKey(repo: RepoSlug, link: SpecReviewSweepLink): stri
 
 /**
  * One project's spec review sweep activity, grouped across every sweep the
- * invocation ran. Unlike a conflict sweep's own changes, a supertask a sweep
- * opened a spec review for is never met by a later scan the same invocation
- * — its own new sub-issue is what the next scan sees — so `opened` needs no
- * deduplicating. A link is different: linking a floating spec review does
- * not change what a later scan's own `openIssues` reads, since only an open
- * spec review's own re-read does that, so the same floating spec review can
- * be found, and linked again, by a later scan the same invocation ran —
- * deduplicated the same way a refusal is. A refusal too: a supertask whose
- * `listSubIssues` read failed changes nothing about the project, so a later
- * scan the same invocation meets it, and refuses it, again — deduplicated
- * the same way {@link conflictSweepProjects} dedupes its own refusals. A
- * project with nothing opened, nothing linked and nothing refused is left
- * out entirely.
+ * invocation ran. `opened` needs no deduplicating: a supertask a sweep opened
+ * a spec review for is never met by a later scan the same invocation ran —
+ * its own new sub-issue is what the next scan sees. `linked` and `refusals`
+ * are deduplicated all the same, the way a refusal is — nothing in {@link
+ * SpecReviewSweepOutcome}'s own type guarantees a link or a refusal is met by
+ * at most one scan, so this function does not lean on it, the same way
+ * {@link conflictSweepProjects} dedupes its own refusals. A project with
+ * nothing opened, nothing linked and nothing refused is left out entirely.
  */
 function specReviewSweepProjects(
   specReviewSweeps: SpecReviewSweepOutcome[],
