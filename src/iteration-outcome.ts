@@ -872,3 +872,42 @@ export function failureOf(
 export function failedOnInfrastructure(iteration: Iteration): boolean {
   return failureOf(iteration)?.kind === "infrastructure";
 }
+
+/**
+ * Whether `iteration` frees its ticket to be selected again today —
+ * CONTEXT.md's "Worked today" rule: the persisted record protects only the
+ * tickets the loop tried and failed to take off the queue itself.
+ *
+ * An infrastructure failure, a limit refusal or a provider failure says
+ * nothing about the ticket at all, so it always frees it. A finished, a
+ * spec-reviewed, a discovery-blocked or a failed run frees it exactly when
+ * its own hand-back landed — `"handed-back"` or `"already-closed"` — and
+ * leaves it recorded when the tracker refused the call. A review, an
+ * apply-review, a rebase or a resolved pull request frees it exactly when it
+ * closed without a `notClosed`, and leaves it recorded when one is set — the
+ * ticket is still ready-for-agent, due to come round again on its own, so the
+ * record still has something to protect.
+ */
+export function freesTicketToday(iteration: Iteration): boolean {
+  switch (iteration.kind) {
+    case "limit-refused":
+    case "provider-failed":
+    case "budget-exhausted":
+      return true;
+    case "finished":
+    case "spec-reviewed":
+    case "discovery-blocked":
+      return iteration.handedBack.outcome !== "refused";
+    case "failed":
+      return (
+        failedOnInfrastructure(iteration) ||
+        (handedBackFailure(iteration) &&
+          iteration.handedBack.outcome !== "refused")
+      );
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "pull-request-resolved":
+      return iteration.notClosed === undefined;
+  }
+}
