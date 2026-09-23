@@ -7,6 +7,7 @@ import type {
 } from "./conflict-sweep.ts";
 import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
 import type { DiscoveryRouting } from "./discovery-routing.ts";
+import { errorMessage } from "./error-message.ts";
 import type {
   SpecReviewSweepOutcome,
   SpecReviewSweepRefusal,
@@ -14,6 +15,7 @@ import type {
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
+  failedOnInfrastructure,
   handedBackAheadOfGate,
   handedBackFailure,
   type AppliedReview,
@@ -32,12 +34,12 @@ import {
   type Reviewed,
   type SpecReviewed,
 } from "./iteration-outcome.ts";
-import type { InvocationStandDown } from "./morning-run.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type { FreedWorkedTicket } from "./worked-today.ts";
 import type {
   ApplyReviewTicket,
   IssueUrl,
+  InvocationOutcome as JournaledInvocationOutcome,
   PullRequestLabel,
   PullRequestTicket,
   PullRequestUrl,
@@ -273,6 +275,100 @@ function withoutTrailingStop(text: string): string {
   return text.trim().replace(/\.$/, "");
 }
 
+export type InvocationOutcome =
+  /** No registered project had an eligible ticket. A quiet morning. */
+  | "dry-queue"
+  /** There was work, and the budget gate refused to start it. */
+  | "stood-down"
+  /** An iteration selected a project with work. */
+  | "work-selected"
+  /**
+   * The loop's own plumbing broke before it could finish — a registry that
+   * would not parse, or a port that could not be reached before a single
+   * iteration ran. Distinct from a run that gave up or an infrastructure
+   * failure inside one iteration, both of which are reported as normal
+   * iterations; this is the invocation itself never getting that far.
+   */
+  | "invocation-failed";
+
+/**
+ * Kept assignable to the store port's own copy of this union: a variant
+ * added here without being added to `ports/journal.ts`'s `InvocationOutcome`
+ * fails this line, rather than surfacing later as a runtime parse error when
+ * the journal tries to read back an outcome it does not recognise.
+ */
+const _outcomeStaysInSyncWithJournal: JournaledInvocationOutcome =
+  "dry-queue" as InvocationOutcome;
+
+/**
+ * A summary the invocation composed but could not publish: why, and the body
+ * it had already put together. Carried as its own field rather than only
+ * folded into `message`'s prose, so the entry point can write the body down
+ * and the journal can record why — the one write meant to report the morning
+ * is not allowed to be the one that loses its account of itself.
+ */
+export interface SummaryFailure {
+  reason: string;
+  body: string;
+}
+
+/** The gate's refusal, and the project it turned away. */
+export interface GateStandDown extends StandDown {
+  /** The project that was ready to work when the gate refused. */
+  refused: RepoSlug;
+}
+
+/**
+ * A stand-down the gate never saw coming: a limit refusal. The allowance the
+ * gate measures against is only the developer's declaration of the provider
+ * limit, so the gate can say go while the provider says no — and every run
+ * after the first refusal would be refused the same way.
+ */
+export interface ProviderLimitStandDown {
+  reason: "provider-limit";
+  /** What the provider said, reset time included, word for word. */
+  limitRefusal: string;
+  /** The ticket whose run it refused. */
+  ticket: Ticket;
+  /**
+   * Whether `ticket` was handed back for a blocking discovery its run filed
+   * before the provider refused it, rather than left eligible exactly as it
+   * was — per CONTEXT.md's "Discovery", true only when the hand-back landed.
+   */
+  handedBack: boolean;
+}
+
+/**
+ * A stand-down the gate never saw coming either: a provider failure — down,
+ * overloaded or unreachable. As `ProviderLimitStandDown`, every run after the
+ * first would be stopped the same way.
+ */
+export interface ProviderFailureStandDown {
+  reason: "provider-failure";
+  /** What the CLI said, word for word. */
+  providerFailure: string;
+  /** The ticket whose run it stopped. */
+  ticket: Ticket;
+  /** As `ProviderLimitStandDown.handedBack`. */
+  handedBack: boolean;
+}
+
+/**
+ * A stand-down the developer asked for, by stopping the invocation by hand.
+ * Nothing about the budget or any ticket: every ticket not yet started is left
+ * exactly as it was.
+ */
+export interface DeveloperStandDown {
+  reason: "stopped";
+}
+
+/** Why an invocation stood down: the gate refused, the provider did, or the developer stopped it. */
+export type InvocationStandDown =
+  | GateStandDown
+  | ProviderLimitStandDown
+  | ProviderFailureStandDown
+  | DeveloperStandDown;
+
 /**
  * Everything the summary is built from: the outcome of every registered
  * project, every attempt this invocation made, why it stood down, if it did,
@@ -415,6 +511,177 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
   ]
     .filter((section): section is string => section !== undefined)
     .join("\n\n");
+}
+
+/** What one invocation did. The summary issue is written from this. */
+export interface InvocationReport {
+  /** When the invocation started. */
+  startedAt: Date;
+  outcome: InvocationOutcome;
+  /**
+   * Every registered project, in registry order, with why it was skipped —
+   * or, once it has been, that it was selected, which then sticks for the
+   * rest of the invocation even on a later iteration that finds nothing left
+   * of its backlog to select. What each one was actually worked on is in
+   * `iterations`; this says only whether its turn came at all.
+   */
+  projects: ProjectOutcome[];
+  /**
+   * Every iteration the invocation made, in the order they started — not the
+   * order they finished, since several can be in progress at once. Empty on a morning
+   * that ran nothing — a dry queue, or a gate that refused before the first
+   * run.
+   */
+  iterations: IterationOutcome[];
+  /**
+   * Why the invocation stood down, absent when it never did: the gate
+   * refusing, before the first run of the morning or between two later ones,
+   * the provider limit refusing a run that had already started, or the
+   * developer stopping it by hand. Whichever, it is why the invocation stopped rather than having simply run
+   * out of work.
+   */
+  standDown?: InvocationStandDown;
+  /**
+   * Where a published summary landed. Absent when none published this
+   * invocation, or the publish failed.
+   */
+  summaryLocation?: IssueUrl;
+  /**
+   * The composed summary, kept because it could not be published. Absent
+   * when one published, or none was composed this invocation.
+   */
+  summaryFailure?: SummaryFailure;
+  /**
+   * Whether the developer's setup needs attention: true for an invocation
+   * that never finished, for an iteration the sandbox or checkout itself
+   * failed on, or for a summary this invocation composed but could not
+   * publish — the entry point (`bin/morning-run.ts`) exits non-zero exactly
+   * when this is true, rather than working the same rule out for itself. An
+   * agent that merely gave up is not this: its ticket was handed back, which
+   * is the failure policy working, not the setup breaking.
+   */
+  needsAttention: boolean;
+  /** One line, suitable for printing to a terminal or into the summary issue. */
+  message: string;
+}
+
+/**
+ * What this invocation came to: whether it worked something, stood down —
+ * before or after working something — ran into nothing to do, or never
+ * finished at all.
+ *
+ * A ticket handed back ahead of the gate — for its model or size labels —
+ * was never run, so it does not count as work when the morning then stood
+ * down: a stand-down that ran nothing reads as one, whatever was handed back
+ * before it. Without a stand-down, that hand-back is still work an iteration
+ * selected.
+ */
+function outcomeOf(facts: SummaryFacts): InvocationOutcome {
+  if (facts.invocationFailure !== undefined) {
+    return "invocation-failed";
+  }
+  const worked = facts.iterations.some(
+    (iteration) => !handedBackAheadOfGate(iteration),
+  );
+  if (worked) {
+    return "work-selected";
+  }
+  if (facts.standDown !== undefined) {
+    return "stood-down";
+  }
+  return facts.iterations.length > 0 ? "work-selected" : "dry-queue";
+}
+
+/**
+ * `InvocationReport.needsAttention`, per its own doc: an invocation that
+ * never finished, an iteration the sandbox or checkout itself failed on, or a
+ * summary that was composed but never published.
+ */
+function needsAttention(
+  outcome: InvocationOutcome,
+  iterations: IterationOutcome[],
+  summaryFailure: SummaryFailure | undefined,
+): boolean {
+  return (
+    outcome === "invocation-failed" ||
+    iterations.some(failedOnInfrastructure) ||
+    summaryFailure !== undefined
+  );
+}
+
+/**
+ * What {@link composeInvocationReport} needs beyond the facts themselves:
+ * when the invocation started, and whether a summary has already been
+ * announced today — the one thing about publishing that is the caller's to
+ * know, since it turns on the state document rather than on anything the
+ * facts of this invocation alone say.
+ */
+export interface InvocationReportInputs {
+  startedAt: Date;
+  facts: SummaryFacts;
+  alreadyAnnouncedToday: boolean;
+}
+
+/**
+ * What an invocation came to, from its own facts alone: the outcome, the
+ * one-line message, whether the developer's setup needs attention, and —
+ * published here, the summary module's own last step — where the summary
+ * issue landed, or the summary a failed publish left composed but homeless.
+ *
+ * Composes the line once and reuses it for both `message` and, when
+ * publishing, the issue body: nothing here asks a caller to hand back a line
+ * it already built for itself.
+ *
+ * An invocation that worked something, or freed a ticket a dead invocation
+ * had recorded, always publishes — a freed ticket must be named somewhere,
+ * never only erased from the state document. A quiet or broken one publishes
+ * only when today has not already been announced, per CONTEXT.md's "Summary"
+ * — a loop firing every hour still reports one quiet or broken morning rather
+ * than up to twenty-four.
+ */
+export async function composeInvocationReport(
+  tracker: SummaryTracker,
+  { startedAt, facts, alreadyAnnouncedToday }: InvocationReportInputs,
+): Promise<InvocationReport> {
+  const outcome = outcomeOf(facts);
+  const line = summaryLine(facts);
+
+  let summaryLocation: IssueUrl | undefined;
+  let summaryFailure: SummaryFailure | undefined;
+  if (
+    outcome === "work-selected" ||
+    facts.freedFromDeadInvocation.length > 0 ||
+    !alreadyAnnouncedToday
+  ) {
+    const body = summaryBody(facts, line);
+    // Never thrown: a summary issue that could not be written must not cost
+    // the developer the account of everything else the invocation did — said
+    // in `message`, and kept whole in `summaryFailure`, the same way a
+    // tracker that refuses `handBack` is said rather than thrown.
+    try {
+      summaryLocation = await tracker.publishSummary(
+        summaryTitle(startedAt),
+        body,
+      );
+    } catch (error: unknown) {
+      summaryFailure = { reason: errorMessage(error), body };
+    }
+  }
+
+  return {
+    startedAt,
+    outcome,
+    projects: facts.projects,
+    iterations: facts.iterations,
+    ...(facts.standDown !== undefined && { standDown: facts.standDown }),
+    ...(summaryLocation !== undefined && { summaryLocation }),
+    ...(summaryFailure !== undefined && { summaryFailure }),
+    needsAttention: needsAttention(outcome, facts.iterations, summaryFailure),
+    message:
+      summaryFailure === undefined
+        ? line
+        : `${line} The summary issue could not be published: ${summaryFailure.reason}.`,
+  };
 }
 
 /**

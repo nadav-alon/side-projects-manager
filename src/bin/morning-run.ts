@@ -17,9 +17,8 @@ import { systemClock } from "../adapters/system-clock.ts";
 import { terminalProgress } from "../adapters/terminal-progress.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { errorMessage } from "../error-message.ts";
-import { failedOnInfrastructure } from "../iteration-outcome.ts";
 import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
-import { morningLoop, type InvocationReport } from "../morning-run.ts";
+import { morningLoop } from "../morning-run.ts";
 import {
   exitCode,
   notify,
@@ -31,6 +30,7 @@ import {
   type Progress,
   type Store,
 } from "../ports/index.ts";
+import type { InvocationReport } from "../summary.ts";
 import { invokeExclusively } from "../trigger-guard.ts";
 import { STOP_SIGNALS, onShieldGone, runShielded } from "./shielded-child.ts";
 
@@ -120,22 +120,11 @@ async function main(): Promise<void> {
     invocationClosing(report, systemClock.now(), keptSummaryAt),
   );
 
-  // A broken setup exits non-zero even though it reported cleanly: whatever
-  // triggers the loop reads a morning by its exit code, and a sandbox that is
-  // permanently broken but reports success every day is one nobody is told
-  // about. An agent that gave up exits zero, because the ticket has been
-  // handed back and that is the failure policy working — a trigger that
-  // retried a non-zero morning would otherwise run straight into the no-retry
-  // rule. An invocation that never finished — a registry that would not
-  // parse, say — is reported the same way as a broken sandbox: cleanly, and
-  // non-zero. A summary that could not be published joins them on exit code
-  // alone: it is not itself an infrastructure failure, but the reporting
-  // channel failing is no less something the developer needs to hear about.
-  const failed =
-    report.outcome === "invocation-failed" ||
-    report.iterations.some(failedOnInfrastructure) ||
-    report.summaryFailure !== undefined;
-  if (failed) {
+  // Whatever triggers the loop reads a morning by its exit code, so a broken
+  // setup exits non-zero even though it reported cleanly — see
+  // `InvocationReport.needsAttention` (summary.ts) for which outcomes those
+  // are and why an agent that merely gave up is not one of them.
+  if (report.needsAttention) {
     process.exitCode = 1;
   }
 }

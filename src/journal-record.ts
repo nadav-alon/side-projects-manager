@@ -1,4 +1,4 @@
-import type { InvocationReport, InvocationStandDown } from "./morning-run.ts";
+import type { InvocationReport, InvocationStandDown } from "./summary.ts";
 import { handedBackAheadOfGate } from "./iteration-outcome.ts";
 import type {
   ExitCode,
