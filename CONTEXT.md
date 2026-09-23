@@ -47,7 +47,17 @@ about the ticket at all, an infrastructure failure, a provider failure, a limit 
 budget exhaustion — except a provider failure or a limit refusal that also filed a blocking
 discovery, which counts as any other hand-back does (see **Discovery**).
 
-Each entry also names the invocation record that recorded it, by that record's own opened-at instant and pid; an entry naming none reads as today, same as one written before this existed. An invocation that dies mid-run leaves its entries on the record for good — nothing ever closes its own iterations to take them off. The **invocation lease** means only one invocation runs at a time, so when the next invocation acquires it, every other invocation record still **in flight** belongs to one that died before it could close: every entry that names one of those is **freed**, selectable by this invocation, and named in its **summary** along with the dead invocation it came from. An entry naming an invocation that closed, one missing from the journal, or this same invocation, stays passed over, as today.
+Each entry also names the invocation record that recorded it, by that record's own opened-at
+instant and pid; an entry naming none reads as today, same as one written before this existed. An
+invocation that dies mid-run leaves its entries on the record for good — nothing ever closes
+its own iterations to take them off.
+
+The **invocation lease** means only one invocation runs at a time, so when the next invocation
+acquires it, every other invocation record still **in flight** belongs to one that died before
+it could close: every entry that names one of those is **freed**, selectable by this invocation,
+and named in its **summary** along with the dead invocation it came from. An entry naming an
+invocation that closed, one missing from the journal, or this same invocation, stays passed over,
+as today.
 _Avoid_: seen, attempted, cooldown
 
 **Freed**:
