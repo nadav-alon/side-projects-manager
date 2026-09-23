@@ -58,8 +58,8 @@ The composed text of a summary failure, written into the manager home as its own
 _Avoid_: failed summary, backup
 
 **Needs attention**:
-Whether the developer's own setup needs attention, carried on the invocation report: true for an invocation that never finished, for an iteration the sandbox or checkout itself failed on, or for a summary failure. Decides the entry point's exit code, so it is the one thing that decides whether a trigger treats a morning as one the developer has to look at. An agent that merely gave up is not this: the hand-back is the failure policy working, not the setup breaking. A summary failure is, even though nothing about the setup broke to cause it — the developer still has to go retrieve the kept summary by hand.
-_Avoid_: broken, failed, alert, exit code
+Whether the morning is one the developer has to look at, carried on the invocation report: true for an invocation that never finished, for an iteration that was an **infrastructure failure**, or for a summary failure. Decides the exit code of an invocation that reported; one that fails before reaching a report already exits non-zero on its own account. An agent that merely gave up is not this: the hand-back is the failure policy working, not the setup breaking. A summary failure is, even though nothing about the setup broke to cause it — the developer still has to go retrieve the kept summary by hand.
+_Avoid_: broken, alert
 
 ### Triggers
 
