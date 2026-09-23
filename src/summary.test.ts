@@ -1895,12 +1895,12 @@ describe("spec review sweeps", () => {
     );
   });
 
-  it("names the spec review it linked and the supertask it was linked to, in the body, distinct from an opened line", () => {
+  it("names the spec review it linked, in the body, distinct from an opened line", () => {
     const supertask = implementationTicket(40);
     const sweeps: SpecReviewSweepOutcome[] = [
       {
         repo: REPO,
-        opened: [],
+        opened: [specReview(10, 20)],
         linked: [{ supertask, specReview: specReview(40, 68) }],
         refusals: [],
       },
@@ -1909,8 +1909,8 @@ describe("spec review sweeps", () => {
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Spec review sweep"));
 
+    assert.match(section, new RegExp(`- ${REPO}: opened #20 \\(Spec review for #10\\)`));
     assert.match(section, new RegExp(`- ${REPO}: linked #68 \\(Spec review for #40\\)`));
-    assert.doesNotMatch(section, /- .*: opened #68/);
   });
 
   it("mentions the sweep in the summary line when it linked a floating spec review", () => {
