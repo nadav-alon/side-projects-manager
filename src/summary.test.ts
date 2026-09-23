@@ -2129,6 +2129,22 @@ describe("composeInvocationReport", () => {
     );
   });
 
+  it("reports work-selected, and always publishes, when a run happened alongside a limit-refused one", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([gaveUp(7), limitRefused(8, { kind: "none" })]),
+        standDown: { reason: "stopped" },
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "work-selected");
+    assert.equal(tracker.published.length, 1);
+  });
+
   it("reports a stand-down that ran nothing as stood-down", async () => {
     const report = await composeInvocationReport(recordingTracker(), {
       startedAt: STARTED_AT,
