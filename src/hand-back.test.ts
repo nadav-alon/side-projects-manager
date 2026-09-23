@@ -582,6 +582,7 @@ describe("handBack", () => {
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.match(comment, /`size:XXL`/);
       assert.match(comment, /S, M, L, XL/);
+      assert.match(comment, /`size:<size>`/);
     });
 
     it("names nothing was run or spent, since it is caught ahead of the gate", async () => {
