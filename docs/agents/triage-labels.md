@@ -103,10 +103,10 @@ roles above — a category label the loop applies on its own.
 
 ## Ready discovery label
 
-Beside `ready-for-agent`, `size:S` and `enhancement`, the label a ready discovery's ticket is born
-with, per `CONTEXT.md`'s "Ready discovery". Marks the ticket's origin for good, even once its own
-`ready-for-agent` comes off: what the chain guard reads to tell that a discovery filed while working
-this ticket is one hop into a chain of unreviewed work.
+Beside `ready-for-agent`, `size:S` and `enhancement`, the label a ticket opened by an agent — rather
+than triaged by a human — is born with, marking its origin for good, even once its own
+`ready-for-agent` comes off: the loop reads it on a ticket a run is working to refuse opening a
+second such ticket from that run's own discoveries, so unreviewed work never chains.
 
 | Label              | Meaning                                          |
 | ------------------- | ------------------------------------------------ |
