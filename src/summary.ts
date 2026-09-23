@@ -35,6 +35,7 @@ import {
   type Reviewed,
   type SpecReviewed,
 } from "./iteration-outcome.ts";
+import { modelProblem } from "./model-resolution.ts";
 import type { ProjectOutcome, ProjectVerdict } from "./selection.ts";
 import type { FreedWorkedTicket } from "./invocation-state.ts";
 import type {
@@ -1359,17 +1360,16 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
         `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${withoutTrailingStop(failure.reason)}`,
       ];
     case "model-refused":
+    case "conflicting-model-labels":
+    case "unusable-model-label": {
+      const { problem, fix } = modelProblem(ticket, failure);
       return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the model ${failure.refusal.model} was refused, so fix the ${failure.source}`,
+        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${problem}, so ${fix}`,
       ];
+    }
     case "unsettled-mergeability":
       return [
         `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`,
-      ];
-    case "conflicting-model-labels":
-    case "unusable-model-label":
-      return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — fix its model labels (${failure.labels.join(", ")})`,
       ];
     case "unusable-size-label":
       return [

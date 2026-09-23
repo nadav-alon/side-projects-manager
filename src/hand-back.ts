@@ -25,15 +25,13 @@ import type {
   TranscriptPath,
 } from "./ports/index.ts";
 import {
-  MODEL_LABEL_PREFIX,
-  MODEL_NAME_SHAPE,
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
   SIZES,
   targetNoun,
-  ticketKind,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
+import { modelProblem } from "./model-resolution.ts";
 import { tail } from "./tail.ts";
 
 /**
@@ -284,15 +282,10 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
     case "model-refused":
       return modelRefusalComment(ticket, ending, discard);
     case "conflicting-model-labels":
-      return notRunAheadOfGateComment(
-        `it carries more than one model label (${labelList(ending.labels)}), and there is no telling which model it should run on`,
-        "keep one of them",
-      );
-    case "unusable-model-label":
-      return notRunAheadOfGateComment(
-        `its model label names no model a run could be started on (${labelList(ending.labels)}): a model label is \`${MODEL_LABEL_PREFIX}<name>\`, with ${MODEL_NAME_SHAPE}`,
-        "fix or remove it",
-      );
+    case "unusable-model-label": {
+      const { problem, fix } = modelProblem(ticket, ending);
+      return notRunAheadOfGateComment(problem, fix);
+    }
     case "unusable-size-label":
       return notRunAheadOfGateComment(
         `its size label names no size the budget document knows (${labelList(ending.labels)}): a size label is \`${SIZE_LABEL_PREFIX}<size>\`, one of ${SIZES.join(", ")}`,
@@ -423,19 +416,9 @@ function modelRefusalComment(
   },
   discard: Discard,
 ): string {
-  const model = `\`${ending.refusal.model}\``;
-  const [named, fix] =
-    ending.source === "model label"
-      ? [
-          `its model label, \`${MODEL_LABEL_PREFIX}${ending.refusal.model}\``,
-          `fix or remove its model label`,
-        ]
-      : [
-          `the model defaults for ${ticketKind(ticket)} tickets, in \`models.json\``,
-          `fix the ${ticketKind(ticket)} model in \`models.json\`, or give this ticket a model label`,
-        ];
+  const { problem, fix } = modelProblem(ticket, ending);
   return [
-    `The morning loop did not work this ticket: the agent CLI refused the model ${model}, named by ${named}.`,
+    `The morning loop did not work this ticket: ${problem}.`,
     `What the CLI said:\n\n${quote(ending.refusal.words)}`,
     ...branchNote(ending.worked?.run.branch, discard),
     notRetried(fix),

@@ -20,6 +20,7 @@ import {
   issueUrl,
   localDay,
   localTimeOfMinute,
+  modelName,
   processId,
   pullRequestUrl,
   repoSlug,
@@ -933,6 +934,53 @@ describe("a ticket handed back for an unusable size label", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO} #307: relabelled ready-for-human — fix its size label (size:XXL)`,
+    ]);
+  });
+});
+
+describe("a ticket handed back for a model problem", () => {
+  function conflictingModelLabels(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: {
+        kind: "conflicting-model-labels",
+        reason: "it carries more than one model label (model:opus, model:haiku)",
+        labels: ["model:opus", "model:haiku"],
+      },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  function modelRefused(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: {
+        kind: "model-refused",
+        reason: "the agent CLI refused the model opus (from the model label): unknown model opus",
+        refusal: { model: modelName("opus"), words: "unknown model opus" },
+        source: "model label",
+      },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  it("reads the same fix wording hand-back.ts's own comment gives for conflicting model labels", () => {
+    const lines = waitingLines([conflictingModelLabels(308)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #308: relabelled ready-for-human — it carries more than one model label (\`model:opus\`, \`model:haiku\`), and there is no telling which model it should run on, so keep one of them`,
+    ]);
+  });
+
+  it("reads the same fix wording hand-back.ts's own comment gives for a model refusal", () => {
+    const lines = waitingLines([modelRefused(309)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #309: relabelled ready-for-human — the agent CLI refused the model \`opus\`, named by its model label, \`model:opus\`, so fix or remove its model label`,
     ]);
   });
 });

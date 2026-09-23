@@ -6453,7 +6453,7 @@ describe("morningLoop", () => {
         assert.doesNotMatch(body, /gave up/);
         assert.doesNotMatch(body, infrastructure);
         assert.match(body, /Waiting on you/);
-        assert.match(body, /pilot #7: relabelled ready-for-human — the model opus/);
+        assert.match(body, /pilot #7: relabelled ready-for-human — the agent CLI refused the model/);
       });
     });
 
