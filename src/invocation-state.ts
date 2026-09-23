@@ -112,9 +112,10 @@ export interface InvocationState {
 
   /**
    * Records `ticket` as worked on `day`, in memory only, carrying none of
-   * `ticketSelected`'s own save-at-once guarantee — for a caller that folds
-   * the record into its own explicit `save` afterwards, or a test seeding a
-   * worked-today record directly.
+   * `ticketSelected`'s own save-at-once guarantee. No production caller
+   * remains — every place a ticket is recorded as worked now goes through
+   * `ticketSelected` instead — so this is a test seam only, for a test
+   * seeding a worked-today record directly.
    */
   recordWorked(ticket: WorkedTicket, day: Day): void;
 
