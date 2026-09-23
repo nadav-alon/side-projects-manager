@@ -7,9 +7,7 @@ import type {
   Clock,
   Day,
   Discovery,
-  InvocationOutcome as JournaledInvocationOutcome,
   IssueTracker,
-  IssueUrl,
   IterationLimit,
   ModelDefaults,
   ModelName,
@@ -68,7 +66,6 @@ import {
 import {
   invocationBudgetGate,
   spendCeilingForTicket,
-  type StandDown,
 } from "./budget-gate.ts";
 import {
   invocationSelection,
@@ -108,7 +105,6 @@ import {
   cutOffReviewOutcome,
   cutOffRunOutcome,
   failedOnInfrastructure,
-  handedBackAheadOfGate,
   handedBackFailure,
   type AheadOfGateFailure,
   type AppliedReview,
@@ -137,27 +133,14 @@ import {
   type UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import {
-  summaryBody,
-  summaryLine,
-  summaryTitle,
+  composeInvocationReport,
+  type InvocationReport,
+  type InvocationStandDown,
   type SummaryFacts,
+  type SummaryTracker,
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
-
-/**
- * The one write on the tracker that `ports/issue-tracker.ts` deliberately
- * leaves undeclared: publishing the invocation's summary issue. Declared
- * here, by the code that needs it, per that port's own note.
- *
- * Every other tracker method writes into a project's repo, named by a ticket
- * it is handed. This one names nothing, because it always lands in the
- * tracker's own repo rather than a project's — the manager reports on itself.
- */
-export interface SummaryTracker {
-  /** Publishes the summary issue, and answers with where it landed. */
-  publishSummary(title: string, body: string): Promise<IssueUrl>;
-}
 
 /**
  * The seven outside-world dependencies of the loop. Everything it knows about
@@ -175,147 +158,11 @@ export interface MorningLoopPorts {
   progress: Progress;
 }
 
-export type InvocationOutcome =
-  /** No registered project had an eligible ticket. A quiet morning. */
-  | "dry-queue"
-  /** There was work, and the budget gate refused to start it. */
-  | "stood-down"
-  /** An iteration selected a project with work. */
-  | "work-selected"
-  /**
-   * The loop's own plumbing broke before it could finish — a registry that
-   * would not parse, or a port that could not be reached before a single
-   * iteration ran. Distinct from a run that gave up or an infrastructure
-   * failure inside one iteration, both of which are reported as normal
-   * iterations; this is the invocation itself never getting that far.
-   */
-  | "invocation-failed";
-
-/**
- * Kept assignable to the store port's own copy of this union: a variant
- * added here without being added to `ports/journal.ts`'s `InvocationOutcome`
- * fails this line, rather than surfacing later as a runtime parse error when
- * the journal tries to read back an outcome it does not recognise.
- */
-const _outcomeStaysInSyncWithJournal: JournaledInvocationOutcome =
-  "dry-queue" as InvocationOutcome;
-
 /** The model a ticket's run is started on, and what named it. */
 export interface ResolvedModel {
   name: ModelName;
   source: ModelSource;
 }
-
-/**
- * A summary the invocation composed but could not publish: why, and the body
- * it had already put together. Carried as its own field rather than only
- * folded into `message`'s prose, so the entry point can write the body down
- * and the journal can record why — the one write meant to report the morning
- * is not allowed to be the one that loses its account of itself.
- */
-export interface SummaryFailure {
-  reason: string;
-  body: string;
-}
-
-/** What one invocation did. The summary issue is written from this. */
-export interface InvocationReport {
-  /** When the invocation started. */
-  startedAt: Date;
-  outcome: InvocationOutcome;
-  /**
-   * Every registered project, in registry order, with why it was skipped —
-   * or, once it has been, that it was selected, which then sticks for the
-   * rest of the invocation even on a later iteration that finds nothing left
-   * of its backlog to select. What each one was actually worked on is in
-   * `iterations`; this says only whether its turn came at all.
-   */
-  projects: ProjectOutcome[];
-  /**
-   * Every iteration the invocation made, in the order they started — not the
-   * order they finished, since several can be in progress at once. Empty on a morning
-   * that ran nothing — a dry queue, or a gate that refused before the first
-   * run.
-   */
-  iterations: IterationOutcome[];
-  /**
-   * Why the invocation stood down, absent when it never did: the gate
-   * refusing, before the first run of the morning or between two later ones,
-   * the provider limit refusing a run that had already started, or the
-   * developer stopping it by hand. Whichever, it is why the invocation stopped rather than having simply run
-   * out of work.
-   */
-  standDown?: InvocationStandDown;
-  /**
-   * Where a published summary landed. Absent when none published this
-   * invocation, or the publish failed.
-   */
-  summaryLocation?: IssueUrl;
-  /**
-   * The composed summary, kept because it could not be published. Absent
-   * when one published, or none was composed this invocation.
-   */
-  summaryFailure?: SummaryFailure;
-  /** One line, suitable for printing to a terminal or into the summary issue. */
-  message: string;
-}
-
-/** The gate's refusal, and the project it turned away. */
-export interface GateStandDown extends StandDown {
-  /** The project that was ready to work when the gate refused. */
-  refused: RepoSlug;
-}
-
-/**
- * A stand-down the gate never saw coming: a limit refusal. The allowance the
- * gate measures against is only the developer's declaration of the provider
- * limit, so the gate can say go while the provider says no — and every run
- * after the first refusal would be refused the same way.
- */
-export interface ProviderLimitStandDown {
-  reason: "provider-limit";
-  /** What the provider said, reset time included, word for word. */
-  limitRefusal: string;
-  /** The ticket whose run it refused. */
-  ticket: Ticket;
-  /**
-   * Whether `ticket` was handed back for a blocking discovery its run filed
-   * before the provider refused it, rather than left eligible exactly as it
-   * was — per CONTEXT.md's "Discovery", true only when the hand-back landed.
-   */
-  handedBack: boolean;
-}
-
-/**
- * A stand-down the gate never saw coming either: a provider failure — down,
- * overloaded or unreachable. As `ProviderLimitStandDown`, every run after the
- * first would be stopped the same way.
- */
-export interface ProviderFailureStandDown {
-  reason: "provider-failure";
-  /** What the CLI said, word for word. */
-  providerFailure: string;
-  /** The ticket whose run it stopped. */
-  ticket: Ticket;
-  /** As `ProviderLimitStandDown.handedBack`. */
-  handedBack: boolean;
-}
-
-/**
- * A stand-down the developer asked for, by stopping the invocation by hand.
- * Nothing about the budget or any ticket: every ticket not yet started is left
- * exactly as it was.
- */
-export interface DeveloperStandDown {
-  reason: "stopped";
-}
-
-/** Why an invocation stood down: the gate refused, the provider did, or the developer stopped it. */
-export type InvocationStandDown =
-  | GateStandDown
-  | ProviderLimitStandDown
-  | ProviderFailureStandDown
-  | DeveloperStandDown;
 
 /**
  * `cutOff`'s own reason, as the stand-down it triggers on `ticket` — the same
@@ -697,86 +544,26 @@ export async function morningLoop(
     specReviewSweeps: specReviewSweepOutcomes,
     freedFromDeadInvocation: freedTickets,
   };
-  const line = summaryLine(facts);
-  const outcome = outcomeOf(iterations, standDown, invocationFailure);
 
-  // An invocation that worked something, or freed a ticket a dead invocation
-  // had recorded, always publishes — a freed ticket must be named somewhere,
-  // never only erased from the state document. A quiet or broken one — dry
-  // queue, stand-down, invocation failure, nothing freed — publishes only if
-  // nothing has been announced yet today, so a firing every hour reports one
-  // quiet morning rather than up to twenty-four.
-  let summaryLocation: IssueUrl | undefined;
-  let summaryFailure: SummaryFailure | undefined;
-  if (
-    outcome === "work-selected" ||
-    freedTickets.length > 0 ||
-    !hasAnnouncedOn(announcedOn, today)
-  ) {
-    const body = summaryBody(facts, line);
-    // Last, so a morning that worked something still gets its state recorded
-    // above even if the tracker refuses this. Never thrown: a summary issue
-    // that could not be written must not cost the developer the account of
-    // everything else the invocation did — said in the message, and kept
-    // whole in `summaryFailure`, the same way a tracker that refuses
-    // `handBack` is said rather than thrown.
-    try {
-      summaryLocation = await ports.tracker.publishSummary(
-        summaryTitle(startedAt),
-        body,
-      );
-    } catch (error: unknown) {
-      summaryFailure = { reason: errorMessage(error), body };
-    }
-    // Recorded only now that the publish is known to have succeeded, and
-    // only when there is a state document to fold it back into. Kept out of
-    // the try above: a fault here is the state document's, not the
-    // publish's, and must never read back as a publish that failed when the
-    // summary in fact went out.
-    if (summaryLocation !== undefined && stateToSave !== undefined) {
-      announcedOn = today;
-      await ports.store.saveState(stateToSave());
-    }
-  }
-
-  return {
+  // Last, so a morning that worked something still gets its state recorded
+  // above even if the tracker refuses to publish the summary these facts come
+  // to.
+  const report = await composeInvocationReport(ports.tracker, {
     startedAt,
-    projects: outcomes,
-    iterations,
-    ...(standDown !== undefined && { standDown }),
-    outcome,
-    ...(summaryLocation !== undefined && { summaryLocation }),
-    ...(summaryFailure !== undefined && { summaryFailure }),
-    message:
-      summaryFailure === undefined
-        ? line
-        : `${line} The summary issue could not be published: ${summaryFailure.reason}.`,
-  };
-}
+    facts,
+    alreadyAnnouncedToday: hasAnnouncedOn(announcedOn, today),
+  });
 
-function outcomeOf(
-  iterations: IterationOutcome[],
-  standDown: InvocationStandDown | undefined,
-  invocationFailure: string | undefined,
-): InvocationOutcome {
-  if (invocationFailure !== undefined) {
-    return "invocation-failed";
+  // Recorded only now that the publish is known to have succeeded, and only
+  // when there is a state document to fold it back into. A fault saving it is
+  // the state document's, not the publish's, and must never read back as a
+  // publish that failed when the summary in fact went out.
+  if (report.summaryLocation !== undefined && stateToSave !== undefined) {
+    announcedOn = today;
+    await ports.store.saveState(stateToSave());
   }
-  // A ticket handed back ahead of the gate — for its model or size labels —
-  // was never run, so it does not count as work when the morning then stood
-  // down: a stand-down that ran nothing reads as one, whatever was handed
-  // back before it. Without a stand-down, that hand-back is still work an
-  // iteration selected.
-  const worked = iterations.some(
-    (iteration) => !handedBackAheadOfGate(iteration),
-  );
-  if (worked) {
-    return "work-selected";
-  }
-  if (standDown !== undefined) {
-    return "stood-down";
-  }
-  return iterations.length > 0 ? "work-selected" : "dry-queue";
+
+  return report;
 }
 
 /**

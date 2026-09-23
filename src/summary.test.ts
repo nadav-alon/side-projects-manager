@@ -13,11 +13,11 @@ import type {
   Reviewed,
   SpecReviewed,
 } from "./iteration-outcome.ts";
-import type { GateStandDown } from "./morning-run.ts";
 import {
   branch,
   commitSha,
   issueNumber,
+  issueUrl,
   processId,
   pullRequestUrl,
   repoSlug,
@@ -32,7 +32,14 @@ import {
   type SpecReviewTicket,
   type Ticket,
 } from "./ports/index.ts";
-import { summaryBody, summaryLine, type SummaryFacts } from "./summary.ts";
+import {
+  composeInvocationReport,
+  summaryBody,
+  summaryLine,
+  type GateStandDown,
+  type SummaryFacts,
+  type SummaryTracker,
+} from "./summary.ts";
 import {
   BUDGET_EXHAUSTED_JSON_RESULT,
   LIMIT_REFUSAL,
@@ -1931,5 +1938,246 @@ describe("freed from a dead invocation", () => {
 
     assert.match(body, new RegExp(`- ${REPO} #432: freed`));
     assert.match(body, new RegExp(`- ${REPO} #434: freed`));
+  });
+});
+
+describe("composeInvocationReport", () => {
+  const STARTED_AT = new Date("2026-03-05T14:37:00.000Z");
+
+  /** A gave-up run, handed back cleanly — the failure policy working, not the setup breaking. */
+  function gaveUp(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: { kind: "gave-up", reason: "left the tests red" },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  /**
+   * A ticket handed back ahead of the gate, for an unusable model label — it
+   * was never run, so it does not count as work when deciding the outcome.
+   */
+  function aheadOfGate(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: {
+        kind: "unusable-model-label",
+        reason: "model:foo names no model this loop runs",
+        labels: ["model:foo"],
+      },
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  /**
+   * A `SummaryTracker` that records every summary it is asked to publish,
+   * answering with a fresh issue address each time — built here rather than
+   * reusing the fuller `FakeIssueTracker`, since composing a report needs
+   * nothing else the tracker port can do.
+   */
+  function recordingTracker(): SummaryTracker & {
+    published: { title: string; body: string }[];
+  } {
+    const published: { title: string; body: string }[] = [];
+    return {
+      published,
+      async publishSummary(title, body) {
+        published.push({ title, body });
+        return issueUrl(
+          `https://github.com/nadav-alon/side-projects-manager/issues/${published.length}`,
+        );
+      },
+    };
+  }
+
+  /** A `SummaryTracker` whose `publishSummary` always refuses, naming `reason`. */
+  function refusingTracker(reason: string): SummaryTracker {
+    return {
+      async publishSummary() {
+        throw new Error(reason);
+      },
+    };
+  }
+
+  it("reports the line as its message, and publishes the body built from the same facts", async () => {
+    const built = facts([gaveUp(7)]);
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: built,
+      alreadyAnnouncedToday: false,
+    });
+
+    const line = summaryLine(built);
+    assert.equal(report.message, line);
+    assert.equal(tracker.published[0]?.body, summaryBody(built, line));
+    assert.equal(tracker.published[0]?.title, `Morning loop summary — 2026-03-05 14:37`);
+  });
+
+  it("publishes a morning that worked something even when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: facts([gaveUp(7)]),
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "work-selected");
+    assert.equal(tracker.published.length, 1);
+    assert.equal(
+      report.summaryLocation,
+      issueUrl("https://github.com/nadav-alon/side-projects-manager/issues/1"),
+    );
+  });
+
+  it("reports a stand-down that ran nothing as stood-down", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: { ...facts([]), standDown: { reason: "stopped" } },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+  });
+
+  it("reports a stand-down as stood-down even with an iteration handed back ahead of the gate", async () => {
+    const report = await composeInvocationReport(recordingTracker(), {
+      startedAt: STARTED_AT,
+      facts: { ...facts([aheadOfGate(7)]), standDown: { reason: "stopped" } },
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+  });
+
+  it("does not publish a quiet morning when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: facts([]),
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "dry-queue");
+    assert.equal(tracker.published.length, 0);
+    assert.equal(report.summaryLocation, undefined);
+  });
+
+  it("publishes a dry queue that freed a ticket even when today is already announced", async () => {
+    const tracker = recordingTracker();
+    const freed: SummaryFacts = {
+      ...facts([]),
+      freedFromDeadInvocation: [
+        {
+          ticket: { repo: REPO, number: issueNumber(432) },
+          invocation: {
+            openedAt: new Date("2026-03-05T08:09:00.000Z"),
+            process: processId(7563),
+          },
+        },
+      ],
+    };
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: freed,
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "dry-queue");
+    assert.equal(tracker.published.length, 1);
+    assert.match(tracker.published[0]?.body ?? "", new RegExp(`- ${REPO} #432: freed`));
+  });
+
+  it("publishes a quiet morning when today is not yet announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: facts([]),
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(tracker.published.length, 1);
+    assert.equal(
+      report.summaryLocation,
+      issueUrl("https://github.com/nadav-alon/side-projects-manager/issues/1"),
+    );
+  });
+
+  it("carries a summary that could not be published as a structured field, body and all", async () => {
+    const tracker = refusingTracker("rate limited");
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: facts([]),
+      alreadyAnnouncedToday: false,
+    });
+
+    assert.equal(report.summaryFailure?.reason, "rate limited");
+    assert.match(report.summaryFailure?.body ?? "", /nothing to do/i);
+    assert.equal(report.summaryLocation, undefined);
+    assert.match(report.message, /summary issue could not be published: rate limited/);
+  });
+
+  describe("needsAttention", () => {
+    it("is true for an invocation that never finished", async () => {
+      const broken: SummaryFacts = { ...facts([]), invocationFailure: "registry.json is not valid JSON" };
+
+      const report = await composeInvocationReport(recordingTracker(), {
+        startedAt: STARTED_AT,
+        facts: broken,
+        alreadyAnnouncedToday: false,
+      });
+
+      assert.equal(report.needsAttention, true);
+    });
+
+    it("is true for an iteration the sandbox or checkout itself failed on", async () => {
+      const report = await composeInvocationReport(recordingTracker(), {
+        startedAt: STARTED_AT,
+        facts: facts([infrastructureFailure(7)]),
+        alreadyAnnouncedToday: false,
+      });
+
+      assert.equal(report.needsAttention, true);
+    });
+
+    it("is true for a summary this invocation composed but could not publish", async () => {
+      const report = await composeInvocationReport(refusingTracker("rate limited"), {
+        startedAt: STARTED_AT,
+        facts: facts([]),
+        alreadyAnnouncedToday: false,
+      });
+
+      assert.equal(report.needsAttention, true);
+    });
+
+    it("is false for an agent that merely gave up — its ticket was handed back, and that is the policy working", async () => {
+      const report = await composeInvocationReport(recordingTracker(), {
+        startedAt: STARTED_AT,
+        facts: facts([gaveUp(7)]),
+        alreadyAnnouncedToday: false,
+      });
+
+      assert.equal(report.needsAttention, false);
+    });
+
+    it("is false for a quiet morning that published cleanly", async () => {
+      const report = await composeInvocationReport(recordingTracker(), {
+        startedAt: STARTED_AT,
+        facts: facts([]),
+        alreadyAnnouncedToday: false,
+      });
+
+      assert.equal(report.needsAttention, false);
+    });
   });
 });

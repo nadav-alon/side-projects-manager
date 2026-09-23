@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
-import { morningLoop, type InvocationReport } from "./morning-run.ts";
+import { morningLoop } from "./morning-run.ts";
+import type { InvocationReport } from "./summary.ts";
 import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
