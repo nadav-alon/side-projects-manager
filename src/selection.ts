@@ -462,9 +462,10 @@ function hasNonPullRequestSubIssue(
  * every ticket present; and, ties still standing, the oldest ticket — the
  * lowest issue number — so the order the tracker happened to return them in
  * never matters. Two tickets of the same non-implementation kind go straight
- * to the oldest ticket: ticket priority orders implementation tickets only, a
- * pull request ticket inherits its parent's as a sub-issue rather than a rank
- * of its own, and a spec review ticket names no parent to inherit one from.
+ * to the oldest ticket: ticket priority orders implementation tickets only,
+ * and a pull request ticket or a spec review ticket alike — each a sub-issue
+ * of the ticket it is about — inherits its parent's priority as such rather
+ * than carrying a rank of its own.
  */
 function bestTicket(
   backlog: Ticket[],
@@ -518,11 +519,12 @@ function compareTickets(
 
 /**
  * Selection's ordering rule, applied as one comparison rather than as
- * separate passes: rebases before apply-reviews before reviews before
- * implementations, then explicit priority, then least recently worked. Each
- * level only breaks ties the level before it left standing, so a pull request
- * ticket is never outranked by priority and priority is never outranked by
- * how long a project has waited.
+ * separate passes: rebases before apply-reviews before reviews before spec
+ * reviews before implementations, then explicit priority, then least
+ * recently worked. Each level only breaks ties the level before it left
+ * standing, so a pull request ticket or a spec review ticket is never
+ * outranked by priority and priority is never outranked by how long a
+ * project has waited.
  *
  * A project without a priority sorts after every project that has one, and a
  * project never worked sorts before every project that has been — it is, by

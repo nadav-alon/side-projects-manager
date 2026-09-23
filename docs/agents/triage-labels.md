@@ -55,7 +55,9 @@ ticket to `ready-for-agent`; the budget document is what sets the tokens each on
 ## Supertask label
 
 Declares a ticket a container for its work rather than work of its own, per `CONTEXT.md`'s
-"Supertask". Applied by hand — the loop only ever reads it, never applies it itself.
+"Supertask". Applied by hand — the loop only ever reads it, never applies it itself. Triage applies
+it whenever triage itself breaks a ticket into sub-issues, so the container reads as one from the
+start — never for the pull request tickets the loop opens against a ticket.
 
 | Label       | Meaning                                                                |
 | ----------- | ----------------------------------------------------------------------- |
@@ -67,7 +69,7 @@ Declares a ticket a container for its work rather than work of its own, per `CON
   not a pull request ticket, yet carries no `supertask` label — but does not apply the label; that
   stays the developer's call.
 - Once every one of its sub-issues has closed, the spec review sweep opens one spec-review sub-issue
-  for it, itself — see the "Spec review label" section above and `CONTEXT.md`'s "Spec review sweep".
+  for it, itself — see the "Spec review label" section below and `CONTEXT.md`'s "Spec review sweep".
   At most once per supertask, ever.
 
 ## Spec review label
