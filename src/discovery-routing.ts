@@ -84,15 +84,64 @@ export function blockingDiscoveriesOf(discoveries: readonly Discovery[]): Discov
 }
 
 /**
+ * The sections an agent brief must name, per `CONTEXT.md`'s "Ready
+ * discovery": current behavior, desired behavior, acceptance criteria and
+ * out of scope — the same shape triage itself writes when it hands a ticket
+ * to an agent. Matched loosely, by keyword rather than by heading syntax or
+ * order, since the filer writes prose, not a form; "behaviour" is accepted
+ * beside "behavior" for the same reason.
+ */
+const AGENT_BRIEF_SECTIONS = [
+  /current behaviou?r/i,
+  /desired behaviou?r/i,
+  /acceptance criteria/i,
+  /out of scope/i,
+];
+
+/**
+ * Whether `body` reads as an agent brief: every section
+ * `AGENT_BRIEF_SECTIONS` names is somewhere in the text. What a ready
+ * discovery's body must be, per `CONTEXT.md`'s "Ready discovery" — a
+ * discovery that declares itself ready but is not shaped like a brief falls
+ * back to needs-triage all the same, per `fileDiscovery`.
+ */
+export function isAgentBrief(body: string): boolean {
+  return AGENT_BRIEF_SECTIONS.every((section) => section.test(body));
+}
+
+/**
+ * Whether a prerequisite or a suggestion declaring itself ready actually
+ * opens ready, per `CONTEXT.md`'s "Ready discovery": `discovery.ready` is
+ * only the filer's own claim, so this still checks the two things that are
+ * not the filer's to decide. `body` must read as an agent brief
+ * (`isAgentBrief`) — a bare `ready: true` on an ordinary-shaped body changes
+ * nothing. And `runTicket` — the ticket the run declaring it is working —
+ * must not itself carry `readyDiscovery`: a ticket already born from a ready
+ * discovery is one hop into a chain of unreviewed work, and a second hop
+ * falls back to needs-triage rather than compounding it.
+ */
+function opensReady(runTicket: Ticket, discovery: Discovery): boolean {
+  return (
+    discovery.ready === true &&
+    isAgentBrief(discovery.body) &&
+    runTicket.readyDiscovery !== true
+  );
+}
+
+/**
  * Files one discovery against `target`: a comment for a correction or a
  * clarification, a discovered ticket for a prerequisite — blocking `target`
- * — or a suggestion — no edge. For a comment, `runTicket` names what
- * `discoveredBody` says this was discovered while working, so a discovery
- * landing on a different ticket than the one that found it still reads in
- * context; a discovered ticket's own body names `target` that way instead —
+ * — or a suggestion — no edge, opened ready per `opensReady` where either
+ * declares itself one. For a comment, `runTicket` names what `discoveredBody`
+ * says this was discovered while working, so a discovery landing on a
+ * different ticket than the one that found it still reads in context; a
+ * discovered ticket's own body names `target` that way instead —
  * `createDiscoveredTicket`'s callers build it from the ticket they were
  * handed, per `discoveredBody`, so it reads as discovered while working the
- * ticket it blocks or rides alongside, not the run that found it.
+ * ticket it blocks or rides alongside, not the run that found it. `runTicket`
+ * is also what `opensReady` reads for the chain guard, never `target`: it is
+ * the ticket the run itself was working that may or may not have come from a
+ * ready discovery, whatever ticket the discovery is filed against.
  */
 async function fileDiscovery(
   tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
@@ -111,6 +160,7 @@ async function fileDiscovery(
     title: discovery.title,
     body: discovery.body,
     blocking: discovery.kind === "prerequisite",
+    ready: opensReady(runTicket, discovery),
   });
   return { discovery, action: "discovered-ticket", ticket };
 }

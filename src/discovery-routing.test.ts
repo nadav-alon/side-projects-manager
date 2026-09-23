@@ -4,10 +4,19 @@ import { describe, it } from "node:test";
 import {
   blockingDiscoveriesOf,
   hasBlockingDiscovery,
+  isAgentBrief,
   routeDiscoveries,
   routeRunDiscoveries,
 } from "./discovery-routing.ts";
-import { issueNumber, pullRequestUrl, type Discovery } from "./ports/index.ts";
+import {
+  ENHANCEMENT_LABEL,
+  NEEDS_TRIAGE_LABEL,
+  READY_DISCOVERY_LABEL,
+  READY_FOR_AGENT_LABEL,
+  issueNumber,
+  pullRequestUrl,
+  type Discovery,
+} from "./ports/index.ts";
 import { FakeIssueTracker, PILOT } from "./testing/index.ts";
 
 function implementation() {
@@ -22,6 +31,14 @@ function discovery(overrides: Partial<Discovery> = {}): Discovery {
     ...overrides,
   };
 }
+
+/** A body shaped as an agent brief, per CONTEXT.md's "Ready discovery". */
+const AGENT_BRIEF_BODY = [
+  "Current behavior: the retry loop hammers the API on every failure.",
+  "Desired behavior: it should back off between attempts.",
+  "Acceptance criteria: a failed call waits before its next attempt.",
+  "Out of scope: a configurable backoff strategy.",
+].join("\n\n");
 
 describe("routeDiscoveries", () => {
   it("comments on the target for a correction or a clarification", async () => {
@@ -142,6 +159,161 @@ describe("routeDiscoveries", () => {
     assert.match(routing.refused[0]?.reason ?? "", /refused the comment/);
     assert.equal(routing.filed.length, 1);
     assert.equal(routing.filed[0]?.discovery.title, "Second");
+  });
+
+  it("opens a ready prerequisite's ticket ready-for-agent when its body reads as an agent brief, and still blocks the target", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      title: "Needs the widget port first",
+      body: AGENT_BRIEF_BODY,
+      ready: true,
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    const [filed] = routing.filed;
+    assert.equal(filed?.action, "discovered-ticket");
+    const opened = filed?.action === "discovered-ticket" ? filed.ticket : undefined;
+    assert.ok(opened);
+    assert.equal(tracker.carriesLabel(opened, READY_FOR_AGENT_LABEL), true);
+    assert.equal(tracker.carriesLabel(opened, NEEDS_TRIAGE_LABEL), false);
+    assert.equal(tracker.carriesLabel(opened, ENHANCEMENT_LABEL), true);
+    assert.equal(tracker.discoveredTickets[0]?.blocking, true);
+  });
+
+  it("opens a ready suggestion's ticket ready-for-agent the same way", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const suggestion = discovery({
+      kind: "suggestion",
+      title: "Worth adding a retry",
+      body: AGENT_BRIEF_BODY,
+      ready: true,
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [suggestion]);
+
+    const [filed] = routing.filed;
+    const opened = filed?.action === "discovered-ticket" ? filed.ticket : undefined;
+    assert.ok(opened);
+    assert.equal(tracker.carriesLabel(opened, READY_FOR_AGENT_LABEL), true);
+  });
+
+  it("falls back to needs-triage when a ready discovery's body does not read as an agent brief", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const suggestion = discovery({
+      kind: "suggestion",
+      title: "Worth adding a retry",
+      body: "Just a plain suggestion, no sections at all.",
+      ready: true,
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [suggestion]);
+
+    const [filed] = routing.filed;
+    const opened = filed?.action === "discovered-ticket" ? filed.ticket : undefined;
+    assert.ok(opened);
+    assert.equal(tracker.carriesLabel(opened, NEEDS_TRIAGE_LABEL), true);
+    assert.equal(tracker.carriesLabel(opened, READY_FOR_AGENT_LABEL), false);
+  });
+
+  it("falls back to needs-triage when the run's own ticket was itself born from a ready discovery", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    tracker.addLabel(ticket, READY_DISCOVERY_LABEL);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const bornReady = issues.find((issue) => issue.ticket.number === ticket.number)?.ticket;
+    assert.ok(bornReady !== undefined);
+    assert.equal(bornReady.readyDiscovery, true);
+    const suggestion = discovery({
+      kind: "suggestion",
+      title: "Worth adding a retry",
+      body: AGENT_BRIEF_BODY,
+      ready: true,
+    });
+
+    const routing = await routeDiscoveries(tracker, bornReady, bornReady, [suggestion]);
+
+    const [filed] = routing.filed;
+    const opened = filed?.action === "discovered-ticket" ? filed.ticket : undefined;
+    assert.ok(opened);
+    assert.equal(tracker.carriesLabel(opened, NEEDS_TRIAGE_LABEL), true);
+    assert.equal(tracker.carriesLabel(opened, READY_FOR_AGENT_LABEL), false);
+  });
+
+  it("ignores ready on a correction or a clarification: both still become comments", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const correction = discovery({
+      kind: "correction",
+      title: "The ticket names the wrong file",
+      body: AGENT_BRIEF_BODY,
+      ready: true,
+    });
+    const clarification = discovery({ body: AGENT_BRIEF_BODY, ready: true });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [correction, clarification]);
+
+    assert.ok(routing.filed.every((filed) => filed.action === "commented"));
+    assert.equal(tracker.discoveredTickets.length, 0);
+  });
+});
+
+describe("isAgentBrief", () => {
+  it("accepts a body naming all four sections", () => {
+    assert.equal(isAgentBrief(AGENT_BRIEF_BODY), true);
+  });
+
+  it("accepts British spelling of behaviour", () => {
+    const body = [
+      "Current behaviour: nothing happens.",
+      "Desired behaviour: it should retry.",
+      "Acceptance criteria: retries three times.",
+      "Out of scope: backoff.",
+    ].join("\n\n");
+    assert.equal(isAgentBrief(body), true);
+  });
+
+  it("rejects a body missing any one section", () => {
+    assert.equal(
+      isAgentBrief([
+        "Desired behavior: it should retry.",
+        "Acceptance criteria: retries three times.",
+        "Out of scope: backoff.",
+      ].join("\n\n")),
+      false,
+    );
+    assert.equal(
+      isAgentBrief([
+        "Current behavior: nothing happens.",
+        "Acceptance criteria: retries three times.",
+        "Out of scope: backoff.",
+      ].join("\n\n")),
+      false,
+    );
+    assert.equal(
+      isAgentBrief([
+        "Current behavior: nothing happens.",
+        "Desired behavior: it should retry.",
+        "Out of scope: backoff.",
+      ].join("\n\n")),
+      false,
+    );
+    assert.equal(
+      isAgentBrief([
+        "Current behavior: nothing happens.",
+        "Desired behavior: it should retry.",
+        "Acceptance criteria: retries three times.",
+      ].join("\n\n")),
+      false,
+    );
+  });
+
+  it("rejects plain prose with none of the sections", () => {
+    assert.equal(isAgentBrief("Worth adding a retry with backoff."), false);
   });
 });
 
