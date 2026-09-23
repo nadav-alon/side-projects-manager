@@ -29,7 +29,7 @@ import {
   type SpecReviewSweepOutcome,
   type SpecReviewSweepPorts,
 } from "./spec-review-sweep.ts";
-import type { StateSession } from "./state-session.ts";
+import type { InvocationState } from "./invocation-state.ts";
 
 /** The project an iteration works, and the ticket it works there. */
 export interface Selection {
@@ -186,7 +186,7 @@ export interface InvocationSelection {
 export function invocationSelection(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
-  worked: Pick<StateSession, "passesOver">,
+  worked: Pick<InvocationState, "passesOver">,
 ): InvocationSelection {
   // Registry order falls out of insertion order for free: a `Map` iterates
   // in the order its keys were first set, and a repo is always set here the
@@ -267,7 +267,7 @@ interface ScanFindings {
 async function scan(
   ports: SelectionPorts,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
-  worked: Pick<StateSession, "passesOver">,
+  worked: Pick<InvocationState, "passesOver">,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
   sweepOutcomes: ConflictSweepOutcome[],
   specReviewSweepOutcomes: SpecReviewSweepOutcome[],

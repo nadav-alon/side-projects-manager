@@ -6,7 +6,7 @@ import {
   type InvocationSelection,
   type Selection,
 } from "./selection.ts";
-import { stateSession, type StateSession } from "./state-session.ts";
+import { invocationState, type InvocationState } from "./invocation-state.ts";
 import {
   issueNumber,
   localDay,
@@ -45,9 +45,9 @@ async function open(
     today?: Day;
     repoHost?: FakeRepoHost;
   } = {},
-): Promise<{ selection: InvocationSelection; worked: StateSession }> {
+): Promise<{ selection: InvocationSelection; worked: InvocationState }> {
   const state = await store.loadState();
-  const worked = stateSession({ store }, state, today);
+  const worked = invocationState({ store }, state, today);
   return {
     selection: invocationSelection(
       { tracker, store, repoHost },
@@ -65,7 +65,7 @@ async function open(
  */
 async function drain(
   selection: InvocationSelection,
-  worked: StateSession,
+  worked: InvocationState,
   today: Day = TODAY,
 ): Promise<Selection[]> {
   const selections: Selection[] = [];

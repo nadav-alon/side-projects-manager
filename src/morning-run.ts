@@ -71,12 +71,12 @@ import {
 } from "./selection.ts";
 import { salvageRecords, type Salvages } from "./salvages.ts";
 import {
-  stateSession,
-  stateSessionRest,
+  invocationState,
+  invocationStateRest,
   type CurrentInvocation,
   type FreedWorkedTicket,
-  type StateSession,
-} from "./state-session.ts";
+  type InvocationState,
+} from "./invocation-state.ts";
 import {
   appliedReviewComment,
   pullRequestResolvedComment,
@@ -294,24 +294,24 @@ export async function morningLoop(
   try {
     const stored = await ports.store.loadState();
     announcedOn = stored.announcedOn;
-    const session = stateSession(
+    const state = invocationState(
       { store: ports.store },
       stored,
       today,
       await currentInvocation(ports, invocation),
     );
-    freedTickets = session.freed();
+    freedTickets = state.freed();
     const salvages = salvageRecords(stored.salvages);
-    saveState = () => session.save(stateSessionRest(announcedOn, salvages.record()));
+    saveState = () => state.save(invocationStateRest(announcedOn, salvages.record()));
     const modelDefaults = await ports.store.loadModelDefaults();
     // Built once and kept for the whole invocation, not once per iteration:
     // it is what remembers a project's "selected" verdict across scans and
     // where each registered project first landed in registry order.
-    const selecting = invocationSelection(ports, session.projectStates(), session);
-    // Built once too, over the session's own live view of recorded runs: a
+    const selecting = invocationSelection(ports, state.projectStates(), state);
+    // Built once too, over the invocation's own live view of recorded runs: a
     // run recorded between two consultations is exactly what the next one
     // counts.
-    const gate = invocationBudgetGate(ports, session.projectStates());
+    const gate = invocationBudgetGate(ports, state.projectStates());
     // Keyed by each iteration's own completion, so the tickets an in-progress
     // consultation names are exactly the ones still running when it asks —
     // never the one it is asking on behalf of, which is passed separately.
@@ -381,7 +381,7 @@ export async function morningLoop(
               chosen.project.repo,
               ticket,
               unusableLabel,
-              session,
+              state,
             ),
           );
           continue;
@@ -411,13 +411,13 @@ export async function morningLoop(
         // killed mid-run never reaches the final save, and would otherwise
         // free the ticket for the next firing the same day. Recorded, too, is
         // what keeps a ticket in progress from being selected again.
-        await session.ticketSelected(
+        await state.ticketSelected(
           ticket,
           localDay(ports.clock.now()),
-          stateSessionRest(announcedOn, salvages.record()),
+          invocationStateRest(announcedOn, salvages.record()),
         );
         if (stopped()) {
-          session.unrecordWorked(ticket);
+          state.unrecordWorked(ticket);
           break;
         }
 
@@ -428,7 +428,7 @@ export async function morningLoop(
         const completion: Promise<void> = work(
           ports,
           chosen,
-          session,
+          state,
           spendCeilingForTicket(ticket, budget),
           model,
           salvages,
@@ -453,7 +453,7 @@ export async function morningLoop(
               // record has nothing left to protect, and a developer who
               // re-applies ready-for-agent the same day gets a later firing
               // rather than silence.
-              session.iterationEnded(ticket, iteration);
+              state.iterationEnded(ticket, iteration);
 
               // A cut-off run — a limit refusal or a provider failure,
               // direct or carried by a discovery-blocked iteration whose run
@@ -630,12 +630,12 @@ async function handBackAheadOfGate(
   repo: RepoSlug,
   ticket: Ticket,
   ending: AheadOfGateFailure,
-  session: Pick<StateSession, "recordWorked" | "iterationEnded">,
+  invocation: Pick<InvocationState, "recordWorked" | "iterationEnded">,
 ): Promise<IterationOutcome> {
-  session.recordWorked(ticket, localDay(ports.clock.now()));
+  invocation.recordWorked(ticket, localDay(ports.clock.now()));
   const handedBack = await handBack(ports, ticket, ending);
   const iteration: Failed = { kind: "failed", failure: ending, handedBack };
-  session.iterationEnded(ticket, iteration);
+  invocation.iterationEnded(ticket, iteration);
   return { repo, ticket, ...iteration };
 }
 
@@ -689,7 +689,7 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
 async function work(
   ports: MorningLoopPorts,
   selection: Selection,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvages: Salvages,
@@ -699,7 +699,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      session,
+      invocation,
       spendCeiling,
       model,
     );
@@ -709,7 +709,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      session,
+      invocation,
       spendCeiling,
       model,
     );
@@ -719,7 +719,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      session,
+      invocation,
       spendCeiling,
       model,
       selection.project.turbo,
@@ -730,7 +730,7 @@ async function work(
       ports,
       selection.project.repo,
       selection.ticket,
-      session,
+      invocation,
       spendCeiling,
       model,
     );
@@ -739,7 +739,7 @@ async function work(
   const returned = await attemptRun(
     ports,
     selection,
-    session,
+    invocation,
     spendCeiling,
     model,
     salvages.get(selection.ticket)?.branch,
@@ -1272,7 +1272,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   repo: RepoSlug,
   ticket: Ticket,
   spendCeiling: Usd,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   sandboxCall: (checkout: Checkout) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
@@ -1319,7 +1319,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     tokensUsed: outcome.tokensUsed,
   });
 
-  session.recordRunCost(repo, {
+  invocation.recordRunCost(repo, {
     at: ports.clock.now(),
     tokensUsed: outcome.tokensUsed,
   });
@@ -1347,7 +1347,7 @@ function infrastructureFailure(error: unknown): Failed {
 async function attemptRun(
   ports: MorningLoopPorts,
   selection: Selection,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvageBranch: Branch | undefined,
@@ -1355,7 +1355,7 @@ async function attemptRun(
   const { ticket } = selection;
   const repo = selection.project.repo;
 
-  return runInSandbox(ports, repo, ticket, spendCeiling, session, (checkout) =>
+  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1496,7 +1496,7 @@ async function runReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ReviewTicket,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   turbo: boolean,
@@ -1517,7 +1517,7 @@ async function runReview(
   }
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, session, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
@@ -1676,13 +1676,13 @@ async function runSpecReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: SpecReviewTicket,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
   SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
 > {
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, session, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
     model === undefined
@@ -1772,7 +1772,7 @@ async function runApplyReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ApplyReviewTicket,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -1807,7 +1807,7 @@ async function runApplyReview(
     return finishApplyReview(ports, ticket, { kind: "applied-review" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, session, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
@@ -1992,7 +1992,7 @@ async function runRebase(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: RebaseTicket,
-  session: Pick<StateSession, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -2029,7 +2029,7 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, session, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined

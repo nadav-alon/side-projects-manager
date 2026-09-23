@@ -27,12 +27,13 @@ import {
 
 /**
  * The invocation running now, and the journal as it stood when it started:
- * what a state session needs to tell a worked-today entry recorded by a dead
- * in-flight invocation apart from one still protected. `self` is used to
- * stamp every entry this invocation records, whether or not `journal` is
+ * what an invocation's state needs to tell a worked-today entry recorded by
+ * a dead in-flight invocation apart from one still protected. `self` is used
+ * to stamp every entry this invocation records, whether or not `journal` is
  * available to free anything with. Absent entirely when the caller has no
- * lease and no journal identity at all — as in a test that builds a session
- * directly — in which case nothing is freed and nothing is stamped either.
+ * lease and no journal identity at all — as in a test that builds an
+ * `InvocationState` directly — in which case nothing is freed and nothing is
+ * stamped either.
  */
 export interface CurrentInvocation {
   self: OpenInvocation;
@@ -47,29 +48,29 @@ export interface FreedWorkedTicket {
   invocation: OpenInvocation;
 }
 
-/** The one port a state session needs: writing the whole state document back. */
-export interface StateSessionPorts {
+/** The one port an invocation's state needs: writing the whole state document back. */
+export interface InvocationStatePorts {
   store: Pick<Store, "saveState">;
 }
 
 /**
  * What a save is to fold into the state document besides the bookkeeping the
- * session itself owns: the salvage record, whose rules belong to
+ * invocation's state itself owns: the salvage record, whose rules belong to
  * `salvages.ts`, and the day a summary was announced on, once the
  * invocation's own publish has succeeded. Absent fields are left out of the
  * document exactly as `State`'s own optional fields are.
  */
-export type StateSessionRest = Pick<State, "announcedOn" | "salvages">;
+export type InvocationStateRest = Pick<State, "announcedOn" | "salvages">;
 
 /**
- * `StateSessionRest` built from loose optional values, left out of the
+ * `InvocationStateRest` built from loose optional values, left out of the
  * document rather than carried as an explicit `undefined` — the shape every
  * other optional field on `State` is built in.
  */
-export function stateSessionRest(
+export function invocationStateRest(
   announcedOn: Day | undefined,
   salvages: State["salvages"],
-): StateSessionRest {
+): InvocationStateRest {
   return {
     ...(announcedOn !== undefined && { announcedOn }),
     ...(salvages !== undefined && { salvages }),
@@ -87,7 +88,7 @@ export function stateSessionRest(
  * worked-today record and the project map it owns are read live by both, so
  * a change either makes between two calls is exactly what the next one sees.
  */
-export interface StateSession {
+export interface InvocationState {
   /** Whether selection passes `ticket` over for the rest of this invocation. */
   passesOver(ticket: WorkedTicket): boolean;
 
@@ -101,7 +102,7 @@ export interface StateSession {
   ticketSelected(
     ticket: WorkedTicket,
     day: Day,
-    rest?: StateSessionRest,
+    rest?: InvocationStateRest,
   ): Promise<void>;
 
   /**
@@ -138,11 +139,11 @@ export interface StateSession {
   freed(): FreedWorkedTicket[];
 
   /** Saves the whole state document once, `rest` folded in as `ticketSelected` does. */
-  save(rest?: StateSessionRest): Promise<void>;
+  save(rest?: InvocationStateRest): Promise<void>;
 }
 
 /**
- * Builds one invocation's state session, starting from `stored` — the state
+ * Builds one invocation's state, starting from `stored` — the state
  * document as the invocation found it — and `today`, the local calendar day
  * it opened on. A worked-today record for any day but `today` says nothing
  * about today, so it reads as nothing worked yet: CONTEXT.md's "Worked
@@ -155,12 +156,12 @@ export interface StateSession {
  * invocation is missing from the journal, or one recorded by this same
  * invocation.
  */
-export function stateSession(
-  ports: StateSessionPorts,
+export function invocationState(
+  ports: InvocationStatePorts,
   stored: State,
   today: Day,
   current?: CurrentInvocation,
-): StateSession {
+): InvocationState {
   const projects = new Map(stored.projects);
   const storedToday =
     stored.workedToday?.day === today ? stored.workedToday : undefined;
@@ -182,7 +183,7 @@ export function stateSession(
       record = unrecordWorked(record, ticket);
     }
   };
-  const buildState = (rest: StateSessionRest): State => ({
+  const buildState = (rest: InvocationStateRest): State => ({
     projects,
     ...(record !== undefined && { workedToday: record }),
     ...(rest.announcedOn !== undefined && { announcedOn: rest.announcedOn }),

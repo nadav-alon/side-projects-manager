@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { stateSession, stateSessionRest } from "./state-session.ts";
+import { invocationState, invocationStateRest } from "./invocation-state.ts";
 import type { Iteration } from "./iteration-outcome.ts";
 import {
   branch,
@@ -69,40 +69,40 @@ class FlakyStore {
   }
 }
 
-describe("stateSession", () => {
+describe("invocationState", () => {
   describe("passesOver", () => {
     it("passes over a ticket the state document already recorded today", async () => {
       const store = new FakeStore();
       store.markWorkedOn(TODAY, TICKET_7);
-      const session = stateSession({ store }, await store.loadState(), TODAY);
+      const invocation = invocationState({ store }, await store.loadState(), TODAY);
 
-      assert.equal(session.passesOver(TICKET_7), true);
+      assert.equal(invocation.passesOver(TICKET_7), true);
     });
 
     it("reads a record for any other day as nothing worked yet", async () => {
       const store = new FakeStore();
       store.markWorkedOn(YESTERDAY, TICKET_7);
-      const session = stateSession({ store }, await store.loadState(), TODAY);
+      const invocation = invocationState({ store }, await store.loadState(), TODAY);
 
-      assert.equal(session.passesOver(TICKET_7), false);
+      assert.equal(invocation.passesOver(TICKET_7), false);
     });
 
     it("keeps passing a ticket over for the rest of the invocation once it is taken back off the record", () => {
-      const session = stateSession({ store: new FakeStore() }, EMPTY_STATE, TODAY);
+      const invocation = invocationState({ store: new FakeStore() }, EMPTY_STATE, TODAY);
 
-      session.recordWorked(TICKET_7, TODAY);
-      session.unrecordWorked(TICKET_7);
+      invocation.recordWorked(TICKET_7, TODAY);
+      invocation.unrecordWorked(TICKET_7);
 
-      assert.equal(session.passesOver(TICKET_7), true);
+      assert.equal(invocation.passesOver(TICKET_7), true);
     });
   });
 
   describe("ticketSelected", () => {
     it("saves the record before it resolves, so a ticket counts as worked before the sandbox starts", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, await store.loadState(), TODAY);
+      const invocation = invocationState({ store }, await store.loadState(), TODAY);
 
-      await session.ticketSelected(TICKET_7, TODAY);
+      await invocation.ticketSelected(TICKET_7, TODAY);
 
       assert.deepEqual((await store.loadState()).workedToday, {
         day: TODAY,
@@ -112,16 +112,16 @@ describe("stateSession", () => {
 
     it("takes the ticket back off the record when the save itself fails, and still lets the failure reach the caller", async () => {
       const store = new FlakyStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
       store.fails = true;
 
       await assert.rejects(
-        session.ticketSelected(TICKET_7, TODAY),
+        invocation.ticketSelected(TICKET_7, TODAY),
         /disk full/,
       );
 
       store.fails = false;
-      await session.save();
+      await invocation.save();
 
       assert.deepEqual(store.saved.at(-1)?.workedToday?.tickets, []);
     });
@@ -129,12 +129,12 @@ describe("stateSession", () => {
 
   describe("recordRunCost and projectStates", () => {
     it("records a finished run's cost against its project, read live by the budget gate's own view", () => {
-      const session = stateSession({ store: new FakeStore() }, EMPTY_STATE, TODAY);
+      const invocation = invocationState({ store: new FakeStore() }, EMPTY_STATE, TODAY);
       const at = new Date("2026-01-01T09:00:00.000Z");
 
-      session.recordRunCost(PILOT, { at, tokensUsed: tokenCount(120_000) });
+      invocation.recordRunCost(PILOT, { at, tokensUsed: tokenCount(120_000) });
 
-      assert.deepEqual(session.projectStates().get(PILOT), {
+      assert.deepEqual(invocation.projectStates().get(PILOT), {
         lastWorkedAt: at,
         runs: [{ at, tokensUsed: tokenCount(120_000) }],
       });
@@ -147,20 +147,20 @@ describe("stateSession", () => {
         tokensUsed: tokenCount(50_000),
       });
       const stored = await store.loadState();
-      const session = stateSession({ store }, stored, TODAY);
+      const invocation = invocationState({ store }, stored, TODAY);
       const at = new Date("2026-01-01T09:00:00.000Z");
 
-      session.recordRunCost(PILOT, { at, tokensUsed: tokenCount(70_000) });
+      invocation.recordRunCost(PILOT, { at, tokensUsed: tokenCount(70_000) });
 
-      assert.equal(session.projectStates().get(PILOT)?.runs.length, 2);
+      assert.equal(invocation.projectStates().get(PILOT)?.runs.length, 2);
     });
   });
 
   describe("iterationEnded", () => {
     it("frees a ticket a cut-off run says nothing about", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
-      session.recordWorked(TICKET_7, TODAY);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
+      invocation.recordWorked(TICKET_7, TODAY);
       const iteration: Iteration = {
         kind: "provider-failed",
         providerFailure: "the provider is down",
@@ -168,24 +168,24 @@ describe("stateSession", () => {
         discard: { kind: "none" },
       };
 
-      session.iterationEnded(TICKET_7, iteration);
-      await session.save();
+      invocation.iterationEnded(TICKET_7, iteration);
+      await invocation.save();
 
       assert.deepEqual((await store.loadState()).workedToday?.tickets, []);
     });
 
     it("leaves a pull request ticket recorded when its own close failed", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
-      await session.ticketSelected(TICKET_7, TODAY);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
+      await invocation.ticketSelected(TICKET_7, TODAY);
       const iteration: Iteration = {
         kind: "pull-request-resolved",
         resolution: "merged",
         notClosed: { kind: "close-failed", error: "the tracker refused" },
       };
 
-      session.iterationEnded(TICKET_7, iteration);
-      await session.save();
+      invocation.iterationEnded(TICKET_7, iteration);
+      await invocation.save();
 
       assert.deepEqual((await store.loadState()).workedToday, {
         day: TODAY,
@@ -195,15 +195,15 @@ describe("stateSession", () => {
 
     it("frees a pull request ticket once it closed cleanly", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
-      await session.ticketSelected(TICKET_7, TODAY);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
+      await invocation.ticketSelected(TICKET_7, TODAY);
       const iteration: Iteration = {
         kind: "pull-request-resolved",
         resolution: "merged",
       };
 
-      session.iterationEnded(TICKET_7, iteration);
-      await session.save();
+      invocation.iterationEnded(TICKET_7, iteration);
+      await invocation.save();
 
       assert.deepEqual((await store.loadState()).workedToday?.tickets, []);
     });
@@ -212,15 +212,15 @@ describe("stateSession", () => {
   describe("save", () => {
     it("folds announcedOn and the salvage record in, alongside its own bookkeeping", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
-      session.recordWorked(TICKET_7, TODAY);
-      session.recordRunCost(PILOT, {
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
+      invocation.recordWorked(TICKET_7, TODAY);
+      invocation.recordRunCost(PILOT, {
         at: new Date("2026-01-01T09:00:00.000Z"),
         tokensUsed: tokenCount(10_000),
       });
       const salvage = [{ ...TICKET_8, branch: branch("issue-8-salvaged"), stopShorts: 1 }];
 
-      await session.save(stateSessionRest(TODAY, salvage));
+      await invocation.save(invocationStateRest(TODAY, salvage));
 
       const saved = await store.loadState();
       assert.deepEqual(saved.workedToday, { day: TODAY, tickets: [TICKET_7] });
@@ -231,9 +231,9 @@ describe("stateSession", () => {
 
     it("leaves announcedOn and salvages out of the document when rest names none", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
 
-      await session.save();
+      await invocation.save();
 
       const saved = await store.loadState();
       assert.equal(saved.announcedOn, undefined);
@@ -242,28 +242,28 @@ describe("stateSession", () => {
 
     it("keeps two interleaved iterations' records and run costs, both surviving the final save", async () => {
       const store = new FakeStore();
-      const session = stateSession({ store }, EMPTY_STATE, TODAY);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY);
 
       // Two iterations "in progress" at once, per the concurrency limit:
       // both are selected before either ends.
-      await session.ticketSelected(TICKET_7, TODAY);
-      await session.ticketSelected(TICKET_8, TODAY);
+      await invocation.ticketSelected(TICKET_7, TODAY);
+      await invocation.ticketSelected(TICKET_8, TODAY);
       // The first iteration ends and records its run's cost; the second is
       // still going when the invocation's own final save happens.
-      session.recordRunCost(PILOT, {
+      invocation.recordRunCost(PILOT, {
         at: new Date("2026-01-01T09:00:00.000Z"),
         tokensUsed: tokenCount(200_000),
       });
-      session.iterationEnded(TICKET_7, {
+      invocation.iterationEnded(TICKET_7, {
         kind: "pull-request-resolved",
         resolution: "merged",
       });
-      session.recordRunCost(MANAGER, {
+      invocation.recordRunCost(MANAGER, {
         at: new Date("2026-01-01T09:05:00.000Z"),
         tokensUsed: tokenCount(300_000),
       });
 
-      await session.save();
+      await invocation.save();
 
       const saved = await store.loadState();
       assert.deepEqual(saved.workedToday, { day: TODAY, tickets: [TICKET_8] });
@@ -276,13 +276,13 @@ describe("stateSession", () => {
     it("frees a ticket recorded by an invocation still in flight when this one acquires the lease", () => {
       const journal = journalOf([{ ...DEAD }, { ...SELF }]);
 
-      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
+      const state = invocationState({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
         self: SELF,
         journal,
       });
 
-      assert.equal(session.passesOver(TICKET_7), false);
-      assert.deepEqual(session.freed(), [
+      assert.equal(state.passesOver(TICKET_7), false);
+      assert.deepEqual(state.freed(), [
         { ticket: { ...TICKET_7, recordedBy: DEAD }, invocation: DEAD },
       ]);
     });
@@ -291,11 +291,11 @@ describe("stateSession", () => {
       const store = new FakeStore();
       const journal = journalOf([{ ...DEAD }, { ...SELF }]);
 
-      const session = stateSession({ store }, storedWith(DEAD), TODAY, {
+      const state = invocationState({ store }, storedWith(DEAD), TODAY, {
         self: SELF,
         journal,
       });
-      await session.save();
+      await state.save();
 
       assert.deepEqual((await store.loadState()).workedToday, { day: TODAY, tickets: [] });
     });
@@ -311,64 +311,64 @@ describe("stateSession", () => {
         { ...SELF },
       ]);
 
-      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
+      const state = invocationState({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
         self: SELF,
         journal,
       });
 
-      assert.equal(session.passesOver(TICKET_7), true);
-      assert.deepEqual(session.freed(), []);
+      assert.equal(state.passesOver(TICKET_7), true);
+      assert.deepEqual(state.freed(), []);
     });
 
     it("does not free a ticket recorded by the current invocation itself", () => {
       const journal = journalOf([{ ...SELF }]);
 
-      const session = stateSession({ store: new FakeStore() }, storedWith(SELF), TODAY, {
+      const state = invocationState({ store: new FakeStore() }, storedWith(SELF), TODAY, {
         self: SELF,
         journal,
       });
 
-      assert.equal(session.passesOver(TICKET_7), true);
-      assert.deepEqual(session.freed(), []);
+      assert.equal(state.passesOver(TICKET_7), true);
+      assert.deepEqual(state.freed(), []);
     });
 
     it("does not free a ticket whose invocation record is missing from the journal", () => {
       const journal = journalOf([{ ...SELF }]);
 
-      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
+      const state = invocationState({ store: new FakeStore() }, storedWith(DEAD), TODAY, {
         self: SELF,
         journal,
       });
 
-      assert.equal(session.passesOver(TICKET_7), true);
-      assert.deepEqual(session.freed(), []);
+      assert.equal(state.passesOver(TICKET_7), true);
+      assert.deepEqual(state.freed(), []);
     });
 
     it("reads a worked-today entry that names no invocation as today, not freed", () => {
       const journal = journalOf([{ ...SELF }]);
 
-      const session = stateSession({ store: new FakeStore() }, storedWith(undefined), TODAY, {
+      const state = invocationState({ store: new FakeStore() }, storedWith(undefined), TODAY, {
         self: SELF,
         journal,
       });
 
-      assert.equal(session.passesOver(TICKET_7), true);
-      assert.deepEqual(session.freed(), []);
+      assert.equal(state.passesOver(TICKET_7), true);
+      assert.deepEqual(state.freed(), []);
     });
 
     it("frees nothing when no current invocation identity is given", () => {
-      const session = stateSession({ store: new FakeStore() }, storedWith(DEAD), TODAY);
+      const state = invocationState({ store: new FakeStore() }, storedWith(DEAD), TODAY);
 
-      assert.equal(session.passesOver(TICKET_7), true);
-      assert.deepEqual(session.freed(), []);
+      assert.equal(state.passesOver(TICKET_7), true);
+      assert.deepEqual(state.freed(), []);
     });
 
     it("stamps a newly selected ticket with the current invocation's own identity", async () => {
       const store = new FakeStore();
       const journal = journalOf([{ ...SELF }]);
 
-      const session = stateSession({ store }, EMPTY_STATE, TODAY, { self: SELF, journal });
-      await session.ticketSelected(TICKET_8, TODAY);
+      const state = invocationState({ store }, EMPTY_STATE, TODAY, { self: SELF, journal });
+      await state.ticketSelected(TICKET_8, TODAY);
 
       assert.deepEqual((await store.loadState()).workedToday, {
         day: TODAY,
@@ -379,11 +379,11 @@ describe("stateSession", () => {
     it("frees nothing, but still stamps a newly selected ticket, when the journal could not be read", async () => {
       const store = new FakeStore();
 
-      const session = stateSession({ store }, storedWith(DEAD), TODAY, { self: SELF });
-      await session.ticketSelected(TICKET_8, TODAY);
+      const state = invocationState({ store }, storedWith(DEAD), TODAY, { self: SELF });
+      await state.ticketSelected(TICKET_8, TODAY);
 
-      assert.equal(session.passesOver(TICKET_7), true);
-      assert.deepEqual(session.freed(), []);
+      assert.equal(state.passesOver(TICKET_7), true);
+      assert.deepEqual(state.freed(), []);
       assert.deepEqual((await store.loadState()).workedToday, {
         day: TODAY,
         tickets: [
