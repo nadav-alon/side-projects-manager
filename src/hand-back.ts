@@ -30,6 +30,7 @@ import {
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
   SIZES,
+  targetNoun,
   ticketKind,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
@@ -178,9 +179,10 @@ export type HandBackEnding =
       discoveries: Discovery[];
       /**
        * The ticket those discoveries were routed against, present only when
-       * it differs from the ticket being handed back — a pull request
-       * ticket's run, whose discoveries land on its implementation ticket
-       * instead of the ticket handed back here.
+       * it differs from the ticket being handed back — a pull request or a
+       * spec review ticket's run, whose discoveries land on its
+       * implementation ticket or supertask instead of the ticket handed
+       * back here.
        */
       target?: Ticket;
       /**
@@ -189,6 +191,12 @@ export type HandBackEnding =
        * discard.
        */
       worked?: WorkedBranch;
+      /**
+       * The spec review run's own report, present only for a spec review
+       * ticket: it has nowhere else to post its findings, so the discovery
+       * that blocked it would otherwise throw the rest of the report away.
+       */
+      output?: string;
       transcript?: TranscriptPath;
     };
 
@@ -301,7 +309,7 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
     case "spec-review-finished":
       return specReviewFindingsComment(ending);
     case "discovery-blocked":
-      return discoveryBlockedComment(ending, discard);
+      return discoveryBlockedComment(ticket, ending, discard);
   }
 }
 
@@ -490,12 +498,16 @@ function specReviewFindingsComment(ending: {
  * What a ticket is told when its run filed a blocking discovery: a
  * correction or a prerequisite, in the agent's own words — never described as
  * a run that gave up, even when the same run also did. `target`, present only
- * for a pull request ticket, names the implementation ticket the discoveries
- * were separately filed against; inlined here regardless, so the ticket being
- * handed back carries the whole of what was found even if that other write
- * was itself refused.
+ * for a pull request or a spec review ticket, names the implementation ticket
+ * or the supertask the discoveries were separately filed against; inlined
+ * here regardless, so the ticket being handed back carries the whole of what
+ * was found even if that other write was itself refused. `output`, present
+ * only for a spec review ticket, is its run's own report, inlined for the
+ * same reason: a spec review has nowhere else to post it, so the discovery
+ * that blocked it would otherwise throw the rest of the report away.
  */
 function discoveryBlockedComment(
+  ticket: Ticket,
   ending: Extract<HandBackEnding, { kind: "discovery-blocked" }>,
   discard: Discard,
 ): string {
@@ -507,7 +519,13 @@ function discoveryBlockedComment(
     findings,
     ...(ending.target === undefined
       ? []
-      : [`Also filed against the implementation ticket, #${ending.target.number}.`]),
+      : [`Also filed against the ${targetNoun(ticket)}, #${ending.target.number}.`]),
+    ...(ending.output === undefined
+      ? []
+      : [
+          `The rest of what the review found:\n\n${quote(ending.output)}`,
+          ...truncationNote(ending.output, ending.transcript),
+        ]),
     ...branchNote(ending.worked?.run.branch, discard),
     notRetried(),
     ...transcriptNote(ending.transcript),

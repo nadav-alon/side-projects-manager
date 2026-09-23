@@ -1359,12 +1359,16 @@ function discoveryBlockedCutOff(run: {
  * by the provider mid-run — the correction or prerequisite is no less true
  * for the provider having run out. `worked` names the branch an
  * implementation run left, so its own hand-back discards it; a review,
- * apply-review or rebase ticket's own run never creates one, so `worked` is
- * left out. `routed.crossTarget` is named on the hand-back only when it is
- * set — a pull request ticket's run, whose discoveries land on its
- * implementation ticket rather than the ticket handed back here. `cutOff` is
- * set only when the run that filed the discovery was also cut off, so the
- * iteration still carries what stands the invocation down.
+ * apply-review, rebase or spec review ticket's own run never creates one, so
+ * `worked` is left out. `routed.crossTarget` is named on the hand-back only
+ * when it is set — a pull request or a spec review ticket's run, whose
+ * discoveries land on its implementation ticket or supertask rather than the
+ * ticket handed back here. `cutOff` is set only when the run that filed the
+ * discovery was also cut off, so the iteration still carries what stands the
+ * invocation down. `output`, present only for a spec review ticket's own run,
+ * is inlined on the hand-back too: a spec review has nowhere else to post its
+ * report, so the discovery that blocked it would otherwise throw the rest of
+ * the report away.
  */
 async function discoveryBlockedOutcome(
   ports: MorningLoopPorts,
@@ -1374,6 +1378,7 @@ async function discoveryBlockedOutcome(
   transcript: TranscriptPath | undefined,
   worked?: WorkedBranch,
   cutOff?: DiscoveryBlockedCutOff,
+  output?: string,
 ): Promise<DiscoveryBlocked> {
   const { crossTarget: target } = routed;
   const handedBack = await handBack(ports, ticket, {
@@ -1381,6 +1386,7 @@ async function discoveryBlockedOutcome(
     discoveries: blockingDiscoveriesOf(routed.discoveries),
     ...(target !== undefined && { target }),
     ...(worked !== undefined && { worked }),
+    ...(output !== undefined && { output }),
     ...transcriptField(transcript),
   });
   return {
@@ -1400,12 +1406,13 @@ async function discoveryBlockedOutcome(
  * gave-up, otherwise-successful and cut-off paths alike, each of which
  * replaces its ending with a blocking discovery's hand-back the same way, per
  * CONTEXT.md's "Discovery" and "Hand back". `worked` names the branch an
- * implementation run left — a review, apply-review or rebase run never
- * creates one, so its own calls leave it out — and, when given, is also the
- * salvage record a block retires: discarded and cleared exactly as any other
- * ending that leaves nothing to resume does, per CONTEXT.md's "Salvage".
+ * implementation run left — a review, apply-review, rebase or spec review run
+ * never creates one, so its own calls leave it out — and, when given, is also
+ * the salvage record a block retires: discarded and cleared exactly as any
+ * other ending that leaves nothing to resume does, per CONTEXT.md's "Salvage".
  * `cutOff` is set only on a cut-off run's own call, so a block still carries
- * what stands the invocation down.
+ * what stands the invocation down. `output`, passed only by a spec review
+ * run, is its own report — see `discoveryBlockedOutcome`.
  */
 async function routeOrBlock(
   ports: MorningLoopPorts,
@@ -1419,6 +1426,7 @@ async function routeOrBlock(
   options?: {
     worked?: WorkedBranch & { salvages: Salvages };
     cutOff?: DiscoveryBlockedCutOff;
+    output?: string;
   },
 ): Promise<{ routed: RoutedDiscoveries | undefined } | { blocked: DiscoveryBlocked }> {
   const routed = await routeRunDiscoveries(
@@ -1441,6 +1449,7 @@ async function routeOrBlock(
         outcome.transcript,
         worked !== undefined ? { checkout: worked.checkout, run: worked.run } : undefined,
         options?.cutOff,
+        options?.output,
       ),
     };
   }
@@ -1920,7 +1929,12 @@ async function handReviewBack(
  *
  * Unlike `runReview`, there is no pull request to check already resolved, and
  * no posted-findings check to make: the run's own output is the whole of its
- * findings, whatever it is.
+ * findings, whatever it is. Its discoveries are routed exactly as a review's
+ * are, per CONTEXT.md's "Discovery" — against the supertask this ticket
+ * reviews rather than against the ticket itself — and a correction or a
+ * prerequisite among them hands the ticket back discovery-blocked rather
+ * than as a finished spec review, the same way a blocking discovery replaces
+ * a review's own success.
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket
@@ -1933,7 +1947,9 @@ async function runSpecReview(
   state: Map<RepoSlug, ProjectState>,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed> {
+): Promise<
+  SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
+> {
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, state, (checkout) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
@@ -1947,7 +1963,15 @@ async function runSpecReview(
   const { outcome: review } = result;
 
   if (review.kind === "limit-refused" || review.kind === "provider-failed") {
-    return cutOffReviewOutcome(review);
+    return withDiscoveries(
+      cutOffReviewOutcome(review),
+      await routeRunDiscoveries(
+        ports.tracker,
+        ticket,
+        review.discoveries,
+        review.discoveriesDropped,
+      ),
+    );
   }
   if (review.kind === "budget-exhausted") {
     return budgetExhaustedReviewOutcome(review);
@@ -1957,8 +1981,20 @@ async function runSpecReview(
   if (review.kind === "model-refused") {
     return handModelRefusedBack(ports, ticket, review.refusal, review.tokensUsed, review.transcript);
   }
+
+  // Routed before either of the run's own endings is decided: a blocking
+  // discovery replaces both the gave-up and the finished path below, per
+  // CONTEXT.md's "Discovery" and "Hand back". `review.output` is passed
+  // through so a blocking discovery does not throw the rest of the report
+  // away: a spec review has nowhere else to post it.
+  const routing = await routeOrBlock(ports, ticket, review, { output: review.output });
+  if ("blocked" in routing) {
+    return routing.blocked;
+  }
+  const { routed } = routing;
+
   if (review.kind === "gave-up") {
-    return handReviewBack(ports, ticket, review, review.reason);
+    return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
   }
 
   const handedBack = await handBack(ports, ticket, {
@@ -1966,7 +2002,13 @@ async function runSpecReview(
     output: review.output,
     ...transcriptField(review.transcript),
   });
-  return { kind: "spec-reviewed", review, tokensUsed: review.tokensUsed, handedBack };
+  const specReviewed: SpecReviewed = {
+    kind: "spec-reviewed",
+    review,
+    tokensUsed: review.tokensUsed,
+    handedBack,
+  };
+  return withDiscoveries(specReviewed, routed);
 }
 
 /**

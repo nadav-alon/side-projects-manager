@@ -264,4 +264,43 @@ describe("routeRunDiscoveries", () => {
     assert.equal(routed?.routing.refused.length, 1);
     assert.match(routed?.routing.refused[0]?.reason ?? "", /could not find the implementation ticket/);
   });
+
+  it("routes a spec review run's discoveries against the supertask it belongs to, naming it as crossTarget", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(66),
+      title: "Too big for one run",
+    });
+    const specReview = await tracker.createSpecReviewTicket(supertask, "Review it.");
+
+    const routed = await routeRunDiscoveries(tracker, specReview, [
+      discovery({ kind: "prerequisite" }),
+    ]);
+
+    assert.equal(routed?.target.number, supertask.number);
+    assert.equal(routed?.crossTarget?.number, supertask.number);
+    assert.equal(tracker.discoveredTickets[0]?.discoveredWhile.number, supertask.number);
+  });
+
+  it("refuses every discovery when a spec review ticket's supertask cannot be found", async () => {
+    const tracker = new FakeIssueTracker();
+    // A spec review ticket built by hand, with no `parent` recorded — the
+    // shape a truncated backlog would leave `listOpenIssues` reporting. Read
+    // back through `listOpenIssues`, the way selection does, so it carries
+    // `specReview: true` — `addSpecReviewTicket` hands back the raw stored
+    // ticket, before that is folded in from its label.
+    tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(52),
+      title: "Review the loop spec",
+    });
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const specReview = issues.find((issue) => issue.ticket.number === issueNumber(52))?.ticket;
+    assert.ok(specReview !== undefined);
+
+    const routed = await routeRunDiscoveries(tracker, specReview, [discovery()]);
+
+    assert.equal(routed?.routing.filed.length, 0);
+    assert.equal(routed?.routing.refused.length, 1);
+    assert.match(routed?.routing.refused[0]?.reason ?? "", /could not find the supertask/);
+  });
 });

@@ -1412,10 +1412,11 @@ const DISCOVERY_INSTRUCTIONS = [
  *
  * Unlike `reviewPromptFor`, there is no pull request to post findings to:
  * the run reports instead, and its own output is what the caller hands back
- * as the ticket's comment — see `Sandbox.specReview`. It is also told
- * explicitly never to open issues of its own: every other kind of ticket
- * ends in hand-back, and a spec review that filed tickets of its own would
- * be the loop's only exception, with findings bounded by nothing.
+ * as the ticket's comment — see `Sandbox.specReview`. Filing a discovery is
+ * the one way it opens or comments on anything of its own, exactly as every
+ * other kind of ticket's run does — routed by the caller against the
+ * supertask it reviews rather than against this ticket, per CONTEXT.md's
+ * "Discovery".
  *
  * The prompt also says the run is unattended, for the same reason
  * `reviewPromptFor`'s does: a `--print` run gets no reply, so a reviewer
@@ -1432,10 +1433,11 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
     "Review the whole repository against that body: gaps between its sub-issues, drift from the",
     "spec, and seams that do not line up.",
     "This is a review, not an implementation: do not commit or push anything — this checkout is",
-    "read-only, so neither would work anyway — and do not open issues of your own. Report what you",
-    "find instead; your report is the whole of the work here.",
+    "read-only, so neither would work anyway. Report what you find; filing a discovery below is the",
+    "one way this run opens or comments on anything else.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
+    "A discovery you file below is about that supertask, not about this ticket.",
     DISCOVERY_INSTRUCTIONS,
   ].join(" ");
 }

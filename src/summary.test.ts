@@ -11,6 +11,7 @@ import type {
   IterationOutcome,
   PullRequestResolved,
   Reviewed,
+  SpecReviewed,
 } from "./iteration-outcome.ts";
 import type { GateStandDown } from "./morning-run.ts";
 import {
@@ -348,6 +349,23 @@ function specReviewedAlreadyClosed(number: number): IterationOutcome {
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "already-closed" },
   };
+}
+
+/** A spec review ticket's own run that finished and was handed back, having filed `discoveryRouting` landing on `target`. */
+function specReviewedWithDiscoveries(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+  target?: Ticket,
+): IterationOutcome {
+  const specReviewed: SpecReviewed = {
+    kind: "spec-reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
+    tokensUsed: tokenCount(500),
+    handedBack: { outcome: "handed-back" },
+    discoveries: discoveryRouting,
+    ...(target !== undefined && { target }),
+  };
+  return { repo: REPO, ticket: specReviewTicket(number), ...specReviewed };
 }
 
 function facts(iterations: IterationOutcome[]): SummaryFacts {
@@ -696,6 +714,20 @@ describe("discoveriesSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO} #224: commented on #7 — clarification, "The ticket names the wrong file"`,
+    ]);
+  });
+
+  it("names the supertask a spec review's discovery landed on, not the spec review ticket itself", () => {
+    const lines = discoveriesLines([
+      specReviewedWithDiscoveries(
+        232,
+        routing({ filed: [{ discovery: discovery({ kind: "clarification" }), action: "commented" }] }),
+        implementationTicket(50),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #232: commented on #50 — clarification, "The ticket names the wrong file"`,
     ]);
   });
 

@@ -426,6 +426,7 @@ function discoveryFactsOf(
     case "reviewed":
     case "applied-review":
     case "rebased":
+    case "spec-reviewed":
     case "limit-refused":
     case "provider-failed":
       return iteration.discoveries === undefined
@@ -435,7 +436,6 @@ function discoveryFactsOf(
             ...(iteration.target !== undefined && { target: iteration.target }),
           };
     case "budget-exhausted":
-    case "spec-reviewed":
     case "pull-request-resolved":
       return undefined;
   }
