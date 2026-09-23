@@ -553,13 +553,9 @@ export interface InvocationReport {
    */
   summaryFailure?: SummaryFailure;
   /**
-   * Whether the developer's setup needs attention: true for an invocation
-   * that never finished, for an iteration the sandbox or checkout itself
-   * failed on, or for a summary this invocation composed but could not
-   * publish — the entry point (`bin/morning-run.ts`) exits non-zero exactly
-   * when this is true, rather than working the same rule out for itself. An
-   * agent that merely gave up is not this: its ticket was handed back, which
-   * is the failure policy working, not the setup breaking.
+   * See CONTEXT.md's "Needs attention". The entry point
+   * (`bin/morning-run.ts`) exits non-zero exactly when this is true, rather
+   * than working the same rule out for itself.
    */
   needsAttention: boolean;
   /** One line, suitable for printing to a terminal or into the summary issue. */
