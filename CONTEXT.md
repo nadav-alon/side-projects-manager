@@ -34,7 +34,30 @@ No registered project had an eligible ticket. A normal quiet morning, reported e
 _Avoid_: empty queue, no work, nothing found
 
 **Worked today**:
-The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes a ticket on this record over until the next local calendar day, even while it still carries ready-for-agent. A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts. It counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close. Everything else comes off the record again the moment its own iteration ends, and a later firing the same day — one triggered by a developer re-applying ready-for-agent by hand included — may select it: a hand-back that landed, a close that landed, and, saying nothing about the ticket at all, an infrastructure failure, a provider failure, a limit refusal or a budget exhaustion — except a provider failure or a limit refusal that also filed a blocking discovery, which counts as any other hand-back does (see **Discovery**). A record for any other day reads as nothing worked today. Each entry also names the invocation record that recorded it, by that record's own opened-at instant and pid; an entry naming none reads as today, same as one written before this existed. An invocation that dies mid-run leaves its entries on the record for good — nothing ever closes its own iterations to take them off. The **invocation lease** means only one invocation runs at a time, so when the next invocation acquires it, every other invocation record still **in flight** belongs to one that died before it could close: every entry that names one of those is **freed**, selectable by this invocation, and named in its **summary** along with the dead invocation it came from. An entry naming an invocation that closed, one missing from the journal, or this same invocation, stays passed over, as today.
+The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes a ticket on this record over until the next local calendar day, even while it still carries ready-for-agent. A record for any other day reads as nothing worked today.
+
+A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts.
+
+A ticket counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close.
+
+Every other ending comes off the record again the moment its own iteration ends, and a later
+firing the same day — one triggered by a developer re-applying ready-for-agent by hand
+included — may select it: a hand-back that landed, a close that landed, and, saying nothing
+about the ticket at all, an infrastructure failure, a provider failure, a limit refusal or a
+budget exhaustion — except a provider failure or a limit refusal that also filed a blocking
+discovery, which counts as any other hand-back does (see **Discovery**).
+
+Each entry also names the invocation record that recorded it, by that record's own opened-at
+instant and pid; an entry naming none reads as today, same as one written before this existed. An
+invocation that dies mid-run leaves its entries on the record for good — nothing ever closes
+its own iterations to take them off.
+
+The **invocation lease** means only one invocation runs at a time, so when the next invocation
+acquires it, every other invocation record still **in flight** belongs to one that died before
+it could close: every entry that names one of those is **freed**, selectable by this invocation,
+and named in its **summary** along with the dead invocation it came from. An entry naming an
+invocation that closed, one missing from the journal, or this same invocation, stays passed over,
+as today.
 _Avoid_: seen, attempted, cooldown
 
 **Freed**:
