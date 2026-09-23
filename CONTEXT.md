@@ -237,8 +237,8 @@ _Avoid_: interview, kickoff, brainstorm, planning session
 
 **Recap**:
 The one line the new-project command prints when it finishes: where the checkout landed, whether the
-registry now knows the project, where its harness got to, and whether the grilling opened. Not a
-**Summary**: that is the loop's own report of an invocation, not one command's.
+registry now knows the project, where its harness got to, and whether the grilling opened.
+Not a **Summary**: that is the loop's own report of an invocation, not one command's.
 _Avoid_: summary, report, digest, changelog
 
 ### Work
@@ -388,7 +388,8 @@ passes it on, whatever its triage label; a closed issue, one in another repo, or
 not read passes on nothing. Orders tickets within one project only — it never decides which project
 an iteration works, and never outranks a pull request ticket. Selection is what works it out, from
 what the tracker reports.
-_Avoid_: priority (unqualified, which is the project's), inherited priority, effective priority, urgency, severity, rank
+_Avoid_: priority (unqualified, which is the project's), inherited priority, effective priority,
+urgency, severity, rank
 
 **Priority label**:
 The label an issue may carry, as `priority:<level>`, naming one of the three ticket priority levels.
@@ -557,8 +558,8 @@ named but nothing further is said of it — closed reads as intent, not as a gap
 one re-reads its project's open issues once more, so the newly opened spec review is selectable the
 same scan rather than only the next; one it links instead needs no re-read, since it was already
 sitting, ready-for-agent, in the listing it was found unlinked in — only the link itself was
-missing. Best effort, like the conflict sweep: a refusal — from the read, the open or the link alike
-— is recorded and the sweep carries on to the next supertask, never stopping the invocation.
+missing. Best effort, like the conflict sweep: a refusal — from the read, the open or the link
+alike — is recorded and the sweep carries on to the next supertask, never stopping the invocation.
 _Avoid_: repo review sweep, audit sweep, spec sweep
 
 **Reviewed label**:
@@ -638,7 +639,8 @@ _Avoid_: reset override, manual window, pinned reset
 The usage limit the provider itself enforces, which the manager learns of only through a limit
 refusal. The allowance is the developer's declaration of it and can be wrong, so the gate can say go
 while the provider says no.
-_Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its windows)
+_Avoid_: usage limit, rate limit, quota, session limit (the provider's own wording, for one of its
+windows)
 
 **Limit refusal**:
 A run, implementation, review, apply-review or rebase, that the provider limit refused: the agent
