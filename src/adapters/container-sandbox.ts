@@ -1404,12 +1404,11 @@ const DISCOVERY_INSTRUCTIONS = [
   "and only one you would have acted on yourself had the ticket allowed it. Implementation detail",
   "belongs in the commit and the pull request, never in a discovery.",
   "A prerequisite or a suggestion may add `\"ready\": true` when it leaves no decision to the",
-  "developer: behaviour fully determined, one seam, acceptance criteria writable now, size S. Declare",
-  "it only then, and only when you would act on it yourself were it not blocking or capped — a ready",
-  "discovery's ticket skips triage and goes straight to an agent. Its body must itself read as an",
-  "agent brief: current behavior, desired behavior, acceptance criteria, out of scope — anything else",
-  "is triaged as normal, ready or not. Never set it on a correction or a clarification: neither opens",
-  "a ticket, so it changes nothing there.",
+  "developer: behavior fully determined, one seam, acceptance criteria writable now, size S. Declare",
+  "it only then — a ready discovery's ticket skips triage and goes straight to an agent. Its body",
+  "must itself read as an agent brief: current behavior, desired behavior, acceptance criteria, out",
+  "of scope — anything else is triaged as normal, ready or not. Never set it on a correction or a",
+  "clarification: neither opens a ticket, so it changes nothing there.",
 ].join(" ");
 
 /**
