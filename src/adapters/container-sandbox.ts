@@ -1800,7 +1800,8 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
           "and its work is already on the branch you are on. Continue that work",
           "rather than starting over. Its last commit may be a possibly-broken",
           "commit made by the sandbox itself rather than by an agent, once the",
-          "earlier run stopped short — check it, and fix or rework it as needed.",
+          "earlier run stopped before it could finish — check it, and fix or",
+          "rework it as needed.",
         ]
       : []),
     "Commit each behavior as its own commit, its test and its code together, as",

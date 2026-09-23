@@ -1609,11 +1609,12 @@ describe("containerSandbox", () => {
   });
 });
 
-/** The name a salvage branch left behind by an earlier stopped-short run carries in these tests. */
+/** The name a salvage branch left behind by an earlier run that stopped before it could finish carries in these tests. */
 const SALVAGE_BRANCH = branch(`${BRANCH}-2`);
 
 /**
- * Leaves `name` in `directory` as an earlier stopped-short run's salvage would:
+ * Leaves `name` in `directory` as the salvage of an earlier run that stopped
+ * before it could finish would:
  * branched off `main`, carrying one commit marked as `SALVAGE_COMMIT_MESSAGE`
  * — see `Salvage` in CONTEXT.md. Leaves the checkout back on `main`, exactly
  * as a real run's clone is fetched into an otherwise-untouched checkout.
@@ -1787,7 +1788,7 @@ describe("containerSandbox.run salvage", () => {
     assert.match(asked, /possibly-broken commit made by the sandbox/);
   });
 
-  it("says nothing about a stopped-short run, and picks a branch the ordinary way, when no salvage branch is named", async () => {
+  it("says nothing about an earlier run that stopped before it could finish, and picks a branch the ordinary way, when no salvage branch is named", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
