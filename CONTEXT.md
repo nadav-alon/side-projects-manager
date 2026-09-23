@@ -80,6 +80,10 @@ _Avoid_: publish failure, error
 The composed text of a summary failure, written into the manager home as its own plain text file, named for the local day and time the invocation started, and gitignored like `trigger.log` rather than committed. Absent from the invocation record when that write itself also failed — the reason the publish failed is still worth recording even then.
 _Avoid_: failed summary, backup
 
+**Needs attention**:
+Whether the morning is one the developer has to look at, carried on the invocation report: true for an invocation that never finished, for an iteration that was an **infrastructure failure**, or for a summary failure. Decides the exit code of an invocation that reported; one that fails before reaching a report already exits non-zero on its own account. An agent that merely gave up is not this: the hand-back is the failure policy working, not the setup breaking. A summary failure is, even though nothing about the setup broke to cause it — the developer still has to go retrieve the kept summary by hand.
+_Avoid_: broken, alert
+
 ### Triggers
 
 **Trigger**:
