@@ -245,8 +245,6 @@ export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
  * `kind` names the three pull-request-bound kinds explicitly, rather than
  * `Exclude<TicketKind, "implementation">`: a spec review ticket is not bound
  * to a pull request either, so that shorthand would wrongly admit it too.
- *
- * TODO[#295]: the `/rebase` workflow itself.
  */
 export interface PullRequestBinding {
   kind: "review" | "apply-review" | "rebase";

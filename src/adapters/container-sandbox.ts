@@ -1261,12 +1261,13 @@ function endingOf(agent: AgentRun, model: ModelName | undefined): Ending {
  * Whether an implementation run was cut off rather than ended by its own
  * agent — a limit refusal, its own spend ceiling stopping it, or a container
  * that crashed once the agent had started — and so left uncommitted work
- * worth salvaging: see `Salvage` in CONTEXT.md. `ending` alone cannot tell a
- * crashed container apart from an agent that gave up on its own account,
+ * worth salvaging: see **Salvage** in CONTEXT.md. `ending` alone cannot tell
+ * a crashed container apart from an agent that gave up on its own account,
  * since `endingOf` reads both as `"gave-up"`; `agent.crashed` is `attempt`'s
  * own record of which one this was.
  *
- * TODO[#242]: a provider failure is cut off too, and is not salvaged here.
+ * A provider failure is cut off in CONTEXT.md's sense, but deliberately not
+ * salvaged, so it is absent here: see CONTEXT.md's **Cut off** entry.
  */
 function wasCutOff(ending: Ending, agent: AgentRun): boolean {
   return (
