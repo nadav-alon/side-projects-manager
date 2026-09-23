@@ -250,9 +250,11 @@ describe("invocationState", () => {
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
 
       // Two iterations "in progress" at once, per the concurrency limit:
-      // both are selected before either ends.
-      await invocation.ticketSelected(TICKET_7, TODAY);
-      await invocation.ticketSelected(TICKET_8, TODAY);
+      // both are selected before either's own save has landed, exactly as
+      // two overlapping calls from a concurrency-limited loop would arrive.
+      const firstSelected = invocation.ticketSelected(TICKET_7, TODAY);
+      const secondSelected = invocation.ticketSelected(TICKET_8, TODAY);
+      await Promise.all([firstSelected, secondSelected]);
       // The first iteration ends and records its run's cost; the second is
       // still going when the invocation's own final save happens.
       invocation.recordRunCost(PILOT, {
