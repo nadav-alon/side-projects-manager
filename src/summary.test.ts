@@ -39,6 +39,7 @@ import {
   summaryBody,
   summaryLine,
   type GateStandDown,
+  type InvocationStandDown,
   type SummaryFacts,
   type SummaryTracker,
 } from "./summary.ts";
@@ -2063,6 +2064,14 @@ describe("composeInvocationReport", () => {
     };
   }
 
+  /** The stand-down a limit refusal on `implementationTicket(7)` triggers, per CONTEXT.md's "Limit refusal". */
+  const LIMIT_REFUSED_STAND_DOWN: InvocationStandDown = {
+    reason: "provider-limit",
+    limitRefusal: LIMIT_REFUSAL,
+    ticket: implementationTicket(7),
+    handedBack: false,
+  };
+
   /**
    * A `SummaryTracker` that records every summary it is asked to publish,
    * answering with a fresh issue address each time — built here rather than
@@ -2165,25 +2174,12 @@ describe("composeInvocationReport", () => {
     assert.equal(report.outcome, "stood-down");
   });
 
-  it("reports a stand-down with only limit-refused iterations as stood-down", async () => {
-    const report = await composeInvocationReport(recordingTracker(), {
-      startedAt: STARTED_AT,
-      facts: {
-        ...facts([limitRefused(7, { kind: "none" })]),
-        standDown: { reason: "stopped" },
-      },
-      alreadyAnnouncedToday: false,
-    });
-
-    assert.equal(report.outcome, "stood-down");
-  });
-
   it("reports a stand-down with limit-refused and ahead-of-gate iterations as stood-down", async () => {
     const report = await composeInvocationReport(recordingTracker(), {
       startedAt: STARTED_AT,
       facts: {
         ...facts([limitRefused(7, { kind: "none" }), aheadOfGate(8)]),
-        standDown: { reason: "stopped" },
+        standDown: LIMIT_REFUSED_STAND_DOWN,
       },
       alreadyAnnouncedToday: false,
     });
@@ -2198,7 +2194,7 @@ describe("composeInvocationReport", () => {
       startedAt: STARTED_AT,
       facts: {
         ...facts([limitRefused(7, { kind: "none" })]),
-        standDown: { reason: "stopped" },
+        standDown: LIMIT_REFUSED_STAND_DOWN,
       },
       alreadyAnnouncedToday: true,
     });
@@ -2214,7 +2210,7 @@ describe("composeInvocationReport", () => {
       startedAt: STARTED_AT,
       facts: {
         ...facts([limitRefused(7, { kind: "none" })]),
-        standDown: { reason: "stopped" },
+        standDown: LIMIT_REFUSED_STAND_DOWN,
       },
       alreadyAnnouncedToday: false,
     });
