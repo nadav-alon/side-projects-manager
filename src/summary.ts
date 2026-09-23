@@ -729,23 +729,24 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  * for a positive count of suggestions the cap dropped, one for a positive
  * count of files `/discoveries` dropped for not being valid JSON or naming an
  * unknown kind, and one per refused write, blocking or advisory alike. A
- * blocking discovery filed by a `discovery-blocked` iteration has its own kind
- * and outcome said instead by that iteration's own line and Waiting-on-you
- * entry, so it is left out here; one filed by any other kind — a cut-off run,
- * which files exactly as a finished one does but is never handed back for it,
- * per CONTEXT.md's "Limit refusal" and "Provider failure" — has nowhere else
- * to be said, and is listed here like any advisory discovery. Alongside a
- * refused write, either way, only what happened to the write itself is said.
+ * blocking discovery is always filed by a `discovery-blocked` iteration —
+ * routing hands any other kind's run back as one instead of leaving it its
+ * own kind, per `LimitRefused.discoveries` — so it has its own kind and
+ * outcome said instead by that iteration's own line and Waiting-on-you entry,
+ * and is left out here. Every other iteration reaching this function carries
+ * advisory discoveries only, listed here the same way regardless of kind.
+ * Alongside a refused write, either way, only what happened to the write
+ * itself is said.
  */
 function discoveryLines(
-  iteration: { repo: RepoSlug; ticket: Ticket; kind: IterationOutcome["kind"] },
+  iteration: { repo: RepoSlug; ticket: Ticket },
   { routing, crossTarget }: DiscoveryReport,
 ): string[] {
   const who = `${iteration.repo} #${iteration.ticket.number}`;
   const landedOn =
     crossTarget === undefined ? `#${iteration.ticket.number}` : `#${crossTarget.number}`;
   const filed = routing.filed.flatMap((filed) => {
-    if (iteration.kind === "discovery-blocked" && isBlockingDiscoveryKind(filed.discovery.kind)) {
+    if (isBlockingDiscoveryKind(filed.discovery.kind)) {
       return [];
     }
     const where =

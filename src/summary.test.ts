@@ -757,16 +757,16 @@ describe("discoveriesSection", () => {
     assert.deepEqual(lines, []);
   });
 
-  it("lists a blocking discovery filed by a cut-off run, which nothing else in the summary says", () => {
+  it("lists an advisory discovery filed by a cut-off run, same as a finished run's", () => {
     const lines = discoveriesLines([
       limitRefusedWithDiscoveries(
         226,
-        routing({ filed: [{ discovery: discovery({ kind: "correction" }), action: "commented" }] }),
+        routing({ filed: [{ discovery: discovery({ kind: "clarification" }), action: "commented" }] }),
       ),
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #226: commented on #226 — correction, "The ticket names the wrong file"`,
+      `- ${REPO} #226: commented on #226 — clarification, "The ticket names the wrong file"`,
     ]);
   });
 
