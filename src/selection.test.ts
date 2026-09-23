@@ -47,7 +47,7 @@ async function open(
   } = {},
 ): Promise<{ selection: InvocationSelection; invocation: InvocationState }> {
   const state = await store.loadState();
-  const invocation = invocationState({ store }, state, today);
+  const invocation = invocationState({ store }, state, today, () => ({}));
   return {
     selection: invocationSelection(
       { tracker, store, repoHost },

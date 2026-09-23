@@ -294,15 +294,16 @@ export async function morningLoop(
   try {
     const stored = await ports.store.loadState();
     announcedOn = stored.announcedOn;
+    const salvages = salvageRecords(stored.salvages);
     const state = invocationState(
       { store: ports.store },
       stored,
       today,
+      () => invocationStateRest(announcedOn, salvages.record()),
       await currentInvocation(ports, invocation),
     );
     freedTickets = state.freed();
-    const salvages = salvageRecords(stored.salvages);
-    saveState = () => state.save(invocationStateRest(announcedOn, salvages.record()));
+    saveState = () => state.save();
     const modelDefaults = await ports.store.loadModelDefaults();
     // Built once and kept for the whole invocation, not once per iteration:
     // it is what remembers a project's "selected" verdict across scans and
@@ -411,11 +412,7 @@ export async function morningLoop(
         // killed mid-run never reaches the final save, and would otherwise
         // free the ticket for the next firing the same day. Recorded, too, is
         // what keeps a ticket in progress from being selected again.
-        await state.ticketSelected(
-          ticket,
-          localDay(ports.clock.now()),
-          invocationStateRest(announcedOn, salvages.record()),
-        );
+        await state.ticketSelected(ticket, localDay(ports.clock.now()));
         if (stopped()) {
           state.selectionAbandoned(ticket);
           break;

@@ -57,20 +57,22 @@ export interface InvocationStatePorts {
  * What a save is to fold into the state document besides the bookkeeping the
  * invocation's state itself owns: the salvage record, whose rules belong to
  * `salvages.ts`, and the day a summary was announced on, once the
- * invocation's own publish has succeeded. Absent fields are left out of the
- * document exactly as `State`'s own optional fields are.
+ * invocation's own publish has succeeded. Read fresh from `foreignFields` at
+ * every save, exactly as `record` and `projects` are, so a change either
+ * makes between two saves is exactly what the next one writes.
  */
-export type InvocationStateRest = Pick<State, "announcedOn" | "salvages">;
+type ForeignStateFields = Pick<State, "announcedOn" | "salvages">;
 
 /**
- * `InvocationStateRest` built from loose optional values, left out of the
+ * `ForeignStateFields` built from loose optional values, left out of the
  * document rather than carried as an explicit `undefined` — the shape every
- * other optional field on `State` is built in.
+ * other optional field on `State` is built in, and the one `exactOptionalPropertyTypes`
+ * requires of anything assigned into `announcedOn`/`salvages` directly.
  */
 export function invocationStateRest(
   announcedOn: Day | undefined,
   salvages: State["salvages"],
-): InvocationStateRest {
+): ForeignStateFields {
   return {
     ...(announcedOn !== undefined && { announcedOn }),
     ...(salvages !== undefined && { salvages }),
@@ -106,11 +108,7 @@ export interface InvocationState {
    * If the save itself fails, `ticket` is taken back off the record before
    * the failure reaches the caller.
    */
-  ticketSelected(
-    ticket: WorkedTicket,
-    day: Day,
-    rest?: InvocationStateRest,
-  ): Promise<void>;
+  ticketSelected(ticket: WorkedTicket, day: Day): Promise<void>;
 
   /**
    * Records `ticket` as worked on `day`, in memory only — for a ticket handed
@@ -146,12 +144,13 @@ export interface InvocationState {
   /**
    * Every ticket freed on construction because a dead in-flight invocation
    * had recorded it — CONTEXT.md's "Worked today". Fixed for the life of this
-   * session: nothing recorded or unrecorded during the invocation adds to it.
+   * invocation's state: nothing recorded or unrecorded during the invocation
+   * adds to it.
    */
   freed(): FreedWorkedTicket[];
 
-  /** Saves the whole state document once, `rest` folded in as `ticketSelected` does. */
-  save(rest?: InvocationStateRest): Promise<void>;
+  /** Saves the whole state document once, `foreignFields` folded in as every save's is. */
+  save(): Promise<void>;
 }
 
 /**
@@ -160,6 +159,11 @@ export interface InvocationState {
  * it opened on. A worked-today record for any day but `today` says nothing
  * about today, so it reads as nothing worked yet: CONTEXT.md's "Worked
  * today".
+ *
+ * `foreignFields` supplies, at every save, the document fields this module
+ * does not itself own — see `ForeignStateFields`. Read once here rather than
+ * passed to `save`/`ticketSelected` on every call, so no call can save a
+ * partial document by only some of its callers remembering to pass it.
  *
  * `current`, when given, is used once, on construction, to free every entry
  * a dead in-flight invocation recorded — see CONTEXT.md's "Worked today".
@@ -172,6 +176,7 @@ export function invocationState(
   ports: InvocationStatePorts,
   stored: State,
   today: Day,
+  foreignFields: () => ForeignStateFields,
   current?: CurrentInvocation,
 ): InvocationState {
   const projects = new Map(stored.projects);
@@ -195,11 +200,10 @@ export function invocationState(
       record = unrecordWorked(record, ticket);
     }
   };
-  const buildState = (rest: InvocationStateRest): State => ({
+  const buildState = (): State => ({
     projects,
     ...(record !== undefined && { workedToday: record }),
-    ...(rest.announcedOn !== undefined && { announcedOn: rest.announcedOn }),
-    ...(rest.salvages !== undefined && { salvages: rest.salvages }),
+    ...foreignFields(),
   });
 
   // Every save is chained onto this, so two overlapping calls always write
@@ -220,10 +224,10 @@ export function invocationState(
     passesOver: (ticket) => passedOver.has(ticketKey(ticket)),
     recordWorked: doRecord,
     selectionAbandoned: doUnrecord,
-    ticketSelected: async (ticket, day, rest = {}) => {
+    ticketSelected: async (ticket, day) => {
       doRecord(ticket, day);
       try {
-        await doSave(buildState(rest));
+        await doSave(buildState());
       } catch (error: unknown) {
         doUnrecord(ticket);
         throw error;
@@ -239,7 +243,7 @@ export function invocationState(
     },
     projectStates: () => projects,
     freed: () => freed,
-    save: (rest = {}) => doSave(buildState(rest)),
+    save: () => doSave(buildState()),
   };
 }
 
