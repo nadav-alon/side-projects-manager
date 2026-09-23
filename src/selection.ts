@@ -207,12 +207,7 @@ export function invocationSelection(
   // `summary.ts`, which is what dedupes a link or a refusal met by more than
   // one scan.
   const specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
-  // Every pull request commented on by a scan of this invocation whose
-  // rebase ticket no scan's open-issue listing has shown yet — cleared, not
-  // merely checked, the moment a listing shows one open, so a pull request
-  // whose ticket has since closed goes back to the normal rule rather than
-  // staying guarded for the rest of the invocation. See `scan`'s own
-  // comment on `conflictSweep`'s `alreadyPosted`.
+  // See `scan`'s own comment on `pendingRebasePosts`.
   const pendingRebasePosts = new Set<PullRequestUrl>();
 
   return {
@@ -319,6 +314,14 @@ async function scan(
     // its rebase ticket open, so a pull request whose ticket has since closed
     // and conflicts again is posted on afresh, same as one never posted on
     // before.
+    //
+    // A url can also stay pending longer than that: `openRebaseTicketFor`
+    // reads `false` for a pull request with an open rebase ticket the
+    // listing simply didn't reach, when `open.truncated`, and reads `false`
+    // just the same for a rebase ticket that opened and closed entirely
+    // between two scans, since no scan's listing ever caught it open. Both
+    // fall out of the design issue #710 asked for — a listing showing the
+    // ticket open is what clears a url — rather than being a gap in it.
     for (const pullRequest of pendingRebasePosts) {
       if (openRebaseTicketFor(open, pullRequest)) {
         pendingRebasePosts.delete(pullRequest);
