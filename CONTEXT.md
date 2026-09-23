@@ -36,7 +36,7 @@ _Avoid_: empty queue, no work, nothing found
 **Worked today**:
 The tickets the loop has worked on the current local calendar day, recorded in the state document with that day. Selection passes a ticket on this record over until the next local calendar day, even while it still carries ready-for-agent. A record for any other day reads as nothing worked today.
 
-A ticket counts from the moment it is selected, and is saved before the sandbox starts, so a run killed part way still counts.
+A ticket counts from the moment it is selected, and is saved before the sandbox starts or, ahead of the gate, before the hand-back is posted, so a run killed part way, or a process stopped mid-post, still counts.
 
 A ticket counts against the day only for as long as the loop could not take its eligibility away itself: a hand-back the tracker refused, or a review, an apply-review, a rebase or a resolved pull request the loop could not close.
 
