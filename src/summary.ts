@@ -624,6 +624,21 @@ export interface InvocationReportInputs {
 }
 
 /**
+ * Whether a limit refusal left a branch behind that its own discard could not
+ * throw away: kept because git refused to delete it, or salvaged on purpose
+ * per CONTEXT.md's "Salvage". Spent tokens alone don't count — CONTEXT.md's
+ * "Limit refusal" already says a limit refusal leaves the ticket exactly as
+ * it found it — so a clean discard (`"none"` or `"discarded"`) is not enough
+ * on its own.
+ */
+function limitRefusalLeftABranch(iteration: IterationOutcome): boolean {
+  return (
+    iteration.kind === "limit-refused" &&
+    (iteration.discard.kind === "kept" || iteration.discard.kind === "salvaged")
+  );
+}
+
+/**
  * What an invocation came to, from its own facts alone: the outcome, the
  * one-line message, whether the developer's setup needs attention, and —
  * published here, the summary module's own last step — where the summary
@@ -632,12 +647,13 @@ export interface InvocationReportInputs {
  * Composes the line once and reuses it for both `message` and, when
  * publishing, the issue body.
  *
- * An invocation that worked something, or freed a ticket a dead invocation
- * had recorded, always publishes — a freed ticket must be named somewhere,
- * never only erased from the state document. A quiet or broken one publishes
- * only when today has not already been announced, per CONTEXT.md's "Summary"
- * — a loop firing every hour still reports one quiet or broken morning rather
- * than up to twenty-four.
+ * An invocation that worked something, freed a ticket a dead invocation had
+ * recorded, or left a branch behind from a limit refusal that spent tokens
+ * for nothing else, always publishes — a freed ticket or a branch nobody else
+ * will mention must be named somewhere, never only erased from the state
+ * document. A quiet or broken one publishes only when today has not already
+ * been announced, per CONTEXT.md's "Summary" — a loop firing every hour still
+ * reports one quiet or broken morning rather than up to twenty-four.
  */
 export async function composeInvocationReport(
   tracker: SummaryTracker,
@@ -651,6 +667,7 @@ export async function composeInvocationReport(
   if (
     outcome === "work-selected" ||
     facts.freedFromDeadInvocation.length > 0 ||
+    facts.iterations.some(limitRefusalLeftABranch) ||
     !alreadyAnnouncedToday
   ) {
     const body = summaryBody(facts, line);

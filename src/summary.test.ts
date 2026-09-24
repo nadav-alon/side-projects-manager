@@ -2317,6 +2317,42 @@ describe("composeInvocationReport", () => {
     assert.equal(tracker.published.length, 1);
   });
 
+  it("publishes a stand-down whose limit refusal kept an undiscardable branch, even when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([
+          limitRefused(7, { kind: "kept", reason: "git could not delete the branch" }),
+        ]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 1);
+  });
+
+  it("publishes a stand-down whose limit refusal salvaged a branch, even when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([
+          limitRefused(7, { kind: "salvaged", branch: branch("issue-7"), stopShorts: 1 }),
+        ]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 1);
+  });
+
   it("does not publish a quiet morning when today is already announced", async () => {
     const tracker = recordingTracker();
 
