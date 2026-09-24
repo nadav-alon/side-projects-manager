@@ -77,12 +77,13 @@ export function isDiscovery(value: unknown): value is Discovery {
  * The `Discovery` a validated `value` carries, field by field, and nothing
  * else: `value` is only typed as a `Discovery` by `isDiscovery`'s say-so, so
  * the JSON it came from may still carry keys `Discovery` never declared, and
- * those must not survive into the object callers act on. Declared beside
- * `Discovery` and `isDiscovery` so the two stay in step: `fields` is typed
+ * those must not survive into the object callers act on. Tied to the
+ * `Discovery` interface, not to `isDiscovery`: `fields` is typed
  * `Record<keyof Discovery, unknown>`, which requires a value for every key
  * `Discovery` has, so a field added to the interface and not copied here
- * fails to compile rather than being dropped silently the way
- * `container-sandbox.ts`'s `readDiscoveries` used to drop one.
+ * fails to compile rather than being dropped silently. `isDiscovery` itself
+ * still validates only `kind`, `title` and `body` — a field added to
+ * `Discovery` needs its own handling there too, as `ready` gets below.
  *
  * `ready` keeps only `=== true`, per `isDiscovery`'s own note on it: a
  * malformed value costs the discovery its ready state, not the field's
