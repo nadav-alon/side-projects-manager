@@ -358,6 +358,7 @@ describe("the status command's --watch mode", () => {
     assert.equal(watch.stderr(), "");
     assert.ok(watch.stdout().trimEnd().endsWith("\x1b[?25h"));
     assert.match(watch.stdout(), /No invocation has ever run on this machine\./);
+    assert.match(watch.stdout(), /\x1b\[2J\x1b\[HUpdated \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n/);
   });
 
   it("keeps refreshing when nothing was in flight at the start, rather than exiting by itself", HANGS, async (t) => {
