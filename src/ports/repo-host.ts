@@ -3,6 +3,7 @@ import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
+import type { Nits } from "./nits.ts";
 import { pullRequestLabel, type PullRequestLabel } from "./pull-request-label.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -525,12 +526,17 @@ export interface RepoHost {
    * saying what the ticket asked for, so the developer knows what they are
    * looking at without opening the ticket. Absent, the body is the closing
    * reference and the draft note alone.
+   *
+   * `nits`, when the run noticed any it did not cause, closes the body with
+   * them under one fixed heading, for a reviewing agent to read back and turn
+   * into findings of its own. Absent, the body carries no nit section at all.
    */
   openDraftPullRequest(
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
     gist?: TicketGist,
+    nits?: Nits,
   ): Promise<DraftPullRequestOpening>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.

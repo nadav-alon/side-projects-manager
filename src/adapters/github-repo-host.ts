@@ -14,6 +14,7 @@ import type {
   IssueNumber,
   MergeStatus,
   Milliseconds,
+  Nits,
   OpenPullRequest,
   Proposal,
   PullRequestLabel,
@@ -36,6 +37,7 @@ import {
   isPullRequestLabel,
   isPullRequestUrl,
   NEEDS_REBASE_LABEL,
+  NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,
   pullRequestUrl,
   resolveNeedsRebase,
@@ -250,6 +252,7 @@ export function githubRepoHost(
       branch: Branch,
       ticket: Ticket,
       gist?: TicketGist,
+      nits?: Nits,
     ): Promise<DraftPullRequestOpening> {
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
@@ -314,7 +317,7 @@ export function githubRepoHost(
             "--title",
             ticket.title,
             "--body",
-            pullRequestBody(ticket, gist),
+            pullRequestBody(ticket, gist, nits),
           ],
           { cwd: directory },
         );
@@ -829,21 +832,27 @@ export function pullRequestFrom(
  * What the pull request says. With a gist, it opens with that sentence — what
  * the ticket asked for, in the implementing agent's own words — followed by a
  * blank line and the closing reference and draft note; without one, it is
- * just the closing reference and draft note.
+ * just the closing reference and draft note. With nits, it closes with them
+ * under `NIT_SECTION_HEADING`, for `reviewPromptFor`'s instruction to read
+ * that section back and turn each one worth doing into a finding; without
+ * any, the body carries no nit section at all.
  *
  * The closing reference is what links the two in GitHub's own UI. It closes
  * nothing by itself — the pull request is a draft, and only a merge the
  * developer makes acts on it. It stays on its own line either way: a
  * reviewing agent finds the ticket by reading for it.
  */
-function pullRequestBody(ticket: Ticket, gist?: TicketGist): string {
+function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string {
   const body = [
     `Closes #${ticket.number}.`,
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It stays a draft: promoting and merging it are yours.",
   ].join("\n");
-  return gist === undefined ? body : [gist, "", body].join("\n");
+  const withGist = gist === undefined ? body : [gist, "", body].join("\n");
+  return nits === undefined
+    ? withGist
+    : [withGist, "", NIT_SECTION_HEADING, "", nits].join("\n");
 }
 
 /** Whether `directory` has a local branch named `of`. */

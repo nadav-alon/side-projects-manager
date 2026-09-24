@@ -15,6 +15,8 @@ import {
   CLOSING_PULL_REQUEST_LIMIT,
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
+  NIT_SECTION_HEADING,
+  nits,
   OPEN_PULL_REQUEST_LIMIT,
   branch as toBranch,
   checkout as toCheckout,
@@ -750,6 +752,53 @@ describe("opening a draft pull request for a completed run", () => {
     assert.equal(
       valueOf(call, "--body"),
       [gist, "", BODY_WITHOUT_GIST].join("\n"),
+    );
+  });
+
+  it("opens with no nit heading when the run carried no nits", async (t) => {
+    const { call } = await openedFor(t);
+
+    assert.doesNotMatch(valueOf(call, "--body") ?? "", new RegExp(NIT_SECTION_HEADING));
+  });
+
+  it("closes with the nits under the fixed heading, when the run carried them", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    const list = nits("- names.ts still says id.");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+      undefined,
+      list,
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(
+      valueOf(call, "--body"),
+      [BODY_WITHOUT_GIST, "", NIT_SECTION_HEADING, "", list].join("\n"),
+    );
+  });
+
+  it("carries both the gist and the nits, when the run gave both", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    const gist = ticketGist("Adds a retry to the flaky upload step.");
+    const list = nits("- names.ts still says id.");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+      gist,
+      list,
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(
+      valueOf(call, "--body"),
+      [gist, "", BODY_WITHOUT_GIST, "", NIT_SECTION_HEADING, "", list].join("\n"),
     );
   });
 
