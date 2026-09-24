@@ -17,7 +17,7 @@ import {
   pullRequestUrl,
   type Discovery,
 } from "./ports/index.ts";
-import { FakeIssueTracker, PILOT } from "./testing/index.ts";
+import { AGENT_BRIEF_BODY, FakeIssueTracker, PILOT } from "./testing/index.ts";
 
 function implementation() {
   return { number: issueNumber(7), title: "Add the thing" };
@@ -31,14 +31,6 @@ function discovery(overrides: Partial<Discovery> = {}): Discovery {
     ...overrides,
   };
 }
-
-/** A body shaped as an agent brief, per CONTEXT.md's "Ready discovery". */
-const AGENT_BRIEF_BODY = [
-  "Current behavior: the retry loop hammers the API on every failure.",
-  "Desired behavior: it should back off between attempts.",
-  "Acceptance criteria: a failed call waits before its next attempt.",
-  "Out of scope: a configurable backoff strategy.",
-].join("\n\n");
 
 describe("routeDiscoveries", () => {
   it("comments on the target for a correction or a clarification", async () => {

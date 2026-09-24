@@ -66,6 +66,7 @@ import {
   type Ticket,
 } from "../ports/index.ts";
 import {
+  AGENT_BRIEF_BODY,
   BUDGET_EXHAUSTED_JSON_RESULT,
   BUDGET_EXHAUSTED_STDOUT,
   FakeIssueTracker,
@@ -133,14 +134,6 @@ const SPEC_REVIEW_TICKET: SpecReviewTicket = {
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
-
-/** A body shaped as an agent brief, per CONTEXT.md's "Ready discovery" — what `isAgentBrief` requires of a ready discovery. */
-const AGENT_BRIEF_BODY = [
-  "Current behavior: the retry loop hammers the API on every failure.",
-  "Desired behavior: it should back off between attempts.",
-  "Acceptance criteria: a failed call waits before its next attempt.",
-  "Out of scope: a configurable backoff strategy.",
-].join("\n\n");
 
 /** What the loop would have taken off the budget for one run. */
 const CEILING = usd(5);
