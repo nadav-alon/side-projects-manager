@@ -57,7 +57,7 @@ function isDiscoveryKind(value: unknown): value is DiscoveryKind {
  * `ready` is not checked here, deliberately: it is optional and additive, so
  * a malformed value — a non-boolean an agent handwrote into the JSON — should
  * cost the discovery its ready state, not the whole discovery, blocking kinds
- * included. `readDiscoveries` reads `ready` itself, keeping only `=== true`.
+ * included. `normalizeDiscovery` reads `ready` itself, keeping only `=== true`.
  */
 export function isDiscovery(value: unknown): value is Discovery {
   if (typeof value !== "object" || value === null) {
