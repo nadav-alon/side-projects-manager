@@ -30,16 +30,12 @@ export async function watchStatus(
   interval: Milliseconds,
   signal: AbortSignal,
 ): Promise<void> {
-  let sawInFlight = false;
-  let first = true;
+  let inFlightAtStart: boolean | undefined;
   while (!signal.aborted) {
     const frame = await ports.render();
-    if (first) {
-      sawInFlight = frame.inFlight;
-      first = false;
-    }
+    inFlightAtStart ??= frame.inFlight;
     ports.display(frame.lines);
-    if (sawInFlight && !frame.inFlight) {
+    if (inFlightAtStart && !frame.inFlight) {
       return;
     }
     if (signal.aborted) {
