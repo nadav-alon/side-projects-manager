@@ -1659,6 +1659,11 @@ describe("conflict sweeps", () => {
     return summaryBody(factsWithSweeps(sweeps), summaryLine(factsWithSweeps(sweeps)));
   }
 
+  /** How many of `section`'s lines are exactly `bullet`. */
+  function bulletCount(section: string, bullet: string): number {
+    return section.split("\n").filter((line) => line === bullet).length;
+  }
+
   it("renders nothing extra, byte for byte, when no sweep changed or refused anything", () => {
     const projects = [{ repo: REPO, verdict: "no-eligible-tickets" as const }];
     const withoutSweeps: SummaryFacts = { ...facts([]), projects };
@@ -1833,14 +1838,11 @@ describe("conflict sweeps", () => {
 
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Conflict sweeps"));
-    const bullets = section
-      .split("\n")
-      .filter((line) => line === `- ${REPO}: posted /rebase on ${PULL_REQUEST}`);
 
-    assert.equal(bullets.length, 2);
+    assert.equal(bulletCount(section, `- ${REPO}: posted /rebase on ${PULL_REQUEST}`), 2);
   });
 
-  it("still reports a pull request the same scan's own label change met more than once as one bullet, unlike a repeated post", () => {
+  it("reports a label met by two scans once, but each of their /rebase posts on its own", () => {
     const sweeps: ConflictSweepOutcome[] = [
       {
         repo: REPO,
@@ -1863,17 +1865,8 @@ describe("conflict sweeps", () => {
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Conflict sweeps"));
 
-    assert.equal(
-      section
-        .split("\n")
-        .filter((line) => line === `- ${REPO}: labelled needs-rebase on ${PULL_REQUEST}`).length,
-      1,
-    );
-    assert.equal(
-      section.split("\n").filter((line) => line === `- ${REPO}: posted /rebase on ${PULL_REQUEST}`)
-        .length,
-      2,
-    );
+    assert.equal(bulletCount(section, `- ${REPO}: labelled needs-rebase on ${PULL_REQUEST}`), 1);
+    assert.equal(bulletCount(section, `- ${REPO}: posted /rebase on ${PULL_REQUEST}`), 2);
   });
 
   it("counts both posts, not one, in the summary line's aside when the same pull request is posted on twice", () => {
