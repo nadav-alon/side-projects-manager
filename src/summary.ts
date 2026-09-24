@@ -699,7 +699,7 @@ function discoveryFactsOf(
 ): DiscoveryFacts | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
-      return { routing: iteration.routing, ...(iteration.target !== undefined && { target: iteration.target }) };
+      return { routing: iteration.routing, ...(iteration.crossTarget !== undefined && { target: iteration.crossTarget }) };
     case "finished":
     case "failed":
     case "reviewed":

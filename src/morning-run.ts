@@ -1022,11 +1022,11 @@ async function discoveryBlockedOutcome(
   cutOff?: DiscoveryBlockedCutOff,
   output?: string,
 ): Promise<DiscoveryBlocked> {
-  const { crossTarget: target } = routed;
+  const { crossTarget } = routed;
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
     discoveries: blockingDiscoveriesOf(routed.discoveries),
-    ...(target !== undefined && { target }),
+    ...(crossTarget !== undefined && { target: crossTarget }),
     ...(worked !== undefined && { worked }),
     ...(output !== undefined && { output }),
     ...transcriptField(transcript),
@@ -1034,7 +1034,7 @@ async function discoveryBlockedOutcome(
   return {
     kind: "discovery-blocked",
     routing: routed.routing,
-    ...(target !== undefined && { target }),
+    ...(crossTarget !== undefined && { crossTarget }),
     tokensUsed,
     ...(transcript !== undefined && { transcript }),
     handedBack,

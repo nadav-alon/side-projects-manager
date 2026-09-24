@@ -1709,7 +1709,7 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
-        assert.equal(discoveryBlocked(report.iterations[0])?.target, undefined);
+        assert.equal(discoveryBlocked(report.iterations[0])?.crossTarget, undefined);
       });
     });
   });

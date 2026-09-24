@@ -233,7 +233,7 @@ export interface LimitRefused {
    * cut-off in `DiscoveryBlocked.cutOff`. Absent when the run filed none.
    */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`: the ticket `discoveries` landed on, present only when it differs from the ticket this iteration itself worked. */
+  /** As `DiscoveryBlocked.crossTarget`: the ticket `discoveries` landed on, present only when it differs from the ticket this iteration itself worked. */
   target?: Ticket;
 }
 
@@ -459,7 +459,7 @@ export interface Finished {
    * filed none.
    */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
+  /** As `DiscoveryBlocked.crossTarget`. */
   target?: Ticket;
 }
 
@@ -511,7 +511,7 @@ export type Failed = {
    * which this module never routes discoveries for.
    */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
+  /** As `DiscoveryBlocked.crossTarget`. */
   target?: Ticket;
 } & (
   | { failure: InfrastructureFailure }
@@ -602,7 +602,7 @@ export interface Reviewed {
   notCommented?: NotCommented;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
+  /** As `DiscoveryBlocked.crossTarget`. */
   target?: Ticket;
 }
 
@@ -665,7 +665,7 @@ export interface AppliedReview {
   notLabelled?: NotLabelled;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
+  /** As `DiscoveryBlocked.crossTarget`. */
   target?: Ticket;
 }
 
@@ -699,7 +699,7 @@ export interface Rebased {
   notClosed?: RebaseNotClosed;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
+  /** As `DiscoveryBlocked.crossTarget`. */
   target?: Ticket;
 }
 
@@ -730,7 +730,7 @@ export interface SpecReviewed {
   handedBack: HandBackRecord;
   /** As `Finished.discoveries`. */
   discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
+  /** As `DiscoveryBlocked.crossTarget`. */
   target?: Ticket;
 }
 
@@ -741,8 +741,8 @@ export interface SpecReviewed {
  * went on to commit or would otherwise have finished: no pull request opens,
  * and no review, apply-review or rebase closes. For a pull request or a spec
  * review ticket, "the run's own ticket" is the pull request or spec review
- * ticket itself — `target` names the implementation ticket or supertask its
- * discoveries landed on instead, absent for an implementation run, whose
+ * ticket itself — `crossTarget` names the implementation ticket or supertask
+ * its discoveries landed on instead, absent for an implementation run, whose
  * target is its own ticket.
  */
 export interface DiscoveryBlocked {
@@ -750,7 +750,7 @@ export interface DiscoveryBlocked {
   /** What every discovery the run filed came to, blocking and advisory alike. */
   routing: DiscoveryRouting;
   /** As `HandBackEnding`'s own `target`: present only for a pull request or a spec review ticket. */
-  target?: Ticket;
+  crossTarget?: Ticket;
   tokensUsed: TokenCount;
   transcript?: TranscriptPath;
   /** What became of the ticket's own hand-back. */
