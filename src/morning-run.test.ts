@@ -22,6 +22,7 @@ import {
   issueNumber,
   localDay,
   modelName,
+  nits as toNits,
   processId,
   pullRequestUrl,
   reserveFraction,
@@ -35,6 +36,7 @@ import {
   type ApplyReviewTicket,
   type CommitSha,
   type Discovery,
+  type Nits,
   type OpenInvocation,
   type RebaseTicket,
   type ReviewTicket,
@@ -1357,7 +1359,7 @@ describe("morningLoop", () => {
         commits?: CommitSha[];
         failure?: string;
         gist?: TicketGist;
-        nits?: string;
+        nits?: Nits;
         discoveries?: Discovery[];
         discoveriesDropped?: number;
       } = {},
@@ -1491,7 +1493,7 @@ describe("morningLoop", () => {
 
     it("is opened with the run's nits, when it left any", async () => {
       const ports = fakePorts();
-      const nits = "- the widget's name is misspelled two lines up";
+      const nits = toNits("- the widget's name is misspelled two lines up");
       const ticket = ran(ports, { nits });
 
       await morningLoop(ports);

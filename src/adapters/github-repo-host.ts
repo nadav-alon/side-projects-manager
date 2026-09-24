@@ -14,6 +14,7 @@ import type {
   IssueNumber,
   MergeStatus,
   Milliseconds,
+  Nits,
   OpenPullRequest,
   Proposal,
   PullRequestLabel,
@@ -251,7 +252,7 @@ export function githubRepoHost(
       branch: Branch,
       ticket: Ticket,
       gist?: TicketGist,
-      nits?: string,
+      nits?: Nits,
     ): Promise<DraftPullRequestOpening> {
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
@@ -841,7 +842,7 @@ export function pullRequestFrom(
  * developer makes acts on it. It stays on its own line either way: a
  * reviewing agent finds the ticket by reading for it.
  */
-function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: string): string {
+function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string {
   const body = [
     `Closes #${ticket.number}.`,
     "",

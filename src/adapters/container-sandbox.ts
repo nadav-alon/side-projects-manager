@@ -45,6 +45,7 @@ import {
   isBranch,
   isCommitSha,
   isDiscovery,
+  isNits,
   isRemoteUrl,
   isTicketGist,
   milliseconds,
@@ -56,6 +57,7 @@ import {
   transcriptDirectory,
   transcriptPath,
   type Milliseconds,
+  type Nits,
   type TicketGist,
   type TokenCount,
   type TranscriptPath,
@@ -306,7 +308,7 @@ export interface AgentRun {
    * read at the same point `gist` is — before `output` gains any diagnostics
    * appended after it — see `nitsFrom`. Absent when the agent listed none.
    */
-  nits?: string;
+  nits?: Nits;
   /**
    * Set only by `attempt`, when the container itself threw once the agent had
    * already started, rather than the agent's own exit setting `failure` the
@@ -1957,7 +1959,7 @@ function gistFrom(output: string): TicketGist | undefined {
  * Backticks are stripped from each line before the heading test, for the
  * same reason `gistFrom` strips them off its own tagged line.
  */
-function nitsFrom(output: string): string | undefined {
+function nitsFrom(output: string): Nits | undefined {
   const lines = output.trimEnd().split("\n");
   const last = (lines.at(-1) ?? "").replace(/`/g, "");
   const withoutGist = last.startsWith(TICKET_GIST_TAG) ? lines.slice(0, -1) : lines;
@@ -1967,8 +1969,8 @@ function nitsFrom(output: string): string | undefined {
   if (headingIndex === -1) {
     return undefined;
   }
-  const nits = withoutGist.slice(headingIndex + 1).join("\n").trim();
-  return nits === "" ? undefined : nits;
+  const found = withoutGist.slice(headingIndex + 1).join("\n").trim();
+  return isNits(found) ? found : undefined;
 }
 
 /**

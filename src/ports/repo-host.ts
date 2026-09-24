@@ -3,6 +3,7 @@ import type { Checkout } from "./checkout.ts";
 import { isIssueNumber, type IssueNumber } from "./issue-number.ts";
 import type { Ticket } from "./issue-tracker.ts";
 import { milliseconds, type Milliseconds } from "./milliseconds.ts";
+import type { Nits } from "./nits.ts";
 import { pullRequestLabel, type PullRequestLabel } from "./pull-request-label.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -547,7 +548,7 @@ export interface RepoHost {
     branch: Branch,
     ticket: Ticket,
     gist?: TicketGist,
-    nits?: string,
+    nits?: Nits,
   ): Promise<DraftPullRequestOpening>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.

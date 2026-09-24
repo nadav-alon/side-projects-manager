@@ -10,6 +10,7 @@ import type {
   Ticket,
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
+import type { Nits } from "./nits.ts";
 import type { TicketGist } from "./ticket-gist.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { TranscriptDirectory } from "./transcript-directory.ts";
@@ -183,7 +184,7 @@ export interface RunFinished extends Ended, Worked {
    * off its own output, absent when it gave none. Its absence never changes
    * `kind`: a run missing one is `"finished"` exactly as one that has it.
    */
-  nits?: string;
+  nits?: Nits;
 }
 
 /** As `RunFinished`, for a review: there is no branch or commits to carry. */

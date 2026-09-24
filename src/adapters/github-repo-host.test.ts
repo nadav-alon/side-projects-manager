@@ -16,6 +16,7 @@ import {
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
   NIT_SECTION_HEADING,
+  nits as toNits,
   OPEN_PULL_REQUEST_LIMIT,
   branch as toBranch,
   checkout as toCheckout,
@@ -763,7 +764,7 @@ describe("opening a draft pull request for a completed run", () => {
       toBranch(RAN),
       TICKET,
       undefined,
-      "- the widget's name is misspelled two lines up",
+      toNits("- the widget's name is misspelled two lines up"),
     );
 
     const [call] = await gh.calls();
@@ -788,7 +789,7 @@ describe("opening a draft pull request for a completed run", () => {
       toBranch(RAN),
       TICKET,
       gist,
-      "- one nit",
+      toNits("- one nit"),
     );
 
     const [call] = await gh.calls();
