@@ -107,15 +107,6 @@ export interface InvocationState {
   ticketSelected(ticket: WorkedTicket, day: Day): Promise<void>;
 
   /**
-   * Records `ticket` as worked on `day`, in memory only, carrying none of
-   * `ticketSelected`'s own save-at-once guarantee. No production caller
-   * remains — every place a ticket is recorded as worked now goes through
-   * `ticketSelected` instead — so this is a test seam only, for a test
-   * seeding a worked-today record directly.
-   */
-  recordWorked(ticket: WorkedTicket, day: Day): void;
-
-  /**
    * Takes `ticket` back off the worked-today record because the invocation
    * stopped between `ticketSelected`'s own save and the sandbox it was
    * saved ahead of — so the ticket was never actually worked, and a later
@@ -219,9 +210,8 @@ export function invocationState(
     return saved;
   };
 
-  return {
+  const state: InvocationState = {
     passesOver: (ticket) => passedOver.has(ticketKey(ticket)),
-    recordWorked: doRecord,
     selectionAbandoned: doUnrecord,
     ticketSelected: async (ticket, day) => {
       doRecord(ticket, day);
@@ -244,6 +234,39 @@ export function invocationState(
     freed: () => freed,
     save: () => doSave(buildState()),
   };
+  testRecorders.set(state, doRecord);
+  return state;
+}
+
+/**
+ * Every `InvocationState`'s own in-memory recorder, keyed by the instance
+ * `invocationState` returned it on — reached only through
+ * {@link recordWorkedForTest}, never through `InvocationState` itself.
+ */
+const testRecorders = new WeakMap<
+  InvocationState,
+  (ticket: WorkedTicket, day: Day) => void
+>();
+
+/**
+ * Records `ticket` as worked on `day` against `invocation`, in memory only,
+ * carrying none of `ticketSelected`'s own save-at-once guarantee. Test-only:
+ * `InvocationState` has no production member for this, since every real
+ * caller marks a ticket worked through `ticketSelected` instead. For a test
+ * that needs to seed a worked-today record mid-selection — where
+ * `FakeStore.markWorkedOn`, which seeds the stored document before the
+ * invocation opens, does not reach.
+ */
+export function recordWorkedForTest(
+  invocation: InvocationState,
+  ticket: WorkedTicket,
+  day: Day,
+): void {
+  const doRecord = testRecorders.get(invocation);
+  if (doRecord === undefined) {
+    throw new Error("recordWorkedForTest: invocation was not built by invocationState");
+  }
+  doRecord(ticket, day);
 }
 
 /**

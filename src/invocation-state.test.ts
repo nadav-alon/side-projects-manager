@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { invocationState, invocationStateRest } from "./invocation-state.ts";
+import {
+  invocationState,
+  invocationStateRest,
+  recordWorkedForTest,
+} from "./invocation-state.ts";
 import type { Iteration } from "./iteration-outcome.ts";
 import {
   branch,
@@ -76,7 +80,7 @@ describe("invocationState", () => {
     it("keeps passing a ticket over for the rest of the invocation once it is taken back off the record", () => {
       const invocation = invocationState({ store: new FakeStore() }, EMPTY_STATE, TODAY, noForeignFields);
 
-      invocation.recordWorked(TICKET_7, TODAY);
+      recordWorkedForTest(invocation, TICKET_7, TODAY);
       invocation.selectionAbandoned(TICKET_7);
 
       assert.equal(invocation.passesOver(TICKET_7), true);
@@ -148,7 +152,7 @@ describe("invocationState", () => {
     it("frees a ticket a cut-off run says nothing about", async () => {
       const store = new FakeStore();
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
-      invocation.recordWorked(TICKET_7, TODAY);
+      recordWorkedForTest(invocation, TICKET_7, TODAY);
       const iteration: Iteration = {
         kind: "provider-failed",
         providerFailure: "the provider is down",
@@ -204,7 +208,7 @@ describe("invocationState", () => {
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, () =>
         invocationStateRest(TODAY, salvage),
       );
-      invocation.recordWorked(TICKET_7, TODAY);
+      recordWorkedForTest(invocation, TICKET_7, TODAY);
       invocation.recordRunCost(PILOT, {
         at: new Date("2026-01-01T09:00:00.000Z"),
         tokensUsed: tokenCount(10_000),

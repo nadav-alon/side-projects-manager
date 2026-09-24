@@ -6,7 +6,11 @@ import {
   type InvocationSelection,
   type Selection,
 } from "./selection.ts";
-import { invocationState, type InvocationState } from "./invocation-state.ts";
+import {
+  invocationState,
+  recordWorkedForTest,
+  type InvocationState,
+} from "./invocation-state.ts";
 import {
   issueNumber,
   localDay,
@@ -75,7 +79,7 @@ async function drain(
       return selections;
     }
     selections.push(chosen);
-    invocation.recordWorked(chosen.ticket, today);
+    recordWorkedForTest(invocation, chosen.ticket, today);
   }
 }
 
@@ -144,7 +148,7 @@ describe("invocationSelection", () => {
     const { selection, invocation } = await open(store, tracker);
 
     const first = await selection.next();
-    invocation.recordWorked(first!.ticket, TODAY);
+    recordWorkedForTest(invocation, first!.ticket, TODAY);
     await selection.next();
 
     // Twice each: once to select PILOT's one ticket, and again once it is
@@ -163,7 +167,7 @@ describe("invocationSelection", () => {
     const { selection, invocation } = await open(store, tracker);
 
     const first = await selection.next();
-    invocation.recordWorked(first!.ticket, TODAY);
+    recordWorkedForTest(invocation, first!.ticket, TODAY);
     // Registered only after the first scan, as the developer hand-editing
     // the registry mid-morning would leave it.
     store.register(MANAGER);
@@ -205,7 +209,7 @@ describe("invocationSelection", () => {
     const { selection, invocation } = await open(store, tracker);
 
     const first = await selection.next();
-    invocation.recordWorked(first!.ticket, TODAY);
+    recordWorkedForTest(invocation, first!.ticket, TODAY);
     // A second scan of the same backlog finds nothing left to select — the
     // sticky verdict from the first scan is what must survive it.
     const second = await selection.next();
