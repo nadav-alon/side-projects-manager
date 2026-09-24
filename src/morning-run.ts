@@ -1035,8 +1035,10 @@ async function discoveryBlockedOutcome(
   });
   return {
     kind: "discovery-blocked",
-    routing: routed.routing,
-    ...(crossTarget !== undefined && { crossTarget }),
+    discoveryReport: {
+      routing: routed.routing,
+      ...(crossTarget !== undefined && { crossTarget }),
+    },
     tokensUsed,
     ...(transcript !== undefined && { transcript }),
     handedBack,

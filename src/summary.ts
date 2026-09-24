@@ -682,17 +682,13 @@ export async function composeInvocationReport(
 }
 
 /**
- * `discoveryFactsOf`'s answer: `discovery-blocked`'s own `routing` and
- * `crossTarget`, or `discoveries` for every other kind that can carry a
- * `DiscoveryReport`. `undefined` for a kind that never routes discoveries at
- * all, or one whose run filed and dropped nothing.
+ * `iteration`'s own `DiscoveryReport`, for every kind that can carry one.
+ * `undefined` for a kind that never routes discoveries at all, or one whose
+ * run filed and dropped nothing.
  */
-function discoveryFactsOf(
-  iteration: IterationOutcome,
-): DiscoveryReport | undefined {
+function discoveryReportOf(iteration: IterationOutcome): DiscoveryReport | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
-      return iteration;
     case "finished":
     case "failed":
     case "reviewed":
@@ -718,8 +714,8 @@ function discoveryFactsOf(
  */
 function discoveriesSection(iterations: IterationOutcome[]): string | undefined {
   const lines = iterations.flatMap((iteration) => {
-    const facts = discoveryFactsOf(iteration);
-    return facts === undefined ? [] : discoveryLines(iteration, facts);
+    const report = discoveryReportOf(iteration);
+    return report === undefined ? [] : discoveryLines(iteration, report);
   });
   return lines.length === 0 ? undefined : ["## Discoveries", ...lines].join("\n");
 }
@@ -1075,9 +1071,9 @@ function blockingDiscoveryClause(routing: DiscoveryRouting): string {
 function discoveryBlockedWaitingLine(iteration: {
   repo: RepoSlug;
   ticket: Ticket;
-  routing: DiscoveryRouting;
+  discoveryReport: DiscoveryReport;
 }): string {
-  const blocking = blockingDiscoveryClause(iteration.routing);
+  const blocking = blockingDiscoveryClause(iteration.discoveryReport.routing);
   return `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the ticket is the problem, not the run: it filed ${blocking}`;
 }
 
@@ -1456,7 +1452,7 @@ function describeIteration(iteration: IterationOutcome): string {
     case "finished":
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
     case "discovery-blocked": {
-      const blocking = blockingDiscoveryClause(iteration.routing);
+      const blocking = blockingDiscoveryClause(iteration.discoveryReport.routing);
       return `Worked ${iteration.repo} #${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
     }
   }

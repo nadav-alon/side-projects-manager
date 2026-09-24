@@ -321,7 +321,7 @@ function discoveryBlocked(
     repo: REPO,
     ticket: implementationTicket(number),
     kind: "discovery-blocked",
-    routing: discoveryRouting,
+    discoveryReport: { routing: discoveryRouting },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
   };
@@ -600,7 +600,7 @@ describe("waitingSection", () => {
         repo: REPO,
         ticket: implementationTicket(202),
         kind: "discovery-blocked",
-        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        discoveryReport: { routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }) },
         tokensUsed: tokenCount(500),
         handedBack: { outcome: "refused", reason: "the tracker was unreachable" },
       };
@@ -617,7 +617,7 @@ describe("waitingSection", () => {
         repo: REPO,
         ticket: implementationTicket(203),
         kind: "discovery-blocked",
-        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        discoveryReport: { routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }) },
         tokensUsed: tokenCount(500),
         handedBack: { outcome: "already-closed" },
       };

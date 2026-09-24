@@ -1710,7 +1710,7 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
-        assert.equal(discoveryBlocked(report.iterations[0])?.crossTarget, undefined);
+        assert.equal(discoveryBlocked(report.iterations[0])?.discoveryReport.crossTarget, undefined);
       });
     });
   });

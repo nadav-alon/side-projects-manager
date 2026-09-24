@@ -1,4 +1,4 @@
-import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveryReport } from "./discovery-routing.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
@@ -729,16 +729,14 @@ export interface SpecReviewed {
  * went on to commit or would otherwise have finished: no pull request opens,
  * and no review, apply-review or rebase closes. For a pull request or a spec
  * review ticket, "the run's own ticket" is the pull request or spec review
- * ticket itself — `crossTarget` names the implementation ticket or supertask
- * its discoveries landed on instead, absent for an implementation run, whose
- * target is its own ticket.
+ * ticket itself — `discoveryReport.crossTarget` names the implementation
+ * ticket or supertask its discoveries landed on instead, absent for an
+ * implementation run, whose target is its own ticket.
  */
 export interface DiscoveryBlocked {
   kind: "discovery-blocked";
-  /** What every discovery the run filed came to, blocking and advisory alike. */
-  routing: DiscoveryRouting;
-  /** As `HandBackEnding`'s own `target`: present only for a pull request or a spec review ticket. */
-  crossTarget?: Ticket;
+  /** What every discovery the run filed came to, blocking and advisory alike, and the ticket they landed on. */
+  discoveryReport: DiscoveryReport;
   tokensUsed: TokenCount;
   transcript?: TranscriptPath;
   /** What became of the ticket's own hand-back. */
