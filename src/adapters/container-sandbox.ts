@@ -1904,13 +1904,15 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
     "A nit your own change causes is fixed in that same commit, as part of",
-    "the change. Any other nit you notice is not a discovery: list it under",
-    `the heading \`${NIT_SECTION_HEADING}\` in the pull request body, so the`,
-    "reviewer sees it.",
+    "the change. Any other nit you notice is not a discovery: end your own",
+    `output with a section headed exactly \`${NIT_SECTION_HEADING}\`, listing`,
+    "each one, so the pull request opened from your output carries it for",
+    "the reviewer. Omit the section entirely if you have no such nit.",
     DISCOVERY_INSTRUCTIONS,
-    `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
-    "followed by one sentence saying what the ticket asked for — not what",
-    "your diff did; the run is complete either way.",
+    `Finally, after that section if you gave one, end your output with a line`,
+    `reading exactly \`${TICKET_GIST_TAG}\` followed by one sentence saying`,
+    "what the ticket asked for — not what your diff did; the run is complete",
+    "either way. This must be the true last line of your output.",
   ].join(" ");
 }
 
@@ -1943,18 +1945,22 @@ function gistFrom(output: string): TicketGist | undefined {
  * not fix, off its own output, absent when it gave none.
  *
  * Read from the line carrying the heading to the end of the run's text, the
- * ticket gist's own last line trimmed off first when `gistFrom` finds one
- * there — so a run that gave both never has the gist read back as a nit.
- * `gistFrom` itself reads off the unaltered `output`, so this never changes
- * what line it finds last.
+ * last line trimmed off first when it starts with `TICKET_GIST_TAG` — so a
+ * run that gave both never has the gist tag's own line read back as a nit,
+ * whether or not that line goes on to pass `isTicketGist`: an invalid gist
+ * is `gistFrom`'s to report as absent, not a nit for this function to invent
+ * out of the tag it failed to validate. Checked directly against the last
+ * line rather than through `gistFrom`, so a caller that already has the
+ * parsed gist at hand is never asked to hand it back in just to avoid a
+ * second parse.
  *
  * Backticks are stripped from each line before the heading test, for the
  * same reason `gistFrom` strips them off its own tagged line.
  */
 function nitsFrom(output: string): string | undefined {
-  const gist = gistFrom(output);
   const lines = output.trimEnd().split("\n");
-  const withoutGist = gist === undefined ? lines : lines.slice(0, -1);
+  const last = (lines.at(-1) ?? "").replace(/`/g, "");
+  const withoutGist = last.startsWith(TICKET_GIST_TAG) ? lines.slice(0, -1) : lines;
   const headingIndex = withoutGist.findIndex(
     (line) => line.trim().replace(/`/g, "") === NIT_SECTION_HEADING,
   );

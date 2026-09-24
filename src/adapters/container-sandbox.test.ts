@@ -505,8 +505,36 @@ describe("containerSandbox", () => {
     assert.match(asked, /Any other nit you notice is not a discovery/);
     assert.match(
       asked,
-      new RegExp(`${NIT_SECTION_HEADING}.*in the pull request body`),
+      new RegExp(`end your own\\s+output with a section headed exactly \`${NIT_SECTION_HEADING}\``),
     );
+    assert.match(asked, /true last line of your output/);
+    assert.ok(
+      asked.indexOf(NIT_SECTION_HEADING) < asked.indexOf(TICKET_GIST_TAG),
+      "the nits section is asked for before the closing ticket-gist line",
+    );
+  });
+
+  it("parses nits and gist off output shaped the way the prompt itself asks for", async () => {
+    const directory = await project();
+    let asked = "";
+    const output = [
+      "Implemented the thing.",
+      "",
+      NIT_SECTION_HEADING,
+      "- one nit",
+      "",
+      `${TICKET_GIST_TAG} Add the thing.`,
+    ].join("\n");
+    const sandbox = testSandbox(async (options) => {
+      asked = options.prompt;
+      return { output, tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.ok(asked.indexOf(NIT_SECTION_HEADING) < asked.indexOf(TICKET_GIST_TAG));
+    assert.equal(variant(result, "finished")?.nits, "- one nit");
+    assert.equal(variant(result, "finished")?.gist, "Add the thing.");
   });
 
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
@@ -826,6 +854,22 @@ describe("containerSandbox", () => {
 
     assert.equal(variant(result, "finished")?.nits, "- one nit");
     assert.equal(variant(result, "finished")?.gist, "Add the thing.");
+  });
+
+  it("drops the tagged last line from its nits even when the gist itself fails to validate", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        [NIT_SECTION_HEADING, "- one nit", `${TICKET_GIST_TAG}   `].join("\n"),
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, "- one nit");
+    assert.equal(variant(result, "finished")?.gist, undefined);
   });
 
   it("carries no nits on a run that gave up, even one listed like a finished run's", async () => {
