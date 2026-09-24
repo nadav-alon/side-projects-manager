@@ -3,11 +3,16 @@ import { describe, it } from "node:test";
 
 import { recentSteps } from "./transcript-steps.ts";
 
-function assistantLine(timestamp: string, content: unknown[]): string {
+function assistantLine(
+  timestamp: string,
+  content: unknown[],
+  isSidechain?: true,
+): string {
   return JSON.stringify({
     type: "assistant",
     timestamp,
     message: { role: "assistant", content },
+    ...(isSidechain !== undefined && { isSidechain }),
   });
 }
 
@@ -83,6 +88,22 @@ describe("recentSteps", () => {
     assert.deepEqual(
       recentSteps(lines, 10).map((step) => step.line),
       ["hello"],
+    );
+  });
+
+  it("skips a subagent's own turn, marked isSidechain, mixed into the main transcript", () => {
+    const lines = [
+      assistantLine("2026-09-24T09:00:00.000Z", [{ type: "text", text: "main turn" }]),
+      assistantLine(
+        "2026-09-24T09:00:30.000Z",
+        [{ type: "text", text: "subagent turn" }],
+        true,
+      ),
+    ].join("\n");
+
+    assert.deepEqual(
+      recentSteps(lines, 10).map((step) => step.line),
+      ["main turn"],
     );
   });
 

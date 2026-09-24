@@ -23,7 +23,9 @@ const LINE_LIMIT = 100;
  * an `assistant` entry, or carries no timestamp is skipped rather than
  * aborting the read — the same tolerance `parseUsageWindows` gives a session
  * log line, for the same reason: a transcript is the agent CLI's own
- * output, not a document this owns the shape of.
+ * output, not a document this owns the shape of. A line marked
+ * `isSidechain: true` is skipped too: a subagent's own turn, on CLI versions
+ * that write one into the main transcript, is not a step of the run itself.
  */
 export function recentSteps(content: string, limit: number): TranscriptStep[] {
   const steps = content.split("\n").flatMap(parseTranscriptLine);
@@ -46,7 +48,7 @@ function parseTranscriptLine(line: string): TranscriptStep[] {
     return [];
   }
   const record = parsed as Record<string, unknown>;
-  if (record.type !== "assistant") {
+  if (record.type !== "assistant" || record.isSidechain === true) {
     return [];
   }
 
