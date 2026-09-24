@@ -689,7 +689,7 @@ describe("discoveriesSection", () => {
     assert.doesNotMatch(body, /## Discoveries/);
   });
 
-  it("lists a filed clarification or correction with the ticket it commented on", () => {
+  it("lists a filed clarification with the ticket it commented on", () => {
     const lines = discoveriesLines([
       finishedWithDiscoveries(
         222,
