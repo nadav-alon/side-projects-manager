@@ -93,6 +93,7 @@ import {
   blockingDiscoveriesOf,
   hasBlockingDiscovery,
   routeRunDiscoveries,
+  type DiscoveryReport,
   type RoutedDiscoveries,
 } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
@@ -775,11 +776,10 @@ async function work(
 }
 
 /**
- * `iteration`, with `routed`'s own routing — and, when it names one, the
- * ticket its discoveries landed on — attached. Unchanged when there was
- * nothing to route.
+ * `iteration`, with `routed`'s own routing and cross-target attached.
+ * Unchanged when there was nothing to route.
  */
-function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"]; target?: Ticket }>(
+function withDiscoveries<T extends { discoveryReport?: DiscoveryReport }>(
   iteration: T,
   routed: RoutedDiscoveries | undefined,
 ): T {
@@ -788,8 +788,10 @@ function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"];
   }
   return {
     ...iteration,
-    discoveries: routed.routing,
-    ...(routed.crossTarget !== undefined && { target: routed.crossTarget }),
+    discoveryReport: {
+      routing: routed.routing,
+      ...(routed.crossTarget !== undefined && { crossTarget: routed.crossTarget }),
+    },
   };
 }
 
@@ -1019,19 +1021,21 @@ async function discoveryBlockedOutcome(
   cutOff?: DiscoveryBlockedCutOff,
   output?: string,
 ): Promise<DiscoveryBlocked> {
-  const { crossTarget: target } = routed;
+  const { crossTarget } = routed;
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
     discoveries: blockingDiscoveriesOf(routed.discoveries),
-    ...(target !== undefined && { target }),
+    ...(crossTarget !== undefined && { target: crossTarget }),
     ...(worked !== undefined && { worked }),
     ...(output !== undefined && { output }),
     ...transcriptField(transcript),
   });
   return {
     kind: "discovery-blocked",
-    routing: routed.routing,
-    ...(target !== undefined && { target }),
+    discoveryReport: {
+      routing: routed.routing,
+      ...(crossTarget !== undefined && { crossTarget }),
+    },
     tokensUsed,
     ...(transcript !== undefined && { transcript }),
     handedBack,

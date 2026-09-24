@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
-import type { DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard } from "./hand-back.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import type {
@@ -78,7 +78,7 @@ function limitRefused(number: number, discard: Discard): IterationOutcome {
 function limitRefusedWithDiscoveries(number: number, discoveryRouting: DiscoveryRouting): IterationOutcome {
   return {
     ...(limitRefused(number, { kind: "none" }) as Extract<IterationOutcome, { kind: "limit-refused" }>),
-    discoveries: discoveryRouting,
+    discoveryReport: { routing: discoveryRouting },
   };
 }
 
@@ -312,6 +312,11 @@ function routing(overrides: Partial<DiscoveryRouting> = {}): DiscoveryRouting {
   };
 }
 
+/** A `DiscoveryReport` for `discoveryRouting`, landing on `crossTarget` when given one. */
+function discoveryReport(discoveryRouting: DiscoveryRouting, crossTarget?: Ticket): DiscoveryReport {
+  return { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) };
+}
+
 /** An implementation ticket's own run handed back for a blocking discovery carried by `discoveryRouting`. */
 function discoveryBlocked(
   number: number,
@@ -321,7 +326,7 @@ function discoveryBlocked(
     repo: REPO,
     ticket: implementationTicket(number),
     kind: "discovery-blocked",
-    routing: discoveryRouting,
+    discoveryReport: { routing: discoveryRouting },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
   };
@@ -367,19 +372,18 @@ function specReviewedAlreadyClosed(number: number): IterationOutcome {
   };
 }
 
-/** A spec review ticket's own run that finished and was handed back, having filed `discoveryRouting` landing on `target`. */
+/** A spec review ticket's own run that finished and was handed back, having filed `discoveryRouting` landing on `crossTarget`. */
 function specReviewedWithDiscoveries(
   number: number,
   discoveryRouting: DiscoveryRouting,
-  target?: Ticket,
+  crossTarget?: Ticket,
 ): IterationOutcome {
   const specReviewed: SpecReviewed = {
     kind: "spec-reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
-    discoveries: discoveryRouting,
-    ...(target !== undefined && { target }),
+    discoveryReport: discoveryReport(discoveryRouting, crossTarget),
   };
   return { repo: REPO, ticket: specReviewTicket(number), ...specReviewed };
 }
@@ -426,33 +430,31 @@ function discoveriesLines(iterations: IterationOutcome[]): string[] {
   return sectionLines(iterations, "## Discoveries");
 }
 
-/** A finished run that filed `discoveryRouting`, landing on `target` when given one. */
+/** A finished run that filed `discoveryRouting`, landing on `crossTarget` when given one. */
 function finishedWithDiscoveries(
   number: number,
   discoveryRouting: DiscoveryRouting,
-  target?: Ticket,
+  crossTarget?: Ticket,
 ): IterationOutcome {
   return {
     repo: REPO,
     ticket: implementationTicket(number),
     ...finishedRun(500, "agent/900"),
-    discoveries: discoveryRouting,
-    ...(target !== undefined && { target }),
+    discoveryReport: discoveryReport(discoveryRouting, crossTarget),
   };
 }
 
-/** A review ticket's own run that closed cleanly, but had filed `discoveryRouting` landing on `target`. */
+/** A review ticket's own run that closed cleanly, but had filed `discoveryRouting` landing on `crossTarget`. */
 function reviewedWithDiscoveries(
   number: number,
   discoveryRouting: DiscoveryRouting,
-  target?: Ticket,
+  crossTarget?: Ticket,
 ): IterationOutcome {
   const reviewed: Reviewed = {
     kind: "reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
-    discoveries: discoveryRouting,
-    ...(target !== undefined && { target }),
+    discoveryReport: discoveryReport(discoveryRouting, crossTarget),
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
@@ -603,7 +605,7 @@ describe("waitingSection", () => {
         repo: REPO,
         ticket: implementationTicket(202),
         kind: "discovery-blocked",
-        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        discoveryReport: { routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }) },
         tokensUsed: tokenCount(500),
         handedBack: { outcome: "refused", reason: "the tracker was unreachable" },
       };
@@ -620,7 +622,7 @@ describe("waitingSection", () => {
         repo: REPO,
         ticket: implementationTicket(203),
         kind: "discovery-blocked",
-        routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        discoveryReport: { routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }) },
         tokensUsed: tokenCount(500),
         handedBack: { outcome: "already-closed" },
       };

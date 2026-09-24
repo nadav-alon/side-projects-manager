@@ -1,4 +1,4 @@
-import type { DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveryReport } from "./discovery-routing.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
@@ -227,14 +227,14 @@ export interface LimitRefused {
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
   /**
-   * What a cut-off run's own discoveries came to, per CONTEXT.md's
-   * "Discovery" — always advisory here, since a correction or a prerequisite
-   * would have made this a `DiscoveryBlocked` iteration instead, carrying its
-   * cut-off in `DiscoveryBlocked.cutOff`. Absent when the run filed none.
+   * What a cut-off run's own discoveries came to, and the ticket they landed
+   * on when it differs from the one this iteration itself worked, per
+   * CONTEXT.md's "Discovery" — always advisory here, since a correction or a
+   * prerequisite would have made this a `DiscoveryBlocked` iteration instead,
+   * carrying its cut-off in `DiscoveryBlocked.cutOff`. Absent when the run
+   * filed none.
    */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`: the ticket `discoveries` landed on, present only when it differs from the ticket this iteration itself worked. */
-  target?: Ticket;
+  discoveryReport?: DiscoveryReport;
 }
 
 /**
@@ -267,10 +267,8 @@ export interface ProviderFailed {
   transcript?: TranscriptPath;
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
-  /** As `LimitRefused.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `LimitRefused.target`. */
-  target?: Ticket;
+  /** As `LimitRefused.discoveryReport`. */
+  discoveryReport?: DiscoveryReport;
 }
 
 /**
@@ -453,14 +451,13 @@ export interface Finished {
    */
   handedBack: HandBackRecord;
   /**
-   * What the run's own discoveries came to, per CONTEXT.md's "Discovery" —
-   * always advisory here, since a correction or a prerequisite would have
-   * made this a `DiscoveryBlocked` iteration instead. Absent when the run
-   * filed none.
+   * What the run's own discoveries came to, and the ticket they landed on
+   * when it differs from the one this iteration itself worked, per
+   * CONTEXT.md's "Discovery" — always advisory here, since a correction or a
+   * prerequisite would have made this a `DiscoveryBlocked` iteration instead.
+   * Absent when the run filed none.
    */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
-  target?: Ticket;
+  discoveryReport?: DiscoveryReport;
 }
 
 /**
@@ -504,15 +501,14 @@ export type Failed = {
    */
   transcript?: TranscriptPath;
   /**
-   * What a gave-up run's own discoveries came to, per CONTEXT.md's
-   * "Discovery" — always advisory here, since a correction or a prerequisite
-   * would have made this a `DiscoveryBlocked` iteration instead. Absent when
-   * the run filed none, and always absent for an infrastructure failure,
-   * which this module never routes discoveries for.
+   * What a gave-up run's own discoveries came to, and the ticket they landed
+   * on when it differs from the one this iteration itself worked, per
+   * CONTEXT.md's "Discovery" — always advisory here, since a correction or a
+   * prerequisite would have made this a `DiscoveryBlocked` iteration instead.
+   * Absent when the run filed none, and always absent for an infrastructure
+   * failure, which this module never routes discoveries for.
    */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
-  target?: Ticket;
+  discoveryReport?: DiscoveryReport;
 } & (
   | { failure: InfrastructureFailure }
   /** What became of the ticket's own hand-back. */
@@ -600,10 +596,8 @@ export interface Reviewed {
    * that is not turbo and for one whose comment posted fine.
    */
   notCommented?: NotCommented;
-  /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
-  target?: Ticket;
+  /** As `Finished.discoveryReport`. */
+  discoveryReport?: DiscoveryReport;
 }
 
 /**
@@ -663,10 +657,8 @@ export interface AppliedReview {
    * once the ticket is already closed, and reported rather than retried.
    */
   notLabelled?: NotLabelled;
-  /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
-  target?: Ticket;
+  /** As `Finished.discoveryReport`. */
+  discoveryReport?: DiscoveryReport;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
@@ -697,10 +689,8 @@ export interface Rebased {
    * ready-for-agent.
    */
   notClosed?: RebaseNotClosed;
-  /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
-  target?: Ticket;
+  /** As `Finished.discoveryReport`. */
+  discoveryReport?: DiscoveryReport;
 }
 
 /** Why a rebase iteration left its ticket open, and the error that stopped it. */
@@ -728,10 +718,8 @@ export interface SpecReviewed {
   tokensUsed: TokenCount;
   /** What became of the ticket's own hand-back. */
   handedBack: HandBackRecord;
-  /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.target`. */
-  target?: Ticket;
+  /** As `Finished.discoveryReport`. */
+  discoveryReport?: DiscoveryReport;
 }
 
 /**
@@ -741,16 +729,14 @@ export interface SpecReviewed {
  * went on to commit or would otherwise have finished: no pull request opens,
  * and no review, apply-review or rebase closes. For a pull request or a spec
  * review ticket, "the run's own ticket" is the pull request or spec review
- * ticket itself — `target` names the implementation ticket or supertask its
- * discoveries landed on instead, absent for an implementation run, whose
- * target is its own ticket.
+ * ticket itself — `discoveryReport.crossTarget` names the implementation
+ * ticket or supertask its discoveries landed on instead, absent for an
+ * implementation run, whose target is its own ticket.
  */
 export interface DiscoveryBlocked {
   kind: "discovery-blocked";
-  /** What every discovery the run filed came to, blocking and advisory alike. */
-  routing: DiscoveryRouting;
-  /** As `HandBackEnding`'s own `target`: present only for a pull request or a spec review ticket. */
-  target?: Ticket;
+  /** What every discovery the run filed came to, blocking and advisory alike, and the ticket they landed on. */
+  discoveryReport: DiscoveryReport;
   tokensUsed: TokenCount;
   transcript?: TranscriptPath;
   /** What became of the ticket's own hand-back. */
