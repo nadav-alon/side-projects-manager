@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
-import type { DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard } from "./hand-back.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import type {
@@ -312,6 +312,11 @@ function routing(overrides: Partial<DiscoveryRouting> = {}): DiscoveryRouting {
   };
 }
 
+/** A `DiscoveryReport` for `discoveryRouting`, landing on `crossTarget` when given one. */
+function discoveryReport(discoveryRouting: DiscoveryRouting, crossTarget?: Ticket): DiscoveryReport {
+  return { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) };
+}
+
 /** An implementation ticket's own run handed back for a blocking discovery carried by `discoveryRouting`. */
 function discoveryBlocked(
   number: number,
@@ -378,7 +383,7 @@ function specReviewedWithDiscoveries(
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
-    discoveryReport: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
+    discoveryReport: discoveryReport(discoveryRouting, crossTarget),
   };
   return { repo: REPO, ticket: specReviewTicket(number), ...specReviewed };
 }
@@ -435,7 +440,7 @@ function finishedWithDiscoveries(
     repo: REPO,
     ticket: implementationTicket(number),
     ...finishedRun(500, "agent/900"),
-    discoveryReport: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
+    discoveryReport: discoveryReport(discoveryRouting, crossTarget),
   };
 }
 
@@ -449,7 +454,7 @@ function reviewedWithDiscoveries(
     kind: "reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
-    discoveryReport: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
+    discoveryReport: discoveryReport(discoveryRouting, crossTarget),
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
