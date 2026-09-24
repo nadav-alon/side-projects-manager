@@ -17,8 +17,8 @@ import type {
  * One run an in-flight invocation has going, as `status` reads it: what the
  * manager itself recorded when it started the run, and its agent's own
  * recent steps, already read off its transcript by the caller — `undefined`
- * when that transcript could not be read yet, per `RunInProgress`'s own
- * CONTEXT.md entry.
+ * when that transcript could not be read yet, per `readTranscriptTail`'s own
+ * contract.
  */
 export interface StatusRun {
   run: RunInProgress;
@@ -237,7 +237,7 @@ function inFlightCallouts(records: readonly StatusRecord[], now: Date): string[]
       record.alive
         ? `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} is still running. Watch trigger.log, or check on process ${record.process} — and kill it if it's wedged.`
         : `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} has died without closing its record. Check trigger.log for what it last did, then re-run the loop by hand.`,
-      ...record.runs.flatMap((run) => runLines(run, now)),
+      ...record.runs.flatMap((run) => runLines(run, now, record.alive)),
     ]);
 }
 
@@ -253,9 +253,16 @@ export const RECENT_STEPS_SHOWN = 10;
  * followed by its agent's recent steps, oldest first, or a line saying its
  * transcript could not be read yet when `steps` is `undefined`: not started,
  * or already cleaned up.
+ *
+ * `alive` is the record's own, not the run's: a run still on a record whose
+ * process has died is not in progress the way the ticket means it, so its
+ * line says it was running when the invocation died rather than claiming it
+ * still is.
  */
-function runLines({ run, steps }: StatusRun, now: Date): string[] {
-  const header = `  Running: ${run.kind} ${run.repo} #${run.number}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`;
+function runLines({ run, steps }: StatusRun, now: Date, alive: boolean): string[] {
+  const header = alive
+    ? `  Running: ${run.kind} ${run.repo} #${run.number}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`
+    : `  Was running when the invocation died: ${run.kind} ${run.repo} #${run.number}, started ${localTimeOfMinute(run.startedAt)}, had been running for ${elapsedSince(run.startedAt, now)}.`;
   if (steps === undefined) {
     return [header, "    Transcript not readable yet."];
   }

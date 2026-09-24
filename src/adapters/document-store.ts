@@ -160,6 +160,10 @@ export function documentStore(home: string = MANAGER_HOME): Store {
           `${journalFile}: the invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process} is already closed.`,
         );
       }
+      // A run left on the record this late means its own clear never landed
+      // — closing carries the record past caring, so it goes with it rather
+      // than sitting stale on a record `status` no longer reads runs from.
+      delete record.runs;
       Object.assign(record, closing);
       await writeJournal(home, journalFile, journal);
     },

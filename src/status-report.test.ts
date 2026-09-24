@@ -358,6 +358,17 @@ describe("statusReport's run-in-progress lines", () => {
 
     assert.match(lines.join("\n"), /Transcript not readable yet/);
   });
+
+  it("says a run was running when the invocation died, rather than that it still is", () => {
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", false, [{ run: RUN, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(text, /Was running when the invocation died: implementation nadav-alon\/pilot #7/);
+    assert.doesNotMatch(text, /\n {2}Running: /);
+  });
 });
 
 describe("statusReport's trigger lines", () => {

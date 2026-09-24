@@ -184,6 +184,7 @@ export class FakeStore implements Store {
         `the invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process} is already closed`,
       );
     }
+    delete record.runs;
     Object.assign(record, {
       closedAt: closing.closedAt,
       outcome: closing.outcome,

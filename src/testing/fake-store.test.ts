@@ -127,6 +127,29 @@ describe("FakeStore journal", () => {
     );
   });
 
+  it("clears a run left on the record when the invocation closes, rather than leaving it stale", async () => {
+    const store = new FakeStore();
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: OPENED_AT,
+      transcriptDirectory: transcriptDirectory("/home/dev/transcripts/review-abc"),
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "invocation-failed",
+      projects: [],
+    });
+
+    assert.equal((await store.loadJournal()).records[0]?.runs, undefined);
+  });
+
   it("adds and clears a run in progress on the open record", async () => {
     const store = new FakeStore();
     const opened = await store.openInvocation({

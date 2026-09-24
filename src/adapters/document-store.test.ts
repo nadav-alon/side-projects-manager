@@ -1545,6 +1545,27 @@ describe("runs in progress on the journal document", () => {
     assert.equal(record?.runs, undefined);
   });
 
+  it("clears a run left on the record when the invocation closes, rather than leaving it stale", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: STARTED_AT,
+      outcome: "invocation-failed",
+      projects: [],
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(record?.runs, undefined);
+  });
+
   it("does nothing clearing a run that was never recorded", async () => {
     const store = documentStore(await home());
     const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
