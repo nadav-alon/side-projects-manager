@@ -3,10 +3,12 @@ import { describe, it } from "node:test";
 
 import {
   exitCode,
+  issueNumber,
   modelName,
   processId,
   repoSlug,
   tokenCount,
+  transcriptDirectory,
 } from "../ports/index.ts";
 import { FakeStore } from "./fake-store.ts";
 
@@ -122,6 +124,68 @@ describe("FakeStore journal", () => {
         projects: [],
       }),
       /already closed/,
+    );
+  });
+
+  it("clears a run left on the record when the invocation closes, rather than leaving it stale", async () => {
+    const store = new FakeStore();
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: OPENED_AT,
+      transcriptDirectory: transcriptDirectory("/home/dev/transcripts/review-abc"),
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: CLOSED_AT,
+      outcome: "invocation-failed",
+      projects: [],
+    });
+
+    assert.equal((await store.loadJournal()).records[0]?.runs, undefined);
+  });
+
+  it("adds and clears a run in progress on the open record", async () => {
+    const store = new FakeStore();
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    const run = {
+      kind: "review" as const,
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: OPENED_AT,
+      transcriptDirectory: transcriptDirectory("/home/dev/transcripts/review-abc"),
+    };
+
+    await store.recordRunStarted(opened, run);
+    assert.deepEqual((await store.loadJournal()).records[0]?.runs, [run]);
+
+    await store.recordRunEnded(opened, PILOT, issueNumber(7));
+    assert.deepEqual((await store.loadJournal()).records[0]?.runs, []);
+  });
+
+  it("rejects starting a run against an invocation that was never opened", async () => {
+    const store = new FakeStore();
+
+    await assert.rejects(
+      store.recordRunStarted(
+        { openedAt: OPENED_AT, process: PROCESS },
+        {
+          kind: "review",
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: OPENED_AT,
+          transcriptDirectory: transcriptDirectory("/home/dev/transcripts/review-abc"),
+        },
+      ),
+      /no invocation record opened/,
     );
   });
 

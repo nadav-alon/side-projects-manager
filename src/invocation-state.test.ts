@@ -10,6 +10,7 @@ import {
   processId,
   repoSlug,
   tokenCount,
+  transcriptDirectory,
   type InvocationRecord,
   type Journal,
   type OpenInvocation,
@@ -146,6 +147,53 @@ describe("invocationState", () => {
       invocation.recordRunCost(PILOT, { at, tokensUsed: tokenCount(70_000) });
 
       assert.equal(invocation.projectStates().get(PILOT)?.runs.length, 2);
+    });
+  });
+
+  describe("recordRunStarted and recordRunEnded", () => {
+    const RUN = {
+      kind: "review" as const,
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: new Date("2026-01-01T09:00:00.000Z"),
+      transcriptDirectory: transcriptDirectory(
+        "/home/dev/side-projects-manager/transcripts/review-abc",
+      ),
+    };
+
+    it("records a run against this invocation's own journal record", async () => {
+      const store = new FakeStore();
+      await store.openInvocation(SELF);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields, {
+        self: SELF,
+      });
+
+      await invocation.recordRunStarted(RUN);
+
+      assert.deepEqual((await store.loadJournal()).records[0]?.runs, [RUN]);
+    });
+
+    it("clears a run once it ends", async () => {
+      const store = new FakeStore();
+      await store.openInvocation(SELF);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields, {
+        self: SELF,
+      });
+      await invocation.recordRunStarted(RUN);
+
+      await invocation.recordRunEnded(RUN.repo, RUN.number);
+
+      assert.deepEqual((await store.loadJournal()).records[0]?.runs, []);
+    });
+
+    it("does nothing when this invocation has no journal identity", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+
+      await invocation.recordRunStarted(RUN);
+      await invocation.recordRunEnded(RUN.repo, RUN.number);
+
+      assert.deepEqual((await store.loadJournal()).records, []);
     });
   });
 

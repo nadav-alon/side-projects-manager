@@ -60,6 +60,7 @@ export {
   isReviewTicket,
   isSpecReviewTicket,
   isSupertask,
+  isTicketKind,
   modelLabelOf,
   openRebaseTicketFor,
   reviewTitle,
@@ -106,6 +107,7 @@ export type {
   JournaledProject,
   JournaledSummaryFailure,
   OpenInvocation,
+  RunInProgress,
 } from "./journal.ts";
 export { isMilliseconds, milliseconds } from "./milliseconds.ts";
 export type { Milliseconds } from "./milliseconds.ts";
@@ -183,6 +185,7 @@ export type {
   ApplyReviewOutcome,
   ApplyReviewRequest,
   ModelRefusal,
+  OnRunStarted,
   RebaseFinished,
   RebaseGaveUp,
   RebaseOutcome,
@@ -204,6 +207,7 @@ export type {
   RunProviderFailed,
   RunRequest,
   RunSandboxFailed,
+  RunStarted,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,

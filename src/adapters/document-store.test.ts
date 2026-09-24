@@ -18,6 +18,7 @@ import {
   processId,
   repoSlug,
   tokenCount,
+  transcriptDirectory,
 } from "../ports/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -1436,6 +1437,189 @@ describe("the journal document", () => {
               closedAt: CLOSED_AT.toISOString(),
               outcome: "dry-queue",
               projects: [],
+            },
+          ],
+        },
+        undefined,
+        2,
+      )}\n`,
+    );
+  });
+});
+
+describe("runs in progress on the journal document", () => {
+  const OPENED_AT = new Date("2026-01-01T06:00:00.000Z");
+  const STARTED_AT = new Date("2026-01-01T06:05:00.000Z");
+  const PROCESS = processId(4242);
+  const TRANSCRIPT = transcriptDirectory("/home/dev/side-projects-manager/transcripts/review-abc123");
+
+  it("adds a run to the invocation's own open record", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+
+    assert.deepEqual(await store.loadJournal(), {
+      records: [
+        {
+          openedAt: OPENED_AT,
+          process: PROCESS,
+          runs: [
+            {
+              kind: "review",
+              repo: PILOT,
+              number: issueNumber(7),
+              startedAt: STARTED_AT,
+              transcriptDirectory: TRANSCRIPT,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("keeps every run going at once, in the order they started", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+    await store.recordRunStarted(opened, {
+      kind: "rebase",
+      repo: MANAGER,
+      number: issueNumber(9),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.deepEqual(
+      record?.runs?.map((run) => run.number),
+      [issueNumber(7), issueNumber(9)],
+    );
+  });
+
+  it("rejects starting a run against an invocation that was never opened", async () => {
+    const store = documentStore(await home());
+
+    await assert.rejects(
+      store.recordRunStarted(
+        { openedAt: OPENED_AT, process: PROCESS },
+        {
+          kind: "review",
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: STARTED_AT,
+          transcriptDirectory: TRANSCRIPT,
+        },
+      ),
+      /no invocation record opened/,
+    );
+  });
+
+  it("clears a run once it ends", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+
+    await store.recordRunEnded(opened, PILOT, issueNumber(7));
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(record?.runs, undefined);
+  });
+
+  it("clears a run left on the record when the invocation closes, rather than leaving it stale", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+
+    await store.closeInvocation(opened, {
+      closedAt: STARTED_AT,
+      outcome: "invocation-failed",
+      projects: [],
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(record?.runs, undefined);
+  });
+
+  it("does nothing clearing a run that was never recorded", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+
+    await store.recordRunEnded(opened, PILOT, issueNumber(7));
+
+    assert.deepEqual((await store.loadJournal()).records, [
+      { openedAt: OPENED_AT, process: PROCESS },
+    ]);
+  });
+
+  it("loads an existing journal with no runs field the same as one with none going", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [{ openedAt: OPENED_AT.toISOString(), process: 4242 }],
+        }),
+      }),
+    );
+
+    const [record] = (await store.loadJournal()).records;
+    assert.equal(record?.runs, undefined);
+  });
+
+  it("writes a document a developer can read in a diff, runs included", async () => {
+    const directory = await home();
+    const store = documentStore(directory);
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+
+    const written = await readFile(path.join(directory, "journal.json"), "utf8");
+    assert.equal(
+      written,
+      `${JSON.stringify(
+        {
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              runs: [
+                {
+                  kind: "review",
+                  repo: PILOT,
+                  number: 7,
+                  startedAt: STARTED_AT.toISOString(),
+                  transcriptDirectory: TRANSCRIPT,
+                },
+              ],
             },
           ],
         },

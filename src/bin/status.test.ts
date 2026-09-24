@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
@@ -109,6 +109,70 @@ describe("the status command", () => {
     const { stdout } = await run(home);
 
     assert.match(stdout, /is still running/);
+  });
+
+  it("names a run in progress and its agent's recent steps, read off its own transcript", async () => {
+    const home = await tempHome("status-bin");
+    const transcriptDirectory = await tempHome("status-bin-transcript");
+    const projectDir = path.join(transcriptDirectory, "pilot");
+    await mkdir(projectDir);
+    await writeFile(
+      path.join(projectDir, "session.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        message: { role: "assistant", content: [{ type: "text", text: "Reading the ticket." }] },
+      })}\n`,
+    );
+    await writeJournal(home, {
+      records: [
+        {
+          openedAt: new Date().toISOString(),
+          process: process.pid,
+          runs: [
+            {
+              kind: "implementation",
+              repo: "nadav-alon/pilot",
+              number: 7,
+              startedAt: new Date().toISOString(),
+              transcriptDirectory,
+            },
+          ],
+        },
+      ],
+    });
+
+    const { stdout } = await run(home);
+
+    assert.match(stdout, /implementation nadav-alon\/pilot #7/);
+    assert.match(stdout, /Reading the ticket\./);
+  });
+
+  it("says a run's transcript is not readable yet, instead of failing, when its directory holds none", async () => {
+    const home = await tempHome("status-bin");
+    const transcriptDirectory = await tempHome("status-bin-transcript");
+    await writeJournal(home, {
+      records: [
+        {
+          openedAt: new Date().toISOString(),
+          process: process.pid,
+          runs: [
+            {
+              kind: "review",
+              repo: "nadav-alon/pilot",
+              number: 9,
+              startedAt: new Date().toISOString(),
+              transcriptDirectory,
+            },
+          ],
+        },
+      ],
+    });
+
+    const { stdout, stderr } = await run(home);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /Transcript not readable yet/);
   });
 
   it("writes nothing back to the manager home, and creates no file there", async () => {

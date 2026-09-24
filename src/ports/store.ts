@@ -2,7 +2,12 @@ import type { Branch } from "./branch.ts";
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
-import type { InvocationClosing, Journal, OpenInvocation } from "./journal.ts";
+import type {
+  InvocationClosing,
+  Journal,
+  OpenInvocation,
+  RunInProgress,
+} from "./journal.ts";
 import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
@@ -313,6 +318,29 @@ export interface Store {
    * state document.
    */
   loadJournal(): Promise<Journal>;
+  /**
+   * Adds `run` to the invocation record `opened` identifies — CONTEXT.md's
+   * "Run in progress", the moment the manager starts it.
+   *
+   * An error when no such record is open, as `closeInvocation`'s is: an
+   * invocation always opens its own record before it can start a run, so
+   * finding none open is a bug worth failing loudly on rather than a run
+   * silently going unrecorded.
+   */
+  recordRunStarted(opened: OpenInvocation, run: RunInProgress): Promise<void>;
+  /**
+   * Removes the run against `repo` and `number` from the invocation record
+   * `opened` identifies, whatever it came to.
+   *
+   * Not an error when no such run is found — the record already closed, or
+   * never carried it: the run is over either way, so there is nothing left
+   * to clear.
+   */
+  recordRunEnded(
+    opened: OpenInvocation,
+    repo: RepoSlug,
+    number: IssueNumber,
+  ): Promise<void>;
   /**
    * Writes a summary that could not be published into the manager home as a
    * readable document, named for when the invocation that composed it

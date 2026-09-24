@@ -1,10 +1,12 @@
 import type {
   Day,
+  IssueNumber,
   Journal,
   OpenInvocation,
   ProjectState,
   RepoSlug,
   RunCost,
+  RunInProgress,
   State,
   Store,
   WorkedTicket,
@@ -44,9 +46,12 @@ export interface FreedWorkedTicket {
   invocation: OpenInvocation;
 }
 
-/** The one port an invocation's state needs: writing the whole state document back. */
+/**
+ * The ports an invocation's state needs: writing the whole state document
+ * back, and recording its own runs in progress on the journal.
+ */
 export interface InvocationStatePorts {
-  store: Pick<Store, "saveState">;
+  store: Pick<Store, "saveState" | "recordRunStarted" | "recordRunEnded">;
 }
 
 /**
@@ -123,6 +128,21 @@ export interface InvocationState {
 
   /** Records a finished run's cost against `repo`'s project. */
   recordRunCost(repo: RepoSlug, cost: RunCost): void;
+
+  /**
+   * Adds `run` to this invocation's own record on the journal — CONTEXT.md's
+   * "Run in progress", the moment the manager starts it. Does nothing when
+   * this invocation has no journal identity to record it against, same as a
+   * test that builds an `InvocationState` directly.
+   */
+  recordRunStarted(run: RunInProgress): Promise<void>;
+
+  /**
+   * Clears the run against `repo` and `number` from this invocation's own
+   * record on the journal, whatever it came to. Does nothing when this
+   * invocation has no journal identity, same as `recordRunStarted`.
+   */
+  recordRunEnded(repo: RepoSlug, number: IssueNumber): Promise<void>;
 
   /**
    * Every project's recorded runs, live — the budget gate's own view of what
@@ -219,6 +239,17 @@ export function invocationState(
     return saved;
   };
 
+  // A queue of its own, separate from `queued`: the journal is a different
+  // document from the state, written by a different pair of calls, and two
+  // runs starting or ending at once must still land as a read, modify and
+  // write apiece rather than racing each other over the same record.
+  let queuedRuns: Promise<unknown> = Promise.resolve();
+  const queueRunWrite = (write: () => Promise<void>): Promise<void> => {
+    const done = queuedRuns.then(write, write);
+    queuedRuns = done.catch(() => {});
+    return done;
+  };
+
   const state: InvocationState = {
     passesOver: (ticket) => passedOver.has(ticketKey(ticket)),
     selectionAbandoned: doUnrecord,
@@ -233,6 +264,18 @@ export function invocationState(
     },
     recordRunCost: (repo, cost) => {
       projects.set(repo, recordRun(projects.get(repo), cost));
+    },
+    recordRunStarted: (run) => {
+      if (current === undefined) {
+        return Promise.resolve();
+      }
+      return queueRunWrite(() => ports.store.recordRunStarted(current.self, run));
+    },
+    recordRunEnded: (repo, number) => {
+      if (current === undefined) {
+        return Promise.resolve();
+      }
+      return queueRunWrite(() => ports.store.recordRunEnded(current.self, repo, number));
     },
     iterationEnded: (ticket, iteration) => {
       if (freesTicketToday(iteration)) {

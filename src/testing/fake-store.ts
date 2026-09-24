@@ -4,6 +4,7 @@ import type {
   Day,
   InvocationClosing,
   InvocationRecord,
+  IssueNumber,
   Journal,
   KeptSummaryPath,
   ModelDefaults,
@@ -13,6 +14,7 @@ import type {
   RegisteredProject,
   RepoSlug,
   RunCost,
+  RunInProgress,
   Salvage,
   State,
   Store,
@@ -182,6 +184,7 @@ export class FakeStore implements Store {
         `the invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process} is already closed`,
       );
     }
+    delete record.runs;
     Object.assign(record, {
       closedAt: closing.closedAt,
       outcome: closing.outcome,
@@ -203,6 +206,7 @@ export class FakeStore implements Store {
     return {
       records: this.#journal.map((record) => ({
         ...record,
+        ...(record.runs !== undefined && { runs: [...record.runs] }),
         ...(record.projects !== undefined && {
           projects: [...record.projects],
         }),
@@ -211,6 +215,33 @@ export class FakeStore implements Store {
         }),
       })),
     };
+  }
+
+  async recordRunStarted(
+    opened: OpenInvocation,
+    run: RunInProgress,
+  ): Promise<void> {
+    const record = findInvocationRecord(this.#journal, opened);
+    if (record === undefined) {
+      throw new Error(
+        `no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}`,
+      );
+    }
+    record.runs = [...(record.runs ?? []), run];
+  }
+
+  async recordRunEnded(
+    opened: OpenInvocation,
+    repo: RepoSlug,
+    number: IssueNumber,
+  ): Promise<void> {
+    const record = findInvocationRecord(this.#journal, opened);
+    if (record === undefined || record.runs === undefined) {
+      return;
+    }
+    record.runs = record.runs.filter(
+      (run) => run.repo !== repo || run.number !== number,
+    );
   }
 
   async keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath> {

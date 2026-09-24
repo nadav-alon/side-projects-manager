@@ -615,6 +615,11 @@ export const TICKET_KINDS = [
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
+/** Whether `value` is one of the five ticket kinds. */
+export function isTicketKind(value: string): value is TicketKind {
+  return (TICKET_KINDS as readonly string[]).includes(value);
+}
+
 /**
  * Which kind `ticket` is, decided in order: its pull request binding's kind,
  * else a spec review where it carries the spec review label, else an

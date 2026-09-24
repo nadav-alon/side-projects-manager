@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
@@ -26,7 +27,9 @@ import {
   reserveFraction,
   reviewTitle,
   ticketGist,
+  ticketKey,
   tokenCount,
+  transcriptDirectory,
   transcriptPath,
   usd,
   type ApplyReviewTicket,
@@ -1222,6 +1225,118 @@ describe("morningLoop", () => {
 
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
+    });
+  });
+
+  describe("run in progress", () => {
+    const SELF: OpenInvocation = {
+      openedAt: new Date("2026-09-19T09:56:00.000Z"),
+      process: processId(9001),
+    };
+    const TICKET = { number: issueNumber(7), title: "Add the thing" };
+
+    it("records the run on the invocation's own journal entry while it is going, and clears it once the run ends", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      await ports.store.openInvocation(SELF);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports, { invocation: SELF });
+      await ports.sandbox.whenHeld(1);
+
+      const inFlight = await ports.store.loadJournal();
+      assert.deepEqual(
+        inFlight.records.find((record) => record.process === SELF.process)?.runs,
+        [
+          {
+            kind: "implementation",
+            repo: PILOT,
+            number: TICKET.number,
+            startedAt: FROZEN_NOW,
+            transcriptDirectory: transcriptDirectory(
+              path.join("/fake-transcripts", ticketKey({ repo: PILOT, number: TICKET.number })),
+            ),
+          },
+        ],
+      );
+
+      ports.sandbox.release({ repo: PILOT, ...TICKET });
+      await invocation;
+
+      const afterward = await ports.store.loadJournal();
+      assert.deepEqual(
+        afterward.records.find((record) => record.process === SELF.process)?.runs ?? [],
+        [],
+      );
+    });
+
+    it("records nothing when the invocation carries no journal identity", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+
+      await morningLoop(ports);
+
+      const journal = await ports.store.loadJournal();
+      assert.deepEqual(journal.records, []);
+    });
+
+    it("warns, rather than silently losing it, when recording the run started fails to write", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      await ports.store.openInvocation(SELF);
+      t.mock.method(ports.store, "recordRunStarted", async () => {
+        throw new Error("journal write failed");
+      });
+      const warnings: string[] = [];
+      t.mock.method(console, "warn", (line: string) => {
+        warnings.push(line);
+      });
+
+      const report = await morningLoop(ports, { invocation: SELF });
+      // `onStarted` fires the write and moves on without waiting on it, so
+      // give it a turn to settle before checking it warned.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.ok(warnings.some((line) => line.includes("journal write failed")));
+    });
+
+    it("still spends the run's cost, and does not fail the invocation, when clearing it from the journal fails to write", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      await ports.store.openInvocation(SELF);
+      t.mock.method(ports.store, "recordRunEnded", async () => {
+        throw new Error("journal write failed");
+      });
+
+      const report = await morningLoop(ports, { invocation: SELF });
+
+      assert.equal(report.outcome, "work-selected");
+      const state = await ports.store.loadState();
+      assert.equal(state.projects.get(PILOT)?.runs.length, 1);
+    });
+
+    it("reports the sandbox's own failure, not a failed clear, when both the sandbox and the clear fail", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      await ports.store.openInvocation(SELF);
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("docker is not running");
+      });
+      t.mock.method(ports.store, "recordRunEnded", async () => {
+        throw new Error("journal write failed");
+      });
+
+      const report = await morningLoop(ports, { invocation: SELF });
+
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.match(report.message, /docker is not running/);
     });
   });
 
