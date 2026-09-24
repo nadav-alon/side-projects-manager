@@ -310,6 +310,16 @@ export interface AgentRun {
    */
   nits?: Nits;
   /**
+   * Set only by `readAgentRun`, once it has already read `gist` and `nits`
+   * off the agent's own text, before appending any diagnostics to `output`.
+   * `runOutcomeOf` reads this to tell that apart from a `Container`
+   * implementation that never looked for either: only the latter is worth a
+   * fallback parse of `output`, since by the time this is `true` `output`
+   * may carry diagnostics after the very text `gist` and `nits` were read
+   * from, and reparsing it risks reading those in as one or the other.
+   */
+  textRead?: true;
+  /**
    * Set only by `attempt`, when the container itself threw once the agent had
    * already started, rather than the agent's own exit setting `failure` the
    * normal way. `attempt` is the only place that can tell the two apart —
@@ -1351,10 +1361,11 @@ function needsSalvage(ending: Ending, agent: AgentRun): boolean {
 /**
  * `ending`, with the branch an implementation run worked on and its commits,
  * and — for a finished run — its ticket gist and nit section: `agent.gist`
- * and `agent.nits` when the container already read them off the agent's own
- * text, before any diagnostics were appended to `output`, and only otherwise
- * a best-effort read of `output` itself, for a container that never sets
- * them.
+ * and `agent.nits` as they stand once `agent.textRead` is set, since by then
+ * `output` may carry diagnostics appended after the very text they were read
+ * from, and a fallback parse risks reading those in as one or the other; a
+ * best-effort read of `output` itself only for a container that never sets
+ * `textRead` at all.
  */
 function runOutcomeOf(
   ending: Ending,
@@ -1363,9 +1374,17 @@ function runOutcomeOf(
   commits: CommitSha[],
 ): RunOutcome {
   const gist =
-    ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
+    ending.kind !== "finished"
+      ? undefined
+      : agent.textRead === true
+        ? agent.gist
+        : (agent.gist ?? gistFrom(ending.output));
   const nits =
-    ending.kind === "finished" ? (agent.nits ?? nitsFrom(ending.output)) : undefined;
+    ending.kind !== "finished"
+      ? undefined
+      : agent.textRead === true
+        ? agent.nits
+        : (agent.nits ?? nitsFrom(ending.output));
   return withTranscriptAndDiscoveryFields(
     {
       ...ending,
@@ -2632,6 +2651,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
       ...(providerFailure !== undefined && { providerFailure }),
       ...(gist !== undefined && { gist }),
       ...(nits !== undefined && { nits }),
+      textRead: true,
     };
   }
 
@@ -2654,6 +2674,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
     ...(budgetExhausted !== undefined && { budgetExhausted }),
     ...(gist !== undefined && { gist }),
     ...(nits !== undefined && { nits }),
+    textRead: true,
   };
 }
 

@@ -4792,6 +4792,29 @@ fi`;
       assert.match(finished?.output ?? "", /refused these tools/);
     });
 
+    /**
+     * The nit heading was the last thing the agent wrote, so its section
+     * reads blank off the agent's own text. Stderr appended after it must
+     * not be read in as the section instead, once `output` carries both.
+     */
+    it("never mistakes appended diagnostics for nits when the run's own nit section was blank", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: `Implemented the thing.\n${NIT_SECTION_HEADING}`,
+          }),
+          "npm warn deprecated foo@1.0.0\n",
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const finished = variant(result, "finished");
+      assert.equal(finished?.nits, undefined);
+      assert.match(finished?.output ?? "", /npm warn deprecated/);
+    });
+
     it("reads a limit refusal out of the CLI's JSON envelope", async (t) => {
       const { result } = await runWithDocker(
         t,
