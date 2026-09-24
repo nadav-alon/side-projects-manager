@@ -147,39 +147,57 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
 }
 
 /**
- * One project's conflict sweep activity, deduplicated across every sweep the
- * invocation ran before a selection: the same pull request and action, met by
- * several sweeps, appears once under its action in `changes`, and the same
- * refusal appears once in `refusals`. Built by {@link conflictSweepProjects},
- * and read by both the summary line's short aside and the body's own
- * section, so the two never drift apart on what counts as "changed" or
- * "refused".
+ * One project's conflict sweep activity, built across every sweep the
+ * invocation ran before a selection. A label or unlabel met by several
+ * sweeps for the same pull request appears once under its action in
+ * `changes`, and the same refusal appears once in `refusals` — a repeat
+ * sweep finding the pull request already in the shape it would put it is
+ * the same fact stated twice, not two events. A `/rebase` post is different:
+ * a pull request whose rebase ticket has closed can be posted on again in
+ * the same invocation, and each post opens its own ticket, so `commented`
+ * keeps every one, unfiltered — a pull request posted on twice appears in it
+ * twice. Built by {@link conflictSweepProjects}, and read by
+ * both the summary line's short aside and the body's own section, so the two
+ * never drift apart on what counts as "changed" or "refused".
  */
 interface ConflictSweepProject {
   repo: RepoSlug;
-  changes: Map<ConflictSweepChange["action"], PullRequestUrl[]>;
+  changes: Map<GroupedChangeAction, PullRequestUrl[]>;
+  commented: PullRequestUrl[];
   refusals: ConflictSweepRefusal[];
 }
 
+/** A {@link ConflictSweepChange} action grouped and deduplicated by url, unlike `commented`, which is kept post by post. */
+type GroupedChangeAction = Exclude<ConflictSweepChange["action"], "commented">;
+
 /**
  * The past participle {@link ConflictSweepChange} names its action by, in the
- * phrase {@link conflictSweepSection} renders for it. Keyed the same way
- * `CHANGED` in `conflict-sweep.ts` keys its own vocabulary: one place per
- * action, so adding one means adding one line here rather than a new branch
- * in every renderer.
+ * phrase {@link conflictSweepSection} renders for it, for every action
+ * `changes` groups by url — `commented` renders one bullet per post instead,
+ * so it is named apart from this. Keyed the same way `CHANGED` in
+ * `conflict-sweep.ts` keys its own vocabulary, for these two: one place per
+ * grouped action, so adding a third means adding one line here rather than a
+ * new branch in every renderer.
  */
-const CHANGE_PHRASE: Record<ConflictSweepChange["action"], (urls: string) => string> = {
+const CHANGE_PHRASE: Record<GroupedChangeAction, (urls: string) => string> = {
   labelled: (urls) => `labelled ${NEEDS_REBASE_LABEL} on ${urls}`,
   unlabelled: (urls) => `removed ${NEEDS_REBASE_LABEL} from ${urls}`,
-  commented: (urls) => `posted ${REBASE_COMMENT} on ${urls}`,
 };
 
-/** The order {@link conflictSweepSection} renders a project's change bullets in. */
-const CHANGE_ORDER: ConflictSweepChange["action"][] = ["labelled", "unlabelled", "commented"];
+/** The order {@link conflictSweepSection} renders a project's grouped change bullets in, ahead of its `commented` bullets. */
+const CHANGE_ORDER: GroupedChangeAction[] = ["labelled", "unlabelled"];
 
-/** The key a change is deduplicated by: the pull request and action it names. */
-function conflictSweepChangeKey(repo: RepoSlug, change: ConflictSweepChange): string {
-  return `${repo}|${change.action}|${change.pullRequest}`;
+/**
+ * The key a labelled or unlabelled change is deduplicated by: the pull
+ * request and action it names. Takes the grouped action apart from the full
+ * change so `commented`, which is never deduplicated, cannot be passed here.
+ */
+function conflictSweepChangeKey(
+  repo: RepoSlug,
+  action: GroupedChangeAction,
+  pullRequest: PullRequestUrl,
+): string {
+  return `${repo}|${action}|${pullRequest}`;
 }
 
 /** The key a refusal is deduplicated by: what it names, since a `"list"` refusal names no pull request. */
@@ -195,10 +213,13 @@ function conflictSweepRefusalKey(
 /**
  * Every conflict sweep outcome of the invocation, grouped by project and
  * deduplicated the way `CONTEXT.md`'s "Conflict sweep" and ADR 0007 describe:
- * one invocation sweeps before every selection, so the same pull request and
- * action, or the same refusal, can be met by several sweeps and is reported
- * once. A project with nothing changed and nothing refused is left out
- * entirely.
+ * one invocation sweeps before every selection, so the same pull request
+ * labelled or unlabelled, or the same refusal, can be met by several sweeps
+ * and is reported once. A `/rebase` post is kept apart from that rule: a
+ * pull request can be posted on more than once in the same invocation, each
+ * post opening its own ticket, so every `commented` change is kept, not
+ * deduplicated. A project with nothing changed and nothing refused is left
+ * out entirely.
  */
 function conflictSweepProjects(
   conflictSweeps: ConflictSweepOutcome[],
@@ -210,12 +231,16 @@ function conflictSweepProjects(
   for (const outcome of conflictSweeps) {
     let project = projects.get(outcome.repo);
     if (project === undefined) {
-      project = { repo: outcome.repo, changes: new Map(), refusals: [] };
+      project = { repo: outcome.repo, changes: new Map(), commented: [], refusals: [] };
       projects.set(outcome.repo, project);
     }
 
     for (const change of outcome.changes) {
-      const key = conflictSweepChangeKey(outcome.repo, change);
+      if (change.action === "commented") {
+        project.commented.push(change.pullRequest);
+        continue;
+      }
+      const key = conflictSweepChangeKey(outcome.repo, change.action, change.pullRequest);
       if (seenChanges.has(key)) {
         continue;
       }
@@ -236,7 +261,8 @@ function conflictSweepProjects(
   }
 
   return [...projects.values()].filter(
-    (project) => project.changes.size > 0 || project.refusals.length > 0,
+    (project) =>
+      project.changes.size > 0 || project.commented.length > 0 || project.refusals.length > 0,
   );
 }
 
@@ -248,12 +274,10 @@ function conflictSweepProjects(
  */
 function conflictSweepAside(conflictSweeps: ConflictSweepOutcome[]): string {
   const flagged = conflictSweepProjects(conflictSweeps).flatMap((project) => {
-    const commented = project.changes.get("commented")?.length ?? 0;
+    const commented = project.commented.length;
     const bits = [
       ...(commented > 0
-        ? [
-            `posted ${REBASE_COMMENT} on ${commented === 1 ? "1 pull request" : `${commented} pull requests`}`,
-          ]
+        ? [`posted ${REBASE_COMMENT} ${commented === 1 ? "once" : `${commented} times`}`]
         : []),
       ...(project.refusals.length > 0
         ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]
@@ -795,12 +819,14 @@ function freedFromDeadInvocationSection(
 
 /**
  * One bullet per project's conflict sweep activity: a pull request labelled
- * {@link NEEDS_REBASE_LABEL}, one that had it removed, one that had {@link
- * REBASE_COMMENT} posted, and a refusal naming what it was trying and the
- * error — each once, however many sweeps met it, per `conflictSweepProjects`.
- * `undefined` when no sweep this invocation changed or was refused anything,
- * so the section is absent entirely — pinned byte-for-byte by the test at
- * `summary.test.ts:1021`.
+ * {@link NEEDS_REBASE_LABEL}, one that had it removed — each once, however
+ * many sweeps met it — one per {@link REBASE_COMMENT} post, one bullet per
+ * post rather than grouped, since two posts on the same pull request are two
+ * distinct events in one invocation, and a refusal naming what it was trying
+ * and the error, per `conflictSweepProjects`. `undefined` when no sweep this
+ * invocation changed or was refused anything, so the section is absent
+ * entirely — pinned byte-for-byte by the test "renders nothing extra, byte
+ * for byte, when no sweep changed or refused anything" in `summary.test.ts`.
  */
 function conflictSweepSection(
   conflictSweeps: ConflictSweepOutcome[],
@@ -816,6 +842,9 @@ function conflictSweepSection(
         ? []
         : [`- ${project.repo}: ${CHANGE_PHRASE[action](urls.join(", "))}`];
     }),
+    ...project.commented.map(
+      (pullRequest) => `- ${project.repo}: posted ${REBASE_COMMENT} on ${pullRequest}`,
+    ),
     ...project.refusals.map((refusal) => conflictSweepRefusalLine(project.repo, refusal)),
   ]);
   return ["## Conflict sweeps", ...lines].join("\n");

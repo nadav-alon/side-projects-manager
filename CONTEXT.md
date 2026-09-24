@@ -502,7 +502,9 @@ as it is, for the next sweep. For a turbo project, a conflicting pull request wi
 ticket — whatever that ticket's labels — also gets `/rebase` posted on it, which opens one; every
 conflicting pull request gets its own, with no cap. Catches whatever moved the base branch, most
 commonly a sibling pull request merging. Best effort: nothing it is refused blocks selection or
-fails the invocation, and the summary reports each change and each refusal once. See ADR 0007.
+fails the invocation, and the summary reports each label, unlabel and refusal once — but each
+`/rebase` post on its own, since a pull request can be posted on more than once in one invocation
+and each post opens its own ticket. See ADR 0007.
 _Avoid_: mergeability sweep, conflict scan, rebase sweep, rebase check, sibling scan
 
 **Review ticket**:
