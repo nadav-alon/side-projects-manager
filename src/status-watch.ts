@@ -51,12 +51,12 @@ export type WatchArg =
   | { readonly kind: "invalid"; readonly message: string };
 
 /** How often `status --watch` redraws when given no seconds of its own. */
-const DEFAULT_WATCH_SECONDS = 30;
+const DEFAULT_WATCH_INTERVAL: Milliseconds = milliseconds(30_000);
 
 const WATCH_FLAG = "--watch";
 
 /**
- * Reads `--watch` (default {@link DEFAULT_WATCH_SECONDS}s) or `--watch N` off
+ * Reads `--watch` (default {@link DEFAULT_WATCH_INTERVAL}) or `--watch N` off
  * the command line. `N` must be a positive whole number of seconds: the
  * grain a redraw happens at, not a duration a fraction of a second could ever
  * matter for.
@@ -68,7 +68,7 @@ export function parseWatchArg(argv: readonly string[]): WatchArg {
   }
   const raw = argv[index + 1];
   if (raw === undefined || raw.startsWith("--")) {
-    return { kind: "enabled", interval: milliseconds(DEFAULT_WATCH_SECONDS * 1000) };
+    return { kind: "enabled", interval: DEFAULT_WATCH_INTERVAL };
   }
   const seconds = Number(raw);
   if (!Number.isInteger(seconds) || seconds <= 0) {
