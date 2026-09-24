@@ -9,6 +9,7 @@ import {
   localDay,
   localTimeOfMinute,
   processId,
+  pullRequestUrl,
   repoSlug,
   tokenCount,
   transcriptDirectory,
@@ -331,6 +332,32 @@ describe("statusReport's run-in-progress lines", () => {
     assert.match(text, /running for 15m/);
   });
 
+  it("names an implementation run's line with no pull request, unchanged", () => {
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run: RUN, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(text, /^ {2}Running: implementation nadav-alon\/pilot #7, started/m);
+  });
+
+  it("names a review, apply-review or rebase run's pull request beside its ticket", () => {
+    const pullRequest = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12");
+    const run: RunInProgress = { ...RUN, kind: "review", pullRequest };
+
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(
+      text,
+      /Running: review nadav-alon\/pilot #7 \(https:\/\/github\.com\/nadav-alon\/pilot\/pull\/12\), started/,
+    );
+  });
+
   it("prints a run's recent steps, oldest first, each with local time", () => {
     const steps: TranscriptStep[] = [
       { at: new Date("2026-09-17T08:46:00.000Z"), line: "Reading the ticket." },
@@ -368,6 +395,22 @@ describe("statusReport's run-in-progress lines", () => {
     const text = lines.join("\n");
     assert.match(text, /Was running when the invocation died: implementation nadav-alon\/pilot #7/);
     assert.doesNotMatch(text, /\n {2}Running: /);
+  });
+
+  it("names an apply-review run's pull request beside its ticket, even when the invocation died", () => {
+    const pullRequest = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12");
+    const run: RunInProgress = { ...RUN, kind: "apply-review", pullRequest };
+
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", false, [{ run, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(
+      text,
+      /Was running when the invocation died: apply-review nadav-alon\/pilot #7 \(https:\/\/github\.com\/nadav-alon\/pilot\/pull\/12\), started/,
+    );
   });
 });
 

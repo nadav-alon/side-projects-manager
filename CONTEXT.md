@@ -753,10 +753,11 @@ _Avoid_: open, pending, stuck, orphaned
 **Run in progress**:
 One of the invocation's own **Run**s the manager has started and not yet seen end, carried on its
 own in-flight invocation record: the kind of ticket it runs, the ticket's own repo and number, when
-it started, and where its session transcript lands. Recorded the moment the manager starts the run —
-never parsed back out of a prompt or a container command line — and cleared the moment the run ends,
-whatever it came to. What `status` reads to name each run an in-flight invocation has going, and its
-agent's own recent steps, from the transcript the run names.
+it started, where its session transcript lands, and, for a pull request ticket's run, the pull
+request its ticket is bound to. Recorded the moment the manager starts the run — never parsed
+back out of a prompt or a container command line — and cleared the moment the run ends, whatever it
+came to. What `status` reads to name each run an in-flight invocation has going, and its agent's own
+recent steps, from the transcript the run names.
 _Avoid_: in-flight run, active run, live run
 
 **Never reported**:

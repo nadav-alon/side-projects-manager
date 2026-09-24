@@ -4,6 +4,7 @@ import type { IssueUrl } from "./issue-url.ts";
 import type { TicketKind } from "./issue-tracker.ts";
 import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ProcessId } from "./process-id.ts";
+import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { TranscriptDirectory } from "./transcript-directory.ts";
@@ -96,6 +97,11 @@ export interface InvocationClosing {
  * recorded when it started the run, never from parsing a prompt or a
  * container command line. Cleared from the invocation record the moment the
  * run ends, whatever it came to.
+ *
+ * `pullRequest` is present only for a pull request ticket's run — copied
+ * from the ticket's own `pullRequest` binding at the moment the manager
+ * started the run, never parsed back out of a prompt or a container command
+ * line. Absent for an implementation run, which is bound to no pull request.
  */
 export interface RunInProgress {
   kind: TicketKind;
@@ -103,6 +109,7 @@ export interface RunInProgress {
   number: IssueNumber;
   startedAt: Date;
   transcriptDirectory: TranscriptDirectory;
+  pullRequest?: PullRequestUrl;
 }
 
 /**

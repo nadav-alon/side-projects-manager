@@ -1251,6 +1251,9 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
         number: ticket.number,
         startedAt: ports.clock.now(),
         transcriptDirectory,
+        ...(ticket.pullRequest !== undefined && {
+          pullRequest: ticket.pullRequest.url,
+        }),
       })
       .catch((error: unknown) => {
         console.warn(

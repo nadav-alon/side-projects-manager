@@ -16,6 +16,7 @@ import {
   modelName,
   priority,
   processId,
+  pullRequestUrl,
   repoSlug,
   tokenCount,
   transcriptDirectory,
@@ -1452,6 +1453,7 @@ describe("runs in progress on the journal document", () => {
   const STARTED_AT = new Date("2026-01-01T06:05:00.000Z");
   const PROCESS = processId(4242);
   const TRANSCRIPT = transcriptDirectory("/home/dev/side-projects-manager/transcripts/review-abc123");
+  const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12");
 
   it("adds a run to the invocation's own open record", async () => {
     const store = documentStore(await home());
@@ -1482,6 +1484,94 @@ describe("runs in progress on the journal document", () => {
         },
       ],
     });
+  });
+
+  it("carries a review, apply-review or rebase run's own pull request through a write/read round trip", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+      pullRequest: PULL_REQUEST,
+    });
+
+    const [record] = (await store.loadJournal()).records;
+    assert.deepEqual(record?.runs, [
+      {
+        kind: "review",
+        repo: PILOT,
+        number: issueNumber(7),
+        startedAt: STARTED_AT,
+        transcriptDirectory: TRANSCRIPT,
+        pullRequest: PULL_REQUEST,
+      },
+    ]);
+  });
+
+  it("parses an older journal's run with no pull request field", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              runs: [
+                {
+                  kind: "review",
+                  repo: PILOT,
+                  number: 7,
+                  startedAt: STARTED_AT.toISOString(),
+                  transcriptDirectory: TRANSCRIPT,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const [record] = (await store.loadJournal()).records;
+    assert.deepEqual(record?.runs, [
+      {
+        kind: "review",
+        repo: PILOT,
+        number: issueNumber(7),
+        startedAt: STARTED_AT,
+        transcriptDirectory: TRANSCRIPT,
+      },
+    ]);
+  });
+
+  it("rejects a run whose pull request is not a pull request URL", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              runs: [
+                {
+                  kind: "review",
+                  repo: PILOT,
+                  number: 7,
+                  startedAt: STARTED_AT.toISOString(),
+                  transcriptDirectory: TRANSCRIPT,
+                  pullRequest: "not a pull request url",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"pullRequest" must be a pull request URL/);
   });
 
   it("keeps every run going at once, in the order they started", async () => {

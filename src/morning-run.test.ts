@@ -1271,6 +1271,23 @@ describe("morningLoop", () => {
       );
     });
 
+    it("records the pull request a review run is bound to, alongside its ticket", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      await ports.store.openInvocation(SELF);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports, { invocation: SELF });
+      await ports.sandbox.whenHeld(1);
+
+      const inFlight = await ports.store.loadJournal();
+      const [run] = inFlight.records.find((record) => record.process === SELF.process)?.runs ?? [];
+      assert.equal(run?.pullRequest, PULL_REQUEST);
+
+      ports.sandbox.release(ticket);
+      await invocation;
+    });
+
     it("records nothing when the invocation carries no journal identity", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
