@@ -104,14 +104,19 @@ function realSleep(interval: Milliseconds, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** Prints `lines`, one per `console.log` call. */
+function printLines(lines: readonly string[]): void {
+  for (const line of lines) {
+    console.log(line);
+  }
+}
+
 /** Clears the screen, stamps the current time, and prints `lines` — one redraw. */
 function displayFrame(lines: readonly string[]): void {
   const now = systemClock.now();
   process.stdout.write(CLEAR_SCREEN);
   console.log(`Updated ${localDay(now)} ${localTimeOfSecond(now)}`);
-  for (const line of lines) {
-    console.log(line);
-  }
+  printLines(lines);
 }
 
 async function main(): Promise<void> {
@@ -124,9 +129,7 @@ async function main(): Promise<void> {
 
   if (watch.kind === "disabled") {
     const { lines } = await collectReport();
-    for (const line of lines) {
-      console.log(line);
-    }
+    printLines(lines);
     return;
   }
 
