@@ -17,6 +17,7 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
+import { routeRunDiscoveries } from "../discovery-routing.ts";
 import { REASON_QUOTED } from "../hand-back.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
@@ -67,6 +68,7 @@ import {
 import {
   BUDGET_EXHAUSTED_JSON_RESULT,
   BUDGET_EXHAUSTED_STDOUT,
+  FakeIssueTracker,
   gate,
   HANGS,
   LIMIT_REFUSAL,
@@ -131,6 +133,14 @@ const SPEC_REVIEW_TICKET: SpecReviewTicket = {
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
+
+/** A body shaped as an agent brief, per CONTEXT.md's "Ready discovery" — what `isAgentBrief` requires of a ready discovery. */
+const AGENT_BRIEF_BODY = [
+  "Current behavior: the retry loop hammers the API on every failure.",
+  "Desired behavior: it should back off between attempts.",
+  "Acceptance criteria: a failed call waits before its next attempt.",
+  "Out of scope: a configurable backoff strategy.",
+].join("\n\n");
 
 /** What the loop would have taken off the budget for one run. */
 const CEILING = usd(5);
@@ -2060,6 +2070,46 @@ describe("discoveries", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
+  });
+
+  it("carries a discovery written to disk through to the routed ticket with every field intact", async () => {
+    const directory = await project();
+    const tracker = new FakeIssueTracker();
+    const target = tracker.addEligibleTicket(TICKET.repo, {
+      number: TICKET.number,
+      title: TICKET.title,
+    });
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        {
+          kind: "suggestion",
+          title: "Add a retry",
+          body: AGENT_BRIEF_BODY,
+          ready: true,
+        },
+        "1.json",
+      );
+      return { output: "implemented the thing", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: target, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
+
+    const routed = await routeRunDiscoveries(
+      tracker,
+      target,
+      finished?.discoveries,
+      finished?.discoveriesDropped,
+    );
+
+    const filed = routed?.routing.filed[0];
+    assert.equal(filed?.action, "discovered-ticket");
+    const discoveredTicket = tracker.discoveredTickets[0];
+    assert.equal(discoveredTicket?.title, "Add a retry");
+    assert.match(discoveredTicket?.body ?? "", /back off between attempts/);
+    assert.equal(discoveredTicket?.blocking, false);
+    assert.equal(discoveredTicket?.ticket.readyDiscovery, true);
   });
 
   it("keeps a discovery whose ready field is malformed, treating it as not ready rather than dropping it", async () => {
