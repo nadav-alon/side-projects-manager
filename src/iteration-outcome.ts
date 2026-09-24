@@ -293,6 +293,16 @@ export type DiscoveryBlockedCutOff =
   | { kind: "provider-failed"; providerFailure: string };
 
 /**
+ * A review, apply-review, rebase or spec review run the provider stopped
+ * before it finished — CONTEXT.md's "Cut off". Named once, rather than
+ * spelling the union out at every site it crosses.
+ */
+export type CutOffReview = ReviewLimitRefused | ReviewProviderFailed;
+
+/** As `CutOffReview`, for any run the provider stopped before it finished — implementation runs included. */
+export type CutOffRun = RunLimitRefused | RunProviderFailed | CutOffReview;
+
+/**
  * `iteration`'s own cut-off — CONTEXT.md's "Cut off" — whichever way it
  * carries one: a `LimitRefused` or `ProviderFailed` iteration's own kind, or
  * a `DiscoveryBlocked` iteration's `cutOff`. `undefined` for every other
@@ -349,9 +359,7 @@ export function cutOffRunOutcome(
  * As `cutOffRunOutcome`, for a review, apply-review or rebase run: none of
  * those ever creates a branch, so there is never one to discard.
  */
-export function cutOffReviewOutcome(
-  review: ReviewLimitRefused | ReviewProviderFailed,
-): CutOff {
+export function cutOffReviewOutcome(review: CutOffReview): CutOff {
   return review.kind === "limit-refused"
     ? {
         kind: "limit-refused",
