@@ -4,6 +4,8 @@ import { describe, it } from "node:test";
 import {
   DISCOVERY_KINDS,
   isDiscovery,
+  normalizeDiscovery,
+  type Discovery,
   type DiscoveryKind,
 } from "./discovery.ts";
 
@@ -67,5 +69,48 @@ describe("isDiscovery", () => {
     } else {
       assert.fail("expected a well-formed discovery");
     }
+  });
+});
+
+describe("normalizeDiscovery", () => {
+  it("carries every declared field through, including ready", () => {
+    const value: Discovery = {
+      kind: "suggestion",
+      title: "Add a retry",
+      body: "Would have added retries myself.",
+      ready: true,
+    };
+
+    assert.deepEqual(normalizeDiscovery(value), value);
+  });
+
+  it("drops an undeclared key the parsed value still carries at runtime", () => {
+    const value = {
+      kind: "clarification",
+      title: "Read as opt-in",
+      body: "The ticket never says default on.",
+      extra: "not part of Discovery",
+    } as unknown as Discovery;
+
+    assert.deepEqual(normalizeDiscovery(value), {
+      kind: "clarification",
+      title: "Read as opt-in",
+      body: "The ticket never says default on.",
+    });
+  });
+
+  it("omits ready rather than keeping it false", () => {
+    const value: Discovery = {
+      kind: "correction",
+      title: "Wrong file",
+      body: "It's actually in the other module.",
+      ready: false,
+    };
+
+    assert.deepEqual(normalizeDiscovery(value), {
+      kind: "correction",
+      title: "Wrong file",
+      body: "It's actually in the other module.",
+    });
   });
 });
