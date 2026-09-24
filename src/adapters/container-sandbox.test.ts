@@ -416,6 +416,25 @@ describe("containerSandbox", () => {
     assert.notEqual(seen[0], directory);
   });
 
+  it("calls onStarted with the run's own transcript directory, before the container is even asked to run", async () => {
+    const directory = await project();
+    let seenInContainer = "";
+    const sandbox = testSandbox(async ({ transcriptDirectory: seen }) => {
+      seenInContainer = seen;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+    let seenByCaller: string | undefined;
+
+    await sandbox.run(
+      { ticket: TICKET, checkout: directory, spendCeiling: CEILING },
+      (started) => {
+        seenByCaller = started.transcriptDirectory;
+      },
+    );
+
+    assert.equal(seenByCaller, seenInContainer);
+  });
+
   /**
    * The clone is bind-mounted into the container on its own. A `git worktree`
    * would put a `.git` *file* there pointing at an absolute path in the parent
@@ -2330,6 +2349,25 @@ describe("containerSandbox.review", () => {
     assert.deepEqual(mounts, ["ro"]);
   });
 
+  it("calls onStarted with the run's own transcript directory too", async () => {
+    const directory = await project();
+    let seenInContainer = "";
+    const sandbox = testSandbox(async ({ transcriptDirectory: seen }) => {
+      seenInContainer = seen;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+    let seenByCaller: string | undefined;
+
+    await sandbox.review(
+      { ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING },
+      (started) => {
+        seenByCaller = started.transcriptDirectory;
+      },
+    );
+
+    assert.equal(seenByCaller, seenInContainer);
+  });
+
   it("passes the review's model to the agent CLI the same way a run does, and stays read-only", async () => {
     const directory = await project();
     let seenModel: string | undefined;
@@ -3033,6 +3071,25 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(seen[0]?.mount, "rw");
     assert.equal(seen[0]?.on, BRANCH);
     assert.equal(seen[0]?.at, headCommit);
+  });
+
+  it("calls onStarted with the run's own transcript directory too", async () => {
+    const { directory } = await hostedProject();
+    let seenInContainer = "";
+    const sandbox = testSandbox(async ({ transcriptDirectory: seen }) => {
+      seenInContainer = seen;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+    let seenByCaller: string | undefined;
+
+    await sandbox.applyReview(
+      { ticket: APPLY_REVIEW_TICKET, checkout: directory, spendCeiling: CEILING },
+      (started) => {
+        seenByCaller = started.transcriptDirectory;
+      },
+    );
+
+    assert.equal(seenByCaller, seenInContainer);
   });
 
   /**

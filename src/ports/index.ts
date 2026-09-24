@@ -206,6 +206,7 @@ export type {
   RunProviderFailed,
   RunRequest,
   RunSandboxFailed,
+  RunStarted,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,

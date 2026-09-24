@@ -12,8 +12,19 @@ import type {
 import type { ModelName } from "./model-name.ts";
 import type { TicketGist } from "./ticket-gist.ts";
 import type { TokenCount } from "./token-count.ts";
+import type { TranscriptDirectory } from "./transcript-directory.ts";
 import type { TranscriptPath } from "./transcript-path.ts";
 import type { Usd } from "./usd.ts";
+
+/**
+ * What a `Sandbox` method calls `onStarted` back with, as soon as a run's
+ * transcript directory is known — long before the run itself resolves, so a
+ * caller can record CONTEXT.md's "Run in progress" on the journal while the
+ * agent is still going, rather than only once it has already ended.
+ */
+export interface RunStarted {
+  transcriptDirectory: TranscriptDirectory;
+}
 
 /** One ticket, and the project checkout it is to be worked against. */
 export interface RunRequest {
@@ -397,8 +408,14 @@ export interface Sandbox {
    * variant of `RunOutcome` is excluded from what this overload returns,
    * since nothing was asked of the agent CLI for it to refuse.
    */
-  run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
-  run(request: RunRequest & { model?: undefined }): Promise<Exclude<RunOutcome, RunModelRefused>>;
+  run(
+    request: RunRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<RunOutcome>;
+  run(
+    request: RunRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<Exclude<RunOutcome, RunModelRefused>>;
 
   /**
    * Runs a reviewing agent against `request.ticket.pullRequest`, in a
@@ -414,9 +431,13 @@ export interface Sandbox {
    *
    * As `run`, a review naming no model can never come back refused for one.
    */
-  review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
+  review(
+    request: ReviewRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<ReviewOutcome>;
   review(
     request: ReviewRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
 
   /**
@@ -434,9 +455,11 @@ export interface Sandbox {
    */
   specReview(
     request: SpecReviewRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<SpecReviewOutcome>;
   specReview(
     request: SpecReviewRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
 
   /**
@@ -452,9 +475,11 @@ export interface Sandbox {
    */
   applyReview(
     request: ApplyReviewRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<ApplyReviewOutcome>;
   applyReview(
     request: ApplyReviewRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
 
   /**
@@ -468,8 +493,12 @@ export interface Sandbox {
    * Rejects as `applyReview` does. As `run`, a request naming no model can
    * never come back refused for one.
    */
-  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<RebaseOutcome>;
   rebase(
     request: RebaseRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
 }
