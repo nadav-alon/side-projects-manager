@@ -25,6 +25,7 @@ import {
   containerSandbox,
   DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,
+  NIT_SECTION_HEADING,
   pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
@@ -482,7 +483,10 @@ describe("containerSandbox", () => {
 
     assert.match(asked, /nit your own change causes.*is fixed in that same commit/);
     assert.match(asked, /Any other nit you notice is not a discovery/);
-    assert.match(asked, /## Nits.*in the pull request body/);
+    assert.match(
+      asked,
+      new RegExp(`${NIT_SECTION_HEADING}.*in the pull request body`),
+    );
   });
 
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
@@ -2357,7 +2361,9 @@ describe("containerSandbox.review", () => {
 
     assert.match(
       asked,
-      /Read the pull request body's `## Nits` section.*post each nit\s+worth doing as a review finding/,
+      new RegExp(
+        `Read the pull request body's \`${NIT_SECTION_HEADING}\` section.*post each nit\\s+worth doing as a review finding`,
+      ),
     );
   });
 

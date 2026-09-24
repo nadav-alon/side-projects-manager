@@ -1419,9 +1419,11 @@ const DISCOVERY_INSTRUCTIONS = [
 /**
  * The fixed heading a pull request body's nit section sits under, named once
  * so `promptFor`'s instruction to write it and `reviewPromptFor`'s
- * instruction to read it can only ever agree with each other.
+ * instruction to read it can only ever agree with each other. Exported so a
+ * test can assert against the heading that ships rather than a copy of the
+ * literal.
  */
-const NIT_SECTION_HEADING = "## Nits";
+export const NIT_SECTION_HEADING = "## Nits";
 
 /**
  * What the spec-reviewing agent is asked to do.
