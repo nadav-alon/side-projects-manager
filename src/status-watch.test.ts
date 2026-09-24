@@ -46,6 +46,25 @@ describe("parseWatchArg", () => {
   it("rejects a fractional interval", () => {
     assert.equal(parseWatchArg(["--watch", "1.5"]).kind, "invalid");
   });
+
+  it("rejects a hex-looking interval", () => {
+    assert.equal(parseWatchArg(["--watch", "0x10"]).kind, "invalid");
+  });
+
+  it("rejects an exponential-looking interval", () => {
+    assert.equal(parseWatchArg(["--watch", "1e1"]).kind, "invalid");
+  });
+
+  it("rejects an interval longer than a day", () => {
+    assert.equal(parseWatchArg(["--watch", "86401"]).kind, "invalid");
+  });
+
+  it("accepts an interval exactly a day long", () => {
+    assert.deepEqual(parseWatchArg(["--watch", "86400"]), {
+      kind: "enabled",
+      interval: milliseconds(86_400_000),
+    });
+  });
 });
 
 const INTERVAL = milliseconds(30_000);

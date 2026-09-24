@@ -55,11 +55,17 @@ const DEFAULT_WATCH_INTERVAL: Milliseconds = milliseconds(30_000);
 
 const WATCH_FLAG = "--watch";
 
+/** The longest interval `--watch N` accepts — comfortably under `setTimeout`'s ~24.8-day limit. */
+const MAX_WATCH_SECONDS = 86_400;
+
+/** Whole digits only: rejects the hex (`0x10`) and exponential (`1e1`) forms `Number` would otherwise accept. */
+const WHOLE_NUMBER = /^\d+$/;
+
 /**
  * Reads `--watch` (default {@link DEFAULT_WATCH_INTERVAL}) or `--watch N` off
- * the command line. `N` must be a positive whole number of seconds: the
- * grain a redraw happens at, not a duration a fraction of a second could ever
- * matter for.
+ * the command line. `N` must be a positive whole number of seconds, written
+ * in plain digits, of at most {@link MAX_WATCH_SECONDS}: the grain a redraw
+ * happens at, not a duration a fraction of a second could ever matter for.
  */
 export function parseWatchArg(argv: readonly string[]): WatchArg {
   const index = argv.indexOf(WATCH_FLAG);
@@ -71,10 +77,10 @@ export function parseWatchArg(argv: readonly string[]): WatchArg {
     return { kind: "enabled", interval: DEFAULT_WATCH_INTERVAL };
   }
   const seconds = Number(raw);
-  if (!Number.isInteger(seconds) || seconds <= 0) {
+  if (!WHOLE_NUMBER.test(raw) || seconds <= 0 || seconds > MAX_WATCH_SECONDS) {
     return {
       kind: "invalid",
-      message: `--watch expects a positive whole number of seconds, got "${raw}".`,
+      message: `--watch expects a positive whole number of seconds, up to ${MAX_WATCH_SECONDS}, got "${raw}".`,
     };
   }
   return { kind: "enabled", interval: milliseconds(seconds * 1000) };
