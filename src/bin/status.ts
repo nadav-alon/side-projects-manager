@@ -134,7 +134,7 @@ async function main(): Promise<void> {
   }
 
   const controller = new AbortController();
-  process.once("SIGINT", () => controller.abort());
+  process.on("SIGINT", () => controller.abort());
   process.stdout.write(HIDE_CURSOR);
   try {
     await watchStatus(
