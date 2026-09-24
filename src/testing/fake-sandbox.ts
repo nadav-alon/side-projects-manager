@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type {
   ApplyReviewOutcome,
   ApplyReviewRequest,
@@ -13,14 +15,20 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunRequest,
+  RunStarted,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
   SpecReviewTicket,
   Ticket,
 } from "../ports/index.ts";
-import { branch, ticketKey, tokenCount } from "../ports/index.ts";
+import { branch, ticketKey, tokenCount, transcriptDirectory } from "../ports/index.ts";
 import { gate } from "./gate.ts";
+
+/** A `TranscriptDirectory` deterministic in `ticket`, for a fake run's own `onStarted` to report. */
+function fakeTranscriptDirectory(ticket: Ticket) {
+  return transcriptDirectory(path.join("/fake-transcripts", ticketKey(ticket)));
+}
 
 /**
  * A sandbox that runs nothing and reports a successful, empty run.
@@ -134,65 +142,107 @@ export class FakeSandbox implements Sandbox {
     });
   }
 
-  run(request: RunRequest & { model: ModelName }): Promise<RunOutcome>;
+  run(
+    request: RunRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<RunOutcome>;
   run(
     request: RunRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
-  async run(request: RunRequest): Promise<RunOutcome> {
+  async run(
+    request: RunRequest,
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<RunOutcome> {
     this.runs.push(request);
-    return this.#inProgress(request.ticket, () => this.result(request.ticket));
+    return this.#inProgress(request.ticket, onStarted, () => this.result(request.ticket));
   }
 
-  review(request: ReviewRequest & { model: ModelName }): Promise<ReviewOutcome>;
+  review(
+    request: ReviewRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<ReviewOutcome>;
   review(
     request: ReviewRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
-  async review(request: ReviewRequest): Promise<ReviewOutcome> {
+  async review(
+    request: ReviewRequest,
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<ReviewOutcome> {
     this.reviews.push(request);
-    return this.#inProgress(request.ticket, () =>
+    return this.#inProgress(request.ticket, onStarted, () =>
       this.reviewResult(request.ticket),
     );
   }
 
   applyReview(
     request: ApplyReviewRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<ApplyReviewOutcome>;
   applyReview(
     request: ApplyReviewRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
-  async applyReview(request: ApplyReviewRequest): Promise<ApplyReviewOutcome> {
+  async applyReview(
+    request: ApplyReviewRequest,
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<ApplyReviewOutcome> {
     this.applyReviews.push(request);
-    return this.#inProgress(request.ticket, () =>
+    return this.#inProgress(request.ticket, onStarted, () =>
       this.applyReviewResult(request.ticket),
     );
   }
 
-  rebase(request: RebaseRequest & { model: ModelName }): Promise<RebaseOutcome>;
+  rebase(
+    request: RebaseRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<RebaseOutcome>;
   rebase(
     request: RebaseRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
-  async rebase(request: RebaseRequest): Promise<RebaseOutcome> {
+  async rebase(
+    request: RebaseRequest,
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<RebaseOutcome> {
     this.rebases.push(request);
-    return this.#inProgress(request.ticket, () =>
+    return this.#inProgress(request.ticket, onStarted, () =>
       this.rebaseResult(request.ticket),
     );
   }
 
   specReview(
     request: SpecReviewRequest & { model: ModelName },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<SpecReviewOutcome>;
   specReview(
     request: SpecReviewRequest & { model?: undefined },
+    onStarted?: (started: RunStarted) => void,
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
-  async specReview(request: SpecReviewRequest): Promise<SpecReviewOutcome> {
+  async specReview(
+    request: SpecReviewRequest,
+    onStarted?: (started: RunStarted) => void,
+  ): Promise<SpecReviewOutcome> {
     this.specReviews.push(request);
-    return this.#inProgress(request.ticket, () =>
+    return this.#inProgress(request.ticket, onStarted, () =>
       this.specReviewResult(request.ticket),
     );
   }
 
-  /** Counts `ticket`'s run, review, apply-review run or rebase run as in progress until `finish`, holding it first if told to. */
-  async #inProgress<T>(ticket: Ticket, finish: () => T): Promise<T> {
+  /**
+   * Counts `ticket`'s run, review, apply-review run or rebase run as in
+   * progress until `finish`, holding it first if told to. Calls `onStarted`,
+   * when given, with a fake but deterministic transcript directory before
+   * either — as `containerSandbox` calls it, before the run itself is even
+   * held or finished.
+   */
+  async #inProgress<T>(
+    ticket: Ticket,
+    onStarted: ((started: RunStarted) => void) | undefined,
+    finish: () => T,
+  ): Promise<T> {
+    onStarted?.({ transcriptDirectory: fakeTranscriptDirectory(ticket) });
     this.#running++;
     this.mostInProgress = Math.max(this.mostInProgress, this.#running);
     try {

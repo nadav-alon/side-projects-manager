@@ -30,6 +30,7 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunSandboxFailed,
+  RunStarted,
   Salvaged,
   Sandbox,
   SpecReviewTicket,
@@ -601,7 +602,7 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
 async function work(
   ports: MorningLoopPorts,
   selection: Selection,
-  invocation: Pick<InvocationState, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvages: Salvages,
@@ -1204,14 +1205,20 @@ interface SandboxResult<Outcome> {
  * Narrates the container it starts, naming `spendCeiling`, and the run it
  * ends, naming what `outcome` spent — the two announcements every kind of
  * run shares, whatever it goes on to make of its own result.
+ *
+ * Records the run on the invocation's own journal entry the moment
+ * `sandboxCall` reports its transcript directory — CONTEXT.md's "Run in
+ * progress", what `status` names — and clears it once `sandboxCall` settles,
+ * whatever it came to: a run that never got as far as recording itself
+ * clears as a no-op, per `InvocationState.recordRunEnded`.
  */
 async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: Ticket,
   spendCeiling: Usd,
-  invocation: Pick<InvocationState, "recordRunCost">,
-  sandboxCall: (checkout: Checkout) => Promise<Outcome>,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  sandboxCall: (checkout: Checkout, onStarted: (started: RunStarted) => void) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
   try {
@@ -1229,9 +1236,18 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     spendCeiling,
     checkout,
   });
+  const onStarted = ({ transcriptDirectory }: RunStarted): void => {
+    void invocation.recordRunStarted({
+      kind: ticketKind(ticket),
+      repo,
+      number: ticket.number,
+      startedAt: ports.clock.now(),
+      transcriptDirectory,
+    });
+  };
   let outcome: Outcome;
   try {
-    outcome = await sandboxCall(checkout);
+    outcome = await sandboxCall(checkout, onStarted);
   } catch (error: unknown) {
     // Nothing comes back from a rejected run — no branch, no output, and no
     // token count — so there is nothing to record against the project, and no
@@ -1249,6 +1265,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
       ticket,
       tokensUsed: tokenCount(0),
     });
+    await invocation.recordRunEnded(repo, ticket.number);
     return infrastructureFailure(error);
   }
   notify(ports.progress, {
@@ -1256,6 +1273,8 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     ticket,
     tokensUsed: outcome.tokensUsed,
   });
+
+  await invocation.recordRunEnded(repo, ticket.number);
 
   invocation.recordRunCost(repo, {
     at: ports.clock.now(),
@@ -1285,7 +1304,7 @@ function infrastructureFailure(error: unknown): Failed {
 async function attemptRun(
   ports: MorningLoopPorts,
   selection: Selection,
-  invocation: Pick<InvocationState, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvageBranch: Branch | undefined,
@@ -1293,26 +1312,32 @@ async function attemptRun(
   const { ticket } = selection;
   const repo = selection.project.repo;
 
-  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
+  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
     // model refusal, and only a call whose own argument is plainly one shape
     // or the other resolves to the right overload.
     model === undefined
-      ? ports.sandbox.run({
-          ticket,
-          checkout,
-          spendCeiling,
-          ...(salvageBranch !== undefined && { salvageBranch }),
-        })
-      : ports.sandbox.run({
-          ticket,
-          checkout,
-          spendCeiling,
-          model: model.name,
-          ...(salvageBranch !== undefined && { salvageBranch }),
-        }),
+      ? ports.sandbox.run(
+          {
+            ticket,
+            checkout,
+            spendCeiling,
+            ...(salvageBranch !== undefined && { salvageBranch }),
+          },
+          onStarted,
+        )
+      : ports.sandbox.run(
+          {
+            ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+            ...(salvageBranch !== undefined && { salvageBranch }),
+          },
+          onStarted,
+        ),
   );
 }
 
@@ -1434,7 +1459,7 @@ async function runReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ReviewTicket,
-  invocation: Pick<InvocationState, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   turbo: boolean,
@@ -1455,13 +1480,13 @@ async function runReview(
   }
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
     model === undefined
-      ? ports.sandbox.review({ ticket, checkout, spendCeiling })
-      : ports.sandbox.review({ ticket, checkout, spendCeiling, model: model.name }),
+      ? ports.sandbox.review({ ticket, checkout, spendCeiling }, onStarted)
+      : ports.sandbox.review({ ticket, checkout, spendCeiling, model: model.name }, onStarted),
   );
   if (result.kind === "failed") {
     return result;
@@ -1603,18 +1628,18 @@ async function runSpecReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: SpecReviewTicket,
-  invocation: Pick<InvocationState, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
   SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
 > {
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
     model === undefined
-      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling })
-      : ports.sandbox.specReview({ ticket, checkout, spendCeiling, model: model.name }),
+      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling }, onStarted)
+      : ports.sandbox.specReview({ ticket, checkout, spendCeiling, model: model.name }, onStarted),
   );
   if (result.kind === "failed") {
     return result;
@@ -1691,7 +1716,7 @@ async function runApplyReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ApplyReviewTicket,
-  invocation: Pick<InvocationState, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -1726,17 +1751,20 @@ async function runApplyReview(
     return finishApplyReview(ports, ticket, { kind: "applied-review" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
-      ? ports.sandbox.applyReview({ ticket, checkout, spendCeiling })
-      : ports.sandbox.applyReview({
-          ticket,
-          checkout,
-          spendCeiling,
-          model: model.name,
-        }),
+      ? ports.sandbox.applyReview({ ticket, checkout, spendCeiling }, onStarted)
+      : ports.sandbox.applyReview(
+          {
+            ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          },
+          onStarted,
+        ),
   );
   if (result.kind === "failed") {
     return result;
@@ -1900,7 +1928,7 @@ async function runRebase(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: RebaseTicket,
-  invocation: Pick<InvocationState, "recordRunCost">,
+  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -1937,17 +1965,20 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
-      ? ports.sandbox.rebase({ ticket, checkout, spendCeiling })
-      : ports.sandbox.rebase({
-          ticket,
-          checkout,
-          spendCeiling,
-          model: model.name,
-        }),
+      ? ports.sandbox.rebase({ ticket, checkout, spendCeiling }, onStarted)
+      : ports.sandbox.rebase(
+          {
+            ticket,
+            checkout,
+            spendCeiling,
+            model: model.name,
+          },
+          onStarted,
+        ),
   );
   if (result.kind === "failed") {
     return result;

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
@@ -26,7 +27,9 @@ import {
   reserveFraction,
   reviewTitle,
   ticketGist,
+  ticketKey,
   tokenCount,
+  transcriptDirectory,
   transcriptPath,
   usd,
   type ApplyReviewTicket,
@@ -1222,6 +1225,61 @@ describe("morningLoop", () => {
 
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
+    });
+  });
+
+  describe("run in progress", () => {
+    const SELF: OpenInvocation = {
+      openedAt: new Date("2026-09-19T09:56:00.000Z"),
+      process: processId(9001),
+    };
+    const TICKET = { number: issueNumber(7), title: "Add the thing" };
+
+    it("records the run on the invocation's own journal entry while it is going, and clears it once the run ends", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      await ports.store.openInvocation(SELF);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports, { invocation: SELF });
+      await ports.sandbox.whenHeld(1);
+
+      const inFlight = await ports.store.loadJournal();
+      assert.deepEqual(
+        inFlight.records.find((record) => record.process === SELF.process)?.runs,
+        [
+          {
+            kind: "implementation",
+            repo: PILOT,
+            number: TICKET.number,
+            startedAt: FROZEN_NOW,
+            transcriptDirectory: transcriptDirectory(
+              path.join("/fake-transcripts", ticketKey({ repo: PILOT, number: TICKET.number })),
+            ),
+          },
+        ],
+      );
+
+      ports.sandbox.release({ repo: PILOT, ...TICKET });
+      await invocation;
+
+      const afterward = await ports.store.loadJournal();
+      assert.deepEqual(
+        afterward.records.find((record) => record.process === SELF.process)?.runs ?? [],
+        [],
+      );
+    });
+
+    it("records nothing when the invocation carries no journal identity", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+
+      await morningLoop(ports);
+
+      const journal = await ports.store.loadJournal();
+      assert.deepEqual(journal.records, []);
     });
   });
 
