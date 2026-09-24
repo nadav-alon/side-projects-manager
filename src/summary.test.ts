@@ -2353,6 +2353,45 @@ describe("composeInvocationReport", () => {
     assert.equal(tracker.published.length, 1);
   });
 
+  it("publishes a stand-down whose limit refusal filed a discovery, even when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([
+          limitRefusedWithDiscoveries(
+            7,
+            routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+          ),
+        ]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 1);
+  });
+
+  it("does not publish a stand-down whose limit refusal only dropped a discovery, when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([
+          limitRefusedWithDiscoveries(7, routing({ discoveriesDropped: 1 })),
+        ]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 0);
+  });
+
   it("does not publish a quiet morning when today is already announced", async () => {
     const tracker = recordingTracker();
 

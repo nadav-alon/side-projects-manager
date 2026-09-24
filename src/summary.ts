@@ -639,6 +639,20 @@ function limitRefusalLeftABranch(iteration: IterationOutcome): boolean {
 }
 
 /**
+ * Whether a limit refusal filed an advisory discovery — per CONTEXT.md's
+ * "Discovery", the only kind a limit refusal can file, since a blocking one
+ * hands the ticket back instead and makes this a `DiscoveryBlocked` iteration.
+ * A report that only dropped or refused a write does not count: nothing
+ * landed anywhere for the developer to read.
+ */
+function limitRefusalFiledADiscovery(iteration: IterationOutcome): boolean {
+  return (
+    iteration.kind === "limit-refused" &&
+    (iteration.discoveryReport?.routing.filed.length ?? 0) > 0
+  );
+}
+
+/**
  * What an invocation came to, from its own facts alone: the outcome, the
  * one-line message, whether the developer's setup needs attention, and —
  * published here, the summary module's own last step — where the summary
@@ -648,12 +662,13 @@ function limitRefusalLeftABranch(iteration: IterationOutcome): boolean {
  * publishing, the issue body.
  *
  * An invocation that worked something, freed a ticket a dead invocation had
- * recorded, or left a branch behind from a limit refusal that spent tokens
- * for nothing else, always publishes — a freed ticket or a branch nobody else
- * will mention must be named somewhere, never only erased from the state
- * document. A quiet or broken one publishes only when today has not already
- * been announced, per CONTEXT.md's "Summary" — a loop firing every hour still
- * reports one quiet or broken morning rather than up to twenty-four.
+ * recorded, or had a limit refusal that left a branch behind or filed a
+ * discovery, always publishes — a freed ticket, a branch, or a discovery
+ * nobody else will mention must be named somewhere, never only erased from
+ * the state document. A quiet or broken one publishes only when today has not
+ * already been announced, per CONTEXT.md's "Summary" — a loop firing every
+ * hour still reports one quiet or broken morning rather than up to
+ * twenty-four.
  */
 export async function composeInvocationReport(
   tracker: SummaryTracker,
@@ -668,6 +683,7 @@ export async function composeInvocationReport(
     outcome === "work-selected" ||
     facts.freedFromDeadInvocation.length > 0 ||
     facts.iterations.some(limitRefusalLeftABranch) ||
+    facts.iterations.some(limitRefusalFiledADiscovery) ||
     !alreadyAnnouncedToday
   ) {
     const body = summaryBody(facts, line);
