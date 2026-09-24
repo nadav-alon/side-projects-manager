@@ -3,8 +3,8 @@ declare const nitsBrand: unique symbol;
 /**
  * The fixed heading a pull request body's nit section sits under, named once
  * so the implementation prompt's instruction to write it, the review
- * prompt's instruction to read it, and `pullRequestBody`'s instruction to
- * render it can only ever agree with each other.
+ * prompt's instruction to read it, and the draft pull request body's own
+ * rendering of it can only ever agree with each other.
  */
 export const NIT_SECTION_HEADING = "## Nits";
 
