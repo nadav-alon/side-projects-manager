@@ -96,6 +96,11 @@ export function normalizeDiscovery(value: Discovery): Discovery {
     body: value.body,
     ready: value.ready === true ? true : undefined,
   };
+  // Object.entries/fromEntries erases fields's own key-complete type back to
+  // Record<string, unknown>, hence the cast. It trades no value safety:
+  // every value in fields came typed off the Discovery parameter itself,
+  // kind and title and body already runtime-checked by isDiscovery, ready
+  // by the `=== true` above.
   return Object.fromEntries(
     Object.entries(fields).filter(([, fieldValue]) => fieldValue !== undefined),
   ) as unknown as Discovery;
