@@ -260,9 +260,10 @@ export const RECENT_STEPS_SHOWN = 10;
  * still is.
  */
 function runLines({ run, steps }: StatusRun, now: Date, alive: boolean): string[] {
+  const target = `${run.kind} ${run.repo} #${run.number}${run.pullRequest === undefined ? "" : ` (${run.pullRequest})`}`;
   const header = alive
-    ? `  Running: ${run.kind} ${run.repo} #${run.number}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`
-    : `  Was running when the invocation died: ${run.kind} ${run.repo} #${run.number}, started ${localTimeOfMinute(run.startedAt)}, had been running for ${elapsedSince(run.startedAt, now)}.`;
+    ? `  Running: ${target}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`
+    : `  Was running when the invocation died: ${target}, started ${localTimeOfMinute(run.startedAt)}, had been running for ${elapsedSince(run.startedAt, now)}.`;
   if (steps === undefined) {
     return [header, "    Transcript not readable yet."];
   }

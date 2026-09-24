@@ -9,6 +9,7 @@ import {
   localDay,
   localTimeOfMinute,
   processId,
+  pullRequestUrl,
   repoSlug,
   tokenCount,
   transcriptDirectory,
@@ -329,6 +330,32 @@ describe("statusReport's run-in-progress lines", () => {
     const text = lines.join("\n");
     assert.match(text, /implementation nadav-alon\/pilot #7/);
     assert.match(text, /running for 15m/);
+  });
+
+  it("names an implementation run's line with no pull request, unchanged", () => {
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run: RUN, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(text, /^ {2}Running: implementation nadav-alon\/pilot #7, started/m);
+  });
+
+  it("names a review, apply-review or rebase run's pull request beside its ticket", () => {
+    const pullRequest = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12");
+    const run: RunInProgress = { ...RUN, kind: "review", pullRequest };
+
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(
+      text,
+      /Running: review nadav-alon\/pilot #7 \(https:\/\/github\.com\/nadav-alon\/pilot\/pull\/12\), started/,
+    );
   });
 
   it("prints a run's recent steps, oldest first, each with local time", () => {
