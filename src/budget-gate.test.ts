@@ -819,3 +819,43 @@ describe("budgetStatus", () => {
     assert.equal(status.weekly.reserveReached, true);
   });
 });
+
+describe("budgetGate and budgetStatus agree", () => {
+  it("marks the reserve reached exactly where the gate stands down on consumption alone", () => {
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      weeklyAllowance: tokenCount(1_000),
+      reserveFraction: reserveFraction(0.5),
+    };
+    const windows = spent({ weekly: 501 });
+
+    const refusal = budgetGate(windows, budget, [], TICKET, []);
+    const status = budgetStatus(windows, budget, []);
+
+    assert.equal(refusal?.reason, "weekly-reserve");
+    assert.equal(status.weekly.reserveReached, true);
+  });
+
+  /**
+   * `reserveReached` answers a narrower question than the gate: it charges no
+   * run estimate, so a window the estimate alone pushes over stands the gate
+   * down without `reserveReached` following it — the gap `statusReport`'s
+   * wording has to respect rather than paper over.
+   */
+  it("stands the gate down on the run estimate alone without marking the reserve reached", () => {
+    const estimate = DEFAULT_BUDGET.sizes.S;
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      weeklyAllowance: tokenCount(estimate + 100),
+      reserveFraction: reserveFraction(0),
+    };
+    const sizedTicket: Ticket = { ...TICKET, sizeLabel: { kind: "declared", size: "S" } };
+    const windows = spent({ weekly: 101 });
+
+    const refusal = budgetGate(windows, budget, [], sizedTicket, []);
+    const status = budgetStatus(windows, budget, []);
+
+    assert.equal(refusal?.reason, "weekly-reserve-estimate");
+    assert.equal(status.weekly.reserveReached, false);
+  });
+});
