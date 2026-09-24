@@ -18,6 +18,7 @@ import { systemClock } from "../adapters/system-clock.ts";
 import { terminalProgress } from "../adapters/terminal-progress.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { errorMessage } from "../error-message.ts";
+import { RESUME_COMMAND } from "../halt.ts";
 import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
 import { morningLoop } from "../morning-run.ts";
 import {
@@ -69,7 +70,7 @@ const INTERRUPTED = 130;
 async function main(): Promise<void> {
   if (process.env[LOOP_PROCESS] === undefined) {
     if (await fileHalt().engaged()) {
-      console.log("halted: doing nothing until `npm run resume`.");
+      console.log(`halted: doing nothing until \`${RESUME_COMMAND}\`.`);
       return;
     }
     const invoked = await invokeExclusively(fileInvocationLease(), invokeLoop);

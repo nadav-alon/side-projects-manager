@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { fileHalt } from "../adapters/file-halt.ts";
 import { errorMessage } from "../error-message.ts";
+import { RESUME_COMMAND } from "../halt.ts";
 
 /**
  * Engages the halt (CONTEXT.md: Halt): every firing, hourly or manual, does
@@ -11,7 +12,7 @@ async function main(): Promise<void> {
   const engaged = await fileHalt().engage();
   console.log(
     engaged
-      ? "Halted: the loop will do nothing until you run `npm run resume`."
+      ? `Halted: the loop will do nothing until you run \`${RESUME_COMMAND}\`.`
       : "Already halted.",
   );
 }

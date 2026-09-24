@@ -8,6 +8,13 @@
  * no lease and claim no day, so it has to turn back before either is ever
  * asked for. See ADR 0008.
  */
+/**
+ * The command a developer runs to clear the halt, named once so every
+ * message that tells them to run it — `status`, `halt`, and a halted
+ * firing's own log line — stays in step if it's ever renamed.
+ */
+export const RESUME_COMMAND = "npm run resume";
+
 export interface Halt {
   /** Whether the loop is currently halted. */
   engaged(): Promise<boolean>;

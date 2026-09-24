@@ -1,4 +1,5 @@
 import type { BudgetStatus, WindowStatus } from "./budget-gate.ts";
+import { RESUME_COMMAND } from "./halt.ts";
 import type {
   Day,
   InvocationClosing,
@@ -135,7 +136,7 @@ export function statusReport(
  */
 function haltCallout(halted: boolean): string[] {
   return halted
-    ? ["Halted: the loop does nothing until `npm run resume`."]
+    ? [`Halted: the loop does nothing until \`${RESUME_COMMAND}\`.`]
     : [];
 }
 
