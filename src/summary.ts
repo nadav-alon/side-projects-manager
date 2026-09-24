@@ -153,10 +153,10 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
  * `changes`, and the same refusal appears once in `refusals` — a repeat
  * sweep finding the pull request already in the shape it would put it is
  * the same fact stated twice, not two events. A `/rebase` post is different:
- * since #710, a pull request whose rebase ticket has closed can be posted on
- * again in the same invocation, and each post opens its own ticket, so
- * `commented` keeps every one, unfiltered — a pull request posted on twice
- * appears in it twice. Built by {@link conflictSweepProjects}, and read by
+ * a pull request whose rebase ticket has closed can be posted on again in
+ * the same invocation, and each post opens its own ticket, so `commented`
+ * keeps every one, unfiltered — a pull request posted on twice appears in it
+ * twice. Built by {@link conflictSweepProjects}, and read by
  * both the summary line's short aside and the body's own section, so the two
  * never drift apart on what counts as "changed" or "refused".
  */
@@ -204,11 +204,11 @@ function conflictSweepRefusalKey(
  * deduplicated the way `CONTEXT.md`'s "Conflict sweep" and ADR 0007 describe:
  * one invocation sweeps before every selection, so the same pull request
  * labelled or unlabelled, or the same refusal, can be met by several sweeps
- * and is reported once. A `/rebase` post is kept apart from that rule: since
- * #710 a pull request can be posted on more than once in the same
- * invocation, each post opening its own ticket, so every `commented` change
- * is kept, not deduplicated. A project with nothing changed and nothing
- * refused is left out entirely.
+ * and is reported once. A `/rebase` post is kept apart from that rule: a
+ * pull request can be posted on more than once in the same invocation, each
+ * post opening its own ticket, so every `commented` change is kept, not
+ * deduplicated. A project with nothing changed and nothing refused is left
+ * out entirely.
  */
 function conflictSweepProjects(
   conflictSweeps: ConflictSweepOutcome[],
@@ -809,12 +809,12 @@ function freedFromDeadInvocationSection(
  * One bullet per project's conflict sweep activity: a pull request labelled
  * {@link NEEDS_REBASE_LABEL}, one that had it removed — each once, however
  * many sweeps met it — one per {@link REBASE_COMMENT} post, one bullet per
- * post rather than grouped, since #710 lets two posts on the same pull
- * request be two distinct events in one invocation, and a refusal naming
- * what it was trying and the error, per `conflictSweepProjects`. `undefined`
- * when no sweep this invocation changed or was refused anything, so the
- * section is absent entirely — pinned byte-for-byte by the test at
- * `summary.test.ts:1021`.
+ * post rather than grouped, since two posts on the same pull request are two
+ * distinct events in one invocation, and a refusal naming what it was trying
+ * and the error, per `conflictSweepProjects`. `undefined` when no sweep this
+ * invocation changed or was refused anything, so the section is absent
+ * entirely — pinned byte-for-byte by the test "renders nothing extra, byte
+ * for byte, when no sweep changed or refused anything" in `summary.test.ts`.
  */
 function conflictSweepSection(
   conflictSweeps: ConflictSweepOutcome[],
