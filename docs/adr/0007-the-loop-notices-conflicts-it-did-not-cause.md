@@ -51,5 +51,7 @@ the budget gate already charges each run.
 - **The label comes off whenever the pull request reads clean**, rebase ticket open or not: the
   label means not mergeable now, and a ticket still open finds nothing to rebase and closes itself.
 - **Best effort**, like the `reviewed` label and the turbo `/apply-review`: a refused read, label
-  or comment never blocks selection or fails the invocation, and the summary reports each change
-  and each refusal once per invocation, however many sweeps met it.
+  or comment never blocks selection or fails the invocation, and the summary reports each label,
+  unlabel and refusal once per invocation, however many sweeps met it — but each `/rebase` post on
+  its own, since #710 lets a pull request whose earlier rebase ticket has closed be posted on again
+  in the same invocation, and each post is a distinct ticket the developer needs named.

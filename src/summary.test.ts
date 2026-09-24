@@ -1825,6 +1825,69 @@ describe("conflict sweeps", () => {
     assert.doesNotMatch(line, new RegExp(PULL_REQUEST));
   });
 
+  it("gives two distinct /rebase posts on the same pull request their own bullet each, rather than collapsing the second away", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Conflict sweeps"));
+    const bullets = section
+      .split("\n")
+      .filter((line) => line === `- ${REPO}: posted /rebase on ${PULL_REQUEST}`);
+
+    assert.equal(bullets.length, 2);
+  });
+
+  it("still reports a pull request the same scan's own label change met more than once as one bullet, unlike a repeated post", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [
+          { pullRequest: PULL_REQUEST, action: "labelled" },
+          { pullRequest: PULL_REQUEST, action: "commented" },
+        ],
+        refusals: [],
+      },
+      {
+        repo: REPO,
+        changes: [
+          { pullRequest: PULL_REQUEST, action: "labelled" },
+          { pullRequest: PULL_REQUEST, action: "commented" },
+        ],
+        refusals: [],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Conflict sweeps"));
+
+    assert.equal(
+      section
+        .split("\n")
+        .filter((line) => line === `- ${REPO}: labelled needs-rebase on ${PULL_REQUEST}`).length,
+      1,
+    );
+    assert.equal(
+      section.split("\n").filter((line) => line === `- ${REPO}: posted /rebase on ${PULL_REQUEST}`)
+        .length,
+      2,
+    );
+  });
+
+  it("counts both posts, not one, in the summary line's aside when the same pull request is posted on twice", () => {
+    const commented = factsWithSweeps([
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+    ]);
+
+    assert.match(
+      summaryLine(commented),
+      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 2 pull requests\\)`),
+    );
+  });
+
   it("mentions the sweep in the summary line when it was refused something", () => {
     const refused = factsWithSweeps([
       {
