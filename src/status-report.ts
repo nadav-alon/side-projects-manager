@@ -1,18 +1,39 @@
 import type { BudgetStatus, WindowStatus } from "./budget-gate.ts";
-import type { Day, InvocationClosing, OpenInvocation, TokenCount } from "./ports/index.ts";
+import type {
+  Day,
+  InvocationClosing,
+  OpenInvocation,
+  RunInProgress,
+  TokenCount,
+} from "./ports/index.ts";
 import { localDay, localTimeOfMinute } from "./ports/index.ts";
+import type { TranscriptStep } from "./transcript-steps.ts";
 import type {
   ScheduleRegistration,
   TriggerRegistration,
 } from "./trigger-registrations.ts";
 
 /**
+ * One run an in-flight invocation has going, as `status` reads it: what the
+ * manager itself recorded when it started the run, and its agent's own
+ * recent steps, already read off its transcript by the caller — `undefined`
+ * when that transcript could not be read yet, per `RunInProgress`'s own
+ * CONTEXT.md entry.
+ */
+export interface StatusRun {
+  run: RunInProgress;
+  steps: TranscriptStep[] | undefined;
+}
+
+/**
  * An invocation record still in flight, as the status command reads it:
  * whether the process that opened it is still alive, the one concession to
- * liveness in a journal that is otherwise all domain state.
+ * liveness in a journal that is otherwise all domain state, and every run it
+ * has going right now.
  */
 export interface OpenStatusRecord extends OpenInvocation {
   alive: boolean;
+  runs: StatusRun[];
 }
 
 /** An invocation record that has closed, as the status command reads it. */
@@ -92,7 +113,7 @@ export function statusReport(
     ...budgetLines,
     claimLine(records, today, todayClaimed),
     mostRecentLine(latest),
-    ...inFlightCallouts(records),
+    ...inFlightCallouts(records, now),
     ...consecutiveFailureCallout(records),
     ...historyLines(records),
   ];
@@ -203,15 +224,61 @@ function mostRecentLine(latest: StatusRecord): string {
   return `Most recent invocation: opened ${describeAt(latest.openedAt)} — ${describeRecord(latest)}.`;
 }
 
-/** Every record still in flight, named as still running or died. */
-function inFlightCallouts(records: readonly StatusRecord[]): string[] {
+/**
+ * Every record still in flight, named as still running or died, followed by
+ * each run it has going right now and its agent's own recent steps —
+ * CONTEXT.md's "Run in progress". A record with no runs going adds nothing
+ * past its own callout line.
+ */
+function inFlightCallouts(records: readonly StatusRecord[], now: Date): string[] {
   return records
     .filter((record): record is OpenStatusRecord => !isClosed(record))
-    .map((record) =>
+    .flatMap((record) => [
       record.alive
         ? `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} is still running. Watch trigger.log, or check on process ${record.process} — and kill it if it's wedged.`
         : `In flight: the invocation opened ${describeAt(record.openedAt)} by process ${record.process} has died without closing its record. Check trigger.log for what it last did, then re-run the loop by hand.`,
-    );
+      ...record.runs.flatMap((run) => runLines(run, now)),
+    ]);
+}
+
+/**
+ * How many of a run's own recent steps `status` shows, oldest first — what
+ * `bin/status.ts` reads its own transcript tail down to, so the two agree on
+ * one number rather than each guessing the other's.
+ */
+export const RECENT_STEPS_SHOWN = 10;
+
+/**
+ * One run's own line — its kind, target and how long it has been running —
+ * followed by its agent's recent steps, oldest first, or a line saying its
+ * transcript could not be read yet when `steps` is `undefined`: not started,
+ * or already cleaned up.
+ */
+function runLines({ run, steps }: StatusRun, now: Date): string[] {
+  const header = `  Running: ${run.kind} ${run.repo} #${run.number}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`;
+  if (steps === undefined) {
+    return [header, "    Transcript not readable yet."];
+  }
+  if (steps.length === 0) {
+    return [header, "    No steps yet."];
+  }
+  return [
+    header,
+    ...steps.map((step) => `    ${localTimeOfMinute(step.at)} ${step.line}`),
+  ];
+}
+
+/** How long `startedAt` has been running, as of `now` — minutes, or hours and minutes past the first hour. */
+function elapsedSince(startedAt: Date, now: Date): string {
+  const totalMinutes = Math.floor(
+    Math.max(0, now.getTime() - startedAt.getTime()) / 60_000,
+  );
+  if (totalMinutes < 1) {
+    return "under a minute";
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours === 0 ? `${minutes}m` : `${hours}h ${minutes}m`;
 }
 
 /**

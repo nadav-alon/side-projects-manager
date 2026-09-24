@@ -2,13 +2,20 @@
 import { documentStore } from "../adapters/document-store.ts";
 import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { isProcessAlive } from "../adapters/process-alive.ts";
+import { readTranscriptTail } from "../adapters/container-sandbox.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { systemTriggerRegistrations } from "../adapters/system-trigger-registrations.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { budgetStatus, runsRecorded } from "../budget-gate.ts";
 import { errorMessage } from "../error-message.ts";
 import { hasAnnouncedOn, isClosedInvocation, localDay } from "../ports/index.ts";
-import { statusReport, type StatusJournal, type StatusRecord } from "../status-report.ts";
+import {
+  RECENT_STEPS_SHOWN,
+  statusReport,
+  type StatusJournal,
+  type StatusRecord,
+  type StatusRun,
+} from "../status-report.ts";
 
 /**
  * "Is the loop alive?", without reading source: reads the journal, the state
@@ -34,11 +41,24 @@ async function main(): Promise<void> {
   const windows = await sessionLogUsageLedger.read(now, budget.observedResetAt);
 
   const resolved: StatusJournal = {
-    records: journal.records.map(
-      (record): StatusRecord =>
-        isClosedInvocation(record)
-          ? record
-          : { openedAt: record.openedAt, process: record.process, alive: isProcessAlive(record.process) },
+    records: await Promise.all(
+      journal.records.map(async (record): Promise<StatusRecord> => {
+        if (isClosedInvocation(record)) {
+          return record;
+        }
+        const runs: StatusRun[] = await Promise.all(
+          (record.runs ?? []).map(async (run) => ({
+            run,
+            steps: await readTranscriptTail(run.transcriptDirectory, RECENT_STEPS_SHOWN),
+          })),
+        );
+        return {
+          openedAt: record.openedAt,
+          process: record.process,
+          alive: isProcessAlive(record.process),
+          runs,
+        };
+      }),
     ),
   };
   const todayClaimed = hasAnnouncedOn(state.announcedOn, localDay(now));

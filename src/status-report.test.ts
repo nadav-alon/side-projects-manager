@@ -2,13 +2,26 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { BudgetStatus, WindowStatus } from "./budget-gate.ts";
-import { cronMinute, exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
+import {
+  cronMinute,
+  exitCode,
+  issueNumber,
+  localDay,
+  localTimeOfMinute,
+  processId,
+  repoSlug,
+  tokenCount,
+  transcriptDirectory,
+  type RunInProgress,
+} from "./ports/index.ts";
 import {
   statusReport,
   type StatusJournal,
   type StatusRecord,
+  type StatusRun,
   type StatusTriggers,
 } from "./status-report.ts";
+import type { TranscriptStep } from "./transcript-steps.ts";
 
 const NOW = new Date("2026-09-17T09:00:00.000Z");
 const TODAY = localDay(NOW);
@@ -51,8 +64,8 @@ function closed(
   };
 }
 
-function inFlight(openedAt: string, alive: boolean): StatusRecord {
-  return { openedAt: new Date(openedAt), process: processId(4321), alive };
+function inFlight(openedAt: string, alive: boolean, runs: StatusRun[] = []): StatusRecord {
+  return { openedAt: new Date(openedAt), process: processId(4321), alive, runs };
 }
 
 /** `statusReport`, armed and pointing at `MANAGER_HOME`, with an idle budget, unless a test says otherwise. */
@@ -283,6 +296,67 @@ describe("statusReport", () => {
     const historyLines = lines.slice(historyIndex + 1);
     assert.equal(historyLines.length, 6);
     assert.equal(historyLines[5], "… and 2 earlier");
+  });
+});
+
+describe("statusReport's run-in-progress lines", () => {
+  const RUN: RunInProgress = {
+    kind: "implementation",
+    repo: PILOT,
+    number: issueNumber(7),
+    startedAt: new Date("2026-09-17T08:45:00.000Z"),
+    transcriptDirectory: transcriptDirectory("/manager-home/transcripts/run-abc123"),
+  };
+
+  it("says nothing about runs when the in-flight record has none", () => {
+    const lines = report(journal(inFlight("2026-09-17T08:55:00.000Z", true)), false);
+
+    assert.doesNotMatch(lines.join("\n"), /Running:/);
+  });
+
+  it("says nothing about runs when nothing is in flight", () => {
+    const lines = report(journal(closed("2026-09-17T08:00:00.000Z")), true);
+
+    assert.doesNotMatch(lines.join("\n"), /Running:/);
+  });
+
+  it("names a run's kind, target and how long it has been running, from what the manager itself recorded", () => {
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run: RUN, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(text, /implementation nadav-alon\/pilot #7/);
+    assert.match(text, /running for 15m/);
+  });
+
+  it("prints a run's recent steps, oldest first, each with local time", () => {
+    const steps: TranscriptStep[] = [
+      { at: new Date("2026-09-17T08:46:00.000Z"), line: "Reading the ticket." },
+      { at: new Date("2026-09-17T08:47:00.000Z"), line: "→ Bash: npm test" },
+    ];
+
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run: RUN, steps }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    const first = text.indexOf("Reading the ticket.");
+    const second = text.indexOf("→ Bash: npm test");
+    assert.ok(first !== -1 && second !== -1 && first < second);
+    assert.match(text, new RegExp(`${localTimeOfMinute(steps[0]!.at)} Reading the ticket\\.`));
+    assert.match(text, new RegExp(`${localTimeOfMinute(steps[1]!.at)} → Bash: npm test`));
+  });
+
+  it("says a run's transcript could not be read yet, instead of failing, when steps is undefined", () => {
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run: RUN, steps: undefined }])),
+      false,
+    );
+
+    assert.match(lines.join("\n"), /Transcript not readable yet/);
   });
 });
 
