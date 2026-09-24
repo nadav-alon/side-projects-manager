@@ -78,7 +78,7 @@ function limitRefused(number: number, discard: Discard): IterationOutcome {
 function limitRefusedWithDiscoveries(number: number, discoveryRouting: DiscoveryRouting): IterationOutcome {
   return {
     ...(limitRefused(number, { kind: "none" }) as Extract<IterationOutcome, { kind: "limit-refused" }>),
-    discoveries: { routing: discoveryRouting },
+    discoveryReport: { routing: discoveryRouting },
   };
 }
 
@@ -378,7 +378,7 @@ function specReviewedWithDiscoveries(
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
-    discoveries: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
+    discoveryReport: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
   };
   return { repo: REPO, ticket: specReviewTicket(number), ...specReviewed };
 }
@@ -435,7 +435,7 @@ function finishedWithDiscoveries(
     repo: REPO,
     ticket: implementationTicket(number),
     ...finishedRun(500, "agent/900"),
-    discoveries: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
+    discoveryReport: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
   };
 }
 
@@ -449,7 +449,7 @@ function reviewedWithDiscoveries(
     kind: "reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
-    discoveries: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
+    discoveryReport: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }

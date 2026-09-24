@@ -701,7 +701,7 @@ function discoveryFactsOf(
     case "spec-reviewed":
     case "limit-refused":
     case "provider-failed":
-      return iteration.discoveries;
+      return iteration.discoveryReport;
     case "budget-exhausted":
     case "pull-request-resolved":
       return undefined;

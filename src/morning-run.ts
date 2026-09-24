@@ -782,7 +782,7 @@ async function work(
  * `iteration`, with `routed`'s own routing and cross-target attached.
  * Unchanged when there was nothing to route.
  */
-function withDiscoveries<T extends { discoveries?: DiscoveryReport }>(
+function withDiscoveries<T extends { discoveryReport?: DiscoveryReport }>(
   iteration: T,
   routed: RoutedDiscoveries | undefined,
 ): T {
@@ -791,7 +791,7 @@ function withDiscoveries<T extends { discoveries?: DiscoveryReport }>(
   }
   return {
     ...iteration,
-    discoveries: {
+    discoveryReport: {
       routing: routed.routing,
       ...(routed.crossTarget !== undefined && { crossTarget: routed.crossTarget }),
     },
