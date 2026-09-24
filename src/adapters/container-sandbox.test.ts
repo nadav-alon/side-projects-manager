@@ -491,7 +491,7 @@ describe("containerSandbox", () => {
     assert.match(asked, /do not push, and do\s+not open a pull request/);
   });
 
-  it("asks for a self-caused nit fixed in its own commit, and any other nit listed under the fixed heading in the pull request body", async () => {
+  it("asks for a self-caused nit fixed in its own commit, and any other nit written under the fixed heading in the run's own output, ahead of the gist", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
@@ -505,7 +505,7 @@ describe("containerSandbox", () => {
     assert.match(asked, /Any other nit you notice is not a discovery/);
     assert.match(
       asked,
-      new RegExp(`${NIT_SECTION_HEADING}.*in the pull request body`),
+      new RegExp(`end your own\\s+output with a section headed exactly \`${NIT_SECTION_HEADING}\`, ahead of\\s+the ticket gist line`),
     );
   });
 
