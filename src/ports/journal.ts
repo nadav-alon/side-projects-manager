@@ -98,11 +98,10 @@ export interface InvocationClosing {
  * container command line. Cleared from the invocation record the moment the
  * run ends, whatever it came to.
  *
- * `pullRequest` is present only for a review, apply-review or rebase run —
- * copied from the ticket's own `pullRequest` binding at the moment the
- * manager started the run, never parsed back out of a prompt or a container
- * command line. Absent for an implementation run, which is bound to no pull
- * request.
+ * `pullRequest` is present only for a pull request ticket's run — copied
+ * from the ticket's own `pullRequest` binding at the moment the manager
+ * started the run, never parsed back out of a prompt or a container command
+ * line. Absent for an implementation run, which is bound to no pull request.
  */
 export interface RunInProgress {
   kind: TicketKind;
