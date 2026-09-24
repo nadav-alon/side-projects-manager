@@ -1,9 +1,12 @@
 import type { ExitCode } from "./exit-code.ts";
+import type { IssueNumber } from "./issue-number.ts";
 import type { IssueUrl } from "./issue-url.ts";
+import type { TicketKind } from "./issue-tracker.ts";
 import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ProcessId } from "./process-id.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
+import type { TranscriptDirectory } from "./transcript-directory.ts";
 
 /**
  * What became of an invocation, once it is known.
@@ -88,13 +91,35 @@ export interface InvocationClosing {
 }
 
 /**
+ * One run the invocation has going right now — CONTEXT.md's "Run in
+ * progress": what `status` needs to name it, from what the manager itself
+ * recorded when it started the run, never from parsing a prompt or a
+ * container command line. Cleared from the invocation record the moment the
+ * run ends, whatever it came to.
+ */
+export interface RunInProgress {
+  kind: TicketKind;
+  repo: RepoSlug;
+  number: IssueNumber;
+  startedAt: Date;
+  transcriptDirectory: TranscriptDirectory;
+}
+
+/**
  * One journal entry: opened before the loop runs, closed with its report. A
  * record with no `closedAt` is in flight — the invocation that opened it is
  * either still running or died before it could close.
  */
 export interface InvocationRecord
   extends OpenInvocation,
-    Partial<InvocationClosing> {}
+    Partial<InvocationClosing> {
+  /**
+   * Every run this invocation has going right now, absent or empty when it
+   * has none. Absent reads the same as empty, so a record from before this
+   * existed loads unchanged — CONTEXT.md's "Run in progress".
+   */
+  runs?: RunInProgress[];
+}
 
 /** The journal in force: every invocation record the store has kept, oldest first. */
 export interface Journal {

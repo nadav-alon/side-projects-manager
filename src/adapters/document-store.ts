@@ -15,6 +15,7 @@ import type {
   InvocationClosing,
   InvocationOutcome,
   InvocationRecord,
+  IssueNumber,
   IssueUrl,
   Journal,
   JournaledProject,
@@ -29,12 +30,14 @@ import type {
   RegisteredProject,
   RepoSlug,
   RunCost,
+  RunInProgress,
   Salvage,
   Size,
   SpendCeiling,
   State,
   Store,
   TicketKind,
+  TranscriptDirectory,
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
@@ -61,6 +64,8 @@ import {
   isProcessId,
   isRepoSlug,
   isSize,
+  isTicketKind,
+  isTranscriptDirectory,
   keptSummaryPath,
   isReserveFraction,
   isTokenCount,
@@ -161,6 +166,37 @@ export function documentStore(home: string = MANAGER_HOME): Store {
 
     async loadJournal(): Promise<Journal> {
       return loadJournalDocument(journalFile);
+    },
+
+    async recordRunStarted(
+      opened: OpenInvocation,
+      run: RunInProgress,
+    ): Promise<void> {
+      const journal = await loadJournalDocument(journalFile);
+      const record = findInvocationRecord(journal.records, opened);
+      if (record === undefined) {
+        throw new Error(
+          `${journalFile}: no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}.`,
+        );
+      }
+      record.runs = [...(record.runs ?? []), run];
+      await writeJournal(home, journalFile, journal);
+    },
+
+    async recordRunEnded(
+      opened: OpenInvocation,
+      repo: RepoSlug,
+      number: IssueNumber,
+    ): Promise<void> {
+      const journal = await loadJournalDocument(journalFile);
+      const record = findInvocationRecord(journal.records, opened);
+      if (record === undefined || record.runs === undefined) {
+        return;
+      }
+      record.runs = record.runs.filter(
+        (run) => run.repo !== repo || run.number !== number,
+      );
+      await writeJournal(home, journalFile, journal);
     },
 
     async keepSummary(startedAt: Date, body: string): Promise<KeptSummaryPath> {
@@ -856,6 +892,7 @@ function formatState(state: State): string {
 const RECORD_FIELDS = [
   "openedAt",
   "process",
+  "runs",
   "closedAt",
   "outcome",
   "projects",
@@ -900,15 +937,17 @@ function parseInvocationRecord(
   rejectUnknownFields(record, RECORD_FIELDS, "field", where);
 
   const { openedAt, process } = parseOpenInvocation(record, where);
+  const runs = runsField(fieldOf(record, "runs", where), where);
 
   const closedAt = fieldOf(record, "closedAt", where);
   if (closedAt === undefined) {
-    return { openedAt, process };
+    return { openedAt, process, ...runs };
   }
 
   return {
     openedAt,
     process,
+    ...runs,
     closedAt: parseInstant(closedAt, `${where}: "closedAt"`),
     outcome: outcomeField(fieldOf(record, "outcome", where), where),
     projects: journaledProjectsField(fieldOf(record, "projects", where), where),
@@ -916,6 +955,56 @@ function parseInvocationRecord(
     ...summaryLocationField(fieldOf(record, "summaryLocation", where), where),
     ...summaryFailureField(fieldOf(record, "summaryFailure", where), where),
     ...exitCodeField(fieldOf(record, "exitCode", where), where),
+  };
+}
+
+/**
+ * `[{ "kind": "review", "repo": "owner/repo", "number": 7,
+ *    "startedAt": "…", "transcriptDirectory": "/…/transcripts/review-abc123" }]`
+ */
+function runsField(value: unknown, where: string): { runs?: RunInProgress[] } {
+  if (value === undefined) {
+    return {};
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${where}: "runs" must be a list of runs in progress.`);
+  }
+  return {
+    runs: value.map((run, index) =>
+      parseRunInProgress(run, `${where}: run ${index + 1}`),
+    ),
+  };
+}
+
+function parseRunInProgress(run: unknown, where: string): RunInProgress {
+  const repo = repoSlugField(run, where);
+  const number = fieldOf(run, "number", where);
+  if (typeof number !== "number" || !isIssueNumber(number)) {
+    throw new Error(
+      `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
+    );
+  }
+  const kind = fieldOf(run, "kind", where);
+  if (typeof kind !== "string" || !isTicketKind(kind)) {
+    throw new Error(
+      `${where}: "kind" must be one of ${TICKET_KINDS.join(", ")}: ${JSON.stringify(kind)}`,
+    );
+  }
+  const transcriptDirectory = fieldOf(run, "transcriptDirectory", where);
+  if (
+    typeof transcriptDirectory !== "string" ||
+    !isTranscriptDirectory(transcriptDirectory)
+  ) {
+    throw new Error(
+      `${where}: "transcriptDirectory" must be an absolute path: ${JSON.stringify(transcriptDirectory)}`,
+    );
+  }
+  return {
+    kind,
+    repo,
+    number,
+    startedAt: parseInstant(fieldOf(run, "startedAt", where), `${where}: "startedAt"`),
+    transcriptDirectory,
   };
 }
 
@@ -1031,9 +1120,27 @@ function formatOpenInvocation(open: OpenInvocation): { openedAt: string; process
   return { openedAt: open.openedAt.toISOString(), process: open.process };
 }
 
+function formatRunInProgress(run: RunInProgress): {
+  kind: TicketKind;
+  repo: RepoSlug;
+  number: IssueNumber;
+  startedAt: string;
+  transcriptDirectory: TranscriptDirectory;
+} {
+  return {
+    kind: run.kind,
+    repo: run.repo,
+    number: run.number,
+    startedAt: run.startedAt.toISOString(),
+    transcriptDirectory: run.transcriptDirectory,
+  };
+}
+
 function formatJournal(journal: Journal): string {
   const records = journal.records.map((record) => ({
     ...formatOpenInvocation(record),
+    ...(record.runs !== undefined &&
+      record.runs.length > 0 && { runs: record.runs.map(formatRunInProgress) }),
     ...(record.closedAt !== undefined && {
       closedAt: record.closedAt.toISOString(),
       outcome: record.outcome,

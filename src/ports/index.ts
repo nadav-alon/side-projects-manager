@@ -60,6 +60,7 @@ export {
   isReviewTicket,
   isSpecReviewTicket,
   isSupertask,
+  isTicketKind,
   modelLabelOf,
   openRebaseTicketFor,
   reviewTitle,
@@ -106,6 +107,7 @@ export type {
   JournaledProject,
   JournaledSummaryFailure,
   OpenInvocation,
+  RunInProgress,
 } from "./journal.ts";
 export { isMilliseconds, milliseconds } from "./milliseconds.ts";
 export type { Milliseconds } from "./milliseconds.ts";
