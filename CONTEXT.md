@@ -93,9 +93,11 @@ has been published yet that local calendar day, recorded in the state document w
 the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather
 than up to twenty-four. "Worked something" excludes a run the provider limit refused, alongside a
 ticket handed back ahead of the gate: neither ran, so an invocation whose iterations were only
-those, however many, is a stand-down like any other. The title carries the local time to the minute
-beside the date, since more than one summary can land on one day. A summary the invocation composed
-but could not publish is a summary failure instead.
+those, however many, is a stand-down like any other — unless one of those limit refusals left a
+branch its discard could not throw away, salvaged one on purpose, or filed a discovery, in which
+case the invocation still always publishes. The title carries the local time to the minute beside
+the date, since more than one summary can land on one day. A summary the invocation composed but
+could not publish is a summary failure instead.
 _Avoid_: report, digest, changelog
 
 **Summary failure**:
