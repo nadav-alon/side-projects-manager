@@ -57,7 +57,7 @@ export interface InvocationStatePorts {
  * every save, exactly as `record` and `projects` are, so a change either
  * makes between two saves is exactly what the next one writes.
  */
-type ForeignStateFields = Pick<State, "announcedOn" | "salvages">;
+export type ForeignStateFields = Pick<State, "announcedOn" | "salvages">;
 
 /**
  * `ForeignStateFields` built from loose optional values, left out of the
@@ -105,15 +105,6 @@ export interface InvocationState {
    * the failure reaches the caller.
    */
   ticketSelected(ticket: WorkedTicket, day: Day): Promise<void>;
-
-  /**
-   * Records `ticket` as worked on `day`, in memory only, carrying none of
-   * `ticketSelected`'s own save-at-once guarantee. No production caller
-   * remains — every place a ticket is recorded as worked now goes through
-   * `ticketSelected` instead — so this is a test seam only, for a test
-   * seeding a worked-today record directly.
-   */
-  recordWorked(ticket: WorkedTicket, day: Day): void;
 
   /**
    * Takes `ticket` back off the worked-today record because the invocation
@@ -170,6 +161,14 @@ export interface InvocationState {
  * entry naming no invocation, one whose invocation closed, one whose
  * invocation is missing from the journal, or one recorded by this same
  * invocation.
+ *
+ * `exposeRecorder`, when given, is handed this invocation's own in-memory
+ * recorder once, on construction — the only way anything outside this
+ * function reaches it, since no production caller ever passes it.
+ * `src/testing/fake-invocation-state.ts` is the one caller: a test that
+ * needs to seed a worked-today record against a live invocation mid-selection,
+ * where `FakeStore.markWorkedOn`, which seeds the stored document before the
+ * invocation opens, does not reach.
  */
 export function invocationState(
   ports: InvocationStatePorts,
@@ -177,6 +176,7 @@ export function invocationState(
   today: Day,
   foreignFields: () => ForeignStateFields,
   current?: CurrentInvocation,
+  exposeRecorder?: (record: (ticket: WorkedTicket, day: Day) => void) => void,
 ): InvocationState {
   const projects = new Map(stored.projects);
   const storedToday =
@@ -219,9 +219,8 @@ export function invocationState(
     return saved;
   };
 
-  return {
+  const state: InvocationState = {
     passesOver: (ticket) => passedOver.has(ticketKey(ticket)),
-    recordWorked: doRecord,
     selectionAbandoned: doUnrecord,
     ticketSelected: async (ticket, day) => {
       doRecord(ticket, day);
@@ -244,6 +243,8 @@ export function invocationState(
     freed: () => freed,
     save: () => doSave(buildState()),
   };
+  exposeRecorder?.(doRecord);
+  return state;
 }
 
 /**
