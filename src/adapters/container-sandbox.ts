@@ -45,9 +45,11 @@ import {
   isBranch,
   isCommitSha,
   isDiscovery,
+  isNits,
   isRemoteUrl,
   isTicketGist,
   milliseconds,
+  NIT_SECTION_HEADING,
   normalizeDiscovery,
   remoteUrl,
   reviewFindingTemplate,
@@ -55,6 +57,7 @@ import {
   transcriptDirectory,
   transcriptPath,
   type Milliseconds,
+  type Nits,
   type TicketGist,
   type TokenCount,
   type TranscriptPath,
@@ -300,6 +303,12 @@ export interface AgentRun {
    * gave none.
    */
   gist?: TicketGist;
+  /**
+   * The nits listed under `NIT_SECTION_HEADING` off the agent's own text,
+   * read at the same point `gist` is — before `output` gains any diagnostics
+   * appended after it — see `nitsFrom`. Absent when the agent listed none.
+   */
+  nits?: Nits;
   /**
    * Set only by `attempt`, when the container itself threw once the agent had
    * already started, rather than the agent's own exit setting `failure` the
@@ -1341,10 +1350,11 @@ function needsSalvage(ending: Ending, agent: AgentRun): boolean {
 
 /**
  * `ending`, with the branch an implementation run worked on and its commits,
- * and — for a finished run — its ticket gist: `agent.gist` when the container
- * already read one off the agent's own text, before any diagnostics were
- * appended to `output`, and only otherwise a best-effort read of `output`'s
- * own last line, for a container that never sets it.
+ * and — for a finished run — its ticket gist and its nits: `agent.gist` and
+ * `agent.nits` when the container already read them off the agent's own
+ * text, before any diagnostics were appended to `output`, and only otherwise
+ * a best-effort read of `output` itself, for a container that never sets
+ * them.
  */
 function runOutcomeOf(
   ending: Ending,
@@ -1354,10 +1364,13 @@ function runOutcomeOf(
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
+  const nits =
+    ending.kind === "finished" ? (agent.nits ?? nitsFrom(ending.output)) : undefined;
   return withTranscriptAndDiscoveryFields(
     {
       ...ending,
       ...(gist !== undefined && { gist }),
+      ...(nits !== undefined && { nits }),
       tokensUsed: agent.tokensUsed,
       branch,
       commits,
@@ -1476,15 +1489,6 @@ const DISCOVERY_INSTRUCTIONS = [
   "of scope — anything else is triaged as normal, ready or not. Never set it on a correction or a",
   "clarification: neither opens a ticket, so it changes nothing there.",
 ].join(" ");
-
-/**
- * The fixed heading a pull request body's nit section sits under, named once
- * so `promptFor`'s instruction to write it and `reviewPromptFor`'s
- * instruction to read it can only ever agree with each other. Exported so a
- * test can assert against the heading that ships rather than a copy of the
- * literal.
- */
-export const NIT_SECTION_HEADING = "## Nits";
 
 /**
  * What the spec-reviewing agent is asked to do.
@@ -1902,13 +1906,15 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
     "A nit your own change causes is fixed in that same commit, as part of",
-    "the change. Any other nit you notice is not a discovery: list it under",
-    `the heading \`${NIT_SECTION_HEADING}\` in the pull request body, so the`,
-    "reviewer sees it.",
+    "the change. Any other nit you notice is not a discovery: end your own",
+    `output with a section headed exactly \`${NIT_SECTION_HEADING}\`, listing`,
+    "each one, so the pull request opened from your output carries it for",
+    "the reviewer. Omit the section entirely if you have no such nit.",
     DISCOVERY_INSTRUCTIONS,
-    `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
-    "followed by one sentence saying what the ticket asked for — not what",
-    "your diff did; the run is complete either way.",
+    `Finally, after that section if you gave one, end your output with a line`,
+    `reading exactly \`${TICKET_GIST_TAG}\` followed by one sentence saying`,
+    "what the ticket asked for — not what your diff did; the run is complete",
+    "either way. This must be the true last line of your output.",
   ].join(" ");
 }
 
@@ -1934,6 +1940,37 @@ function gistFrom(output: string): TicketGist | undefined {
   }
   const text = last.slice(TICKET_GIST_TAG.length).trim();
   return isTicketGist(text) ? text : undefined;
+}
+
+/**
+ * The nits an implementation run listed under `NIT_SECTION_HEADING` but did
+ * not fix, off its own output, absent when it gave none.
+ *
+ * Read from the line carrying the heading to the end of the run's text, the
+ * last line trimmed off first when it starts with `TICKET_GIST_TAG` — so a
+ * run that gave both never has the gist tag's own line read back as a nit,
+ * whether or not that line goes on to pass `isTicketGist`: an invalid gist
+ * is `gistFrom`'s to report as absent, not a nit for this function to invent
+ * out of the tag it failed to validate. Checked directly against the last
+ * line rather than through `gistFrom`, so a caller that already has the
+ * parsed gist at hand is never asked to hand it back in just to avoid a
+ * second parse.
+ *
+ * Backticks are stripped from each line before the heading test, for the
+ * same reason `gistFrom` strips them off its own tagged line.
+ */
+function nitsFrom(output: string): Nits | undefined {
+  const lines = output.trimEnd().split("\n");
+  const last = (lines.at(-1) ?? "").replace(/`/g, "");
+  const withoutGist = last.startsWith(TICKET_GIST_TAG) ? lines.slice(0, -1) : lines;
+  const headingIndex = withoutGist.findIndex(
+    (line) => line.trim().replace(/`/g, "") === NIT_SECTION_HEADING,
+  );
+  if (headingIndex === -1) {
+    return undefined;
+  }
+  const found = withoutGist.slice(headingIndex + 1).join("\n").trim();
+  return isNits(found) ? found : undefined;
 }
 
 /**
@@ -2566,15 +2603,18 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * A model refusal's words are the envelope's `result`, which is prose meant
  * for a reader, or the stderr tag itself when there is no `result` to quote.
  *
- * The ticket gist is read off the agent's own text before `stderr` and the
- * denied-tools note are appended to it: once appended, the tag is no longer
- * on the last line, and `gistFrom` would find nothing.
+ * The ticket gist and the nits are both read off the agent's own text before
+ * `stderr` and the denied-tools note are appended to it: once appended, the
+ * gist's tag is no longer on the last line, and `gistFrom` would find
+ * nothing — and `nitsFrom`, which trims the gist's own line off first, would
+ * read the appended text as more nits.
  */
 function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     const gist = gistFrom(stdout);
+    const nits = nitsFrom(stdout);
     const providerFailure = providerFailureFromProse(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
@@ -2582,6 +2622,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
       ...(providerFailure !== undefined && { providerFailure }),
       ...(gist !== undefined && { gist }),
+      ...(nits !== undefined && { nits }),
     };
   }
 
@@ -2591,6 +2632,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   };
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
+  const nits = nitsFrom(output);
   const providerFailure = providerFailureFromEnvelope(envelope);
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
@@ -2602,6 +2644,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
     ...(providerFailure !== undefined && { providerFailure }),
     ...(budgetExhausted !== undefined && { budgetExhausted }),
     ...(gist !== undefined && { gist }),
+    ...(nits !== undefined && { nits }),
   };
 }
 

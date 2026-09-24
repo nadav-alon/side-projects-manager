@@ -6,6 +6,7 @@ import type {
   ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
+  Nits,
   OpenPullRequest,
   Proposal,
   PullRequestLabel,
@@ -53,6 +54,8 @@ export interface FakePullRequest {
   ticket: Ticket;
   /** The run's ticket gist, when it carried one. */
   gist?: TicketGist;
+  /** The nits the run left, when it carried any. */
+  nits?: Nits;
 }
 
 /** One branch thrown away, and the checkout it was thrown away from. */
@@ -228,12 +231,14 @@ export class FakeRepoHost implements RepoHost {
     branch: Branch,
     ticket: Ticket,
     gist?: TicketGist,
+    nits?: Nits,
   ): Promise<DraftPullRequestOpening> {
     this.pullRequests.push({
       directory,
       branch,
       ticket,
       ...(gist !== undefined && { gist }),
+      ...(nits !== undefined && { nits }),
     });
     return this.draftPullRequest();
   }

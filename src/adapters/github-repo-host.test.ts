@@ -15,6 +15,8 @@ import {
   CLOSING_PULL_REQUEST_LIMIT,
   MergeabilityUnknown,
   NEEDS_REBASE_LABEL,
+  NIT_SECTION_HEADING,
+  nits as toNits,
   OPEN_PULL_REQUEST_LIMIT,
   branch as toBranch,
   checkout as toCheckout,
@@ -750,6 +752,52 @@ describe("opening a draft pull request for a completed run", () => {
     assert.equal(
       valueOf(call, "--body"),
       [gist, "", BODY_WITHOUT_GIST].join("\n"),
+    );
+  });
+
+  it("opens with a blank line, the fixed nits heading, then the run's own list, when the run left any", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+      undefined,
+      toNits("- the widget's name is misspelled two lines up"),
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(
+      valueOf(call, "--body"),
+      [
+        BODY_WITHOUT_GIST,
+        "",
+        NIT_SECTION_HEADING,
+        "- the widget's name is misspelled two lines up",
+      ].join("\n"),
+    );
+  });
+
+  it("opens with the gist first, then the closing body, then the nits heading, when the run carried both", async (t) => {
+    const gh = await recordingGh(t, `echo ${OPENED}`);
+    const directory = await ran(RAN);
+    const gist = ticketGist("Adds a retry to the flaky upload step.");
+
+    await githubRepoHost().openDraftPullRequest(
+      directory,
+      toBranch(RAN),
+      TICKET,
+      gist,
+      toNits("- one nit"),
+    );
+
+    const [call] = await gh.calls();
+    assert.equal(
+      valueOf(call, "--body"),
+      [gist, "", BODY_WITHOUT_GIST, "", NIT_SECTION_HEADING, "- one nit"].join(
+        "\n",
+      ),
     );
   });
 

@@ -114,6 +114,8 @@ export type { Milliseconds } from "./milliseconds.ts";
 export type { ModelDefaults } from "./model-defaults.ts";
 export { MODEL_NAME_SHAPE, isModelName, modelName } from "./model-name.ts";
 export type { ModelName } from "./model-name.ts";
+export { isNits, nits } from "./nits.ts";
+export type { Nits } from "./nits.ts";
 export { isPriority, priority } from "./priority.ts";
 export type { Priority } from "./priority.ts";
 export { isProcessId, processId } from "./process-id.ts";
@@ -152,6 +154,7 @@ export {
   MergeabilityUnknown,
   NEEDS_REBASE,
   NEEDS_REBASE_LABEL,
+  NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,
   REBASE_COMMENT,
   resolveNeedsRebase,

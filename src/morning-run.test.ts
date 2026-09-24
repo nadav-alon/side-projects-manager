@@ -22,6 +22,7 @@ import {
   issueNumber,
   localDay,
   modelName,
+  nits as toNits,
   processId,
   pullRequestUrl,
   reserveFraction,
@@ -35,6 +36,7 @@ import {
   type ApplyReviewTicket,
   type CommitSha,
   type Discovery,
+  type Nits,
   type OpenInvocation,
   type RebaseTicket,
   type ReviewTicket,
@@ -1374,6 +1376,7 @@ describe("morningLoop", () => {
         commits?: CommitSha[];
         failure?: string;
         gist?: TicketGist;
+        nits?: Nits;
         discoveries?: Discovery[];
         discoveriesDropped?: number;
       } = {},
@@ -1392,6 +1395,7 @@ describe("morningLoop", () => {
               output: "",
               tokensUsed: tokenCount(42_000),
               ...(run.gist !== undefined && { gist: run.gist }),
+              ...(run.nits !== undefined && { nits: run.nits }),
               ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
               ...(run.discoveriesDropped !== undefined && {
                 discoveriesDropped: run.discoveriesDropped,
@@ -1502,6 +1506,23 @@ describe("morningLoop", () => {
 
       assert.deepEqual(ports.repoHost.pullRequests, []);
       assert.equal(pullRequestOf(report.iterations[0]), undefined);
+    });
+
+    it("is opened with the run's nits, when it left any", async () => {
+      const ports = fakePorts();
+      const nits = toNits("- the widget's name is misspelled two lines up");
+      const ticket = ran(ports, { nits });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: BRANCH,
+          ticket,
+          nits,
+        },
+      ]);
     });
 
     it("is not opened for a run that committed nothing, gist or not", async () => {

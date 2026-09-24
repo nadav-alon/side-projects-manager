@@ -881,6 +881,7 @@ async function handOver(
     run.branch,
     ticket,
     run.gist,
+    run.nits,
   );
   if (opening.kind === "unpushed") {
     return handoverFailed(
