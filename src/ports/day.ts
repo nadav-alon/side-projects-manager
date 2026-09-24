@@ -42,3 +42,9 @@ export function localTimeOfMinute(at: Date): string {
   const minutes = `${at.getMinutes()}`.padStart(2, "0");
   return `${hours}:${minutes}`;
 }
+
+/** `at`'s local time, as `HH:MM:SS` — the grain a redraw needs to look alive within the same minute. */
+export function localTimeOfSecond(at: Date): string {
+  const seconds = `${at.getSeconds()}`.padStart(2, "0");
+  return `${localTimeOfMinute(at)}:${seconds}`;
+}
