@@ -27,6 +27,7 @@ import type {
   ProcessId,
   ProjectState,
   TokenCount,
+  PullRequestUrl,
   RegisteredProject,
   RepoSlug,
   RunCost,
@@ -61,6 +62,7 @@ import {
   isModelName,
   isPriority,
   isProcessId,
+  isPullRequestUrl,
   isRepoSlug,
   isSize,
   isTicketKind,
@@ -963,7 +965,8 @@ function parseInvocationRecord(
 
 /**
  * `[{ "kind": "review", "repo": "owner/repo", "number": 7,
- *    "startedAt": "…", "transcriptDirectory": "/…/transcripts/review-abc123" }]`
+ *    "startedAt": "…", "transcriptDirectory": "/…/transcripts/review-abc123",
+ *    "pullRequest": "https://github.com/owner/repo/pull/12" }]`
  */
 function runsField(value: unknown, where: string): { runs?: RunInProgress[] } {
   if (value === undefined) {
@@ -1008,7 +1011,23 @@ function parseRunInProgress(run: unknown, where: string): RunInProgress {
     number,
     startedAt: parseInstant(fieldOf(run, "startedAt", where), `${where}: "startedAt"`),
     transcriptDirectory,
+    ...pullRequestField(fieldOf(run, "pullRequest", where), where),
   };
+}
+
+function pullRequestField(
+  value: unknown,
+  where: string,
+): { pullRequest?: PullRequestUrl } {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value !== "string" || !isPullRequestUrl(value)) {
+    throw new Error(
+      `${where}: "pullRequest" must be a pull request URL: ${JSON.stringify(value)}`,
+    );
+  }
+  return { pullRequest: value };
 }
 
 function processField(value: unknown, where: string): ProcessId {
@@ -1132,6 +1151,7 @@ function formatRunInProgress(
     number: run.number,
     startedAt: run.startedAt.toISOString(),
     transcriptDirectory: run.transcriptDirectory,
+    ...(run.pullRequest !== undefined && { pullRequest: run.pullRequest }),
   };
 }
 
