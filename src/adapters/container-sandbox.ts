@@ -15,6 +15,7 @@ import type {
   DiscoveryDirectory,
   ModelName,
   ModelRefusal,
+  OnRunStarted,
   PullRequestUrl,
   RebaseOutcome,
   RebaseRequest,
@@ -27,7 +28,6 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunRequest,
-  RunStarted,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
@@ -466,75 +466,75 @@ export function containerSandbox(
 
   function run(
     request: RunRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RunOutcome>;
   function run(
     request: RunRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   function run(
     request: RunRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
     return runOnClone(container, request, roots, onStarted);
   }
 
   function review(
     request: ReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome>;
   function review(
     request: ReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   function review(
     request: ReviewRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
     return reviewOnClone(container, request, roots, onStarted);
   }
 
   function applyReview(
     request: ApplyReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome>;
   function applyReview(
     request: ApplyReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
   function applyReview(
     request: ApplyReviewRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome> {
     return applyReviewOnClone(container, pullRequestHead, request, roots, onStarted);
   }
 
   function rebase(
     request: RebaseRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome>;
   function rebase(
     request: RebaseRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   function rebase(
     request: RebaseRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome> {
     return rebaseOnClone(container, pullRequestHead, request, roots, onStarted);
   }
 
   function specReview(
     request: SpecReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome>;
   function specReview(
     request: SpecReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
   function specReview(
     request: SpecReviewRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome> {
     return specReviewOnClone(container, request, roots, onStarted);
   }
@@ -580,7 +580,7 @@ async function runOnClone(
   container: Container,
   request: RunRequest,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -818,7 +818,7 @@ async function attempt(
   >,
   model: ModelName | undefined,
   { transcriptsRoot, discoveriesRoot }: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<FinishedAgentRun> {
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
@@ -1393,7 +1393,7 @@ async function reviewOnReadOnlyClone(
   request: ReviewRequest | SpecReviewRequest,
   prompt: string,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<ReviewOutcome> {
   const { checkout: project, spendCeiling, model } = request;
 
@@ -1418,7 +1418,7 @@ async function reviewOnClone(
   container: Container,
   request: ReviewRequest,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<ReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
@@ -1434,7 +1434,7 @@ async function specReviewOnClone(
   container: Container,
   request: SpecReviewRequest,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<SpecReviewOutcome> {
   return reviewOnReadOnlyClone(
     container,
@@ -1613,7 +1613,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
   promptFor: (ticket: T) => string,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
@@ -1639,7 +1639,7 @@ async function applyReviewOnClone(
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
   return pushingRunOnClone(
     "apply-review",
@@ -1657,7 +1657,7 @@ async function rebaseOnClone(
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
   roots: SandboxRoots,
-  onStarted?: (started: RunStarted) => void,
+  onStarted?: OnRunStarted,
 ): Promise<RebaseOutcome> {
   return pushingRunOnClone(
     "rebase",

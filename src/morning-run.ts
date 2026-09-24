@@ -10,6 +10,7 @@ import type {
   IssueTracker,
   IterationLimit,
   ModelRefusal,
+  OnRunStarted,
   OpenInvocation,
   Progress,
   PullRequestLabel,
@@ -1224,7 +1225,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ticket: Ticket,
   spendCeiling: Usd,
   invocation: RunRecording,
-  sandboxCall: (checkout: Checkout, onStarted: (started: RunStarted) => void) => Promise<Outcome>,
+  sandboxCall: (checkout: Checkout, onStarted: OnRunStarted) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
   try {

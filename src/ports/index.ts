@@ -185,6 +185,7 @@ export type {
   ApplyReviewOutcome,
   ApplyReviewRequest,
   ModelRefusal,
+  OnRunStarted,
   RebaseFinished,
   RebaseGaveUp,
   RebaseOutcome,

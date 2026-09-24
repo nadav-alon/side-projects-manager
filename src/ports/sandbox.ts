@@ -26,6 +26,9 @@ export interface RunStarted {
   transcriptDirectory: TranscriptDirectory;
 }
 
+/** The callback every `Sandbox` method takes `onStarted` as. */
+export type OnRunStarted = (started: RunStarted) => void;
+
 /** One ticket, and the project checkout it is to be worked against. */
 export interface RunRequest {
   ticket: Ticket;
@@ -410,11 +413,11 @@ export interface Sandbox {
    */
   run(
     request: RunRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RunOutcome>;
   run(
     request: RunRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
 
   /**
@@ -433,11 +436,11 @@ export interface Sandbox {
    */
   review(
     request: ReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome>;
   review(
     request: ReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
 
   /**
@@ -455,11 +458,11 @@ export interface Sandbox {
    */
   specReview(
     request: SpecReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome>;
   specReview(
     request: SpecReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
 
   /**
@@ -475,11 +478,11 @@ export interface Sandbox {
    */
   applyReview(
     request: ApplyReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome>;
   applyReview(
     request: ApplyReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
 
   /**
@@ -495,10 +498,10 @@ export interface Sandbox {
    */
   rebase(
     request: RebaseRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome>;
   rebase(
     request: RebaseRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
 }

@@ -5,6 +5,7 @@ import type {
   ApplyReviewRequest,
   ApplyReviewTicket,
   ModelName,
+  OnRunStarted,
   RebaseOutcome,
   RebaseRequest,
   RebaseTicket,
@@ -15,7 +16,6 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunRequest,
-  RunStarted,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
@@ -144,15 +144,15 @@ export class FakeSandbox implements Sandbox {
 
   run(
     request: RunRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RunOutcome>;
   run(
     request: RunRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<RunOutcome, RunModelRefused>>;
   async run(
     request: RunRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
     this.runs.push(request);
     return this.#inProgress(request.ticket, onStarted, () => this.result(request.ticket));
@@ -160,15 +160,15 @@ export class FakeSandbox implements Sandbox {
 
   review(
     request: ReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome>;
   review(
     request: ReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<ReviewOutcome, ReviewModelRefused>>;
   async review(
     request: ReviewRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
     this.reviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
@@ -178,15 +178,15 @@ export class FakeSandbox implements Sandbox {
 
   applyReview(
     request: ApplyReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome>;
   applyReview(
     request: ApplyReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<ApplyReviewOutcome, ReviewModelRefused>>;
   async applyReview(
     request: ApplyReviewRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome> {
     this.applyReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
@@ -196,15 +196,15 @@ export class FakeSandbox implements Sandbox {
 
   rebase(
     request: RebaseRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome>;
   rebase(
     request: RebaseRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<RebaseOutcome, ReviewModelRefused>>;
   async rebase(
     request: RebaseRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome> {
     this.rebases.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
@@ -214,15 +214,15 @@ export class FakeSandbox implements Sandbox {
 
   specReview(
     request: SpecReviewRequest & { model: ModelName },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome>;
   specReview(
     request: SpecReviewRequest & { model?: undefined },
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
   async specReview(
     request: SpecReviewRequest,
-    onStarted?: (started: RunStarted) => void,
+    onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome> {
     this.specReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
@@ -239,7 +239,7 @@ export class FakeSandbox implements Sandbox {
    */
   async #inProgress<T>(
     ticket: Ticket,
-    onStarted: ((started: RunStarted) => void) | undefined,
+    onStarted: OnRunStarted | undefined,
     finish: () => T,
   ): Promise<T> {
     onStarted?.({ transcriptDirectory: fakeTranscriptDirectory(ticket) });
