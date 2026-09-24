@@ -209,8 +209,9 @@ export function invocationSelection(
   // still keeps its place, since re-setting an existing key never moves it.
   const outcomesByRepo = new Map<RepoSlug, ProjectOutcome>();
   // Appended to by every scan, never deduplicated here: `sweeps()` hands the
-  // whole run to `summary.ts`, which is what dedupes a change or a refusal
-  // met by more than one scan.
+  // whole run to `summary.ts`, which is what dedupes a label, an unlabel or
+  // a refusal met by more than one scan — a `/rebase` post is kept apart
+  // from that rule and kept whole, unfiltered, since each is its own event.
   const sweepOutcomes: ConflictSweepOutcome[] = [];
   // Appended to by every scan, never deduplicated here: same as
   // `sweepOutcomes`, `specReviewSweeps()` hands the whole run to
