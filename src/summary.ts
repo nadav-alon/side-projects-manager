@@ -648,6 +648,26 @@ export interface InvocationReportInputs {
 }
 
 /**
+ * Whether a limit refusal left something for the summary to name: a branch
+ * left in the project checkout — kept because git refused to delete it, or
+ * salvaged on purpose per CONTEXT.md's "Salvage" — or an advisory discovery
+ * filed, the only kind a limit refusal can file since a blocking one hands
+ * the ticket back instead and makes this a `DiscoveryBlocked` iteration.
+ * Returns false for a `none` or `discarded` discard with nothing filed,
+ * however many tokens the refusal spent.
+ */
+function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
+  if (iteration.kind !== "limit-refused") {
+    return false;
+  }
+  return (
+    iteration.discard.kind === "kept" ||
+    iteration.discard.kind === "salvaged" ||
+    (iteration.discoveryReport?.routing.filed.length ?? 0) > 0
+  );
+}
+
+/**
  * What an invocation came to, from its own facts alone: the outcome, the
  * one-line message, whether the developer's setup needs attention, and —
  * published here, the summary module's own last step — where the summary
@@ -656,12 +676,15 @@ export interface InvocationReportInputs {
  * Composes the line once and reuses it for both `message` and, when
  * publishing, the issue body.
  *
- * An invocation that worked something, or freed a ticket a dead invocation
- * had recorded, always publishes — a freed ticket must be named somewhere,
- * never only erased from the state document. A quiet or broken one publishes
- * only when today has not already been announced, per CONTEXT.md's "Summary"
- * — a loop firing every hour still reports one quiet or broken morning rather
- * than up to twenty-four.
+ * An invocation that worked something, freed a ticket a dead invocation had
+ * recorded, or had a limit refusal that left a branch behind or filed a
+ * discovery, always publishes — a freed ticket nobody else will mention must
+ * be named somewhere, never only erased from the state document; a branch
+ * left in the checkout, or a discovery filed, must reach the developer today
+ * rather than wait a day. A quiet or broken one publishes only when today has
+ * not already been announced, per CONTEXT.md's "Summary" — a loop firing
+ * every hour still reports one quiet or broken morning rather than up to
+ * twenty-four.
  */
 export async function composeInvocationReport(
   tracker: SummaryTracker,
@@ -675,6 +698,7 @@ export async function composeInvocationReport(
   if (
     outcome === "work-selected" ||
     facts.freedFromDeadInvocation.length > 0 ||
+    facts.iterations.some(limitRefusalLeftSomethingToName) ||
     !alreadyAnnouncedToday
   ) {
     const body = summaryBody(facts, line);
