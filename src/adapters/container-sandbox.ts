@@ -2633,9 +2633,13 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * for a reader, or the stderr tag itself when there is no `result` to quote.
  *
  * The ticket gist and nit section are read off the agent's own text before
- * `stderr` and the denied-tools note are appended to it: once appended, the
- * gist's tag is no longer on the last line, and `gistFrom` would find
- * nothing.
+ * `stderr` and the denied-tools note are appended to it, and `textRead` set
+ * once that is done. For the gist, appending anything after moves its tag
+ * off the last line, so a read done after would find nothing; for the nit
+ * section, a read done after risks the opposite — reading stderr or the
+ * denied-tools note in as the section, when the agent's own text left it
+ * blank or open-ended. See `runOutcomeOf`, which trusts this read rather
+ * than risk either once `textRead` is set.
  */
 function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
