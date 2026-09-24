@@ -26,7 +26,6 @@ import {
   containerSandbox,
   DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,
-  NIT_SECTION_HEADING,
   pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
@@ -45,6 +44,7 @@ import {
   commitSha,
   issueNumber,
   modelName,
+  NIT_SECTION_HEADING,
   pullRequestUrl,
   repoSlug,
   reviewFindingTemplate,
@@ -725,6 +725,87 @@ describe("containerSandbox", () => {
       ["one.txt"],
       0,
       `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    );
+    const sandbox = testSandbox(async (options) => {
+      await commit(options);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished"), undefined);
+    assert.equal(result.kind, "gave-up");
+  });
+
+  it("carries the nits under the fixed heading off a finished run's output", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n\n${NIT_SECTION_HEADING}\n- names.ts still says id.\n\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, "- names.ts still says id.");
+  });
+
+  it("carries no nits when the agent wrote none", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, undefined);
+  });
+
+  it("carries no nits when the heading's section is blank", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n${NIT_SECTION_HEADING}\n\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, undefined);
+  });
+
+  it("never drops the gist when the nit section is malformed", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        `Implemented the thing.\n${NIT_SECTION_HEADING}\n\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
+  });
+
+  it("carries no nits on a run that gave up, even ones tagged like a finished run's", async () => {
+    const directory = await project();
+    const commit = agentCommitting(
+      ["one.txt"],
+      0,
+      `${NIT_SECTION_HEADING}\n- names.ts still says id.`,
     );
     const sandbox = testSandbox(async (options) => {
       await commit(options);

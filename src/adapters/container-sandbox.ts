@@ -45,9 +45,11 @@ import {
   isBranch,
   isCommitSha,
   isDiscovery,
+  isNits,
   isRemoteUrl,
   isTicketGist,
   milliseconds,
+  NIT_SECTION_HEADING,
   normalizeDiscovery,
   remoteUrl,
   reviewFindingTemplate,
@@ -55,6 +57,7 @@ import {
   transcriptDirectory,
   transcriptPath,
   type Milliseconds,
+  type Nits,
   type TicketGist,
   type TokenCount,
   type TranscriptPath,
@@ -300,6 +303,12 @@ export interface AgentRun {
    * gave none.
    */
   gist?: TicketGist;
+  /**
+   * The pull request body's nit section off the agent's own output, read
+   * from its `NIT_SECTION_HEADING` heading — see `nitsFrom`. Absent when the
+   * agent wrote none.
+   */
+  nits?: Nits;
   /**
    * Set only by `attempt`, when the container itself threw once the agent had
    * already started, rather than the agent's own exit setting `failure` the
@@ -1341,10 +1350,11 @@ function needsSalvage(ending: Ending, agent: AgentRun): boolean {
 
 /**
  * `ending`, with the branch an implementation run worked on and its commits,
- * and — for a finished run — its ticket gist: `agent.gist` when the container
- * already read one off the agent's own text, before any diagnostics were
- * appended to `output`, and only otherwise a best-effort read of `output`'s
- * own last line, for a container that never sets it.
+ * and — for a finished run — its ticket gist and nit section: `agent.gist`
+ * and `agent.nits` when the container already read them off the agent's own
+ * text, before any diagnostics were appended to `output`, and only otherwise
+ * a best-effort read of `output` itself, for a container that never sets
+ * them.
  */
 function runOutcomeOf(
   ending: Ending,
@@ -1354,10 +1364,13 @@ function runOutcomeOf(
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
+  const nits =
+    ending.kind === "finished" ? (agent.nits ?? nitsFrom(ending.output)) : undefined;
   return withTranscriptAndDiscoveryFields(
     {
       ...ending,
       ...(gist !== undefined && { gist }),
+      ...(nits !== undefined && { nits }),
       tokensUsed: agent.tokensUsed,
       branch,
       commits,
@@ -1476,15 +1489,6 @@ const DISCOVERY_INSTRUCTIONS = [
   "of scope — anything else is triaged as normal, ready or not. Never set it on a correction or a",
   "clarification: neither opens a ticket, so it changes nothing there.",
 ].join(" ");
-
-/**
- * The fixed heading a pull request body's nit section sits under, named once
- * so `promptFor`'s instruction to write it and `reviewPromptFor`'s
- * instruction to read it can only ever agree with each other. Exported so a
- * test can assert against the heading that ships rather than a copy of the
- * literal.
- */
-export const NIT_SECTION_HEADING = "## Nits";
 
 /**
  * What the spec-reviewing agent is asked to do.
@@ -1934,6 +1938,33 @@ function gistFrom(output: string): TicketGist | undefined {
   }
   const text = last.slice(TICKET_GIST_TAG.length).trim();
   return isTicketGist(text) ? text : undefined;
+}
+
+/**
+ * The pull request body's nit section off a finished run's own output,
+ * absent when it wrote none.
+ *
+ * Found by its `NIT_SECTION_HEADING` heading, wherever it sits in `output` —
+ * unlike `gistFrom`, which only ever reads the last line, since `promptFor`
+ * asks for the gist last and the nit section earlier, ahead of it. Everything
+ * from the line after the heading up to the next Markdown heading, the ticket
+ * gist's own tagged line, or the end of `output` — whichever comes first — is
+ * the section. Blank once trimmed comes back absent, the same as no heading
+ * at all, rather than an empty section nobody would render.
+ */
+function nitsFrom(output: string): Nits | undefined {
+  const lines = output.split("\n");
+  const headingIndex = lines.findIndex((line) => line.trim() === NIT_SECTION_HEADING);
+  if (headingIndex === -1) {
+    return undefined;
+  }
+  const rest = lines.slice(headingIndex + 1);
+  const endIndex = rest.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed.startsWith("## ") || trimmed.replace(/`/g, "").startsWith(TICKET_GIST_TAG);
+  });
+  const section = (endIndex === -1 ? rest : rest.slice(0, endIndex)).join("\n").trim();
+  return isNits(section) ? section : undefined;
 }
 
 /**
@@ -2566,15 +2597,17 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * A model refusal's words are the envelope's `result`, which is prose meant
  * for a reader, or the stderr tag itself when there is no `result` to quote.
  *
- * The ticket gist is read off the agent's own text before `stderr` and the
- * denied-tools note are appended to it: once appended, the tag is no longer
- * on the last line, and `gistFrom` would find nothing.
+ * The ticket gist and nit section are read off the agent's own text before
+ * `stderr` and the denied-tools note are appended to it: once appended, the
+ * gist's tag is no longer on the last line, and `gistFrom` would find
+ * nothing.
  */
 function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     const gist = gistFrom(stdout);
+    const nits = nitsFrom(stdout);
     const providerFailure = providerFailureFromProse(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
@@ -2582,6 +2615,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
       ...(providerFailure !== undefined && { providerFailure }),
       ...(gist !== undefined && { gist }),
+      ...(nits !== undefined && { nits }),
     };
   }
 
@@ -2591,6 +2625,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   };
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
+  const nits = nitsFrom(output);
   const providerFailure = providerFailureFromEnvelope(envelope);
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
@@ -2602,6 +2637,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
     ...(providerFailure !== undefined && { providerFailure }),
     ...(budgetExhausted !== undefined && { budgetExhausted }),
     ...(gist !== undefined && { gist }),
+    ...(nits !== undefined && { nits }),
   };
 }
 
