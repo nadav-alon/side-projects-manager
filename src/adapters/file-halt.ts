@@ -14,10 +14,10 @@ export const HALT_FILE = "halt";
  * needs to be told apart from anybody else here, only halted told apart from
  * not.
  *
- * Gitignored like `invocation.lease` and `trigger.log`: developer intent
- * lives in the registry and the budget document, both committed, but a halt
- * is not that — it is "do nothing on this machine right now", answered the
- * same way whether or not the checkout has ever been pushed.
+ * Gitignored like `invocation.lease` and `trigger.log`: the registry and the
+ * budget document are committed, per-project intent, but a halt is
+ * machine-local and says nothing about any one project — a checkout on
+ * another machine, or another clone of this one, is unaffected either way.
  */
 export function fileHalt(home: string = MANAGER_HOME): Halt {
   const file = path.join(home, HALT_FILE);
