@@ -2118,6 +2118,7 @@ describe("discoveries", () => {
 
     const result = await sandbox.run({ ticket: target, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
+    assert.equal(finished?.discoveriesDropped, 0);
 
     const routed = await routeRunDiscoveries(
       tracker,
@@ -2130,7 +2131,7 @@ describe("discoveries", () => {
     assert.equal(filed?.action, "discovered-ticket");
     const discoveredTicket = tracker.discoveredTickets[0];
     assert.equal(discoveredTicket?.title, "Add a retry");
-    assert.match(discoveredTicket?.body ?? "", /back off between attempts/);
+    assert.ok(discoveredTicket?.body.includes(AGENT_BRIEF_BODY));
     assert.equal(discoveredTicket?.blocking, false);
     assert.equal(discoveredTicket?.ticket.readyDiscovery, true);
   });
