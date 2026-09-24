@@ -26,11 +26,9 @@ import type {
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
-  RunGaveUp,
   RunLimitRefused,
   RunModelRefused,
   RunOutcome,
-  RunProviderFailed,
   RunSandboxFailed,
   Salvaged,
   Sandbox,
@@ -89,7 +87,6 @@ import {
   discardBranch,
   handBack,
   type Discard,
-  type HandBackRecord,
   type WorkedBranch,
 } from "./hand-back.ts";
 import {

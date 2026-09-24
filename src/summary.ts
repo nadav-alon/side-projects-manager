@@ -298,11 +298,14 @@ export type InvocationOutcome =
 /**
  * Kept assignable to the store port's own copy of this union: a variant
  * added here without being added to `ports/journal.ts`'s `InvocationOutcome`
- * fails this line, rather than surfacing later as a runtime parse error when
- * the journal tries to read back an outcome it does not recognise.
+ * fails the default below, rather than surfacing later as a runtime parse
+ * error when the journal tries to read back an outcome it does not
+ * recognise. Exported only so `noUnusedLocals` doesn't flag it; nothing
+ * outside this module has a reason to reference it.
  */
-const _outcomeStaysInSyncWithJournal: JournaledInvocationOutcome =
-  "dry-queue" as InvocationOutcome;
+export type OutcomeStaysInSyncWithJournal<
+  T extends JournaledInvocationOutcome = InvocationOutcome,
+> = T;
 
 /**
  * A summary the invocation composed but could not publish: why, and the body
