@@ -6,7 +6,7 @@ import type {
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
 import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
-import type { DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveriesRouted, DiscoveryRouting } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
 import type {
   SpecReviewSweepLink,
@@ -682,24 +682,17 @@ export async function composeInvocationReport(
 }
 
 /**
- * The routing a discovery-carrying iteration reports, and the ticket its
- * discoveries landed on when that differs from the one it worked itself —
- * named once and shared with `discoveryLines`, which reads the same shape.
- */
-type DiscoveryFacts = { routing: DiscoveryRouting; target?: Ticket };
-
-/**
- * `discoveryFactsOf`'s answer: `discovery-blocked`'s own fields, or
- * `discoveries`/`target` for every other kind that can carry a
- * `DiscoveryRouting`. `undefined` for a kind that never routes discoveries at
+ * `discoveryFactsOf`'s answer: `discovery-blocked`'s own `routing` and
+ * `crossTarget`, or `discoveries` for every other kind that can carry a
+ * `DiscoveriesRouted`. `undefined` for a kind that never routes discoveries at
  * all, or one whose run filed and dropped nothing.
  */
 function discoveryFactsOf(
   iteration: IterationOutcome,
-): DiscoveryFacts | undefined {
+): DiscoveriesRouted | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
-      return { routing: iteration.routing, ...(iteration.crossTarget !== undefined && { target: iteration.crossTarget }) };
+      return iteration;
     case "finished":
     case "failed":
     case "reviewed":
@@ -708,12 +701,7 @@ function discoveryFactsOf(
     case "spec-reviewed":
     case "limit-refused":
     case "provider-failed":
-      return iteration.discoveries === undefined
-        ? undefined
-        : {
-            routing: iteration.discoveries,
-            ...(iteration.target !== undefined && { target: iteration.target }),
-          };
+      return iteration.discoveries;
     case "budget-exhausted":
     case "pull-request-resolved":
       return undefined;
@@ -752,10 +740,11 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  */
 function discoveryLines(
   iteration: { repo: RepoSlug; ticket: Ticket; kind: IterationOutcome["kind"] },
-  { routing, target }: DiscoveryFacts,
+  { routing, crossTarget }: DiscoveriesRouted,
 ): string[] {
   const who = `${iteration.repo} #${iteration.ticket.number}`;
-  const landedOn = target === undefined ? `#${iteration.ticket.number}` : `#${target.number}`;
+  const landedOn =
+    crossTarget === undefined ? `#${iteration.ticket.number}` : `#${crossTarget.number}`;
   const filed = routing.filed.flatMap((filed) => {
     if (iteration.kind === "discovery-blocked" && isBlockingDiscoveryKind(filed.discovery.kind)) {
       return [];

@@ -1,4 +1,4 @@
-import type { DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveriesRouted, DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
@@ -227,14 +227,14 @@ export interface LimitRefused {
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
   /**
-   * What a cut-off run's own discoveries came to, per CONTEXT.md's
-   * "Discovery" — always advisory here, since a correction or a prerequisite
-   * would have made this a `DiscoveryBlocked` iteration instead, carrying its
-   * cut-off in `DiscoveryBlocked.cutOff`. Absent when the run filed none.
+   * What a cut-off run's own discoveries came to, and the ticket they landed
+   * on when it differs from the one this iteration itself worked, per
+   * CONTEXT.md's "Discovery" — always advisory here, since a correction or a
+   * prerequisite would have made this a `DiscoveryBlocked` iteration instead,
+   * carrying its cut-off in `DiscoveryBlocked.cutOff`. Absent when the run
+   * filed none.
    */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`: the ticket `discoveries` landed on, present only when it differs from the ticket this iteration itself worked. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /**
@@ -268,9 +268,7 @@ export interface ProviderFailed {
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
   /** As `LimitRefused.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `LimitRefused.target`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /**
@@ -453,14 +451,13 @@ export interface Finished {
    */
   handedBack: HandBackRecord;
   /**
-   * What the run's own discoveries came to, per CONTEXT.md's "Discovery" —
-   * always advisory here, since a correction or a prerequisite would have
-   * made this a `DiscoveryBlocked` iteration instead. Absent when the run
-   * filed none.
+   * What the run's own discoveries came to, and the ticket they landed on
+   * when it differs from the one this iteration itself worked, per
+   * CONTEXT.md's "Discovery" — always advisory here, since a correction or a
+   * prerequisite would have made this a `DiscoveryBlocked` iteration instead.
+   * Absent when the run filed none.
    */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /**
@@ -504,15 +501,14 @@ export type Failed = {
    */
   transcript?: TranscriptPath;
   /**
-   * What a gave-up run's own discoveries came to, per CONTEXT.md's
-   * "Discovery" — always advisory here, since a correction or a prerequisite
-   * would have made this a `DiscoveryBlocked` iteration instead. Absent when
-   * the run filed none, and always absent for an infrastructure failure,
-   * which this module never routes discoveries for.
+   * What a gave-up run's own discoveries came to, and the ticket they landed
+   * on when it differs from the one this iteration itself worked, per
+   * CONTEXT.md's "Discovery" — always advisory here, since a correction or a
+   * prerequisite would have made this a `DiscoveryBlocked` iteration instead.
+   * Absent when the run filed none, and always absent for an infrastructure
+   * failure, which this module never routes discoveries for.
    */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 } & (
   | { failure: InfrastructureFailure }
   /** What became of the ticket's own hand-back. */
@@ -601,9 +597,7 @@ export interface Reviewed {
    */
   notCommented?: NotCommented;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /**
@@ -664,9 +658,7 @@ export interface AppliedReview {
    */
   notLabelled?: NotLabelled;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
@@ -698,9 +690,7 @@ export interface Rebased {
    */
   notClosed?: RebaseNotClosed;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /** Why a rebase iteration left its ticket open, and the error that stopped it. */
@@ -729,9 +719,7 @@ export interface SpecReviewed {
   /** What became of the ticket's own hand-back. */
   handedBack: HandBackRecord;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveryRouting;
-  /** As `DiscoveryBlocked.crossTarget`. */
-  target?: Ticket;
+  discoveries?: DiscoveriesRouted;
 }
 
 /**

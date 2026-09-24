@@ -1620,7 +1620,7 @@ describe("morningLoop", () => {
         const finished = report.iterations[0];
         assert.equal(finished?.kind, "finished");
         assert.equal(
-          finished?.kind === "finished" ? finished.discoveries?.filed.length : undefined,
+          finished?.kind === "finished" ? finished.discoveries?.routing.filed.length : undefined,
           2,
         );
       });
@@ -1640,7 +1640,7 @@ describe("morningLoop", () => {
         assert.equal(ports.tracker.discoveredTickets[0]?.title, "First");
         const finished = report.iterations[0];
         assert.equal(
-          finished?.kind === "finished" ? finished.discoveries?.suggestionsDropped : undefined,
+          finished?.kind === "finished" ? finished.discoveries?.routing.suggestionsDropped : undefined,
           1,
         );
       });
@@ -1664,10 +1664,11 @@ describe("morningLoop", () => {
         const report = await morningLoop(ports);
 
         const finished = report.iterations[0];
-        const discoveries = finished?.kind === "finished" ? finished.discoveries : undefined;
-        assert.equal(discoveries?.refused.length, 1);
-        assert.match(discoveries?.refused[0]?.reason ?? "", /refused the comment/);
-        assert.equal(discoveries?.filed.length, 1);
+        const routing =
+          finished?.kind === "finished" ? finished.discoveries?.routing : undefined;
+        assert.equal(routing?.refused.length, 1);
+        assert.match(routing?.refused[0]?.reason ?? "", /refused the comment/);
+        assert.equal(routing?.filed.length, 1);
       });
 
       it("still hands the ticket back for a blocking discovery the tracker refused to comment", async (t) => {
@@ -1698,7 +1699,7 @@ describe("morningLoop", () => {
 
         const finished = report.iterations[0];
         assert.equal(
-          finished?.kind === "finished" ? finished.discoveries?.discoveriesDropped : undefined,
+          finished?.kind === "finished" ? finished.discoveries?.routing.discoveriesDropped : undefined,
           2,
         );
       });
@@ -2632,7 +2633,7 @@ describe("morningLoop", () => {
         const [iteration] = report.iterations;
         assert.equal(iteration?.kind, "reviewed");
         assert.equal(
-          iteration?.kind === "reviewed" ? iteration.target?.number : undefined,
+          iteration?.kind === "reviewed" ? iteration.discoveries?.crossTarget?.number : undefined,
           implementation.number,
         );
       });
@@ -2898,7 +2899,7 @@ describe("morningLoop", () => {
         const limitRefusedIteration = report.iterations[0];
         assert.equal(
           limitRefusedIteration?.kind === "limit-refused"
-            ? limitRefusedIteration.discoveries?.filed.length
+            ? limitRefusedIteration.discoveries?.routing.filed.length
             : undefined,
           1,
         );
@@ -2953,7 +2954,7 @@ describe("morningLoop", () => {
         const [iteration] = report.iterations;
         assert.equal(iteration?.kind, "spec-reviewed");
         assert.equal(
-          iteration?.kind === "spec-reviewed" ? iteration.target?.number : undefined,
+          iteration?.kind === "spec-reviewed" ? iteration.discoveries?.crossTarget?.number : undefined,
           supertask.number,
         );
       });
@@ -5444,7 +5445,7 @@ describe("morningLoop", () => {
       const limitRefusedIteration = report.iterations[0];
       assert.equal(
         limitRefusedIteration?.kind === "limit-refused"
-          ? limitRefusedIteration.discoveries?.filed.length
+          ? limitRefusedIteration.discoveries?.routing.filed.length
           : undefined,
         1,
       );
@@ -5662,7 +5663,7 @@ describe("morningLoop", () => {
       const limitRefusedIteration = report.iterations[0];
       assert.equal(
         limitRefusedIteration?.kind === "limit-refused"
-          ? limitRefusedIteration.discoveries?.filed.length
+          ? limitRefusedIteration.discoveries?.routing.filed.length
           : undefined,
         1,
       );
@@ -5788,7 +5789,7 @@ describe("morningLoop", () => {
       const limitRefusedIteration = report.iterations[0];
       assert.equal(
         limitRefusedIteration?.kind === "limit-refused"
-          ? limitRefusedIteration.discoveries?.filed.length
+          ? limitRefusedIteration.discoveries?.routing.filed.length
           : undefined,
         1,
       );
@@ -5869,7 +5870,7 @@ describe("morningLoop", () => {
       const limitRefusedIteration = report.iterations[0];
       assert.equal(
         limitRefusedIteration?.kind === "limit-refused"
-          ? limitRefusedIteration.discoveries?.filed.length
+          ? limitRefusedIteration.discoveries?.routing.filed.length
           : undefined,
         1,
       );

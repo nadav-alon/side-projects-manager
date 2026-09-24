@@ -96,6 +96,7 @@ import {
   blockingDiscoveriesOf,
   hasBlockingDiscovery,
   routeRunDiscoveries,
+  type DiscoveriesRouted,
   type RoutedDiscoveries,
 } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
@@ -782,18 +783,14 @@ async function work(
  * ticket its discoveries landed on — attached. Unchanged when there was
  * nothing to route.
  */
-function withDiscoveries<T extends { discoveries?: RoutedDiscoveries["routing"]; target?: Ticket }>(
+function withDiscoveries<T extends { discoveries?: DiscoveriesRouted }>(
   iteration: T,
   routed: RoutedDiscoveries | undefined,
 ): T {
   if (routed === undefined) {
     return iteration;
   }
-  return {
-    ...iteration,
-    discoveries: routed.routing,
-    ...(routed.crossTarget !== undefined && { target: routed.crossTarget }),
-  };
+  return { ...iteration, discoveries: routed };
 }
 
 /**

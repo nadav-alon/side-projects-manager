@@ -78,7 +78,7 @@ function limitRefused(number: number, discard: Discard): IterationOutcome {
 function limitRefusedWithDiscoveries(number: number, discoveryRouting: DiscoveryRouting): IterationOutcome {
   return {
     ...(limitRefused(number, { kind: "none" }) as Extract<IterationOutcome, { kind: "limit-refused" }>),
-    discoveries: discoveryRouting,
+    discoveries: { routing: discoveryRouting },
   };
 }
 
@@ -367,19 +367,18 @@ function specReviewedAlreadyClosed(number: number): IterationOutcome {
   };
 }
 
-/** A spec review ticket's own run that finished and was handed back, having filed `discoveryRouting` landing on `target`. */
+/** A spec review ticket's own run that finished and was handed back, having filed `discoveryRouting` landing on `crossTarget`. */
 function specReviewedWithDiscoveries(
   number: number,
   discoveryRouting: DiscoveryRouting,
-  target?: Ticket,
+  crossTarget?: Ticket,
 ): IterationOutcome {
   const specReviewed: SpecReviewed = {
     kind: "spec-reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "no drift found" },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
-    discoveries: discoveryRouting,
-    ...(target !== undefined && { target }),
+    discoveries: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
   };
   return { repo: REPO, ticket: specReviewTicket(number), ...specReviewed };
 }
@@ -426,33 +425,31 @@ function discoveriesLines(iterations: IterationOutcome[]): string[] {
   return sectionLines(iterations, "## Discoveries");
 }
 
-/** A finished run that filed `discoveryRouting`, landing on `target` when given one. */
+/** A finished run that filed `discoveryRouting`, landing on `crossTarget` when given one. */
 function finishedWithDiscoveries(
   number: number,
   discoveryRouting: DiscoveryRouting,
-  target?: Ticket,
+  crossTarget?: Ticket,
 ): IterationOutcome {
   return {
     repo: REPO,
     ticket: implementationTicket(number),
     ...finishedRun(500, "agent/900"),
-    discoveries: discoveryRouting,
-    ...(target !== undefined && { target }),
+    discoveries: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
   };
 }
 
-/** A review ticket's own run that closed cleanly, but had filed `discoveryRouting` landing on `target`. */
+/** A review ticket's own run that closed cleanly, but had filed `discoveryRouting` landing on `crossTarget`. */
 function reviewedWithDiscoveries(
   number: number,
   discoveryRouting: DiscoveryRouting,
-  target?: Ticket,
+  crossTarget?: Ticket,
 ): IterationOutcome {
   const reviewed: Reviewed = {
     kind: "reviewed",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
-    discoveries: discoveryRouting,
-    ...(target !== undefined && { target }),
+    discoveries: { routing: discoveryRouting, ...(crossTarget !== undefined && { crossTarget }) },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
