@@ -162,31 +162,42 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
  */
 interface ConflictSweepProject {
   repo: RepoSlug;
-  changes: Map<Exclude<ConflictSweepChange["action"], "commented">, PullRequestUrl[]>;
+  changes: Map<GroupedChangeAction, PullRequestUrl[]>;
   commented: PullRequestUrl[];
   refusals: ConflictSweepRefusal[];
 }
+
+/** A {@link ConflictSweepChange} action grouped and deduplicated by url, unlike `commented`, which is kept post by post. */
+type GroupedChangeAction = Exclude<ConflictSweepChange["action"], "commented">;
 
 /**
  * The past participle {@link ConflictSweepChange} names its action by, in the
  * phrase {@link conflictSweepSection} renders for it, for every action
  * `changes` groups by url — `commented` renders one bullet per post instead,
  * so it is named apart from this. Keyed the same way `CHANGED` in
- * `conflict-sweep.ts` keys its own vocabulary: one place per action, so
- * adding one means adding one line here rather than a new branch in every
- * renderer.
+ * `conflict-sweep.ts` keys its own vocabulary, for these two: one place per
+ * grouped action, so adding a third means adding one line here rather than a
+ * new branch in every renderer.
  */
-const CHANGE_PHRASE: Record<Exclude<ConflictSweepChange["action"], "commented">, (urls: string) => string> = {
+const CHANGE_PHRASE: Record<GroupedChangeAction, (urls: string) => string> = {
   labelled: (urls) => `labelled ${NEEDS_REBASE_LABEL} on ${urls}`,
   unlabelled: (urls) => `removed ${NEEDS_REBASE_LABEL} from ${urls}`,
 };
 
 /** The order {@link conflictSweepSection} renders a project's grouped change bullets in, ahead of its `commented` bullets. */
-const CHANGE_ORDER: Exclude<ConflictSweepChange["action"], "commented">[] = ["labelled", "unlabelled"];
+const CHANGE_ORDER: GroupedChangeAction[] = ["labelled", "unlabelled"];
 
-/** The key a labelled or unlabelled change is deduplicated by: the pull request and action it names. Never called for `commented`, which is never deduplicated. */
-function conflictSweepChangeKey(repo: RepoSlug, change: ConflictSweepChange): string {
-  return `${repo}|${change.action}|${change.pullRequest}`;
+/**
+ * The key a labelled or unlabelled change is deduplicated by: the pull
+ * request and action it names. Takes the grouped action apart from the full
+ * change so `commented`, which is never deduplicated, cannot be passed here.
+ */
+function conflictSweepChangeKey(
+  repo: RepoSlug,
+  action: GroupedChangeAction,
+  pullRequest: PullRequestUrl,
+): string {
+  return `${repo}|${action}|${pullRequest}`;
 }
 
 /** The key a refusal is deduplicated by: what it names, since a `"list"` refusal names no pull request. */
@@ -229,7 +240,7 @@ function conflictSweepProjects(
         project.commented.push(change.pullRequest);
         continue;
       }
-      const key = conflictSweepChangeKey(outcome.repo, change);
+      const key = conflictSweepChangeKey(outcome.repo, change.action, change.pullRequest);
       if (seenChanges.has(key)) {
         continue;
       }
