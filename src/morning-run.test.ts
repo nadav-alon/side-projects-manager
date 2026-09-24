@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   NEEDS_REBASE,
+  nits,
   READY_FOR_HUMAN_LABEL,
   REBASE_COMMENT,
   REVIEWED_LABEL,
@@ -35,6 +36,7 @@ import {
   type ApplyReviewTicket,
   type CommitSha,
   type Discovery,
+  type Nits,
   type OpenInvocation,
   type RebaseTicket,
   type ReviewTicket,
@@ -1348,8 +1350,8 @@ describe("morningLoop", () => {
      *
      * What separates the cases here is only how the run ended, so that is all
      * a test says: `ran(ports)` did the work. `failure` and `commits: []`
-     * are the two ways it can leave nothing to hand over; `gist` is what a
-     * finished run carried away, not how it ended.
+     * are the two ways it can leave nothing to hand over; `gist` and `nits`
+     * are what a finished run carried away, not how it ended.
      */
     function ran(
       ports: FakePorts,
@@ -1357,6 +1359,7 @@ describe("morningLoop", () => {
         commits?: CommitSha[];
         failure?: string;
         gist?: TicketGist;
+        nits?: Nits;
         discoveries?: Discovery[];
         discoveriesDropped?: number;
       } = {},
@@ -1375,6 +1378,7 @@ describe("morningLoop", () => {
               output: "",
               tokensUsed: tokenCount(42_000),
               ...(run.gist !== undefined && { gist: run.gist }),
+              ...(run.nits !== undefined && { nits: run.nits }),
               ...(run.discoveries !== undefined && { discoveries: run.discoveries }),
               ...(run.discoveriesDropped !== undefined && {
                 discoveriesDropped: run.discoveriesDropped,
@@ -1432,6 +1436,23 @@ describe("morningLoop", () => {
           branch: BRANCH,
           ticket,
           gist,
+        },
+      ]);
+    });
+
+    it("is opened with the run's nits, when it carried any", async () => {
+      const ports = fakePorts();
+      const list = nits("- names.ts still says id.");
+      const ticket = ran(ports, { nits: list });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: BRANCH,
+          ticket,
+          nits: list,
         },
       ]);
     });
