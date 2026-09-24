@@ -178,6 +178,12 @@ export interface RunFinished extends Ended, Worked {
    * one is `"finished"` exactly as one that has it.
    */
   gist?: TicketGist;
+  /**
+   * The nits the agent listed under `NIT_SECTION_HEADING` but did not fix,
+   * off its own output, absent when it gave none. Its absence never changes
+   * `kind`: a run missing one is `"finished"` exactly as one that has it.
+   */
+  nits?: string;
 }
 
 /** As `RunFinished`, for a review: there is no branch or commits to carry. */

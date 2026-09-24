@@ -26,7 +26,6 @@ import {
   containerSandbox,
   DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,
-  NIT_SECTION_HEADING,
   pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
@@ -45,6 +44,7 @@ import {
   commitSha,
   issueNumber,
   modelName,
+  NIT_SECTION_HEADING,
   pullRequestUrl,
   repoSlug,
   reviewFindingTemplate,
@@ -725,6 +725,115 @@ describe("containerSandbox", () => {
       ["one.txt"],
       0,
       `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+    );
+    const sandbox = testSandbox(async (options) => {
+      await commit(options);
+      throw new Error("the agent gave up");
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished"), undefined);
+    assert.equal(result.kind, "gave-up");
+  });
+
+  it("carries the nits listed under the fixed heading off a finished run's output", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        [
+          "Implemented the thing.",
+          "",
+          NIT_SECTION_HEADING,
+          "- the widget's name is misspelled two lines up",
+          "",
+          `${TICKET_GIST_TAG} Add the thing.`,
+        ].join("\n"),
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.nits,
+      "- the widget's name is misspelled two lines up",
+    );
+  });
+
+  it("carries no nits when the agent listed none", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(agentCommitting([], 0, "implemented the thing"));
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, undefined);
+  });
+
+  it("carries no nits when the heading was listed with nothing under it", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        [NIT_SECTION_HEADING, `${TICKET_GIST_TAG} Add the thing.`].join("\n"),
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, undefined);
+  });
+
+  it("carries the nits even when the agent echoes the heading's own backticks", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        [
+          `\`${NIT_SECTION_HEADING}\``,
+          "- a stray comment restates what the diff already says",
+          `${TICKET_GIST_TAG} Add the thing.`,
+        ].join("\n"),
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(
+      variant(result, "finished")?.nits,
+      "- a stray comment restates what the diff already says",
+    );
+  });
+
+  it("carries the nits without swallowing the gist's own last line", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(
+      agentCommitting(
+        [],
+        0,
+        [
+          NIT_SECTION_HEADING,
+          "- one nit",
+          `${TICKET_GIST_TAG} Add the thing.`,
+        ].join("\n"),
+      ),
+    );
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(variant(result, "finished")?.nits, "- one nit");
+    assert.equal(variant(result, "finished")?.gist, "Add the thing.");
+  });
+
+  it("carries no nits on a run that gave up, even one listed like a finished run's", async () => {
+    const directory = await project();
+    const commit = agentCommitting(
+      ["one.txt"],
+      0,
+      [NIT_SECTION_HEADING, "- one nit"].join("\n"),
     );
     const sandbox = testSandbox(async (options) => {
       await commit(options);

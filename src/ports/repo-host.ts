@@ -51,6 +51,18 @@ export const APPLY_REVIEW_COMMENT = "/apply-review";
 export const REBASE_COMMENT = "/rebase";
 
 /**
+ * The fixed heading a pull request body's nit section sits under. An
+ * implementation run's own final output carries its section under this same
+ * heading (`promptFor` in `container-sandbox.ts`), which {@link
+ * RepoHost.openDraftPullRequest}'s `nits` argument is read off of; a review
+ * run reads the heading back out of the pull request body itself
+ * (`reviewPromptFor` in `container-sandbox.ts`). Declared here, beside the
+ * port both ends read and write against, so the three can only ever agree
+ * with each other.
+ */
+export const NIT_SECTION_HEADING = "## Nits";
+
+/**
  * One finding a review posts, in the shape the reviewer is told to post it
  * (`reviewPromptFor` in `container-sandbox.ts`, via {@link reviewFindingTemplate})
  * and {@link RepoHost.hasReviewFindings} checks a pull request for: an inline
@@ -525,12 +537,17 @@ export interface RepoHost {
    * saying what the ticket asked for, so the developer knows what they are
    * looking at without opening the ticket. Absent, the body is the closing
    * reference and the draft note alone.
+   *
+   * `nits`, when the run left any, renders under {@link NIT_SECTION_HEADING}
+   * so the review run `reviewPromptFor` sends against this pull request finds
+   * them there. Absent, the body carries no such section.
    */
   openDraftPullRequest(
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
     gist?: TicketGist,
+    nits?: string,
   ): Promise<DraftPullRequestOpening>;
   /**
    * Deletes `branch` from the checkout at `directory`, whatever it points at.

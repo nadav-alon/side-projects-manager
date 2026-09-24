@@ -152,6 +152,7 @@ export {
   MergeabilityUnknown,
   NEEDS_REBASE,
   NEEDS_REBASE_LABEL,
+  NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,
   REBASE_COMMENT,
   resolveNeedsRebase,
