@@ -1933,12 +1933,22 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
  */
 function gistFrom(output: string): TicketGist | undefined {
   const lines = output.trimEnd().split("\n");
-  const last = (lines.at(-1) ?? "").replace(/`/g, "");
-  if (!last.startsWith(TICKET_GIST_TAG)) {
+  const last = lines.at(-1) ?? "";
+  if (!isGistLine(last)) {
     return undefined;
   }
-  const text = last.slice(TICKET_GIST_TAG.length).trim();
+  const text = last.replace(/`/g, "").slice(TICKET_GIST_TAG.length).trim();
   return isTicketGist(text) ? text : undefined;
+}
+
+/**
+ * Whether `line` is the ticket gist's own tagged line, backticks stripped
+ * first — shared by `gistFrom`, reading the line itself, and `nitsFrom`,
+ * reading for where the gist line starts, so the two readers cannot drift
+ * apart on what counts as one.
+ */
+function isGistLine(line: string): boolean {
+  return line.replace(/`/g, "").startsWith(TICKET_GIST_TAG);
 }
 
 /**
@@ -1947,22 +1957,27 @@ function gistFrom(output: string): TicketGist | undefined {
  *
  * Found by its `NIT_SECTION_HEADING` heading, wherever it sits in `output` —
  * unlike `gistFrom`, which only ever reads the last line, since `promptFor`
- * asks for the gist last and the nit section earlier, ahead of it. Everything
- * from the line after the heading up to the next Markdown heading, the ticket
- * gist's own tagged line, or the end of `output` — whichever comes first — is
- * the section. Blank once trimmed comes back absent, the same as no heading
- * at all, rather than an empty section nobody would render.
+ * asks for the gist last and the nit section earlier, ahead of it. Backticks
+ * are stripped before the heading test too, for the same reason `gistFrom`
+ * strips them off its tag: `promptFor` shows the heading wrapped in them.
+ * Everything from the line after the heading up to the next Markdown
+ * heading, the ticket gist's own tagged line, or the end of `output` —
+ * whichever comes first — is the section. Blank once trimmed comes back
+ * absent, the same as no heading at all, rather than an empty section nobody
+ * would render.
  */
 function nitsFrom(output: string): Nits | undefined {
   const lines = output.split("\n");
-  const headingIndex = lines.findIndex((line) => line.trim() === NIT_SECTION_HEADING);
+  const headingIndex = lines.findIndex(
+    (line) => line.trim().replace(/`/g, "") === NIT_SECTION_HEADING,
+  );
   if (headingIndex === -1) {
     return undefined;
   }
   const rest = lines.slice(headingIndex + 1);
   const endIndex = rest.findIndex((line) => {
     const trimmed = line.trim();
-    return trimmed.startsWith("## ") || trimmed.replace(/`/g, "").startsWith(TICKET_GIST_TAG);
+    return trimmed.startsWith("## ") || isGistLine(trimmed);
   });
   const section = (endIndex === -1 ? rest : rest.slice(0, endIndex)).join("\n").trim();
   return isNits(section) ? section : undefined;
