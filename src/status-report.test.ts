@@ -66,9 +66,14 @@ function report(
   return statusReport(j, todayClaimed, now, triggers, budget);
 }
 
-/** `lines`, with the two leading trigger lines and the two budget lines dropped — the report below them, unaffected by trigger or budget state. */
+/** How many trigger lines head every report — see `body` and `budgetLines`. */
+const TRIGGER_LINE_COUNT = 2;
+/** How many budget lines follow the trigger lines — see `body` and `budgetLines`. */
+const BUDGET_LINE_COUNT = 2;
+
+/** `lines`, with the leading trigger lines and budget lines dropped — the report below them, unaffected by trigger or budget state. */
 function body(lines: string[]): string[] {
-  return lines.slice(4);
+  return lines.slice(TRIGGER_LINE_COUNT + BUDGET_LINE_COUNT);
 }
 
 describe("statusReport", () => {
@@ -351,7 +356,7 @@ describe("statusReport's trigger lines", () => {
 
 /** The two budget lines, dropping the trigger lines above them. */
 function budgetLines(lines: string[]): [string, string] {
-  return [lines[2]!, lines[3]!];
+  return [lines[TRIGGER_LINE_COUNT]!, lines[TRIGGER_LINE_COUNT + 1]!];
 }
 
 describe("statusReport's budget lines", () => {
