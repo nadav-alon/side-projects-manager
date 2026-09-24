@@ -26,7 +26,6 @@ import type {
   OpenInvocation,
   ProcessId,
   ProjectState,
-  TokenCount,
   PullRequestUrl,
   RegisteredProject,
   RepoSlug,
@@ -38,6 +37,7 @@ import type {
   State,
   Store,
   TicketKind,
+  TokenCount,
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
