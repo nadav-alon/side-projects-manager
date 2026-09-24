@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 /invocation.lease
+/halt
 /trigger.log
 /summary-*.txt
 /transcripts/
