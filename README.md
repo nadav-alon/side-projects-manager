@@ -222,7 +222,7 @@ npm run status
 `status --watch` redraws the same report every 30 seconds, or every `N` given as `--watch N`, clearing
 the screen and stamping the current time on top each time. Ctrl+C exits it cleanly. Watching an
 invocation that is still in flight prints its close once more and then exits by itself; watching with
-nothing in flight just keeps going, since a run may start on the next hourly firing.
+nothing in flight just keeps going, since an invocation may start on the next hourly firing.
 
 ```sh
 npm run status -- --watch

@@ -22,7 +22,7 @@ export interface WatchPorts {
  * Redraws `ports.render()`'s report every `interval` until `signal` aborts
  * (Ctrl+C), or until an invocation that was already in flight on the first
  * draw closes — whichever comes first. Nothing in flight on the first draw
- * never triggers that second exit: a run may start on a later hourly firing,
+ * never triggers that second exit: an invocation may start on a later hourly firing,
  * so the watch just keeps going until interrupted.
  */
 export async function watchStatus(
