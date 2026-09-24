@@ -26,6 +26,7 @@ import {
   containerSandbox,
   DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,
+  NIT_SECTION_HEADING,
   pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
@@ -287,6 +288,8 @@ function assertDiscoveryInstructions(asked: string): void {
   assert.match(asked, /at most one suggestion/);
   assert.match(asked, /"ready": true/);
   assert.match(asked, /agent brief/);
+  assert.match(asked, /names, glossary entries, prose, comments or wrapping is a nit/);
+  assert.match(asked, /a nit is never filed as a discovery/);
 }
 
 /**
@@ -486,6 +489,24 @@ describe("containerSandbox", () => {
 
     assert.match(asked, /Commit each behavior as its own commit.*as\s+soon as that behavior's test passes/);
     assert.match(asked, /do not push, and do\s+not open a pull request/);
+  });
+
+  it("asks for a self-caused nit fixed in its own commit, and any other nit listed under the fixed heading in the pull request body", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /nit your own change causes.*is fixed in that same commit/);
+    assert.match(asked, /Any other nit you notice is not a discovery/);
+    assert.match(
+      asked,
+      new RegExp(`${NIT_SECTION_HEADING}.*in the pull request body`),
+    );
   });
 
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
@@ -2425,6 +2446,28 @@ describe("containerSandbox.review", () => {
     });
 
     assertDiscoveryInstructions(asked);
+  });
+
+  it("asks the reviewer to read the pull request body's Nits section and post each worth doing as a finding", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(
+      asked,
+      new RegExp(
+        `Read the pull request body's \`${NIT_SECTION_HEADING}\` section.*post each nit\\s+worth doing as a review finding`,
+      ),
+    );
   });
 
   /**

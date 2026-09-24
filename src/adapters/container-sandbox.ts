@@ -1463,9 +1463,12 @@ const DISCOVERY_INSTRUCTIONS = [
   "A correction says the ticket itself is wrong; a prerequisite says the work needs something nobody",
   "ticketed — either is blocking: stop without committing further once you file one. A clarification",
   "says the ticket is ambiguous, and how you read it; a suggestion is work worth doing that the",
-  "ticket does not cover — either is advisory: keep going. File at most one suggestion: your best,",
-  "and only one you would have acted on yourself had the ticket allowed it. Implementation detail",
-  "belongs in the commit and the pull request, never in a discovery.",
+  "ticket does not cover — either is advisory: keep going. A suggestion changes behavior or removes",
+  "a real hazard — a future bug, a doc false enough to mislead. Anything that only touches names,",
+  "glossary entries, prose, comments or wrapping is a nit, not a suggestion, and a nit is never filed",
+  "as a discovery. File at most one suggestion: your best, and only one you would have acted on",
+  "yourself had the ticket allowed it. Implementation detail belongs in the commit and the pull",
+  "request, never in a discovery.",
   "A prerequisite or a suggestion may add `\"ready\": true` when it leaves no decision to the",
   "developer: behavior fully determined, one seam, acceptance criteria writable now, size S. Declare",
   "it only then — a ready discovery's ticket skips triage and goes straight to an agent. Its body",
@@ -1473,6 +1476,15 @@ const DISCOVERY_INSTRUCTIONS = [
   "of scope — anything else is triaged as normal, ready or not. Never set it on a correction or a",
   "clarification: neither opens a ticket, so it changes nothing there.",
 ].join(" ");
+
+/**
+ * The fixed heading a pull request body's nit section sits under, named once
+ * so `promptFor`'s instruction to write it and `reviewPromptFor`'s
+ * instruction to read it can only ever agree with each other. Exported so a
+ * test can assert against the heading that ships rather than a copy of the
+ * literal.
+ */
+export const NIT_SECTION_HEADING = "## Nits";
 
 /**
  * What the spec-reviewing agent is asked to do.
@@ -1889,6 +1901,10 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     "a run stopped part way through should still leave reviewable progress on",
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
+    "A nit your own change causes is fixed in that same commit, as part of",
+    "the change. Any other nit you notice is not a discovery: list it under",
+    `the heading \`${NIT_SECTION_HEADING}\` in the pull request body, so the`,
+    "reviewer sees it.",
     DISCOVERY_INSTRUCTIONS,
     `Finally, end your output with a line reading exactly \`${TICKET_GIST_TAG}\``,
     "followed by one sentence saying what the ticket asked for — not what",
@@ -1967,6 +1983,8 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     `\`{"event": "COMMENT", "comments": [${reviewFindingTemplate()}, ...]}\`,`,
     "one entry per finding. Leave the review's own top-level `body` for whatever has no single line to",
     "sit on — a one-line summary, or a finding that spans the whole change.",
+    `Read the pull request body's \`${NIT_SECTION_HEADING}\` section, if it has one, and post each nit`,
+    "worth doing as a review finding of its own, exactly like any other finding.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered. Posting",
     "the review is the job, so submit it without asking for confirmation — a review that stops at",
     "\"shall I submit?\" has posted nothing.",

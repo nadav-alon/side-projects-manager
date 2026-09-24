@@ -310,23 +310,34 @@ _Avoid_: crashed, errored, failed (say which of the two)
 Something a run learned about its ticket that the developer has to act on. One of four kinds, and
 the kind alone decides whether it is blocking: a correction (the ticket is wrong) and a prerequisite
 (the work needs something nobody ticketed) are blocking; a clarification (the ticket is ambiguous,
-and how the agent read it) and a suggestion (work worth doing that the ticket does not cover) are
-advisory. Always about the ticket, never the diff — what a reviewer says about the diff is a review
-finding, posted to the pull request. A blocking discovery stops the run and hands its ticket back;
-an advisory one rides alongside a run that finishes. Stops the run whichever way it was already
-ending, a cut-off by the provider included: a limit refusal or a provider failure that also filed
-one hands its ticket back instead of leaving it eligible, discarding rather than salvaging whatever
-it committed, but the invocation still stands down over it exactly as it would without the discovery
-(see **Cut off**). One filed by a pull request ticket's run is about the implementation ticket it
-belongs to, and lands there, while the pull request ticket is the one handed back. One filed by a
-spec review ticket's run is about the supertask it reviews, and lands there, while the spec review
-ticket is the one handed back. Neither is the agent giving up nor the setup failing: the ticket
-itself is wrong or incomplete. By kind: a correction or a clarification becomes a comment on the
-target; a prerequisite becomes a discovered ticket that blocks it; a suggestion becomes a discovered
-ticket with no edge, but at most the first one a run files is acted on — the rest are dropped and
-counted, since a run's own ticket already carries what it found and a pile of unread suggestions
-helps nobody. Clarifications carry no such cap.
+and how the agent read it) and a suggestion (work worth doing that the ticket does not cover, by
+changing behavior or removing a real hazard — a future bug, a doc false enough to mislead) are
+advisory. Never a **Nit**: touching only names, glossary entries, prose, comments or wrapping is
+never a discovery of any kind, whichever kind a run is tempted to file it as. Always about the
+ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the
+pull request. A blocking discovery stops the run and hands its ticket back; an advisory one rides
+alongside a run that finishes. Stops the run whichever way it was already ending, a cut-off by the
+provider included: a limit refusal or a provider failure that also filed one hands its ticket back
+instead of leaving it eligible, discarding rather than salvaging whatever it committed, but the
+invocation still stands down over it exactly as it would without the discovery (see **Cut off**).
+One filed by a pull request ticket's run is about the implementation ticket it belongs to, and lands
+there, while the pull request ticket is the one handed back. One filed by a spec review ticket's run
+is about the supertask it reviews, and lands there, while the spec review ticket is the one handed
+back. Neither is the agent giving up nor the setup failing: the ticket itself is wrong or
+incomplete. By kind: a correction or a clarification becomes a comment on the target; a prerequisite
+becomes a discovered ticket that blocks it; a suggestion becomes a discovered ticket with no edge,
+but at most the first one a run files is acted on — the rest are dropped and counted, since a
+run's own ticket already carries what it found and a pile of unread suggestions helps nobody.
+Clarifications carry no such cap.
 _Avoid_: finding, note, observation, feedback
+
+**Nit**:
+Something a run notices about the code that touches only names, glossary entries, prose, comments
+or wrapping — never a discovery of any kind, whatever the temptation, and never a suggestion (see
+**Discovery**), which changes behavior or removes a real hazard instead. One the run's own change
+caused is fixed in that same commit, as part of the change; any other is listed in the pull
+request body for the review to turn into a finding, rather than filed as a ticket of its own.
+_Avoid_: suggestion, minor, cosmetic
 
 **Ready discovery**:
 A discovery its filer declares leaves no decision to the developer, so it skips triage: a
