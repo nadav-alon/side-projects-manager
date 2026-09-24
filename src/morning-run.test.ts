@@ -1490,23 +1490,23 @@ describe("morningLoop", () => {
     });
 
     it("is opened with the run's nits, when it left any", async () => {
-    const ports = fakePorts();
-    const nits = "- the widget's name is misspelled two lines up";
-    const ticket = ran(ports, { nits });
+      const ports = fakePorts();
+      const nits = "- the widget's name is misspelled two lines up";
+      const ticket = ran(ports, { nits });
 
-    await morningLoop(ports);
+      await morningLoop(ports);
 
-    assert.deepEqual(ports.repoHost.pullRequests, [
-      {
-        directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-        branch: BRANCH,
-        ticket,
-        nits,
-      },
-    ]);
-  });
+      assert.deepEqual(ports.repoHost.pullRequests, [
+        {
+          directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+          branch: BRANCH,
+          ticket,
+          nits,
+        },
+      ]);
+    });
 
-  it("is not opened for a run that committed nothing, gist or not", async () => {
+    it("is not opened for a run that committed nothing, gist or not", async () => {
       const ports = fakePorts();
       const gist = ticketGist("Add the thing to the widget.");
       ran(ports, { commits: [], gist });
