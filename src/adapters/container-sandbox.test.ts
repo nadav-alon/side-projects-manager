@@ -17,6 +17,7 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
+import { routeRunDiscoveries } from "../discovery-routing.ts";
 import { REASON_QUOTED } from "../hand-back.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
@@ -63,8 +64,10 @@ import {
   type Ticket,
 } from "../ports/index.ts";
 import {
+  AGENT_BRIEF_BODY,
   BUDGET_EXHAUSTED_JSON_RESULT,
   BUDGET_EXHAUSTED_STDOUT,
+  FakeIssueTracker,
   gate,
   HANGS,
   LIMIT_REFUSAL,
@@ -2058,6 +2061,70 @@ describe("discoveries", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
+  });
+
+  it("drops an undeclared key a discovery file on disk carries, rather than passing it through", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        {
+          kind: "clarification",
+          title: "Read as opt-in",
+          body: "The ticket never says default on.",
+          extra: "not part of Discovery",
+        },
+        "1.json",
+      );
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.deepEqual(variant(result, "finished")?.discoveries, [
+      { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
+    ]);
+  });
+
+  it("carries a discovery written to disk through to the routed ticket with every field intact", async () => {
+    const directory = await project();
+    const tracker = new FakeIssueTracker();
+    const target = tracker.addEligibleTicket(TICKET.repo, {
+      number: TICKET.number,
+      title: TICKET.title,
+    });
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        {
+          kind: "suggestion",
+          title: "Add a retry",
+          body: AGENT_BRIEF_BODY,
+          ready: true,
+        },
+        "1.json",
+      );
+      return { output: "implemented the thing", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: target, checkout: directory, spendCeiling: CEILING });
+    const finished = variant(result, "finished");
+    assert.equal(finished?.discoveriesDropped, 0);
+
+    const routed = await routeRunDiscoveries(
+      tracker,
+      target,
+      finished?.discoveries,
+      finished?.discoveriesDropped,
+    );
+
+    const filed = routed?.routing.filed[0];
+    assert.equal(filed?.action, "discovered-ticket");
+    const discoveredTicket = tracker.discoveredTickets[0];
+    assert.equal(discoveredTicket?.title, "Add a retry");
+    assert.ok(discoveredTicket?.body.includes(AGENT_BRIEF_BODY));
+    assert.equal(discoveredTicket?.blocking, false);
+    assert.equal(discoveredTicket?.ticket.readyDiscovery, true);
   });
 
   it("keeps a discovery whose ready field is malformed, treating it as not ready rather than dropping it", async () => {

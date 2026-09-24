@@ -54,6 +54,7 @@ export {
 export { fakePorts, type FakePorts } from "./fake-ports.ts";
 export { FakeProgress } from "./fake-progress.ts";
 export {
+  AGENT_BRIEF_BODY,
   LAST_WEEK,
   MANAGER,
   PILOT,

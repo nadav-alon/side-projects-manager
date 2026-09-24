@@ -16,6 +16,17 @@ export const YESTERDAY = new Date("2025-12-31T06:00:00.000Z");
 /** Earlier still than `YESTERDAY`. */
 export const LAST_WEEK = new Date("2025-12-20T06:00:00.000Z");
 
+/**
+ * A body shaped as an agent brief, per CONTEXT.md's "Ready discovery" — what
+ * `isAgentBrief` requires of a ready discovery.
+ */
+export const AGENT_BRIEF_BODY = [
+  "Current behavior: the retry loop hammers the API on every failure.",
+  "Desired behavior: it should back off between attempts.",
+  "Acceptance criteria: a failed call waits before its next attempt.",
+  "Out of scope: a configurable backoff strategy.",
+].join("\n\n");
+
 /** What the verdicts say happened, without the timestamps a test didn't set. */
 export function verdicts(projects: ProjectOutcome[]): [string, string][] {
   return projects.map((project) => [project.repo, project.verdict]);

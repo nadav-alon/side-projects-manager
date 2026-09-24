@@ -57,7 +57,7 @@ function isDiscoveryKind(value: unknown): value is DiscoveryKind {
  * `ready` is not checked here, deliberately: it is optional and additive, so
  * a malformed value — a non-boolean an agent handwrote into the JSON — should
  * cost the discovery its ready state, not the whole discovery, blocking kinds
- * included. `readDiscoveries` reads `ready` itself, keeping only `=== true`.
+ * included. `normalizeDiscovery` reads `ready` itself, keeping only `=== true`.
  */
 export function isDiscovery(value: unknown): value is Discovery {
   if (typeof value !== "object" || value === null) {
@@ -71,4 +71,37 @@ export function isDiscovery(value: unknown): value is Discovery {
   return (
     isDiscoveryKind(kind) && typeof title === "string" && typeof body === "string"
   );
+}
+
+/**
+ * The `Discovery` a validated `value` carries, field by field, and nothing
+ * else: `value` is only typed as a `Discovery` by `isDiscovery`'s say-so, so
+ * the JSON it came from may still carry keys `Discovery` never declared, and
+ * those must not survive into the object callers act on. Tied to the
+ * `Discovery` interface, not to `isDiscovery`: `fields` is typed
+ * `Record<keyof Discovery, unknown>`, which requires a value for every key
+ * `Discovery` has, so a field added to the interface and not copied here
+ * fails to compile rather than being dropped silently. `isDiscovery` itself
+ * still validates only `kind`, `title` and `body` — a field added to
+ * `Discovery` needs its own handling there too, as `ready` gets below.
+ *
+ * `ready` keeps only `=== true`, per `isDiscovery`'s own note on it: a
+ * malformed value costs the discovery its ready state, not the field's
+ * presence in the output.
+ */
+export function normalizeDiscovery(value: Discovery): Discovery {
+  const fields: Record<keyof Discovery, unknown> = {
+    kind: value.kind,
+    title: value.title,
+    body: value.body,
+    ready: value.ready === true ? true : undefined,
+  };
+  // Object.entries/fromEntries erases fields's own key-complete type back to
+  // Record<string, unknown>, hence the cast. It trades no value safety:
+  // every value in fields came typed off the Discovery parameter itself,
+  // kind and title and body already runtime-checked by isDiscovery, ready
+  // by the `=== true` above.
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, fieldValue]) => fieldValue !== undefined),
+  ) as unknown as Discovery;
 }

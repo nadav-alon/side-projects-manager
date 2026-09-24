@@ -47,6 +47,7 @@ import {
   isRemoteUrl,
   isTicketGist,
   milliseconds,
+  normalizeDiscovery,
   remoteUrl,
   reviewFindingTemplate,
   tokenCount,
@@ -975,12 +976,15 @@ function discoveryOrder(name: string): [number, string] {
 
 /**
  * The discoveries written under `directory`, in the order they were written,
- * and how many entries there did not carry one — see `Discovery` and
- * `isDiscovery`, and CONTEXT.md's "Discovery". A file that is not valid
- * JSON, or whose shape `isDiscovery` refuses, is dropped and counted rather
- * than failing the run — and so is anything under `directory` that is not a
- * plain file at all, a subdirectory or a symlink among them, since neither
- * one is a discovery `isDiscovery` could ever accept.
+ * and how many entries there did not carry one — see `Discovery`,
+ * `isDiscovery` and `normalizeDiscovery`, and CONTEXT.md's "Discovery". A
+ * file that is not valid JSON, or whose shape `isDiscovery` refuses, is
+ * dropped and counted rather than failing the run — and so is anything under
+ * `directory` that is not a plain file at all, a subdirectory or a symlink
+ * among them, since neither one is a discovery `isDiscovery` could ever
+ * accept. What `isDiscovery` accepts is handed to `normalizeDiscovery` rather
+ * than kept as parsed, so a field the JSON carries beyond `Discovery`'s own
+ * never rides along.
  */
 async function readDiscoveries(
   directory: DiscoveryDirectory,
@@ -1005,12 +1009,7 @@ async function readDiscoveries(
     const contents = await readFile(filePath, "utf8").catch(() => undefined);
     const parsed = contents === undefined ? undefined : parse(contents);
     if (isDiscovery(parsed)) {
-      discoveries.push({
-        kind: parsed.kind,
-        title: parsed.title,
-        body: parsed.body,
-        ...(parsed.ready === true && { ready: true }),
-      });
+      discoveries.push(normalizeDiscovery(parsed));
     } else {
       dropped++;
     }
