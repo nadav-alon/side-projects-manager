@@ -779,9 +779,8 @@ async function work(
 }
 
 /**
- * `iteration`, with `routed`'s own routing — and, when it names one, the
- * ticket its discoveries landed on — attached. Unchanged when there was
- * nothing to route.
+ * `iteration`, with `routed`'s own routing and cross-target attached.
+ * Unchanged when there was nothing to route.
  */
 function withDiscoveries<T extends { discoveries?: DiscoveriesRouted }>(
   iteration: T,
@@ -790,7 +789,13 @@ function withDiscoveries<T extends { discoveries?: DiscoveriesRouted }>(
   if (routed === undefined) {
     return iteration;
   }
-  return { ...iteration, discoveries: routed };
+  return {
+    ...iteration,
+    discoveries: {
+      routing: routed.routing,
+      ...(routed.crossTarget !== undefined && { crossTarget: routed.crossTarget }),
+    },
+  };
 }
 
 /**
