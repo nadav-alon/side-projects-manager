@@ -14,8 +14,10 @@ import type {
   Reviewed,
   SpecReviewed,
   UnusableModelLabel,
+  UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import { modelProblem } from "./model-resolution.ts";
+import { sizeProblem } from "./size-resolution.ts";
 import {
   branch,
   commitSha,
@@ -910,16 +912,14 @@ describe("attemptsSection", () => {
 });
 
 describe("a ticket handed back for an unusable size label", () => {
+  const FAILURE: UnusableSizeLabel = { kind: "unusable-size-label", labels: ["size:XXL"] };
+
   function unusableSizeLabel(number: number): IterationOutcome {
     return {
       repo: REPO,
       ticket: implementationTicket(number),
       kind: "failed",
-      failure: {
-        kind: "unusable-size-label",
-        reason: "size:XXL names no size the budget document knows",
-        labels: ["size:XXL"],
-      },
+      failure: FAILURE,
       handedBack: { outcome: "handed-back" },
     };
   }
@@ -929,15 +929,15 @@ describe("a ticket handed back for an unusable size label", () => {
 
     assert.match(
       line,
-      /#306 was not run, because size:XXL names no size the budget document knows\. Handed back for a human\./,
+      /#306 was not run, because its size label names no size the budget document knows \(`size:XXL`\)\. Handed back for a human\./,
     );
   });
 
-  it("lists it under waiting on you, quoting its size labels — like an unusable model label", () => {
-    const lines = waitingLines([unusableSizeLabel(307)]);
+  it("reads the same wording sizeProblem gives — the one source hand-back.ts's own comment reads too", () => {
+    const { problem, fix } = sizeProblem(FAILURE);
 
-    assert.deepEqual(lines, [
-      `- ${REPO} #307: relabelled ready-for-human — fix its size label (size:XXL)`,
+    assert.deepEqual(waitingLines([unusableSizeLabel(307)]), [
+      `- ${REPO} #307: relabelled ready-for-human — ${problem}, so ${fix}`,
     ]);
   });
 });

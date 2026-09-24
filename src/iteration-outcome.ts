@@ -125,10 +125,13 @@ export interface UnusableModelLabel {
 /**
  * A ticket whose size label names no size the budget document knows —
  * caught at selection, so nothing was cloned, run or spent.
+ *
+ * Carries no `reason` of its own, for the same reason `UnusableModelLabel`
+ * does not: `sizeProblem` in `size-resolution.ts` is the one source of
+ * wording.
  */
 export interface UnusableSizeLabel {
   kind: "unusable-size-label";
-  reason: string;
   /** The size labels at fault, as the ticket carries them. */
   labels: readonly string[];
 }

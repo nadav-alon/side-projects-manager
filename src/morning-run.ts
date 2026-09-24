@@ -49,7 +49,6 @@ import {
   REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
-  isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
   isSpecReviewTicket,
@@ -73,6 +72,7 @@ import {
   resolveModel,
   type ResolvedModel,
 } from "./model-resolution.ts";
+import { unusableSizeLabel } from "./size-resolution.ts";
 import {
   invocationState,
   invocationStateRest,
@@ -126,7 +126,6 @@ import {
   type Reviewed,
   type SpecReviewed,
   type UnsettledMergeability,
-  type UnusableSizeLabel,
 } from "./iteration-outcome.ts";
 import {
   composeInvocationReport,
@@ -545,26 +544,6 @@ export async function morningLoop(
   }
 
   return report;
-}
-
-/**
- * Why no run can be started on `ticket`'s size label, absent when it names a
- * recognised size, names none, or belongs to a pull request ticket — whose
- * size label `runEstimate` (`budget-gate.ts`) always ignores, so it is never
- * unusable. Never falls back to `unsizedCountsAs`: the developer named a
- * size, and running the ticket as though it were unsized is not what they
- * asked for.
- */
-function unusableSizeLabel(ticket: Ticket): UnusableSizeLabel | undefined {
-  const label = ticket.sizeLabel;
-  if (isPullRequestTicket(ticket) || label?.kind !== "unusable") {
-    return undefined;
-  }
-  return {
-    kind: "unusable-size-label",
-    reason: `its size label names no size the budget document knows (${label.labels.join(", ")})`,
-    labels: label.labels,
-  };
 }
 
 /**
