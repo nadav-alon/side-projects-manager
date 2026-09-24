@@ -266,9 +266,7 @@ function conflictSweepAside(conflictSweeps: ConflictSweepOutcome[]): string {
     const commented = project.commented.length;
     const bits = [
       ...(commented > 0
-        ? [
-            `posted ${REBASE_COMMENT} on ${commented === 1 ? "1 pull request" : `${commented} pull requests`}`,
-          ]
+        ? [`posted ${REBASE_COMMENT} ${commented === 1 ? "once" : `${commented} times`}`]
         : []),
       ...(project.refusals.length > 0
         ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]

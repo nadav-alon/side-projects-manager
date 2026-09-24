@@ -1804,7 +1804,7 @@ describe("conflict sweeps", () => {
 
     assert.match(
       summaryLine(commented),
-      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 1 pull request\\)`),
+      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase once\\)`),
     );
   });
 
@@ -1821,7 +1821,7 @@ describe("conflict sweeps", () => {
     ]);
 
     const line = summaryLine(commented);
-    assert.match(line, new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 2 pull requests\\)`));
+    assert.match(line, new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase 2 times\\)`));
     assert.doesNotMatch(line, new RegExp(PULL_REQUEST));
   });
 
@@ -1884,7 +1884,7 @@ describe("conflict sweeps", () => {
 
     assert.match(
       summaryLine(commented),
-      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase on 2 pull requests\\)`),
+      new RegExp(`Conflict sweep: ${REPO} \\(posted /rebase 2 times\\)`),
     );
   });
 
