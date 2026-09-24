@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   budgetGate,
+  budgetStatus,
   invocationBudgetGate,
   spendCeilingForTicket,
 } from "./budget-gate.ts";
@@ -15,6 +16,7 @@ import {
   tokenCount,
   usd,
   type Budget,
+  type RunCost,
   type Ticket,
   type UsageWindows,
 } from "./ports/index.ts";
@@ -742,5 +744,118 @@ describe("budgetGate", () => {
 
       assert.equal(refusal?.reason, "five-hour-window-estimate");
     });
+  });
+});
+
+describe("budgetStatus", () => {
+  it("reports both windows against their own allowance and reserve, with room to spare", () => {
+    const status = budgetStatus(NO_USAGE, DEFAULT_BUDGET, []);
+
+    assert.equal(status.fiveHour.tokensUsed, 0);
+    assert.equal(status.fiveHour.allowance, DEFAULT_BUDGET.fiveHourAllowance);
+    assert.equal(status.fiveHour.spendable, DEFAULT_BUDGET.fiveHourAllowance);
+    assert.equal(status.fiveHour.resetsAt, NO_USAGE.fiveHour.resetsAt);
+    assert.equal(status.fiveHour.reserveReached, false);
+
+    assert.equal(status.weekly.tokensUsed, 0);
+    assert.equal(status.weekly.allowance, DEFAULT_BUDGET.weeklyAllowance);
+    assert.equal(status.weekly.spendable, SPENDABLE_THIS_WEEK);
+    assert.equal(status.weekly.resetsAt, NO_USAGE.weekly.resetsAt);
+    assert.equal(status.weekly.reserveReached, false);
+  });
+
+  it("splits what a window consumed between the ledger's own reading and the mornings' recorded runs", () => {
+    const ownSpend: RunCost[] = [{ at: YESTERDAY, tokensUsed: tokenCount(300) }];
+    const windows = spent({ weekly: 700 });
+
+    const { weekly } = budgetStatus(windows, DEFAULT_BUDGET, ownSpend);
+
+    assert.equal(weekly.developerSpent, 700);
+    assert.equal(weekly.loopSpent, 300);
+    assert.equal(weekly.tokensUsed, 1_000);
+  });
+
+  it("does not count a run recorded before the window it belongs to opened", () => {
+    const ownSpend: RunCost[] = [{ at: LAST_WEEK, tokensUsed: tokenCount(300) }];
+
+    const { weekly } = budgetStatus(spent({ weekly: 700 }), DEFAULT_BUDGET, ownSpend);
+
+    assert.equal(weekly.loopSpent, 0);
+    assert.equal(weekly.tokensUsed, 700);
+  });
+
+  it("marks the reserve reached once consumption alone exceeds what is spendable, charging no run estimate", () => {
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      weeklyAllowance: tokenCount(1_000),
+      reserveFraction: reserveFraction(0.5),
+    };
+
+    const atTheLine = budgetStatus(spent({ weekly: 500 }), budget, []);
+    const overIt = budgetStatus(spent({ weekly: 501 }), budget, []);
+
+    assert.equal(atTheLine.weekly.reserveReached, false);
+    assert.equal(overIt.weekly.reserveReached, true);
+  });
+
+  it("resolves each window against its own reserve fraction, not the other window's", () => {
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      fiveHourAllowance: tokenCount(1_000),
+      fiveHourReserveFraction: reserveFraction(0),
+      weeklyAllowance: tokenCount(1_000),
+      reserveFraction: reserveFraction(0.5),
+    };
+
+    const status = budgetStatus(
+      { fiveHour: spent({ fiveHour: 900 }).fiveHour, weekly: spent({ weekly: 900 }).weekly },
+      budget,
+      [],
+    );
+
+    assert.equal(status.fiveHour.spendable, 1_000);
+    assert.equal(status.fiveHour.reserveReached, false);
+    assert.equal(status.weekly.spendable, 500);
+    assert.equal(status.weekly.reserveReached, true);
+  });
+});
+
+describe("budgetGate and budgetStatus agree", () => {
+  it("marks the reserve reached exactly where the gate stands down on consumption alone", () => {
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      weeklyAllowance: tokenCount(1_000),
+      reserveFraction: reserveFraction(0.5),
+    };
+    const windows = spent({ weekly: 501 });
+
+    const refusal = budgetGate(windows, budget, [], TICKET, []);
+    const status = budgetStatus(windows, budget, []);
+
+    assert.equal(refusal?.reason, "weekly-reserve");
+    assert.equal(status.weekly.reserveReached, true);
+  });
+
+  /**
+   * `reserveReached` answers a narrower question than the gate: it charges no
+   * run estimate, so a window the estimate alone pushes over stands the gate
+   * down without `reserveReached` following it — the gap `statusReport`'s
+   * wording has to respect rather than paper over.
+   */
+  it("stands the gate down on the run estimate alone without marking the reserve reached", () => {
+    const estimate = DEFAULT_BUDGET.sizes.S;
+    const budget: Budget = {
+      ...DEFAULT_BUDGET,
+      weeklyAllowance: tokenCount(estimate + 100),
+      reserveFraction: reserveFraction(0),
+    };
+    const sizedTicket: Ticket = { ...TICKET, sizeLabel: { kind: "declared", size: "S" } };
+    const windows = spent({ weekly: 101 });
+
+    const refusal = budgetGate(windows, budget, [], sizedTicket, []);
+    const status = budgetStatus(windows, budget, []);
+
+    assert.equal(refusal?.reason, "weekly-reserve-estimate");
+    assert.equal(status.weekly.reserveReached, false);
   });
 });

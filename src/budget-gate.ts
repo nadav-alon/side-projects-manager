@@ -122,7 +122,7 @@ export function invocationBudgetGate(
 }
 
 /** Every run the mornings have made, across every project, oldest first. */
-function runsRecorded(
+export function runsRecorded(
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
 ): RunCost[] {
   return [...projectStates.values()]
@@ -183,17 +183,16 @@ export function budgetGate(
   inProgress: readonly Ticket[],
 ): StandDown | undefined {
   const estimateCharged = totalEstimate(ticket, inProgress, budget);
+  const configs = windowConfigs(windows, budget);
   const weekly = refusal(
     { spent: "weekly-reserve", estimate: "weekly-reserve-estimate" },
-    windows.weekly,
-    spendableOf(budget.weeklyAllowance, budget.reserveFraction),
+    configs.weekly,
     ownSpend,
     estimateCharged,
   );
   const fiveHour = refusal(
     { spent: "five-hour-window", estimate: "five-hour-window-estimate" },
-    windows.fiveHour,
-    spendableOf(budget.fiveHourAllowance, budget.fiveHourReserveFraction),
+    configs.fiveHour,
     ownSpend,
     estimateCharged,
   );
@@ -205,31 +204,72 @@ export function budgetGate(
 }
 
 /**
- * The stand-down `window` calls for, or `undefined` when it still has room
- * for both what it has consumed and `estimateCharged` besides.
+ * One window paired with the allowance and reserve fraction it is measured
+ * against. The pairing itself — weekly with `reserveFraction`, the 5-hour
+ * window with `fiveHourReserveFraction` — is made once, here, so `budgetGate`
+ * and `budgetStatus` cannot each pair a window with the wrong reserve and
+ * quietly disagree about which one applies.
+ */
+interface WindowConfig {
+  window: UsageWindow;
+  allowance: TokenCount;
+  reserveFraction: ReserveFraction;
+}
+
+function windowConfigs(
+  windows: UsageWindows,
+  budget: Budget,
+): { weekly: WindowConfig; fiveHour: WindowConfig } {
+  return {
+    weekly: {
+      window: windows.weekly,
+      allowance: budget.weeklyAllowance,
+      reserveFraction: budget.reserveFraction,
+    },
+    fiveHour: {
+      window: windows.fiveHour,
+      allowance: budget.fiveHourAllowance,
+      reserveFraction: budget.fiveHourReserveFraction,
+    },
+  };
+}
+
+/**
+ * Whether `tokensUsed` alone already exceeds `spendable` — the reserve
+ * reached, before any run estimate is charged. Shared by `refusal`, which
+ * charges an estimate on top, and `windowStatus`, which does not, so the two
+ * cannot drift apart on what "reached" means.
+ */
+function windowSpent(tokensUsed: TokenCount, spendable: TokenCount): boolean {
+  return tokensUsed > spendable;
+}
+
+/**
+ * The stand-down `config`'s window calls for, or `undefined` when it still
+ * has room for both what it has consumed and `estimateCharged` besides.
  *
- * A window whose consumption alone exceeds `spendable` refuses under
- * `reasons.spent`, whatever the estimate is. One within `spendable` that
+ * A window whose consumption alone exceeds what is spendable refuses under
+ * `reasons.spent`, whatever the estimate is. One within it that
  * `estimateCharged` would push over refuses under `reasons.estimate` instead
  * — the two are told apart so the developer knows whether a spent window or
  * an estimate is what stopped the run. A window that, consumption and
- * estimate together, lands exactly on `spendable` has not overrun it, so the
- * boundary is a go.
+ * estimate together, lands exactly on what is spendable has not overrun it,
+ * so the boundary is a go.
  */
 function refusal(
   reasons: { spent: StandDownReason; estimate: StandDownReason },
-  window: UsageWindow,
-  spendable: TokenCount,
+  config: WindowConfig,
   ownSpend: readonly RunCost[],
   estimateCharged: TokenCount,
 ): StandDown | undefined {
-  const tokensUsed = consumedIn(window, ownSpend);
-  if (tokensUsed > spendable) {
+  const spendable = spendableOf(config.allowance, config.reserveFraction);
+  const tokensUsed = consumedIn(config.window, ownSpend);
+  if (windowSpent(tokensUsed, spendable)) {
     return {
       reason: reasons.spent,
       tokensUsed,
       spendable,
-      resetsAt: window.resetsAt,
+      resetsAt: config.window.resetsAt,
       estimateCharged,
     };
   }
@@ -238,7 +278,7 @@ function refusal(
       reason: reasons.estimate,
       tokensUsed,
       spendable,
-      resetsAt: window.resetsAt,
+      resetsAt: config.window.resetsAt,
       estimateCharged,
     };
   }
@@ -314,10 +354,96 @@ function consumedIn(
   window: UsageWindow,
   ownSpend: readonly RunCost[],
 ): TokenCount {
-  const mornings = ownSpend
-    .filter((run) => run.at.getTime() >= window.openedAt.getTime())
-    .reduce((total, run) => total + run.tokensUsed, 0);
-  return tokenCount(window.tokensUsed + mornings);
+  return spendIn(window, ownSpend).tokensUsed;
+}
+
+/**
+ * What `window` has consumed, split by who spent it: the mornings' own runs
+ * the state document records (`loopSpent`), and everything else the ledger
+ * reports (`developerSpent`) — see `consumedIn` for why both are counted.
+ * `statusReport` prints this same split; `budgetStatus` is where it is drawn
+ * from, so a change to this arithmetic changes what both the gate and the
+ * status command see.
+ */
+function spendIn(
+  window: UsageWindow,
+  ownSpend: readonly RunCost[],
+): { tokensUsed: TokenCount; loopSpent: TokenCount; developerSpent: TokenCount } {
+  const loopSpent = tokenCount(
+    ownSpend
+      .filter((run) => run.at.getTime() >= window.openedAt.getTime())
+      .reduce((total, run) => total + run.tokensUsed, 0),
+  );
+  return {
+    tokensUsed: tokenCount(window.tokensUsed + loopSpent),
+    loopSpent,
+    developerSpent: window.tokensUsed,
+  };
+}
+
+/**
+ * One window's spend against its budget, as `status` reports it: everything
+ * `refusal` charges consumption with, laid out for reading rather than
+ * reduced to a verdict. `reserveReached` is `refusal`'s own "spent" branch —
+ * no run estimate charged, since a status report describes no run about to
+ * start.
+ */
+export interface WindowStatus {
+  /** Consumed altogether: the ledger's own view plus what the mornings spent. */
+  tokensUsed: TokenCount;
+  /** `tokensUsed`'s share the mornings spent, per the state document. */
+  loopSpent: TokenCount;
+  /** `tokensUsed`'s share the ledger attributes to the developer's own use. */
+  developerSpent: TokenCount;
+  /** The window's declared allowance, reserve included. */
+  allowance: TokenCount;
+  /** What the window may spend before its reserve is reached. */
+  spendable: TokenCount;
+  /** When the window resets. */
+  resetsAt: Date;
+  /** Whether `tokensUsed` already exceeds `spendable` — the gate would refuse a run now, before any estimate is even charged. */
+  reserveReached: boolean;
+}
+
+/** Both windows' status, as `budgetStatus` reports them. */
+export interface BudgetStatus {
+  fiveHour: WindowStatus;
+  weekly: WindowStatus;
+}
+
+/**
+ * `windows` and `ownSpend` laid out the way the gate itself reasons over
+ * them, one `WindowStatus` per window — the read-only counterpart to
+ * `budgetGate`, for a caller that wants to show the arithmetic rather than
+ * ask it a yes/no question.
+ */
+export function budgetStatus(
+  windows: UsageWindows,
+  budget: Budget,
+  ownSpend: readonly RunCost[],
+): BudgetStatus {
+  const configs = windowConfigs(windows, budget);
+  return {
+    fiveHour: windowStatus(configs.fiveHour, ownSpend),
+    weekly: windowStatus(configs.weekly, ownSpend),
+  };
+}
+
+function windowStatus(
+  config: WindowConfig,
+  ownSpend: readonly RunCost[],
+): WindowStatus {
+  const { tokensUsed, loopSpent, developerSpent } = spendIn(config.window, ownSpend);
+  const spendable = spendableOf(config.allowance, config.reserveFraction);
+  return {
+    tokensUsed,
+    loopSpent,
+    developerSpent,
+    allowance: config.allowance,
+    spendable,
+    resetsAt: config.window.resetsAt,
+    reserveReached: windowSpent(tokensUsed, spendable),
+  };
 }
 
 /**

@@ -45,6 +45,10 @@ async function writeState(home: string, state: unknown): Promise<void> {
   await writeFile(path.join(home, "state.json"), JSON.stringify(state));
 }
 
+async function writeBudget(home: string, budget: unknown): Promise<void> {
+  await writeFile(path.join(home, "budget.json"), JSON.stringify(budget));
+}
+
 /** Every file directly under `home` and its contents, for comparing before and after a run. */
 async function snapshotHome(home: string): Promise<Record<string, string>> {
   const entries = await readdir(home);
@@ -168,5 +172,48 @@ describe("the status command", () => {
     const { stdout } = await run(await tempHome("status-bin"));
 
     assert.match(stdout, /Logon guard: not registered/);
+  });
+
+  it("reports each window's spend against the developer's own budget document", async () => {
+    const home = await tempHome("status-bin");
+    await writeBudget(home, { weeklyAllowance: 1_000, reserveFraction: 0 });
+
+    const { stdout, stderr } = await run(home);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /^Five-hour window: .* tokens \([\d.]+%\)/m);
+    assert.match(stdout, /^Weekly window: 0 of 1,000 tokens \(0\.0%\)/m);
+  });
+
+  it("counts a run the state document records toward the window it falls in, as the gate itself would", async () => {
+    const home = await tempHome("status-bin");
+    await writeBudget(home, { weeklyAllowance: 1_000, reserveFraction: 0 });
+    const now = new Date();
+    await writeState(home, {
+      projects: { "nadav-alon/pilot": { runs: [{ at: now.toISOString(), tokensUsed: 400 }] } },
+    });
+
+    const { stdout } = await run(home);
+
+    assert.match(
+      stdout,
+      /^Weekly window: 400 of 1,000 tokens \(40\.0%\) — loop spent 400, developer spent 0\./m,
+    );
+  });
+
+  it("says the reserve is already reached once the window's own spend passes it", async () => {
+    const home = await tempHome("status-bin");
+    await writeBudget(home, { weeklyAllowance: 1_000, reserveFraction: 0 });
+    const now = new Date();
+    await writeState(home, {
+      projects: { "nadav-alon/pilot": { runs: [{ at: now.toISOString(), tokensUsed: 1_001 }] } },
+    });
+
+    const { stdout } = await run(home);
+
+    assert.match(
+      stdout,
+      /^Weekly window:.*reserve is already reached: the gate would refuse a run now\./m,
+    );
   });
 });
