@@ -624,30 +624,21 @@ export interface InvocationReportInputs {
 }
 
 /**
- * Whether a limit refusal left a branch behind that its own discard could not
- * throw away: kept because git refused to delete it, or salvaged on purpose
- * per CONTEXT.md's "Salvage". Spent tokens alone don't count — CONTEXT.md's
- * "Limit refusal" already says a limit refusal leaves the ticket exactly as
- * it found it — so a clean discard (`"none"` or `"discarded"`) is not enough
- * on its own.
+ * Whether a limit refusal left something for the summary to name: a branch
+ * left in the project checkout — kept because git refused to delete it, or
+ * salvaged on purpose per CONTEXT.md's "Salvage" — or an advisory discovery
+ * filed, the only kind a limit refusal can file since a blocking one hands
+ * the ticket back instead and makes this a `DiscoveryBlocked` iteration.
+ * Returns false for a `none` or `discarded` discard with nothing filed,
+ * however many tokens the refusal spent.
  */
-function limitRefusalLeftABranch(iteration: IterationOutcome): boolean {
+function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
+  if (iteration.kind !== "limit-refused") {
+    return false;
+  }
   return (
-    iteration.kind === "limit-refused" &&
-    (iteration.discard.kind === "kept" || iteration.discard.kind === "salvaged")
-  );
-}
-
-/**
- * Whether a limit refusal filed an advisory discovery — per CONTEXT.md's
- * "Discovery", the only kind a limit refusal can file, since a blocking one
- * hands the ticket back instead and makes this a `DiscoveryBlocked` iteration.
- * A report that only dropped or refused a write does not count: nothing
- * landed anywhere for the developer to read.
- */
-function limitRefusalFiledADiscovery(iteration: IterationOutcome): boolean {
-  return (
-    iteration.kind === "limit-refused" &&
+    iteration.discard.kind === "kept" ||
+    iteration.discard.kind === "salvaged" ||
     (iteration.discoveryReport?.routing.filed.length ?? 0) > 0
   );
 }
@@ -663,11 +654,12 @@ function limitRefusalFiledADiscovery(iteration: IterationOutcome): boolean {
  *
  * An invocation that worked something, freed a ticket a dead invocation had
  * recorded, or had a limit refusal that left a branch behind or filed a
- * discovery, always publishes — a freed ticket, a branch, or a discovery
- * nobody else will mention must be named somewhere, never only erased from
- * the state document. A quiet or broken one publishes only when today has not
- * already been announced, per CONTEXT.md's "Summary" — a loop firing every
- * hour still reports one quiet or broken morning rather than up to
+ * discovery, always publishes — a freed ticket nobody else will mention must
+ * be named somewhere, never only erased from the state document; a branch
+ * left in the checkout, or a discovery filed, must reach the developer today
+ * rather than wait a day. A quiet or broken one publishes only when today has
+ * not already been announced, per CONTEXT.md's "Summary" — a loop firing
+ * every hour still reports one quiet or broken morning rather than up to
  * twenty-four.
  */
 export async function composeInvocationReport(
@@ -682,8 +674,7 @@ export async function composeInvocationReport(
   if (
     outcome === "work-selected" ||
     facts.freedFromDeadInvocation.length > 0 ||
-    facts.iterations.some(limitRefusalLeftABranch) ||
-    facts.iterations.some(limitRefusalFiledADiscovery) ||
+    facts.iterations.some(limitRefusalLeftSomethingToName) ||
     !alreadyAnnouncedToday
   ) {
     const body = summaryBody(facts, line);
