@@ -230,7 +230,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("answers with the review it opened", async (t) => {
-    const gh = await recordingGh(t, WORKING);
+    await recordingGh(t, WORKING);
 
     const review = await ghIssueTracker().createReviewTicket(
       TICKET,
@@ -387,7 +387,7 @@ describe("ghIssueTracker.createReviewTicket", () => {
   });
 
   it("says so when linking fails after the review was opened", async (t) => {
-    const gh = await recordingGh(
+    await recordingGh(
       t,
       [
         `case "$1 $2" in`,
@@ -765,7 +765,7 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
   });
 
   it("answers with the new ticket", async (t) => {
-    const gh = await recordingGh(t, WORKING);
+    await recordingGh(t, WORKING);
 
     const discovered = await ghIssueTracker().createDiscoveredTicket(
       TICKET,
@@ -2081,7 +2081,7 @@ describe("ghIssueTracker.createSpecReviewTicket", () => {
   });
 
   it("answers with the spec review it opened, bound to no pull request", async (t) => {
-    const gh = await recordingGh(t, WORKING);
+    await recordingGh(t, WORKING);
 
     const specReview = await ghIssueTracker().createSpecReviewTicket(
       SUPERTASK,
