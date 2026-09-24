@@ -1,4 +1,5 @@
-import type { Day, InvocationClosing, OpenInvocation } from "./ports/index.ts";
+import type { BudgetStatus, WindowStatus } from "./budget-gate.ts";
+import type { Day, InvocationClosing, OpenInvocation, TokenCount } from "./ports/index.ts";
 import { localDay, localTimeOfMinute } from "./ports/index.ts";
 import type {
   ScheduleRegistration,
@@ -55,22 +56,32 @@ export interface StatusTriggers {
  * Comparing a registration's `managerHome` against `triggers.managerHome` —
  * deciding armed (CONTEXT.md: Armed) — happens here, not in the adapter that
  * read the registration.
+ *
+ * `budget` is the gate's own arithmetic (`budgetStatus`), already resolved by
+ * the caller over the ledger, the state document and `budget.json` — nothing
+ * here recomputes it, so a change to the gate's arithmetic changes what these
+ * lines print without this file naming it twice.
  */
 export function statusReport(
   journal: StatusJournal,
   todayClaimed: boolean,
   now: Date,
   triggers: StatusTriggers,
+  budget: BudgetStatus,
 ): string[] {
   const { managerHome } = triggers;
   const triggerLines = [
     scheduleLine(triggers.schedule, managerHome),
     logonGuardLine(triggers.logonGuard, managerHome),
   ];
+  const budgetLines = [
+    windowLine("Five-hour window", budget.fiveHour),
+    windowLine("Weekly window", budget.weekly),
+  ];
 
   const { records } = journal;
   if (records.length === 0) {
-    return [...triggerLines, "No invocation has ever run on this machine."];
+    return [...triggerLines, ...budgetLines, "No invocation has ever run on this machine."];
   }
 
   const today = localDay(now);
@@ -78,12 +89,40 @@ export function statusReport(
 
   return [
     ...triggerLines,
+    ...budgetLines,
     claimLine(records, today, todayClaimed),
     mostRecentLine(latest),
     ...inFlightCallouts(records),
     ...consecutiveFailureCallout(records),
     ...historyLines(records),
   ];
+}
+
+/**
+ * One window's whole status line: what it has consumed against its
+ * allowance, the loop's share of that against the developer's, when it
+ * resets, and whether its reserve is already reached — CONTEXT.md's "Reserve"
+ * — i.e. whether the gate would currently let a run start.
+ */
+function windowLine(label: string, status: WindowStatus): string {
+  const reserve = status.reserveReached
+    ? "the reserve is already reached: the gate would refuse a run now"
+    : "the reserve has room: the gate would let a run start";
+  return (
+    `${label}: ${tokens(status.tokensUsed)} of ${tokens(status.allowance)} tokens ` +
+    `(${percentOf(status.tokensUsed, status.allowance)}) — loop spent ${tokens(status.loopSpent)}, ` +
+    `developer spent ${tokens(status.developerSpent)}. Resets ${describeAt(status.resetsAt)}. ` +
+    `${reserve[0]!.toUpperCase()}${reserve.slice(1)}.`
+  );
+}
+
+function tokens(count: TokenCount): string {
+  return count.toLocaleString("en-US");
+}
+
+/** `used` as a share of `allowance`, to one decimal place — `0%` for a window declaring no allowance at all. */
+function percentOf(used: TokenCount, allowance: TokenCount): string {
+  return allowance === 0 ? "0%" : `${((used / allowance) * 100).toFixed(1)}%`;
 }
 
 const INSTALLER_COMMAND = "npm run triggers:install";

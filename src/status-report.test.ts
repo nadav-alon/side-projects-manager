@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { BudgetStatus, WindowStatus } from "./budget-gate.ts";
 import { cronMinute, exitCode, localDay, processId, repoSlug, tokenCount } from "./ports/index.ts";
 import {
   statusReport,
@@ -19,6 +20,18 @@ const ARMED_TRIGGERS: StatusTriggers = {
   logonGuard: { registered: false },
   managerHome: MANAGER_HOME,
 };
+
+/** A window with room to spare, for tests the budget lines don't concern. */
+const IDLE_WINDOW: WindowStatus = {
+  tokensUsed: tokenCount(0),
+  loopSpent: tokenCount(0),
+  developerSpent: tokenCount(0),
+  allowance: tokenCount(1_000),
+  spendable: tokenCount(1_000),
+  resetsAt: new Date("2026-09-17T14:00:00.000Z"),
+  reserveReached: false,
+};
+const IDLE_BUDGET: BudgetStatus = { fiveHour: IDLE_WINDOW, weekly: IDLE_WINDOW };
 
 function journal(...records: StatusRecord[]): StatusJournal {
   return { records };
@@ -42,19 +55,20 @@ function inFlight(openedAt: string, alive: boolean): StatusRecord {
   return { openedAt: new Date(openedAt), process: processId(4321), alive };
 }
 
-/** `statusReport`, armed and pointing at `MANAGER_HOME` unless a test says otherwise. */
+/** `statusReport`, armed and pointing at `MANAGER_HOME`, with an idle budget, unless a test says otherwise. */
 function report(
   j: StatusJournal,
   todayClaimed: boolean,
   now: Date = NOW,
   triggers: StatusTriggers = ARMED_TRIGGERS,
+  budget: BudgetStatus = IDLE_BUDGET,
 ): string[] {
-  return statusReport(j, todayClaimed, now, triggers);
+  return statusReport(j, todayClaimed, now, triggers, budget);
 }
 
-/** `lines`, with the two leading trigger lines dropped — the report below them, unaffected by trigger state. */
+/** `lines`, with the two leading trigger lines and the two budget lines dropped — the report below them, unaffected by trigger or budget state. */
 function body(lines: string[]): string[] {
-  return lines.slice(2);
+  return lines.slice(4);
 }
 
 describe("statusReport", () => {
@@ -332,5 +346,79 @@ describe("statusReport's trigger lines", () => {
 
     assert.match(lines[1]!, /pointing at \/old\/checkout/);
     assert.match(lines[1]!, /npm run triggers:install/);
+  });
+});
+
+/** The two budget lines, dropping the trigger lines above them. */
+function budgetLines(lines: string[]): [string, string] {
+  return [lines[2]!, lines[3]!];
+}
+
+describe("statusReport's budget lines", () => {
+  it("prints the five-hour window before the weekly one, each naming its own consumption, allowance and percentage", () => {
+    const fiveHour: WindowStatus = {
+      ...IDLE_WINDOW,
+      tokensUsed: tokenCount(250),
+      allowance: tokenCount(1_000),
+      resetsAt: new Date("2026-09-17T11:00:00.000Z"),
+    };
+    const weekly: WindowStatus = {
+      ...IDLE_WINDOW,
+      tokensUsed: tokenCount(3_000),
+      allowance: tokenCount(10_000),
+      resetsAt: new Date("2026-09-21T00:00:00.000Z"),
+    };
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, { fiveHour, weekly });
+    const [fiveHourLine, weeklyLine] = budgetLines(lines);
+
+    assert.match(fiveHourLine, /^Five-hour window: 250 of 1,000 tokens \(25\.0%\)/);
+    assert.match(weeklyLine, /^Weekly window: 3,000 of 10,000 tokens \(30\.0%\)/);
+  });
+
+  it("says when a window resets", () => {
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, {
+      ...IDLE_BUDGET,
+      fiveHour: { ...IDLE_WINDOW, resetsAt: new Date("2026-09-17T11:00:00.000Z") },
+    });
+
+    assert.match(
+      budgetLines(lines)[0],
+      new RegExp(`Resets ${localDay(new Date("2026-09-17T11:00:00.000Z"))}`),
+    );
+  });
+
+  it("splits a window's consumption between what the loop spent and what the developer spent", () => {
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, {
+      ...IDLE_BUDGET,
+      weekly: {
+        ...IDLE_WINDOW,
+        tokensUsed: tokenCount(1_000),
+        loopSpent: tokenCount(700),
+        developerSpent: tokenCount(300),
+      },
+    });
+
+    assert.match(budgetLines(lines)[1], /loop spent 700, developer spent 300/);
+  });
+
+  it("says the reserve has room when the gate would let a run start", () => {
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, {
+      ...IDLE_BUDGET,
+      fiveHour: { ...IDLE_WINDOW, reserveReached: false },
+    });
+
+    assert.match(budgetLines(lines)[0], /reserve has room: the gate would let a run start/);
+  });
+
+  it("says the reserve is already reached when the gate would refuse a run now", () => {
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, {
+      ...IDLE_BUDGET,
+      weekly: { ...IDLE_WINDOW, reserveReached: true },
+    });
+
+    assert.match(
+      budgetLines(lines)[1],
+      /reserve is already reached: the gate would refuse a run now/,
+    );
   });
 });
