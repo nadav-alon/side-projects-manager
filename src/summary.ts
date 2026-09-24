@@ -6,7 +6,7 @@ import type {
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
 import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
-import type { DiscoveriesRouted, DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
 import type {
   SpecReviewSweepLink,
@@ -684,12 +684,12 @@ export async function composeInvocationReport(
 /**
  * `discoveryFactsOf`'s answer: `discovery-blocked`'s own `routing` and
  * `crossTarget`, or `discoveries` for every other kind that can carry a
- * `DiscoveriesRouted`. `undefined` for a kind that never routes discoveries at
+ * `DiscoveryReport`. `undefined` for a kind that never routes discoveries at
  * all, or one whose run filed and dropped nothing.
  */
 function discoveryFactsOf(
   iteration: IterationOutcome,
-): DiscoveriesRouted | undefined {
+): DiscoveryReport | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
       return iteration;
@@ -740,7 +740,7 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  */
 function discoveryLines(
   iteration: { repo: RepoSlug; ticket: Ticket; kind: IterationOutcome["kind"] },
-  { routing, crossTarget }: DiscoveriesRouted,
+  { routing, crossTarget }: DiscoveryReport,
 ): string[] {
   const who = `${iteration.repo} #${iteration.ticket.number}`;
   const landedOn =

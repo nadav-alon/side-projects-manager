@@ -272,10 +272,8 @@ export interface RoutedDiscoveries {
  * discoveries carries together, per CONTEXT.md's "Discovery" — a slice of
  * `RoutedDiscoveries`, leaving out its own `target` and raw `discoveries`
  * list, which are `routeRunDiscoveries`'s callers' to keep to themselves.
- * Reused by every such outcome, and by `summary.ts`, rather than each
- * redeclaring the pair on its own.
  */
-export type DiscoveriesRouted = Pick<RoutedDiscoveries, "routing" | "crossTarget">;
+export type DiscoveryReport = Pick<RoutedDiscoveries, "routing" | "crossTarget">;
 
 /**
  * Resolves `ticket`'s discovery target and routes `discoveries` against it, in

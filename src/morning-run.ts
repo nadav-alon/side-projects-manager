@@ -96,7 +96,7 @@ import {
   blockingDiscoveriesOf,
   hasBlockingDiscovery,
   routeRunDiscoveries,
-  type DiscoveriesRouted,
+  type DiscoveryReport,
   type RoutedDiscoveries,
 } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
@@ -782,7 +782,7 @@ async function work(
  * `iteration`, with `routed`'s own routing and cross-target attached.
  * Unchanged when there was nothing to route.
  */
-function withDiscoveries<T extends { discoveries?: DiscoveriesRouted }>(
+function withDiscoveries<T extends { discoveries?: DiscoveryReport }>(
   iteration: T,
   routed: RoutedDiscoveries | undefined,
 ): T {

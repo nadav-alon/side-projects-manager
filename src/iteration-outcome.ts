@@ -1,4 +1,4 @@
-import type { DiscoveriesRouted, DiscoveryRouting } from "./discovery-routing.ts";
+import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
@@ -234,7 +234,7 @@ export interface LimitRefused {
    * carrying its cut-off in `DiscoveryBlocked.cutOff`. Absent when the run
    * filed none.
    */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /**
@@ -268,7 +268,7 @@ export interface ProviderFailed {
   /** What became of any branch the run left, discarded as a failed run's is. */
   discard: Discard;
   /** As `LimitRefused.discoveries`. */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /**
@@ -457,7 +457,7 @@ export interface Finished {
    * prerequisite would have made this a `DiscoveryBlocked` iteration instead.
    * Absent when the run filed none.
    */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /**
@@ -508,7 +508,7 @@ export type Failed = {
    * Absent when the run filed none, and always absent for an infrastructure
    * failure, which this module never routes discoveries for.
    */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 } & (
   | { failure: InfrastructureFailure }
   /** What became of the ticket's own hand-back. */
@@ -597,7 +597,7 @@ export interface Reviewed {
    */
   notCommented?: NotCommented;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /**
@@ -658,7 +658,7 @@ export interface AppliedReview {
    */
   notLabelled?: NotLabelled;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
@@ -690,7 +690,7 @@ export interface Rebased {
    */
   notClosed?: RebaseNotClosed;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /** Why a rebase iteration left its ticket open, and the error that stopped it. */
@@ -719,7 +719,7 @@ export interface SpecReviewed {
   /** What became of the ticket's own hand-back. */
   handedBack: HandBackRecord;
   /** As `Finished.discoveries`. */
-  discoveries?: DiscoveriesRouted;
+  discoveries?: DiscoveryReport;
 }
 
 /**
