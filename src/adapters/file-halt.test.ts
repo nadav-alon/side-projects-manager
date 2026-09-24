@@ -36,32 +36,32 @@ describe("the file halt", () => {
     assert.equal(await halt.engaged(), true, "still engaged");
   });
 
-  it("reports it lifted the halt, the first time", async () => {
+  it("reports it cleared the halt, the first time", async () => {
     const halt = fileHalt(await home());
     await halt.engage();
 
-    assert.equal(await halt.lift(), true);
+    assert.equal(await halt.clear(), true);
     assert.equal(await halt.engaged(), false);
   });
 
-  it("reports it did not lift the halt, when it was never engaged", async () => {
+  it("reports it did not clear the halt, when it was never engaged", async () => {
     const halt = fileHalt(await home());
 
-    assert.equal(await halt.lift(), false);
+    assert.equal(await halt.clear(), false);
   });
 
-  it("reports it did not lift the halt, the second time", async () => {
+  it("reports it did not clear the halt, the second time", async () => {
     const halt = fileHalt(await home());
     await halt.engage();
-    await halt.lift();
+    await halt.clear();
 
-    assert.equal(await halt.lift(), false);
+    assert.equal(await halt.clear(), false);
   });
 
-  it("can be engaged again once lifted", async () => {
+  it("can be engaged again once cleared", async () => {
     const halt = fileHalt(await home());
     await halt.engage();
-    await halt.lift();
+    await halt.clear();
 
     assert.equal(await halt.engage(), true);
     assert.equal(await halt.engaged(), true);

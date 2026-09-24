@@ -197,7 +197,7 @@ describe("the morning-run command", () => {
       const directory = await home();
       const halt = fileHalt(directory);
       await halt.engage();
-      await halt.lift();
+      await halt.clear();
 
       const { stdout } = await run(directory);
 

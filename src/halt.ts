@@ -19,8 +19,8 @@ export interface Halt {
   engage(): Promise<boolean>;
 
   /**
-   * Lifts the halt. Returns `true` when this call is the one that lifted it,
-   * `false` when it was already lifted — idempotent either way.
+   * Clears the halt. Returns `true` when this call is the one that cleared
+   * it, `false` when it was already clear — idempotent either way.
    */
-  lift(): Promise<boolean>;
+  clear(): Promise<boolean>;
 }

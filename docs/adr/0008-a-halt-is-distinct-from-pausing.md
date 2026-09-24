@@ -24,7 +24,7 @@ the confusion #765 was opened to resolve.
 **Nor the state document's.** `state.json` is committed, machine-written, and rewritten wholesale
 each invocation — it is what the loop has done, not what a developer is asking it not to do. A halt
 belongs beside the invocation lease instead: a file under the manager home that answers one question
-by its own presence, gitignored like `invocation.lease` and `trigger.log`, so engaging or lifting it
+by its own presence, gitignored like `invocation.lease` and `trigger.log`, so engaging or clearing it
 is a filesystem write with nothing to commit or push.
 
 **Checked ahead of the lease, not inside the loop.** `morningLoop` stays a pure function of its

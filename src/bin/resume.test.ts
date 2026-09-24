@@ -25,7 +25,7 @@ async function halted(home: string): Promise<boolean> {
 }
 
 describe("the resume command", () => {
-  it("lifts an engaged halt, and says so", async () => {
+  it("clears an engaged halt, and says so", async () => {
     const home = await tempHome("resume-bin");
     await fileHalt(home).engage();
 

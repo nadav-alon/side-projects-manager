@@ -47,7 +47,7 @@ export function fileHalt(home: string = MANAGER_HOME): Halt {
       }
     },
 
-    async lift(): Promise<boolean> {
+    async clear(): Promise<boolean> {
       try {
         await rm(file);
         return true;
