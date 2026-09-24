@@ -731,7 +731,7 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  * unknown kind, and one per refused write, blocking or advisory alike. A
  * blocking discovery is always filed by a `discovery-blocked` iteration —
  * routing hands any other kind's run back as one instead of leaving it its
- * own kind, per `LimitRefused.discoveries` — so it has its own kind and
+ * own kind, per CONTEXT.md's "Discovery" — so it has its own kind and
  * outcome said instead by that iteration's own line and Waiting-on-you entry,
  * and is left out here. Every other iteration reaching this function carries
  * advisory discoveries only, listed here the same way regardless of kind.
