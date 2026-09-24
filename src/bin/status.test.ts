@@ -14,6 +14,21 @@ const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
 
 /**
+ * The environment a stubbed run of `status` sees: `home` as its manager
+ * home, and `bin` ahead of `PATH` so the stubbed crontab wins over the real
+ * one. `rcHome`, when given, stands in for `HOME` too, so no rc file an
+ * older install left behind on the machine running the test leaks in.
+ */
+function commandEnv(home: string, bin: string, rcHome?: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SIDE_PROJECTS_MANAGER_HOME: home,
+    PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+    ...(rcHome !== undefined && { HOME: rcHome }),
+  };
+}
+
+/**
  * Runs the status command against `home`, with the crontab and the rc files
  * stubbed so the report is deterministic regardless of what is actually
  * registered on the machine running the test. `crontabLines`, when given,
@@ -26,12 +41,7 @@ async function run(
   const bin = await crontabStubBin(crontabLines);
   const noRcFiles = await tempHome("status-bin-home");
   return execFileAsync(process.execPath, [entryPoint], {
-    env: {
-      ...process.env,
-      SIDE_PROJECTS_MANAGER_HOME: home,
-      PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      HOME: noRcFiles,
-    },
+    env: commandEnv(home, bin, noRcFiles),
   });
 }
 
@@ -73,12 +83,7 @@ async function startWatch(
   const bin = await crontabStubBin(crontabLines);
   const noRcFiles = await tempHome("status-bin-home");
   const child = spawn(process.execPath, [entryPoint, ...args], {
-    env: {
-      ...process.env,
-      SIDE_PROJECTS_MANAGER_HOME: home,
-      PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      HOME: noRcFiles,
-    },
+    env: commandEnv(home, bin, noRcFiles),
   });
   let stdout = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
@@ -336,7 +341,7 @@ describe("the status command's --watch mode", () => {
 
     await assert.rejects(
       execFileAsync(process.execPath, [entryPoint, "--watch", "0"], {
-        env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: home, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+        env: commandEnv(home, bin),
       }),
       (error: unknown) => {
         assert.equal((error as { code: number }).code, 1);
