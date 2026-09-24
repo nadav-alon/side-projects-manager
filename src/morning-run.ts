@@ -1208,9 +1208,12 @@ interface SandboxResult<Outcome> {
  *
  * Records the run on the invocation's own journal entry the moment
  * `sandboxCall` reports its transcript directory — CONTEXT.md's "Run in
- * progress", what `status` names — and clears it once `sandboxCall` settles,
- * whatever it came to: a run that never got as far as recording itself
- * clears as a no-op, per `InvocationState.recordRunEnded`.
+ * progress", what `status` names — and clears it, in a `finally`, once
+ * `sandboxCall` settles, whatever it came to: a run that never got as far as
+ * recording itself clears as a no-op, per `InvocationState.recordRunEnded`.
+ * Recording and clearing each log their own failure rather than raising it,
+ * so a journal write this loop does not otherwise depend on can never take
+ * the process down or change what the run itself comes to.
  */
 async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
@@ -1237,51 +1240,65 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     checkout,
   });
   const onStarted = ({ transcriptDirectory }: RunStarted): void => {
-    void invocation.recordRunStarted({
-      kind: ticketKind(ticket),
-      repo,
-      number: ticket.number,
-      startedAt: ports.clock.now(),
-      transcriptDirectory,
-    });
+    void invocation
+      .recordRunStarted({
+        kind: ticketKind(ticket),
+        repo,
+        number: ticket.number,
+        startedAt: ports.clock.now(),
+        transcriptDirectory,
+      })
+      .catch((error: unknown) => {
+        console.warn(
+          `Could not record the run started for ${repo} #${ticket.number}: ${errorMessage(error)}`,
+        );
+      });
   };
-  let outcome: Outcome;
   try {
-    outcome = await sandboxCall(checkout, onStarted);
-  } catch (error: unknown) {
-    // Nothing comes back from a rejected run — no branch, no output, and no
-    // token count — so there is nothing to record against the project, and no
-    // branch to discard. The sandbox rejects only when it could not set
-    // itself up or start the agent, before any of that existed to lose: a
-    // failure once the agent has already run comes back as a result instead
-    // (`RunOutcome`'s `"sandbox-failed"` case), carrying its spend, so it
-    // reaches `recordRun` below like any other.
-    //
-    // The container this started was announced, so it is announced ended
-    // too — with nothing spent, matching what actually came back — rather
-    // than leaving a terminal adapter believing it is still running.
+    let outcome: Outcome;
+    try {
+      outcome = await sandboxCall(checkout, onStarted);
+    } catch (error: unknown) {
+      // Nothing comes back from a rejected run — no branch, no output, and no
+      // token count — so there is nothing to record against the project, and no
+      // branch to discard. The sandbox rejects only when it could not set
+      // itself up or start the agent, before any of that existed to lose: a
+      // failure once the agent has already run comes back as a result instead
+      // (`RunOutcome`'s `"sandbox-failed"` case), carrying its spend, so it
+      // reaches `recordRun` below like any other.
+      //
+      // The container this started was announced, so it is announced ended
+      // too — with nothing spent, matching what actually came back — rather
+      // than leaving a terminal adapter believing it is still running.
+      notify(ports.progress, {
+        kind: "run-ended",
+        ticket,
+        tokensUsed: tokenCount(0),
+      });
+      return infrastructureFailure(error);
+    }
     notify(ports.progress, {
       kind: "run-ended",
       ticket,
-      tokensUsed: tokenCount(0),
+      tokensUsed: outcome.tokensUsed,
     });
-    await invocation.recordRunEnded(repo, ticket.number);
-    return infrastructureFailure(error);
+
+    invocation.recordRunCost(repo, {
+      at: ports.clock.now(),
+      tokensUsed: outcome.tokensUsed,
+    });
+
+    return { kind: "ran", outcome, checkout };
+  } finally {
+    // Cleared last, and never let to change what this run comes to: a
+    // failed clear would otherwise replace the sandbox's own error, or skip
+    // `recordRunCost` on the path that already returned successfully.
+    await invocation.recordRunEnded(repo, ticket.number).catch((error: unknown) => {
+      console.warn(
+        `Could not clear the run in progress for ${repo} #${ticket.number}: ${errorMessage(error)}`,
+      );
+    });
   }
-  notify(ports.progress, {
-    kind: "run-ended",
-    ticket,
-    tokensUsed: outcome.tokensUsed,
-  });
-
-  await invocation.recordRunEnded(repo, ticket.number);
-
-  invocation.recordRunCost(repo, {
-    at: ports.clock.now(),
-    tokensUsed: outcome.tokensUsed,
-  });
-
-  return { kind: "ran", outcome, checkout };
 }
 
 /** A checkout or a sandbox that could not do its part, as the iteration it comes to. */
