@@ -78,7 +78,7 @@ function report(
   budget: BudgetStatus = IDLE_BUDGET,
   halted = false,
 ): string[] {
-  return statusReport(j, todayClaimed, now, triggers, budget, halted);
+  return statusReport(j, { todayClaimed, halted }, now, triggers, budget);
 }
 
 /** How many trigger lines head every report — see `body` and `budgetLines`. */

@@ -84,11 +84,10 @@ async function collectReport(): Promise<WatchFrame> {
   return {
     lines: statusReport(
       resolved,
-      todayClaimed,
+      { todayClaimed, halted },
       now,
       { schedule, logonGuard, managerHome: CHECKOUT_ROOT },
       budgetStatus(windows, budget, runsRecorded(state.projects)),
-      halted,
     ),
     inFlight: journal.records.some((record) => !isClosedInvocation(record)),
   };

@@ -66,18 +66,28 @@ export interface StatusTriggers {
 }
 
 /**
+ * The two standalone facts about right now that `statusReport` can't derive
+ * from the journal, the trigger registrations or the budget: whether today
+ * has already been claimed, and whether the loop is halted. Grouped so a
+ * call site names each rather than reading as two bare positional booleans.
+ */
+export interface StatusFacts {
+  todayClaimed: boolean;
+  halted: boolean;
+}
+
+/**
  * The status command's whole report: whether the triggers are armed, whether
  * today has been claimed and what came of it, what the most recent
  * invocation came to, and a short history of the ones before it.
  *
- * A pure function of the journal, the trigger registrations, whether today
- * has already been announced, and the instant it is asked at. Nothing here
- * reads the clock, a live process, the crontab or the rc files itself: `now`
- * is the caller's clock reading, a record's `alive` is already resolved onto
- * it by the caller, and `triggers` is already read back by the caller too.
- * Comparing a registration's `managerHome` against `triggers.managerHome` —
- * deciding armed (CONTEXT.md: Armed) — happens here, not in the adapter that
- * read the registration.
+ * A pure function of the journal, the trigger registrations, `facts`, and the
+ * instant it is asked at. Nothing here reads the clock, a live process, the
+ * crontab or the rc files itself: `now` is the caller's clock reading, a
+ * record's `alive` is already resolved onto it by the caller, and `triggers`
+ * is already read back by the caller too. Comparing a registration's
+ * `managerHome` against `triggers.managerHome` — deciding armed (CONTEXT.md:
+ * Armed) — happens here, not in the adapter that read the registration.
  *
  * `budget` is the gate's own arithmetic (`budgetStatus`), already resolved by
  * the caller over the ledger, the state document and `budget.json` — nothing
@@ -86,12 +96,12 @@ export interface StatusTriggers {
  */
 export function statusReport(
   journal: StatusJournal,
-  todayClaimed: boolean,
+  facts: StatusFacts,
   now: Date,
   triggers: StatusTriggers,
   budget: BudgetStatus,
-  halted: boolean,
 ): string[] {
+  const { todayClaimed, halted } = facts;
   const { managerHome } = triggers;
   const haltLines = haltCallout(halted);
   const triggerLines = [
