@@ -154,6 +154,9 @@ export interface MorningLoopPorts {
   progress: Progress;
 }
 
+/** What every run, review or spec review needs of the invocation's own state: recording a run's cost, and the run itself in progress. */
+type RunRecording = Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">;
+
 /**
  * `cutOff`'s own reason, as the stand-down it triggers on `ticket` — the same
  * stand-down whether `cutOff` came from a plain limit refusal or provider
@@ -602,7 +605,7 @@ function transcriptField(transcript: TranscriptPath | undefined): { transcript?:
 async function work(
   ports: MorningLoopPorts,
   selection: Selection,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvages: Salvages,
@@ -1220,7 +1223,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   repo: RepoSlug,
   ticket: Ticket,
   spendCeiling: Usd,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   sandboxCall: (checkout: Checkout, onStarted: (started: RunStarted) => void) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
@@ -1321,7 +1324,7 @@ function infrastructureFailure(error: unknown): Failed {
 async function attemptRun(
   ports: MorningLoopPorts,
   selection: Selection,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   salvageBranch: Branch | undefined,
@@ -1476,7 +1479,7 @@ async function runReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ReviewTicket,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   turbo: boolean,
@@ -1645,7 +1648,7 @@ async function runSpecReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: SpecReviewTicket,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -1733,7 +1736,7 @@ async function runApplyReview(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: ApplyReviewTicket,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
@@ -1945,7 +1948,7 @@ async function runRebase(
   ports: MorningLoopPorts,
   repo: RepoSlug,
   ticket: RebaseTicket,
-  invocation: Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">,
+  invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<
