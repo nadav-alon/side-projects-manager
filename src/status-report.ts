@@ -89,8 +89,10 @@ export function statusReport(
   now: Date,
   triggers: StatusTriggers,
   budget: BudgetStatus,
+  halted: boolean,
 ): string[] {
   const { managerHome } = triggers;
+  const haltLines = haltCallout(halted);
   const triggerLines = [
     scheduleLine(triggers.schedule, managerHome),
     logonGuardLine(triggers.logonGuard, managerHome),
@@ -102,13 +104,19 @@ export function statusReport(
 
   const { records } = journal;
   if (records.length === 0) {
-    return [...triggerLines, ...budgetLines, "No invocation has ever run on this machine."];
+    return [
+      ...haltLines,
+      ...triggerLines,
+      ...budgetLines,
+      "No invocation has ever run on this machine.",
+    ];
   }
 
   const today = localDay(now);
   const latest = records[records.length - 1]!;
 
   return [
+    ...haltLines,
     ...triggerLines,
     ...budgetLines,
     claimLine(records, today, todayClaimed),
@@ -117,6 +125,18 @@ export function statusReport(
     ...consecutiveFailureCallout(records),
     ...historyLines(records),
   ];
+}
+
+/**
+ * Named first, ahead of every other line, when the loop is halted
+ * (CONTEXT.md: Halt) — silent otherwise, the same restraint
+ * `consecutiveFailureCallout` and `inFlightCallouts` already use for a fact
+ * only worth a line when it's true.
+ */
+function haltCallout(halted: boolean): string[] {
+  return halted
+    ? ["Halted: the loop does nothing until `npm run resume`."]
+    : [];
 }
 
 /**

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { documentStore } from "../adapters/document-store.ts";
+import { fileHalt } from "../adapters/file-halt.ts";
 import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { isProcessAlive } from "../adapters/process-alive.ts";
 import { readTranscriptTail } from "../adapters/container-sandbox.ts";
@@ -33,11 +34,12 @@ const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 
 /**
  * "Is the loop alive?", without reading source: reads the journal, the state
- * document and the budget document, and returns what `statusReport` makes of
- * them — the budget lines through the same `budgetStatus` arithmetic the
- * gate itself consults, read from `sessionLogUsageLedger` rather than the
- * network — plus whether any record is still open, the one thing beyond the
- * report's own lines that watch mode needs to know when to stop by itself.
+ * document, the budget document and the halt, and returns what `statusReport`
+ * makes of them — the budget lines through the same `budgetStatus`
+ * arithmetic the gate itself consults, read from `sessionLogUsageLedger`
+ * rather than the network — plus whether any record is still open, the one
+ * thing beyond the report's own lines that watch mode needs to know when to
+ * stop by itself.
  *
  * Read-only, like the report it builds — it never claims a day, never opens
  * or closes a record, and makes no network call.
@@ -45,12 +47,13 @@ const CLEAR_SCREEN = "\x1b[2J\x1b[H";
 async function collectReport(): Promise<WatchFrame> {
   const store = documentStore();
   const triggers = systemTriggerRegistrations();
-  const [journal, state, budget, schedule, logonGuard] = await Promise.all([
+  const [journal, state, budget, schedule, logonGuard, halted] = await Promise.all([
     store.loadJournal(),
     store.loadState(),
     store.loadBudget(),
     triggers.schedule(),
     triggers.logonGuard(),
+    fileHalt().engaged(),
   ]);
   const now = systemClock.now();
   const windows = await sessionLogUsageLedger.read(now, budget.observedResetAt);
@@ -85,6 +88,7 @@ async function collectReport(): Promise<WatchFrame> {
       now,
       { schedule, logonGuard, managerHome: CHECKOUT_ROOT },
       budgetStatus(windows, budget, runsRecorded(state.projects)),
+      halted,
     ),
     inFlight: journal.records.some((record) => !isClosedInvocation(record)),
   };

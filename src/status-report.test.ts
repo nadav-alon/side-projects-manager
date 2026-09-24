@@ -69,15 +69,16 @@ function inFlight(openedAt: string, alive: boolean, runs: StatusRun[] = []): Sta
   return { openedAt: new Date(openedAt), process: processId(4321), alive, runs };
 }
 
-/** `statusReport`, armed and pointing at `MANAGER_HOME`, with an idle budget, unless a test says otherwise. */
+/** `statusReport`, armed and pointing at `MANAGER_HOME`, with an idle budget and not halted, unless a test says otherwise. */
 function report(
   j: StatusJournal,
   todayClaimed: boolean,
   now: Date = NOW,
   triggers: StatusTriggers = ARMED_TRIGGERS,
   budget: BudgetStatus = IDLE_BUDGET,
+  halted = false,
 ): string[] {
-  return statusReport(j, todayClaimed, now, triggers, budget);
+  return statusReport(j, todayClaimed, now, triggers, budget, halted);
 }
 
 /** How many trigger lines head every report — see `body` and `budgetLines`. */
@@ -95,6 +96,18 @@ describe("statusReport", () => {
     const lines = report(journal(), false);
 
     assert.deepEqual(body(lines), ["No invocation has ever run on this machine."]);
+  });
+
+  it("says nothing about a halt when it is not engaged", () => {
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, IDLE_BUDGET, false);
+
+    assert.ok(lines.every((line) => !/halted/i.test(line)));
+  });
+
+  it("names the halt first, ahead of the trigger and budget lines, when engaged", () => {
+    const lines = report(journal(), false, NOW, ARMED_TRIGGERS, IDLE_BUDGET, true);
+
+    assert.match(lines[0]!, /halted/i);
   });
 
   it("reports today claimed, and the most recent invocation, on a healthy morning", () => {

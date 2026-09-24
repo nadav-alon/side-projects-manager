@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { fileHalt } from "../adapters/file-halt.ts";
 import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { localDay } from "../ports/index.ts";
 import { cronLine, crontabStubBin, deadPid, HANGS, tempHome } from "../testing/index.ts";
@@ -139,6 +140,23 @@ describe("the status command", () => {
 
     assert.equal(stderr, "");
     assert.match(stdout, /is claimed/);
+  });
+
+  it("says the loop is halted", async () => {
+    const home = await tempHome("status-bin");
+    await fileHalt(home).engage();
+
+    const { stdout, stderr } = await run(home);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /halted/i);
+  });
+
+  it("says nothing about a halt when it is not engaged", async () => {
+    const { stdout, stderr } = await run(await tempHome("status-bin"));
+
+    assert.equal(stderr, "");
+    assert.doesNotMatch(stdout, /halted/i);
   });
 
   it("reports a record in flight whose process has died", async () => {
