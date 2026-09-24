@@ -1512,7 +1512,7 @@ describe("runs in progress on the journal document", () => {
     ]);
   });
 
-  it("parses a run from an existing journal that carries no pull request, same as one with none", async () => {
+  it("parses an older journal's run with no pull request field", async () => {
     const store = documentStore(
       await home({
         journal: JSON.stringify({
@@ -1536,7 +1536,15 @@ describe("runs in progress on the journal document", () => {
     );
 
     const [record] = (await store.loadJournal()).records;
-    assert.equal(record?.runs?.[0]?.pullRequest, undefined);
+    assert.deepEqual(record?.runs, [
+      {
+        kind: "review",
+        repo: PILOT,
+        number: issueNumber(7),
+        startedAt: STARTED_AT,
+        transcriptDirectory: TRANSCRIPT,
+      },
+    ]);
   });
 
   it("rejects a run whose pull request is not a pull request URL", async () => {
