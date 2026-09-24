@@ -57,7 +57,7 @@ export interface InvocationStatePorts {
  * every save, exactly as `record` and `projects` are, so a change either
  * makes between two saves is exactly what the next one writes.
  */
-type ForeignStateFields = Pick<State, "announcedOn" | "salvages">;
+export type ForeignStateFields = Pick<State, "announcedOn" | "salvages">;
 
 /**
  * `ForeignStateFields` built from loose optional values, left out of the
@@ -161,6 +161,14 @@ export interface InvocationState {
  * entry naming no invocation, one whose invocation closed, one whose
  * invocation is missing from the journal, or one recorded by this same
  * invocation.
+ *
+ * `exposeRecorder`, when given, is handed this invocation's own in-memory
+ * recorder once, on construction — the only way anything outside this
+ * function reaches it, since no production caller ever passes it.
+ * `src/testing/fake-invocation-state.ts` is the one caller: a test that
+ * needs to seed a worked-today record against a live invocation mid-selection,
+ * where `FakeStore.markWorkedOn`, which seeds the stored document before the
+ * invocation opens, does not reach.
  */
 export function invocationState(
   ports: InvocationStatePorts,
@@ -168,6 +176,7 @@ export function invocationState(
   today: Day,
   foreignFields: () => ForeignStateFields,
   current?: CurrentInvocation,
+  exposeRecorder?: (record: (ticket: WorkedTicket, day: Day) => void) => void,
 ): InvocationState {
   const projects = new Map(stored.projects);
   const storedToday =
@@ -234,39 +243,8 @@ export function invocationState(
     freed: () => freed,
     save: () => doSave(buildState()),
   };
-  testRecorders.set(state, doRecord);
+  exposeRecorder?.(doRecord);
   return state;
-}
-
-/**
- * Every `InvocationState`'s own in-memory recorder, keyed by the instance
- * `invocationState` returned it on — reached only through
- * {@link recordWorkedForTest}, never through `InvocationState` itself.
- */
-const testRecorders = new WeakMap<
-  InvocationState,
-  (ticket: WorkedTicket, day: Day) => void
->();
-
-/**
- * Records `ticket` as worked on `day` against `invocation`, in memory only,
- * carrying none of `ticketSelected`'s own save-at-once guarantee. Test-only:
- * `InvocationState` has no production member for this, since every real
- * caller marks a ticket worked through `ticketSelected` instead. For a test
- * that needs to seed a worked-today record mid-selection — where
- * `FakeStore.markWorkedOn`, which seeds the stored document before the
- * invocation opens, does not reach.
- */
-export function recordWorkedForTest(
-  invocation: InvocationState,
-  ticket: WorkedTicket,
-  day: Day,
-): void {
-  const doRecord = testRecorders.get(invocation);
-  if (doRecord === undefined) {
-    throw new Error("recordWorkedForTest: invocation was not built by invocationState");
-  }
-  doRecord(ticket, day);
 }
 
 /**

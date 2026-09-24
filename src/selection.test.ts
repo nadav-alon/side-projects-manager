@@ -6,11 +6,7 @@ import {
   type InvocationSelection,
   type Selection,
 } from "./selection.ts";
-import {
-  invocationState,
-  recordWorkedForTest,
-  type InvocationState,
-} from "./invocation-state.ts";
+import type { InvocationState } from "./invocation-state.ts";
 import {
   issueNumber,
   localDay,
@@ -22,6 +18,7 @@ import {
   ticketPriority,
   type Day,
   type Ticket,
+  type WorkedTicket,
 } from "./ports/index.ts";
 import {
   FROZEN_NOW,
@@ -29,6 +26,7 @@ import {
   MANAGER,
   PILOT,
   YESTERDAY,
+  fakeInvocationState,
   FakeIssueTracker,
   FakeRepoHost,
   FakeStore,
@@ -49,9 +47,13 @@ async function open(
     today?: Day;
     repoHost?: FakeRepoHost;
   } = {},
-): Promise<{ selection: InvocationSelection; invocation: InvocationState }> {
+): Promise<{
+  selection: InvocationSelection;
+  invocation: InvocationState;
+  recordWorked: (ticket: WorkedTicket, day: Day) => void;
+}> {
   const state = await store.loadState();
-  const invocation = invocationState({ store }, state, today, () => ({}));
+  const { invocation, recordWorked } = fakeInvocationState({ store }, state, today, () => ({}));
   return {
     selection: invocationSelection(
       { tracker, store, repoHost },
@@ -59,6 +61,7 @@ async function open(
       invocation,
     ),
     invocation,
+    recordWorked,
   };
 }
 
@@ -69,7 +72,7 @@ async function open(
  */
 async function drain(
   selection: InvocationSelection,
-  invocation: InvocationState,
+  recordWorked: (ticket: WorkedTicket, day: Day) => void,
   today: Day = TODAY,
 ): Promise<Selection[]> {
   const selections: Selection[] = [];
@@ -79,7 +82,7 @@ async function drain(
       return selections;
     }
     selections.push(chosen);
-    recordWorkedForTest(invocation, chosen.ticket, today);
+    recordWorked(chosen.ticket, today);
   }
 }
 
@@ -145,10 +148,10 @@ describe("invocationSelection", () => {
     store.register(MANAGER);
     tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
-    const { selection, invocation } = await open(store, tracker);
+    const { selection, recordWorked } = await open(store, tracker);
 
     const first = await selection.next();
-    recordWorkedForTest(invocation, first!.ticket, TODAY);
+    recordWorked(first!.ticket, TODAY);
     await selection.next();
 
     // Twice each: once to select PILOT's one ticket, and again once it is
@@ -164,10 +167,10 @@ describe("invocationSelection", () => {
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
     tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
-    const { selection, invocation } = await open(store, tracker);
+    const { selection, recordWorked } = await open(store, tracker);
 
     const first = await selection.next();
-    recordWorkedForTest(invocation, first!.ticket, TODAY);
+    recordWorked(first!.ticket, TODAY);
     // Registered only after the first scan, as the developer hand-editing
     // the registry mid-morning would leave it.
     store.register(MANAGER);
@@ -188,9 +191,9 @@ describe("invocationSelection", () => {
       number: issueNumber(8),
       title: "Add the other thing",
     });
-    const { selection, invocation } = await open(store, tracker);
+    const { selection, recordWorked } = await open(store, tracker);
 
-    const selections = await drain(selection, invocation);
+    const selections = await drain(selection, recordWorked);
 
     // Two distinct tickets, one per scan: the second scan picked up what the
     // first left, since ticket #7 is excluded once worked rather than
@@ -206,10 +209,10 @@ describe("invocationSelection", () => {
     const tracker = new FakeIssueTracker();
     store.register(PILOT);
     tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
-    const { selection, invocation } = await open(store, tracker);
+    const { selection, recordWorked } = await open(store, tracker);
 
     const first = await selection.next();
-    recordWorkedForTest(invocation, first!.ticket, TODAY);
+    recordWorked(first!.ticket, TODAY);
     // A second scan of the same backlog finds nothing left to select — the
     // sticky verdict from the first scan is what must survive it.
     const second = await selection.next();
@@ -240,9 +243,9 @@ describe("invocationSelection", () => {
       store.register(MANAGER, { paused: true });
       store.register(PILOT);
       tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
-      const { selection, invocation } = await open(store, tracker);
+      const { selection, recordWorked } = await open(store, tracker);
 
-      const selections = await drain(selection, invocation);
+      const selections = await drain(selection, recordWorked);
 
       assert.deepEqual(
         selections.map((selected) => selected.project.repo),
@@ -1103,9 +1106,9 @@ describe("invocationSelection", () => {
           title: "Add the thing",
           priority: ticketPriority(2),
         });
-        const { selection, invocation } = await open(store, tracker);
+        const { selection, recordWorked } = await open(store, tracker);
 
-        const selections = await drain(selection, invocation);
+        const selections = await drain(selection, recordWorked);
 
         assert.deepEqual(
           selections.map((selected) => selected.ticket.number),
@@ -1190,9 +1193,9 @@ describe("invocationSelection", () => {
           parent: issueNumber(5),
         });
         store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(9) });
-        const { selection, invocation } = await open(store, tracker);
+        const { selection, recordWorked } = await open(store, tracker);
 
-        const selections = await drain(selection, invocation);
+        const selections = await drain(selection, recordWorked);
 
         assert.deepEqual(
           selections.map((selected) => selected.ticket.number),

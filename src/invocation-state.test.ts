@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-  invocationState,
-  invocationStateRest,
-  recordWorkedForTest,
-} from "./invocation-state.ts";
+import { invocationState, invocationStateRest } from "./invocation-state.ts";
 import type { Iteration } from "./iteration-outcome.ts";
 import {
   branch,
@@ -21,7 +17,7 @@ import {
   type WorkedTicket,
   type WorkedToday,
 } from "./ports/index.ts";
-import { FakeStore } from "./testing/index.ts";
+import { fakeInvocationState, FakeStore } from "./testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
@@ -78,9 +74,14 @@ describe("invocationState", () => {
     });
 
     it("keeps passing a ticket over for the rest of the invocation once it is taken back off the record", () => {
-      const invocation = invocationState({ store: new FakeStore() }, EMPTY_STATE, TODAY, noForeignFields);
+      const { invocation, recordWorked } = fakeInvocationState(
+        { store: new FakeStore() },
+        EMPTY_STATE,
+        TODAY,
+        noForeignFields,
+      );
 
-      recordWorkedForTest(invocation, TICKET_7, TODAY);
+      recordWorked(TICKET_7, TODAY);
       invocation.selectionAbandoned(TICKET_7);
 
       assert.equal(invocation.passesOver(TICKET_7), true);
@@ -151,8 +152,8 @@ describe("invocationState", () => {
   describe("iterationEnded", () => {
     it("frees a ticket a cut-off run says nothing about", async () => {
       const store = new FakeStore();
-      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
-      recordWorkedForTest(invocation, TICKET_7, TODAY);
+      const { invocation, recordWorked } = fakeInvocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      recordWorked(TICKET_7, TODAY);
       const iteration: Iteration = {
         kind: "provider-failed",
         providerFailure: "the provider is down",
@@ -205,10 +206,10 @@ describe("invocationState", () => {
     it("folds announcedOn and the salvage record in, alongside its own bookkeeping", async () => {
       const store = new FakeStore();
       const salvage = [{ ...TICKET_8, branch: branch("issue-8-salvaged"), stopShorts: 1 }];
-      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, () =>
+      const { invocation, recordWorked } = fakeInvocationState({ store }, EMPTY_STATE, TODAY, () =>
         invocationStateRest(TODAY, salvage),
       );
-      recordWorkedForTest(invocation, TICKET_7, TODAY);
+      recordWorked(TICKET_7, TODAY);
       invocation.recordRunCost(PILOT, {
         at: new Date("2026-01-01T09:00:00.000Z"),
         tokensUsed: tokenCount(10_000),
