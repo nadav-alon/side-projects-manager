@@ -2285,6 +2285,25 @@ describe("composeInvocationReport", () => {
     assert.equal(report.outcome, "stood-down");
   });
 
+  it("publishes a stand-down whose limit refusal kept a branch, even with an iteration handed back ahead of the gate", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([
+          limitRefused(7, { kind: "kept", reason: "git could not delete the branch" }),
+          aheadOfGate(8),
+        ]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 1);
+  });
+
   it("does not publish a stand-down with only limit-refused iterations when today is already announced", async () => {
     const tracker = recordingTracker();
 
@@ -2292,6 +2311,22 @@ describe("composeInvocationReport", () => {
       startedAt: STARTED_AT,
       facts: {
         ...facts([limitRefused(7, { kind: "none" })]),
+        standDown: LIMIT_REFUSED_STAND_DOWN,
+      },
+      alreadyAnnouncedToday: true,
+    });
+
+    assert.equal(report.outcome, "stood-down");
+    assert.equal(tracker.published.length, 0);
+  });
+
+  it("does not publish a stand-down whose limit refusal cleanly discarded its branch, when today is already announced", async () => {
+    const tracker = recordingTracker();
+
+    const report = await composeInvocationReport(tracker, {
+      startedAt: STARTED_AT,
+      facts: {
+        ...facts([limitRefused(7, { kind: "discarded" })]),
         standDown: LIMIT_REFUSED_STAND_DOWN,
       },
       alreadyAnnouncedToday: true,
