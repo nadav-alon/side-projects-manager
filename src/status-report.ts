@@ -260,7 +260,8 @@ export const RECENT_STEPS_SHOWN = 10;
  * still is.
  */
 function runLines({ run, steps }: StatusRun, now: Date, alive: boolean): string[] {
-  const target = `${run.kind} ${run.repo} #${run.number}${run.pullRequest === undefined ? "" : ` (${run.pullRequest})`}`;
+  const pullRequest = run.pullRequest === undefined ? "" : ` (${run.pullRequest})`;
+  const target = `${run.kind} ${run.repo} #${run.number}${pullRequest}`;
   const header = alive
     ? `  Running: ${target}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`
     : `  Was running when the invocation died: ${target}, started ${localTimeOfMinute(run.startedAt)}, had been running for ${elapsedSince(run.startedAt, now)}.`;

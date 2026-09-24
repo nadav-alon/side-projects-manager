@@ -396,6 +396,22 @@ describe("statusReport's run-in-progress lines", () => {
     assert.match(text, /Was running when the invocation died: implementation nadav-alon\/pilot #7/);
     assert.doesNotMatch(text, /\n {2}Running: /);
   });
+
+  it("names an apply-review run's pull request beside its ticket, even when the invocation died", () => {
+    const pullRequest = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12");
+    const run: RunInProgress = { ...RUN, kind: "apply-review", pullRequest };
+
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", false, [{ run, steps: [] }])),
+      false,
+    );
+
+    const text = lines.join("\n");
+    assert.match(
+      text,
+      /Was running when the invocation died: apply-review nadav-alon\/pilot #7 \(https:\/\/github\.com\/nadav-alon\/pilot\/pull\/12\), started/,
+    );
+  });
 });
 
 describe("statusReport's trigger lines", () => {
