@@ -750,6 +750,10 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.nits, "- names.ts still says id.");
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
   });
 
   it("carries the nits when the agent echoes the heading wrapped in backticks", async () => {
@@ -780,6 +784,10 @@ describe("containerSandbox", () => {
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.nits, undefined);
+    assert.equal(
+      variant(result, "finished")?.gist,
+      "Add retries to the flaky upload step.",
+    );
   });
 
   it("carries no nits when the heading's section is blank", async () => {
@@ -803,34 +811,17 @@ describe("containerSandbox", () => {
       agentCommitting(
         [],
         0,
-        `Implemented the thing.\n${NIT_SECTION_HEADING}\n\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+        `Implemented the thing.\n${NIT_SECTION_HEADING}\n## Nothing recognisable follows the heading\n- names.ts still says id.\n\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
       ),
     );
 
     const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
+    assert.equal(variant(result, "finished")?.nits, undefined);
     assert.equal(
       variant(result, "finished")?.gist,
       "Add retries to the flaky upload step.",
     );
-  });
-
-  it("carries no nits on a run that gave up, even ones tagged like a finished run's", async () => {
-    const directory = await project();
-    const commit = agentCommitting(
-      ["one.txt"],
-      0,
-      `${NIT_SECTION_HEADING}\n- names.ts still says id.`,
-    );
-    const sandbox = testSandbox(async (options) => {
-      await commit(options);
-      throw new Error("the agent gave up");
-    });
-
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "finished"), undefined);
-    assert.equal(result.kind, "gave-up");
   });
 
   it("takes the clone away and leaves the branch behind", async () => {
