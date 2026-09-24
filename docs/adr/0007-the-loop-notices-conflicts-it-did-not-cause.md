@@ -53,5 +53,5 @@ the budget gate already charges each run.
 - **Best effort**, like the `reviewed` label and the turbo `/apply-review`: a refused read, label
   or comment never blocks selection or fails the invocation, and the summary reports each label,
   unlabel and refusal once per invocation, however many sweeps met it — but each `/rebase` post on
-  its own, since #710 lets a pull request whose earlier rebase ticket has closed be posted on again
-  in the same invocation, and each post is a distinct ticket the developer needs named.
+  its own, since #710 lets a pull request whose earlier rebase ticket has closed be posted on
+  again in the same invocation, and each post is a distinct ticket the developer needs named.
