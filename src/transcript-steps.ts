@@ -87,13 +87,7 @@ function stepFor(block: unknown, at: Date): TranscriptStep[] {
   return [];
 }
 
-/**
- * A tool call's own primary argument, for the one-line step it becomes: the
- * first of a handful of common single-value fields a tool's input carries,
- * else the first string value the input has at all, else the input itself —
- * there being no field a tool's input is guaranteed to carry, this is a
- * best-effort summary rather than a parse of any one tool's own shape.
- */
+/** The common single-value fields `describeToolInput` checks first, in order. */
 const PRIMARY_ARG_FIELDS = [
   "command",
   "file_path",
@@ -105,6 +99,13 @@ const PRIMARY_ARG_FIELDS = [
   "description",
 ];
 
+/**
+ * A tool call's own primary argument, for the one-line step it becomes: the
+ * first of `PRIMARY_ARG_FIELDS` a tool's input carries, else the first
+ * string value the input has at all, else the input itself — there being no
+ * field a tool's input is guaranteed to carry, this is a best-effort summary
+ * rather than a parse of any one tool's own shape.
+ */
 function describeToolInput(input: unknown): string {
   if (typeof input !== "object" || input === null) {
     return String(input);

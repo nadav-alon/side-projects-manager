@@ -114,9 +114,8 @@ export interface InvocationRecord
   extends OpenInvocation,
     Partial<InvocationClosing> {
   /**
-   * Every run this invocation has going right now, absent or empty when it
-   * has none. Absent reads the same as empty, so a record from before this
-   * existed loads unchanged — CONTEXT.md's "Run in progress".
+   * Every run this invocation has going right now. Absent reads the same as
+   * empty — CONTEXT.md's "Run in progress".
    */
   runs?: RunInProgress[];
 }

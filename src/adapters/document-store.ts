@@ -37,7 +37,6 @@ import type {
   State,
   Store,
   TicketKind,
-  TranscriptDirectory,
   WorkedTicket,
   WorkedToday,
 } from "../ports/index.ts";
@@ -1124,13 +1123,9 @@ function formatOpenInvocation(open: OpenInvocation): { openedAt: string; process
   return { openedAt: open.openedAt.toISOString(), process: open.process };
 }
 
-function formatRunInProgress(run: RunInProgress): {
-  kind: TicketKind;
-  repo: RepoSlug;
-  number: IssueNumber;
-  startedAt: string;
-  transcriptDirectory: TranscriptDirectory;
-} {
+function formatRunInProgress(
+  run: RunInProgress,
+): Omit<RunInProgress, "startedAt"> & { startedAt: string } {
   return {
     kind: run.kind,
     repo: run.repo,
