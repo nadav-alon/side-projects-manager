@@ -9,7 +9,7 @@ export { commitSha, isCommitSha } from "./commit-sha.ts";
 export type { CommitSha } from "./commit-sha.ts";
 export { cronMinute, isCronMinute } from "./cron-minute.ts";
 export type { CronMinute } from "./cron-minute.ts";
-export { day, isDay, localDay, localTimeOfMinute } from "./day.ts";
+export { day, isDay, localDay, localTimeOfMinute, localTimeOfSecond } from "./day.ts";
 export type { Day } from "./day.ts";
 export {
   discoveryDirectory,

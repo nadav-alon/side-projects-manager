@@ -1,16 +1,32 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { CHECKOUT_ROOT } from "../adapters/manager-home.ts";
 import { localDay } from "../ports/index.ts";
-import { cronLine, crontabStubBin, deadPid, tempHome } from "../testing/index.ts";
+import { cronLine, crontabStubBin, deadPid, HANGS, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "status.ts");
+
+/**
+ * The environment a stubbed run of `status` sees: `home` as its manager
+ * home, and `bin` ahead of `PATH` so the stubbed crontab wins over the real
+ * one. `rcHome`, when given, stands in for `HOME` too, so no rc file an
+ * older install left behind on the machine running the test leaks in.
+ */
+function commandEnv(home: string, bin: string, rcHome?: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SIDE_PROJECTS_MANAGER_HOME: home,
+    PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+    ...(rcHome !== undefined && { HOME: rcHome }),
+  };
+}
 
 /**
  * Runs the status command against `home`, with the crontab and the rc files
@@ -25,12 +41,7 @@ async function run(
   const bin = await crontabStubBin(crontabLines);
   const noRcFiles = await tempHome("status-bin-home");
   return execFileAsync(process.execPath, [entryPoint], {
-    env: {
-      ...process.env,
-      SIDE_PROJECTS_MANAGER_HOME: home,
-      PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      HOME: noRcFiles,
-    },
+    env: commandEnv(home, bin, noRcFiles),
   });
 }
 
@@ -57,6 +68,47 @@ async function snapshotHome(home: string): Promise<Record<string, string>> {
     files[entry] = await readFile(path.join(home, entry), "utf8");
   }
   return files;
+}
+
+/**
+ * Starts `status` against `home` with `args`, left running rather than
+ * awaited, so a watch-mode test can inspect stdout mid-flight and signal it
+ * the way a terminal's Ctrl+C would.
+ */
+async function startWatch(
+  home: string,
+  args: readonly string[],
+  crontabLines?: readonly string[],
+) {
+  const bin = await crontabStubBin(crontabLines);
+  const noRcFiles = await tempHome("status-bin-home");
+  const child = spawn(process.execPath, [entryPoint, ...args], {
+    env: commandEnv(home, bin, noRcFiles),
+  });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const closed = new Promise<number | null>((resolve) => {
+    child.on("close", (code) => resolve(code));
+  });
+  return {
+    interrupt: () => child.kill("SIGINT"),
+    stdout: () => stdout,
+    stderr: () => stderr,
+    closed,
+  };
+}
+
+/** Polls `condition` until it holds, rather than racing a fixed wait against however long CI is having. */
+async function until(condition: () => boolean): Promise<void> {
+  while (!condition()) {
+    await sleep(20);
+  }
 }
 
 describe("the status command", () => {
@@ -279,5 +331,80 @@ describe("the status command", () => {
       stdout,
       /^Weekly window:.*reserve is already reached: the gate would refuse a run now\./m,
     );
+  });
+});
+
+describe("the status command's --watch mode", () => {
+  it("rejects a non-positive or non-numeric interval with exit code 1", async () => {
+    const home = await tempHome("status-bin");
+    const bin = await crontabStubBin();
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [entryPoint, "--watch", "0"], {
+        env: commandEnv(home, bin),
+      }),
+      (error: unknown) => {
+        assert.equal((error as { code: number }).code, 1);
+        assert.match((error as { stderr: string }).stderr, /--watch/);
+        return true;
+      },
+    );
+  });
+
+  it("redraws repeatedly, clearing the screen, until interrupted — then exits 0 with the cursor restored", HANGS, async (t) => {
+    const watch = await startWatch(await tempHome("status-bin"), ["--watch", "1"]);
+    t.after(() => watch.interrupt());
+
+    await until(() => watch.stdout().split("\x1b[2J\x1b[H").length >= 3);
+    watch.interrupt();
+    const code = await watch.closed;
+
+    assert.equal(code, 0);
+    assert.equal(watch.stderr(), "");
+    assert.ok(watch.stdout().trimEnd().endsWith("\x1b[?25h"));
+    assert.match(watch.stdout(), /No invocation has ever run on this machine\./);
+    assert.match(watch.stdout(), /\x1b\[2J\x1b\[HUpdated \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n/);
+  });
+
+  it("keeps refreshing when nothing was in flight at the start, rather than exiting by itself", HANGS, async (t) => {
+    const watch = await startWatch(await tempHome("status-bin"), ["--watch", "1"]);
+    t.after(() => watch.interrupt());
+
+    await until(() => watch.stdout().split("\x1b[2J\x1b[H").length >= 3);
+
+    assert.equal(await Promise.race([watch.closed, sleep(200, "still-running")]), "still-running");
+
+    watch.interrupt();
+    assert.equal(await watch.closed, 0);
+  });
+
+  it("prints the final report once more and exits by itself once the in-flight invocation closes", HANGS, async (t) => {
+    const home = await tempHome("status-bin");
+    await writeJournal(home, {
+      records: [{ openedAt: new Date().toISOString(), process: process.pid }],
+    });
+
+    const watch = await startWatch(home, ["--watch", "1"]);
+    t.after(() => watch.interrupt());
+
+    await until(() => watch.stdout().includes("is still running"));
+
+    await writeJournal(home, {
+      records: [
+        {
+          openedAt: new Date().toISOString(),
+          process: process.pid,
+          closedAt: new Date().toISOString(),
+          outcome: "dry-queue",
+          projects: [],
+        },
+      ],
+    });
+
+    const code = await watch.closed;
+
+    assert.equal(code, 0);
+    assert.match(watch.stdout(), /a dry queue/);
+    assert.ok(watch.stdout().trimEnd().endsWith("\x1b[?25h"));
   });
 });
