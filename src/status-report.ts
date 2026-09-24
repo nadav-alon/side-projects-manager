@@ -101,18 +101,24 @@ export function statusReport(
 /**
  * One window's whole status line: what it has consumed against its
  * allowance, the loop's share of that against the developer's, when it
- * resets, and whether its reserve is already reached — CONTEXT.md's "Reserve"
- * — i.e. whether the gate would currently let a run start.
+ * resets, and whether its reserve is already reached — CONTEXT.md's "Reserve".
+ *
+ * Reserve reached always means the gate refuses: `refusal` stands down on
+ * consumption alone before it ever charges an estimate. Room in the reserve
+ * does not carry the same certainty the other way, since the gate also
+ * charges a run estimate this line does not — CONTEXT.md's "Budget gate"
+ * keeps that refusal apart from a window already spent, so this line does
+ * not claim it for a case it cannot see.
  */
 function windowLine(label: string, status: WindowStatus): string {
   const reserve = status.reserveReached
-    ? "the reserve is already reached: the gate would refuse a run now"
-    : "the reserve has room: the gate would let a run start";
+    ? "The reserve is already reached: the gate would refuse a run now."
+    : "The reserve has room.";
   return (
     `${label}: ${tokens(status.tokensUsed)} of ${tokens(status.allowance)} tokens ` +
     `(${percentOf(status.tokensUsed, status.allowance)}) — loop spent ${tokens(status.loopSpent)}, ` +
     `developer spent ${tokens(status.developerSpent)}. Resets ${describeAt(status.resetsAt)}. ` +
-    `${reserve[0]!.toUpperCase()}${reserve.slice(1)}.`
+    reserve
   );
 }
 

@@ -401,13 +401,14 @@ describe("statusReport's budget lines", () => {
     assert.match(budgetLines(lines)[1], /loop spent 700, developer spent 300/);
   });
 
-  it("says the reserve has room when the gate would let a run start", () => {
+  it("says the reserve has room, without claiming the gate would let a run start", () => {
     const lines = report(journal(), false, NOW, ARMED_TRIGGERS, {
       ...IDLE_BUDGET,
       fiveHour: { ...IDLE_WINDOW, reserveReached: false },
     });
 
-    assert.match(budgetLines(lines)[0], /reserve has room: the gate would let a run start/);
+    assert.match(budgetLines(lines)[0], /The reserve has room\.$/);
+    assert.doesNotMatch(budgetLines(lines)[0], /would let a run start/);
   });
 
   it("says the reserve is already reached when the gate would refuse a run now", () => {
