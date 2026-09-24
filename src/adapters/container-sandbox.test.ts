@@ -2072,6 +2072,29 @@ describe("discoveries", () => {
     assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
   });
 
+  it("drops an undeclared key a discovery file on disk carries, rather than passing it through", async () => {
+    const directory = await project();
+    const sandbox = testSandbox(async ({ discoveriesDirectory }) => {
+      await writeDiscovery(
+        discoveriesDirectory,
+        {
+          kind: "clarification",
+          title: "Read as opt-in",
+          body: "The ticket never says default on.",
+          extra: "not part of Discovery",
+        },
+        "1.json",
+      );
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.deepEqual(variant(result, "finished")?.discoveries, [
+      { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
+    ]);
+  });
+
   it("carries a discovery written to disk through to the routed ticket with every field intact", async () => {
     const directory = await project();
     const tracker = new FakeIssueTracker();
