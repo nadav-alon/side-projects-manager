@@ -876,13 +876,10 @@ async function handOver(
     return { kind: "finished", run, tokensUsed: run.tokensUsed, handedBack };
   }
 
-  const opening = await ports.repoHost.openDraftPullRequest(
-    checkout,
-    run.branch,
-    ticket,
-    run.gist,
-    run.nits,
-  );
+  const opening = await ports.repoHost.openDraftPullRequest(checkout, run.branch, ticket, {
+    ...(run.gist !== undefined && { gist: run.gist }),
+    ...(run.nits !== undefined && { nits: run.nits }),
+  });
   if (opening.kind === "unpushed") {
     return handoverFailed(
       ports,

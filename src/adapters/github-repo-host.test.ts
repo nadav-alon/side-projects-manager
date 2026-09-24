@@ -741,12 +741,7 @@ describe("opening a draft pull request for a completed run", () => {
     const directory = await ran(RAN);
     const gist = ticketGist("Adds a retry to the flaky upload step.");
 
-    await githubRepoHost().openDraftPullRequest(
-      directory,
-      toBranch(RAN),
-      TICKET,
-      gist,
-    );
+    await githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET, { gist });
 
     const [call] = await gh.calls();
     assert.equal(
@@ -766,13 +761,9 @@ describe("opening a draft pull request for a completed run", () => {
     const directory = await ran(RAN);
     const list = nits("- names.ts still says id.");
 
-    await githubRepoHost().openDraftPullRequest(
-      directory,
-      toBranch(RAN),
-      TICKET,
-      undefined,
-      list,
-    );
+    await githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET, {
+      nits: list,
+    });
 
     const [call] = await gh.calls();
     assert.equal(
@@ -787,13 +778,10 @@ describe("opening a draft pull request for a completed run", () => {
     const gist = ticketGist("Adds a retry to the flaky upload step.");
     const list = nits("- names.ts still says id.");
 
-    await githubRepoHost().openDraftPullRequest(
-      directory,
-      toBranch(RAN),
-      TICKET,
+    await githubRepoHost().openDraftPullRequest(directory, toBranch(RAN), TICKET, {
       gist,
-      list,
-    );
+      nits: list,
+    });
 
     const [call] = await gh.calls();
     assert.equal(

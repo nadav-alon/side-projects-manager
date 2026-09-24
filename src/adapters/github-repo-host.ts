@@ -14,7 +14,6 @@ import type {
   IssueNumber,
   MergeStatus,
   Milliseconds,
-  Nits,
   OpenPullRequest,
   Proposal,
   PullRequestLabel,
@@ -23,8 +22,8 @@ import type {
   RepoHost,
   RepoSlug,
   ReviewFinding,
+  RunReported,
   Ticket,
-  TicketGist,
 } from "../ports/index.ts";
 import {
   branch,
@@ -251,8 +250,7 @@ export function githubRepoHost(
       directory: Checkout,
       branch: Branch,
       ticket: Ticket,
-      gist?: TicketGist,
-      nits?: Nits,
+      reported?: RunReported,
     ): Promise<DraftPullRequestOpening> {
       // Only the git steps hold the checkout's lock. Opening the pull request
       // is a conversation with GitHub alone, and waiting on it would hold up
@@ -317,7 +315,7 @@ export function githubRepoHost(
             "--title",
             ticket.title,
             "--body",
-            pullRequestBody(ticket, gist, nits),
+            pullRequestBody(ticket, reported),
           ],
           { cwd: directory },
         );
@@ -842,17 +840,18 @@ export function pullRequestFrom(
  * developer makes acts on it. It stays on its own line either way: a
  * reviewing agent finds the ticket by reading for it.
  */
-function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string {
+function pullRequestBody(ticket: Ticket, reported?: RunReported): string {
   const body = [
     `Closes #${ticket.number}.`,
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It stays a draft: promoting and merging it are yours.",
   ].join("\n");
-  const withGist = gist === undefined ? body : [gist, "", body].join("\n");
-  return nits === undefined
+  const withGist =
+    reported?.gist === undefined ? body : [reported.gist, "", body].join("\n");
+  return reported?.nits === undefined
     ? withGist
-    : [withGist, "", NIT_SECTION_HEADING, "", nits].join("\n");
+    : [withGist, "", NIT_SECTION_HEADING, "", reported.nits].join("\n");
 }
 
 /** Whether `directory` has a local branch named `of`. */

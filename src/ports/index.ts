@@ -214,6 +214,7 @@ export type {
   SpecReviewOutcome,
   SpecReviewRequest,
 } from "./sandbox.ts";
+export type { RunReported } from "./run-reported.ts";
 export { isTicketGist, ticketGist } from "./ticket-gist.ts";
 export type { TicketGist } from "./ticket-gist.ts";
 export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";

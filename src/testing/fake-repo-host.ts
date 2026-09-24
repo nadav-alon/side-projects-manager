@@ -15,6 +15,7 @@ import type {
   RepoHost,
   RepoSlug,
   ReviewFinding,
+  RunReported,
   Ticket,
   TicketGist,
 } from "../ports/index.ts";
@@ -230,15 +231,14 @@ export class FakeRepoHost implements RepoHost {
     directory: Checkout,
     branch: Branch,
     ticket: Ticket,
-    gist?: TicketGist,
-    nits?: Nits,
+    reported?: RunReported,
   ): Promise<DraftPullRequestOpening> {
     this.pullRequests.push({
       directory,
       branch,
       ticket,
-      ...(gist !== undefined && { gist }),
-      ...(nits !== undefined && { nits }),
+      ...(reported?.gist !== undefined && { gist: reported.gist }),
+      ...(reported?.nits !== undefined && { nits: reported.nits }),
     });
     return this.draftPullRequest();
   }
