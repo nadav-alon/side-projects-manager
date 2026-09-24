@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: proposed
 ---
 
 # A halt is distinct from pausing, kept in its own file
@@ -9,8 +9,9 @@ projects" — pausing every registered project by hand in `registry.json`, one a
 the crontab directly. Neither is really a halt: pausing every project is developer intent about
 each project, read again the moment any one of them is unpaused, and a crontab edit is silently
 undone the next time `scripts/install-triggers.sh` runs. The loop now has an actual halt: `halt`
-engages it, `resume` clears it, and every firing while it is engaged does nothing but say so.
-Answers #765's own open question.
+engages it, `resume` clears it, and every firing while it is engaged does nothing but say so. This
+is the implementer's own answer to #765's "grill before ready" open question, not yet grilled —
+`status: proposed` until a developer confirms it.
 
 ## Why it went this way
 
