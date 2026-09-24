@@ -30,6 +30,11 @@ describe("parseWatchArg", () => {
     });
   });
 
+  it("rejects the --watch=N form rather than silently running plain status", () => {
+    const result = parseWatchArg(["--watch=10"]);
+    assert.equal(result.kind, "invalid");
+  });
+
   it("rejects a non-numeric interval", () => {
     const result = parseWatchArg(["--watch", "soon"]);
     assert.equal(result.kind, "invalid");

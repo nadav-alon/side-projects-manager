@@ -70,6 +70,13 @@ const WHOLE_NUMBER = /^\d+$/;
 export function parseWatchArg(argv: readonly string[]): WatchArg {
   const index = argv.indexOf(WATCH_FLAG);
   if (index === -1) {
+    const malformed = argv.find((arg) => arg.startsWith(`${WATCH_FLAG}=`));
+    if (malformed !== undefined) {
+      return {
+        kind: "invalid",
+        message: `--watch takes its seconds as a separate argument, not "${malformed}".`,
+      };
+    }
     return { kind: "disabled" };
   }
   const raw = argv[index + 1];
