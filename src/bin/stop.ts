@@ -1,13 +1,10 @@
 #!/usr/bin/env node
-import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { documentStore } from "../adapters/document-store.ts";
 import { isErrorWithCode } from "../adapters/error-code.ts";
-import { HALT_FILE, fileHalt } from "../adapters/file-halt.ts";
-import { MANAGER_HOME } from "../adapters/manager-home.ts";
 import { errorMessage } from "../error-message.ts";
-import { RESUME_COMMAND } from "../halt.ts";
+import { engageHalt } from "../halt.ts";
 import {
   isClosedInvocation,
   milliseconds,
@@ -104,13 +101,7 @@ async function signalStop(pid: ProcessId, now: boolean): Promise<void> {
  */
 async function main(): Promise<void> {
   const now = process.argv.slice(2).includes("--now");
-  const haltFile = path.join(MANAGER_HOME, HALT_FILE);
-  const engaged = await fileHalt().engage();
-  console.log(
-    engaged
-      ? `Halted: the loop will do nothing until you run \`${RESUME_COMMAND}\`. (${haltFile})`
-      : `Already halted. (${haltFile})`,
-  );
+  console.log(await engageHalt());
 
   const journal = await documentStore().loadJournal();
   const live = liveInFlightProcesses(journal.records);
