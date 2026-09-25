@@ -5,6 +5,7 @@ import type {
   IssueNumber,
   IssueTracker,
   IssueUrl,
+  LabelTimelineEvent,
   OpenIssue,
   OpenIssues,
   PullRequestUrl,
@@ -20,6 +21,7 @@ import {
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
+  TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -28,6 +30,7 @@ import {
   discoveredTicketLabels,
   issueNumber,
   issueUrl,
+  labelWasPresentAt,
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
@@ -135,6 +138,11 @@ interface Stored {
    * the entry could never get that wrong.
    */
   closed?: boolean;
+}
+
+/** `ticket`'s identity as a map key: its repo and number, which together name it uniquely. */
+function ticketKey(ticket: Ticket): string {
+  return `${ticket.repo}#${ticket.number}`;
 }
 
 /**
@@ -404,6 +412,36 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
         ticket: this.#ticketOf(entry),
         closed: entry.closed === true,
       }));
+  }
+
+  readonly #turboableEvents = new Map<string, LabelTimelineEvent[]>();
+
+  /**
+   * Records a labeled or unlabeled event for `TURBOABLE_LABEL` against
+   * `ticket` at `at`, the way a human's own label change on the tracker's UI
+   * would be timestamped — what `wasTurboableAt` replays. Independent of
+   * `addLabel`/`removeLabel`, which only ever change a ticket's current
+   * labels: a test asserting what was true at a past instant needs the event
+   * itself, timestamped, not just where the label stands today.
+   */
+  recordTurboableEvent(
+    ticket: Ticket,
+    action: "labeled" | "unlabeled",
+    at: Date,
+  ): void {
+    const key = ticketKey(ticket);
+    const events = this.#turboableEvents.get(key) ?? [];
+    events.push({ label: TURBOABLE_LABEL, action, at });
+    this.#turboableEvents.set(key, events);
+  }
+
+  /** Replays the events `recordTurboableEvent` was given for `ticket`, same as the real tracker's own timeline read. */
+  async wasTurboableAt(ticket: Ticket, instant: Date): Promise<boolean> {
+    return labelWasPresentAt(
+      this.#turboableEvents.get(ticketKey(ticket)) ?? [],
+      TURBOABLE_LABEL,
+      instant,
+    );
   }
 
   /**

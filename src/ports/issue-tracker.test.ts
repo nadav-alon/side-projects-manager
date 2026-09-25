@@ -9,6 +9,7 @@ import {
   SIZE_LABEL_PREFIX,
   SPEC_REVIEW_LABEL,
   SUPERTASK_LABEL,
+  TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -20,10 +21,12 @@ import {
   isReviewTicket,
   isSpecReviewTicket,
   isSupertask,
+  labelWasPresentAt,
   modelLabelOf,
   sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
+  type LabelTimelineEvent,
   type OpenIssue,
 } from "./issue-tracker.ts";
 import { modelName } from "./model-name.ts";
@@ -497,5 +500,75 @@ describe("sizeLabelOf", () => {
       kind: "unusable",
       labels: ["size:huge"],
     });
+  });
+});
+
+describe("labelWasPresentAt", () => {
+  const DAY_1 = new Date("2026-01-01T00:00:00Z");
+  const DAY_2 = new Date("2026-01-02T00:00:00Z");
+  const DAY_3 = new Date("2026-01-03T00:00:00Z");
+
+  function event(
+    action: "labeled" | "unlabeled",
+    at: Date,
+    label: string = TURBOABLE_LABEL,
+  ): LabelTimelineEvent {
+    return { label, action, at };
+  }
+
+  it("answers false where the label was never applied", () => {
+    assert.equal(labelWasPresentAt([], TURBOABLE_LABEL, DAY_2), false);
+  });
+
+  it("answers true once labelled, at and after the instant it was", () => {
+    const events = [event("labeled", DAY_1)];
+    assert.equal(labelWasPresentAt(events, TURBOABLE_LABEL, DAY_1), true);
+    assert.equal(labelWasPresentAt(events, TURBOABLE_LABEL, DAY_2), true);
+  });
+
+  it("answers false before a label added later", () => {
+    assert.equal(
+      labelWasPresentAt([event("labeled", DAY_2)], TURBOABLE_LABEL, DAY_1),
+      false,
+    );
+  });
+
+  it("answers false once added and then removed again before the instant", () => {
+    const events = [event("labeled", DAY_1), event("unlabeled", DAY_2)];
+    assert.equal(labelWasPresentAt(events, TURBOABLE_LABEL, DAY_3), false);
+    // Still true at the instant it was added, before the removal.
+    assert.equal(labelWasPresentAt(events, TURBOABLE_LABEL, DAY_1), true);
+  });
+
+  it("takes the latest event at or before the instant, whatever order events are given in", () => {
+    const events = [
+      event("unlabeled", DAY_3),
+      event("labeled", DAY_1),
+      event("labeled", DAY_2),
+    ];
+    assert.equal(labelWasPresentAt(events, TURBOABLE_LABEL, DAY_2), true);
+    assert.equal(labelWasPresentAt(events, TURBOABLE_LABEL, DAY_3), false);
+  });
+
+  it("matches the label without regard to case", () => {
+    assert.equal(
+      labelWasPresentAt(
+        [event("labeled", DAY_1, "Turboable")],
+        TURBOABLE_LABEL,
+        DAY_2,
+      ),
+      true,
+    );
+  });
+
+  it("ignores events for other labels", () => {
+    assert.equal(
+      labelWasPresentAt(
+        [event("labeled", DAY_1, "ready-for-agent")],
+        TURBOABLE_LABEL,
+        DAY_2,
+      ),
+      false,
+    );
   });
 });
