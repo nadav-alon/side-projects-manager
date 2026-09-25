@@ -344,12 +344,12 @@ export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
 }
 
 /**
- * The label that records a human's standing consent, given per ticket, for
- * the merge gate (#325) to merge that ticket's pull request without asking
- * again. Applied and removed by a human on the tracker's own UI — never by
- * the manager, which opens every ticket it opens (a discovery, a review, a
- * spec review) without it, whatever was asked. The one place the literal
- * lives; every adapter reads it from here.
+ * The label that records a human's per-ticket consent for the merge gate to
+ * merge that ticket's pull request without asking again. Applied and
+ * removed by a human on the tracker's own UI — never by the manager, which
+ * opens every ticket it opens (a discovery, a review, an apply-review, a
+ * rebase, a spec review, a pull request) without it, whatever was asked.
+ * The one place the literal lives; every adapter reads it from here.
  */
 export const TURBOABLE_LABEL = "turboable";
 
@@ -370,7 +370,8 @@ export interface LabelTimelineEvent {
  * that issue's full label timeline, in any order — up to and including
  * `instant`. The most recent matching event at or before `instant` decides
  * it, so a label added after `instant`, or added and then removed again
- * before it, both answer `false`; one never removed since answers `true`.
+ * before it, both answer `false`; a label added and never removed answers
+ * `true`.
  * Matched without regard to case, the way every other label here is.
  *
  * Beside the port so the real tracker's own timeline read and the fake
@@ -734,8 +735,8 @@ export interface IssueTracker {
    * its label timeline rather than its current labels — see
    * {@link labelWasPresentAt}, which does the replaying.
    *
-   * What the merge gate (#325) checks against the instant a ticket's
-   * implementation run started: a label added only after that instant, or
+   * What the merge gate checks against the instant a ticket's implementation
+   * run started: a label added only after that instant, or
    * added and then removed again before it, must not count as consent given
    * in time, and only a read of history rather than the present can tell the
    * two apart.
