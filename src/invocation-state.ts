@@ -156,7 +156,10 @@ export interface InvocationState {
    * `ticketSelected`'s before-the-sandbox-starts urgency, since nothing
    * calls this before the sandbox has already started. Replaces whatever
    * span `ticket` already carried, same as `recordRunSpanStarted` in
-   * `ports/store.ts`.
+   * `ports/store.ts` — stamped with this invocation's own identity when it
+   * has one, so a later reader can tell a span a crash left open apart from
+   * one still going; absent for a caller with none, an `InvocationState`
+   * built directly in a test, say.
    */
   recordRunSpanStarted(ticket: WorkedTicket, startedAt: Date): Promise<void>;
 
@@ -307,7 +310,7 @@ export function invocationState(
       return queueRunWrite(() => ports.store.recordRunEnded(current.self, repo, number));
     },
     recordRunSpanStarted: (ticket, startedAt) => {
-      runSpans = recordRunSpanStarted(runSpans, ticket, startedAt);
+      runSpans = recordRunSpanStarted(runSpans, ticket, startedAt, current?.self);
       return doSave(buildState());
     },
     recordRunSpanEnded: (ticket, openedAt, endedAt) => {

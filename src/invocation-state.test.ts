@@ -217,6 +217,21 @@ describe("invocationState", () => {
       ]);
     });
 
+    it("stamps the span with this invocation's own identity, when it has one", async () => {
+      const store = new FakeStore();
+      await store.openInvocation(SELF);
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields, {
+        self: SELF,
+      });
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+
+      await invocation.recordRunSpanStarted(TICKET_7, startedAt);
+
+      assert.deepEqual((await store.loadState()).runSpans, [
+        { ...TICKET_7, startedAt, openedBy: SELF },
+      ]);
+    });
+
     it("keeps only the latest span when the same ticket runs again", async () => {
       const store = new FakeStore();
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
