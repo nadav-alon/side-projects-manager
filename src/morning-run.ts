@@ -1031,7 +1031,7 @@ async function discoveryBlockedOutcome(
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
     discoveries: blockingDiscoveriesOf(routed.discoveries),
-    ...(crossTarget !== undefined && { target: crossTarget }),
+    ...(crossTarget !== undefined && { crossTarget }),
     ...(worked !== undefined && { worked }),
     ...(output !== undefined && { output }),
     ...transcriptField(transcript),

@@ -185,7 +185,7 @@ export type HandBackEnding =
        * implementation ticket or supertask instead of the ticket handed
        * back here.
        */
-      target?: Ticket;
+      crossTarget?: Ticket;
       /**
        * The branch a finished, gave-up or cut-off implementation run left.
        * Present only for an implementation ticket, the only kind with one to
@@ -487,14 +487,15 @@ function specReviewFindingsComment(ending: {
 /**
  * What a ticket is told when its run filed a blocking discovery: a
  * correction or a prerequisite, in the agent's own words — never described as
- * a run that gave up, even when the same run also did. `target`, present only
- * for a pull request or a spec review ticket, names the implementation ticket
- * or the supertask the discoveries were separately filed against; inlined
- * here regardless, so the ticket being handed back carries the whole of what
- * was found even if that other write was itself refused. `output`, present
- * only for a spec review ticket, is its run's own report, inlined for the
- * same reason: a spec review has nowhere else to post it, so the discovery
- * that blocked it would otherwise throw the rest of the report away.
+ * a run that gave up, even when the same run also did. `crossTarget`, present
+ * only for a pull request or a spec review ticket, names the implementation
+ * ticket or the supertask the discoveries were separately filed against;
+ * inlined here regardless, so the ticket being handed back carries the whole
+ * of what was found even if that other write was itself refused. `output`,
+ * present only for a spec review ticket, is its run's own report, inlined for
+ * the same reason: a spec review has nowhere else to post it, so the
+ * discovery that blocked it would otherwise throw the rest of the report
+ * away.
  */
 function discoveryBlockedComment(
   ticket: Ticket,
@@ -507,9 +508,9 @@ function discoveryBlockedComment(
   return [
     `The morning loop ran this ticket and found a blocking discovery: a correction or a prerequisite, not a run that gave up.`,
     findings,
-    ...(ending.target === undefined
+    ...(ending.crossTarget === undefined
       ? []
-      : [`Also filed against the ${targetNoun(ticket)}, #${ending.target.number}.`]),
+      : [`Also filed against the ${targetNoun(ticket)}, #${ending.crossTarget.number}.`]),
     ...(ending.output === undefined
       ? []
       : [

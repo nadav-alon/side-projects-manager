@@ -477,7 +477,7 @@ describe("handBack", () => {
             body: "There is no widget port to review against yet.",
           },
         ],
-        target: { ...implementationTicket(), repo: REPO },
+        crossTarget: { ...implementationTicket(), repo: REPO },
       });
 
       assert.deepEqual(repoHost.discarded, []);
@@ -500,7 +500,7 @@ describe("handBack", () => {
             body: "The retry-policy sub-issue changed what #66 describes.",
           },
         ],
-        target: { ...implementationTicket(), repo: REPO },
+        crossTarget: { ...implementationTicket(), repo: REPO },
       });
 
       assert.deepEqual(repoHost.discarded, []);
@@ -518,7 +518,7 @@ describe("handBack", () => {
         discoveries: [
           { kind: "correction", title: "Wrong ticket", body: "This is stale." },
         ],
-        target: { ...implementationTicket(), repo: REPO },
+        crossTarget: { ...implementationTicket(), repo: REPO },
         transcript: TRANSCRIPT,
       });
 
