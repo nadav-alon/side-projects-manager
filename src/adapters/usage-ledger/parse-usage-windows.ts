@@ -4,7 +4,7 @@ import type {
   UsageWindow,
   UsageWindows,
 } from "../../ports/index.ts";
-import { milliseconds, tokenCount } from "../../ports/index.ts";
+import { milliseconds, tokenCount, weightedTokenCount } from "../../ports/index.ts";
 
 const FIVE_HOURS_MS = milliseconds(5 * 60 * 60 * 1000);
 const WEEK_MS = milliseconds(7 * 24 * 60 * 60 * 1000);
@@ -95,7 +95,11 @@ function parseTimestamp(value: unknown): Date | undefined {
   return Number.isNaN(timestamp.getTime()) ? undefined : timestamp;
 }
 
-/** Aggregates input, output, and both cache token fields. Missing cache fields count as zero. */
+/**
+ * Weighs input, output, and both cache token fields by `weightedTokenCount`,
+ * so this ledger counts the same way `container-sandbox.ts`'s `totalTokens`
+ * does. Missing cache fields count as zero.
+ */
 function sumTokenFields(usage: Record<string, unknown>): TokenCount | undefined {
   const input = usage.input_tokens;
   const output = usage.output_tokens;
@@ -104,12 +108,12 @@ function sumTokenFields(usage: Record<string, unknown>): TokenCount | undefined 
   }
   const cacheCreation = usage.cache_creation_input_tokens;
   const cacheRead = usage.cache_read_input_tokens;
-  return tokenCount(
-    input +
-      output +
-      (typeof cacheCreation === "number" ? cacheCreation : 0) +
-      (typeof cacheRead === "number" ? cacheRead : 0),
-  );
+  return weightedTokenCount({
+    input,
+    output,
+    cacheCreation: typeof cacheCreation === "number" ? cacheCreation : 0,
+    cacheRead: typeof cacheRead === "number" ? cacheRead : 0,
+  });
 }
 
 /**
