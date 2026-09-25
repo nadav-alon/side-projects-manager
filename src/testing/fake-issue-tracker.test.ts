@@ -922,6 +922,16 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), false);
   });
 
+  it("answers false where the grant falls inside another ticket's still-open run span in the same repo", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
+
+    const spans: RunSpan[] = [{ repo: other.repo, number: other.number, startedAt: DAY_1 }];
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), false);
+  });
+
   it("ignores a run span for the same numbered ticket in a different repo", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
