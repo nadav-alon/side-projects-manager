@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import { fileHalt } from "../adapters/file-halt.ts";
+import { isProcessAlive } from "../adapters/process-alive.ts";
+import { processId, type ProcessId } from "../ports/index.ts";
 import { tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -17,6 +20,46 @@ async function run(
   return execFileAsync(process.execPath, [entryPoint, ...args], {
     env: { ...process.env, SIDE_PROJECTS_MANAGER_HOME: home },
   });
+}
+
+async function writeJournal(home: string, journal: unknown): Promise<void> {
+  await writeFile(path.join(home, "journal.json"), JSON.stringify(journal));
+}
+
+/**
+ * A running process that appends `SIGINT\n` to `marker` every time it is
+ * interrupted, and exits with 130 once it has been interrupted twice —
+ * standing in for `stopOnInterrupt` (`src/bin/morning-run.ts`) without
+ * running the loop for real. Resolves once it has told stdout it is
+ * listening, so a test never signals it before its handler is registered.
+ */
+async function signalEchoingProcess(
+  marker: string,
+): Promise<{ pid: ProcessId; child: ChildProcess }> {
+  const script = [
+    "const fs = require('node:fs');",
+    "let count = 0;",
+    "process.on('SIGINT', () => {",
+    "  count += 1;",
+    "  fs.appendFileSync(process.env['MARKER'], 'SIGINT\\n');",
+    "  if (count >= 2) process.exit(130);",
+    "});",
+    "process.stdout.write('ready\\n');",
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+  const child = spawn(process.execPath, ["-e", script], {
+    env: { ...process.env, MARKER: marker },
+  });
+  await new Promise<void>((resolve) => {
+    child.stdout?.once("data", () => resolve());
+  });
+  return { pid: processId(child.pid as number), child };
+}
+
+/** Every line `signalEchoingProcess` has appended to `marker` so far. */
+async function markerLines(marker: string): Promise<string[]> {
+  const text = await readFile(marker, "utf8").catch(() => "");
+  return text.split("\n").filter((line) => line !== "");
 }
 
 describe("the stop command", () => {
@@ -40,5 +83,26 @@ describe("the stop command", () => {
     assert.equal(stderr, "");
     assert.match(stdout, /already halted/i);
     assert.match(stdout, /No run was in progress/);
+  });
+
+  it("signals the in-flight invocation's process, found through the journal, once", async (t) => {
+    const home = await tempHome("stop-bin");
+    const marker = path.join(home, "marker");
+    const { pid, child } = await signalEchoingProcess(marker);
+    t.after(() => child.kill("SIGKILL"));
+    await writeJournal(home, {
+      records: [{ openedAt: new Date().toISOString(), process: pid }],
+    });
+
+    const { stdout, stderr } = await run(home);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /Stopping/);
+    assert.deepEqual(await markerLines(marker), ["SIGINT"]);
+    assert.equal(
+      isProcessAlive(pid),
+      true,
+      "a single signal is not the abandon-in-progress-work one",
+    );
   });
 });
