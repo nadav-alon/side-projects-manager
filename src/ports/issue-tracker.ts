@@ -3,7 +3,7 @@ import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
-import type { RunSpan } from "./store.ts";
+import { type RunSpan, runSpanCovers } from "./store.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -429,11 +429,8 @@ export function labelWasPresentAt(
  *    the grant — falls inside no run span of any ticket in `ticket`'s own
  *    repo. `spans` for another repo never count, whatever they cover.
  *
- * A span's bounds are inclusive: a grant at exactly a span's `startedAt` or
- * `endedAt` falls inside it. A span with no `endedAt` — its run still going,
- * or the manager died before it closed one — covers everything from its
- * `startedAt` on, so a grant after that counts as inside it until the span
- * closes. This includes `ticket`'s own span: a grant at exactly its own
+ * Whether a span falls inside `instant` is `runSpanCovers`'s call, bounds and
+ * all — including `ticket`'s own span: a grant at exactly its own
  * `startedAt` is rejected.
  *
  * Beside the port, like `labelWasPresentAt`, so the real tracker and the
@@ -449,12 +446,8 @@ export function turboableConsentAt(
   if (grant?.action !== "labeled") {
     return false;
   }
-  const grantedAt = grant.at.getTime();
   return !spans.some(
-    (span) =>
-      span.repo === ticket.repo &&
-      span.startedAt.getTime() <= grantedAt &&
-      (span.endedAt === undefined || grantedAt <= span.endedAt.getTime()),
+    (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),
   );
 }
 
