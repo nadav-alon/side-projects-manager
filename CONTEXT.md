@@ -413,7 +413,9 @@ invocation's own journal record and cleared the moment the run ends, so nothing 
 a finished run started once its own invocation record has closed, let alone once the day has rolled
 over. `endedAt` absent while that run is still going, or if the manager died before it ended. What
 "The manager merges a turboable ticket's pull request" (ADR 0009)'s merge gate reads a ticket's own
-implementation run started at, to check a `turboable` label's timeline against it.
+implementation run started at, to check a `turboable` label's timeline against it, and also reads
+every ticket's span in the same repo, to check whether a grant falls inside any of them — see
+**Turboable**.
 _Avoid_: run history, run window
 
 **Backlog**:
@@ -645,7 +647,10 @@ manager also strips `turboable` from every ticket it opens, so one it opens can 
 carrying it; and against every run span (see **Run span**) in the ticket's own repo — the granting
 event must fall inside none of them — which stops a run on one ticket (posting with the developer's
 own identity) from labeling a *different*, not-yet-run ticket `turboable` before that ticket's own run
-starts, since the timeline check and stripping alone cannot tell that grant from a human's. Once a
+starts, since the timeline check and stripping alone cannot tell that grant from a human's. Known
+gap: recording a span is best-effort, so a run whose write failed leaves no span for this third check
+to see; and since a ticket run more than once keeps only its latest run's span (see **Run span**), an
+earlier run's own grant is no longer covered once that ticket runs again. Once a
 turboable ticket's apply-review ticket finishes, one
 pass: the manager merges the pull request, with a merge commit, and deletes its branch, but only if
 it is mergeable, green and carries no declined threads; otherwise it labels the pull request
