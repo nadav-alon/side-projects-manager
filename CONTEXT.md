@@ -612,8 +612,9 @@ Per-ticket consent, the `turboable` label set by a human on an implementation ti
 manager merge its pull request once its apply-review ticket finishes — whether that ticket followed
 from turbo or from the developer typing `/apply-review` by hand. Checked against the
 label's own timeline — labeled before that ticket's implementation run started, not merely present
-now — so neither a run nor a ticket the manager opens can grant it to itself; the manager also strips
-`turboable` from every ticket it opens. Once a turboable ticket's apply-review ticket finishes, one
+now — which stops a run granting its own ticket consent mid-run; the manager also strips `turboable`
+from every ticket it opens, so one it opens can never start out carrying it. Once a turboable
+ticket's apply-review ticket finishes, one
 pass: the manager merges the pull request, with a merge commit, and deletes its branch, but only if
 it is mergeable, green and carries no declined threads; otherwise it labels the pull request
 `ready-for-human` and stops — no retry, no re-rebase. Stacked pull requests (#32) are out of scope
