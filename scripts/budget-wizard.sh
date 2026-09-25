@@ -197,7 +197,7 @@ STATE_FILE="$MANAGER_HOME/state.json"
 DEFAULT_FIVE_HOUR=15000000
 DEFAULT_WEEKLY=150000000
 DEFAULT_RESERVE=0.5
-DEFAULT_CEILING=5
+DEFAULT_CEILING=10
 
 # What this wizard produces is budget.json, not an env file or a CI secret,
 # so write_env/set_secret go unused and the closing summary is written by hand.
