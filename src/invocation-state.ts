@@ -16,6 +16,8 @@ import {
   findInvocationRecord,
   isClosedInvocation,
   recordRun,
+  recordRunWindowEnded,
+  recordRunWindowStarted,
   recordWorked,
   sameInvocation,
   ticketKey,
@@ -82,9 +84,9 @@ export function invocationStateRest(
 
 /**
  * One invocation's whole view of the state document: worked-today and
- * run-cost bookkeeping, the budget gate's view of recorded runs, and every
- * save the document needs. The loop tells it what happened; it decides what
- * to keep.
+ * run-cost bookkeeping, the budget gate's view of recorded runs, each
+ * ticket's own run window, and every save the document needs. The loop
+ * tells it what happened; it decides what to keep.
  *
  * A single instance is built once per invocation and lives for its whole
  * length, the same as `InvocationSelection` and `InvocationBudgetGate`: the
@@ -145,6 +147,22 @@ export interface InvocationState {
   recordRunEnded(repo: RepoSlug, number: IssueNumber): Promise<void>;
 
   /**
+   * Records `ticket`'s own run window as started at `startedAt`, in the
+   * in-memory state this invocation is building up to save — CONTEXT.md's
+   * "Run window", durable where `recordRunStarted`'s journal entry is not.
+   * Replaces whatever window `ticket` already carried, same as
+   * `recordRunWindowStarted` in `ports/store.ts`.
+   */
+  recordRunWindowStarted(ticket: WorkedTicket, startedAt: Date): void;
+
+  /**
+   * Closes `ticket`'s own run window at `endedAt`, in the same in-memory
+   * state. Not an error when no such window is open, same as
+   * `recordRunWindowEnded` in `ports/store.ts`.
+   */
+  recordRunWindowEnded(ticket: WorkedTicket, endedAt: Date): void;
+
+  /**
    * Every project's recorded runs, live — the budget gate's own view of what
    * the mornings have spent, read fresh at every consultation rather than
    * copied.
@@ -199,6 +217,7 @@ export function invocationState(
   exposeRecorder?: (record: (ticket: WorkedTicket, day: Day) => void) => void,
 ): InvocationState {
   const projects = new Map(stored.projects);
+  let runWindows = stored.runWindows;
   const storedToday =
     stored.workedToday?.day === today ? stored.workedToday : undefined;
   const { kept, freed } = freeDeadInvocations(storedToday, current);
@@ -222,6 +241,7 @@ export function invocationState(
   const buildState = (): State => ({
     projects,
     ...(record !== undefined && { workedToday: record }),
+    ...(runWindows !== undefined && { runWindows }),
     ...foreignFields(),
   });
 
@@ -276,6 +296,12 @@ export function invocationState(
         return Promise.resolve();
       }
       return queueRunWrite(() => ports.store.recordRunEnded(current.self, repo, number));
+    },
+    recordRunWindowStarted: (ticket, startedAt) => {
+      runWindows = recordRunWindowStarted(runWindows, ticket, startedAt);
+    },
+    recordRunWindowEnded: (ticket, endedAt) => {
+      runWindows = recordRunWindowEnded(runWindows, ticket, endedAt);
     },
     iterationEnded: (ticket, iteration) => {
       if (freesTicketToday(iteration)) {

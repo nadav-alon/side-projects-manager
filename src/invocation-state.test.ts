@@ -197,6 +197,55 @@ describe("invocationState", () => {
     });
   });
 
+  describe("recordRunWindowStarted and recordRunWindowEnded", () => {
+    it("folds a started window into the next save, closed once it ends", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+      const endedAt = new Date("2026-01-01T09:20:00.000Z");
+
+      invocation.recordRunWindowStarted(TICKET_7, startedAt);
+      await invocation.save();
+
+      assert.deepEqual((await store.loadState()).runWindows, [
+        { ...TICKET_7, startedAt },
+      ]);
+
+      invocation.recordRunWindowEnded(TICKET_7, endedAt);
+      await invocation.save();
+
+      assert.deepEqual((await store.loadState()).runWindows, [
+        { ...TICKET_7, startedAt, endedAt },
+      ]);
+    });
+
+    it("keeps only the latest window when the same ticket runs again", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      const first = new Date("2026-01-01T09:00:00.000Z");
+      const second = new Date("2026-01-01T10:00:00.000Z");
+
+      invocation.recordRunWindowStarted(TICKET_7, first);
+      invocation.recordRunWindowEnded(TICKET_7, first);
+      invocation.recordRunWindowStarted(TICKET_7, second);
+      await invocation.save();
+
+      assert.deepEqual((await store.loadState()).runWindows, [
+        { ...TICKET_7, startedAt: second },
+      ]);
+    });
+
+    it("does nothing closing a window that was never opened", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+
+      invocation.recordRunWindowEnded(TICKET_7, new Date("2026-01-01T09:00:00.000Z"));
+      await invocation.save();
+
+      assert.equal((await store.loadState()).runWindows, undefined);
+    });
+  });
+
   describe("iterationEnded", () => {
     it("frees a ticket a cut-off run says nothing about", async () => {
       const store = new FakeStore();
