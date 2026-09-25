@@ -139,6 +139,7 @@ export type {
 } from "./progress.ts";
 export {
   APPLIED_REVIEW_LABEL,
+  READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
   isPullRequestLabel,
   pullRequestLabel,
