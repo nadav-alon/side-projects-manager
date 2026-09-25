@@ -141,7 +141,7 @@ describe("the stop command", () => {
     );
   });
 
-  it("--now signals twice, abandoning the run in progress as a second Ctrl+C does today", async (t) => {
+  it("--now signals twice, abandoning the run in progress as a second Ctrl+C does", async (t) => {
     const home = await tempHome("stop-bin");
     const marker = path.join(home, "marker");
     const { pid, child } = await signalEchoingProcess(marker);

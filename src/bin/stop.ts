@@ -91,17 +91,16 @@ async function signalStop(pid: ProcessId, now: boolean): Promise<void> {
 }
 
 /**
- * Ends the day run in flight and halts the loop (CONTEXT.md: Halt), replacing
- * finding a run's pid in `status` and signalling it by hand.
+ * Ends the invocation in flight and halts the loop (CONTEXT.md: Halt).
  *
  * Halts first, unconditionally, the same idempotent engage `halt` itself
  * performs: a developer reaching for `stop` wants the loop to stay quiet
  * afterwards, not just this one invocation ended. Then signals whichever
  * invocation the journal shows still in flight and alive the same stop
- * `stopOnInterrupt` (`src/bin/morning-run.ts`) already handles: nothing
- * further starts, runs in progress finish, and the summary publishes —
- * unless `--now` is given, which abandons them instead, the same as sending
- * a second Ctrl+C does today.
+ * `stopOnInterrupt` (`src/bin/morning-run.ts`) already handles: a stand
+ * down (CONTEXT.md: Stand down) — nothing further starts, runs in progress
+ * finish, and the summary publishes — unless `--now` is given, which
+ * abandons them instead, the same as a second Ctrl+C.
  */
 async function main(): Promise<void> {
   const now = process.argv.slice(2).includes("--now");

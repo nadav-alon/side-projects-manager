@@ -53,7 +53,7 @@ in `registry.json`: a halt is a file of its own under the manager home
 `scripts/install-triggers.sh` being re-run and a reboot without touching the crontab or the registry.
 `npm run status` says when the loop is halted.
 
-`npm run stop` ends the day run in flight and halts the loop: it finds the in-flight invocation
+`npm run stop` ends the invocation in flight and halts the loop: it finds the in-flight invocation
 through the journal, never `ps`, and sends it the same stop signal an interrupt already handles —
 nothing further starts, runs in progress finish, and the summary publishes. `npm run stop -- --now`
 sends it twice, abandoning whatever is in progress the same way a second Ctrl+C does. Replaces
