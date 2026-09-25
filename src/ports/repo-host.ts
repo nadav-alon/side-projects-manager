@@ -125,9 +125,10 @@ export interface ApplyReviewThread {
  *
  * The `…Since` counts are scoped to the read's instant, so a caller asking
  * what one run did is not handed counts an earlier pass already reported.
- * `unanswered` is the thread's standing state, whatever instant the caller
- * reads from: a thread a marked reply answered days ago is still answered,
- * and one a later, unmarked comment spoke in is unanswered again.
+ * `unanswered` and `declinedOpen` are the threads' standing state, whatever
+ * instant the caller reads from: a thread a marked reply answered days ago is
+ * still answered, and one a later, unmarked comment spoke in is unanswered
+ * again.
  */
 export interface ApplyReviewAnswers {
   /** Applied replies posted since the read's instant. */
@@ -136,6 +137,13 @@ export interface ApplyReviewAnswers {
   declinedSince: number;
   /** Open threads whose last comment is not a marked reply. */
   unanswered: number;
+  /**
+   * Open threads whose last comment is a declined reply, however long ago it
+   * was posted — unlike `declinedSince`, not scoped to the read's instant.
+   * What the merge gate reads: a pull request the ticket's own pass leaves
+   * clean can still carry a thread declined on an earlier pass.
+   */
+  declinedOpen: number;
 }
 
 /**
@@ -151,6 +159,7 @@ export function summarizeApplyReviewThreads(
   let applied = 0;
   let declined = 0;
   let unanswered = 0;
+  let declinedOpen = 0;
 
   for (const thread of threads) {
     for (const comment of thread.comments) {
@@ -165,13 +174,23 @@ export function summarizeApplyReviewThreads(
       }
     }
 
+    if (thread.resolved) {
+      continue;
+    }
     const last = thread.comments.at(-1);
-    if (!thread.resolved && (last === undefined || !isMarkedReply(last.body))) {
+    if (last === undefined || !isMarkedReply(last.body)) {
       unanswered++;
+    } else if (verdictOf(last.body) === "declined") {
+      declinedOpen++;
     }
   }
 
-  return { appliedSince: applied, declinedSince: declined, unanswered };
+  return {
+    appliedSince: applied,
+    declinedSince: declined,
+    unanswered,
+    declinedOpen,
+  };
 }
 
 /**
@@ -208,6 +227,20 @@ function verdictOf(body: string): "applied" | "declined" | undefined {
  * answer.
  */
 export type MergeStatus = "conflicting" | "clean" | "unknown";
+
+/**
+ * What a pull request's own checks read as, read once at whatever instant the
+ * caller asks: `"red"` once any check has failed, `"pending"` while one is
+ * still running and none has failed, `"green"` once every check that ran
+ * passed — a pull request with no checks at all reads `"green"`, since there
+ * is nothing to wait on.
+ *
+ * What the merge gate reads before merging: `gh pr merge` only refuses on a
+ * red or pending check where the repo's branch protection requires it, so a
+ * repo without that configured would otherwise merge a pull request whose
+ * checks never passed.
+ */
+export type ChecksStatus = "green" | "pending" | "red";
 
 /**
  * Whether a pull request is still open, merged, or closed without merging —
@@ -657,6 +690,14 @@ export interface RepoHost {
    */
   readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus>;
   /**
+   * Reads `pullRequest`'s own checks once: see {@link ChecksStatus}.
+   *
+   * What the merge gate reads before merging, since {@link mergePullRequest}
+   * itself does not reliably refuse on a red or pending check — see {@link
+   * ChecksStatus}.
+   */
+  readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus>;
+  /**
    * Removes {@link NEEDS_REBASE_LABEL} from `pullRequest`, once a rebase
    * ticket closes because it no longer needs one.
    *
@@ -703,10 +744,13 @@ export interface RepoHost {
   /**
    * Merges `pullRequest` with a merge commit, and deletes its branch.
    *
-   * A merge the host refuses — conflicting, checks failing, already merged —
-   * is raised as an error naming the pull request, never swallowed: a caller
-   * gating on this succeeding needs to tell a real refusal apart from
-   * anything else that could go wrong.
+   * A merge the host refuses — conflicting, already merged, or checks failing
+   * where the repo's branch protection requires them green — is raised as an
+   * error naming the pull request, never swallowed: a caller gating on this
+   * succeeding needs to tell a real refusal apart from anything else that
+   * could go wrong. A repo with no such branch protection merges a pull
+   * request whatever its checks read as: see {@link ChecksStatus}, which the
+   * merge gate reads first for that reason.
    */
   mergePullRequest(pullRequest: PullRequestUrl): Promise<void>;
 }

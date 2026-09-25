@@ -33,7 +33,12 @@ describe("FakeRepoHost apply-review answers", () => {
 
     const answers = await host.readApplyReviewAnswers(PULL_REQUEST, SINCE);
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 1 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 1,
+      unanswered: 1,
+      declinedOpen: 1,
+    });
   });
 
   it("keeps each pull request's threads to itself", async () => {
@@ -42,7 +47,12 @@ describe("FakeRepoHost apply-review answers", () => {
 
     const answers = await host.readApplyReviewAnswers(PULL_REQUEST, SINCE);
 
-    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 0 });
+    assert.deepEqual(answers, {
+      appliedSince: 0,
+      declinedSince: 0,
+      unanswered: 0,
+      declinedOpen: 0,
+    });
   });
 
   it("refuses a thread index no test opened", () => {
@@ -154,6 +164,21 @@ describe("FakeRepoHost readMergeStatus", () => {
 
     assert.equal(await host.readMergeStatus(PULL_REQUEST), "unknown");
     assert.equal(calls, 1);
+  });
+});
+
+describe("FakeRepoHost readChecksStatus", () => {
+  it("answers green by default", async () => {
+    const host = new FakeRepoHost();
+
+    assert.equal(await host.readChecksStatus(PULL_REQUEST), "green");
+  });
+
+  it("answers with what checksStatus is scripted to say", async () => {
+    const host = new FakeRepoHost();
+    host.checksStatus = () => "red";
+
+    assert.equal(await host.readChecksStatus(PULL_REQUEST), "red");
   });
 });
 

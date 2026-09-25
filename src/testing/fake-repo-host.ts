@@ -3,6 +3,7 @@ import type {
   ApplyReviewThread,
   Branch,
   Checkout,
+  ChecksStatus,
   ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
@@ -147,6 +148,9 @@ export class FakeRepoHost implements RepoHost {
    * times. Clean, unless a test says otherwise.
    */
   mergeStatus: (pullRequest: PullRequestUrl) => MergeStatus = () => "clean";
+
+  /** What `readChecksStatus` answers for a pull request. Green, unless a test says otherwise. */
+  checksStatus: (pullRequest: PullRequestUrl) => ChecksStatus = () => "green";
 
   readonly #pullRequestStates = new Map<PullRequestUrl, PullRequestState>();
 
@@ -407,6 +411,10 @@ export class FakeRepoHost implements RepoHost {
 
   async readMergeStatus(pullRequest: PullRequestUrl): Promise<MergeStatus> {
     return this.mergeStatus(pullRequest);
+  }
+
+  async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
+    return this.checksStatus(pullRequest);
   }
 
   async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {

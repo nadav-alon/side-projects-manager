@@ -172,6 +172,7 @@ export type {
   ApplyReviewAnswers,
   ApplyReviewComment,
   ApplyReviewThread,
+  ChecksStatus,
   ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
