@@ -32,8 +32,8 @@ cannot — the timeline check a self-grant mid-run, stripping a label present fr
 otherwise cycle indefinitely through rebase and apply-review chasing a moving mergeable state. Only
 the single apply-review run already in the loop is trusted: the manager checks once, right after it,
 merges if the pull request is mergeable, green and has no declined threads, and otherwise labels it
-`ready-for-human` and stops. No retry, and no `/rebase` posted on its behalf — the pull request is
-handed to the developer exactly as any other stalled one is.
+`ready-for-human` and stops. No retry, and no `/rebase` posted on its behalf — unlike a hand back,
+which never labels a pull request, only its ticket.
 
 **Merge commit, and the branch deleted with it.** Merge commit because that is how the developer
 already merges a pull request by hand; nothing about turboable should read differently in the repo's
