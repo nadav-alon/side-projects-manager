@@ -1020,6 +1020,103 @@ describe("the state document", () => {
 
     await assert.rejects(store.loadState(), /"stopShorts" must be a whole number/);
   });
+
+  it("reads a document with no run spans as nothing ever run", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {} }),
+      }),
+    );
+
+    assert.equal((await store.loadState()).runSpans, undefined);
+  });
+
+  it("survives a round trip with a ticket's own run span, open", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      runSpans: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: new Date("2026-01-01T09:00:00.000Z"),
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("survives a round trip with a ticket's own run span, closed", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      runSpans: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: new Date("2026-01-01T09:00:00.000Z"),
+          endedAt: new Date("2026-01-01T09:20:00.000Z"),
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects a run span that names no repo slug", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runSpans: [
+            { number: 7, startedAt: "2026-01-01T09:00:00.000Z" },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /runSpans/);
+  });
+
+  it("rejects a run span whose startedAt is not a timestamp", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runSpans: [
+            { repo: PILOT, number: 7, startedAt: "not a date" },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"startedAt" must be an ISO 8601 timestamp/);
+  });
+
+  it("rejects a run span whose endedAt is not a timestamp", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runSpans: [
+            {
+              repo: PILOT,
+              number: 7,
+              startedAt: "2026-01-01T09:00:00.000Z",
+              endedAt: "not a date",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"endedAt" must be an ISO 8601 timestamp/);
+  });
 });
 
 describe("the journal document", () => {

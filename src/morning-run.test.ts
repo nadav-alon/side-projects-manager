@@ -1368,6 +1368,91 @@ describe("morningLoop", () => {
     });
   });
 
+  describe("run span", () => {
+    const TICKET = { number: issueNumber(7), title: "Add the thing" };
+
+    it("records the ticket's own run span in the state document while it is going, and closes it once the run ends", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(1);
+
+      const inProgress = await ports.store.loadState();
+      assert.deepEqual(inProgress.runSpans, [
+        { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW },
+      ]);
+
+      ports.sandbox.release({ repo: PILOT, ...TICKET });
+      await invocation;
+
+      const afterward = await ports.store.loadState();
+      assert.deepEqual(afterward.runSpans, [
+        { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW, endedAt: FROZEN_NOW },
+      ]);
+    });
+
+    it("replaces a span an earlier invocation left with this run's own", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, TICKET);
+      ports.store.markRunSpan(
+        ticket,
+        new Date("2025-12-31T09:00:00.000Z"),
+        new Date("2025-12-31T09:10:00.000Z"),
+      );
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.runSpans, [
+        { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW, endedAt: FROZEN_NOW },
+      ]);
+    });
+
+    it("records nothing against the state document when the clone never happens", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      t.mock.method(ports.repoHost, "clone", async () => {
+        throw new Error("the repo host is down");
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.runSpans, undefined);
+    });
+
+    it("leaves an earlier run's own span untouched when this run's sandbox never starts", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, TICKET);
+      ports.store.markRunSpan(
+        ticket,
+        new Date("2025-12-31T09:00:00.000Z"),
+        new Date("2025-12-31T09:10:00.000Z"),
+      );
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("docker is not running");
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.runSpans, [
+        {
+          repo: PILOT,
+          number: TICKET.number,
+          startedAt: new Date("2025-12-31T09:00:00.000Z"),
+          endedAt: new Date("2025-12-31T09:10:00.000Z"),
+        },
+      ]);
+    });
+  });
+
   describe("the draft pull request", () => {
     const BRANCH = branch("issue-7-add-the-thing");
 

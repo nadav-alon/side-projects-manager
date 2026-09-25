@@ -214,6 +214,57 @@ export function salvageFor(
 }
 
 /**
+ * When a ticket's own run last started, and when it ended — CONTEXT.md's
+ * "Run span": durable in the state document, unlike `RunInProgress`, which
+ * the journal clears the moment the run ends. `endedAt` absent while that
+ * run is still going.
+ */
+export interface RunSpan extends WorkedTicket {
+  startedAt: Date;
+  endedAt?: Date;
+}
+
+/**
+ * `previous` with `ticket`'s run span recorded as started at `startedAt`,
+ * in place of whatever span it carried before: a ticket run more than once
+ * keeps only its latest run's span.
+ */
+export function recordRunSpanStarted(
+  previous: RunSpan[] | undefined,
+  ticket: WorkedTicket,
+  startedAt: Date,
+): RunSpan[] {
+  return [
+    ...(previous ?? []).filter((span) => ticketKey(span) !== ticketKey(ticket)),
+    { repo: ticket.repo, number: ticket.number, startedAt },
+  ];
+}
+
+/**
+ * `previous` with `ticket`'s own run span closed at `endedAt`, its
+ * `startedAt` left as it was. Not an error when no such span is open —
+ * `recordRunSpanStarted` never wrote one, say — since there is then
+ * nothing here to close.
+ */
+export function recordRunSpanEnded(
+  previous: RunSpan[] | undefined,
+  ticket: WorkedTicket,
+  endedAt: Date,
+): RunSpan[] | undefined {
+  return previous?.map((span) =>
+    ticketKey(span) === ticketKey(ticket) ? { ...span, endedAt } : span,
+  );
+}
+
+/** The run span `spans` carries for `ticket`, absent if it has none. */
+export function runSpanFor(
+  spans: RunSpan[] | undefined,
+  ticket: WorkedTicket,
+): RunSpan | undefined {
+  return spans?.find((span) => ticketKey(span) === ticketKey(ticket));
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.
@@ -243,6 +294,12 @@ export interface State {
    * nothing is salvaged. See CONTEXT.md's "Salvage".
    */
   salvages?: Salvage[];
+  /**
+   * Every ticket's own run span: when its own run last started, and when
+   * it ended. Absent when nothing has ever run. See CONTEXT.md's "Run
+   * span".
+   */
+  runSpans?: RunSpan[];
 }
 
 /**

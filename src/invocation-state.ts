@@ -16,7 +16,10 @@ import {
   findInvocationRecord,
   isClosedInvocation,
   recordRun,
+  recordRunSpanEnded,
+  recordRunSpanStarted,
   recordWorked,
+  runSpanFor,
   sameInvocation,
   ticketKey,
   unrecordWorked,
@@ -82,9 +85,9 @@ export function invocationStateRest(
 
 /**
  * One invocation's whole view of the state document: worked-today and
- * run-cost bookkeeping, the budget gate's view of recorded runs, and every
- * save the document needs. The loop tells it what happened; it decides what
- * to keep.
+ * run-cost bookkeeping, the budget gate's view of recorded runs, each
+ * ticket's own run span, and every save the document needs. The loop
+ * tells it what happened; it decides what to keep.
  *
  * A single instance is built once per invocation and lives for its whole
  * length, the same as `InvocationSelection` and `InvocationBudgetGate`: the
@@ -145,6 +148,30 @@ export interface InvocationState {
   recordRunEnded(repo: RepoSlug, number: IssueNumber): Promise<void>;
 
   /**
+   * Records `ticket`'s own run span as started at `startedAt`, and saves the
+   * whole state document at once, resolving once that save lands — but not
+   * awaited by the run itself, which is already past the sandbox's own
+   * start by the time this is called: CONTEXT.md's "Run span", durable
+   * where `recordRunStarted`'s journal entry is not, but not saved with
+   * `ticketSelected`'s before-the-sandbox-starts urgency, since nothing
+   * calls this before the sandbox has already started. Replaces whatever
+   * span `ticket` already carried, same as `recordRunSpanStarted` in
+   * `ports/store.ts`.
+   */
+  recordRunSpanStarted(ticket: WorkedTicket, startedAt: Date): Promise<void>;
+
+  /**
+   * Closes `ticket`'s own run span at `endedAt`, saving the whole state
+   * document the same way, but only when `openedAt` still names the span on
+   * record: a run that never opened its own span, or whose span a later run
+   * has since replaced, closes nothing — so a run that never started never
+   * moves an earlier run's own `endedAt` forward. Not an error either way,
+   * same as `recordRunSpanEnded` in `ports/store.ts` — and, since nothing
+   * changes then, no save either.
+   */
+  recordRunSpanEnded(ticket: WorkedTicket, openedAt: Date, endedAt: Date): Promise<void>;
+
+  /**
    * Every project's recorded runs, live — the budget gate's own view of what
    * the mornings have spent, read fresh at every consultation rather than
    * copied.
@@ -199,6 +226,7 @@ export function invocationState(
   exposeRecorder?: (record: (ticket: WorkedTicket, day: Day) => void) => void,
 ): InvocationState {
   const projects = new Map(stored.projects);
+  let runSpans = stored.runSpans;
   const storedToday =
     stored.workedToday?.day === today ? stored.workedToday : undefined;
   const { kept, freed } = freeDeadInvocations(storedToday, current);
@@ -222,6 +250,7 @@ export function invocationState(
   const buildState = (): State => ({
     projects,
     ...(record !== undefined && { workedToday: record }),
+    ...(runSpans !== undefined && { runSpans }),
     ...foreignFields(),
   });
 
@@ -276,6 +305,22 @@ export function invocationState(
         return Promise.resolve();
       }
       return queueRunWrite(() => ports.store.recordRunEnded(current.self, repo, number));
+    },
+    recordRunSpanStarted: (ticket, startedAt) => {
+      runSpans = recordRunSpanStarted(runSpans, ticket, startedAt);
+      return doSave(buildState());
+    },
+    recordRunSpanEnded: (ticket, openedAt, endedAt) => {
+      // Closes only the span this run itself opened: a span for a different
+      // start — left by an earlier run, or already replaced by a later one
+      // — is not this run's to touch, and there is then nothing here to
+      // close, no save to make either.
+      const current = runSpanFor(runSpans, ticket);
+      if (current === undefined || current.startedAt.getTime() !== openedAt.getTime()) {
+        return Promise.resolve();
+      }
+      runSpans = recordRunSpanEnded(runSpans, ticket, endedAt);
+      return doSave(buildState());
     },
     iterationEnded: (ticket, iteration) => {
       if (freesTicketToday(iteration)) {

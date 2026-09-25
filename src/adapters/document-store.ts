@@ -31,6 +31,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunSpan,
   Salvage,
   Size,
   SpendCeiling,
@@ -650,6 +651,7 @@ function parseState(document: unknown, file: string): State {
   const workedToday = fieldOf(document, "workedToday", file);
   const announcedOn = fieldOf(document, "announcedOn", file);
   const salvages = fieldOf(document, "salvages", file);
+  const runSpans = fieldOf(document, "runSpans", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
@@ -660,6 +662,9 @@ function parseState(document: unknown, file: string): State {
     }),
     ...(salvages !== undefined && {
       salvages: parseSalvages(salvages, `${file}: "salvages"`),
+    }),
+    ...(runSpans !== undefined && {
+      runSpans: parseRunSpans(runSpans, `${file}: "runSpans"`),
     }),
   };
 }
@@ -694,6 +699,37 @@ function parseSalvage(salvage: unknown, where: string): Salvage {
     );
   }
   return { repo, number, branch, stopShorts };
+}
+
+/**
+ * `[{ "repo": "owner/repo", "number": 7, "startedAt": "…", "endedAt": "…" }]`
+ *
+ * `endedAt` is absent on a span still open.
+ */
+function parseRunSpans(value: unknown, where: string): RunSpan[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where} must be a list of run spans.`);
+  }
+  return value.map((span, index) =>
+    parseRunSpan(span, `${where}: span ${index + 1}`),
+  );
+}
+
+function parseRunSpan(span: unknown, where: string): RunSpan {
+  const { repo, number } = parseWorkedTicket(span, where);
+  const startedAt = parseInstant(
+    fieldOf(span, "startedAt", where),
+    `${where}: "startedAt"`,
+  );
+  const endedAt = fieldOf(span, "endedAt", where);
+  return {
+    repo,
+    number,
+    startedAt,
+    ...(endedAt !== undefined && {
+      endedAt: parseInstant(endedAt, `${where}: "endedAt"`),
+    }),
+  };
 }
 
 function parseDayField(value: unknown, where: string): Day {
@@ -887,8 +923,15 @@ function formatState(state: State): string {
 
   const salvages = state.salvages?.map((salvage) => ({ ...salvage }));
 
+  const runSpans = state.runSpans?.map((span) => ({
+    repo: span.repo,
+    number: span.number,
+    startedAt: span.startedAt.toISOString(),
+    ...(span.endedAt !== undefined && { endedAt: span.endedAt.toISOString() }),
+  }));
+
   return `${JSON.stringify(
-    { projects, workedToday, announcedOn: state.announcedOn, salvages },
+    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans },
     undefined,
     2,
   )}\n`;

@@ -197,6 +197,73 @@ describe("invocationState", () => {
     });
   });
 
+  describe("recordRunSpanStarted and recordRunSpanEnded", () => {
+    it("saves the span before it resolves, so a run killed part way still leaves its own start on the record", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+      const endedAt = new Date("2026-01-01T09:20:00.000Z");
+
+      await invocation.recordRunSpanStarted(TICKET_7, startedAt);
+
+      assert.deepEqual((await store.loadState()).runSpans, [
+        { ...TICKET_7, startedAt },
+      ]);
+
+      await invocation.recordRunSpanEnded(TICKET_7, startedAt, endedAt);
+
+      assert.deepEqual((await store.loadState()).runSpans, [
+        { ...TICKET_7, startedAt, endedAt },
+      ]);
+    });
+
+    it("keeps only the latest span when the same ticket runs again", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      const first = new Date("2026-01-01T09:00:00.000Z");
+      const second = new Date("2026-01-01T10:00:00.000Z");
+
+      await invocation.recordRunSpanStarted(TICKET_7, first);
+      await invocation.recordRunSpanEnded(TICKET_7, first, first);
+      await invocation.recordRunSpanStarted(TICKET_7, second);
+
+      assert.deepEqual((await store.loadState()).runSpans, [
+        { ...TICKET_7, startedAt: second },
+      ]);
+    });
+
+    it("does nothing closing a span that was never opened", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      const openedAt = new Date("2026-01-01T09:00:00.000Z");
+
+      await invocation.recordRunSpanEnded(TICKET_7, openedAt, openedAt);
+
+      assert.equal((await store.loadState()).runSpans, undefined);
+    });
+
+    it("does not close a span a different run opened", async () => {
+      const store = new FakeStore();
+      const earlierStart = new Date("2025-12-31T09:00:00.000Z");
+      const earlierEnd = new Date("2025-12-31T09:10:00.000Z");
+      store.markRunSpan(TICKET_7, earlierStart, earlierEnd);
+      const invocation = invocationState({ store }, await store.loadState(), TODAY, noForeignFields);
+
+      // This run's own `onStarted` never fired, so it never recorded a span
+      // of its own — but it still names the start it would have opened, the
+      // way `runInSandbox` names `openedAt` from `onStarted`.
+      await invocation.recordRunSpanEnded(
+        TICKET_7,
+        new Date("2026-01-01T09:00:00.000Z"),
+        new Date("2026-01-01T09:10:00.000Z"),
+      );
+
+      assert.deepEqual((await store.loadState()).runSpans, [
+        { ...TICKET_7, startedAt: earlierStart, endedAt: earlierEnd },
+      ]);
+    });
+  });
+
   describe("iterationEnded", () => {
     it("frees a ticket a cut-off run says nothing about", async () => {
       const store = new FakeStore();

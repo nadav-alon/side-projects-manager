@@ -15,6 +15,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunSpan,
   Salvage,
   State,
   Store,
@@ -27,6 +28,8 @@ import {
   KEPT_SUMMARY_LIMIT,
   findInvocationRecord,
   keptSummaryPath,
+  recordRunSpanEnded,
+  recordRunSpanStarted,
   recordStopShortSalvage,
   ticketKey,
   workedTicket,
@@ -54,6 +57,7 @@ export class FakeStore implements Store {
   #workedToday: WorkedToday | undefined = undefined;
   #announcedOn: Day | undefined = undefined;
   #salvages: Salvage[] | undefined = undefined;
+  #runSpans: RunSpan[] | undefined = undefined;
   #journal: InvocationRecord[] = [];
   #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
@@ -112,6 +116,16 @@ export class FakeStore implements Store {
     );
   }
 
+  /**
+   * Records `ticket`'s own run span, as an earlier invocation's run would
+   * have left it — replacing whatever span `ticket` already carried.
+   */
+  markRunSpan(ticket: WorkedTicket, startedAt: Date, endedAt?: Date): void {
+    const started = recordRunSpanStarted(this.#runSpans, ticket, startedAt);
+    this.#runSpans =
+      endedAt === undefined ? started : recordRunSpanEnded(started, ticket, endedAt);
+  }
+
   async loadRegistry(): Promise<RegisteredProject[]> {
     return this.#registry.map((project) => ({ ...project }));
   }
@@ -145,6 +159,9 @@ export class FakeStore implements Store {
       ...(this.#salvages !== undefined && {
         salvages: this.#salvages.map((salvage) => ({ ...salvage })),
       }),
+      ...(this.#runSpans !== undefined && {
+        runSpans: this.#runSpans.map((span) => ({ ...span })),
+      }),
     };
   }
 
@@ -161,6 +178,7 @@ export class FakeStore implements Store {
         : copyWorkedToday(state.workedToday);
     this.#announcedOn = state.announcedOn;
     this.#salvages = state.salvages?.map((salvage) => ({ ...salvage }));
+    this.#runSpans = state.runSpans?.map((span) => ({ ...span }));
   }
 
   async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {
