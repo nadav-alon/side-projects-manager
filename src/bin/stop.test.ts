@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { fileHalt } from "../adapters/file-halt.ts";
 import { isProcessAlive } from "../adapters/process-alive.ts";
 import { processId, type ProcessId } from "../ports/index.ts";
-import { tempHome } from "../testing/index.ts";
+import { deadPid, tempHome } from "../testing/index.ts";
 
 const execFileAsync = promisify(execFile);
 const entryPoint = path.join(import.meta.dirname, "stop.ts");
@@ -103,6 +103,41 @@ describe("the stop command", () => {
       isProcessAlive(pid),
       true,
       "a single signal is not the abandon-in-progress-work one",
+    );
+  });
+
+  it("says no run was in progress when the only in-flight record's process is gone, rather than failing", async () => {
+    const home = await tempHome("stop-bin");
+    await writeJournal(home, {
+      records: [{ openedAt: new Date().toISOString(), process: deadPid() }],
+    });
+
+    const { stdout, stderr } = await run(home);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /No run was in progress/);
+  });
+
+  it("never signals a journal record whose process is gone", async (t) => {
+    const home = await tempHome("stop-bin");
+    const marker = path.join(home, "marker");
+    const { pid, child } = await signalEchoingProcess(marker);
+    t.after(() => child.kill("SIGKILL"));
+    await writeJournal(home, {
+      records: [
+        { openedAt: new Date().toISOString(), process: deadPid() },
+        { openedAt: new Date().toISOString(), process: pid },
+      ],
+    });
+
+    const { stdout, stderr } = await run(home);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /Stopping/);
+    assert.deepEqual(
+      await markerLines(marker),
+      ["SIGINT"],
+      "only the record whose process is alive is signalled",
     );
   });
 });
