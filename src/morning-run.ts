@@ -31,6 +31,7 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunSandboxFailed,
+  RunSpan,
   RunStarted,
   Salvaged,
   Sandbox,
@@ -46,6 +47,7 @@ import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
+  READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
@@ -54,6 +56,7 @@ import {
   isSpecReviewTicket,
   localDay,
   notify,
+  runSpanFor,
   ticketKind,
   tokenCount,
 } from "./ports/index.ts";
@@ -120,6 +123,7 @@ import {
   type Iteration,
   type IterationOutcome,
   type LimitRefused,
+  type MergeGate,
   type NotCommented,
   type NotLabelled,
   type NotReadied,
@@ -156,7 +160,12 @@ export interface MorningLoopPorts {
   progress: Progress;
 }
 
-/** What every run, review or spec review needs of the invocation's own state: recording a run's cost, the run itself in progress, and its own run span. */
+/**
+ * What every run, review or spec review needs of the invocation's own state:
+ * recording a run's cost, the run itself in progress, and its own run span —
+ * plus every span recorded so far, live, which only an apply-review run's
+ * merge gate reads.
+ */
 type RunRecording = Pick<
   InvocationState,
   | "recordRunCost"
@@ -164,6 +173,7 @@ type RunRecording = Pick<
   | "recordRunEnded"
   | "recordRunSpanStarted"
   | "recordRunSpanEnded"
+  | "runSpans"
 >;
 
 /**
@@ -637,6 +647,7 @@ async function work(
       invocation,
       spendCeiling,
       model,
+      selection.project.turbo,
     );
   }
   if (isReviewTicket(selection.ticket)) {
@@ -1819,6 +1830,12 @@ async function runSpecReview(
  * checked for before any of that: its branch is commonly gone with it, which
  * is what made a run started on one fail checkout every time. The ticket is
  * closed with a comment naming which, and no run starts.
+ *
+ * On a turbo project, a ticket that closes runs one more check, the merge
+ * gate: per `CONTEXT.md`'s "Turboable" and ADR 0009, whether its implementation
+ * ticket carried `turboable` before that ticket's own run started, and, only
+ * then, whether the pull request is mergeable, green and free of declined
+ * threads. See `finishApplyReview`.
  */
 async function runApplyReview(
   ports: MorningLoopPorts,
@@ -1827,6 +1844,7 @@ async function runApplyReview(
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
+  turbo: boolean,
 ): Promise<
   | AppliedReview
   | LimitRefused
@@ -1845,6 +1863,14 @@ async function runApplyReview(
     return resolved;
   }
 
+  // Resolved here, before the ticket itself is ever closed: `listOpenIssues`
+  // only ever reports an open issue, and `ticket` is exactly that until
+  // `finishApplyReview` closes it. Skipped outright on a project that is not
+  // turbo, per `mergeGate`'s own doc — the merge gate never asks there.
+  const implementation = turbo
+    ? await implementationTicketFor(ports.tracker, ticket)
+    : undefined;
+
   const startedAt = ports.clock.now();
   let before: ApplyReviewAnswers;
   try {
@@ -1856,7 +1882,14 @@ async function runApplyReview(
     return infrastructureFailure(error);
   }
   if (before.unanswered === 0) {
-    return finishApplyReview(ports, ticket, { kind: "applied-review" });
+    return finishApplyReview(
+      ports,
+      ticket,
+      { kind: "applied-review" },
+      turbo,
+      implementation,
+      invocation,
+    );
   }
 
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
@@ -1931,12 +1964,19 @@ async function runApplyReview(
     );
   }
 
-  const finished = await finishApplyReview(ports, ticket, {
-    kind: "applied-review",
-    review: run,
-    tokensUsed: run.tokensUsed,
-    answers: { applied: answers.appliedSince, declined: answers.declinedSince },
-  });
+  const finished = await finishApplyReview(
+    ports,
+    ticket,
+    {
+      kind: "applied-review",
+      review: run,
+      tokensUsed: run.tokensUsed,
+      answers: { applied: answers.appliedSince, declined: answers.declinedSince },
+    },
+    turbo,
+    implementation,
+    invocation,
+  );
   return withDiscoveries(finished, routed);
 }
 
@@ -1946,11 +1986,18 @@ async function runApplyReview(
  * `applied-review`. Never throws: a failure marking it ready or closing the
  * ticket is reported on the iteration and leaves the ticket open; a refused
  * label is reported too, but by then the ticket has already closed.
+ *
+ * On a turbo project, once the ticket has closed, this also runs the merge
+ * gate (`mergeGate`) and folds its own verdict in as `merge` — never when
+ * closing itself failed, the same as the label above.
  */
 async function finishApplyReview(
   ports: MorningLoopPorts,
   ticket: ApplyReviewTicket,
   applied: AppliedReview,
+  turbo: boolean,
+  implementation: Ticket | undefined,
+  invocation: Pick<RunRecording, "runSpans">,
 ): Promise<AppliedReview> {
   const pullRequest = ticket.pullRequest.url;
   try {
@@ -1977,7 +2024,97 @@ async function finishApplyReview(
     pullRequest,
     APPLIED_REVIEW_LABEL,
   );
-  return { ...applied, ...labelled };
+  const closed: AppliedReview = { ...applied, ...labelled };
+  if (!turbo) {
+    return closed;
+  }
+  const merge = await mergeGate(ports, ticket, closed, implementation, invocation.runSpans());
+  return { ...closed, merge };
+}
+
+/**
+ * The merge gate: whether `implementation` — `ticket`'s own implementation
+ * ticket, resolved by the caller while it was still open — carried
+ * `turboable` before its own run started — `CONTEXT.md`'s "Turboable", ADR
+ * 0009 — and, only then, whether `applied`'s own pass left the pull request
+ * free of declined threads, attempting the merge itself to settle mergeable
+ * and green. Fires once, right after the one apply-review run already in the
+ * loop: no retry, no `/rebase`, whatever it finds.
+ *
+ * `implementation` absent, or carrying no run span, reads the same as not
+ * turboable in time: neither is proof the manager can act on, and
+ * `CONTEXT.md`'s "Turboable" already documents both as known gaps.
+ */
+async function mergeGate(
+  ports: MorningLoopPorts,
+  ticket: ApplyReviewTicket,
+  applied: AppliedReview,
+  implementation: Ticket | undefined,
+  spans: readonly RunSpan[],
+): Promise<MergeGate> {
+  const span = implementation === undefined ? undefined : runSpanFor(spans, implementation);
+  if (implementation === undefined || span === undefined) {
+    return { kind: "not-eligible" };
+  }
+  const inTime = await ports.tracker.wasTurboableAt(implementation, span.startedAt, spans);
+  if (!inTime) {
+    return { kind: "not-eligible" };
+  }
+
+  const pullRequest = ticket.pullRequest.url;
+  const declined = applied.answers?.declined ?? 0;
+  if (declined > 0) {
+    return leftForHuman(ports, pullRequest, declinedThreadsReason(declined));
+  }
+  try {
+    await ports.repoHost.mergePullRequest(pullRequest);
+    return { kind: "merged" };
+  } catch (error: unknown) {
+    return leftForHuman(ports, pullRequest, errorMessage(error));
+  }
+}
+
+/** What `mergeGate` says when `count` declined threads are why it would not merge. */
+function declinedThreadsReason(count: number): string {
+  return count === 1 ? "1 declined thread" : `${count} declined threads`;
+}
+
+/**
+ * `pullRequest` left for the developer: labelled
+ * `READY_FOR_HUMAN_PULL_REQUEST_LABEL`, `reason` carried along for the
+ * summary. As `labelClosedPullRequest`: a refused label is reported on the
+ * outcome, never raised.
+ */
+async function leftForHuman(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+  reason: string,
+): Promise<MergeGate> {
+  const labelled = await labelClosedPullRequest(
+    ports,
+    pullRequest,
+    READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+  );
+  return { kind: "left-for-human", reason, ...labelled };
+}
+
+/**
+ * `ticket`'s own implementation ticket: the parent `tracker.listOpenIssues`
+ * reports for it, resolved to the ticket it names — the same lookup
+ * `discoveryTargetFor` in `discovery-routing.ts` does for a pull request
+ * ticket's discoveries. `undefined` where either read misses: a truncated
+ * backlog, most likely, since the implementation ticket stays open,
+ * relabelled `ready-for-human`, once its own run hands off.
+ */
+async function implementationTicketFor(
+  tracker: Pick<IssueTracker, "listOpenIssues">,
+  ticket: PullRequestTicket,
+): Promise<Ticket | undefined> {
+  const { issues } = await tracker.listOpenIssues(ticket.repo);
+  const parentNumber = issues.find((issue) => issue.ticket.number === ticket.number)?.parent;
+  return parentNumber === undefined
+    ? undefined
+    : issues.find((issue) => issue.ticket.number === parentNumber)?.ticket;
 }
 
 /** Hands back an apply-review run that gave up or left a thread unanswered. */

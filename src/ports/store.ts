@@ -258,7 +258,7 @@ export function recordRunSpanEnded(
 
 /** The run span `spans` carries for `ticket`, absent if it has none. */
 export function runSpanFor(
-  spans: RunSpan[] | undefined,
+  spans: readonly RunSpan[] | undefined,
   ticket: WorkedTicket,
 ): RunSpan | undefined {
   return spans?.find((span) => ticketKey(span) === ticketKey(ticket));
