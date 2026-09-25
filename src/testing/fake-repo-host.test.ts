@@ -85,6 +85,15 @@ describe("FakeRepoHost apply-review answers", () => {
       { pullRequest: OTHER, body: "Hello." },
     ]);
   });
+
+  it("records every pull request merged, in order", async () => {
+    const host = new FakeRepoHost();
+
+    await host.mergePullRequest(PULL_REQUEST);
+    await host.mergePullRequest(OTHER);
+
+    assert.deepEqual(host.merged, [PULL_REQUEST, OTHER]);
+  });
 });
 
 describe("FakeRepoHost needsRebase", () => {

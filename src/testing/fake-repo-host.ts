@@ -440,6 +440,13 @@ export class FakeRepoHost implements RepoHost {
     return this.#closingPullRequests.get(repo) ?? [];
   }
 
+  /** Every pull request `mergePullRequest` was called on, in order. */
+  readonly merged: PullRequestUrl[] = [];
+
+  async mergePullRequest(pullRequest: PullRequestUrl): Promise<void> {
+    this.merged.push(pullRequest);
+  }
+
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {
     let threads = this.#applyReviewThreads.get(pullRequest);
     if (threads === undefined) {

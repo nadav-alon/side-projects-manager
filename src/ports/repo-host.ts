@@ -524,12 +524,12 @@ export interface RepoHost {
    * resolve rather than reject, so a caller has one thing to read: which end
    * it came to, and so where the work is.
    *
-   * Opened as a draft, and never merged: there is no verb here that merges a
-   * pull request, because merging is the developer's and a port that could do
-   * it is a port an unattended morning could use. The one promotion is
-   * {@link markPullRequestReady}, which an apply-review ticket's run uses: the
-   * developer asked for that review to be acted on, and marking the pull
+   * Opened as a draft, and never merged by this call. The one promotion here
+   * is {@link markPullRequestReady}, which an apply-review ticket's run uses:
+   * the developer asked for that review to be acted on, and marking the pull
    * request ready hands the result back to them for review, merging nothing.
+   * {@link mergePullRequest} is the port's only verb that merges a pull
+   * request; nothing here reaches for it.
    *
    * The branch is the agent's work, already committed and fetched back into
    * the checkout by the sandbox, so nothing is committed here.
@@ -630,7 +630,7 @@ export interface RepoHost {
    *
    * Adds only. There is no verb here that removes a label, the way
    * {@link markPullRequestReady} is the only one that promotes a pull request:
-   * labelling says something happened to it, and merges nothing.
+   * labelling says something happened to it, not that anything merged.
    */
   labelPullRequest(
     pullRequest: PullRequestUrl,
@@ -700,4 +700,13 @@ export interface RepoHost {
    * the ones a closed sub-issue's own pull request now is.
    */
   listPullRequestsClosingIssues(repo: RepoSlug): Promise<ClosingPullRequest[]>;
+  /**
+   * Merges `pullRequest` with a merge commit, and deletes its branch.
+   *
+   * A merge the host refuses — conflicting, checks failing, already merged —
+   * is raised as an error naming the pull request, never swallowed: a caller
+   * gating on this succeeding needs to tell a real refusal apart from
+   * anything else that could go wrong.
+   */
+  mergePullRequest(pullRequest: PullRequestUrl): Promise<void>;
 }
