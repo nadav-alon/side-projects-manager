@@ -616,11 +616,19 @@ still inside what is spendable, is told apart from a window already spent. Refer
 gate".
 _Avoid_: throttle, rate limit, quota check
 
+**Weighted token**:
+A token counted by the provider's own price ratio to a fresh input token — output at five, a cache
+write at 1.25, a cache read at a tenth — rather than at equal weight, since the provider publishes no
+weights of its own for what counts against a session or weekly limit. What every figure in the Budget
+section is stated in: the two allowances, the run estimate, and what the ledger and a run's own spend
+both report.
+_Avoid_: raw token, token (unqualified, inside this section)
+
 **Run estimate**:
-The tokens the gate charges a run before it starts, in place of the cost nobody can know until it
-ends. Comes from the ticket's size label, and is the same whatever model the run uses. Never revised
-by what earlier runs cost: the summary sets each run's cost beside its estimate and flags a run that
-spent more, and correcting the figure is the developer's.
+The weighted tokens the gate charges a run before it starts, in place of the cost nobody can know
+until it ends. Comes from the ticket's size label, and is the same whatever model the run uses. Never
+revised by what earlier runs cost: the summary sets each run's cost beside its estimate and flags a
+run that spent more, and correcting the figure is the developer's.
 _Avoid_: projection, forecast, reservation, hold, assumed cost
 
 **Reserve**:
@@ -637,14 +645,16 @@ from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
-The tokens a window is declared to hold. Self-declared, because the provider reports consumption and
-never remaining quota.
+The weighted tokens a window is declared to hold. Self-declared: what the provider does report of a
+window's own usage — the status line's `used_percentage`, `rate_limit_event`'s utilization — reaches
+neither a headless run nor the gate before it needs an answer, so there is nothing to read a true
+figure from.
 _Avoid_: quota, limit, capacity
 
 **Usage ledger**:
-What reports rolling token consumption. Knowingly under-counts, since it cannot see Claude chat or
-other machines; the same blindness skews the 5-hour boundary it infers, which is what an observed
-reset corrects. Referred to as "the ledger".
+What reports rolling weighted-token consumption. Knowingly under-counts, since it cannot see Claude
+chat or other machines; the same blindness skews the 5-hour boundary it infers, which is what an
+observed reset corrects. Referred to as "the ledger".
 _Avoid_: usage tracker, meter, monitor
 
 **Window**:

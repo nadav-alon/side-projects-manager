@@ -194,15 +194,15 @@ STATE_FILE="$MANAGER_HOME/state.json"
 
 # DEFAULT_BUDGET in src/ports/budget.ts. Kept honest by stage 7, which reads
 # the written document back through the manager's own parser.
-DEFAULT_FIVE_HOUR=50000000
-DEFAULT_WEEKLY=500000000
+DEFAULT_FIVE_HOUR=15000000
+DEFAULT_WEEKLY=150000000
 DEFAULT_RESERVE=0.5
-DEFAULT_CEILING=5
+DEFAULT_CEILING=10
 
 # What this wizard produces is budget.json, not an env file or a CI secret,
 # so write_env/set_secret go unused and the closing summary is written by hand.
 
-# _commas N groups a long token count for reading: 50000000 -> 50,000,000.
+# _commas N groups a long token count for reading: 5000000 -> 5,000,000.
 _commas() { printf '%s' "$1" | sed -e ':a' -e 's/\B[0-9]\{3\}\>/,&/;ta'; }
 
 # _valid KIND VALUE: whether VALUE is usable, by the same rules the manager

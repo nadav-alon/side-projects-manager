@@ -22,43 +22,58 @@ describe("parseUsageWindows", () => {
     assert.equal(windows.weekly.tokensUsed, 0);
   });
 
-  it("aggregates input, output, and both cache token fields", () => {
+  it("weighs input, output, and both cache token fields by their price ratio", () => {
     const windows = parseUsageWindows([fixture("token-fields.jsonl")], NOW);
 
-    // 111 input + 222 output + 333 cache-creation + 444 cache-read
-    assert.equal(windows.fiveHour.tokensUsed, 1110);
-    assert.equal(windows.weekly.tokensUsed, 1110);
+    // 111 input + 222*5 output + 333*1.25 cache-creation + 444*0.1 cache-read
+    // = 1681.65
+    assert.equal(windows.fiveHour.tokensUsed, 1682);
+    assert.equal(windows.weekly.tokensUsed, 1682);
   });
 
   it("skips malformed lines without aborting the parse", () => {
     const windows = parseUsageWindows([fixture("malformed.jsonl")], NOW);
 
-    // only the one well-formed entry (40 input + 10 output) should count
-    assert.equal(windows.fiveHour.tokensUsed, 50);
+    // only the one well-formed entry (40 input + 10*5 output) should count
+    assert.equal(windows.fiveHour.tokensUsed, 90);
+  });
+
+  it("rounds a window's total once, rather than compounding each line's own rounding", () => {
+    // each line weighs to 0.5 (5 cache-read tokens at 0.1), which rounds up
+    // to 1 on its own; summed first, the window's true total is exactly 1,
+    // not the 2 that rounding each line first would give
+    const lines = [
+      logLine({ timestamp: "2026-09-05T11:00:00.000Z", inputTokens: 0, outputTokens: 0, cacheReadTokens: 5 }),
+      logLine({ timestamp: "2026-09-05T11:01:00.000Z", inputTokens: 0, outputTokens: 0, cacheReadTokens: 5 }),
+    ].join("\n");
+
+    const windows = parseUsageWindows([lines], NOW);
+
+    assert.equal(windows.fiveHour.tokensUsed, 1);
   });
 
   describe("against a history spanning weeks and five-hour blocks", () => {
     const windows = parseUsageWindows([fixture("session-history.jsonl")], NOW);
 
     it("excludes entries outside both windows", () => {
-      // the 2026-08-20 entry (1500 tokens) predates the weekly window
-      // (opened 2026-08-30) and any five-hour block near `now`
-      assert.equal(windows.weekly.tokensUsed, 225);
-      assert.equal(windows.fiveHour.tokensUsed, 110);
+      // the 2026-08-20 entry (3500 weighted tokens) predates the weekly
+      // window (opened 2026-08-30) and any five-hour block near `now`
+      assert.equal(windows.weekly.tokensUsed, 442);
+      assert.equal(windows.fiveHour.tokensUsed, 187);
     });
 
     it("counts an entry straddling the weekly boundary in the correct window", () => {
       // 23:59:59.999 the Saturday before falls in the prior week (excluded);
       // 00:00:00.000 the following instant opens the current week (included)
       assert.equal(windows.weekly.openedAt.toISOString(), "2026-08-30T00:00:00.000Z");
-      assert.equal(windows.weekly.tokensUsed, 225);
+      assert.equal(windows.weekly.tokensUsed, 442);
     });
 
     it("counts an entry straddling a five-hour block boundary in the correct window", () => {
       // 05:00 opens a block; the 10:00 entry lands exactly five hours later,
       // which opens the next block rather than extending the first
       assert.equal(windows.fiveHour.openedAt.toISOString(), "2026-09-05T10:00:00.000Z");
-      assert.equal(windows.fiveHour.tokensUsed, 110);
+      assert.equal(windows.fiveHour.tokensUsed, 187);
     });
 
     it("computes windows relative to the injected clock, not wall time", () => {
@@ -202,6 +217,7 @@ function logLine(options: {
   timestamp: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
 }): string {
   return JSON.stringify({
     parentUuid: null,
@@ -217,7 +233,7 @@ function logLine(options: {
       usage: {
         input_tokens: options.inputTokens,
         cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
+        cache_read_input_tokens: options.cacheReadTokens ?? 0,
         output_tokens: options.outputTokens,
       },
     },

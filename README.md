@@ -261,23 +261,26 @@ anything:
 
 ```json
 {
-  "fiveHourAllowance": 50000000,
-  "weeklyAllowance": 500000000,
+  "fiveHourAllowance": 15000000,
+  "weeklyAllowance": 150000000,
   "reserveFraction": 0.5,
   "fiveHourReserveFraction": 0,
   "spendCeiling": 10,
-  "sizes": { "S": 500000, "M": 2000000, "L": 5000000, "XL": 10000000 },
+  "sizes": { "S": 150000, "M": 600000, "L": 1500000, "XL": 3000000 },
   "unsizedCountsAs": "M"
 }
 ```
 
 Every field is optional and falls back to the default above, so moving the reserve alone is one
-line. The two allowances are tokens, and they are declarations rather than measurements: the
-provider reports what you have consumed and never what you have left, so these are your own numbers
-to calibrate against the run costs accumulating in `state.json`. Neither may be zero — an allowance
-of nothing leaves nothing spendable, and a window is let through while it has consumed no more than
-it may, so zero would authorise a run every morning rather than stopping them. To halt the mornings,
-run `npm run halt` — see [Triggers](#triggers).
+line. The two allowances are weighted tokens — a fresh input token counts as 1, output as 5, a cache
+write as 1.25 and a cache read as 0.1, the ratios the provider prices every current model by, in
+place of the equal weight that let a run's cache reads pass for most of its cost — and they are
+declarations rather than measurements: what the provider does report of a window's own usage — a
+status-line percentage, a utilization figure sent only once a limit is hit — never reaches a headless
+run in time to act on, so these are your own numbers to calibrate against the run costs accumulating
+in `state.json`. Neither may be zero — an allowance of nothing leaves nothing spendable, and a window is
+let through while it has consumed no more than it may, so zero would authorise a run every morning
+rather than stopping them. To halt the mornings, run `npm run halt` — see [Triggers](#triggers).
 
 `reserveFraction` is the share of the weekly allowance held back for you. At the default of `0.5`
 the mornings may spend half the week: the gate refuses once more than half is gone. When both
@@ -291,11 +294,11 @@ block and behaves exactly as it did before this field existed: a morning may sti
 whole. Raise it if a run locking you out until the block resets is a cost you want the gate to
 weigh.
 
-`sizes` is what each ticket size label is worth, in tokens: the run estimate the gate charges before
-a run starts. Any of `S`, `M`, `L` or `XL` may be left out, and each missing one falls back to its
-own default shown above; a `sizes` document naming only `L` leaves `S`, `M` and `XL` where they were.
-Every value must be a whole number of tokens, 0 or more, and a key that is not one of the four sizes
-is refused the same way an unrecognised top-level setting is.
+`sizes` is what each ticket size label is worth, in weighted tokens: the run estimate the gate
+charges before a run starts. Any of `S`, `M`, `L` or `XL` may be left out, and each missing one falls
+back to its own default shown above; a `sizes` document naming only `L` leaves `S`, `M` and `XL`
+where they were. Every value must be a whole number of tokens, 0 or more, and a key that is not one
+of the four sizes is refused the same way an unrecognised top-level setting is.
 
 `unsizedCountsAs` is the size a ticket with no size label counts as, and the size every review ticket
 counts as — a review never inherits its parent's size. It must name one of the four sizes, and

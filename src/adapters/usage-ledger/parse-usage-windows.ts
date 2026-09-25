@@ -1,18 +1,29 @@
 import type {
   Milliseconds,
-  TokenCount,
   UsageWindow,
   UsageWindows,
+  WeightedTokens,
 } from "../../ports/index.ts";
-import { milliseconds, tokenCount } from "../../ports/index.ts";
+import {
+  milliseconds,
+  numberField,
+  roundedTokenCount,
+  tokenCount,
+  weighTokenFields,
+} from "../../ports/index.ts";
 
 const FIVE_HOURS_MS = milliseconds(5 * 60 * 60 * 1000);
 const WEEK_MS = milliseconds(7 * 24 * 60 * 60 * 1000);
 
-/** One assistant log line with usage, reduced to what a window needs. */
+/**
+ * One assistant log line with usage, reduced to what a window needs.
+ * `tokensUsed` is `weighTokenFields`' own unrounded figure, left that way so a
+ * window sums many lines before rounding once, rather than compounding each
+ * line's own rounding across a busy window.
+ */
 interface UsageLogEntry {
   timestamp: Date;
-  tokensUsed: TokenCount;
+  tokensUsed: WeightedTokens;
 }
 
 /**
@@ -79,7 +90,7 @@ function parseLogLine(line: string): UsageLogEntry | undefined {
     return undefined;
   }
 
-  const tokensUsed = sumTokenFields(usage as Record<string, unknown>);
+  const tokensUsed = weighLineUsage(usage as Record<string, unknown>);
   if (tokensUsed === undefined) {
     return undefined;
   }
@@ -95,21 +106,26 @@ function parseTimestamp(value: unknown): Date | undefined {
   return Number.isNaN(timestamp.getTime()) ? undefined : timestamp;
 }
 
-/** Aggregates input, output, and both cache token fields. Missing cache fields count as zero. */
-function sumTokenFields(usage: Record<string, unknown>): TokenCount | undefined {
+/**
+ * `usage`'s input, output and both cache token fields, weighed by
+ * `weighTokenFields`, so this ledger counts the same way
+ * `container-sandbox.ts`'s `totalTokens` does. Missing cache fields count as
+ * zero.
+ */
+function weighLineUsage(
+  usage: Record<string, unknown>,
+): WeightedTokens | undefined {
   const input = usage.input_tokens;
   const output = usage.output_tokens;
   if (typeof input !== "number" || typeof output !== "number") {
     return undefined;
   }
-  const cacheCreation = usage.cache_creation_input_tokens;
-  const cacheRead = usage.cache_read_input_tokens;
-  return tokenCount(
-    input +
-      output +
-      (typeof cacheCreation === "number" ? cacheCreation : 0) +
-      (typeof cacheRead === "number" ? cacheRead : 0),
-  );
+  return weighTokenFields({
+    input,
+    output,
+    cacheCreation: numberField(usage.cache_creation_input_tokens),
+    cacheRead: numberField(usage.cache_read_input_tokens),
+  });
 }
 
 /**
@@ -240,7 +256,11 @@ function activeWindow(
       const tokensUsed = entries
         .filter((entry) => entry.timestamp.getTime() >= openedAt.getTime())
         .reduce((sum, entry) => sum + entry.tokensUsed, 0);
-      return { openedAt, resetsAt, tokensUsed: tokenCount(tokensUsed) };
+      return {
+        openedAt,
+        resetsAt,
+        tokensUsed: roundedTokenCount(tokensUsed),
+      };
     }
   }
 

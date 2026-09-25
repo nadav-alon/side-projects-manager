@@ -4627,17 +4627,19 @@ fi`;
   });
 
   describe("reading what the agent CLI said", () => {
-    it("reads the agent's result and totals every token field", async (t) => {
+    it("weighs every token field by the provider's own price ratios", async (t) => {
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
             result: "implemented the thing",
-            usage: {
-              input_tokens: 1,
-              output_tokens: 2,
-              cache_creation_input_tokens: 4,
-              cache_read_input_tokens: 8,
+            modelUsage: {
+              "claude-sonnet-5": {
+                inputTokens: 1,
+                outputTokens: 2,
+                cacheCreationInputTokens: 4,
+                cacheReadInputTokens: 8,
+              },
             },
           }),
         ),
@@ -4647,7 +4649,8 @@ fi`;
 
       assert.equal(result.kind, "finished");
       assert.equal(variant(result, "finished")?.output, "implemented the thing");
-      assert.equal(result.tokensUsed, tokenCount(15));
+      // 1 input + 2*5 output + 4*1.25 cache-creation + 8*0.1 cache-read = 16.8
+      assert.equal(result.tokensUsed, tokenCount(17));
     });
 
     it("counts the fields it was given and no others", async (t) => {
@@ -4656,14 +4659,36 @@ fi`;
         dockerAnswering(
           JSON.stringify({
             result: "done",
-            usage: { input_tokens: 3, output_tokens: 4 },
+            modelUsage: {
+              "claude-sonnet-5": { inputTokens: 3, outputTokens: 4 },
+            },
           }),
         ),
         (sandbox, directory) =>
           sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
-      assert.equal(result.tokensUsed, tokenCount(7));
+      // 3 input + 4*5 output, with no cache fields to weigh
+      assert.equal(result.tokensUsed, tokenCount(23));
+    });
+
+    it("sums every model's usage, so a run that delegated to a subagent is not undercounted", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "done",
+            modelUsage: {
+              "claude-sonnet-5": { inputTokens: 10, outputTokens: 0 },
+              "claude-haiku-4-5": { inputTokens: 5, outputTokens: 0 },
+            },
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.tokensUsed, tokenCount(15));
     });
 
     it("keeps output it cannot parse, and charges nothing for it", async (t) => {
@@ -4680,7 +4705,9 @@ fi`;
     });
 
     it("keeps the raw envelope when it carries no result", async (t) => {
-      const stdout = JSON.stringify({ usage: { input_tokens: 5 } });
+      const stdout = JSON.stringify({
+        modelUsage: { "claude-sonnet-5": { inputTokens: 5 } },
+      });
       const { result } = await runWithDocker(
         t,
         dockerAnswering(stdout),
@@ -4701,6 +4728,28 @@ fi`;
       );
 
       assert.equal(result.tokensUsed, tokenCount(0));
+    });
+
+    it("weighs the envelope's own usage when it carries no modelUsage", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "done",
+            usage: {
+              input_tokens: 1,
+              output_tokens: 2,
+              cache_creation_input_tokens: 4,
+              cache_read_input_tokens: 8,
+            },
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      // 1 input + 2*5 output + 4*1.25 cache-creation + 8*0.1 cache-read = 16.8
+      assert.equal(result.tokensUsed, tokenCount(17));
     });
 
     /** A run that went wrong says so on stderr, and nowhere else. */
@@ -4924,7 +4973,9 @@ fi`;
         variant(result, "budget-exhausted")?.words,
         BUDGET_EXHAUSTED_JSON_RESULT,
       );
-      assert.equal(result.tokensUsed, tokenCount(671_055));
+      // 12,345 input + 18,500*5 output + 30,210*1.25 cache-creation +
+      // 610,000*0.1 cache-read = 203,607.5
+      assert.equal(result.tokensUsed, tokenCount(203_608));
     });
 
     it("reads no spend-ceiling ending from the provider-failure fixture's own subtype", async (t) => {

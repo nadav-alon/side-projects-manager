@@ -343,9 +343,9 @@ function parseRegistry(
 }
 
 /**
- * `{ "fiveHourAllowance": 50000000, "weeklyAllowance": 500000000,
+ * `{ "fiveHourAllowance": 15000000, "weeklyAllowance": 150000000,
  *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 10,
- *    "sizes": { "S": 500000 }, "unsizedCountsAs": "M" }`
+ *    "sizes": { "S": 150000 }, "unsizedCountsAs": "M" }`
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
  * `observedResetAt`, which has no default because a boundary nobody has seen
@@ -439,7 +439,7 @@ function spendCeilingField(value: unknown, file: string): SpendCeiling {
 }
 
 /**
- * `{ "S": 500000, "M": 2000000 }`
+ * `{ "S": 50000, "M": 200000 }`
  *
  * Every size is optional and falls back to the default for that size alone,
  * so a document raising just `L` leaves the other three where they were.

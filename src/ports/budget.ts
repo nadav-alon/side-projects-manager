@@ -7,10 +7,11 @@ import { usd, type Usd } from "./usd.ts";
 /**
  * What the developer is willing to let the mornings spend.
  *
- * The provider reports consumption but never remaining quota, so every
- * allowance here is self-declared: a number the developer states and then
- * calibrates against the run costs the state document accumulates. Being
- * wrong is safe in one direction only, which is why the reserve exists.
+ * What the provider does report of a window's own usage never reaches a
+ * headless run in time to act on, so every allowance here is self-declared: a
+ * number the developer states and then calibrates against the run costs the
+ * state document accumulates. Being wrong is safe in one direction only,
+ * which is why the reserve exists.
  */
 /**
  * `spendCeiling`'s shape: one dollar figure for every size, or one figure per
@@ -82,23 +83,29 @@ export interface Budget {
  * should behave exactly as it did before that setting existed.
  *
  * These numbers are never revised by anything running here — nothing writes
- * the budget document, and the provider reports consumption but never
- * remaining quota, so there is nothing to derive a true allowance from. They
- * are the developer's to raise or lower by hand in `budget.json`, against the
- * run costs `state.json` accumulates.
+ * the budget document, and what the provider does report of a window's own
+ * usage never reaches a headless run, so there is nothing to derive a true
+ * allowance from. They are the developer's to raise or lower by hand in
+ * `budget.json`, against the run costs `state.json` accumulates.
+ *
+ * Expressed in `weightedTokenCount`'s tokens: scaled down by 0.3 from a
+ * straight sum of usage fields, the ratio a realistic mix of input, output
+ * and cache tokens weighs to (see ADR 0009), rather than the cache-read
+ * weight alone. The developer's own recalibration against `state.json` is
+ * what corrects it for a machine whose own mix differs.
  */
 export const DEFAULT_BUDGET: Budget = {
-  fiveHourAllowance: tokenCount(50_000_000),
-  weeklyAllowance: tokenCount(500_000_000),
+  fiveHourAllowance: tokenCount(15_000_000),
+  weeklyAllowance: tokenCount(150_000_000),
   reserveFraction: reserveFraction(0.5),
   fiveHourReserveFraction: reserveFraction(0),
   spendCeiling: usd(10),
   maxConcurrentIterations: iterationLimit(1),
   sizes: {
-    S: tokenCount(500_000),
-    M: tokenCount(2_000_000),
-    L: tokenCount(5_000_000),
-    XL: tokenCount(10_000_000),
+    S: tokenCount(150_000),
+    M: tokenCount(600_000),
+    L: tokenCount(1_500_000),
+    XL: tokenCount(3_000_000),
   },
   unsizedCountsAs: "M",
 };

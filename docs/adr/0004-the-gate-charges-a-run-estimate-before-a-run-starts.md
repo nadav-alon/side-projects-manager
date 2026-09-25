@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: amended by ADR-0009
 ---
 
 # The gate charges a run estimate before a run starts
