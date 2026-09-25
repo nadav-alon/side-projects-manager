@@ -14,6 +14,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
+import { fileHalt } from "../adapters/file-halt.ts";
 import {
   fileInvocationLease,
   LEASE_FILE,
@@ -160,6 +161,52 @@ describe("the morning-run command", () => {
         (call) => call[0] === "issue" && call[1] === "create",
       );
       assert.equal(creates.length, 2, "each home has its own lease");
+    });
+  });
+
+  describe("halted", () => {
+    it("runs nothing, takes no lease, and says the loop is halted", async (t) => {
+      const gh = await emptyBacklogGh(t);
+      const directory = await home();
+      await fileHalt(directory).engage();
+
+      const { stdout, stderr } = await run(directory);
+
+      assert.equal(stderr, "");
+      assert.match(stdout, /halted/i);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 0, "the halted firing never ran");
+      await assert.rejects(access(path.join(directory, LEASE_FILE)), "no lease was taken");
+    });
+
+    it("claims no day: writes neither a journal record nor a state document", async (t) => {
+      await emptyBacklogGh(t);
+      const directory = await home();
+      await fileHalt(directory).engage();
+
+      await run(directory);
+
+      await assert.rejects(readFile(path.join(directory, "journal.json")));
+      await assert.rejects(readFile(path.join(directory, "state.json")));
+    });
+
+    it("runs again once resumed", async (t) => {
+      const gh = await emptyBacklogGh(t);
+      const directory = await home();
+      const halt = fileHalt(directory);
+      await halt.engage();
+      await halt.clear();
+
+      const { stdout } = await run(directory);
+
+      assert.doesNotMatch(stdout, /halted/i);
+      assert.match(stdout, /nothing to do/i);
+      const creates = (await gh.calls()).filter(
+        (call) => call[0] === "issue" && call[1] === "create",
+      );
+      assert.equal(creates.length, 1, "the invocation went ahead");
     });
   });
 

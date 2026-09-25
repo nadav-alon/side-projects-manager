@@ -149,6 +149,18 @@ over by whichever firing next asks, so a process killed mid-run does not stop th
 reuse after a reboot is accepted as negligible.
 _Avoid_: mutex, semaphore, debounce, once-per-day lock
 
+**Halt**:
+A developer's standing "do nothing" for every trigger, engaged by `halt` and cleared by `resume`:
+a firing while halted starts nothing, takes no invocation lease, and claims no day, saying so in
+one line instead. Checked ahead of the invocation lease, by whatever calls `morningLoop` — the loop
+itself never sees it, exactly like the lease. Distinct from pausing every project, which leaves the
+loop free to run and report a dry queue: pausing is an intent about one project, a halt is an
+operational statement about every trigger on this machine. Kept in a file of its own under the
+manager home rather than the registry or the state document, so it survives
+`scripts/install-triggers.sh` being re-run and a reboot without the developer's intent passing
+through either. See ADR 0008.
+_Avoid_: pause (the projects are paused; the loop is halted), disable, kill switch
+
 ### Projects
 
 **Project**:

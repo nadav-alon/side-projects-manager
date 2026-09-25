@@ -5,6 +5,7 @@ import {
   pruneOldTranscripts,
 } from "../adapters/container-sandbox.ts";
 import { documentStore } from "../adapters/document-store.ts";
+import { fileHalt } from "../adapters/file-halt.ts";
 import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
 import { ghIssueTracker } from "../adapters/gh-issue-tracker.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
@@ -17,6 +18,7 @@ import { systemClock } from "../adapters/system-clock.ts";
 import { terminalProgress } from "../adapters/terminal-progress.ts";
 import { sessionLogUsageLedger } from "../adapters/usage-ledger/session-log-usage-ledger.ts";
 import { errorMessage } from "../error-message.ts";
+import { RESUME_COMMAND } from "../halt.ts";
 import { invocationClosing, neverReportedClosing } from "../journal-record.ts";
 import { morningLoop } from "../morning-run.ts";
 import {
@@ -59,9 +61,18 @@ const INTERRUPTED = 130;
  * Recording the invocation happens here, around the loop, rather than inside
  * it: `morningLoop` stays a pure function of its ports, and this is the one
  * place that already has both the store and the finished report.
+ *
+ * Checked ahead of the lease: a halted firing (`../halt.ts`, CONTEXT.md's
+ * "Halt") takes no lease, opens no journal record and writes nothing to the
+ * state document, so it claims no day — the loop resumes exactly where it
+ * left off once `resume` clears the halt.
  */
 async function main(): Promise<void> {
   if (process.env[LOOP_PROCESS] === undefined) {
+    if (await fileHalt().engaged()) {
+      console.log(`halted: doing nothing until \`${RESUME_COMMAND}\`.`);
+      return;
+    }
     const invoked = await invokeExclusively(fileInvocationLease(), invokeLoop);
     if (!invoked) {
       console.log("an invocation is already running.");

@@ -10,7 +10,9 @@
   "bin": {
     "morning-run": "./dist/bin/morning-run.js",
     "new-project": "./dist/bin/new-project.js",
-    "loop-status": "./dist/bin/status.js"
+    "loop-status": "./dist/bin/status.js",
+    "loop-halt": "./dist/bin/halt.js",
+    "loop-resume": "./dist/bin/resume.js"
   },
   "files": [
     "dist",
@@ -23,6 +25,8 @@
     "morning-run": "node src/bin/morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
     "status": "node src/bin/status.ts",
+    "halt": "node src/bin/halt.ts",
+    "resume": "node src/bin/resume.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
     "hooks:install": "git config core.hooksPath .githooks",
     "sandbox:build": "docker build --label side-projects-sandbox.inputs=$(node scripts/sandbox-inputs-digest.ts) --build-arg CLAUDE_CODE_VERSION=$(npm view @anthropic-ai/claude-code version) -t side-projects-sandbox:latest .",

@@ -46,6 +46,13 @@ runs it automatically — it's a command the developer runs once, and it's safe 
 after a checkout moves: re-running replaces a stale registration — a leftover daily cron line, a
 logon-guard rc snippet, or a cron line pointing at the old checkout path — with the current one.
 
+`npm run halt` stops every trigger from doing anything, hourly or manual, until `npm run resume`
+clears it — both commands are idempotent, and say what they did. Distinct from pausing every project
+in `registry.json`: a halt is a file of its own under the manager home
+([`src/adapters/file-halt.ts`](src/adapters/file-halt.ts)), so it survives
+`scripts/install-triggers.sh` being re-run and a reboot without touching the crontab or the registry.
+`npm run status` says when the loop is halted.
+
 ## Running a ticket
 
 The sandbox ([`src/adapters/container-sandbox.ts`](src/adapters/container-sandbox.ts)) makes a
@@ -261,7 +268,7 @@ provider reports what you have consumed and never what you have left, so these a
 to calibrate against the run costs accumulating in `state.json`. Neither may be zero — an allowance
 of nothing leaves nothing spendable, and a window is let through while it has consumed no more than
 it may, so zero would authorise a run every morning rather than stopping them. To halt the mornings,
-pause the projects.
+run `npm run halt` — see [Triggers](#triggers).
 
 `reserveFraction` is the share of the weekly allowance held back for you. At the default of `0.5`
 the mornings may spend half the week: the gate refuses once more than half is gone. When both
