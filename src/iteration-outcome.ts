@@ -561,10 +561,12 @@ export type IterationOutcome =
   | (Attempt & DiscoveryBlocked);
 
 /**
- * A review ticket's own run that finished without the agent giving up. There
- * is no pull request to name here — the review ticket already names the one
- * it is about — and no further review to queue, since nothing reviews a
- * review. A review that gave up or posted nothing is `Failed` instead.
+ * A review ticket's own run that finished without the agent giving up, having
+ * posted a review — with or without a finding — on its pull request since it
+ * started. There is no pull request to name here — the review ticket already
+ * names the one it is about — and no further review to queue, since nothing
+ * reviews a review. A review that gave up, posting neither, is `Failed`
+ * instead.
  */
 export interface Reviewed {
   kind: "reviewed";
@@ -575,8 +577,17 @@ export interface Reviewed {
    */
   tokensUsed: TokenCount;
   /**
+   * Whether this was a clean review — CONTEXT.md's "Clean review": a review
+   * posted since the run started, carrying no finding. Absent when the check
+   * that would have decided it never ran, at `notClosed`'s `"check-failed"`.
+   * Decides whether the pull request is marked ready (`notReadied` besides)
+   * rather than left a draft, and whether turbo's `APPLY_REVIEW_COMMENT` is
+   * ever tried.
+   */
+  clean?: boolean;
+  /**
    * Set when the loop could not finish the ticket off: the pull request could
-   * not be checked for the posted comment, or the ticket could not be closed.
+   * not be checked for a posted review, or the ticket could not be closed.
    * Either way it is still ready-for-agent, and the developer checks the pull
    * request and closes it by hand.
    */
@@ -589,11 +600,19 @@ export interface Reviewed {
    */
   notLabelled?: NotLabelled;
   /**
-   * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006) and the
-   * repo host refused `APPLY_REVIEW_COMMENT` on the pull request. Tried after
-   * the label step, whatever became of it — a refused label does not stop
-   * turbo, only a `notClosed` does — so this is absent both for a project
-   * that is not turbo and for one whose comment posted fine.
+   * Set when `clean` and the repo host refused `markPullRequestReady` on the
+   * pull request. As `notLabelled`: reported rather than retried, and never
+   * `notClosed` — the ticket did close. Always absent when `clean` is not
+   * `true`, since a review with findings is never marked ready.
+   */
+  notReadied?: NotReadied;
+  /**
+   * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006), the
+   * review was not clean, and the repo host refused `APPLY_REVIEW_COMMENT` on
+   * the pull request. Tried after the label step, whatever became of it — a
+   * refused label does not stop turbo, only a `notClosed` does — so this is
+   * absent for a project that is not turbo, for a clean review, which gets no
+   * turbo comment at all, and for one whose comment posted fine.
    */
   notCommented?: NotCommented;
   /** As `Finished.discoveryReport`. */
@@ -623,6 +642,16 @@ export interface NotClosed {
  * pull request labelled, and the error that stopped it.
  */
 export interface NotLabelled {
+  error: string;
+}
+
+/**
+ * Why a clean review's closed ticket could not have its pull request marked
+ * ready for review, and the error that stopped it. Its own interface rather
+ * than `NotLabelled`, as `NotCommented` already is: the glossary tells
+ * "labelled" and "marked ready" apart, so source keeps them apart too.
+ */
+export interface NotReadied {
   error: string;
 }
 

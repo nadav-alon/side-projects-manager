@@ -216,6 +216,29 @@ function reviewedButNotCommented(number: number): IterationOutcome {
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
+/** A review ticket's own run that found nothing to flag and marked its pull request ready. */
+function cleanReview(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    clean: true,
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
+/** A clean review whose ticket closed but whose pull request could not be marked ready. */
+function cleanReviewButNotReadied(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    clean: true,
+    notReadied: { error: "the pull request is locked" },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
 /** An apply-review ticket's own run that finished and closed its ticket cleanly. */
 function appliedReviewCleanly(number: number): IterationOutcome {
   const appliedReview: AppliedReview = {
@@ -557,6 +580,29 @@ describe("waitingSection", () => {
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`,
       `- ${REPO} #186: ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself`,
+    ]);
+  });
+
+  it("renders a clean review's own handover line distinctly from one with findings", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(197), 198),
+      cleanReview(198),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag, marked ready for review`,
+    ]);
+  });
+
+  it("renders both the handover's reviewed line and its own waiting line, when a clean review's ready-mark was refused", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(199), 200),
+      cleanReviewButNotReadied(200),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag`,
+      `- ${REPO} #200: ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself`,
     ]);
   });
 
@@ -1101,6 +1147,24 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Reviewed ${REPO} #214: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself.`,
+    );
+  });
+
+  it("reads a clean review distinctly from one with findings", () => {
+    const line = summaryLine(facts([cleanReview(215)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO} #215: found nothing to flag on ${PULL_REQUEST}, now ready for review.`,
+    );
+  });
+
+  it("names the pull request and the error when a clean review's ready-mark was refused", () => {
+    const line = summaryLine(facts([cleanReviewButNotReadied(216)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO} #216: found nothing to flag on ${PULL_REQUEST}. ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself.`,
     );
   });
 

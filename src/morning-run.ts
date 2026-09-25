@@ -122,6 +122,7 @@ import {
   type LimitRefused,
   type NotCommented,
   type NotLabelled,
+  type NotReadied,
   type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
@@ -1452,21 +1453,47 @@ async function postTurboComment(
 }
 
 /**
- * A review ticket's own run: the reviewer examines the pull request the
- * ticket names and posts its findings there itself, in a container with no
- * write access to its clone. The loop's only remaining part is closing the
- * ticket once that finished, then labelling its pull request `reviewed`
- * and, for a turbo project (CONTEXT.md's "Turbo", ADR 0006), posting
- * `/apply-review` on it as the developer would have typed — a review that
- * posted needs nobody to close it, or act on it, by hand.
+ * Marks `pullRequest` ready for review, once a clean review's ticket has
+ * already closed — CONTEXT.md's "Clean review". The fields returned fold
+ * straight into `Reviewed`: empty on success, `notReadied` naming the error
+ * otherwise.
  *
- * Closing rests on the pull request actually carrying a new comment, not on
+ * Never throws, same as `labelClosedPullRequest`: best effort, since the
+ * ticket having closed is what matters. `summary.ts` renders `notReadied` to
+ * the developer.
+ */
+async function markCleanReviewReady(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+): Promise<{ notReadied?: NotReadied }> {
+  try {
+    await ports.repoHost.markPullRequestReady(pullRequest);
+    return {};
+  } catch (error: unknown) {
+    return { notReadied: { error: errorMessage(error) } };
+  }
+}
+
+/**
+ * A review ticket's own run: the reviewer examines the pull request the
+ * ticket names and posts its findings, or a clean review with none —
+ * CONTEXT.md's "Clean review" — there itself, in a container with no write
+ * access to its clone. The loop's only remaining part is closing the ticket
+ * once that finished, then labelling its pull request `reviewed`, and either
+ * marking it ready for review, for a clean review, or, for a turbo project
+ * (CONTEXT.md's "Turbo", ADR 0006), posting `/apply-review` on it as the
+ * developer would have typed — a review that posted needs nobody to close
+ * it, mark it ready, or act on it, by hand.
+ *
+ * Closing rests on the pull request actually carrying a posted review, not on
  * the sandbox process merely exiting clean: an agent can run the review skill
- * fine and still fail its own last step, `gh pr comment`, and a ticket closed
- * on process success alone would tell the developer a review happened when
- * nothing was ever posted. Either way nothing did — an agent that gave up, or
- * a clean exit that posted nothing — the ticket is handed back, as an
- * implementation ticket's is.
+ * fine and still fail its own last step, submitting the review, and a ticket
+ * closed on process success alone would tell the developer a review happened
+ * when nothing was ever posted. Either way nothing did — an agent that gave
+ * up, or a clean exit that posted nothing — the ticket is handed back, as an
+ * implementation ticket's is. A review posted with no finding on it is not
+ * this: it is a clean review, which closes the ticket exactly as one with
+ * findings does.
  *
  * A pull request already merged or closed by the time the iteration starts is
  * checked for first, before any of that: there is nothing left to review, so
@@ -1474,11 +1501,11 @@ async function postTurboComment(
  *
  * A checkout or a sandbox that could not do its part is an infrastructure
  * failure here exactly as for an implementation run: reported, the ticket left
- * as it was, and the invocation carries on. A check, a close, a label or a
- * turbo comment that fails after the review ran is reported on the
- * iteration, never raised — the turbo comment is tried whether or not the
- * label landed, since it is the ticket having closed that matters, but it is
- * never tried when closing itself failed.
+ * as it was, and the invocation carries on. A check, a close, a label, a
+ * ready-mark or a turbo comment that fails after the review ran is reported
+ * on the iteration, never raised — the ready-mark and the turbo comment are
+ * each tried whether or not the label landed, since it is the ticket having
+ * closed that matters, but neither is ever tried when closing itself failed.
  */
 async function runReview(
   ports: MorningLoopPorts,
@@ -1543,12 +1570,19 @@ async function runReview(
     return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
   }
 
-  let posted: boolean;
+  let findings: boolean;
+  let clean: boolean;
   try {
-    posted = await ports.repoHost.hasReviewFindings(
+    findings = await ports.repoHost.hasReviewFindings(
       ticket.pullRequest.url,
       startedAt,
     );
+    // A clean review — CONTEXT.md's "Clean review" — is only worth asking
+    // about once findings themselves come up empty: a finding is itself
+    // proof a review was posted, and asking again would be a second `gh`
+    // round trip for an answer already known.
+    clean = !findings &&
+      (await ports.repoHost.hasPostedReview(ticket.pullRequest.url, startedAt));
   } catch (error: unknown) {
     const checkFailed: Reviewed = {
       kind: "reviewed",
@@ -1558,7 +1592,7 @@ async function runReview(
     };
     return withDiscoveries(checkFailed, routed);
   }
-  if (!posted) {
+  if (!findings && !clean) {
     return withDiscoveries(
       await handReviewBack(
         ports,
@@ -1577,6 +1611,7 @@ async function runReview(
       kind: "reviewed",
       review,
       tokensUsed: review.tokensUsed,
+      clean,
       notClosed: { kind: "close-failed", error: errorMessage(error) },
     };
     return withDiscoveries(closeFailed, routed);
@@ -1586,14 +1621,22 @@ async function runReview(
     ticket.pullRequest.url,
     REVIEWED_LABEL,
   );
-  const commented = turbo
+  // A clean review has nothing on it for the developer to apply, turbo or
+  // not — CONTEXT.md's "Clean review" — so it is marked ready for review
+  // instead of getting `APPLY_REVIEW_COMMENT`.
+  const readied = clean
+    ? await markCleanReviewReady(ports, ticket.pullRequest.url)
+    : {};
+  const commented = turbo && !clean
     ? await postTurboComment(ports, ticket.pullRequest.url)
     : {};
   const reviewed: Reviewed = {
     kind: "reviewed",
     review,
     tokensUsed: review.tokensUsed,
+    clean,
     ...labelled,
+    ...readied,
     ...commented,
   };
   return withDiscoveries(reviewed, routed);

@@ -360,15 +360,39 @@ export function githubRepoHost(
     ): Promise<boolean> {
       // Inline comments — one per finding, on the line it is actually about —
       // not the pull request's own issue-level comments: that is the shape
-      // `reviewPromptFor` asks the reviewing agent to post in.
+      // `reviewPromptFor` asks the reviewing agent to post in. `--paginate`,
+      // since a long-lived pull request can carry more than one page of
+      // comments — without it only the oldest page is ever read.
       const { owner, repo, number } = pullRequestParts(pullRequest);
       const { stdout } = await run("gh", [
         "api",
         `repos/${owner}/${repo}/pulls/${number}/comments`,
+        "--paginate",
+        "--slurp",
       ]);
 
       return reviewFindingsIn(stdout, pullRequest).some(
         (finding) => finding.postedAt > since,
+      );
+    },
+
+    async hasPostedReview(
+      pullRequest: PullRequestUrl,
+      since: Date,
+    ): Promise<boolean> {
+      // `--paginate`, for the same reason as `hasReviewFindings`: a long-lived
+      // pull request's earlier reviews would otherwise push a later one past
+      // the first page and out of sight.
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        `repos/${owner}/${repo}/pulls/${number}/reviews`,
+        "--paginate",
+        "--slurp",
+      ]);
+
+      return reviewsPostedIn(stdout, pullRequest).some(
+        (postedAt) => postedAt > since,
       );
     },
 
@@ -1010,12 +1034,32 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
 }
 
 /**
- * The {@link ReviewFinding}s `stdout` — `gh api pulls/.../comments` —
- * carries, each beside when it was posted. Read against the declared shape
- * and no other: a raw comment missing `path`, `line` or `body` is not a
- * finding in that shape, and is left out rather than counted, which is what
- * keeps this from also counting the aggregated report the reviewer was told
- * never to post as one comment.
+ * The raw items across every page `stdout` — a `gh api --paginate --slurp`
+ * call — carries: one JSON array per page, wrapped by `--slurp` into an outer
+ * array, flattened here into the one list a caller reads. Throws naming
+ * `where` when `stdout` isn't that shape at all: a malformed response is a
+ * `gh` failure, not a repo host with zero items.
+ */
+function paginatedArrayIn(stdout: string, where: string): unknown[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+  if (!Array.isArray(payload) || !payload.every(Array.isArray)) {
+    throw new Error(`${where}: expected paginated arrays.`);
+  }
+  return payload.flat();
+}
+
+/**
+ * The {@link ReviewFinding}s `stdout` — every page of `gh api
+ * pulls/.../comments` — carries, each beside when it was posted. Read against
+ * the declared shape and no other: a raw comment missing `path`, `line` or
+ * `body` is not a finding in that shape, and is left out rather than counted,
+ * which is what keeps this from also counting the aggregated report the
+ * reviewer was told never to post as one comment.
  */
 function reviewFindingsIn(
   stdout: string,
@@ -1023,18 +1067,8 @@ function reviewFindingsIn(
 ): { finding: ReviewFinding; postedAt: Date }[] {
   const where = `gh api pulls comments for ${pullRequest}`;
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
-  if (!Array.isArray(payload)) {
-    throw new Error(`${where}: expected an array.`);
-  }
-
   const findings: { finding: ReviewFinding; postedAt: Date }[] = [];
-  for (const raw of payload) {
+  for (const raw of paginatedArrayIn(stdout, where)) {
     if (typeof raw !== "object" || raw === null) {
       continue;
     }
@@ -1050,6 +1084,34 @@ function reviewFindingsIn(
     findings.push({ finding: { path, line, body }, postedAt: new Date(created_at) });
   }
   return findings;
+}
+
+/**
+ * When each submitted review across every page of `stdout` — `gh api
+ * pulls/.../reviews` — landed. A pending review, never submitted, carries no
+ * `submitted_at` and is left out: it is not on the pull request for anyone to
+ * read. A `DISMISSED` review is left out too: dismissing it is GitHub's own
+ * way of saying it no longer stands. This still can't tell the agent's own
+ * review apart from one a human or another bot submits on the same pull
+ * request while the run is going — every review here posts under the same
+ * credential the agent runs on — so a third party's review submitted mid-run
+ * can still read as this run's own.
+ */
+function reviewsPostedIn(stdout: string, pullRequest: PullRequestUrl): Date[] {
+  const where = `gh api pulls reviews for ${pullRequest}`;
+
+  const postedAt: Date[] = [];
+  for (const raw of paginatedArrayIn(stdout, where)) {
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+    const { submitted_at, state } = raw as Record<string, unknown>;
+    if (typeof submitted_at !== "string" || state === "DISMISSED") {
+      continue;
+    }
+    postedAt.push(new Date(submitted_at));
+  }
+  return postedAt;
 }
 
 /**

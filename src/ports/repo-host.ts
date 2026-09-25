@@ -578,6 +578,22 @@ export interface RepoHost {
     since: Date,
   ): Promise<boolean>;
   /**
+   * Whether `pullRequest` carries a submitted pull request review posted
+   * after `since`, with or without a {@link ReviewFinding} on it.
+   *
+   * What backs closing a review ticket whose reviewer found nothing to flag:
+   * {@link hasReviewFindings} alone cannot tell a clean review — one
+   * genuinely submitted with no findings — apart from a reviewing agent that
+   * failed its own last step and posted nothing at all, since both leave zero
+   * inline comments. This checks the review itself, the object `gh api
+   * .../pulls/<number>/reviews` returns, which a submission with no findings
+   * still creates.
+   */
+  hasPostedReview(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<boolean>;
+  /**
    * Reads `pullRequest`'s apply-review pass since `since`: see
    * {@link ApplyReviewAnswers}.
    */
