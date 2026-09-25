@@ -800,7 +800,10 @@ export interface IssueTracker {
    * Whether `ticket` had turboable consent at `instant`, read from its label
    * timeline rather than its current labels, and checked against `spans` —
    * see {@link turboableConsentAt}, which does the replaying and the span
-   * check both.
+   * check both. `spans` must include every run span recorded for `ticket`'s
+   * own repo — the caller's full `State.runSpans` does, unfiltered, since a
+   * span for another repo is simply ignored — and an empty array reads as no
+   * spans recorded, not as skipping the check.
    *
    * What the merge gate checks against the instant a ticket's implementation
    * run started: a label added only after that instant, added and then
