@@ -784,7 +784,8 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  * and is left out here. Every other iteration reaching this function carries
  * advisory discoveries only, listed here the same way regardless of kind.
  * Alongside a refused write, either way, only what happened to the write
- * itself is said.
+ * itself is said. A discovered ticket born a **Ready discovery** says so, so
+ * the developer reading this line can tell it skipped their triage.
  */
 function discoveryLines(
   iteration: { repo: RepoSlug; ticket: Ticket },
@@ -799,7 +800,7 @@ function discoveryLines(
     }
     const where =
       filed.action === "discovered-ticket"
-        ? `opened #${filed.ticket.number}`
+        ? `opened #${filed.ticket.number}${filed.ticket.readyDiscovery === true ? `, ${READY_FOR_AGENT_LABEL}` : ""}`
         : `commented on ${landedOn}`;
     return [`- ${who}: ${where} — ${filed.discovery.kind}, "${filed.discovery.title}"`];
   });

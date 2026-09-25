@@ -721,6 +721,27 @@ describe("discoveriesSection", () => {
     assert.deepEqual(lines, [`- ${REPO} #223: opened #230 — suggestion, "Worth a retry"`]);
   });
 
+  it("says a discovered ticket born ready skipped triage", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        225,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "suggestion", title: "Worth a retry" }),
+              action: "discovered-ticket",
+              ticket: { ...implementationTicket(231), readyDiscovery: true },
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #225: opened #231, ready-for-agent — suggestion, "Worth a retry"`,
+    ]);
+  });
+
   it("names the implementation ticket a review's discovery landed on, not the review ticket itself", () => {
     const lines = discoveriesLines([
       reviewedWithDiscoveries(
