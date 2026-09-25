@@ -194,7 +194,8 @@ once a review ticket closes, in place of the developer typing it on the pull req
 off, so a registry that never mentions it reads as it always did. Says nothing about who reviews or
 what a review finds — only about when the developer's yes is given, per pull request or once. See
 ADR 0006. The same consent covers rebasing: for a turbo project, the conflict sweep posts `/rebase`
-on a conflicting pull request, in place of the developer typing it. See ADR 0007.
+on a conflicting pull request, in place of the developer typing it. See ADR 0007. Says nothing about
+merging: that needs a further, per-ticket consent — see Turboable.
 _Avoid_: auto mode, fast mode, autopilot, unattended
 
 **Priority**:
@@ -605,6 +606,18 @@ request list. Added as a best-effort last step; a refusal never reopens the tick
 says the label is missing instead. A pull request carrying this alongside the reviewed label is
 expected, not a conflict: labels are only added, never removed.
 _Avoid_: apply-review tag, done label
+
+**Turboable**:
+Per-ticket consent, the `turboable` label set by a human on an implementation ticket, letting the
+manager merge its pull request once turbo has already applied its review. Checked against the
+label's own timeline — labeled before that ticket's implementation run started, not merely present
+now — so neither a run nor a ticket the manager opens can grant it to itself; the manager also strips
+`turboable` from every ticket it opens. Once a turboable ticket's apply-review ticket finishes, one
+pass: the manager merges the pull request, with a merge commit, and deletes its branch, but only if
+it is mergeable, green and carries no declined threads; otherwise it labels the pull request
+`ready-for-human` and stops — no retry, no re-rebase. Stacked pull requests (#32) are out of scope
+until that is specced. See ADR 0009.
+_Avoid_: auto-merge, merge flag, greenlight
 
 ### Budget
 
