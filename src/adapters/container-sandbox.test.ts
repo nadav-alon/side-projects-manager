@@ -4730,6 +4730,28 @@ fi`;
       assert.equal(result.tokensUsed, tokenCount(0));
     });
 
+    it("weighs the envelope's own usage when it carries no modelUsage", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "done",
+            usage: {
+              input_tokens: 1,
+              output_tokens: 2,
+              cache_creation_input_tokens: 4,
+              cache_read_input_tokens: 8,
+            },
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      // 1 input + 2*5 output + 4*1.25 cache-creation + 8*0.1 cache-read = 16.8
+      assert.equal(result.tokensUsed, tokenCount(17));
+    });
+
     /** A run that went wrong says so on stderr, and nowhere else. */
     it("keeps the diagnostics a failing run wrote to stderr", async (t) => {
       const { result } = await runWithDocker(

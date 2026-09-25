@@ -2627,9 +2627,10 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
     };
   }
 
-  const { result, modelUsage } = envelope as {
+  const { result, modelUsage, usage } = envelope as {
     result?: unknown;
     modelUsage?: unknown;
+    usage?: unknown;
   };
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
@@ -2638,7 +2639,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
     output: withDiagnostics(output, stderr, deniedTools(envelope)),
-    tokensUsed: totalTokens(modelUsage),
+    tokensUsed: totalTokens(modelUsage, usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
@@ -2711,27 +2712,38 @@ function parse(stdout: string): unknown {
 
 /**
  * What the run was billed for: every usage field `weightedTokenCount` weighs,
- * summed across every model in the envelope's own `modelUsage` — unlike
- * `usage`, which carries only the main loop's own turns, `modelUsage` also
- * carries a subagent's, so a run that delegated to one is no longer
- * undercounted.
+ * summed across every model in the envelope's own `modelUsage`, which also
+ * carries a subagent's tokens, so a run that delegated to one is counted in
+ * full. Falls back to `usage` — the main loop's own turns only — when
+ * `modelUsage` is absent: not every envelope shape carries it, and the main
+ * loop's own spend is still worth recording over reporting none.
  */
-function totalTokens(modelUsage: unknown): TokenCount {
-  if (typeof modelUsage !== "object" || modelUsage === null) {
+function totalTokens(modelUsage: unknown, usage: unknown): TokenCount {
+  if (typeof modelUsage === "object" && modelUsage !== null) {
+    const fields = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
+    for (const entry of Object.values(modelUsage as Record<string, unknown>)) {
+      if (typeof entry !== "object" || entry === null) {
+        continue;
+      }
+      const counts = entry as Record<string, unknown>;
+      fields.input += numberField(counts.inputTokens);
+      fields.output += numberField(counts.outputTokens);
+      fields.cacheCreation += numberField(counts.cacheCreationInputTokens);
+      fields.cacheRead += numberField(counts.cacheReadInputTokens);
+    }
+    return weightedTokenCount(fields);
+  }
+
+  if (typeof usage !== "object" || usage === null) {
     return tokenCount(0);
   }
-  const fields = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
-  for (const entry of Object.values(modelUsage as Record<string, unknown>)) {
-    if (typeof entry !== "object" || entry === null) {
-      continue;
-    }
-    const counts = entry as Record<string, unknown>;
-    fields.input += numberField(counts.inputTokens);
-    fields.output += numberField(counts.outputTokens);
-    fields.cacheCreation += numberField(counts.cacheCreationInputTokens);
-    fields.cacheRead += numberField(counts.cacheReadInputTokens);
-  }
-  return weightedTokenCount(fields);
+  const counts = usage as Record<string, unknown>;
+  return weightedTokenCount({
+    input: numberField(counts.input_tokens),
+    output: numberField(counts.output_tokens),
+    cacheCreation: numberField(counts.cache_creation_input_tokens),
+    cacheRead: numberField(counts.cache_read_input_tokens),
+  });
 }
 
 /** `value` if it is a number, 0 otherwise — a usage field that was never sent. */
