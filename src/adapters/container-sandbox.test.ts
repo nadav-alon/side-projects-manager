@@ -4633,11 +4633,13 @@ fi`;
         dockerAnswering(
           JSON.stringify({
             result: "implemented the thing",
-            usage: {
-              input_tokens: 1,
-              output_tokens: 2,
-              cache_creation_input_tokens: 4,
-              cache_read_input_tokens: 8,
+            modelUsage: {
+              "claude-sonnet-5": {
+                inputTokens: 1,
+                outputTokens: 2,
+                cacheCreationInputTokens: 4,
+                cacheReadInputTokens: 8,
+              },
             },
           }),
         ),
@@ -4657,7 +4659,9 @@ fi`;
         dockerAnswering(
           JSON.stringify({
             result: "done",
-            usage: { input_tokens: 3, output_tokens: 4 },
+            modelUsage: {
+              "claude-sonnet-5": { inputTokens: 3, outputTokens: 4 },
+            },
           }),
         ),
         (sandbox, directory) =>
@@ -4666,6 +4670,25 @@ fi`;
 
       // 3 input + 4*5 output, with no cache fields to weigh
       assert.equal(result.tokensUsed, tokenCount(23));
+    });
+
+    it("sums every model's usage, so a run that delegated to a subagent is not undercounted", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            result: "done",
+            modelUsage: {
+              "claude-sonnet-5": { inputTokens: 10, outputTokens: 0 },
+              "claude-haiku-4-5": { inputTokens: 5, outputTokens: 0 },
+            },
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.tokensUsed, tokenCount(15));
     });
 
     it("keeps output it cannot parse, and charges nothing for it", async (t) => {
@@ -4682,7 +4705,9 @@ fi`;
     });
 
     it("keeps the raw envelope when it carries no result", async (t) => {
-      const stdout = JSON.stringify({ usage: { input_tokens: 5 } });
+      const stdout = JSON.stringify({
+        modelUsage: { "claude-sonnet-5": { inputTokens: 5 } },
+      });
       const { result } = await runWithDocker(
         t,
         dockerAnswering(stdout),

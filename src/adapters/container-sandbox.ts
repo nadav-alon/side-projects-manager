@@ -2627,9 +2627,9 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
     };
   }
 
-  const { result, usage } = envelope as {
+  const { result, modelUsage } = envelope as {
     result?: unknown;
-    usage?: unknown;
+    modelUsage?: unknown;
   };
   const output = typeof result === "string" ? result : stdout;
   const gist = gistFrom(output);
@@ -2638,7 +2638,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
     output: withDiagnostics(output, stderr, deniedTools(envelope)),
-    tokensUsed: totalTokens(usage),
+    tokensUsed: totalTokens(modelUsage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
@@ -2711,19 +2711,27 @@ function parse(stdout: string): unknown {
 
 /**
  * What the run was billed for: every usage field `weightedTokenCount` weighs,
- * read off the envelope's own `usage`.
+ * summed across every model in the envelope's own `modelUsage` — unlike
+ * `usage`, which carries only the main loop's own turns, `modelUsage` also
+ * carries a subagent's, so a run that delegated to one is no longer
+ * undercounted.
  */
-function totalTokens(usage: unknown): TokenCount {
-  if (typeof usage !== "object" || usage === null) {
+function totalTokens(modelUsage: unknown): TokenCount {
+  if (typeof modelUsage !== "object" || modelUsage === null) {
     return tokenCount(0);
   }
-  const counts = usage as Record<string, unknown>;
-  return weightedTokenCount({
-    input: numberField(counts.input_tokens),
-    output: numberField(counts.output_tokens),
-    cacheCreation: numberField(counts.cache_creation_input_tokens),
-    cacheRead: numberField(counts.cache_read_input_tokens),
-  });
+  const fields = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
+  for (const entry of Object.values(modelUsage as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const counts = entry as Record<string, unknown>;
+    fields.input += numberField(counts.inputTokens);
+    fields.output += numberField(counts.outputTokens);
+    fields.cacheCreation += numberField(counts.cacheCreationInputTokens);
+    fields.cacheRead += numberField(counts.cacheReadInputTokens);
+  }
+  return weightedTokenCount(fields);
 }
 
 /** `value` if it is a number, 0 otherwise — a usage field that was never sent. */
