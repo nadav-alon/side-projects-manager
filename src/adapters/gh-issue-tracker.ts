@@ -8,6 +8,8 @@ import type {
   IssueNumber,
   IssueTracker,
   IssueUrl,
+  LabelAction,
+  LabelTimelineEvent,
   OpenIssues,
   PullRequestBinding,
   PullRequestUrl,
@@ -27,6 +29,7 @@ import {
   SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
+  TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -37,6 +40,7 @@ import {
   isIssueUrl,
   isPullRequestUrl,
   isTicketPriority,
+  labelWasPresentAt,
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
@@ -299,6 +303,23 @@ export function ghIssueTracker(
         ".[] | {number, title, body, state, labels: [.labels[].name]}",
       ]);
       return subIssuesIn(stdout, ticket);
+    },
+
+    async wasTurboableAt(ticket: Ticket, instant: Date): Promise<boolean> {
+      // `--paginate`, so an issue with a longer timeline than fits one page
+      // is read whole — the same reason `listSubIssues` paginates. Filtered
+      // to the two event kinds a label's history is made of, so a comment or
+      // a close/reopen among them never reaches `labelTimelineEventsIn` at
+      // all rather than being read and then ignored.
+      const { stdout } = await execFileAsync("gh", [
+        "api",
+        `repos/${ticket.repo}/issues/${ticket.number}/timeline`,
+        "--paginate",
+        "--jq",
+        '.[] | select(.event == "labeled" or .event == "unlabeled") | {event, label: .label.name, created_at}',
+      ]);
+      const events = labelTimelineEventsIn(stdout, ticket);
+      return labelWasPresentAt(events, TURBOABLE_LABEL, instant);
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
@@ -952,6 +973,66 @@ function subIssueClosed(state: string, at: string): boolean {
         `${at}: "state" was neither "open" nor "closed": ${JSON.stringify(state)}`,
       );
   }
+}
+
+/**
+ * `gh api .../timeline --paginate --jq '.[] | select(...) | {...}'`:
+ * newline-delimited JSON, one `{ event, label, created_at }` per labeled or
+ * unlabeled event on `ticket`'s own timeline, across every page `--paginate`
+ * reads — as `subIssuesIn` reads a supertask's sub-issues whole.
+ */
+function labelTimelineEventsIn(
+  stdout: string,
+  ticket: Ticket,
+): LabelTimelineEvent[] {
+  const where = `gh api repos/${ticket.repo}/issues/${ticket.number}/timeline --paginate`;
+  const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
+
+  return lines.map((line, index) => {
+    const at = `${where}: event ${index + 1}`;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line);
+    } catch (error) {
+      throw new Error(`${at}: did not return JSON: ${errorMessage(error)}`);
+    }
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`${at}: expected an object.`);
+    }
+    const { event, label, created_at } = raw as Record<string, unknown>;
+    return {
+      label: expectField(label, "string", "label", at),
+      action: expectLabelAction(expectField(event, "string", "event", at), at),
+      at: expectTimestamp(expectField(created_at, "string", "created_at", at), at),
+    };
+  });
+}
+
+/**
+ * `event`, as a timeline entry `labelTimelineEventsIn` reads names it:
+ * `"labeled"` or `"unlabeled"`. The `--jq` filter already narrows the query
+ * to the two, but a tracker that answered with anything else must be refused
+ * loudly rather than handed on as one of them.
+ */
+function expectLabelAction(event: string, at: string): LabelAction {
+  switch (event) {
+    case "labeled":
+    case "unlabeled":
+      return event;
+    default:
+      throw new Error(
+        `${at}: "event" was neither "labeled" nor "unlabeled": ${JSON.stringify(event)}`,
+      );
+  }
+}
+
+/** `created_at`, as the timestamp a timeline entry names it: a parseable date. */
+function expectTimestamp(value: string, at: string): Date {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${at}: "created_at" was not a valid timestamp: ${JSON.stringify(value)}`);
+  }
+  return parsed;
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   REVIEW_FINDING_FIELDS,
   REVIEWED_LABEL,
   ticketGist,
+  TURBOABLE_LABEL,
   type Checkout,
   type Ticket,
 } from "../ports/index.ts";
@@ -721,6 +722,13 @@ describe("opening a draft pull request for a completed run", () => {
     const { call } = await openedFor(t);
 
     assert.match(valueOf(call, "--body") ?? "", /#7\b/);
+  });
+
+  it("never opens the pull request carrying turboable", async (t) => {
+    const { call } = await openedFor(t);
+
+    assert.ok(call);
+    assert.ok(!call.includes(TURBOABLE_LABEL));
   });
 
   const BODY_WITHOUT_GIST = [

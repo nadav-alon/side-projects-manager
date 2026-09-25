@@ -11,6 +11,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SIZE_S_LABEL,
+  TURBOABLE_LABEL,
   isSpecReviewTicket,
   isSupertask,
   issueNumber,
@@ -167,6 +168,16 @@ describe("ghIssueTracker.createReviewTicket", () => {
     assert.ok(create, "the review should be created with `gh issue create`");
     assert.equal(valueOf(create, "--repo"), PILOT);
     assert.equal(valueOf(create, "--label"), READY_FOR_AGENT_LABEL);
+  });
+
+  it("never opens the review carrying turboable", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.ok(!create.includes(TURBOABLE_LABEL));
   });
 
   it("creates the ready-for-agent label first, since a project may have none", async (t) => {
@@ -699,6 +710,20 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
     assert.ok(create.includes(SIZE_S_LABEL));
     assert.ok(create.includes(ENHANCEMENT_LABEL));
     assert.ok(!create.includes(NEEDS_TRIAGE_LABEL));
+  });
+
+  it("never opens a discovered ticket carrying turboable, ready or not", async (t) => {
+    const notReady = await recordingGh(t, WORKING);
+    await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
+    const notReadyCreate = callWith(await notReady.calls(), "issue", "create");
+    assert.ok(notReadyCreate);
+    assert.ok(!notReadyCreate.includes(TURBOABLE_LABEL));
+
+    const ready = await recordingGh(t, WORKING);
+    await ghIssueTracker().createDiscoveredTicket(TICKET, { ...DISCOVERY, ready: true });
+    const readyCreate = callWith(await ready.calls(), "issue", "create");
+    assert.ok(readyCreate);
+    assert.ok(!readyCreate.includes(TURBOABLE_LABEL));
   });
 
   it("marks a ready discovery's ticket with the ready discovery label, for the chain guard", async (t) => {
@@ -2015,6 +2040,16 @@ describe("ghIssueTracker.createSpecReviewTicket", () => {
     assert.ok(create.includes("size:L"));
   });
 
+  it("never opens the spec review carrying turboable", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40.");
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.ok(!create.includes(TURBOABLE_LABEL));
+  });
+
   it("creates every label first, since a project may have none of them", async (t) => {
     const gh = await recordingGh(t, WORKING);
 
@@ -2350,6 +2385,156 @@ describe("ghIssueTracker.listSubIssues", () => {
     await assert.rejects(
       ghIssueTracker().listSubIssues(SUPERTASK),
       /"state" was neither "open" nor "closed": "draft"/,
+    );
+  });
+});
+
+describe("ghIssueTracker.wasTurboableAt", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const TICKET: Ticket = { repo: PILOT, number: issueNumber(40), title: "Some ticket" };
+
+  interface RawEvent {
+    event: string;
+    label: string;
+    created_at: string;
+  }
+
+  /**
+   * A fake `gh` body answering as `--paginate --jq '.[] | select(...) |
+   * {event, label, created_at}'` does: one JSON object per line, not a
+   * single array — see `timeline`'s own reader, `labelTimelineEventsIn`.
+   */
+  function timeline(entries: RawEvent[]): string {
+    if (entries.length === 0) {
+      return ":";
+    }
+    const lines = entries
+      .map((entry) => JSON.stringify(entry))
+      .map((line) => `'${line}'`)
+      .join(" ");
+    return `printf '%s\\n' ${lines}`;
+  }
+
+  it("answers false where the ticket's timeline carries no turboable event", async (t) => {
+    await recordingGh(t, timeline([]));
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      false,
+    );
+  });
+
+  it("answers true once turboable was labelled, at and after that instant", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-01T00:00:00Z" },
+      ]),
+    );
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z")),
+      true,
+    );
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      true,
+    );
+  });
+
+  it("answers true once turboable was removed and re-labelled before the instant", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-01T00:00:00Z" },
+        { event: "unlabeled", label: TURBOABLE_LABEL, created_at: "2026-01-02T00:00:00Z" },
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-03T00:00:00Z" },
+      ]),
+    );
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z")),
+      true,
+    );
+  });
+
+  it("answers false for a turboable label added after the instant", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-03T00:00:00Z" },
+      ]),
+    );
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      false,
+    );
+  });
+
+  it("answers false once turboable was added and then removed again before the instant", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-01T00:00:00Z" },
+        { event: "unlabeled", label: TURBOABLE_LABEL, created_at: "2026-01-02T00:00:00Z" },
+      ]),
+    );
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z")),
+      false,
+    );
+  });
+
+  it("ignores timeline events for other labels", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: READY_FOR_AGENT_LABEL, created_at: "2026-01-01T00:00:00Z" },
+      ]),
+    );
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      false,
+    );
+  });
+
+  it("asks the paginated timeline endpoint of the ticket it was given", async (t) => {
+    const gh = await recordingGh(t, timeline([]));
+
+    await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"));
+
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), [
+      "api",
+      "repos/nadav-alon/pilot/issues/40/timeline",
+    ]);
+    assert.ok(call?.includes("--paginate"), "should paginate the timeline read");
+  });
+
+  it("throws naming the malformed entry when gh answers with something outside the declared shape", async (t) => {
+    await recordingGh(
+      t,
+      `echo '{"label": "${TURBOABLE_LABEL}", "created_at": "2026-01-01T00:00:00Z"}'`,
+    );
+
+    await assert.rejects(
+      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      /event 1.*"event" must be a string/,
+    );
+  });
+
+  it("throws naming the answer when an event's created_at is not a valid timestamp", async (t) => {
+    await recordingGh(
+      t,
+      `echo '{"event": "labeled", "label": "${TURBOABLE_LABEL}", "created_at": "not-a-date"}'`,
+    );
+
+    await assert.rejects(
+      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      /"created_at" was not a valid timestamp: "not-a-date"/,
     );
   });
 });

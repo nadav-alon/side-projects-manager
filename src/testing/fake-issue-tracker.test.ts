@@ -18,6 +18,7 @@ import {
   repoSlug,
   SIZE_S_LABEL,
   ticketPriority,
+  TURBOABLE_LABEL,
   type ApplyReviewTicket,
   type RebaseTicket,
   type Ticket,
@@ -87,6 +88,21 @@ describe("FakeIssueTracker", () => {
 
     const listed = issues.find((issue) => issue.ticket.number === review.number);
     assert.equal(listed?.parent, ticket.number);
+  });
+
+  it("never opens a review ticket carrying turboable", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+
+    assert.equal(tracker.carriesLabel(review, TURBOABLE_LABEL), false);
   });
 
   it("no longer lists a review ticket, nor carries ready-for-agent on it, once closed", async () => {
@@ -386,6 +402,27 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
     assert.equal(found?.ticket.readyDiscovery, true);
   });
 
+  it("never opens a discovered ticket carrying turboable, ready or not", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const notReady = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+    });
+    const ready = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off, take two",
+      body: "Hammers the API on every failure.",
+      ready: true,
+    });
+
+    assert.equal(tracker.carriesLabel(notReady, TURBOABLE_LABEL), false);
+    assert.equal(tracker.carriesLabel(ready, TURBOABLE_LABEL), false);
+  });
+
   it("numbers it above every ticket the repo has, and lists it as ineligible", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {
@@ -574,6 +611,21 @@ describe("FakeIssueTracker — sub-issues", () => {
     assert.deepEqual(tracker.specReviewTickets, [
       { parent: supertask, body: "Reviews #40.", ticket: specReview },
     ]);
+  });
+
+  it("never opens a spec review ticket carrying turboable", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+
+    const specReview = await tracker.createSpecReviewTicket(
+      supertask,
+      "Reviews #40.",
+    );
+
+    assert.equal(tracker.carriesLabel(specReview, TURBOABLE_LABEL), false);
   });
 
   it("links a floating spec review already in the backlog to its supertask", async () => {
@@ -799,5 +851,61 @@ describe("FakeIssueTracker — size labels", () => {
     const listed = backlog.find((ticket) => ticket.number === review.number);
     assert.ok(listed);
     assert.equal(listed.sizeLabel, undefined);
+  });
+});
+
+describe("FakeIssueTracker.wasTurboableAt", () => {
+  const DAY_1 = new Date("2026-01-01T00:00:00Z");
+  const DAY_2 = new Date("2026-01-02T00:00:00Z");
+  const DAY_3 = new Date("2026-01-03T00:00:00Z");
+
+  it("answers false for a ticket with no recorded turboable event", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2), false);
+  });
+
+  it("answers true once turboable was labelled, at and after that instant", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
+
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1), true);
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2), true);
+  });
+
+  it("answers false for a turboable label added after the instant", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
+
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1), false);
+  });
+
+  it("answers false once turboable was added and then removed again before the instant", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
+    tracker.recordTurboableEvent(ticket, "unlabeled", DAY_2);
+
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3), false);
+  });
+
+  it("reads only the ticket its events were recorded against", async () => {
+    const tracker = new FakeIssueTracker();
+    const turboable = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
+    tracker.recordTurboableEvent(turboable, "labeled", DAY_1);
+
+    assert.equal(await tracker.wasTurboableAt(other, DAY_2), false);
+  });
+
+  it("leaves the ticket's current labels untouched, independent of addLabel/removeLabel", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
+
+    assert.equal(tracker.carriesLabel(ticket, TURBOABLE_LABEL), false);
   });
 });
