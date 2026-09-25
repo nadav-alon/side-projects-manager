@@ -24,3 +24,43 @@ export function tokenCount(value: number): TokenCount {
   }
   return value;
 }
+
+/**
+ * One usage report's raw field counts, before weighting — what a run's
+ * envelope or a session log line carries under `input_tokens`,
+ * `output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`
+ * (or `modelUsage`'s camelCase equivalents), read into one shape so
+ * `weightedTokenCount` has one thing to weigh regardless of which the caller
+ * started from.
+ */
+export interface UsageFields {
+  input: number;
+  output: number;
+  cacheCreation: number;
+  cacheRead: number;
+}
+
+/**
+ * A fresh input token, weighted 1. The provider publishes no weights for how
+ * tokens count against a session or weekly limit, but it prices every current
+ * model by the same ratios to a fresh input token, and those ratios are what
+ * `weightedTokenCount` weighs by, in place of the equal weighting that let a
+ * run's cache reads — priced, and so likely counted, far below a fresh token
+ * — pass for most of its cost.
+ */
+const CACHE_CREATION_WEIGHT = 1.25;
+const CACHE_READ_WEIGHT = 0.1;
+const OUTPUT_WEIGHT = 5;
+
+/**
+ * `fields`, weighted by the provider's own price ratios and rounded to a
+ * whole number of tokens.
+ */
+export function weightedTokenCount(fields: UsageFields): TokenCount {
+  const total =
+    fields.input +
+    fields.output * OUTPUT_WEIGHT +
+    fields.cacheCreation * CACHE_CREATION_WEIGHT +
+    fields.cacheRead * CACHE_READ_WEIGHT;
+  return tokenCount(Math.max(0, Math.round(total)));
+}
