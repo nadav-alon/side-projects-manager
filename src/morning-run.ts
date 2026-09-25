@@ -122,6 +122,7 @@ import {
   type LimitRefused,
   type NotCommented,
   type NotLabelled,
+  type NotReadied,
   type ProviderFailed,
   type PullRequestResolved,
   type Rebased,
@@ -1464,7 +1465,7 @@ async function postTurboComment(
 async function markCleanReviewReady(
   ports: MorningLoopPorts,
   pullRequest: PullRequestUrl,
-): Promise<{ notReadied?: NotLabelled }> {
+): Promise<{ notReadied?: NotReadied }> {
   try {
     await ports.repoHost.markPullRequestReady(pullRequest);
     return {};

@@ -31,6 +31,7 @@ import {
   type NotClosed,
   type NotCommented,
   type NotLabelled,
+  type NotReadied,
   type PullRequestResolved,
   type Rebased,
   type Reviewed,
@@ -1614,7 +1615,7 @@ function notLabelledLine(
  * than in two wordings that drift apart from each other. CONTEXT.md's "Clean
  * review".
  */
-function notReadiedNote(pullRequest: PullRequestUrl, { error }: NotLabelled): string {
+function notReadiedNote(pullRequest: PullRequestUrl, { error }: NotReadied): string {
   return `${pullRequest} could not be marked ready for review: ${withoutTrailingStop(error)}; mark it ready yourself`;
 }
 
@@ -1627,7 +1628,7 @@ function notReadiedNote(pullRequest: PullRequestUrl, { error }: NotLabelled): st
  */
 function notReadiedLine(
   { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
-  notReadied: NotLabelled,
+  notReadied: NotReadied,
 ): string {
   return `- ${repo} #${ticket.number}: ${notReadiedNote(ticket.pullRequest.url, notReadied)}`;
 }

@@ -605,7 +605,7 @@ export interface Reviewed {
    * `notClosed` — the ticket did close. Always absent when `clean` is not
    * `true`, since a review with findings is never marked ready.
    */
-  notReadied?: NotLabelled;
+  notReadied?: NotReadied;
   /**
    * Set when the project is turbo (CONTEXT.md's "Turbo", ADR 0006), the
    * review was not clean, and the repo host refused `APPLY_REVIEW_COMMENT` on
@@ -642,6 +642,16 @@ export interface NotClosed {
  * pull request labelled, and the error that stopped it.
  */
 export interface NotLabelled {
+  error: string;
+}
+
+/**
+ * Why a clean review's closed ticket could not have its pull request marked
+ * ready for review, and the error that stopped it. Its own interface rather
+ * than `NotLabelled`, as `NotCommented` already is: the glossary tells
+ * "labelled" and "marked ready" apart, so source keeps them apart too.
+ */
+export interface NotReadied {
   error: string;
 }
 
