@@ -600,6 +600,24 @@ describe("waitingSection", () => {
       ]);
     });
 
+    it("says a ready prerequisite's discovered ticket skipped triage", () => {
+      const lines = waitingLines([
+        discoveryBlocked(198, routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite" }),
+              action: "discovered-ticket",
+              ticket: { ...implementationTicket(205), readyDiscovery: true },
+            },
+          ],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #198: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as #205, ready-for-agent`,
+      ]);
+    });
+
     it("still lists the ticket as eligible when the hand-back itself was refused, same as any other kind", () => {
       const iteration: IterationOutcome = {
         repo: REPO,
@@ -719,6 +737,27 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [`- ${REPO} #223: opened #230 — suggestion, "Worth a retry"`]);
+  });
+
+  it("says a discovered ticket born ready skipped triage", () => {
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        225,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "suggestion", title: "Worth a retry" }),
+              action: "discovered-ticket",
+              ticket: { ...implementationTicket(231), readyDiscovery: true },
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO} #225: opened #231, ready-for-agent — suggestion, "Worth a retry"`,
+    ]);
   });
 
   it("names the implementation ticket a review's discovery landed on, not the review ticket itself", () => {
@@ -1145,6 +1184,21 @@ describe("summaryLine", () => {
       }))]));
 
       assert.match(line, /a prerequisite, opened as #199/);
+      assert.doesNotMatch(line, /#199, ready-for-agent/);
+    });
+
+    it("says a ready prerequisite's discovered ticket skipped triage", () => {
+      const line = summaryLine(facts([discoveryBlocked(200, routing({
+        filed: [
+          {
+            discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+            action: "discovered-ticket",
+            ticket: { ...implementationTicket(206), readyDiscovery: true },
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a prerequisite, opened as #206, ready-for-agent/);
     });
 
     it("names a refused blocking discovery by its kind and why, naming no ticket", () => {
@@ -1173,6 +1227,7 @@ describe("summaryLine", () => {
       }))]));
 
       assert.match(line, /a correction; a prerequisite, opened as #198/);
+      assert.doesNotMatch(line, /#198, ready-for-agent/);
     });
   });
 

@@ -772,6 +772,17 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
 }
 
 /**
+ * The discovered ticket a filed discovery named, as the developer reads it:
+ * its number, plus `ready-for-agent` when it was opened from a Ready
+ * discovery. Shared by {@link discoveryLines} and
+ * {@link blockingDiscoveryPhrases} so the two lines a ready ticket appears on
+ * cannot drift apart.
+ */
+function discoveredTicketRef(ticket: Ticket): string {
+  return `#${ticket.number}${ticket.readyDiscovery === true ? `, ${READY_FOR_AGENT_LABEL}` : ""}`;
+}
+
+/**
  * One bullet per advisory discovery `routing` filed — naming the ticket a
  * comment landed on, or the discovered ticket a suggestion opened — plus one
  * for a positive count of suggestions the cap dropped, one for a positive
@@ -784,7 +795,9 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  * and is left out here. Every other iteration reaching this function carries
  * advisory discoveries only, listed here the same way regardless of kind.
  * Alongside a refused write, either way, only what happened to the write
- * itself is said.
+ * itself is said. A discovered ticket opened from a **Ready discovery**, and
+ * so born `ready-for-agent`, says so, so the developer reading this line can
+ * tell it skipped their triage.
  */
 function discoveryLines(
   iteration: { repo: RepoSlug; ticket: Ticket },
@@ -799,7 +812,7 @@ function discoveryLines(
     }
     const where =
       filed.action === "discovered-ticket"
-        ? `opened #${filed.ticket.number}`
+        ? `opened ${discoveredTicketRef(filed.ticket)}`
         : `commented on ${landedOn}`;
     return [`- ${who}: ${where} — ${filed.discovery.kind}, "${filed.discovery.title}"`];
   });
@@ -1088,20 +1101,21 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
  * The blocking discoveries a discovery-blocked run's own `routing` carries,
  * each as the phrase `describeIteration` and `discoveryBlockedWaitingLine`
  * both read: a correction or a prerequisite, filed — naming the discovered
- * ticket a prerequisite opened — or refused, naming why. Worded the same
- * neutral way `discoveryLines` words a refused write, rather than naming the
- * tracker: `routeRunDiscoveries` refuses every discovery the same way when it
- * cannot even resolve a target for them, which is not the tracker's doing.
- * Read from `routing` rather than recomputing the ticket's own hand-back
- * wording, so the summary and the ticket comment can drift in phrasing
- * without drifting in fact.
+ * ticket a prerequisite opened, and whether it was opened from a **Ready
+ * discovery** — or refused, naming why. Worded the same neutral way
+ * `discoveryLines` words a refused write, rather than naming the tracker:
+ * `routeRunDiscoveries` refuses every discovery the same way when it cannot
+ * even resolve a target for them, which is not the tracker's doing. Read
+ * from `routing` rather than recomputing the ticket's own hand-back wording,
+ * so the summary and the ticket comment can drift in phrasing without
+ * drifting in fact.
  */
 function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
   const filed = routing.filed.flatMap((filed) =>
     isBlockingDiscoveryKind(filed.discovery.kind)
       ? [
           filed.action === "discovered-ticket"
-            ? `a ${filed.discovery.kind}, opened as #${filed.ticket.number}`
+            ? `a ${filed.discovery.kind}, opened as ${discoveredTicketRef(filed.ticket)}`
             : `a ${filed.discovery.kind}`,
         ]
       : [],
