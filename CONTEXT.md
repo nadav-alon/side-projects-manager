@@ -190,8 +190,10 @@ _Avoid_: disabled, archived, muted
 **Turbo**:
 Standing consent, carried by a project in the registry, to apply a review without the developer
 asking for it each time: for a project registered turbo, the manager posts `/apply-review` itself
-once a review ticket closes, in place of the developer typing it on the pull request. Absent means
-off, so a registry that never mentions it reads as it always did. Says nothing about who reviews or
+once a review ticket closes with a finding on it, in place of the developer typing it on the pull
+request. A clean review's ticket (see **Clean review**) closes too, but gets no such comment,
+turbo or not — there is nothing on it to apply. Absent means off, so a registry that never mentions
+it reads as it always did. Says nothing about who reviews or
 what a review finds — only about when the developer's yes is given, per pull request or once. See
 ADR 0006. The same consent covers rebasing: for a turbo project, the conflict sweep posts `/rebase`
 on a conflicting pull request, in place of the developer typing it. See ADR 0007.
