@@ -1354,7 +1354,9 @@ function handoverLines(
   if (reviewOutcome.kind === "reviewed" && !reviewLeftOpen(reviewOutcome)) {
     return [
       reviewOutcome.clean
-        ? `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag, marked ready for review`
+        ? `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag${
+            reviewOutcome.notReadied === undefined ? ", marked ready for review" : ""
+          }`
         : `- ${repo}: ${handover.pullRequest} — reviewed, findings posted`,
     ];
   }
@@ -1550,7 +1552,9 @@ function reviewSummary(
   switch (notClosed?.kind) {
     case undefined: {
       const posted = clean
-        ? `Reviewed ${repo} #${ticket.number}: found nothing to flag on ${pullRequest}, now ready for review.`
+        ? `Reviewed ${repo} #${ticket.number}: found nothing to flag on ${pullRequest}${
+            notReadied === undefined ? ", now ready for review" : ""
+          }.`
         : `Reviewed ${repo} #${ticket.number}: posted findings on ${pullRequest}.`;
       const labelNote =
         notLabelled === undefined

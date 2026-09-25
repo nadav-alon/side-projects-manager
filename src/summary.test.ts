@@ -601,7 +601,7 @@ describe("waitingSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag, marked ready for review`,
+      `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag`,
       `- ${REPO} #200: ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself`,
     ]);
   });
@@ -1125,7 +1125,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Reviewed ${REPO} #216: found nothing to flag on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself.`,
+      `Reviewed ${REPO} #216: found nothing to flag on ${PULL_REQUEST}. ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself.`,
     );
   });
 
