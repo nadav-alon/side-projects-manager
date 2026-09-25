@@ -372,8 +372,9 @@ export interface LabelTimelineEvent {
 /**
  * The most recent `label` event at or before `instant`, replaying `events` —
  * that issue's full label timeline, in any order — up to and including
- * `instant`. Undefined where none match. What `labelWasPresentAt` reads the
- * action from, and `turboableConsentAt` reads the timestamp from.
+ * `instant`. Undefined where none match. A tie on `at` goes to whichever of
+ * the tied events sorts last, which is whichever came last in `events` —
+ * `Array.prototype.sort` is stable.
  * Matched without regard to case, the way every other label here is.
  */
 function mostRecentLabelEvent(
@@ -423,8 +424,7 @@ export function labelWasPresentAt(
  * grant.
  *
  * Consent holds only where both are true:
- * 1. `turboable` was present at `instant` per `labelWasPresentAt` —
- *    unchanged.
+ * 1. `turboable` was present at `instant`, the same rule as `labelWasPresentAt`.
  * 2. The latest `labeled` event for `turboable` at or before `instant` —
  *    the grant — falls inside no run span of any ticket in `ticket`'s own
  *    repo. `spans` for another repo never count, whatever they cover.
