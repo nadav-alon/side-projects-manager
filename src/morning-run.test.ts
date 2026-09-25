@@ -151,6 +151,15 @@ function postedAFinding(ports: FakePorts): void {
   });
 }
 
+/**
+ * Records a clean review — CONTEXT.md's "Clean review" — on the queued pull
+ * request: a review submitted with no finding on it, as a reviewing agent
+ * that found nothing to flag would leave one.
+ */
+function postedACleanReview(ports: FakePorts): void {
+  ports.repoHost.postCleanReview(PULL_REQUEST);
+}
+
 /** A spec review ticket, eligible like any other, naming no pull request. */
 function queuedSpecReview(ports: FakePorts, registration: Registration = {}): Ticket {
   ports.store.register(PILOT, registration);
@@ -2234,6 +2243,91 @@ describe("morningLoop", () => {
           undefined,
         );
         assert.match(report.message, /pull request is locked/);
+      });
+    });
+
+    describe("a clean review", () => {
+      it("closes the ticket, labels the pull request reviewed, and marks it ready for review", async () => {
+        const ports = fakePorts();
+        const ticket = queued(ports);
+        postedACleanReview(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+        assert.deepEqual(ports.repoHost.labelled, [
+          { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
+        ]);
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+      });
+
+      it("checks the pull request for a posted review, having found no finding on it", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        postedACleanReview(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.findingChecks, [
+          { pullRequest: PULL_REQUEST, since: FROZEN_NOW },
+        ]);
+        assert.deepEqual(ports.repoHost.reviewChecks, [
+          { pullRequest: PULL_REQUEST, since: FROZEN_NOW },
+        ]);
+      });
+
+      it("never checks for a posted review once a finding is already found", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        postedAFinding(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.reviewChecks, []);
+      });
+
+      it("posts no /apply-review comment for a turbo project, since there is nothing to apply", async () => {
+        const ports = fakePorts();
+        queued(ports, { turbo: true });
+        postedACleanReview(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.comments, []);
+      });
+
+      it("reports a refused ready-mark without reopening the ticket", async (t) => {
+        const ports = fakePorts();
+        const ticket = queued(ports);
+        postedACleanReview(ports);
+        t.mock.method(ports.repoHost, "markPullRequestReady", async () => {
+          throw new Error("pull request is locked");
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
+        const outcome = report.iterations[0];
+        assert.equal(outcome?.kind, "reviewed");
+        assert.equal(
+          outcome?.kind === "reviewed" ? outcome.notReadied?.error : undefined,
+          "pull request is locked",
+        );
+        assert.equal(
+          outcome?.kind === "reviewed" ? outcome.notClosed : undefined,
+          undefined,
+        );
+        assert.match(report.message, /pull request is locked/);
+      });
+
+      it("leaves a review with findings a draft, never marking it ready", async () => {
+        const ports = fakePorts();
+        queued(ports);
+        postedAFinding(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.readyMarked, []);
       });
     });
 

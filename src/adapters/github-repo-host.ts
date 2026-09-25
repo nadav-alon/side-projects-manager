@@ -372,6 +372,21 @@ export function githubRepoHost(
       );
     },
 
+    async hasPostedReview(
+      pullRequest: PullRequestUrl,
+      since: Date,
+    ): Promise<boolean> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { stdout } = await run("gh", [
+        "api",
+        `repos/${owner}/${repo}/pulls/${number}/reviews`,
+      ]);
+
+      return reviewsPostedIn(stdout, pullRequest).some(
+        (postedAt) => postedAt > since,
+      );
+    },
+
     async readApplyReviewAnswers(
       pullRequest: PullRequestUrl,
       since: Date,
@@ -1050,6 +1065,38 @@ function reviewFindingsIn(
     findings.push({ finding: { path, line, body }, postedAt: new Date(created_at) });
   }
   return findings;
+}
+
+/**
+ * When each submitted review in `stdout` — `gh api pulls/.../reviews` —
+ * landed. A pending review, never submitted, carries no `submitted_at` and is
+ * left out: it is not on the pull request for anyone to read.
+ */
+function reviewsPostedIn(stdout: string, pullRequest: PullRequestUrl): Date[] {
+  const where = `gh api pulls reviews for ${pullRequest}`;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error(`${where}: expected an array.`);
+  }
+
+  const postedAt: Date[] = [];
+  for (const raw of payload) {
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+    const { submitted_at } = raw as Record<string, unknown>;
+    if (typeof submitted_at !== "string") {
+      continue;
+    }
+    postedAt.push(new Date(submitted_at));
+  }
+  return postedAt;
 }
 
 /**

@@ -107,6 +107,8 @@ export class FakeRepoHost implements RepoHost {
   readonly discarded: FakeDiscard[] = [];
   /** Every `hasReviewFindings` check made, in order. */
   readonly findingChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
+  /** Every `hasPostedReview` check made, in order. */
+  readonly reviewChecks: { pullRequest: PullRequestUrl; since: Date }[] = [];
 
   /** Every pull request `markPullRequestReady` was called on, in order. */
   readonly readyMarked: PullRequestUrl[] = [];
@@ -120,6 +122,7 @@ export class FakeRepoHost implements RepoHost {
 
   readonly #applyReviewThreads = new Map<PullRequestUrl, ApplyReviewThread[]>();
   readonly #reviewFindings = new Map<PullRequestUrl, FakeReviewFinding[]>();
+  readonly #cleanReviews = new Map<PullRequestUrl, Date[]>();
 
   /** What the next proposal comes to. A proposal that lands, unless set. */
   proposal: (branch: Branch) => Proposal = (branch) => ({
@@ -270,6 +273,27 @@ export class FakeRepoHost implements RepoHost {
     );
   }
 
+  /**
+   * Records a submitted review with no findings on `pullRequest` at
+   * `postedAt`, as a reviewing agent that found nothing to flag would leave
+   * one — what `hasPostedReview` answers from once `hasReviewFindings` alone
+   * cannot tell it apart from a reviewer that posted nothing at all.
+   */
+  postCleanReview(pullRequest: PullRequestUrl, postedAt = new Date()): void {
+    this.#cleanReviewsOn(pullRequest).push(postedAt);
+  }
+
+  async hasPostedReview(
+    pullRequest: PullRequestUrl,
+    since: Date,
+  ): Promise<boolean> {
+    this.reviewChecks.push({ pullRequest, since });
+    return (
+      this.#findingsOn(pullRequest).some((recorded) => recorded.postedAt > since) ||
+      this.#cleanReviewsOn(pullRequest).some((postedAt) => postedAt > since)
+    );
+  }
+
   #findingsOn(pullRequest: PullRequestUrl): FakeReviewFinding[] {
     let findings = this.#reviewFindings.get(pullRequest);
     if (findings === undefined) {
@@ -277,6 +301,15 @@ export class FakeRepoHost implements RepoHost {
       this.#reviewFindings.set(pullRequest, findings);
     }
     return findings;
+  }
+
+  #cleanReviewsOn(pullRequest: PullRequestUrl): Date[] {
+    let posted = this.#cleanReviews.get(pullRequest);
+    if (posted === undefined) {
+      posted = [];
+      this.#cleanReviews.set(pullRequest, posted);
+    }
+    return posted;
   }
 
   /**

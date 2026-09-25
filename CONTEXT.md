@@ -312,8 +312,9 @@ _Avoid_: return, bounce, escalate, reassign
 
 **Gave up**:
 A run whose agent ran and stopped short — it said it could not, left the tests red, for a review,
-posted no findings to the pull request, or, for an apply-review run, left a thread on its pull
-request unanswered or had its push rejected because the pull request's branch moved on the repo
+posted neither a review nor a finding to the pull request — a clean review, with a review posted and
+no finding on it, counts as finishing, not this — or, for an apply-review run, left a thread on its
+pull request unanswered or had its push rejected because the pull request's branch moved on the repo
 host, or, for a rebase run, could not resolve a conflict green. The ticket is the problem: a branch
 that moved since the review is one the review no longer describes, and whether to ask again is the
 developer's call, so it is handed back rather than left eligible as an infrastructure failure would
@@ -524,11 +525,22 @@ _Avoid_: mergeability sweep, conflict scan, rebase sweep, rebase check, sibling 
 **Review ticket**:
 A sub-issue of an implementation ticket asking for that ticket's draft pull request to be reviewed.
 Created by the manager, born ready-for-agent, and selected after apply-review tickets but before any
-implementation ticket. Once its findings are confirmed and the ticket closes, its pull request is
-labelled — see the Reviewed label; a refusal is reported on the iteration rather than retried, and
-never reopens the ticket. One whose own pull request is already merged or closed has nothing left to
-review: the ticket closes the same way, with no run and no label.
+implementation ticket. Once a review has posted — findings confirmed, or a clean review with none —
+the ticket closes and its pull request is labelled — see the Reviewed label — and, for a clean
+review, marked ready for review too, since there is nothing left on it for the developer to act on. A
+refusal of either is reported on the iteration rather than retried, and never reopens the ticket. One
+whose own pull request is already merged or closed has nothing left to review: the ticket closes the
+same way, with no run and no label.
 _Avoid_: review task, review job, QA ticket
+
+**Clean review**:
+A review ticket's run that posted a pull request review since it started, carrying no findings —
+neither a defect nor a nit. Closed and labelled exactly as a review with findings is, but its pull
+request is also marked ready for review, and it posts no `/apply-review`, turbo project or not (see
+Turbo) — there is nothing on it for the developer to apply. Told apart from a run that posted
+nothing at all — still Gave up — by whether a review landed on the pull request at all, not by
+whether it carries a finding.
+_Avoid_: empty review, no-findings review, silent review
 
 **Apply-review ticket**:
 A sub-issue of an implementation ticket asking for the review on its draft pull request to be acted

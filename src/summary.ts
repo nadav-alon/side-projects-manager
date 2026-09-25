@@ -1181,6 +1181,9 @@ function waitingSection(
           ...(iteration.notLabelled === undefined
             ? []
             : [notLabelledLine(iteration, REVIEWED_LABEL, iteration.notLabelled)]),
+          ...(iteration.notReadied === undefined
+            ? []
+            : [notReadiedLine(iteration, iteration.notReadied)]),
           ...(iteration.notCommented === undefined
             ? []
             : [notCommentedLine(iteration, iteration.notCommented)]),
@@ -1349,7 +1352,11 @@ function handoverLines(
     ];
   }
   if (reviewOutcome.kind === "reviewed" && !reviewLeftOpen(reviewOutcome)) {
-    return [`- ${repo}: ${handover.pullRequest} — reviewed, findings posted`];
+    return [
+      reviewOutcome.clean
+        ? `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag, marked ready for review`
+        : `- ${repo}: ${handover.pullRequest} — reviewed, findings posted`,
+    ];
   }
   return [];
 }
@@ -1538,24 +1545,31 @@ function handbackNote(finished: Finished): string {
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, notClosed, notLabelled, notCommented } = iteration;
+  const { repo, ticket, clean, notClosed, notLabelled, notReadied, notCommented } = iteration;
+  const pullRequest = ticket.pullRequest.url;
   switch (notClosed?.kind) {
     case undefined: {
-      const posted = `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}.`;
+      const posted = clean
+        ? `Reviewed ${repo} #${ticket.number}: found nothing to flag on ${pullRequest}, now ready for review.`
+        : `Reviewed ${repo} #${ticket.number}: posted findings on ${pullRequest}.`;
       const labelNote =
         notLabelled === undefined
           ? ""
-          : ` ${notLabelledNote(ticket.pullRequest.url, REVIEWED_LABEL, notLabelled)}.`;
+          : ` ${notLabelledNote(pullRequest, REVIEWED_LABEL, notLabelled)}.`;
+      const readyNote =
+        notReadied === undefined ? "" : ` ${notReadiedNote(pullRequest, notReadied)}.`;
       const commentNote =
-        notCommented === undefined
-          ? ""
-          : ` ${notCommentedNote(ticket.pullRequest.url, notCommented)}.`;
-      return `${posted}${labelNote}${commentNote}`;
+        notCommented === undefined ? "" : ` ${notCommentedNote(pullRequest, notCommented)}.`;
+      return `${posted}${labelNote}${readyNote}${commentNote}`;
     }
     case "check-failed":
-      return `Reviewed ${repo} #${ticket.number}, but ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${ticket.pullRequest.url} and close it yourself.`;
-    case "close-failed":
-      return `Reviewed ${repo} #${ticket.number}: posted findings on ${ticket.pullRequest.url}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+      return `Reviewed ${repo} #${ticket.number}, but ${pullRequest} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${pullRequest} and close it yourself.`;
+    case "close-failed": {
+      const posted = clean
+        ? `found nothing to flag on ${pullRequest}`
+        : `posted findings on ${pullRequest}`;
+      return `Reviewed ${repo} #${ticket.number}: ${posted}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+    }
   }
 }
 
@@ -1590,6 +1604,31 @@ function notLabelledLine(
 }
 
 /**
+ * The sentence a clean review's refused ready-mark reads as, wherever it is
+ * said: read at `notReadiedLine`, and inline at the end of `reviewSummary`'s
+ * clean-outcome sentence — so a refused ready-mark is said one way rather
+ * than in two wordings that drift apart from each other. CONTEXT.md's "Clean
+ * review".
+ */
+function notReadiedNote(pullRequest: PullRequestUrl, { error }: NotLabelled): string {
+  return `${pullRequest} could not be marked ready for review: ${withoutTrailingStop(error)}; mark it ready yourself`;
+}
+
+/**
+ * The Waiting-on-you line for a clean review iteration whose closed ticket's
+ * pull request could not be marked ready. Read at the `reviewed` case in
+ * `waitingSection`, once it has ruled out `notClosed`: the ready-mark is
+ * tried only after the ticket has already closed, so the two never both
+ * apply to the same iteration.
+ */
+function notReadiedLine(
+  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
+  notReadied: NotLabelled,
+): string {
+  return `- ${repo} #${ticket.number}: ${notReadiedNote(ticket.pullRequest.url, notReadied)}`;
+}
+
+/**
  * The sentence a turbo project's refused comment reads as, wherever it is
  * said: read at `notCommentedLine`, and inline at the end of `reviewSummary`'s
  * clean-outcome sentence — so a refused comment is said one way rather than
@@ -1619,15 +1658,19 @@ function notCommentedLine(
 
 /** The Waiting-on-you line for a review that ran but left its ticket open. */
 function notClosedLine(
-  { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
+  { repo, ticket, clean }: { repo: RepoSlug; ticket: ReviewTicket; clean?: boolean },
   notClosed: NotClosed,
 ): string {
   const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed.kind) {
     case "check-failed":
-      return `${still} — ${ticket.pullRequest.url} could not be checked for its findings: ${withoutTrailingStop(notClosed.error)}; check it and close the ticket yourself`;
-    case "close-failed":
-      return `${still} — its findings are on ${ticket.pullRequest.url}, but it could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
+      return `${still} — ${ticket.pullRequest.url} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}; check it and close the ticket yourself`;
+    case "close-failed": {
+      const posted = clean
+        ? `${ticket.pullRequest.url} was found clean`
+        : `its findings are on ${ticket.pullRequest.url}`;
+      return `${still} — ${posted}, but it could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
+    }
   }
 }
 

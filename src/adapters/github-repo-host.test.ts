@@ -1280,6 +1280,57 @@ describe("checking a pull request for posted review findings", () => {
   });
 });
 
+describe("checking a pull request for a posted review", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+  const SINCE = new Date("2026-09-15T00:00:00Z");
+  const BEFORE = "2026-09-14T00:00:00Z";
+  const AFTER = "2026-09-15T01:00:00Z";
+
+  function reviews(entries: Record<string, unknown>[]): string {
+    return JSON.stringify(entries);
+  }
+
+  async function checkedWith(t: TestContext, entries: Record<string, unknown>[]) {
+    await recordingGh(t, `cat <<'JSON'\n${reviews(entries)}\nJSON`);
+    return githubRepoHost().hasPostedReview(PULL_REQUEST, SINCE);
+  }
+
+  it("finds a review with no comments submitted after the read's instant", async (t) => {
+    const found = await checkedWith(t, [
+      { body: "", state: "COMMENTED", submitted_at: AFTER },
+    ]);
+
+    assert.equal(found, true);
+  });
+
+  it("does not find one submitted before the read's instant", async (t) => {
+    const found = await checkedWith(t, [
+      { body: "", state: "COMMENTED", submitted_at: BEFORE },
+    ]);
+
+    assert.equal(found, false);
+  });
+
+  it("does not count a pending review with no submitted_at", async (t) => {
+    const found = await checkedWith(t, [{ body: "", state: "PENDING", submitted_at: null }]);
+
+    assert.equal(found, false);
+  });
+
+  it("reads the pull request's own reviews, named by its own URL", async (t) => {
+    const gh = await recordingGh(t, `cat <<'JSON'\n${reviews([])}\nJSON`);
+
+    await githubRepoHost().hasPostedReview(PULL_REQUEST, SINCE);
+
+    assert.deepEqual(callWith(await gh.calls(), "api"), [
+      "api",
+      "repos/nadav-alon/pilot/pulls/7/reviews",
+    ]);
+  });
+});
+
 describe("marking a pull request ready for review", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",
