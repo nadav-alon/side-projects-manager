@@ -3,6 +3,7 @@ import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
+import { type RunSpan, runSpanCovers } from "./store.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -358,7 +359,7 @@ export type LabelAction = "labeled" | "unlabeled";
 
 /**
  * One `labeled` or `unlabeled` event from an issue's own label timeline —
- * what {@link IssueTracker.wasTurboableAt} reads in place of an issue's
+ * what {@link IssueTracker.wasTurboableAt} replays in place of an issue's
  * current labels, since whether a label is on an issue right now says
  * nothing about whether it was there at some earlier instant.
  */
@@ -366,6 +367,29 @@ export interface LabelTimelineEvent {
   label: string;
   action: LabelAction;
   at: Date;
+}
+
+/**
+ * The most recent `label` event at or before `instant`, replaying `events` —
+ * that issue's full label timeline, in any order — up to and including
+ * `instant`. Undefined where none match. A tie on `at` goes to whichever of
+ * the tied events sorts last, which is whichever came last in `events` —
+ * `Array.prototype.sort` is stable.
+ * Matched without regard to case, the way every other label here is.
+ */
+function mostRecentLabelEvent(
+  events: readonly LabelTimelineEvent[],
+  label: string,
+  instant: Date,
+): LabelTimelineEvent | undefined {
+  return events
+    .filter(
+      (event) =>
+        event.label.toLowerCase() === label.toLowerCase() &&
+        event.at.getTime() <= instant.getTime(),
+    )
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+    .at(-1);
 }
 
 /**
@@ -385,14 +409,46 @@ export function labelWasPresentAt(
   label: string,
   instant: Date,
 ): boolean {
-  const matching = events
-    .filter(
-      (event) =>
-        event.label.toLowerCase() === label.toLowerCase() &&
-        event.at.getTime() <= instant.getTime(),
-    )
-    .sort((a, b) => a.at.getTime() - b.at.getTime());
-  return matching.at(-1)?.action === "labeled";
+  return mostRecentLabelEvent(events, label, instant)?.action === "labeled";
+}
+
+/**
+ * Whether `ticket` had turboable consent at `instant`, replaying `events` —
+ * its full label timeline — and checking the granting event against
+ * `spans`, every run span recorded for any ticket. Per `CONTEXT.md`'s
+ * "Turboable", the timeline check alone (`labelWasPresentAt`) and stripping
+ * `turboable` from every ticket the manager opens cover two gaps, but not a
+ * third: a run on one ticket, posting with the developer's own identity, can
+ * label a *different*, not-yet-run ticket `turboable` before that ticket's
+ * own run starts, which a timeline check alone cannot tell from a human's
+ * grant.
+ *
+ * Consent holds only where both are true:
+ * 1. `turboable` was present at `instant`, the same rule as `labelWasPresentAt`.
+ * 2. The latest `labeled` event for `turboable` at or before `instant` —
+ *    the grant — falls inside no run span of any ticket in `ticket`'s own
+ *    repo. `spans` for another repo never count, whatever they cover.
+ *
+ * Whether a span falls inside `instant` is `runSpanCovers`'s call, bounds and
+ * all — including `ticket`'s own span: a grant at exactly its own
+ * `startedAt` is rejected.
+ *
+ * Beside the port, like `labelWasPresentAt`, so the real tracker and the
+ * fake apply the very same rule to the events and spans each replays.
+ */
+export function turboableConsentAt(
+  ticket: Ticket,
+  events: readonly LabelTimelineEvent[],
+  instant: Date,
+  spans: readonly RunSpan[],
+): boolean {
+  const grant = mostRecentLabelEvent(events, TURBOABLE_LABEL, instant);
+  if (grant?.action !== "labeled") {
+    return false;
+  }
+  return !spans.some(
+    (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),
+  );
 }
 
 /**
@@ -734,17 +790,26 @@ export interface IssueTracker {
    */
   listSubIssues(ticket: Ticket): Promise<SubIssue[]>;
   /**
-   * Whether `ticket` carried {@link TURBOABLE_LABEL} at `instant`, read from
-   * its label timeline rather than its current labels — see
-   * {@link labelWasPresentAt}, which does the replaying.
+   * Whether `ticket` had turboable consent at `instant`, read from its label
+   * timeline rather than its current labels, and checked against `spans` —
+   * see {@link turboableConsentAt}, which does the replaying and the span
+   * check both. `spans` must include every run span recorded for `ticket`'s
+   * own repo — the caller's full `State.runSpans` does, unfiltered, since a
+   * span for another repo is simply ignored — and an empty array reads as no
+   * spans recorded, not as skipping the check.
    *
    * What the merge gate checks against the instant a ticket's implementation
-   * run started: a label added only after that instant, or
-   * added and then removed again before it, must not count as consent given
-   * in time, and only a read of history rather than the present can tell the
-   * two apart.
+   * run started: a label added only after that instant, added and then
+   * removed again before it, or added by a run on a different ticket before
+   * this one's own run started, must not count as consent given in time —
+   * and only a read of history, rather than the present, can tell any of
+   * those from a human's grant.
    */
-  wasTurboableAt(ticket: Ticket, instant: Date): Promise<boolean>;
+  wasTurboableAt(
+    ticket: Ticket,
+    instant: Date,
+    spans: readonly RunSpan[],
+  ): Promise<boolean>;
   /**
    * Opens a spec review ticket against `ticket`, a supertask — a sub-issue
    * carrying `body` — and answers with it.

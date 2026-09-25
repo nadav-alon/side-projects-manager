@@ -16,6 +16,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  RunSpan,
   SubIssue,
   Ticket,
   TicketPriority,
@@ -29,7 +30,6 @@ import {
   SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
-  TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -40,11 +40,11 @@ import {
   isIssueUrl,
   isPullRequestUrl,
   isTicketPriority,
-  labelWasPresentAt,
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,
+  turboableConsentAt,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../summary.ts";
 import { errorMessage } from "../error-message.ts";
@@ -305,7 +305,11 @@ export function ghIssueTracker(
       return subIssuesIn(stdout, ticket);
     },
 
-    async wasTurboableAt(ticket: Ticket, instant: Date): Promise<boolean> {
+    async wasTurboableAt(
+      ticket: Ticket,
+      instant: Date,
+      spans: readonly RunSpan[],
+    ): Promise<boolean> {
       // `--paginate`, so an issue with a longer timeline than fits one page
       // is read whole — the same reason `listSubIssues` paginates. Filtered
       // to the two event kinds a label's history is made of, so a comment or
@@ -319,7 +323,7 @@ export function ghIssueTracker(
         '.[] | select(.event == "labeled" or .event == "unlabeled") | {event, label: .label.name, created_at}',
       ]);
       const events = labelTimelineEventsIn(stdout, ticket);
-      return labelWasPresentAt(events, TURBOABLE_LABEL, instant);
+      return turboableConsentAt(ticket, events, instant, spans);
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {

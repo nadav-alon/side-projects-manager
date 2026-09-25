@@ -21,6 +21,7 @@ import {
   TURBOABLE_LABEL,
   type ApplyReviewTicket,
   type RebaseTicket,
+  type RunSpan,
   type Ticket,
 } from "../ports/index.ts";
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
@@ -863,7 +864,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2), false);
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2, []), false);
   });
 
   it("answers true once turboable was labelled, at and after that instant", async () => {
@@ -871,8 +872,8 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1), true);
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2), true);
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1, []), true);
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2, []), true);
   });
 
   it("answers false for a turboable label added after the instant", async () => {
@@ -880,7 +881,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1), false);
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1, []), false);
   });
 
   it("answers false once turboable was added and then removed again before the instant", async () => {
@@ -889,7 +890,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
     tracker.recordTurboableEvent(ticket, "unlabeled", DAY_2);
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3), false);
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, []), false);
   });
 
   it("reads only the ticket its events were recorded against", async () => {
@@ -898,7 +899,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
     tracker.recordTurboableEvent(turboable, "labeled", DAY_1);
 
-    assert.equal(await tracker.wasTurboableAt(other, DAY_2), false);
+    assert.equal(await tracker.wasTurboableAt(other, DAY_2, []), false);
   });
 
   it("leaves the ticket's current labels untouched, independent of addLabel/removeLabel", async () => {
@@ -907,5 +908,39 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
 
     assert.equal(tracker.carriesLabel(ticket, TURBOABLE_LABEL), false);
+  });
+
+  it("answers false where the grant falls inside another ticket's run span in the same repo", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
+
+    const spans: RunSpan[] = [
+      { repo: other.repo, number: other.number, startedAt: DAY_1, endedAt: DAY_3 },
+    ];
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), false);
+  });
+
+  it("answers false where the grant falls inside another ticket's still-open run span in the same repo", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
+
+    const spans: RunSpan[] = [{ repo: other.repo, number: other.number, startedAt: DAY_1 }];
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), false);
+  });
+
+  it("ignores a run span for the same numbered ticket in a different repo", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    const otherRepo = repoSlug("nadav-alon/other");
+    tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
+
+    const spans: RunSpan[] = [
+      { repo: otherRepo, number: ticket.number, startedAt: DAY_1, endedAt: DAY_3 },
+    ];
+    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), true);
   });
 });

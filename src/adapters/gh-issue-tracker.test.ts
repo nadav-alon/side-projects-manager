@@ -21,6 +21,7 @@ import {
   type ApplyReviewTicket,
   type RebaseTicket,
   type ReviewTicket,
+  type RunSpan,
   type Ticket,
 } from "../ports/index.ts";
 import { callWith, recordingGh, tempHome, valueOf } from "../testing/index.ts";
@@ -2392,6 +2393,7 @@ describe("ghIssueTracker.listSubIssues", () => {
 describe("ghIssueTracker.wasTurboableAt", () => {
   const PILOT = repoSlug("nadav-alon/pilot");
   const TICKET: Ticket = { repo: PILOT, number: issueNumber(40), title: "Some ticket" };
+  const OTHER_TICKET: Ticket = { repo: PILOT, number: issueNumber(41), title: "Another ticket" };
 
   interface RawEvent {
     event: string;
@@ -2419,7 +2421,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     await recordingGh(t, timeline([]));
 
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
       false,
     );
   });
@@ -2433,11 +2435,11 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z"), []),
       true,
     );
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
       true,
     );
   });
@@ -2453,7 +2455,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), []),
       true,
     );
   });
@@ -2467,7 +2469,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
       false,
     );
   });
@@ -2482,7 +2484,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z"), []),
       false,
     );
   });
@@ -2496,7 +2498,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.equal(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
       false,
     );
   });
@@ -2504,7 +2506,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
   it("asks the paginated timeline endpoint of the ticket it was given", async (t) => {
     const gh = await recordingGh(t, timeline([]));
 
-    await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"));
+    await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []);
 
     const [call] = await gh.calls();
     assert.deepEqual(call?.slice(0, 2), [
@@ -2521,7 +2523,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     await assert.rejects(
-      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
       /event 1.*"event" must be a string/,
     );
   });
@@ -2533,8 +2535,52 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     await assert.rejects(
-      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
       /"created_at" was not a valid timestamp: "not-a-date"/,
+    );
+  });
+
+  it("answers false where the grant falls inside another ticket's run span in the same repo", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-02T00:00:00Z" },
+      ]),
+    );
+
+    const spans: RunSpan[] = [
+      {
+        repo: OTHER_TICKET.repo,
+        number: OTHER_TICKET.number,
+        startedAt: new Date("2026-01-01T00:00:00Z"),
+        endedAt: new Date("2026-01-03T00:00:00Z"),
+      },
+    ];
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
+      false,
+    );
+  });
+
+  it("answers true where every span given leaves the grant uncovered", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-01T00:00:00Z" },
+      ]),
+    );
+
+    const spans: RunSpan[] = [
+      {
+        repo: OTHER_TICKET.repo,
+        number: OTHER_TICKET.number,
+        startedAt: new Date("2026-01-02T00:00:00Z"),
+        endedAt: new Date("2026-01-03T00:00:00Z"),
+      },
+    ];
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
+      true,
     );
   });
 });

@@ -265,6 +265,20 @@ export function runSpanFor(
 }
 
 /**
+ * Whether `span` covers `instant`. Bounds are inclusive: `instant` at
+ * exactly `startedAt` or `endedAt` counts as covered. A `span` with no
+ * `endedAt` — its run still going, or the manager died before it closed one
+ * — covers everything from its `startedAt` on.
+ */
+export function runSpanCovers(span: RunSpan, instant: Date): boolean {
+  const at = instant.getTime();
+  return (
+    span.startedAt.getTime() <= at &&
+    (span.endedAt === undefined || at <= span.endedAt.getTime())
+  );
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.

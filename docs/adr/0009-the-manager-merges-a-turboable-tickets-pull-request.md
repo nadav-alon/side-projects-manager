@@ -25,8 +25,15 @@ Checking the label's own timeline event — labeled before that ticket's impleme
 not merely present now — stops a run granting its own ticket consent mid-run: a label it adds to
 itself lands after that run's own start, which reads as not in time. It does nothing for a ticket
 that starts out carrying the label, which is what stripping is for: the manager strips `turboable`
-from every ticket it opens, so a discovery can never be born with it. Each covers what the other
-cannot — the timeline check a self-grant mid-run, stripping a label present from birth.
+from every ticket it opens, so a discovery can never be born with it. Neither covers a run on one
+ticket labeling a *different*, not-yet-run ticket `turboable` — posting with the developer's own
+identity, so the label still predates that ticket's own run, and the manager did not open that ticket
+itself, so stripping never touches it. A third check closes that gap: the granting event must also
+fall inside no run span, of any ticket, in the same repo (see CONTEXT.md's "Run span"); a run's own
+span covers it from the moment that run starts, so a label it grants any ticket in the project,
+including its own, reads as not in time. Known gaps: recording a span is best-effort, so a run whose
+write failed leaves no span for this check to see; and a ticket run more than once keeps only its
+latest run's span, so an earlier run's own grant is no longer covered once that ticket runs again.
 
 **One pass, bounded the same way apply-review and rebase already are.** "Merge once finished" could
 otherwise cycle indefinitely through rebase and apply-review chasing a moving mergeable state. Only
@@ -51,6 +58,10 @@ it is, turboable assumes every pull request stands alone.
 - **Timeline-checked**, against the label's timeline: on before the ticket's own implementation run
   started, not merely present now.
 - **Stripped**: the manager never opens a ticket carrying it.
+- **Run-span-checked**: the granting event must also fall inside no run span, of any ticket, in the
+  same repo — closes the gap a run labeling a *different*, not-yet-run ticket leaves in the other two.
+  Known gaps: a failed span write leaves no span to check, and a ticket's later run replaces its
+  earlier run's span.
 - **Fires once**, right after the one apply-review run a turboable ticket's pull request already
   gets: merge — mergeable, green, no declined threads — or `ready-for-human` on the pull request and
   stop. No retry, no re-rebase.

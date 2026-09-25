@@ -71,6 +71,7 @@ export {
   targetNoun,
   ticketKind,
   ticketPrioritiesIn,
+  turboableConsentAt,
 } from "./issue-tracker.ts";
 export type {
   ApplyReviewTicket,
@@ -253,6 +254,7 @@ export {
   recordStopShortSalvage,
   recordRun,
   recordWorked,
+  runSpanCovers,
   runSpanFor,
   salvageFor,
   ticketKey,
