@@ -353,6 +353,9 @@ export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
  */
 export const TURBOABLE_LABEL = "turboable";
 
+/** Whether a label timeline event added or removed the label. */
+export type LabelAction = "labeled" | "unlabeled";
+
 /**
  * One `labeled` or `unlabeled` event from an issue's own label timeline —
  * what {@link IssueTracker.wasTurboableAt} reads in place of an issue's
@@ -361,7 +364,7 @@ export const TURBOABLE_LABEL = "turboable";
  */
 export interface LabelTimelineEvent {
   label: string;
-  action: "labeled" | "unlabeled";
+  action: LabelAction;
   at: Date;
 }
 

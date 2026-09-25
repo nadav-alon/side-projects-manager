@@ -78,6 +78,7 @@ export type {
   DiscoveredTicketRequest,
   HandBackOutcome,
   IssueTracker,
+  LabelAction,
   LabelTimelineEvent,
   ModelLabel,
   OpenIssue,

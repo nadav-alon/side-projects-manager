@@ -5,6 +5,7 @@ import type {
   IssueNumber,
   IssueTracker,
   IssueUrl,
+  LabelAction,
   LabelTimelineEvent,
   OpenIssue,
   OpenIssues,
@@ -426,7 +427,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    */
   recordTurboableEvent(
     ticket: Ticket,
-    action: "labeled" | "unlabeled",
+    action: LabelAction,
     at: Date,
   ): void {
     const key = ticketKey(ticket);

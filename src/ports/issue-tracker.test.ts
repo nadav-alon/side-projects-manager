@@ -26,6 +26,7 @@ import {
   sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
+  type LabelAction,
   type LabelTimelineEvent,
   type OpenIssue,
 } from "./issue-tracker.ts";
@@ -509,7 +510,7 @@ describe("labelWasPresentAt", () => {
   const DAY_3 = new Date("2026-01-03T00:00:00Z");
 
   function event(
-    action: "labeled" | "unlabeled",
+    action: LabelAction,
     at: Date,
     label: string = TURBOABLE_LABEL,
   ): LabelTimelineEvent {

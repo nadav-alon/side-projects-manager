@@ -8,6 +8,7 @@ import type {
   IssueNumber,
   IssueTracker,
   IssueUrl,
+  LabelAction,
   LabelTimelineEvent,
   OpenIssues,
   PullRequestBinding,
@@ -975,18 +976,6 @@ function subIssueClosed(state: string, at: string): boolean {
 }
 
 /**
- * One `labeled` or `unlabeled` timeline event as `gh api .../timeline
- * --paginate --jq '.[] | select(...) | {event, label, created_at}'` reports
- * it, one per line — the same newline-delimited shape `subIssuesIn` reads its
- * own listing in.
- */
-interface RawLabelTimelineEvent {
-  event: string;
-  label: string;
-  created_at: string;
-}
-
-/**
  * `gh api .../timeline --paginate --jq '.[] | select(...) | {...}'`:
  * newline-delimited JSON, one `{ event, label, created_at }` per labeled or
  * unlabeled event on `ticket`'s own timeline, across every page `--paginate`
@@ -1011,15 +1000,10 @@ function labelTimelineEventsIn(
       throw new Error(`${at}: expected an object.`);
     }
     const { event, label, created_at } = raw as Record<string, unknown>;
-    const parsed: RawLabelTimelineEvent = {
-      event: expectField(event, "string", "event", at),
-      label: expectField(label, "string", "label", at),
-      created_at: expectField(created_at, "string", "created_at", at),
-    };
     return {
-      label: parsed.label,
-      action: expectLabelAction(parsed.event, at),
-      at: expectTimestamp(parsed.created_at, at),
+      label: expectField(label, "string", "label", at),
+      action: expectLabelAction(expectField(event, "string", "event", at), at),
+      at: expectTimestamp(expectField(created_at, "string", "created_at", at), at),
     };
   });
 }
@@ -1030,7 +1014,7 @@ function labelTimelineEventsIn(
  * to the two, but a tracker that answered with anything else must be refused
  * loudly rather than handed on as one of them.
  */
-function expectLabelAction(event: string, at: string): "labeled" | "unlabeled" {
+function expectLabelAction(event: string, at: string): LabelAction {
   switch (event) {
     case "labeled":
     case "unlabeled":
