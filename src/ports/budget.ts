@@ -7,10 +7,11 @@ import { usd, type Usd } from "./usd.ts";
 /**
  * What the developer is willing to let the mornings spend.
  *
- * The provider reports consumption but never remaining quota, so every
- * allowance here is self-declared: a number the developer states and then
- * calibrates against the run costs the state document accumulates. Being
- * wrong is safe in one direction only, which is why the reserve exists.
+ * What the provider does report of a window's own usage never reaches a
+ * headless run in time to act on, so every allowance here is self-declared: a
+ * number the developer states and then calibrates against the run costs the
+ * state document accumulates. Being wrong is safe in one direction only,
+ * which is why the reserve exists.
  */
 /**
  * `spendCeiling`'s shape: one dollar figure for every size, or one figure per
@@ -82,10 +83,10 @@ export interface Budget {
  * should behave exactly as it did before that setting existed.
  *
  * These numbers are never revised by anything running here — nothing writes
- * the budget document, and the provider reports consumption but never
- * remaining quota, so there is nothing to derive a true allowance from. They
- * are the developer's to raise or lower by hand in `budget.json`, against the
- * run costs `state.json` accumulates.
+ * the budget document, and what the provider does report of a window's own
+ * usage never reaches a headless run, so there is nothing to derive a true
+ * allowance from. They are the developer's to raise or lower by hand in
+ * `budget.json`, against the run costs `state.json` accumulates.
  *
  * Expressed in `weightedTokenCount`'s tokens: scaled down by 0.3 from a
  * straight sum of usage fields, the ratio a realistic mix of input, output

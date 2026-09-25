@@ -169,11 +169,12 @@ export function runsRecorded(
  * document exists to fix, and a caller that forgot to pass it should not
  * compile.
  *
- * Every number here is an inference. The provider reports consumption and
- * never remaining quota, and the ledger cannot see the developer's usage from
- * Claude chat or another machine, so the windows read low. The reserve is
- * what absorbs that, and it is why the arithmetic rounds the developer's way
- * throughout: a reserve that does not divide evenly is held back whole.
+ * Every number here is an inference. What the provider does report of a
+ * window's own usage never reaches a headless run, and the ledger cannot see
+ * the developer's usage from Claude chat or another machine, so the windows
+ * read low. The reserve is what absorbs that, and it is why the arithmetic
+ * rounds the developer's way throughout: a reserve that does not divide
+ * evenly is held back whole.
  */
 export function budgetGate(
   windows: UsageWindows,

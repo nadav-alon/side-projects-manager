@@ -645,8 +645,10 @@ from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
-The weighted tokens a window is declared to hold. Self-declared, because the provider reports
-consumption and never remaining quota.
+The weighted tokens a window is declared to hold. Self-declared: what the provider does report of a
+window's own usage — the status line's `used_percentage`, `rate_limit_event`'s utilization — reaches
+neither a headless run nor the gate before it needs an answer, so there is nothing to read a true
+figure from.
 _Avoid_: quota, limit, capacity
 
 **Usage ledger**:

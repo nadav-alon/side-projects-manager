@@ -266,9 +266,10 @@ Every field is optional and falls back to the default above, so moving the reser
 line. The two allowances are weighted tokens — a fresh input token counts as 1, output as 5, a cache
 write as 1.25 and a cache read as 0.1, the ratios the provider prices every current model by, in
 place of the equal weight that let a run's cache reads pass for most of its cost — and they are
-declarations rather than measurements: the provider reports what you have consumed and never what
-you have left, so these are your own numbers to calibrate against the run costs accumulating in
-`state.json`. Neither may be zero — an allowance of nothing leaves nothing spendable, and a window is
+declarations rather than measurements: what the provider does report of a window's own usage — a
+status-line percentage, a utilization figure sent only once a limit is hit — never reaches a headless
+run in time to act on, so these are your own numbers to calibrate against the run costs accumulating
+in `state.json`. Neither may be zero — an allowance of nothing leaves nothing spendable, and a window is
 let through while it has consumed no more than it may, so zero would authorise a run every morning
 rather than stopping them. To halt the mornings, run `npm run halt` — see [Triggers](#triggers).
 
