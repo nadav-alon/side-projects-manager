@@ -1189,7 +1189,7 @@ describe("summaryLine", () => {
         reason: "weekly-reserve",
         tokensUsed: tokenCount(SPENDABLE_THIS_WEEK + 1),
         spendable: tokenCount(SPENDABLE_THIS_WEEK),
-        estimateCharged: tokenCount(2_000_000),
+        estimateCharged: tokenCount(200_000),
         resetsAt: RESETS_AT,
         refused: REPO,
         ...overrides,
@@ -1237,7 +1237,7 @@ describe("summaryLine", () => {
         gateStandDown({
           reason: "weekly-reserve-estimate",
           // Within spendable on its own, per the reason: only the estimate
-          // charged (still 2,000,000, from the default) pushes it over.
+          // charged (still 200,000, from the default) pushes it over.
           tokensUsed: tokenCount(SPENDABLE_THIS_WEEK - 1),
         }),
       );
@@ -1272,7 +1272,7 @@ describe("summaryLine", () => {
       assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
       assert.match(
         line,
-        /2,000,000 tokens charged as the run estimate/,
+        /200,000 tokens charged as the run estimate/,
       );
       assert.match(line, /run estimate \(plus any in-progress estimates\)/);
       assert.match(line, new RegExp(RESETS_AT.toISOString()));
@@ -1291,7 +1291,7 @@ describe("summaryLine", () => {
       assert.match(line, new RegExp(SPENDABLE_THIS_WEEK.toLocaleString("en-US")));
       assert.match(
         line,
-        /2,000,000 tokens charged as the run estimate/,
+        /200,000 tokens charged as the run estimate/,
       );
       assert.match(line, /run estimate \(plus any in-progress estimates\)/);
       assert.match(line, new RegExp(RESETS_AT.toISOString()));

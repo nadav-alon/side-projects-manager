@@ -457,10 +457,10 @@ describe("the budget document", () => {
     const store = documentStore(await home());
 
     assert.deepEqual((await store.loadBudget()).sizes, {
-      S: 500_000,
-      M: 2_000_000,
-      L: 5_000_000,
-      XL: 10_000_000,
+      S: 50_000,
+      M: 200_000,
+      L: 500_000,
+      XL: 1_000_000,
     });
   });
 

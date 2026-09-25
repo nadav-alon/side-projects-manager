@@ -86,19 +86,25 @@ export interface Budget {
  * remaining quota, so there is nothing to derive a true allowance from. They
  * are the developer's to raise or lower by hand in `budget.json`, against the
  * run costs `state.json` accumulates.
+ *
+ * Expressed in `weightedTokenCount`'s tokens rather than a straight sum of
+ * usage fields, so scaled down from what they were before it existed: a run
+ * spends mostly on cache reads, weighted at a tenth of a fresh token, and the
+ * one figure this file has to scale by is that tenth — the developer's own
+ * recalibration against `state.json` is what corrects it from there.
  */
 export const DEFAULT_BUDGET: Budget = {
-  fiveHourAllowance: tokenCount(50_000_000),
-  weeklyAllowance: tokenCount(500_000_000),
+  fiveHourAllowance: tokenCount(5_000_000),
+  weeklyAllowance: tokenCount(50_000_000),
   reserveFraction: reserveFraction(0.5),
   fiveHourReserveFraction: reserveFraction(0),
   spendCeiling: usd(10),
   maxConcurrentIterations: iterationLimit(1),
   sizes: {
-    S: tokenCount(500_000),
-    M: tokenCount(2_000_000),
-    L: tokenCount(5_000_000),
-    XL: tokenCount(10_000_000),
+    S: tokenCount(50_000),
+    M: tokenCount(200_000),
+    L: tokenCount(500_000),
+    XL: tokenCount(1_000_000),
   },
   unsizedCountsAs: "M",
 };
