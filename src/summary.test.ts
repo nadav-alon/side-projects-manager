@@ -1184,6 +1184,7 @@ describe("summaryLine", () => {
       }))]));
 
       assert.match(line, /a prerequisite, opened as #199/);
+      assert.doesNotMatch(line, /#199, ready-for-agent/);
     });
 
     it("says a ready prerequisite's discovered ticket skipped triage", () => {
@@ -1226,6 +1227,7 @@ describe("summaryLine", () => {
       }))]));
 
       assert.match(line, /a correction; a prerequisite, opened as #198/);
+      assert.doesNotMatch(line, /#198, ready-for-agent/);
     });
   });
 
