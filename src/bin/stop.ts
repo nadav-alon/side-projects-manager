@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { documentStore } from "../adapters/document-store.ts";
 import { HALT_FILE, fileHalt } from "../adapters/file-halt.ts";
@@ -29,6 +30,29 @@ function liveInFlightProcesses(
 }
 
 /**
+ * The gap `signalStop` leaves between its two `--now` signals. Real, rather
+ * than none: two SIGINTs sent back to back are not guaranteed two
+ * deliveries, only one process the kernel is free to coalesce into a single
+ * pending signal if the first hasn't been handled yet — the same reason the
+ * loop's own second-interrupt test waits for the first to be seen before
+ * sending the next.
+ */
+const SECOND_SIGNAL_DELAY_MS = 100;
+
+/**
+ * Signals `pid` the stop `stopOnInterrupt` (`src/bin/morning-run.ts`) already
+ * handles: once for a graceful stop, twice for `now` — a second Ctrl+C's
+ * abandon, sent `SECOND_SIGNAL_DELAY_MS` after the first.
+ */
+async function signalStop(pid: ProcessId, now: boolean): Promise<void> {
+  process.kill(pid, "SIGINT");
+  if (now) {
+    await sleep(SECOND_SIGNAL_DELAY_MS);
+    process.kill(pid, "SIGINT");
+  }
+}
+
+/**
  * Ends the day run in flight and halts the loop (CONTEXT.md: Halt), replacing
  * finding a run's pid in `status` and signalling it by hand.
  *
@@ -37,9 +61,12 @@ function liveInFlightProcesses(
  * afterwards, not just this one invocation ended. Then signals whichever
  * invocation the journal shows still in flight and alive the same stop
  * `stopOnInterrupt` (`src/bin/morning-run.ts`) already handles: nothing
- * further starts, runs in progress finish, and the summary publishes.
+ * further starts, runs in progress finish, and the summary publishes —
+ * unless `--now` is given, which abandons them instead, the same as sending
+ * a second Ctrl+C does today.
  */
 async function main(): Promise<void> {
+  const now = process.argv.slice(2).includes("--now");
   const haltFile = path.join(MANAGER_HOME, HALT_FILE);
   const engaged = await fileHalt().engage();
   console.log(
@@ -55,11 +82,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  for (const pid of live) {
-    process.kill(pid, "SIGINT");
-  }
+  await Promise.all(live.map((pid) => signalStop(pid, now)));
   console.log(
-    "Stopping: nothing further will start. Runs in progress will finish and the summary will publish.",
+    now
+      ? "Stopping now: whatever was in progress is being abandoned."
+      : "Stopping: nothing further will start. Runs in progress will finish and the summary will publish.",
   );
 }
 

@@ -140,4 +140,26 @@ describe("the stop command", () => {
       "only the record whose process is alive is signalled",
     );
   });
+
+  it("--now signals twice, abandoning the run in progress as a second Ctrl+C does today", async (t) => {
+    const home = await tempHome("stop-bin");
+    const marker = path.join(home, "marker");
+    const { pid, child } = await signalEchoingProcess(marker);
+    t.after(() => child.kill("SIGKILL"));
+    await writeJournal(home, {
+      records: [{ openedAt: new Date().toISOString(), process: pid }],
+    });
+
+    const [{ stdout, stderr }, exitCode] = await Promise.all([
+      run(home, ["--now"]),
+      new Promise<number | null>((resolve) => {
+        child.on("exit", (code) => resolve(code));
+      }),
+    ]);
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /Stopping now/);
+    assert.equal(exitCode, 130, "abandoned exactly as a second Ctrl+C would");
+    assert.deepEqual(await markerLines(marker), ["SIGINT", "SIGINT"]);
+  });
 });

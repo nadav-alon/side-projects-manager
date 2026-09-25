@@ -55,8 +55,10 @@ in `registry.json`: a halt is a file of its own under the manager home
 
 `npm run stop` ends the day run in flight and halts the loop: it finds the in-flight invocation
 through the journal, never `ps`, and sends it the same stop signal an interrupt already handles —
-nothing further starts, runs in progress finish, and the summary publishes. Replaces finding a run's
-pid in `npm run status` and signalling it by hand. With nothing in flight, it still halts and says so.
+nothing further starts, runs in progress finish, and the summary publishes. `npm run stop -- --now`
+sends it twice, abandoning whatever is in progress the same way a second Ctrl+C does. Replaces
+finding a run's pid in `npm run status` and signalling it by hand. With nothing in flight, it still
+halts and says so.
 
 ## Running a ticket
 
