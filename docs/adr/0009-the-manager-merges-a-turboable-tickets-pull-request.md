@@ -48,8 +48,9 @@ it is, turboable assumes every pull request stands alone.
 
 - **`turboable`**, a label on an implementation ticket, set by a human. Absent means the manager
   never merges that ticket's pull request, whatever turbo says.
-- **Checked once**, against the label's timeline: on before the ticket's own implementation run
-  started, not merely present now. The manager never opens a ticket carrying it.
+- **Timeline-checked**, against the label's timeline: on before the ticket's own implementation run
+  started, not merely present now.
+- **Stripped**: the manager never opens a ticket carrying it.
 - **Fires once**, right after the one apply-review run a turboable ticket's pull request already
   gets: merge — mergeable, green, no declined threads — or `ready-for-human` on the pull request and
   stop. No retry, no re-rebase.
