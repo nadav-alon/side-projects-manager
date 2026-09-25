@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isTokenCount, tokenCount, weightedTokenCount } from "./token-count.ts";
+import { isTokenCount, tokenCount, weightedTokenCount, weightedTokens } from "./token-count.ts";
 
 describe("isTokenCount", () => {
   it("accepts zero, which is a window nothing has been spent in", () => {
@@ -60,6 +60,15 @@ describe("weightedTokenCount", () => {
     assert.equal(
       weightedTokenCount({ input: 1, output: 2, cacheCreation: 4, cacheRead: 8 }),
       17,
+    );
+  });
+});
+
+describe("weightedTokens", () => {
+  it("leaves the weighted total unrounded, for a caller summing several before rounding once", () => {
+    assert.equal(
+      weightedTokens({ input: 0, output: 0, cacheCreation: 0, cacheRead: 5 }),
+      0.5,
     );
   });
 });

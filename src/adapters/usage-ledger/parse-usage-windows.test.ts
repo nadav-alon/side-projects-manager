@@ -38,6 +38,20 @@ describe("parseUsageWindows", () => {
     assert.equal(windows.fiveHour.tokensUsed, 90);
   });
 
+  it("rounds a window's total once, rather than compounding each line's own rounding", () => {
+    // each line weighs to 0.5 (5 cache-read tokens at 0.1), which rounds up
+    // to 1 on its own; summed first, the window's true total is exactly 1,
+    // not the 2 that rounding each line first would give
+    const lines = [
+      logLine({ timestamp: "2026-09-05T11:00:00.000Z", inputTokens: 0, outputTokens: 0, cacheReadTokens: 5 }),
+      logLine({ timestamp: "2026-09-05T11:01:00.000Z", inputTokens: 0, outputTokens: 0, cacheReadTokens: 5 }),
+    ].join("\n");
+
+    const windows = parseUsageWindows([lines], NOW);
+
+    assert.equal(windows.fiveHour.tokensUsed, 1);
+  });
+
   describe("against a history spanning weeks and five-hour blocks", () => {
     const windows = parseUsageWindows([fixture("session-history.jsonl")], NOW);
 
@@ -203,6 +217,7 @@ function logLine(options: {
   timestamp: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
 }): string {
   return JSON.stringify({
     parentUuid: null,
@@ -218,7 +233,7 @@ function logLine(options: {
       usage: {
         input_tokens: options.inputTokens,
         cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
+        cache_read_input_tokens: options.cacheReadTokens ?? 0,
         output_tokens: options.outputTokens,
       },
     },

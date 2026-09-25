@@ -53,14 +53,20 @@ const CACHE_READ_WEIGHT = 0.1;
 const OUTPUT_WEIGHT = 5;
 
 /**
- * `fields`, weighted by the provider's own price ratios and rounded to a
- * whole number of tokens.
+ * `fields`, weighted by the provider's own price ratios — left unrounded, for
+ * a caller summing several usage reports into one total, so rounding happens
+ * once on the sum rather than once per report and drifting from it.
  */
-export function weightedTokenCount(fields: UsageFields): TokenCount {
-  const total =
+export function weightedTokens(fields: UsageFields): number {
+  return (
     fields.input +
     fields.output * OUTPUT_WEIGHT +
     fields.cacheCreation * CACHE_CREATION_WEIGHT +
-    fields.cacheRead * CACHE_READ_WEIGHT;
-  return tokenCount(Math.max(0, Math.round(total)));
+    fields.cacheRead * CACHE_READ_WEIGHT
+  );
+}
+
+/** `weightedTokens`, rounded to a whole number of tokens. */
+export function weightedTokenCount(fields: UsageFields): TokenCount {
+  return tokenCount(Math.max(0, Math.round(weightedTokens(fields))));
 }
