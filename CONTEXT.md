@@ -411,7 +411,11 @@ latest run's span, so a salvaged ticket's earlier run isn't covered — a later 
 rather than adding to it. Durable where **Run in progress** is not: that one is carried on the
 invocation's own journal record and cleared the moment the run ends, so nothing survives to say when
 a finished run started once its own invocation record has closed, let alone once the day has rolled
-over. `endedAt` absent while that run is still going, or if the manager died before it ended. What
+over. `endedAt` absent while that run is still going, or if the manager died before it ended — the
+two are told apart by the invocation that opened the span, checked against the journal the same way
+**Worked today** frees a dead invocation's entries: a span still missing `endedAt` whose opening
+invocation is no longer in flight there reads as ended, not in progress, its own end instant left
+unknown rather than assumed to be the journal's last-seen one. What
 "The manager merges a turboable ticket's pull request" (ADR 0009)'s merge gate reads a ticket's own
 implementation run started at, to check a `turboable` label's timeline against it, and also reads
 every ticket's span in the same repo, to check whether a grant falls inside any of them — see
