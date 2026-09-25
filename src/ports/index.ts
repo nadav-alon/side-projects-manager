@@ -256,6 +256,7 @@ export {
   recordWorked,
   runSpanCovers,
   runSpanFor,
+  runSpanInProgress,
   salvageFor,
   ticketKey,
   unrecordWorked,
