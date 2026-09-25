@@ -1089,20 +1089,21 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
  * The blocking discoveries a discovery-blocked run's own `routing` carries,
  * each as the phrase `describeIteration` and `discoveryBlockedWaitingLine`
  * both read: a correction or a prerequisite, filed — naming the discovered
- * ticket a prerequisite opened — or refused, naming why. Worded the same
- * neutral way `discoveryLines` words a refused write, rather than naming the
- * tracker: `routeRunDiscoveries` refuses every discovery the same way when it
- * cannot even resolve a target for them, which is not the tracker's doing.
- * Read from `routing` rather than recomputing the ticket's own hand-back
- * wording, so the summary and the ticket comment can drift in phrasing
- * without drifting in fact.
+ * ticket a prerequisite opened, and whether it was born a **Ready
+ * discovery** — or refused, naming why. Worded the same neutral way
+ * `discoveryLines` words a refused write, rather than naming the tracker:
+ * `routeRunDiscoveries` refuses every discovery the same way when it cannot
+ * even resolve a target for them, which is not the tracker's doing. Read
+ * from `routing` rather than recomputing the ticket's own hand-back wording,
+ * so the summary and the ticket comment can drift in phrasing without
+ * drifting in fact.
  */
 function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
   const filed = routing.filed.flatMap((filed) =>
     isBlockingDiscoveryKind(filed.discovery.kind)
       ? [
           filed.action === "discovered-ticket"
-            ? `a ${filed.discovery.kind}, opened as #${filed.ticket.number}`
+            ? `a ${filed.discovery.kind}, opened as #${filed.ticket.number}${filed.ticket.readyDiscovery === true ? `, ${READY_FOR_AGENT_LABEL}` : ""}`
             : `a ${filed.discovery.kind}`,
         ]
       : [],

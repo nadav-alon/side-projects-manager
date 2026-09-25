@@ -600,6 +600,24 @@ describe("waitingSection", () => {
       ]);
     });
 
+    it("says a ready prerequisite's discovered ticket skipped triage", () => {
+      const lines = waitingLines([
+        discoveryBlocked(198, routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite" }),
+              action: "discovered-ticket",
+              ticket: { ...implementationTicket(205), readyDiscovery: true },
+            },
+          ],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO} #198: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as #205, ready-for-agent`,
+      ]);
+    });
+
     it("still lists the ticket as eligible when the hand-back itself was refused, same as any other kind", () => {
       const iteration: IterationOutcome = {
         repo: REPO,
@@ -1166,6 +1184,20 @@ describe("summaryLine", () => {
       }))]));
 
       assert.match(line, /a prerequisite, opened as #199/);
+    });
+
+    it("says a ready prerequisite's discovered ticket skipped triage", () => {
+      const line = summaryLine(facts([discoveryBlocked(200, routing({
+        filed: [
+          {
+            discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+            action: "discovered-ticket",
+            ticket: { ...implementationTicket(206), readyDiscovery: true },
+          },
+        ],
+      }))]));
+
+      assert.match(line, /a prerequisite, opened as #206, ready-for-agent/);
     });
 
     it("names a refused blocking discovery by its kind and why, naming no ticket", () => {
