@@ -196,7 +196,8 @@ turbo or not — there is nothing on it to apply. Absent means off, so a registr
 it reads as it always did. Says nothing about who reviews or
 what a review finds — only about when the developer's yes is given, per pull request or once. See
 ADR 0006. The same consent covers rebasing: for a turbo project, the conflict sweep posts `/rebase`
-on a conflicting pull request, in place of the developer typing it. See ADR 0007.
+on a conflicting pull request, in place of the developer typing it. See ADR 0007. Says nothing about
+merging: that needs a further, per-ticket consent — see Turboable.
 _Avoid_: auto mode, fast mode, autopilot, unattended
 
 **Priority**:
@@ -294,8 +295,11 @@ Says nothing about the ticket's model: a ticket expected to run on a costlier mo
 _Avoid_: estimate label, cost label, points, effort
 
 **ready-for-human**:
-The triage label a ticket carries once the loop has stopped working on it. Always written in full,
-as the tracker spells it.
+The triage label a ticket carries once the loop has stopped working on it. Also the label a
+turboable ticket's pull request carries when the manager's one merge pass finds it not mergeable,
+not green, or carrying a declined thread — see Turboable; there it stops the manager rather than the
+loop, and moves nothing off ready-for-agent, since a pull request has no triage state of its own.
+Always written in full, as the tracker spells it.
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
 **Hand back**:
@@ -458,8 +462,9 @@ _Avoid_: feature ticket, build ticket
 
 **Draft pull request**:
 How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull
-request open against the ticket it implemented. The manager opens one and never merges it; it
-promotes one — marks it ready for review — only when an apply-review ticket on it finishes.
+request open against the ticket it implemented. The manager opens one and merges it only for a
+turboable ticket — see Turboable. It promotes one — marks it ready for review — only when an
+apply-review ticket on it finishes.
 _Avoid_: PR (say pull request), submission, patch
 
 **Ticket gist**:
@@ -617,6 +622,20 @@ request list. Added as a best-effort last step; a refusal never reopens the tick
 says the label is missing instead. A pull request carrying this alongside the reviewed label is
 expected, not a conflict: labels are only added, never removed.
 _Avoid_: apply-review tag, done label
+
+**Turboable**:
+Per-ticket consent, the `turboable` label set by a human on an implementation ticket, letting the
+manager merge its pull request once its apply-review ticket finishes — whether that ticket followed
+from turbo or from the developer typing `/apply-review` by hand. Checked against the
+label's own timeline — labeled before that ticket's implementation run started, not merely present
+now — which stops a run granting its own ticket consent mid-run; the manager also strips `turboable`
+from every ticket it opens, so one it opens can never start out carrying it. Once a turboable
+ticket's apply-review ticket finishes, one
+pass: the manager merges the pull request, with a merge commit, and deletes its branch, but only if
+it is mergeable, green and carries no declined threads; otherwise it labels the pull request
+`ready-for-human` and stops — no retry, no re-rebase. Stacked pull requests are out of scope until
+that is specced. See ADR 0009.
+_Avoid_: auto-merge, merge flag, greenlight
 
 ### Budget
 
