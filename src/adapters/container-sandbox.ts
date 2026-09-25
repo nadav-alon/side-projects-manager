@@ -56,6 +56,7 @@ import {
   tokenCount,
   transcriptDirectory,
   transcriptPath,
+  weightedTokenCount,
   type Milliseconds,
   type Nits,
   type TicketGist,
@@ -2709,22 +2710,23 @@ function parse(stdout: string): unknown {
 }
 
 /**
- * Every token the run was billed for: fresh input and output, and both cache
- * fields, which the ledger counts the same way.
+ * What the run was billed for: every usage field `weightedTokenCount` weighs,
+ * read off the envelope's own `usage`.
  */
 function totalTokens(usage: unknown): TokenCount {
   if (typeof usage !== "object" || usage === null) {
     return tokenCount(0);
   }
   const counts = usage as Record<string, unknown>;
-  const total = [
-    "input_tokens",
-    "output_tokens",
-    "cache_creation_input_tokens",
-    "cache_read_input_tokens",
-  ].reduce((sum, field) => {
-    const value = counts[field];
-    return sum + (typeof value === "number" ? value : 0);
-  }, 0);
-  return tokenCount(Math.max(0, Math.round(total)));
+  return weightedTokenCount({
+    input: numberField(counts.input_tokens),
+    output: numberField(counts.output_tokens),
+    cacheCreation: numberField(counts.cache_creation_input_tokens),
+    cacheRead: numberField(counts.cache_read_input_tokens),
+  });
+}
+
+/** `value` if it is a number, 0 otherwise — a usage field that was never sent. */
+function numberField(value: unknown): number {
+  return typeof value === "number" ? value : 0;
 }

@@ -4627,7 +4627,7 @@ fi`;
   });
 
   describe("reading what the agent CLI said", () => {
-    it("reads the agent's result and totals every token field", async (t) => {
+    it("weighs every token field by the provider's own price ratios", async (t) => {
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
@@ -4647,7 +4647,8 @@ fi`;
 
       assert.equal(result.kind, "finished");
       assert.equal(variant(result, "finished")?.output, "implemented the thing");
-      assert.equal(result.tokensUsed, tokenCount(15));
+      // 1 input + 2*5 output + 4*1.25 cache-creation + 8*0.1 cache-read = 16.8
+      assert.equal(result.tokensUsed, tokenCount(17));
     });
 
     it("counts the fields it was given and no others", async (t) => {
@@ -4663,7 +4664,8 @@ fi`;
           sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
-      assert.equal(result.tokensUsed, tokenCount(7));
+      // 3 input + 4*5 output, with no cache fields to weigh
+      assert.equal(result.tokensUsed, tokenCount(23));
     });
 
     it("keeps output it cannot parse, and charges nothing for it", async (t) => {
@@ -4924,7 +4926,9 @@ fi`;
         variant(result, "budget-exhausted")?.words,
         BUDGET_EXHAUSTED_JSON_RESULT,
       );
-      assert.equal(result.tokensUsed, tokenCount(671_055));
+      // 12,345 input + 18,500*5 output + 30,210*1.25 cache-creation +
+      // 610,000*0.1 cache-read = 203,607.5
+      assert.equal(result.tokensUsed, tokenCount(203_608));
     });
 
     it("reads no spend-ceiling ending from the provider-failure fixture's own subtype", async (t) => {
