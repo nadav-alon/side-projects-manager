@@ -689,8 +689,8 @@ export interface AppliedReview {
   /**
    * What the merge gate did, per `CONTEXT.md`'s "Turboable" and ADR 0009.
    * Present only on a turbo project, once the ticket has closed
-   * (`notClosed` absent) — a project that is not turbo never even asks, the
-   * same as before this gate existed.
+   * (`notClosed` absent): a project that is not turbo never asks, so `merge`
+   * is absent.
    */
   merge?: MergeGate;
   /** As `Finished.discoveryReport`. */
@@ -704,17 +704,17 @@ export interface AppliedReview {
  */
 export type MergeGate =
   /**
-   * The implementation ticket did not carry `turboable` before its own run
-   * started — or never ran at all, per the timeline this reads. The manager
-   * never merges: exactly today's behaviour, on a ticket the gate happened
-   * to look at.
+   * The manager never merges: `reason` says why — the implementation ticket
+   * did not carry `turboable` before its own run started, never ran at all
+   * per the timeline this reads, could not be found, or its timeline could
+   * not be read.
    */
-  | { kind: "not-eligible" }
+  | { kind: "not-turboable"; reason: string }
   /** Mergeable, green and free of declined threads: merged with a merge commit, its branch deleted with it. */
   | { kind: "merged" }
   /**
-   * Ineligible on one of the gate's own checks — a declined thread, or a
-   * merge the repo host refused as not mergeable or not green — and so left
+   * Failed one of the gate's own checks — a declined thread, checks not
+   * green, or a merge the repo host refused as not mergeable — and so left
    * for the developer: `reason` says which, and
    * `READY_FOR_HUMAN_PULL_REQUEST_LABEL` is applied to the pull request. A
    * refusal labelling it is reported here too, never raised, the same as

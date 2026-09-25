@@ -3963,7 +3963,7 @@ describe("morningLoop", () => {
         const outcome = report.iterations[0];
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "not-eligible" },
+          { kind: "not-turboable", reason: "not turboable before its own run started" },
         );
       });
 
@@ -3978,6 +3978,109 @@ describe("morningLoop", () => {
         assert.equal(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
           undefined,
+        );
+      });
+
+      it("labels the pull request ready-for-human, without ever starting a run, when a thread was declined before this pass started", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports, { threads: 1 });
+        ports.repoHost.answerApplyReviewThread(
+          PULL_REQUEST,
+          0,
+          "declined",
+          "out of scope",
+          new Date(FROZEN_NOW.getTime() - 120_000),
+        );
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.sandbox.applyReviews, []);
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "1 declined thread" },
+        );
+      });
+
+      it("closes the ticket as not-turboable, rather than raising, when the implementation ticket lookup fails", async (t) => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        let calls = 0;
+        const original = ports.tracker.listOpenIssues.bind(ports.tracker);
+        t.mock.method(
+          ports.tracker,
+          "listOpenIssues",
+          async (...args: Parameters<typeof original>) => {
+            calls++;
+            if (calls > 1) {
+              throw new Error("tracker unavailable");
+            }
+            return original(...args);
+          },
+        );
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.equal(outcome?.kind, "applied-review");
+        assert.deepEqual(ports.tracker.closedApplyReviewTickets.length, 1);
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "not-turboable", reason: "could not find its implementation ticket" },
+        );
+      });
+
+      it("closes the ticket as not-turboable, rather than raising, when reading its turboable timeline fails", async (t) => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        t.mock.method(ports.tracker, "wasTurboableAt", async () => {
+          throw new Error("tracker unavailable");
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.equal(outcome?.kind, "applied-review");
+        assert.deepEqual(ports.tracker.closedApplyReviewTickets.length, 1);
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          {
+            kind: "not-turboable",
+            reason: "could not check its turboable timeline: tracker unavailable",
+          },
+        );
+      });
+
+      it("labels the pull request ready-for-human instead of merging when its checks are still running", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.checksStatus = () => "pending";
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "checks still running" },
+        );
+      });
+
+      it("labels the pull request ready-for-human instead of merging when its checks are red", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.checksStatus = () => "red";
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "checks failing" },
         );
       });
     });

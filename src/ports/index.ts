@@ -65,6 +65,7 @@ export {
   labelWasPresentAt,
   modelLabelOf,
   openRebaseTicketFor,
+  parentTicketIn,
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,

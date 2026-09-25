@@ -1721,8 +1721,8 @@ function readyPhrase(merge: MergeGate | undefined): string {
 /**
  * What the merge gate left for the developer, appended to
  * `appliedReviewSummary`'s own clean-outcome sentence: empty when it never
- * merges — absent on a project that is not turbo, or `not-eligible` — since
- * the sentence already reads exactly as it did before this gate existed.
+ * merges — absent on a project that is not turbo, or `not-turboable` — since
+ * neither adds anything to the sentence.
  */
 function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
   if (merge?.kind !== "left-for-human") {

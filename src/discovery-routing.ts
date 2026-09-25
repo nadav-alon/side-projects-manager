@@ -8,6 +8,7 @@ import {
   discoveredBody,
   isPullRequestTicket,
   isSpecReviewTicket,
+  parentTicketIn,
   targetNoun,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
@@ -229,14 +230,8 @@ async function discoveryTargetFor(
   if (!isPullRequestTicket(ticket) && !isSpecReviewTicket(ticket)) {
     return { ticket };
   }
-  const { issues } = await tracker.listOpenIssues(ticket.repo);
-  const parentNumber = issues.find(
-    (issue) => issue.ticket.number === ticket.number,
-  )?.parent;
-  const parent =
-    parentNumber === undefined
-      ? undefined
-      : issues.find((issue) => issue.ticket.number === parentNumber)?.ticket;
+  const open = await tracker.listOpenIssues(ticket.repo);
+  const parent = parentTicketIn(open, ticket);
   if (parent !== undefined) {
     return { ticket: parent };
   }
