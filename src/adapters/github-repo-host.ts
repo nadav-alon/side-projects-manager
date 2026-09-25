@@ -531,6 +531,16 @@ export function githubRepoHost(
       ]);
       return closingPullRequestsFrom(stdout, repo);
     },
+
+    async mergePullRequest(pullRequest: PullRequestUrl): Promise<void> {
+      try {
+        await run("gh", ["pr", "merge", pullRequest, "--merge", "--delete-branch"]);
+      } catch (error) {
+        throw new Error(
+          `Could not merge ${pullRequest}: ${commandFailureMessage(error)}`,
+        );
+      }
+    },
   };
 }
 

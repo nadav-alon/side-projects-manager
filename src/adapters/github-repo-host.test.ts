@@ -1339,6 +1339,39 @@ describe("posting a comment on a pull request", () => {
   });
 });
 
+describe("merging a pull request", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("merges the pull request named by its own URL with a merge commit, and deletes its branch", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().mergePullRequest(PULL_REQUEST);
+
+    assert.deepEqual(callWith(await gh.calls(), "pr", "merge"), [
+      "pr",
+      "merge",
+      PULL_REQUEST,
+      "--merge",
+      "--delete-branch",
+    ]);
+  });
+
+  it("rejects naming the pull request when the host refuses to merge it", async (t) => {
+    await recordingGh(t, "echo 'Pull Request is not mergeable' >&2\nexit 1");
+
+    await assert.rejects(
+      githubRepoHost().mergePullRequest(PULL_REQUEST),
+      new RegExp(`Could not merge ${PULL_REQUEST}`),
+    );
+    await assert.rejects(
+      githubRepoHost().mergePullRequest(PULL_REQUEST),
+      /Pull Request is not mergeable/,
+    );
+  });
+});
+
 describe("labelling a pull request", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",

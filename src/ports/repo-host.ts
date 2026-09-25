@@ -684,4 +684,13 @@ export interface RepoHost {
    * the ones a closed sub-issue's own pull request now is.
    */
   listPullRequestsClosingIssues(repo: RepoSlug): Promise<ClosingPullRequest[]>;
+  /**
+   * Merges `pullRequest` with a merge commit, and deletes its branch.
+   *
+   * A merge the host refuses — conflicting, checks failing, already merged —
+   * is raised as an error naming the pull request, never swallowed: a caller
+   * gating on this succeeding needs to tell a real refusal apart from
+   * anything else that could go wrong.
+   */
+  mergePullRequest(pullRequest: PullRequestUrl): Promise<void>;
 }
