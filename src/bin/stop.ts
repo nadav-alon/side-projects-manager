@@ -62,15 +62,31 @@ function liveInFlightProcesses(
 const SECOND_SIGNAL_DELAY: Milliseconds = milliseconds(100);
 
 /**
+ * Sends `pid` one `SIGINT`, treating the process having already exited
+ * (`ESRCH`) as a stop that already happened rather than a failure: a
+ * process gone between `liveInFlightProcesses` and this call, or between
+ * this call's own two signals under `--now`, has been stopped either way.
+ */
+function signalOnce(pid: ProcessId): void {
+  try {
+    process.kill(pid, "SIGINT");
+  } catch (error) {
+    if (!isErrorWithCode(error, "ESRCH")) {
+      throw error;
+    }
+  }
+}
+
+/**
  * Signals `pid` the stop `stopOnInterrupt` (`src/bin/morning-run.ts`) already
  * handles: once for a graceful stop, twice for `now` — a second Ctrl+C's
  * abandon, sent `SECOND_SIGNAL_DELAY` after the first.
  */
 async function signalStop(pid: ProcessId, now: boolean): Promise<void> {
-  process.kill(pid, "SIGINT");
+  signalOnce(pid);
   if (now) {
     await sleep(SECOND_SIGNAL_DELAY);
-    process.kill(pid, "SIGINT");
+    signalOnce(pid);
   }
 }
 
