@@ -2,11 +2,13 @@ import type { Branch } from "./branch.ts";
 import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
-import type {
-  InvocationClosing,
-  Journal,
-  OpenInvocation,
-  RunInProgress,
+import {
+  inFlight,
+  sameInvocation,
+  type InvocationClosing,
+  type Journal,
+  type OpenInvocation,
+  type RunInProgress,
 } from "./journal.ts";
 import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
@@ -217,26 +219,43 @@ export function salvageFor(
  * When a ticket's own run last started, and when it ended — CONTEXT.md's
  * "Run span": durable in the state document, unlike `RunInProgress`, which
  * the journal clears the moment the run ends. `endedAt` absent while that
- * run is still going.
+ * run is still going, or if the invocation that opened the span died
+ * before it could close it — `runSpanInProgress` tells the two apart.
  */
 export interface RunSpan extends WorkedTicket {
   startedAt: Date;
   endedAt?: Date;
+  /**
+   * The invocation that opened this span, checked by `runSpanInProgress`
+   * against the journal and the invocation now holding the invocation
+   * lease, the way `WorkedToday` frees a dead invocation's entries. Absent
+   * for a span recorded before this field existed, or opened by a caller
+   * with no journal identity of its own — an `InvocationState` built
+   * directly in a test, say — which reads the same as one opened by the
+   * invocation now running, since nothing here says otherwise.
+   */
+  openedBy?: OpenInvocation;
 }
 
 /**
  * `previous` with `ticket`'s run span recorded as started at `startedAt`,
- * in place of whatever span it carried before: a ticket run more than once
- * keeps only its latest run's span.
+ * opened by `openedBy` when given, in place of whatever span it carried
+ * before: a ticket run more than once keeps only its latest run's span.
  */
 export function recordRunSpanStarted(
   previous: RunSpan[] | undefined,
   ticket: WorkedTicket,
   startedAt: Date,
+  openedBy?: OpenInvocation,
 ): RunSpan[] {
   return [
     ...(previous ?? []).filter((span) => ticketKey(span) !== ticketKey(ticket)),
-    { repo: ticket.repo, number: ticket.number, startedAt },
+    {
+      repo: ticket.repo,
+      number: ticket.number,
+      startedAt,
+      ...(openedBy !== undefined && { openedBy }),
+    },
   ];
 }
 
@@ -276,6 +295,30 @@ export function runSpanCovers(span: RunSpan, instant: Date): boolean {
     span.startedAt.getTime() <= at &&
     (span.endedAt === undefined || at <= span.endedAt.getTime())
   );
+}
+
+/**
+ * Whether `span`'s own run reads as still going: false once it carries its
+ * own `endedAt`, whatever `journal` says. One still missing `endedAt` reads
+ * as false too — ended, its own end instant left unknown rather than
+ * assumed to be the journal's last-seen one — once `openedBy` names an
+ * invocation that died before it could close the span: still in flight on
+ * `journal`, the same test `WorkedToday` uses to free a dead invocation's
+ * entries, but not `self`. A span naming no opening invocation, or one that
+ * is `self`, reads as still in progress — CONTEXT.md's "Run span".
+ */
+export function runSpanInProgress(
+  span: RunSpan,
+  self: OpenInvocation,
+  journal: Journal,
+): boolean {
+  if (span.endedAt !== undefined) {
+    return false;
+  }
+  if (span.openedBy === undefined) {
+    return true;
+  }
+  return sameInvocation(span.openedBy, self) && inFlight(span.openedBy, journal);
 }
 
 /**
