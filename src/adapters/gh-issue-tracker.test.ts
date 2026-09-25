@@ -170,6 +170,16 @@ describe("ghIssueTracker.createReviewTicket", () => {
     assert.equal(valueOf(create, "--label"), READY_FOR_AGENT_LABEL);
   });
 
+  it("never opens the review carrying turboable", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createReviewTicket(TICKET, PULL_REQUEST);
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.ok(!create.includes(TURBOABLE_LABEL));
+  });
+
   it("creates the ready-for-agent label first, since a project may have none", async (t) => {
     const gh = await recordingGh(t, WORKING);
 
@@ -700,6 +710,20 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
     assert.ok(create.includes(SIZE_S_LABEL));
     assert.ok(create.includes(ENHANCEMENT_LABEL));
     assert.ok(!create.includes(NEEDS_TRIAGE_LABEL));
+  });
+
+  it("never opens a discovered ticket carrying turboable, ready or not", async (t) => {
+    const notReady = await recordingGh(t, WORKING);
+    await ghIssueTracker().createDiscoveredTicket(TICKET, DISCOVERY);
+    const notReadyCreate = callWith(await notReady.calls(), "issue", "create");
+    assert.ok(notReadyCreate);
+    assert.ok(!notReadyCreate.includes(TURBOABLE_LABEL));
+
+    const ready = await recordingGh(t, WORKING);
+    await ghIssueTracker().createDiscoveredTicket(TICKET, { ...DISCOVERY, ready: true });
+    const readyCreate = callWith(await ready.calls(), "issue", "create");
+    assert.ok(readyCreate);
+    assert.ok(!readyCreate.includes(TURBOABLE_LABEL));
   });
 
   it("marks a ready discovery's ticket with the ready discovery label, for the chain guard", async (t) => {
@@ -2014,6 +2038,16 @@ describe("ghIssueTracker.createSpecReviewTicket", () => {
     assert.ok(create.includes(READY_FOR_AGENT_LABEL));
     assert.ok(create.includes("spec-review"));
     assert.ok(create.includes("size:L"));
+  });
+
+  it("never opens the spec review carrying turboable", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().createSpecReviewTicket(SUPERTASK, "Reviews #40.");
+
+    const create = callWith(await gh.calls(), "issue", "create");
+    assert.ok(create);
+    assert.ok(!create.includes(TURBOABLE_LABEL));
   });
 
   it("creates every label first, since a project may have none of them", async (t) => {

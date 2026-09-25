@@ -90,6 +90,21 @@ describe("FakeIssueTracker", () => {
     assert.equal(listed?.parent, ticket.number);
   });
 
+  it("never opens a review ticket carrying turboable", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const review = await tracker.createReviewTicket(
+      ticket,
+      pullRequestUrl("https://github.com/nadav-alon/pilot/pull/12"),
+    );
+
+    assert.equal(tracker.carriesLabel(review, TURBOABLE_LABEL), false);
+  });
+
   it("no longer lists a review ticket, nor carries ready-for-agent on it, once closed", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {
@@ -387,6 +402,27 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
     assert.equal(found?.ticket.readyDiscovery, true);
   });
 
+  it("never opens a discovered ticket carrying turboable, ready or not", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const notReady = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off",
+      body: "Hammers the API on every failure.",
+    });
+    const ready = await tracker.createDiscoveredTicket(ticket, {
+      title: "The retry loop never backs off, take two",
+      body: "Hammers the API on every failure.",
+      ready: true,
+    });
+
+    assert.equal(tracker.carriesLabel(notReady, TURBOABLE_LABEL), false);
+    assert.equal(tracker.carriesLabel(ready, TURBOABLE_LABEL), false);
+  });
+
   it("numbers it above every ticket the repo has, and lists it as ineligible", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {
@@ -575,6 +611,21 @@ describe("FakeIssueTracker — sub-issues", () => {
     assert.deepEqual(tracker.specReviewTickets, [
       { parent: supertask, body: "Reviews #40.", ticket: specReview },
     ]);
+  });
+
+  it("never opens a spec review ticket carrying turboable", async () => {
+    const tracker = new FakeIssueTracker();
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+
+    const specReview = await tracker.createSpecReviewTicket(
+      supertask,
+      "Reviews #40.",
+    );
+
+    assert.equal(tracker.carriesLabel(specReview, TURBOABLE_LABEL), false);
   });
 
   it("links a floating spec review already in the backlog to its supertask", async () => {
