@@ -30,7 +30,9 @@ exactly like it is.
 ## Triggers
 
 Two triggers fire the loop: an hourly schedule, which starts with the machine rather than waiting on
-a login, and a manual `npm run morning-run`. Both call
+a login, and a manual `npm run morning-run`. The hourly schedule first fast-forwards the checkout
+(`git pull --ff-only`), so it runs the latest merged loop; a pull that can't apply is logged and the
+loop runs on the code it has. Both call
 [`src/bin/morning-run.ts`](src/bin/morning-run.ts), which wraps the loop in an invocation lease
 ([`src/trigger-guard.ts`](src/trigger-guard.ts)): whichever firing acquires it runs the loop and every
 other firing, however long the first one takes, is a no-op that says an invocation is already running.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Registers the trigger docs/specs/morning-loop.md calls for: an hourly
-# schedule (cron), which just calls morning-run.ts (src/bin/morning-run.ts).
+# schedule (cron), which fast-forwards this checkout and then calls
+# morning-run.ts (src/bin/morning-run.ts).
 # The invocation lease inside it is what stops two firings overlapping — with
 # a manual `npm run morning-run` too.
 #
@@ -58,7 +59,12 @@ fi
 
 CRON_MARKER_OLD="# side-projects-manager: daily schedule (see scripts/install-triggers.sh)"
 CRON_MARKER="# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)"
-CRON_LINE="0 * * * * set -a; . \"$ENV_FILE\"; set +a; PATH=\"$CRON_PATH\" $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
+# A firing runs the loop from this checkout's own source, so it pulls first —
+# otherwise every merged fix to the loop waits on a developer's manual pull.
+# Fast-forward only, and `;` rather than `&&`: a pull that can't apply (the
+# network is down, the checkout has diverged) is logged, and the loop still
+# runs on the code it has.
+CRON_LINE="0 * * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"$CRON_PATH\"; git -C \"$REPO_DIR\" pull --ff-only -q >> \"$LOG_FILE\" 2>&1; $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
 
 RC_BEGIN="# >>> side-projects-manager: logon guard >>>"
 RC_END="# <<< side-projects-manager: logon guard <<<"
