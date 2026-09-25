@@ -3,9 +3,9 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { documentStore } from "../adapters/document-store.ts";
+import { isErrorWithCode } from "../adapters/error-code.ts";
 import { HALT_FILE, fileHalt } from "../adapters/file-halt.ts";
 import { MANAGER_HOME } from "../adapters/manager-home.ts";
-import { isProcessAlive } from "../adapters/process-alive.ts";
 import { errorMessage } from "../error-message.ts";
 import { RESUME_COMMAND } from "../halt.ts";
 import {
@@ -15,10 +15,30 @@ import {
 } from "../ports/index.ts";
 
 /**
+ * Whether `pid` is a process this developer can signal. Unlike
+ * `isProcessAlive` (`src/adapters/process-alive.ts`), `EPERM` counts as not
+ * ours rather than alive: the lease and `status` accept a wrong guess there
+ * as negligible, costing at most a skipped firing, but signalling a pid that
+ * has been reused by a stranger's process is a real hazard `stop` must not
+ * risk.
+ */
+function isOwnedProcess(pid: ProcessId): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (isErrorWithCode(error, "ESRCH") || isErrorWithCode(error, "EPERM")) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
  * Every record still in flight (CONTEXT.md: In flight) whose process is
- * still alive — found through the journal rather than `ps`, the same way
- * `status` already reads it, and never a record whose process is already
- * gone.
+ * still alive and this developer's own — found through the journal rather
+ * than `ps`, the same way `status` already reads it, and never a record
+ * whose process is already gone or belongs to someone else.
  */
 function liveInFlightProcesses(
   records: readonly InvocationRecord[],
@@ -26,7 +46,7 @@ function liveInFlightProcesses(
   return records
     .filter((record) => !isClosedInvocation(record))
     .map((record) => record.process)
-    .filter((pid) => isProcessAlive(pid));
+    .filter((pid) => isOwnedProcess(pid));
 }
 
 /**
