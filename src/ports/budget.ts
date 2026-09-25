@@ -87,24 +87,24 @@ export interface Budget {
  * are the developer's to raise or lower by hand in `budget.json`, against the
  * run costs `state.json` accumulates.
  *
- * Expressed in `weightedTokenCount`'s tokens rather than a straight sum of
- * usage fields, so scaled down from what they were before it existed: a run
- * spends mostly on cache reads, weighted at a tenth of a fresh token, and the
- * one figure this file has to scale by is that tenth — the developer's own
- * recalibration against `state.json` is what corrects it from there.
+ * Expressed in `weightedTokenCount`'s tokens: scaled down by 0.3 from a
+ * straight sum of usage fields, the ratio a realistic mix of input, output
+ * and cache tokens weighs to (see ADR 0009), rather than the cache-read
+ * weight alone. The developer's own recalibration against `state.json` is
+ * what corrects it for a machine whose own mix differs.
  */
 export const DEFAULT_BUDGET: Budget = {
-  fiveHourAllowance: tokenCount(5_000_000),
-  weeklyAllowance: tokenCount(50_000_000),
+  fiveHourAllowance: tokenCount(15_000_000),
+  weeklyAllowance: tokenCount(150_000_000),
   reserveFraction: reserveFraction(0.5),
   fiveHourReserveFraction: reserveFraction(0),
   spendCeiling: usd(10),
   maxConcurrentIterations: iterationLimit(1),
   sizes: {
-    S: tokenCount(50_000),
-    M: tokenCount(200_000),
-    L: tokenCount(500_000),
-    XL: tokenCount(1_000_000),
+    S: tokenCount(150_000),
+    M: tokenCount(600_000),
+    L: tokenCount(1_500_000),
+    XL: tokenCount(3_000_000),
   },
   unsizedCountsAs: "M",
 };

@@ -343,9 +343,9 @@ function parseRegistry(
 }
 
 /**
- * `{ "fiveHourAllowance": 5000000, "weeklyAllowance": 50000000,
+ * `{ "fiveHourAllowance": 15000000, "weeklyAllowance": 150000000,
  *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 10,
- *    "sizes": { "S": 50000 }, "unsizedCountsAs": "M" }`
+ *    "sizes": { "S": 150000 }, "unsizedCountsAs": "M" }`
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
  * `observedResetAt`, which has no default because a boundary nobody has seen

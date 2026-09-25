@@ -6842,8 +6842,9 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       const body = ports.tracker.summaries[0]?.body ?? "";
-      assert.match(body, /42,000 \/ 200,000 tokens/);
-      assert.match(body, /3,000 \/ 200,000 tokens/);
+      const estimate = UNSIZED_ESTIMATE.toLocaleString("en-US");
+      assert.match(body, new RegExp(`42,000 / ${estimate} tokens`));
+      assert.match(body, new RegExp(`3,000 / ${estimate} tokens`));
     });
 
     it("lists a queued review as waiting on the developer", async () => {

@@ -14,6 +14,7 @@ import {
 import {
   LIMIT_REFUSAL,
   PROVIDER_FAILURE_PROSE,
+  SPENDABLE_THIS_WEEK,
   fakePorts,
   spent,
 } from "./testing/index.ts";
@@ -123,7 +124,6 @@ describe("invocationClosing", () => {
   });
 
   it("records why the invocation stood down before any run started", async () => {
-    const SPENDABLE_THIS_WEEK = 25_000_000;
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addEligibleTicket(PILOT, {
@@ -141,7 +141,6 @@ describe("invocationClosing", () => {
   });
 
   it("records both what a morning worked and why it then stood down", async () => {
-    const SPENDABLE_THIS_WEEK = 25_000_000;
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addEligibleTicket(PILOT, {
@@ -177,7 +176,6 @@ describe("invocationClosing", () => {
   });
 
   it("names the estimate charged when only the estimate pushed a window over", async () => {
-    const SPENDABLE_THIS_WEEK = 25_000_000;
     const ports = fakePorts();
     ports.store.register(PILOT);
     ports.tracker.addEligibleTicket(PILOT, {

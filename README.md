@@ -252,12 +252,12 @@ anything:
 
 ```json
 {
-  "fiveHourAllowance": 5000000,
-  "weeklyAllowance": 50000000,
+  "fiveHourAllowance": 15000000,
+  "weeklyAllowance": 150000000,
   "reserveFraction": 0.5,
   "fiveHourReserveFraction": 0,
   "spendCeiling": 10,
-  "sizes": { "S": 50000, "M": 200000, "L": 500000, "XL": 1000000 },
+  "sizes": { "S": 150000, "M": 600000, "L": 1500000, "XL": 3000000 },
   "unsizedCountsAs": "M"
 }
 ```

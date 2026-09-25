@@ -194,8 +194,8 @@ STATE_FILE="$MANAGER_HOME/state.json"
 
 # DEFAULT_BUDGET in src/ports/budget.ts. Kept honest by stage 7, which reads
 # the written document back through the manager's own parser.
-DEFAULT_FIVE_HOUR=5000000
-DEFAULT_WEEKLY=50000000
+DEFAULT_FIVE_HOUR=15000000
+DEFAULT_WEEKLY=150000000
 DEFAULT_RESERVE=0.5
 DEFAULT_CEILING=5
 

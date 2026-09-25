@@ -48,8 +48,11 @@ change exists to remove.
 The weights are a stand-in for a formula the provider does not publish, not a measured one — the same
 caveat `DEFAULT_BUDGET`'s own tokens have always carried, now attached to how a token is counted as
 well as to how many of them a window holds. `DEFAULT_BUDGET`'s allowances and sizes are scaled down by
-the cache-read weight alone, since cache reads are most of a run's tokens; a machine whose mix differs
-still needs the developer's own recalibration against `state.json`, exactly as before this change.
+0.3, not by the cache-read weight alone: no recorded run keeps its field breakdown to derive a real
+ratio from, but `src/testing/budget-exhaustion.ts`'s fixture — built to weigh out to a real envelope's
+`total_cost_usd` — weighs to about 0.3 of its own raw sum, and that is closer to a typical run's mix
+than treating every token as a cache read would be. A machine whose own mix differs still needs the
+developer's own recalibration against `state.json`, exactly as before this change.
 Every run total recorded before this change is in the old, unweighted unit, and is not converted:
 `state.json`'s runs are only ever appended to, never rewritten, so old figures sit beside new ones
 indefinitely. The gate only ever reads the ones inside a window still open, so for as long as a
