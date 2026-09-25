@@ -10,9 +10,10 @@ below a fresh input token, so the recorded figure tracked how much of the conver
 context far more than it tracked what the provider actually counts against a session or weekly limit
 — the gate could read a window as nearly empty while the provider had already refused further work.
 Every count now weighs each field by the provider's own price ratio to a fresh input token — output
-at 5, a cache write at 1.25, a cache read at 0.1 — through one function, `weightedTokenCount`, that
-`container-sandbox.ts`'s `totalTokens` and the usage ledger's `sumTokenFields` both call. Decided
-after grilling #95; amends ADR 0004's unit, which named tokens without saying how they were counted.
+at 5, a cache write at 1.25, a cache read at 0.1 — through one function, `weighTokenFields`, that
+`container-sandbox.ts`'s `totalTokens` and the usage ledger's `weighLineUsage` both call, the former
+by way of `weightedTokenCount`'s own rounding. Decided on #95; amends ADR 0004's unit, which named
+tokens without saying how they were counted.
 
 A run's own recorded spend also moved from the envelope's `usage`, which carries only the main loop's
 own turns, to `modelUsage`, which sums every model a run touched — a run that delegated to a subagent
