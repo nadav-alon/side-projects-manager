@@ -25,12 +25,48 @@ export function tokenCount(value: number): TokenCount {
   return value;
 }
 
+declare const weightedTokensBrand: unique symbol;
+
+/**
+ * A number of tokens weighted by `weighTokenFields`, left unrounded — a
+ * caller summing several usage reports into one total sums these first, so
+ * rounding happens once on the total rather than once per report and
+ * drifting from it. `weightedTokenCount` is `roundedTokenCount` applied to
+ * this.
+ *
+ * Branded apart from a bare `number` for the same reason `TokenCount` is,
+ * and apart from `TokenCount` itself so a caller cannot pass an unrounded
+ * figure where a whole token count is expected. Values enter through
+ * `weightedTokens` or `isWeightedTokens`.
+ */
+export type WeightedTokens = number & { readonly [weightedTokensBrand]: true };
+
+/** Whether `value` is a usable weighted-token figure: finite, 0 or greater. */
+export function isWeightedTokens(value: number): value is WeightedTokens {
+  return Number.isFinite(value) && value >= 0;
+}
+
+/** Narrows `value` to `WeightedTokens`, throwing if it is not one. */
+export function weightedTokens(value: number): WeightedTokens {
+  if (!isWeightedTokens(value)) {
+    throw new TypeError(
+      `Not a weighted token figure, expected 0 or greater: ${value}`,
+    );
+  }
+  return value;
+}
+
+/** `value`, rounded to the nearest whole token and floored at 0. */
+export function roundedTokenCount(value: number): TokenCount {
+  return tokenCount(Math.max(0, Math.round(value)));
+}
+
 /**
  * One usage report's raw field counts, before weighting — what a run's
  * envelope or a session log line carries under `input_tokens`,
  * `output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`
  * (or `modelUsage`'s camelCase equivalents), read into one shape so
- * `weightedTokenCount` has one thing to weigh regardless of which the caller
+ * `weighTokenFields` has one thing to weigh regardless of which the caller
  * started from.
  */
 export interface UsageFields {
@@ -41,32 +77,26 @@ export interface UsageFields {
 }
 
 /**
- * A fresh input token, weighted 1. The provider publishes no weights for how
- * tokens count against a session or weekly limit, but it prices every current
- * model by the same ratios to a fresh input token, and those ratios are what
- * `weightedTokenCount` weighs by, in place of the equal weighting that let a
- * run's cache reads — priced, and so likely counted, far below a fresh token
- * — pass for most of its cost.
+ * The provider's own price ratios to a fresh input token — what
+ * `weighTokenFields` weighs each field by, since the provider publishes no
+ * weights of its own for what counts against a session or weekly limit.
  */
+const INPUT_WEIGHT = 1;
 const CACHE_CREATION_WEIGHT = 1.25;
 const CACHE_READ_WEIGHT = 0.1;
 const OUTPUT_WEIGHT = 5;
 
-/**
- * `fields`, weighted by the provider's own price ratios — left unrounded, for
- * a caller summing several usage reports into one total, so rounding happens
- * once on the sum rather than once per report and drifting from it.
- */
-export function weightedTokens(fields: UsageFields): number {
-  return (
-    fields.input +
-    fields.output * OUTPUT_WEIGHT +
-    fields.cacheCreation * CACHE_CREATION_WEIGHT +
-    fields.cacheRead * CACHE_READ_WEIGHT
+/** `fields`, weighed by the provider's own price ratios. */
+export function weighTokenFields(fields: UsageFields): WeightedTokens {
+  return weightedTokens(
+    fields.input * INPUT_WEIGHT +
+      fields.output * OUTPUT_WEIGHT +
+      fields.cacheCreation * CACHE_CREATION_WEIGHT +
+      fields.cacheRead * CACHE_READ_WEIGHT,
   );
 }
 
-/** `weightedTokens`, rounded to a whole number of tokens. */
+/** `weighTokenFields`, rounded to a whole number of tokens. */
 export function weightedTokenCount(fields: UsageFields): TokenCount {
-  return tokenCount(Math.max(0, Math.round(weightedTokens(fields))));
+  return roundedTokenCount(weighTokenFields(fields));
 }

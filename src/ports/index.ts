@@ -221,11 +221,14 @@ export { isTicketPriority, ticketPriority } from "./ticket-priority.ts";
 export type { TicketPriority } from "./ticket-priority.ts";
 export {
   isTokenCount,
+  isWeightedTokens,
+  roundedTokenCount,
   tokenCount,
+  weighTokenFields,
   weightedTokenCount,
   weightedTokens,
 } from "./token-count.ts";
-export type { TokenCount, UsageFields } from "./token-count.ts";
+export type { TokenCount, UsageFields, WeightedTokens } from "./token-count.ts";
 export {
   isTranscriptDirectory,
   transcriptDirectory,

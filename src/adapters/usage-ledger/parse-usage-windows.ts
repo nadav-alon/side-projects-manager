@@ -2,21 +2,22 @@ import type {
   Milliseconds,
   UsageWindow,
   UsageWindows,
+  WeightedTokens,
 } from "../../ports/index.ts";
-import { milliseconds, tokenCount, weightedTokens } from "../../ports/index.ts";
+import { milliseconds, tokenCount, weighTokenFields } from "../../ports/index.ts";
 
 const FIVE_HOURS_MS = milliseconds(5 * 60 * 60 * 1000);
 const WEEK_MS = milliseconds(7 * 24 * 60 * 60 * 1000);
 
 /**
  * One assistant log line with usage, reduced to what a window needs.
- * `tokensUsed` is `weightedTokens`' own unrounded figure, left that way so a
+ * `tokensUsed` is `weighTokenFields`' own unrounded figure, left that way so a
  * window sums many lines before rounding once, rather than compounding each
  * line's own rounding across a busy window.
  */
 interface UsageLogEntry {
   timestamp: Date;
-  tokensUsed: number;
+  tokensUsed: WeightedTokens;
 }
 
 /**
@@ -100,11 +101,13 @@ function parseTimestamp(value: unknown): Date | undefined {
 }
 
 /**
- * Weighs input, output, and both cache token fields by `weightedTokens`, so
+ * Weighs input, output, and both cache token fields by `weighTokenFields`, so
  * this ledger counts the same way `container-sandbox.ts`'s `totalTokens`
  * does. Missing cache fields count as zero.
  */
-function sumTokenFields(usage: Record<string, unknown>): number | undefined {
+function sumTokenFields(
+  usage: Record<string, unknown>,
+): WeightedTokens | undefined {
   const input = usage.input_tokens;
   const output = usage.output_tokens;
   if (typeof input !== "number" || typeof output !== "number") {
@@ -112,7 +115,7 @@ function sumTokenFields(usage: Record<string, unknown>): number | undefined {
   }
   const cacheCreation = usage.cache_creation_input_tokens;
   const cacheRead = usage.cache_read_input_tokens;
-  return weightedTokens({
+  return weighTokenFields({
     input,
     output,
     cacheCreation: typeof cacheCreation === "number" ? cacheCreation : 0,

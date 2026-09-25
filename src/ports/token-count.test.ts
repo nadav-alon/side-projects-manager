@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isTokenCount, tokenCount, weightedTokenCount, weightedTokens } from "./token-count.ts";
+import {
+  isTokenCount,
+  isWeightedTokens,
+  tokenCount,
+  weighTokenFields,
+  weightedTokenCount,
+  weightedTokens,
+} from "./token-count.ts";
 
 describe("isTokenCount", () => {
   it("accepts zero, which is a window nothing has been spent in", () => {
@@ -64,11 +71,33 @@ describe("weightedTokenCount", () => {
   });
 });
 
-describe("weightedTokens", () => {
+describe("weighTokenFields", () => {
   it("leaves the weighted total unrounded, for a caller summing several before rounding once", () => {
     assert.equal(
-      weightedTokens({ input: 0, output: 0, cacheCreation: 0, cacheRead: 5 }),
+      weighTokenFields({ input: 0, output: 0, cacheCreation: 0, cacheRead: 5 }),
       0.5,
     );
+  });
+});
+
+describe("isWeightedTokens", () => {
+  it("accepts a fractional, non-negative figure", () => {
+    assert.equal(isWeightedTokens(16.8), true);
+    assert.equal(isWeightedTokens(0), true);
+  });
+
+  it("rejects a negative figure", () => {
+    assert.equal(isWeightedTokens(-1), false);
+  });
+
+  it("rejects non-finite arithmetic", () => {
+    assert.equal(isWeightedTokens(Number.NaN), false);
+    assert.equal(isWeightedTokens(Number.POSITIVE_INFINITY), false);
+  });
+});
+
+describe("weightedTokens", () => {
+  it("throws naming the offending value", () => {
+    assert.throws(() => weightedTokens(-1), { name: "TypeError", message: /-1/ });
   });
 });
