@@ -34,7 +34,7 @@ import {
 import { modelName } from "./model-name.ts";
 import { pullRequestUrl } from "./pull-request-url.ts";
 import { repoSlug } from "./repo-slug.ts";
-import type { RunSpan } from "./store.ts";
+import type { RunSpan, WorkedTicket } from "./store.ts";
 import { ticketPriority } from "./ticket-priority.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -594,11 +594,7 @@ describe("turboableConsentAt", () => {
     return { label, action, at };
   }
 
-  function span(
-    ticket: { repo: typeof PILOT; number: ReturnType<typeof issueNumber> },
-    startedAt: Date,
-    endedAt?: Date,
-  ): RunSpan {
+  function span(ticket: WorkedTicket, startedAt: Date, endedAt?: Date): RunSpan {
     return { repo: ticket.repo, number: ticket.number, startedAt, ...(endedAt && { endedAt }) };
   }
 
