@@ -13,8 +13,7 @@ import type {
   WorkedToday,
 } from "./ports/index.ts";
 import {
-  findInvocationRecord,
-  isClosedInvocation,
+  inFlight,
   recordRun,
   recordRunSpanEnded,
   recordRunSpanStarted,
@@ -383,6 +382,5 @@ function deadInvocationOf(
   if (recordedBy === undefined || sameInvocation(self, recordedBy)) {
     return undefined;
   }
-  const record = findInvocationRecord(journal.records, recordedBy);
-  return record !== undefined && !isClosedInvocation(record) ? recordedBy : undefined;
+  return inFlight(recordedBy, journal) ? recordedBy : undefined;
 }

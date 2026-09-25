@@ -160,6 +160,19 @@ export function findInvocationRecord(
 }
 
 /**
+ * Whether `opened`'s own record on `journal` is **in flight** — opened and
+ * not yet closed. False for one missing from `journal` entirely, pruned past
+ * `JOURNAL_LIMIT`, say: with no record to read, there is nothing left to call
+ * still running. Shared by `deadInvocationOf` (`src/invocation-state.ts`) and
+ * `runSpanInProgress` (`src/ports/store.ts`), which each combine it with
+ * their own caller's identity to tell a dead invocation from one still going.
+ */
+export function inFlight(opened: OpenInvocation, journal: Journal): boolean {
+  const record = findInvocationRecord(journal.records, opened);
+  return record !== undefined && !isClosedInvocation(record);
+}
+
+/**
  * How many records the journal keeps. Trimmed to this many, oldest dropped
  * first, every time it is written — a record is a few dozen bytes, so being
  * generous here costs nothing but keeps the document from growing forever.

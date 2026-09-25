@@ -43,29 +43,36 @@ describe("runSpanInProgress", () => {
   it("reads a span with its own endedAt as not in progress, whatever the journal says", () => {
     const span: RunSpan = { ...SPAN, endedAt: SPAN.startedAt, openedBy: OPENER };
 
-    assert.equal(runSpanInProgress(span, journalOf([{ ...OPENER }])), false);
+    assert.equal(runSpanInProgress(span, OPENER, journalOf([{ ...OPENER }])), false);
   });
 
   it("reads a span naming no opening invocation as still in progress", () => {
-    assert.equal(runSpanInProgress(SPAN, journalOf([])), true);
+    assert.equal(runSpanInProgress(SPAN, OPENER, journalOf([])), true);
   });
 
-  it("reads a span whose opening invocation is still open on the journal as in progress", () => {
+  it("reads a span whose opening invocation is self and still open on the journal as in progress", () => {
     const span: RunSpan = { ...SPAN, openedBy: OPENER };
 
-    assert.equal(runSpanInProgress(span, journalOf([{ ...OPENER }])), true);
+    assert.equal(runSpanInProgress(span, OPENER, journalOf([{ ...OPENER }])), true);
+  });
+
+  it("reads a span whose opening invocation is still open on the journal but is not self as not in progress", () => {
+    const span: RunSpan = { ...SPAN, openedBy: OPENER };
+    const self: OpenInvocation = { ...OPENER, process: processId(1) };
+
+    assert.equal(runSpanInProgress(span, self, journalOf([{ ...OPENER }])), false);
   });
 
   it("reads a span whose opening invocation has closed as not in progress", () => {
     const span: RunSpan = { ...SPAN, openedBy: OPENER };
     const closed: InvocationRecord = { ...OPENER, closedAt: new Date("2026-01-01T09:30:00.000Z") };
 
-    assert.equal(runSpanInProgress(span, journalOf([closed])), false);
+    assert.equal(runSpanInProgress(span, OPENER, journalOf([closed])), false);
   });
 
   it("reads a span whose opening invocation is missing from the journal as not in progress", () => {
     const span: RunSpan = { ...SPAN, openedBy: OPENER };
 
-    assert.equal(runSpanInProgress(span, journalOf([])), false);
+    assert.equal(runSpanInProgress(span, OPENER, journalOf([])), false);
   });
 });

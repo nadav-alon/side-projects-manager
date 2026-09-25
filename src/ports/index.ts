@@ -100,6 +100,7 @@ export {
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
   findInvocationRecord,
+  inFlight,
   isClosedInvocation,
   isInvocationOutcome,
   sameInvocation,

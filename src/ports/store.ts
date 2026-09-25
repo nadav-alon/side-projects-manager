@@ -3,8 +3,8 @@ import type { Budget } from "./budget.ts";
 import type { Day } from "./day.ts";
 import type { IssueNumber } from "./issue-number.ts";
 import {
-  findInvocationRecord,
-  isClosedInvocation,
+  inFlight,
+  sameInvocation,
   type InvocationClosing,
   type Journal,
   type OpenInvocation,
@@ -226,13 +226,13 @@ export interface RunSpan extends WorkedTicket {
   startedAt: Date;
   endedAt?: Date;
   /**
-   * The invocation that opened this span, checked against the journal by
-   * `runSpanInProgress` the way `WorkedToday` frees a dead invocation's
-   * entries. Absent for a span recorded before this field existed, or
-   * opened by a caller with no journal identity of its own — an
-   * `InvocationState` built directly in a test, say — which reads the same
-   * as one whose invocation is still in flight, since nothing here says
-   * otherwise.
+   * The invocation that opened this span, checked by `runSpanInProgress`
+   * against the journal and the invocation now holding the invocation
+   * lease, the way `WorkedToday` frees a dead invocation's entries. Absent
+   * for a span recorded before this field existed, or opened by a caller
+   * with no journal identity of its own — an `InvocationState` built
+   * directly in a test, say — which reads the same as one opened by the
+   * invocation now running, since nothing here says otherwise.
    */
   openedBy?: OpenInvocation;
 }
@@ -302,20 +302,23 @@ export function runSpanCovers(span: RunSpan, instant: Date): boolean {
  * own `endedAt`, whatever `journal` says. One still missing `endedAt` reads
  * as false too — ended, its own end instant left unknown rather than
  * assumed to be the journal's last-seen one — once `openedBy` names an
- * invocation no longer in flight on `journal`: closed there, or gone from
- * it entirely (pruned past `JOURNAL_LIMIT`, say). A span naming no opening
- * invocation reads as still in progress, the same as one whose invocation
- * is still open on the journal — CONTEXT.md's "Run span".
+ * invocation that died before it could close the span: still in flight on
+ * `journal`, the same test `WorkedToday` uses to free a dead invocation's
+ * entries, but not `self`. A span naming no opening invocation, or one that
+ * is `self`, reads as still in progress — CONTEXT.md's "Run span".
  */
-export function runSpanInProgress(span: RunSpan, journal: Journal): boolean {
+export function runSpanInProgress(
+  span: RunSpan,
+  self: OpenInvocation,
+  journal: Journal,
+): boolean {
   if (span.endedAt !== undefined) {
     return false;
   }
   if (span.openedBy === undefined) {
     return true;
   }
-  const record = findInvocationRecord(journal.records, span.openedBy);
-  return record !== undefined && !isClosedInvocation(record);
+  return sameInvocation(span.openedBy, self) && inFlight(span.openedBy, journal);
 }
 
 /**
