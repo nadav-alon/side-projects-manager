@@ -10,7 +10,9 @@ import { errorMessage } from "../error-message.ts";
 import { RESUME_COMMAND } from "../halt.ts";
 import {
   isClosedInvocation,
+  milliseconds,
   type InvocationRecord,
+  type Milliseconds,
   type ProcessId,
 } from "../ports/index.ts";
 
@@ -57,17 +59,17 @@ function liveInFlightProcesses(
  * loop's own second-interrupt test waits for the first to be seen before
  * sending the next.
  */
-const SECOND_SIGNAL_DELAY_MS = 100;
+const SECOND_SIGNAL_DELAY: Milliseconds = milliseconds(100);
 
 /**
  * Signals `pid` the stop `stopOnInterrupt` (`src/bin/morning-run.ts`) already
  * handles: once for a graceful stop, twice for `now` — a second Ctrl+C's
- * abandon, sent `SECOND_SIGNAL_DELAY_MS` after the first.
+ * abandon, sent `SECOND_SIGNAL_DELAY` after the first.
  */
 async function signalStop(pid: ProcessId, now: boolean): Promise<void> {
   process.kill(pid, "SIGINT");
   if (now) {
-    await sleep(SECOND_SIGNAL_DELAY_MS);
+    await sleep(SECOND_SIGNAL_DELAY);
     process.kill(pid, "SIGINT");
   }
 }
