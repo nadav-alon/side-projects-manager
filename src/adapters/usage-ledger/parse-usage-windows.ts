@@ -4,7 +4,13 @@ import type {
   UsageWindows,
   WeightedTokens,
 } from "../../ports/index.ts";
-import { milliseconds, tokenCount, weighTokenFields } from "../../ports/index.ts";
+import {
+  milliseconds,
+  numberField,
+  roundedTokenCount,
+  tokenCount,
+  weighTokenFields,
+} from "../../ports/index.ts";
 
 const FIVE_HOURS_MS = milliseconds(5 * 60 * 60 * 1000);
 const WEEK_MS = milliseconds(7 * 24 * 60 * 60 * 1000);
@@ -114,13 +120,11 @@ function weighLineUsage(
   if (typeof input !== "number" || typeof output !== "number") {
     return undefined;
   }
-  const cacheCreation = usage.cache_creation_input_tokens;
-  const cacheRead = usage.cache_read_input_tokens;
   return weighTokenFields({
     input,
     output,
-    cacheCreation: typeof cacheCreation === "number" ? cacheCreation : 0,
-    cacheRead: typeof cacheRead === "number" ? cacheRead : 0,
+    cacheCreation: numberField(usage.cache_creation_input_tokens),
+    cacheRead: numberField(usage.cache_read_input_tokens),
   });
 }
 
@@ -255,7 +259,7 @@ function activeWindow(
       return {
         openedAt,
         resetsAt,
-        tokensUsed: tokenCount(Math.max(0, Math.round(tokensUsed))),
+        tokensUsed: roundedTokenCount(tokensUsed),
       };
     }
   }

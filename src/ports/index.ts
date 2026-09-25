@@ -222,6 +222,7 @@ export type { TicketPriority } from "./ticket-priority.ts";
 export {
   isTokenCount,
   isWeightedTokens,
+  numberField,
   roundedTokenCount,
   tokenCount,
   weighTokenFields,

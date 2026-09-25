@@ -51,6 +51,7 @@ import {
   milliseconds,
   NIT_SECTION_HEADING,
   normalizeDiscovery,
+  numberField,
   remoteUrl,
   reviewFindingTemplate,
   tokenCount,
@@ -2744,9 +2745,4 @@ function totalTokens(modelUsage: unknown, usage: unknown): TokenCount {
     cacheCreation: numberField(counts.cache_creation_input_tokens),
     cacheRead: numberField(counts.cache_read_input_tokens),
   });
-}
-
-/** `value` if it is a number, 0 otherwise — a usage field that was never sent. */
-function numberField(value: unknown): number {
-  return typeof value === "number" ? value : 0;
 }

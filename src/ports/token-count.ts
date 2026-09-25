@@ -86,6 +86,11 @@ const CACHE_CREATION_WEIGHT = 1.25;
 const CACHE_READ_WEIGHT = 0.1;
 const OUTPUT_WEIGHT = 5;
 
+/** `value` if it is a number, 0 otherwise — a usage field that was never sent. */
+export function numberField(value: unknown): number {
+  return typeof value === "number" ? value : 0;
+}
+
 /** `fields`, weighed by the provider's own price ratios. */
 export function weighTokenFields(fields: UsageFields): WeightedTokens {
   return weightedTokens(
