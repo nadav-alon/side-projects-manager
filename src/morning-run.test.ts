@@ -1368,6 +1368,65 @@ describe("morningLoop", () => {
     });
   });
 
+  describe("run window", () => {
+    const TICKET = { number: issueNumber(7), title: "Add the thing" };
+
+    it("records the ticket's own run window in the state document while it is going, and closes it once the run ends", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(1);
+
+      const inProgress = await ports.store.loadState();
+      assert.deepEqual(inProgress.runWindows, [
+        { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW },
+      ]);
+
+      ports.sandbox.release({ repo: PILOT, ...TICKET });
+      await invocation;
+
+      const afterward = await ports.store.loadState();
+      assert.deepEqual(afterward.runWindows, [
+        { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW, endedAt: FROZEN_NOW },
+      ]);
+    });
+
+    it("keeps only the latest window across two runs recorded in the same invocation", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, TICKET);
+      ports.store.markRunWindow(
+        ticket,
+        new Date("2025-12-31T09:00:00.000Z"),
+        new Date("2025-12-31T09:10:00.000Z"),
+      );
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.runWindows, [
+        { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW, endedAt: FROZEN_NOW },
+      ]);
+    });
+
+    it("records nothing against the state document when the clone never happens", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      t.mock.method(ports.repoHost, "clone", async () => {
+        throw new Error("the repo host is down");
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.equal(state.runWindows, undefined);
+    });
+  });
+
   describe("the draft pull request", () => {
     const BRANCH = branch("issue-7-add-the-thing");
 

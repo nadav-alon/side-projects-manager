@@ -19,6 +19,7 @@ import {
   recordRunWindowEnded,
   recordRunWindowStarted,
   recordWorked,
+  runWindowFor,
   sameInvocation,
   ticketKey,
   unrecordWorked,
@@ -147,20 +148,23 @@ export interface InvocationState {
   recordRunEnded(repo: RepoSlug, number: IssueNumber): Promise<void>;
 
   /**
-   * Records `ticket`'s own run window as started at `startedAt`, in the
-   * in-memory state this invocation is building up to save — CONTEXT.md's
-   * "Run window", durable where `recordRunStarted`'s journal entry is not.
-   * Replaces whatever window `ticket` already carried, same as
-   * `recordRunWindowStarted` in `ports/store.ts`.
+   * Records `ticket`'s own run window as started at `startedAt`, and saves
+   * the whole state document at once, resolving only once that save lands —
+   * CONTEXT.md's "Run window", durable where `recordRunStarted`'s journal
+   * entry is not, and saved with the same before-the-sandbox-starts urgency
+   * as `ticketSelected`, so a run killed part way still leaves its own start
+   * on the record. Replaces whatever window `ticket` already carried, same
+   * as `recordRunWindowStarted` in `ports/store.ts`.
    */
-  recordRunWindowStarted(ticket: WorkedTicket, startedAt: Date): void;
+  recordRunWindowStarted(ticket: WorkedTicket, startedAt: Date): Promise<void>;
 
   /**
-   * Closes `ticket`'s own run window at `endedAt`, in the same in-memory
-   * state. Not an error when no such window is open, same as
-   * `recordRunWindowEnded` in `ports/store.ts`.
+   * Closes `ticket`'s own run window at `endedAt`, saving the whole state
+   * document the same way. Not an error when no such window is open, same
+   * as `recordRunWindowEnded` in `ports/store.ts` — and, since nothing
+   * changes then, no save either.
    */
-  recordRunWindowEnded(ticket: WorkedTicket, endedAt: Date): void;
+  recordRunWindowEnded(ticket: WorkedTicket, endedAt: Date): Promise<void>;
 
   /**
    * Every project's recorded runs, live — the budget gate's own view of what
@@ -299,9 +303,16 @@ export function invocationState(
     },
     recordRunWindowStarted: (ticket, startedAt) => {
       runWindows = recordRunWindowStarted(runWindows, ticket, startedAt);
+      return doSave(buildState());
     },
     recordRunWindowEnded: (ticket, endedAt) => {
+      // No window to close, no save to make: `onStarted` never fired, so
+      // saving here would write the document back unchanged.
+      if (runWindowFor(runWindows, ticket) === undefined) {
+        return Promise.resolve();
+      }
       runWindows = recordRunWindowEnded(runWindows, ticket, endedAt);
+      return doSave(buildState());
     },
     iterationEnded: (ticket, iteration) => {
       if (freesTicketToday(iteration)) {

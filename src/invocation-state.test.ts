@@ -198,21 +198,19 @@ describe("invocationState", () => {
   });
 
   describe("recordRunWindowStarted and recordRunWindowEnded", () => {
-    it("folds a started window into the next save, closed once it ends", async () => {
+    it("saves the window before it resolves, so a run killed part way still leaves its own start on the record", async () => {
       const store = new FakeStore();
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
       const startedAt = new Date("2026-01-01T09:00:00.000Z");
       const endedAt = new Date("2026-01-01T09:20:00.000Z");
 
-      invocation.recordRunWindowStarted(TICKET_7, startedAt);
-      await invocation.save();
+      await invocation.recordRunWindowStarted(TICKET_7, startedAt);
 
       assert.deepEqual((await store.loadState()).runWindows, [
         { ...TICKET_7, startedAt },
       ]);
 
-      invocation.recordRunWindowEnded(TICKET_7, endedAt);
-      await invocation.save();
+      await invocation.recordRunWindowEnded(TICKET_7, endedAt);
 
       assert.deepEqual((await store.loadState()).runWindows, [
         { ...TICKET_7, startedAt, endedAt },
@@ -225,10 +223,9 @@ describe("invocationState", () => {
       const first = new Date("2026-01-01T09:00:00.000Z");
       const second = new Date("2026-01-01T10:00:00.000Z");
 
-      invocation.recordRunWindowStarted(TICKET_7, first);
-      invocation.recordRunWindowEnded(TICKET_7, first);
-      invocation.recordRunWindowStarted(TICKET_7, second);
-      await invocation.save();
+      await invocation.recordRunWindowStarted(TICKET_7, first);
+      await invocation.recordRunWindowEnded(TICKET_7, first);
+      await invocation.recordRunWindowStarted(TICKET_7, second);
 
       assert.deepEqual((await store.loadState()).runWindows, [
         { ...TICKET_7, startedAt: second },
@@ -239,8 +236,7 @@ describe("invocationState", () => {
       const store = new FakeStore();
       const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
 
-      invocation.recordRunWindowEnded(TICKET_7, new Date("2026-01-01T09:00:00.000Z"));
-      await invocation.save();
+      await invocation.recordRunWindowEnded(TICKET_7, new Date("2026-01-01T09:00:00.000Z"));
 
       assert.equal((await store.loadState()).runWindows, undefined);
     });

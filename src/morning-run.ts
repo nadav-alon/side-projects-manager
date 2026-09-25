@@ -156,8 +156,15 @@ export interface MorningLoopPorts {
   progress: Progress;
 }
 
-/** What every run, review or spec review needs of the invocation's own state: recording a run's cost, and the run itself in progress. */
-type RunRecording = Pick<InvocationState, "recordRunCost" | "recordRunStarted" | "recordRunEnded">;
+/** What every run, review or spec review needs of the invocation's own state: recording a run's cost, the run itself in progress, and its own run window. */
+type RunRecording = Pick<
+  InvocationState,
+  | "recordRunCost"
+  | "recordRunStarted"
+  | "recordRunEnded"
+  | "recordRunWindowStarted"
+  | "recordRunWindowEnded"
+>;
 
 /**
  * `cutOff`'s own reason, as the stand-down it triggers on `ticket` — the same
@@ -1220,6 +1227,11 @@ interface SandboxResult<Outcome> {
  * Recording and clearing each log their own failure rather than raising it,
  * so a journal write this loop does not otherwise depend on can never take
  * the process down or change what the run itself comes to.
+ *
+ * Opens the ticket's own run window at the same moment, and closes it in the
+ * same `finally` — CONTEXT.md's "Run window" — durable where the journal
+ * entry above is not: a review or an apply-review run started days after
+ * this one ended can still read when it began.
  */
 async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
@@ -1246,12 +1258,13 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     checkout,
   });
   const onStarted = ({ transcriptDirectory }: RunStarted): void => {
+    const startedAt = ports.clock.now();
     void invocation
       .recordRunStarted({
         kind: ticketKind(ticket),
         repo,
         number: ticket.number,
-        startedAt: ports.clock.now(),
+        startedAt,
         transcriptDirectory,
         ...(ticket.pullRequest !== undefined && {
           pullRequest: ticket.pullRequest.url,
@@ -1260,6 +1273,13 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
       .catch((error: unknown) => {
         console.warn(
           `Could not record the run started for ${repo} #${ticket.number}: ${errorMessage(error)}`,
+        );
+      });
+    void invocation
+      .recordRunWindowStarted({ repo, number: ticket.number }, startedAt)
+      .catch((error: unknown) => {
+        console.warn(
+          `Could not record the run window started for ${repo} #${ticket.number}: ${errorMessage(error)}`,
         );
       });
   };
@@ -1307,6 +1327,17 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
         `Could not clear the run in progress for ${repo} #${ticket.number}: ${errorMessage(error)}`,
       );
     });
+    // Closed rather than cleared: unlike the run in progress above, the
+    // window survives this run for good — see CONTEXT.md's "Run window". A
+    // no-op when `onStarted` never fired, so a clone or a checkout failure
+    // that never reached the sandbox never opens one to close.
+    await invocation
+      .recordRunWindowEnded({ repo, number: ticket.number }, ports.clock.now())
+      .catch((error: unknown) => {
+        console.warn(
+          `Could not close the run window for ${repo} #${ticket.number}: ${errorMessage(error)}`,
+        );
+      });
   }
 }
 
