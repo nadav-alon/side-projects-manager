@@ -13,6 +13,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  RunSpan,
   SubIssue,
   Ticket,
 } from "../ports/index.ts";
@@ -31,11 +32,11 @@ import {
   discoveredTicketLabels,
   issueNumber,
   issueUrl,
-  labelWasPresentAt,
   modelLabelOf,
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,
+  turboableConsentAt,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../summary.ts";
 
@@ -437,11 +438,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /** Replays the events `recordTurboableEvent` was given for `ticket`, same as the real tracker's own timeline read. */
-  async wasTurboableAt(ticket: Ticket, instant: Date): Promise<boolean> {
-    return labelWasPresentAt(
+  async wasTurboableAt(
+    ticket: Ticket,
+    instant: Date,
+    spans: readonly RunSpan[],
+  ): Promise<boolean> {
+    return turboableConsentAt(
+      ticket,
       this.#turboableEvents.get(ticketKey(ticket)) ?? [],
-      TURBOABLE_LABEL,
       instant,
+      spans,
     );
   }
 
