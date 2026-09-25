@@ -533,8 +533,38 @@ export function githubRepoHost(
     },
 
     async mergePullRequest(pullRequest: PullRequestUrl): Promise<void> {
+      // Asked first: `gh pr merge --delete-branch` exits 0 on a pull request
+      // that is already merged, deleting the branch without ever raising —
+      // the one refusal the ticket names that would otherwise slip through
+      // silently.
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "state",
+        "--jq",
+        ".state",
+      ]);
+      if (stdout.trim() === "MERGED") {
+        throw new Error(`Could not merge ${pullRequest}: already merged`);
+      }
+      // `--repo` (from the pull request's own URL, not the cwd, as
+      // `labelPullRequest` above) keeps `--delete-branch` off whatever local
+      // checkout the process happens to be running in: without it, gh also
+      // deletes a same-named local branch, switching off it first if it's
+      // checked out.
+      const { owner, repo } = pullRequestParts(pullRequest);
       try {
-        await run("gh", ["pr", "merge", pullRequest, "--merge", "--delete-branch"]);
+        await run("gh", [
+          "pr",
+          "merge",
+          pullRequest,
+          "--merge",
+          "--delete-branch",
+          "--repo",
+          `${owner}/${repo}`,
+        ]);
       } catch (error) {
         throw new Error(
           `Could not merge ${pullRequest}: ${commandFailureMessage(error)}`,

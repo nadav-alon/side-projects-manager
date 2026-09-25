@@ -1344,8 +1344,12 @@ describe("merging a pull request", () => {
     "https://github.com/nadav-alon/pilot/pull/7",
   );
 
-  it("merges the pull request named by its own URL with a merge commit, and deletes its branch", async (t) => {
-    const gh = await recordingGh(t, ":");
+  /** A `gh` that reports the pull request's own state to `pr view`. */
+  const reportingState = (state: string) =>
+    `if [ "$2" = view ]; then echo ${state}; fi`;
+
+  it("merges the pull request named by its own URL with a merge commit, deleting its branch in its own repo", async (t) => {
+    const gh = await recordingGh(t, reportingState("OPEN"));
 
     await githubRepoHost().mergePullRequest(PULL_REQUEST);
 
@@ -1355,20 +1359,35 @@ describe("merging a pull request", () => {
       PULL_REQUEST,
       "--merge",
       "--delete-branch",
+      "--repo",
+      "nadav-alon/pilot",
     ]);
   });
 
   it("rejects naming the pull request when the host refuses to merge it", async (t) => {
-    await recordingGh(t, "echo 'Pull Request is not mergeable' >&2\nexit 1");
+    await recordingGh(
+      t,
+      [
+        `if [ "$2" = view ]; then echo OPEN; exit 0; fi`,
+        `echo 'Pull Request is not mergeable' >&2`,
+        `exit 1`,
+      ].join("\n"),
+    );
 
     await assert.rejects(
       githubRepoHost().mergePullRequest(PULL_REQUEST),
-      new RegExp(`Could not merge ${PULL_REQUEST}`),
+      /Could not merge .*pull\/7: Pull Request is not mergeable/,
     );
+  });
+
+  it("rejects naming the pull request when it is already merged, without ever calling gh pr merge", async (t) => {
+    const gh = await recordingGh(t, reportingState("MERGED"));
+
     await assert.rejects(
       githubRepoHost().mergePullRequest(PULL_REQUEST),
-      /Pull Request is not mergeable/,
+      /Could not merge .*pull\/7: already merged/,
     );
+    assert.equal(callWith(await gh.calls(), "pr", "merge"), undefined);
   });
 });
 
