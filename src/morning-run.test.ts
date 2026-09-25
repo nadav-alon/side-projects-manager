@@ -2259,6 +2259,7 @@ describe("morningLoop", () => {
           { pullRequest: PULL_REQUEST, label: REVIEWED_LABEL },
         ]);
         assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        assert.deepEqual(ports.repoHost.comments, []);
       });
 
       it("checks the pull request for a posted review, having found no finding on it", async () => {
@@ -2556,6 +2557,36 @@ describe("morningLoop", () => {
         at: FROZEN_NOW,
         tokensUsed: tokenCount(9_000),
       });
+    });
+
+    it("reports a clean review whose pull request cannot be checked for a posted review, rather than raising it", async (t) => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+      ports.sandbox.reviewResult = () => ({
+        kind: "finished",
+        output: "found nothing to flag",
+        tokensUsed: tokenCount(9_000),
+      });
+      t.mock.method(ports.repoHost, "hasPostedReview", async () => {
+        throw new Error("gh api rate limited");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.notEqual(report.outcome, "invocation-failed");
+      assert.deepEqual(
+        report.iterations.map((iteration) => [iteration.ticket.number, iteration.kind]),
+        [
+          [ticket.number, "reviewed"],
+          [7, "finished"],
+        ],
+      );
+      assert.match(report.message, /gh api rate limited/);
+      assert.deepEqual(ports.tracker.closedReviewTickets, []);
+      assert.deepEqual(ports.tracker.handbacks.map((h) => h.ticket.number), [7]);
+      assert.deepEqual(ports.repoHost.labelled, []);
+      assert.deepEqual(ports.repoHost.readyMarked, []);
     });
 
     it("reports a review ticket that cannot be closed, rather than raising it", async (t) => {
