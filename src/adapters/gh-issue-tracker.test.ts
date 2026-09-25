@@ -2433,7 +2433,27 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z")),
+      true,
+    );
+    assert.equal(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z")),
+      true,
+    );
+  });
+
+  it("answers true once turboable was removed and re-labelled before the instant", async (t) => {
+    await recordingGh(
+      t,
+      timeline([
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-01T00:00:00Z" },
+        { event: "unlabeled", label: TURBOABLE_LABEL, created_at: "2026-01-02T00:00:00Z" },
+        { event: "labeled", label: TURBOABLE_LABEL, created_at: "2026-01-03T00:00:00Z" },
+      ]),
+    );
+
+    assert.equal(
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z")),
       true,
     );
   });
