@@ -12,7 +12,8 @@
     "new-project": "./dist/bin/new-project.js",
     "loop-status": "./dist/bin/status.js",
     "loop-halt": "./dist/bin/halt.js",
-    "loop-resume": "./dist/bin/resume.js"
+    "loop-resume": "./dist/bin/resume.js",
+    "loop-stop": "./dist/bin/stop.js"
   },
   "files": [
     "dist",
@@ -27,6 +28,7 @@
     "status": "node src/bin/status.ts",
     "halt": "node src/bin/halt.ts",
     "resume": "node src/bin/resume.ts",
+    "stop": "node src/bin/stop.ts",
     "triggers:install": "bash scripts/install-triggers.sh",
     "hooks:install": "git config core.hooksPath .githooks",
     "sandbox:build": "docker build --label side-projects-sandbox.inputs=$(node scripts/sandbox-inputs-digest.ts) --build-arg CLAUDE_CODE_VERSION=$(npm view @anthropic-ai/claude-code version) -t side-projects-sandbox:latest .",
