@@ -26,6 +26,7 @@ import {
   sizeLabelOf,
   ticketKind,
   ticketPrioritiesIn,
+  turboableConsentAt,
   type LabelAction,
   type LabelTimelineEvent,
   type OpenIssue,
@@ -33,6 +34,7 @@ import {
 import { modelName } from "./model-name.ts";
 import { pullRequestUrl } from "./pull-request-url.ts";
 import { repoSlug } from "./repo-slug.ts";
+import type { RunSpan } from "./store.ts";
 import { ticketPriority } from "./ticket-priority.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -571,5 +573,93 @@ describe("labelWasPresentAt", () => {
       ),
       false,
     );
+  });
+});
+
+describe("turboableConsentAt", () => {
+  const DAY_1 = new Date("2026-01-01T00:00:00Z");
+  const DAY_2 = new Date("2026-01-02T00:00:00Z");
+  const DAY_3 = new Date("2026-01-03T00:00:00Z");
+  const DAY_4 = new Date("2026-01-04T00:00:00Z");
+  const OTHER_REPO = repoSlug("nadav-alon/other");
+
+  const TICKET = { repo: PILOT, number: issueNumber(40), title: "Some ticket" };
+  const OTHER_TICKET = { repo: PILOT, number: issueNumber(41), title: "Another ticket" };
+
+  function event(
+    action: LabelAction,
+    at: Date,
+    label: string = TURBOABLE_LABEL,
+  ): LabelTimelineEvent {
+    return { label, action, at };
+  }
+
+  function span(
+    ticket: { repo: typeof PILOT; number: ReturnType<typeof issueNumber> },
+    startedAt: Date,
+    endedAt?: Date,
+  ): RunSpan {
+    return { repo: ticket.repo, number: ticket.number, startedAt, ...(endedAt && { endedAt }) };
+  }
+
+  it("reads as consent where the label predates the instant and no span covers the grant", () => {
+    const events = [event("labeled", DAY_1)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_3, []), true);
+  });
+
+  it("reads as no consent where a span in the same repo, closed, covers the grant", () => {
+    const events = [event("labeled", DAY_2)];
+    const spans = [span(OTHER_TICKET, DAY_1, DAY_3)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), false);
+  });
+
+  it("reads as no consent where a still-open span in the same repo covers the grant", () => {
+    const events = [event("labeled", DAY_2)];
+    const spans = [span(OTHER_TICKET, DAY_1)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), false);
+  });
+
+  it("rejects a grant at exactly a span's startedAt or endedAt — inclusive bounds", () => {
+    const spans = [span(OTHER_TICKET, DAY_2, DAY_3)];
+    assert.equal(
+      turboableConsentAt(TICKET, [event("labeled", DAY_2)], DAY_4, spans),
+      false,
+    );
+    assert.equal(
+      turboableConsentAt(TICKET, [event("labeled", DAY_3)], DAY_4, spans),
+      false,
+    );
+  });
+
+  it("ignores a span in a different repo", () => {
+    const events = [event("labeled", DAY_2)];
+    const spans = [span({ repo: OTHER_REPO, number: OTHER_TICKET.number }, DAY_1, DAY_3)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), true);
+  });
+
+  it("reads as consent where the label was removed and re-added outside every span", () => {
+    const events = [
+      event("labeled", DAY_1),
+      event("unlabeled", DAY_2),
+      event("labeled", DAY_4),
+    ];
+    const spans = [span(OTHER_TICKET, DAY_1, DAY_2)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), true);
+  });
+
+  it("rejects a ticket's own span covering its own grant", () => {
+    const events = [event("labeled", DAY_1)];
+    const spans = [span(TICKET, DAY_1, DAY_3)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_2, spans), false);
+  });
+
+  it("behaves identically to labelWasPresentAt when no spans are recorded", () => {
+    const events = [event("labeled", DAY_1), event("unlabeled", DAY_2)];
+    assert.equal(turboableConsentAt(TICKET, events, DAY_1, []), true);
+    assert.equal(turboableConsentAt(TICKET, events, DAY_3, []), false);
+  });
+
+  it("reads as no consent where turboable was never granted, whatever the spans", () => {
+    assert.equal(turboableConsentAt(TICKET, [], DAY_2, []), false);
   });
 });
