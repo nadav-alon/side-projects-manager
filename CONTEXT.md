@@ -410,8 +410,8 @@ the ticket's repo and number, one window per ticket: a ticket run more than once
 latest run's window. Durable where **Run in progress** is not: that one is carried on the
 invocation's own journal record and cleared the moment the run ends, so nothing survives to say when
 a finished run started once its own invocation record has closed, let alone once the day has rolled
-over. `endedAt` absent while that run is still going. What ADR 0009's merge gate reads to check a
-`turboable` label's timeline against the implementation run it must not have been added during.
+over. `endedAt` absent while that run is still going. What ADR 0009's merge gate reads a ticket's own
+implementation run started at, to check a `turboable` label's timeline against it.
 _Avoid_: run history, active run
 
 **Backlog**:
