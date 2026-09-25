@@ -50,6 +50,11 @@ caveat `DEFAULT_BUDGET`'s own tokens have always carried, now attached to how a 
 well as to how many of them a window holds. `DEFAULT_BUDGET`'s allowances and sizes are scaled down by
 the cache-read weight alone, since cache reads are most of a run's tokens; a machine whose mix differs
 still needs the developer's own recalibration against `state.json`, exactly as before this change.
-Every run total recorded before this change is in the old, unweighted unit, and is not converted —
-`state.json` is machine-written and rewritten wholesale each invocation, so old figures age out on
-their own rather than needing a migration.
+Every run total recorded before this change is in the old, unweighted unit, and is not converted:
+`state.json`'s runs are only ever appended to, never rewritten, so old figures sit beside new ones
+indefinitely. The gate only ever reads the ones inside a window still open, so for as long as a
+5-hour or weekly window straddles the change, it sums old-unit totals — which counted a cache read,
+most of a run's tokens, at a full token rather than a tenth — against allowances cut on the assumption
+that every run from here on is counted the new way. That reads as more spent than is true, which is
+the direction this design already treats as safe, and it corrects itself once every straddling window
+has reset; nothing in `state.json` itself needs migrating.
