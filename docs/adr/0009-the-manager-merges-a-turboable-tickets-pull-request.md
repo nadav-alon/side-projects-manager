@@ -19,13 +19,14 @@ the one nothing can undo by commenting again — so it gets its own, narrower co
 A turbo project with no turboable tickets keeps behaving exactly as it does today.
 
 **Enforced against the label's timeline, not its current state.** Agent runs and the manager post
-with the same GitHub identity as the developer (the same problem ADR 0006's `container-sandbox.ts`
-comment names), so nothing about a `turboable` label on a ticket says a human set it rather than a
-run. Checking the label's own timeline event — labeled before that ticket's implementation run
-started — closes that gap without needing a second identity: a discovery, or any ticket the run
-itself opens, could only ever gain the label after its own run had already started, which reads as
-not in time. The manager also strips `turboable` from every ticket it opens, so a discovered ticket
-can never be born carrying it — belt and braces, since either alone would already be enough.
+with the same GitHub identity as the developer — the same identity problem ADR 0006 notes for the
+reviewer — so nothing about a `turboable` label on a ticket says a human set it rather than a run.
+Checking the label's own timeline event — labeled before that ticket's implementation run started,
+not merely present now — stops a run granting its own ticket consent mid-run: a label it adds to
+itself lands after that run's own start, which reads as not in time. It does nothing for a ticket
+that starts out carrying the label, which is what stripping is for: the manager strips `turboable`
+from every ticket it opens, so a discovery can never be born with it. Each covers what the other
+cannot — the timeline check a self-grant mid-run, stripping a label present from birth.
 
 **One pass, bounded the same way apply-review and rebase already are.** "Merge once finished" could
 otherwise cycle indefinitely through rebase and apply-review chasing a moving mergeable state. Only
