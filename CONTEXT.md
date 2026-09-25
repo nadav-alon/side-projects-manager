@@ -404,6 +404,16 @@ discarded instead (see **Discovery**). Nothing about the ticket changes otherwis
 continues on a salvage and then gives up is discarded, salvage and all.
 _Avoid_: leftover, WIP branch, partial run, resume branch
 
+**Run window**:
+When a ticket's own run last started, and when it ended — recorded in the state document, keyed by
+the ticket's repo and number, one window per ticket: a ticket run more than once keeps only its
+latest run's window. Durable where **Run in progress** is not: that one is carried on the
+invocation's own journal record and cleared the moment the run ends, so nothing survives to say when
+a finished run started once its own invocation record has closed, let alone once the day has rolled
+over. `endedAt` absent while that run is still going. What ADR 0009's merge gate reads to check a
+`turboable` label's timeline against the implementation run it must not have been added during.
+_Avoid_: run history, active run
+
 **Backlog**:
 One project's eligible tickets.
 _Avoid_: queue (the queue spans all projects), todo list

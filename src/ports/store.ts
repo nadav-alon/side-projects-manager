@@ -214,6 +214,57 @@ export function salvageFor(
 }
 
 /**
+ * When a ticket's own run last started, and when it ended — CONTEXT.md's
+ * "Run window": durable in the state document, unlike `RunInProgress`, which
+ * the journal clears the moment the run ends. `endedAt` absent while that
+ * run is still going.
+ */
+export interface RunWindow extends WorkedTicket {
+  startedAt: Date;
+  endedAt?: Date;
+}
+
+/**
+ * `previous` with `ticket`'s run window recorded as started at `startedAt`,
+ * in place of whatever window it carried before: a ticket run more than once
+ * keeps only its latest run's window.
+ */
+export function recordRunWindowStarted(
+  previous: RunWindow[] | undefined,
+  ticket: WorkedTicket,
+  startedAt: Date,
+): RunWindow[] {
+  return [
+    ...(previous ?? []).filter((window) => ticketKey(window) !== ticketKey(ticket)),
+    { repo: ticket.repo, number: ticket.number, startedAt },
+  ];
+}
+
+/**
+ * `previous` with `ticket`'s own run window closed at `endedAt`, its
+ * `startedAt` left as it was. Not an error when no such window is open —
+ * `recordRunWindowStarted` never wrote one, say — since there is then
+ * nothing here to close.
+ */
+export function recordRunWindowEnded(
+  previous: RunWindow[] | undefined,
+  ticket: WorkedTicket,
+  endedAt: Date,
+): RunWindow[] | undefined {
+  return previous?.map((window) =>
+    ticketKey(window) === ticketKey(ticket) ? { ...window, endedAt } : window,
+  );
+}
+
+/** The run window `windows` carries for `ticket`, absent if it has none. */
+export function runWindowFor(
+  windows: RunWindow[] | undefined,
+  ticket: WorkedTicket,
+): RunWindow | undefined {
+  return windows?.find((window) => ticketKey(window) === ticketKey(ticket));
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.
@@ -243,6 +294,12 @@ export interface State {
    * nothing is salvaged. See CONTEXT.md's "Salvage".
    */
   salvages?: Salvage[];
+  /**
+   * Every ticket's own run window: when its own run last started, and when
+   * it ended. Absent when nothing has ever run. See CONTEXT.md's "Run
+   * window".
+   */
+  runWindows?: RunWindow[];
 }
 
 /**

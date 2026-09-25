@@ -31,6 +31,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunWindow,
   Salvage,
   Size,
   SpendCeiling,
@@ -650,6 +651,7 @@ function parseState(document: unknown, file: string): State {
   const workedToday = fieldOf(document, "workedToday", file);
   const announcedOn = fieldOf(document, "announcedOn", file);
   const salvages = fieldOf(document, "salvages", file);
+  const runWindows = fieldOf(document, "runWindows", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
@@ -660,6 +662,9 @@ function parseState(document: unknown, file: string): State {
     }),
     ...(salvages !== undefined && {
       salvages: parseSalvages(salvages, `${file}: "salvages"`),
+    }),
+    ...(runWindows !== undefined && {
+      runWindows: parseRunWindows(runWindows, `${file}: "runWindows"`),
     }),
   };
 }
@@ -694,6 +699,37 @@ function parseSalvage(salvage: unknown, where: string): Salvage {
     );
   }
   return { repo, number, branch, stopShorts };
+}
+
+/**
+ * `[{ "repo": "owner/repo", "number": 7, "startedAt": "…", "endedAt": "…" }]`
+ *
+ * `endedAt` is absent on a window still open.
+ */
+function parseRunWindows(value: unknown, where: string): RunWindow[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where} must be a list of run windows.`);
+  }
+  return value.map((window, index) =>
+    parseRunWindow(window, `${where}: window ${index + 1}`),
+  );
+}
+
+function parseRunWindow(window: unknown, where: string): RunWindow {
+  const { repo, number } = parseWorkedTicket(window, where);
+  const startedAt = parseInstant(
+    fieldOf(window, "startedAt", where),
+    `${where}: "startedAt"`,
+  );
+  const endedAt = fieldOf(window, "endedAt", where);
+  return {
+    repo,
+    number,
+    startedAt,
+    ...(endedAt !== undefined && {
+      endedAt: parseInstant(endedAt, `${where}: "endedAt"`),
+    }),
+  };
 }
 
 function parseDayField(value: unknown, where: string): Day {
@@ -887,8 +923,15 @@ function formatState(state: State): string {
 
   const salvages = state.salvages?.map((salvage) => ({ ...salvage }));
 
+  const runWindows = state.runWindows?.map((window) => ({
+    repo: window.repo,
+    number: window.number,
+    startedAt: window.startedAt.toISOString(),
+    ...(window.endedAt !== undefined && { endedAt: window.endedAt.toISOString() }),
+  }));
+
   return `${JSON.stringify(
-    { projects, workedToday, announcedOn: state.announcedOn, salvages },
+    { projects, workedToday, announcedOn: state.announcedOn, salvages, runWindows },
     undefined,
     2,
   )}\n`;

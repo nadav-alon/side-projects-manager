@@ -1020,6 +1020,103 @@ describe("the state document", () => {
 
     await assert.rejects(store.loadState(), /"stopShorts" must be a whole number/);
   });
+
+  it("reads a document with no run windows as nothing ever run", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {} }),
+      }),
+    );
+
+    assert.equal((await store.loadState()).runWindows, undefined);
+  });
+
+  it("survives a round trip with a ticket's own run window, open", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      runWindows: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: new Date("2026-01-01T09:00:00.000Z"),
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("survives a round trip with a ticket's own run window, closed", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      runWindows: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: new Date("2026-01-01T09:00:00.000Z"),
+          endedAt: new Date("2026-01-01T09:20:00.000Z"),
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects a run window that names no repo slug", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runWindows: [
+            { number: 7, startedAt: "2026-01-01T09:00:00.000Z" },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /runWindows/);
+  });
+
+  it("rejects a run window whose startedAt is not a timestamp", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runWindows: [
+            { repo: PILOT, number: 7, startedAt: "not a date" },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"startedAt" must be an ISO 8601 timestamp/);
+  });
+
+  it("rejects a run window whose endedAt is not a timestamp", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runWindows: [
+            {
+              repo: PILOT,
+              number: 7,
+              startedAt: "2026-01-01T09:00:00.000Z",
+              endedAt: "not a date",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /"endedAt" must be an ISO 8601 timestamp/);
+  });
 });
 
 describe("the journal document", () => {
