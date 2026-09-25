@@ -84,7 +84,7 @@ function parseLogLine(line: string): UsageLogEntry | undefined {
     return undefined;
   }
 
-  const tokensUsed = sumTokenFields(usage as Record<string, unknown>);
+  const tokensUsed = weighLineUsage(usage as Record<string, unknown>);
   if (tokensUsed === undefined) {
     return undefined;
   }
@@ -101,11 +101,12 @@ function parseTimestamp(value: unknown): Date | undefined {
 }
 
 /**
- * Weighs input, output, and both cache token fields by `weighTokenFields`, so
- * this ledger counts the same way `container-sandbox.ts`'s `totalTokens`
- * does. Missing cache fields count as zero.
+ * `usage`'s input, output and both cache token fields, weighed by
+ * `weighTokenFields`, so this ledger counts the same way
+ * `container-sandbox.ts`'s `totalTokens` does. Missing cache fields count as
+ * zero.
  */
-function sumTokenFields(
+function weighLineUsage(
   usage: Record<string, unknown>,
 ): WeightedTokens | undefined {
   const input = usage.input_tokens;
