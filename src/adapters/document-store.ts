@@ -702,9 +702,11 @@ function parseSalvage(salvage: unknown, where: string): Salvage {
 }
 
 /**
- * `[{ "repo": "owner/repo", "number": 7, "startedAt": "…", "endedAt": "…" }]`
+ * `[{ "repo": "owner/repo", "number": 7, "startedAt": "…", "endedAt": "…",
+ *    "openedBy": { "openedAt": "…", "process": 123 } }]`
  *
- * `endedAt` is absent on a span still open.
+ * `endedAt` is absent on a span still open. `openedBy` is absent on a span
+ * recorded before it existed.
  */
 function parseRunSpans(value: unknown, where: string): RunSpan[] {
   if (!Array.isArray(value)) {
@@ -722,12 +724,16 @@ function parseRunSpan(span: unknown, where: string): RunSpan {
     `${where}: "startedAt"`,
   );
   const endedAt = fieldOf(span, "endedAt", where);
+  const openedBy = fieldOf(span, "openedBy", where);
   return {
     repo,
     number,
     startedAt,
     ...(endedAt !== undefined && {
       endedAt: parseInstant(endedAt, `${where}: "endedAt"`),
+    }),
+    ...(openedBy !== undefined && {
+      openedBy: parseOpenInvocation(openedBy, `${where}: "openedBy"`),
     }),
   };
 }
@@ -928,6 +934,7 @@ function formatState(state: State): string {
     number: span.number,
     startedAt: span.startedAt.toISOString(),
     ...(span.endedAt !== undefined && { endedAt: span.endedAt.toISOString() }),
+    ...(span.openedBy !== undefined && { openedBy: formatOpenInvocation(span.openedBy) }),
   }));
 
   return `${JSON.stringify(

@@ -1068,6 +1068,45 @@ describe("the state document", () => {
     assert.deepEqual(await store.loadState(), state);
   });
 
+  it("survives a round trip with a run span's opening invocation", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      runSpans: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          startedAt: new Date("2026-01-01T09:00:00.000Z"),
+          openedBy: {
+            openedAt: new Date("2026-01-01T08:09:00.000Z"),
+            process: processId(7563),
+          },
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("reads a run span that names no opening invocation as recorded before that field existed", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({
+          projects: {},
+          runSpans: [
+            { repo: PILOT, number: 7, startedAt: "2026-01-01T09:00:00.000Z" },
+          ],
+        }),
+      }),
+    );
+
+    const [span] = (await store.loadState()).runSpans ?? [];
+
+    assert.equal(span?.openedBy, undefined);
+  });
+
   it("rejects a run span that names no repo slug", async () => {
     const store = documentStore(
       await home({
