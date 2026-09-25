@@ -1368,10 +1368,10 @@ describe("morningLoop", () => {
     });
   });
 
-  describe("run window", () => {
+  describe("run span", () => {
     const TICKET = { number: issueNumber(7), title: "Add the thing" };
 
-    it("records the ticket's own run window in the state document while it is going, and closes it once the run ends", async () => {
+    it("records the ticket's own run span in the state document while it is going, and closes it once the run ends", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       ports.tracker.addEligibleTicket(PILOT, TICKET);
@@ -1381,7 +1381,7 @@ describe("morningLoop", () => {
       await ports.sandbox.whenHeld(1);
 
       const inProgress = await ports.store.loadState();
-      assert.deepEqual(inProgress.runWindows, [
+      assert.deepEqual(inProgress.runSpans, [
         { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW },
       ]);
 
@@ -1389,16 +1389,16 @@ describe("morningLoop", () => {
       await invocation;
 
       const afterward = await ports.store.loadState();
-      assert.deepEqual(afterward.runWindows, [
+      assert.deepEqual(afterward.runSpans, [
         { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW, endedAt: FROZEN_NOW },
       ]);
     });
 
-    it("keeps only the latest window across two runs recorded in the same invocation", async () => {
+    it("replaces a span an earlier invocation left with this run's own", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
       const ticket = ports.tracker.addEligibleTicket(PILOT, TICKET);
-      ports.store.markRunWindow(
+      ports.store.markRunSpan(
         ticket,
         new Date("2025-12-31T09:00:00.000Z"),
         new Date("2025-12-31T09:10:00.000Z"),
@@ -1407,7 +1407,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       const state = await ports.store.loadState();
-      assert.deepEqual(state.runWindows, [
+      assert.deepEqual(state.runSpans, [
         { repo: PILOT, number: TICKET.number, startedAt: FROZEN_NOW, endedAt: FROZEN_NOW },
       ]);
     });
@@ -1423,7 +1423,33 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       const state = await ports.store.loadState();
-      assert.equal(state.runWindows, undefined);
+      assert.equal(state.runSpans, undefined);
+    });
+
+    it("leaves an earlier run's own span untouched when this run's sandbox never starts", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, TICKET);
+      ports.store.markRunSpan(
+        ticket,
+        new Date("2025-12-31T09:00:00.000Z"),
+        new Date("2025-12-31T09:10:00.000Z"),
+      );
+      t.mock.method(ports.sandbox, "run", async () => {
+        throw new Error("docker is not running");
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.runSpans, [
+        {
+          repo: PILOT,
+          number: TICKET.number,
+          startedAt: new Date("2025-12-31T09:00:00.000Z"),
+          endedAt: new Date("2025-12-31T09:10:00.000Z"),
+        },
+      ]);
     });
   });
 

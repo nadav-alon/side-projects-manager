@@ -15,7 +15,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
-  RunWindow,
+  RunSpan,
   Salvage,
   State,
   Store,
@@ -28,7 +28,8 @@ import {
   KEPT_SUMMARY_LIMIT,
   findInvocationRecord,
   keptSummaryPath,
-  recordRunWindowStarted,
+  recordRunSpanEnded,
+  recordRunSpanStarted,
   recordStopShortSalvage,
   ticketKey,
   workedTicket,
@@ -56,7 +57,7 @@ export class FakeStore implements Store {
   #workedToday: WorkedToday | undefined = undefined;
   #announcedOn: Day | undefined = undefined;
   #salvages: Salvage[] | undefined = undefined;
-  #runWindows: RunWindow[] | undefined = undefined;
+  #runSpans: RunSpan[] | undefined = undefined;
   #journal: InvocationRecord[] = [];
   #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
@@ -116,16 +117,13 @@ export class FakeStore implements Store {
   }
 
   /**
-   * Records `ticket`'s own run window, as an earlier invocation's run would
-   * have left it — replacing whatever window `ticket` already carried.
+   * Records `ticket`'s own run span, as an earlier invocation's run would
+   * have left it — replacing whatever span `ticket` already carried.
    */
-  markRunWindow(ticket: WorkedTicket, startedAt: Date, endedAt?: Date): void {
-    this.#runWindows = recordRunWindowStarted(this.#runWindows, ticket, startedAt).map(
-      (window) =>
-        ticketKey(window) === ticketKey(ticket) && endedAt !== undefined
-          ? { ...window, endedAt }
-          : window,
-    );
+  markRunSpan(ticket: WorkedTicket, startedAt: Date, endedAt?: Date): void {
+    const started = recordRunSpanStarted(this.#runSpans, ticket, startedAt);
+    this.#runSpans =
+      endedAt === undefined ? started : recordRunSpanEnded(started, ticket, endedAt);
   }
 
   async loadRegistry(): Promise<RegisteredProject[]> {
@@ -161,8 +159,8 @@ export class FakeStore implements Store {
       ...(this.#salvages !== undefined && {
         salvages: this.#salvages.map((salvage) => ({ ...salvage })),
       }),
-      ...(this.#runWindows !== undefined && {
-        runWindows: this.#runWindows.map((window) => ({ ...window })),
+      ...(this.#runSpans !== undefined && {
+        runSpans: this.#runSpans.map((span) => ({ ...span })),
       }),
     };
   }
@@ -180,7 +178,7 @@ export class FakeStore implements Store {
         : copyWorkedToday(state.workedToday);
     this.#announcedOn = state.announcedOn;
     this.#salvages = state.salvages?.map((salvage) => ({ ...salvage }));
-    this.#runWindows = state.runWindows?.map((window) => ({ ...window }));
+    this.#runSpans = state.runSpans?.map((span) => ({ ...span }));
   }
 
   async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {

@@ -16,10 +16,10 @@ import {
   findInvocationRecord,
   isClosedInvocation,
   recordRun,
-  recordRunWindowEnded,
-  recordRunWindowStarted,
+  recordRunSpanEnded,
+  recordRunSpanStarted,
   recordWorked,
-  runWindowFor,
+  runSpanFor,
   sameInvocation,
   ticketKey,
   unrecordWorked,
@@ -86,7 +86,7 @@ export function invocationStateRest(
 /**
  * One invocation's whole view of the state document: worked-today and
  * run-cost bookkeeping, the budget gate's view of recorded runs, each
- * ticket's own run window, and every save the document needs. The loop
+ * ticket's own run span, and every save the document needs. The loop
  * tells it what happened; it decides what to keep.
  *
  * A single instance is built once per invocation and lives for its whole
@@ -148,23 +148,28 @@ export interface InvocationState {
   recordRunEnded(repo: RepoSlug, number: IssueNumber): Promise<void>;
 
   /**
-   * Records `ticket`'s own run window as started at `startedAt`, and saves
-   * the whole state document at once, resolving only once that save lands —
-   * CONTEXT.md's "Run window", durable where `recordRunStarted`'s journal
-   * entry is not, and saved with the same before-the-sandbox-starts urgency
-   * as `ticketSelected`, so a run killed part way still leaves its own start
-   * on the record. Replaces whatever window `ticket` already carried, same
-   * as `recordRunWindowStarted` in `ports/store.ts`.
+   * Records `ticket`'s own run span as started at `startedAt`, and saves the
+   * whole state document at once, resolving once that save lands — but not
+   * awaited by the run itself, which is already past the sandbox's own
+   * start by the time this is called: CONTEXT.md's "Run span", durable
+   * where `recordRunStarted`'s journal entry is not, but not saved with
+   * `ticketSelected`'s before-the-sandbox-starts urgency, since nothing
+   * calls this before the sandbox has already started. Replaces whatever
+   * span `ticket` already carried, same as `recordRunSpanStarted` in
+   * `ports/store.ts`.
    */
-  recordRunWindowStarted(ticket: WorkedTicket, startedAt: Date): Promise<void>;
+  recordRunSpanStarted(ticket: WorkedTicket, startedAt: Date): Promise<void>;
 
   /**
-   * Closes `ticket`'s own run window at `endedAt`, saving the whole state
-   * document the same way. Not an error when no such window is open, same
-   * as `recordRunWindowEnded` in `ports/store.ts` — and, since nothing
+   * Closes `ticket`'s own run span at `endedAt`, saving the whole state
+   * document the same way, but only when `openedAt` still names the span on
+   * record: a run that never opened its own span, or whose span a later run
+   * has since replaced, closes nothing — so a run that never started never
+   * moves an earlier run's own `endedAt` forward. Not an error either way,
+   * same as `recordRunSpanEnded` in `ports/store.ts` — and, since nothing
    * changes then, no save either.
    */
-  recordRunWindowEnded(ticket: WorkedTicket, endedAt: Date): Promise<void>;
+  recordRunSpanEnded(ticket: WorkedTicket, openedAt: Date, endedAt: Date): Promise<void>;
 
   /**
    * Every project's recorded runs, live — the budget gate's own view of what
@@ -221,7 +226,7 @@ export function invocationState(
   exposeRecorder?: (record: (ticket: WorkedTicket, day: Day) => void) => void,
 ): InvocationState {
   const projects = new Map(stored.projects);
-  let runWindows = stored.runWindows;
+  let runSpans = stored.runSpans;
   const storedToday =
     stored.workedToday?.day === today ? stored.workedToday : undefined;
   const { kept, freed } = freeDeadInvocations(storedToday, current);
@@ -245,7 +250,7 @@ export function invocationState(
   const buildState = (): State => ({
     projects,
     ...(record !== undefined && { workedToday: record }),
-    ...(runWindows !== undefined && { runWindows }),
+    ...(runSpans !== undefined && { runSpans }),
     ...foreignFields(),
   });
 
@@ -301,17 +306,20 @@ export function invocationState(
       }
       return queueRunWrite(() => ports.store.recordRunEnded(current.self, repo, number));
     },
-    recordRunWindowStarted: (ticket, startedAt) => {
-      runWindows = recordRunWindowStarted(runWindows, ticket, startedAt);
+    recordRunSpanStarted: (ticket, startedAt) => {
+      runSpans = recordRunSpanStarted(runSpans, ticket, startedAt);
       return doSave(buildState());
     },
-    recordRunWindowEnded: (ticket, endedAt) => {
-      // No window to close, no save to make: `onStarted` never fired, so
-      // saving here would write the document back unchanged.
-      if (runWindowFor(runWindows, ticket) === undefined) {
+    recordRunSpanEnded: (ticket, openedAt, endedAt) => {
+      // Closes only the span this run itself opened: a span for a different
+      // start — left by an earlier run, or already replaced by a later one
+      // — is not this run's to touch, and there is then nothing here to
+      // close, no save to make either.
+      const current = runSpanFor(runSpans, ticket);
+      if (current === undefined || current.startedAt.getTime() !== openedAt.getTime()) {
         return Promise.resolve();
       }
-      runWindows = recordRunWindowEnded(runWindows, ticket, endedAt);
+      runSpans = recordRunSpanEnded(runSpans, ticket, endedAt);
       return doSave(buildState());
     },
     iterationEnded: (ticket, iteration) => {

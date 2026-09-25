@@ -215,53 +215,53 @@ export function salvageFor(
 
 /**
  * When a ticket's own run last started, and when it ended — CONTEXT.md's
- * "Run window": durable in the state document, unlike `RunInProgress`, which
+ * "Run span": durable in the state document, unlike `RunInProgress`, which
  * the journal clears the moment the run ends. `endedAt` absent while that
  * run is still going.
  */
-export interface RunWindow extends WorkedTicket {
+export interface RunSpan extends WorkedTicket {
   startedAt: Date;
   endedAt?: Date;
 }
 
 /**
- * `previous` with `ticket`'s run window recorded as started at `startedAt`,
- * in place of whatever window it carried before: a ticket run more than once
- * keeps only its latest run's window.
+ * `previous` with `ticket`'s run span recorded as started at `startedAt`,
+ * in place of whatever span it carried before: a ticket run more than once
+ * keeps only its latest run's span.
  */
-export function recordRunWindowStarted(
-  previous: RunWindow[] | undefined,
+export function recordRunSpanStarted(
+  previous: RunSpan[] | undefined,
   ticket: WorkedTicket,
   startedAt: Date,
-): RunWindow[] {
+): RunSpan[] {
   return [
-    ...(previous ?? []).filter((window) => ticketKey(window) !== ticketKey(ticket)),
+    ...(previous ?? []).filter((span) => ticketKey(span) !== ticketKey(ticket)),
     { repo: ticket.repo, number: ticket.number, startedAt },
   ];
 }
 
 /**
- * `previous` with `ticket`'s own run window closed at `endedAt`, its
- * `startedAt` left as it was. Not an error when no such window is open —
- * `recordRunWindowStarted` never wrote one, say — since there is then
+ * `previous` with `ticket`'s own run span closed at `endedAt`, its
+ * `startedAt` left as it was. Not an error when no such span is open —
+ * `recordRunSpanStarted` never wrote one, say — since there is then
  * nothing here to close.
  */
-export function recordRunWindowEnded(
-  previous: RunWindow[] | undefined,
+export function recordRunSpanEnded(
+  previous: RunSpan[] | undefined,
   ticket: WorkedTicket,
   endedAt: Date,
-): RunWindow[] | undefined {
-  return previous?.map((window) =>
-    ticketKey(window) === ticketKey(ticket) ? { ...window, endedAt } : window,
+): RunSpan[] | undefined {
+  return previous?.map((span) =>
+    ticketKey(span) === ticketKey(ticket) ? { ...span, endedAt } : span,
   );
 }
 
-/** The run window `windows` carries for `ticket`, absent if it has none. */
-export function runWindowFor(
-  windows: RunWindow[] | undefined,
+/** The run span `spans` carries for `ticket`, absent if it has none. */
+export function runSpanFor(
+  spans: RunSpan[] | undefined,
   ticket: WorkedTicket,
-): RunWindow | undefined {
-  return windows?.find((window) => ticketKey(window) === ticketKey(ticket));
+): RunSpan | undefined {
+  return spans?.find((span) => ticketKey(span) === ticketKey(ticket));
 }
 
 /**
@@ -295,11 +295,11 @@ export interface State {
    */
   salvages?: Salvage[];
   /**
-   * Every ticket's own run window: when its own run last started, and when
+   * Every ticket's own run span: when its own run last started, and when
    * it ended. Absent when nothing has ever run. See CONTEXT.md's "Run
-   * window".
+   * span".
    */
-  runWindows?: RunWindow[];
+  runSpans?: RunSpan[];
 }
 
 /**
