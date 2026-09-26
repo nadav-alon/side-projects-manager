@@ -46,11 +46,8 @@ export function isEmail(value: string): value is Email {
 
 /** The constructor: narrows, or throws naming the offending value. */
 export function email(value: string): Email {
-  const result = emailSchema.safeParse(value);
-  if (!result.success) {
-    throw new Error(`Not an Email: ${JSON.stringify(value)}`);
-  }
-  return result.data;
+  if (!isEmail(value)) throw new Error(`Not an Email: ${JSON.stringify(value)}`);
+  return value;
 }
 ```
 
