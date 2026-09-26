@@ -39,6 +39,7 @@ import {
   isIssueNumber,
   isIssueUrl,
   isPullRequestUrl,
+  isRepoSlug,
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
@@ -300,7 +301,7 @@ export function ghIssueTracker(
         `repos/${ticket.repo}/issues/${ticket.number}/sub_issues`,
         "--paginate",
         "--jq",
-        ".[] | {number, title, body, state, labels: [.labels[].name]}",
+        ".[] | {number, title, body, state, labels: [.labels[].name], repository_url}",
       ]);
       return subIssuesIn(stdout, ticket);
     },
@@ -685,10 +686,11 @@ async function linkOrExplain(
  * Where sub-issues are unavailable — an older GitHub Enterprise, a token
  * without the scope — the relationship goes into `child`'s own body instead,
  * per `docs/agents/issue-tracker.md`: `body`, the one `child` was created
- * with, prefixed with a `Part of #N.` reference. Only where they are
- * unavailable: a refusal, a rate limit or a dropped connection is a tracker
- * that has sub-issues and could not be asked, and writing the reference into
- * the body would answer it by quietly downgrading the relationship forever.
+ * with, prefixed with a `Part of …` reference — see {@link parentReference}
+ * for its exact form. Only where they are unavailable: a refusal, a rate
+ * limit or a dropped connection is a tracker that has sub-issues and could
+ * not be asked, and writing the reference into the body would answer it by
+ * quietly downgrading the relationship forever.
  *
  * `body` is called at most once, and only in that fallback: where sub-issues
  * are native, as they ordinarily are, the POST alone links `child`, and a
@@ -723,9 +725,23 @@ async function linkToParent(
       "edit",
       ...issueArgs(child),
       "--body",
-      `Part of #${parent.number}.\n\n${await body()}`,
+      `Part of ${parentReference(child, parent)}.\n\n${await body()}`,
     ]);
   }
+}
+
+/**
+ * How `linkToParent`'s fallback names `parent` in `child`'s own body: a bare
+ * `#N`, the same short form the rest of the manager writes, where `child`
+ * and `parent` share a repo — GitHub resolves a bare number against the
+ * body's own repo, which is the right one there. Where they differ, a bare
+ * number would resolve against `child`'s repo instead and name the wrong
+ * issue, so `owner/repo#N` is written instead, which GitHub also auto-links.
+ */
+function parentReference(child: Ticket, parent: Ticket): string {
+  return sameRepo(child.repo, parent.repo)
+    ? `#${parent.number}`
+    : `${parent.repo}#${parent.number}`;
 }
 
 /**
@@ -847,13 +863,48 @@ function priorityLabelIn(labels: string[]): TicketPriority | undefined {
 }
 
 /**
+ * Whether `a` and `b` name the same repo, matched without regard to case, as
+ * GitHub matches owner and repo names.
+ */
+function sameRepo(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
  * Whether the issue at `url` lives in `repo`. Read from the URL, since that is
  * the one place `gh` names a linked issue's repo; owner and repo names are
  * matched without regard to case, as GitHub matches them.
  */
 function isInRepo(url: string, repo: RepoSlug): boolean {
-  const [owner, name] = new URL(url).pathname.split("/").filter(Boolean);
-  return `${owner}/${name}`.toLowerCase() === repo.toLowerCase();
+  const [owner, name] = parseUrlPath(url) ?? [];
+  return sameRepo(`${owner}/${name}`, repo);
+}
+
+/**
+ * The repo a REST `repository_url` names — `https://api.github.com/repos/
+ * <owner>/<repo>` — as a `RepoSlug`. Thrown naming `at`, the same as any other
+ * malformed answer `subIssuesIn` refuses: `gh` itself would never shape one
+ * differently, but a tracker that did must be refused loudly rather than
+ * handed on as a `Ticket`.
+ */
+function repoInUrl(url: string, at: string): RepoSlug {
+  const segments = parseUrlPath(url);
+  const slug = segments?.[0] === "repos" ? `${segments[1]}/${segments[2]}` : "";
+  if (!isRepoSlug(slug)) {
+    throw new Error(
+      `${at}: "repository_url" was not shaped like .../repos/owner/repo: ${JSON.stringify(url)}`,
+    );
+  }
+  return slug;
+}
+
+/** `url`'s own path segments, or undefined where `url` is not a well-formed URL at all. */
+function parseUrlPath(url: string): string[] | undefined {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -905,10 +956,14 @@ function labelDerivedTicketFields(
 
 /**
  * One sub-issue as `gh api repos/<repo>/issues/<n>/sub_issues --paginate
- * --jq '.[] | {number, title, body, state, labels: [.labels[].name]}'`
- * reports it, one per line — the REST API's own issue shape, unlike
- * `RawIssue`'s GraphQL one, so `state` reads lowercase `open` or `closed`
- * rather than `OPEN` or `CLOSED`.
+ * --jq '.[] | {number, title, body, state, labels: [.labels[].name],
+ * repository_url}'` reports it, one per line — the REST API's own issue
+ * shape, unlike `RawIssue`'s GraphQL one, so `state` reads lowercase `open`
+ * or `closed` rather than `OPEN` or `CLOSED`.
+ *
+ * `repositoryUrl` is read rather than assumed to be `parent`'s own repo: a
+ * sub-issue can live in another repo under the same owner, and GitHub's own
+ * REST issue shape carries which one it is on every issue it returns.
  */
 interface RawSubIssue {
   number: IssueNumber;
@@ -916,14 +971,15 @@ interface RawSubIssue {
   body: string;
   state: string;
   labels: string[];
+  repositoryUrl: string;
 }
 
 /**
  * `gh api .../sub_issues --paginate --jq '.[] | {...}'`: newline-delimited
- * JSON, one `{ number, title, body, state, labels }` per sub-issue of
- * `parent` — open or closed alike, per `CONTEXT.md`'s "Spec review sweep" —
- * across every page `--paginate` reads, so a supertask with more sub-issues
- * than fit on one page is read whole.
+ * JSON, one `{ number, title, body, state, labels, repository_url }` per
+ * sub-issue of `parent` — open or closed alike, per `CONTEXT.md`'s "Spec
+ * review sweep" — across every page `--paginate` reads, so a supertask with
+ * more sub-issues than fit on one page is read whole.
  */
 function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
   const where = `gh api repos/${parent.repo}/issues/${parent.number}/sub_issues --paginate`;
@@ -940,17 +996,23 @@ function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
     if (typeof raw !== "object" || raw === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, state, labels } = raw as Record<string, unknown>;
+    const { number, title, body, state, labels, repository_url: repositoryUrl } =
+      raw as Record<string, unknown>;
     const issue: RawSubIssue = {
       number: expectIssueNumber(number, "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
       state: expectField(state, "string", "state", at),
       labels: parseLabelNames(labels, at),
+      repositoryUrl: expectField(repositoryUrl, "string", "repository_url", at),
     };
+    const repo = repoInUrl(issue.repositoryUrl, at);
     return {
       ticket: {
-        repo: parent.repo,
+        // `parent.repo` is kept where it names the same repo, so a same-repo
+        // sub-issue's repo is unchanged even where the configured slug and
+        // `repository_url`'s canonical casing differ.
+        repo: sameRepo(repo, parent.repo) ? parent.repo : repo,
         number: issue.number,
         title: issue.title,
         ...labelDerivedTicketFields(issue.body, issue.labels),
