@@ -119,12 +119,14 @@ second such ticket from that run's own discoveries, so unreviewed work never cha
 ## Turboable label
 
 Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run
-starts. It lets the manager merge that ticket's pull request on a turbo project, once the ticket's
-apply-review ticket finishes.
+starts, per `CONTEXT.md`'s "Turboable". It lets the manager merge that ticket's pull request on a
+turbo project once the ticket's apply-review ticket finishes, provided the pull request is also
+mergeable, green and free of declined threads; otherwise the manager labels it `ready-for-human`
+instead.
 
-| Label       | Meaning                                                                    |
-| ----------- | --------------------------------------------------------------------------- |
-| `turboable` | Consents to the manager merging this ticket's pull request once it is done. |
+| Label       | Meaning                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `turboable` | Consents to the manager merging this ticket's pull request once its apply-review ticket finishes.  |
 
 - A label may not exist yet in a given repo: create it on first use (`gh label create turboable`)
   before `gh issue edit --add-label`.
