@@ -2123,7 +2123,7 @@ async function mergeGate(
   }
   try {
     await ports.repoHost.mergePullRequest(pullRequest);
-    return { kind: "merged" };
+    return { kind: "merged", implementationTicket: implementation };
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
   }

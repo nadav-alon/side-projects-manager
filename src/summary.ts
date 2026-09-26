@@ -1709,13 +1709,15 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
 }
 
 /**
- * Whether the merge gate merged `merge`'s own pull request — CONTEXT.md's
- * "Turboable", ADR 0009 — so `appliedReviewSummary` and
- * `appliedReviewWaitingLine` can say "ready for review" only where that is
- * still true, rather than of a pull request already merged.
+ * The clean-outcome tail of `appliedReviewSummary`: what the merge gate came
+ * to — CONTEXT.md's "Turboable", ADR 0009 — naming the implementation ticket
+ * it closed, beside the pull request itself, so the developer can't mistake
+ * the ticket number for a second pull request.
  */
 function readyPhrase(merge: MergeGate | undefined): string {
-  return merge?.kind === "merged" ? "merged, its branch deleted" : "now ready for review";
+  return merge?.kind === "merged"
+    ? `merged, closing #${merge.implementationTicket.number}, its branch deleted`
+    : "now ready for review";
 }
 
 /**
