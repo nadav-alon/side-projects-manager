@@ -1566,7 +1566,7 @@ async function markCleanReviewReady(
  * its implementation ticket, same mergeable-green-no-declined-threads checks,
  * same merge-or-`ready-for-human` outcome. A review with findings never gets
  * it directly: turbo posts `/apply-review` instead, and the gate fires after
- * that ticket's own finish, as it always has.
+ * that ticket's own finish.
  */
 async function runReview(
   ports: MorningLoopPorts,
