@@ -712,9 +712,8 @@ export type MergeGate =
   | { kind: "not-turboable"; reason: string }
   /**
    * Mergeable, green and free of declined threads: merged with a merge
-   * commit, its branch deleted with it. `implementationTicket` is the ticket
-   * `mergeGate` already resolved to check `turboable`'s own timeline, carried
-   * along so the summary can name it beside the pull request.
+   * commit, its branch deleted with it. `implementationTicket` is the
+   * implementation ticket whose pull request this merged.
    */
   | { kind: "merged"; implementationTicket: Ticket }
   /**
