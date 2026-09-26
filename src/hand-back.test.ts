@@ -484,7 +484,7 @@ describe("handBack", () => {
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.equal(tracker.handbacks[0]?.ticket.number, ticket.number);
       assert.match(comment, /Needs the widget port first/);
-      assert.match(comment, /implementation ticket, #7/);
+      assert.match(comment, /implementation ticket, nadav-alon\/pilot#7/);
     });
 
     it("names the supertask for a spec review ticket, rather than calling it an implementation ticket", async () => {
@@ -505,8 +505,8 @@ describe("handBack", () => {
 
       assert.deepEqual(repoHost.discarded, []);
       const comment = tracker.handbacks[0]?.comment ?? "";
-      assert.match(comment, /supertask, #7/);
-      assert.doesNotMatch(comment, /implementation ticket, #7/);
+      assert.match(comment, /supertask, nadav-alon\/pilot#7/);
+      assert.doesNotMatch(comment, /implementation ticket, nadav-alon\/pilot#7/);
     });
 
     it("names the transcript's host path when the run left one", async () => {

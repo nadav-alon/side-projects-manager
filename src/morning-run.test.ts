@@ -1009,7 +1009,7 @@ describe("morningLoop", () => {
 
         const body = ports.tracker.summaries[0]?.body ?? "";
         assert.match(body, /## Freed from a dead invocation/);
-        assert.match(body, /nadav-alon\/pilot #432/);
+        assert.match(body, /nadav-alon\/pilot#432/);
         assert.match(body, /7563/);
       });
 
@@ -1064,7 +1064,7 @@ describe("morningLoop", () => {
         assert.equal(ports.tracker.summaries.length, 1);
         const body = ports.tracker.summaries[0]?.body ?? "";
         assert.match(body, /## Freed from a dead invocation/);
-        assert.match(body, /nadav-alon\/pilot #432/);
+        assert.match(body, /nadav-alon\/pilot#432/);
       });
     });
   });
@@ -2637,7 +2637,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.labelled, []);
       const body = ports.tracker.summaries[0]?.body ?? "";
       const waiting = body.slice(body.indexOf("## Waiting on you"));
-      assert.match(waiting, new RegExp(`pilot #${ticket.number}`));
+      assert.match(waiting, new RegExp(`pilot#${ticket.number}`));
       const state = await ports.store.loadState();
       assert.deepEqual(state.projects.get(PILOT)?.runs[0], {
         at: FROZEN_NOW,
@@ -2692,7 +2692,7 @@ describe("morningLoop", () => {
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(
         body,
-        new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
+        new RegExp(`## Waiting on you[\\s\\S]*pilot#${ticket.number}`),
       );
     });
 
@@ -2769,13 +2769,13 @@ describe("morningLoop", () => {
 
       const gaveUpBody = gaveUp.tracker.summaries[0]?.body ?? "";
       const brokeBody = broke.tracker.summaries[0]?.body ?? "";
-      const which = `#${ticket.number}`;
+      const which = `${PILOT}#${ticket.number}`;
       assert.match(gaveUpBody, new RegExp(`gave up on ${which}`));
-      assert.match(gaveUpBody, new RegExp(`pilot ${which}: relabelled ready-for-human`));
+      assert.match(gaveUpBody, new RegExp(`${which}: relabelled ready-for-human`));
       assert.doesNotMatch(gaveUpBody, /fix the setup/);
       assert.match(
         brokeBody,
-        new RegExp(`pilot ${which}: still ready-for-agent — the sandbox or checkout failed`),
+        new RegExp(`${which}: still ready-for-agent — the sandbox or checkout failed`),
       );
       assert.doesNotMatch(brokeBody, /gave up/);
     });
@@ -2837,7 +2837,7 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "work-selected");
-      assert.match(report.message, /Reviewed nadav-alon\/pilot #42/);
+      assert.match(report.message, /Reviewed nadav-alon\/pilot#42/);
       assert.match(report.message, new RegExp(PULL_REQUEST.replace(/\//g, "\\/")));
     });
 
@@ -2855,7 +2855,7 @@ describe("morningLoop", () => {
 
       assert.match(
         report.message,
-        new RegExp(`the agent gave up on #${ticket.number}: the agent gave up`, "i"),
+        new RegExp(`the agent gave up on ${PILOT}#${ticket.number}: the agent gave up`, "i"),
       );
     });
 
@@ -2910,7 +2910,7 @@ describe("morningLoop", () => {
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(
         body,
-        new RegExp(`## Waiting on you[\\s\\S]*pilot #${ticket.number}`),
+        new RegExp(`## Waiting on you[\\s\\S]*pilot#${ticket.number}`),
       );
     });
 
@@ -2943,7 +2943,7 @@ describe("morningLoop", () => {
         const handback = ports.tracker.handbacks[0];
         assert.equal(handback?.ticket.number, review.number);
         assert.notEqual(handback?.ticket.number, implementation.number);
-        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.match(handback?.comment ?? "", /implementation ticket, nadav-alon\/pilot#7/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
 
@@ -3163,7 +3163,7 @@ describe("morningLoop", () => {
         const handback = ports.tracker.handbacks[0];
         assert.equal(handback?.ticket.number, specReview.number);
         assert.notEqual(handback?.ticket.number, supertask.number);
-        assert.match(handback?.comment ?? "", /supertask, #50/);
+        assert.match(handback?.comment ?? "", /supertask, nadav-alon\/pilot#50/);
         assert.match(handback?.comment ?? "", /DRIFT REPORT/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
@@ -3614,7 +3614,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent — the sandbox or checkout failed`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent — the sandbox or checkout failed`),
       );
       const { tickets: backlog } = backlogIn(
         await ports.tracker.listOpenIssues(PILOT),
@@ -3690,7 +3690,7 @@ describe("morningLoop", () => {
       assert.equal(report.outcome, "work-selected");
       assert.ok(
         report.message.includes(
-          `Applied review on ${PILOT} #43: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+          `Applied review on ${PILOT}#43: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
         ),
         report.message,
       );
@@ -3741,7 +3741,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.labelled, []);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent`),
       );
     });
 
@@ -3760,7 +3760,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent`),
       );
       assert.deepEqual(ports.repoHost.labelled, []);
     });
@@ -3781,7 +3781,7 @@ describe("morningLoop", () => {
       assert.match(report.message, /close it yourself/);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent`),
       );
       assert.deepEqual(ports.repoHost.labelled, []);
     });
@@ -4124,7 +4124,7 @@ describe("morningLoop", () => {
         const handback = ports.tracker.handbacks[0];
         assert.equal(handback?.ticket.number, applyReview.number);
         assert.notEqual(handback?.ticket.number, implementation.number);
-        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.match(handback?.comment ?? "", /implementation ticket, nadav-alon\/pilot#7/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
     });
@@ -4515,7 +4515,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.handbacks, []);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent`),
       );
     });
 
@@ -4536,7 +4536,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent`),
       );
       const { tickets: backlog } = backlogIn(
         await ports.tracker.listOpenIssues(PILOT),
@@ -4564,7 +4564,7 @@ describe("morningLoop", () => {
       assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
       assert.match(
         waitingOn(ports),
-        new RegExp(`pilot #${ticket.number}: still ready-for-agent`),
+        new RegExp(`pilot#${ticket.number}: still ready-for-agent`),
       );
     });
 
@@ -4578,7 +4578,7 @@ describe("morningLoop", () => {
       assert.equal(report.outcome, "work-selected");
       assert.ok(
         report.message.includes(
-          `Rebased ${PULL_REQUEST} for ${PILOT} #44: it no longer conflicts with its base.`,
+          `Rebased ${PULL_REQUEST} for ${PILOT}#44: it no longer conflicts with its base.`,
         ),
         report.message,
       );
@@ -4600,7 +4600,7 @@ describe("morningLoop", () => {
 
       assert.match(
         attempts(ports),
-        new RegExp(`- Attempted a rebase of ${PULL_REQUEST} on ${PILOT}: the agent gave up on #44: .*still conflicts`),
+        new RegExp(`- Attempted a rebase of ${PULL_REQUEST} on ${PILOT}: the agent gave up on ${PILOT}#44: .*still conflicts`),
       );
     });
 
@@ -4668,7 +4668,7 @@ describe("morningLoop", () => {
         const handback = ports.tracker.handbacks[0];
         assert.equal(handback?.ticket.number, rebase.number);
         assert.notEqual(handback?.ticket.number, implementation.number);
-        assert.match(handback?.comment ?? "", /implementation ticket, #7/);
+        assert.match(handback?.comment ?? "", /implementation ticket, nadav-alon\/pilot#7/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
     });
@@ -4884,7 +4884,7 @@ describe("morningLoop", () => {
         assert.match(attempts, /#7/);
         assert.match(attempts, new RegExp(BROKE));
         const waiting = body.slice(body.indexOf("## Waiting on you"));
-        assert.match(waiting, /pilot #7/);
+        assert.match(waiting, /pilot#7/);
         assert.match(waiting, new RegExp(BROKE));
         assert.doesNotMatch(body, /relabel it yourself/);
       });
@@ -5666,7 +5666,7 @@ describe("morningLoop", () => {
         ],
       );
       assert.equal(report.standDown?.reason, "provider-limit");
-      assert.match(report.message, /pilot #2 is still ready-for-agent/);
+      assert.match(report.message, /pilot#2 is still ready-for-agent/);
     });
 
     it("stands down on the first limit refusal, not a later one", HANGS, async () => {
@@ -5710,7 +5710,7 @@ describe("morningLoop", () => {
         ],
       );
       assert.equal(report.standDown?.reason, "provider-failure");
-      assert.match(report.message, /pilot #2 is still ready-for-agent/);
+      assert.match(report.message, /pilot#2 is still ready-for-agent/);
       assert.match(report.message, new RegExp(PROVIDER_FAILURE_PROSE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
       const [summary] = ports.tracker.summaries;
       assert.ok(summary !== undefined);
@@ -5776,7 +5776,7 @@ describe("morningLoop", () => {
       assert.ok(report.standDown.handedBack);
       const handback = ports.tracker.handbacks.find((entry) => entry.ticket.number === 2);
       assert.ok(handback, "ticket 2 should have been handed back");
-      assert.match(report.message, /pilot #2 was handed back for the blocking discovery it filed/);
+      assert.match(report.message, /pilot#2 was handed back for the blocking discovery it filed/);
     });
 
     it("reports iterations in the order they started, not the order they finished", HANGS, async () => {
@@ -5987,10 +5987,10 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.match(report.message, /stood down/i);
-      assert.match(report.message, /nadav-alon\/pilot #2 is still ready-for-agent/);
+      assert.match(report.message, /nadav-alon\/pilot#2 is still ready-for-agent/);
       assert.match(report.message, /resets 1pm \(UTC\)/);
       const body = ports.tracker.summaries[0]?.body ?? "";
-      assert.doesNotMatch(body, /pilot #2: relabelled/);
+      assert.doesNotMatch(body, /pilot#2: relabelled/);
     });
 
     it("still records what the refused run spent", async () => {
@@ -6096,7 +6096,7 @@ describe("morningLoop", () => {
       assert.ok(report.standDown?.reason === "provider-limit");
       assert.equal(report.standDown.ticket.number, ticket.number);
       assert.ok(report.standDown.handedBack);
-      assert.match(report.message, /pilot #7 was handed back for the blocking discovery it filed/);
+      assert.match(report.message, /pilot#7 was handed back for the blocking discovery it filed/);
     });
 
     it("discards a refused run's branch when it carries no commits, and leaves any existing salvage record unchanged", async () => {
@@ -6744,7 +6744,7 @@ describe("morningLoop", () => {
       assert.ok(report.standDown?.reason === "provider-failure");
       assert.equal(report.standDown.ticket.number, ticket.number);
       assert.ok(report.standDown.handedBack);
-      assert.match(report.message, /pilot #7 was handed back for the blocking discovery it filed/);
+      assert.match(report.message, /pilot#7 was handed back for the blocking discovery it filed/);
     });
   });
 
@@ -7197,7 +7197,7 @@ describe("morningLoop", () => {
         assert.doesNotMatch(body, /gave up/);
         assert.doesNotMatch(body, infrastructure);
         assert.match(body, /Waiting on you/);
-        assert.match(body, /pilot #7: relabelled ready-for-human — the agent CLI refused the model/);
+        assert.match(body, /pilot#7: relabelled ready-for-human — the agent CLI refused the model/);
       });
     });
 
@@ -7346,7 +7346,7 @@ describe("morningLoop", () => {
 
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /Waiting on you/);
-      assert.match(body, /pilot #7/);
+      assert.match(body, /pilot#7/);
       assert.match(body, /ready-for-human/);
     });
 
@@ -7373,7 +7373,7 @@ describe("morningLoop", () => {
       // list even though it never reached ready-for-human.
       const body = ports.tracker.summaries[0]?.body ?? "";
       assert.match(body, /Waiting on you/);
-      assert.match(body, /pilot #7/);
+      assert.match(body, /pilot#7/);
       assert.match(body, /still ready-for-agent/);
       assert.match(body, /relabel it yourself/);
     });

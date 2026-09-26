@@ -320,6 +320,16 @@ export interface Ticket {
 }
 
 /**
+ * `ticket` as GitHub autolinks it from any repo: `owner/repo#12`. A bare
+ * `#12` — or `owner/repo #12`, spaced — links to issue 12 of whichever repo
+ * the text is posted in, so any text naming a ticket another repo may hold
+ * names it this way.
+ */
+export function ticketReference(ticket: Pick<Ticket, "repo" | "number">): string {
+  return `${ticket.repo}#${ticket.number}`;
+}
+
+/**
  * Whether an open ticket still blocks `ticket`, per `CONTEXT.md`'s "Blocked
  * ticket": its work builds on work not yet done, so a run started now would
  * build on nothing. The tracker only reports the count; this is the judgment
