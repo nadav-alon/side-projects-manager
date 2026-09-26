@@ -1,5 +1,14 @@
 {
   "projects": [
-    { "repo": "nadav-alon/side-projects-manager", "turbo": true }
+    {
+      "repo": "nadav-alon/side-projects-manager",
+      "turbo": true
+    },
+    {
+      "repo": "nadav-alon/data-platform"
+    },
+    {
+      "repo": "nadav-alon/home-catalogue"
+    }
   ]
 }
