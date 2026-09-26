@@ -1189,12 +1189,21 @@ function waitingSection(
   projects: ProjectOutcome[],
 ): string | undefined {
   const reviewOutcomes = workedReviewOutcomes(iterations);
+  const handedOverReviews = handoverReviewKeys(iterations);
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed": {
         if (reviewLeftOpen(iteration)) {
           return [notClosedLine(iteration, iteration.notClosed)];
         }
+        const { merge } = iteration;
+        // A clean review this same invocation also opened, by way of an
+        // implementation run's own handover, already has its merge-gate
+        // outcome said inline on `handoverLines`' own bullet — saying it
+        // again here would only repeat it.
+        const saidByHandover = handedOverReviews.has(
+          ticketKey(iteration.repo, iteration.ticket.number),
+        );
         return [
           ...(iteration.notLabelled === undefined
             ? []
@@ -1205,6 +1214,14 @@ function waitingSection(
           ...(iteration.notCommented === undefined
             ? []
             : [notCommentedLine(iteration, iteration.notCommented)]),
+          ...(merge?.kind === "left-for-human" && !saidByHandover
+            ? [
+                `- ${iteration.repo}: ${iteration.ticket.pullRequest.url} — left for you to merge: ${withoutTrailingStop(merge.reason)}`,
+              ]
+            : []),
+          ...(merge?.kind === "left-for-human" && merge.notLabelled !== undefined
+            ? [notLabelledLine(iteration, READY_FOR_HUMAN_PULL_REQUEST_LABEL, merge.notLabelled)]
+            : []),
         ];
       }
       case "applied-review": {
@@ -1341,6 +1358,42 @@ function workedReviewOutcomes(
 }
 
 /**
+ * Every review ticket, keyed by repo and ticket number, this same invocation
+ * both opened and finished by way of a finished implementation run's own
+ * `handover` — `handoverLines`' own precondition for running at all. Read by
+ * the `reviewed` case in `waitingSection` so a clean review's merge-gate
+ * outcome is never said twice: once inline on `handoverLines`' own bullet,
+ * once again on its own.
+ */
+function handoverReviewKeys(iterations: IterationOutcome[]): Set<string> {
+  const keys = new Set<string>();
+  for (const iteration of iterations) {
+    if (iteration.kind === "finished" && iteration.handover !== undefined) {
+      keys.add(reviewKey(iteration.repo, iteration.handover));
+    }
+  }
+  return keys;
+}
+
+/**
+ * The tail `handoverLines` appends to a clean review's own bullet once it is
+ * marked ready for review: what the merge gate came to, on a turbo project —
+ * CONTEXT.md's "Turboable", ADR 0009 — or the plain ready-mark otherwise.
+ * Bullet-list wording rather than `readyPhrase`/`leftForHumanNote`'s own
+ * sentence: this is one clause inside a `- repo: pull request — …` line, not
+ * a sentence of its own.
+ */
+function handoverReadyPhrase(merge: MergeGate | undefined): string {
+  if (merge?.kind === "merged") {
+    return `, merged, closing ${ticketReference(merge.implementationTicket)}, its branch deleted`;
+  }
+  if (merge?.kind === "left-for-human") {
+    return `, ready for review — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
+  }
+  return ", marked ready for review";
+}
+
+/**
  * The Waiting-on-you lines for a finished run's handover: zero or one. A
  * review not yet worked this invocation is still queued, the same as one an
  * overlapping run closed out from under before this invocation's own attempt
@@ -1375,7 +1428,9 @@ function handoverLines(
     return [
       reviewOutcome.clean
         ? `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag${
-            reviewOutcome.notReadied === undefined ? ", marked ready for review" : ""
+            reviewOutcome.notReadied === undefined
+              ? handoverReadyPhrase(reviewOutcome.merge)
+              : ""
           }`
         : `- ${repo}: ${handover.pullRequest} — reviewed, findings posted`,
     ];
@@ -1562,18 +1617,23 @@ function handbackNote(finished: Finished): string {
 
 /**
  * How a review ticket's own run reads to the developer: where its findings
- * landed, or why the loop could not finish the ticket off.
+ * landed, or why the loop could not finish the ticket off. A clean review on
+ * a turbo project also says what the merge gate came to
+ * (`readyPhrase`/`leftForHumanNote`) — CONTEXT.md's "Turboable", ADR 0009 —
+ * exactly as `appliedReviewSummary` already does for an apply-review ticket's
+ * own finish.
  */
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
 ): string {
-  const { repo, ticket, clean, notClosed, notLabelled, notReadied, notCommented } = iteration;
+  const { repo, ticket, clean, notClosed, notLabelled, notReadied, notCommented, merge } =
+    iteration;
   const pullRequest = ticket.pullRequest.url;
   switch (notClosed?.kind) {
     case undefined: {
       const posted = clean
         ? `Reviewed ${repo}#${ticket.number}: found nothing to flag on ${pullRequest}${
-            notReadied === undefined ? ", now ready for review" : ""
+            notReadied === undefined ? `, ${readyPhrase(merge)}` : ""
           }.`
         : `Reviewed ${repo}#${ticket.number}: posted findings on ${pullRequest}.`;
       const labelNote =
@@ -1584,7 +1644,7 @@ function reviewSummary(
         notReadied === undefined ? "" : ` ${notReadiedNote(pullRequest, notReadied)}.`;
       const commentNote =
         notCommented === undefined ? "" : ` ${notCommentedNote(pullRequest, notCommented)}.`;
-      return `${posted}${labelNote}${readyNote}${commentNote}`;
+      return `${posted}${labelNote}${readyNote}${commentNote}${leftForHumanNote(pullRequest, merge)}`;
     }
     case "check-failed":
       return `Reviewed ${repo}#${ticket.number}, but ${pullRequest} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${pullRequest} and close it yourself.`;
@@ -1710,10 +1770,10 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
 }
 
 /**
- * The clean-outcome tail of `appliedReviewSummary`: what the merge gate came
- * to — CONTEXT.md's "Turboable", ADR 0009 — naming the implementation ticket
- * it closed, beside the pull request itself, so the developer can't mistake
- * the ticket number for a second pull request.
+ * The clean-outcome tail of `appliedReviewSummary` and `reviewSummary`: what
+ * the merge gate came to — CONTEXT.md's "Turboable", ADR 0009 — naming the
+ * implementation ticket it closed, beside the pull request itself, so the
+ * developer can't mistake the ticket number for a second pull request.
  */
 function readyPhrase(merge: MergeGate | undefined): string {
   return merge?.kind === "merged"
@@ -1723,9 +1783,9 @@ function readyPhrase(merge: MergeGate | undefined): string {
 
 /**
  * What the merge gate left for the developer, appended to
- * `appliedReviewSummary`'s own clean-outcome sentence: empty when it never
- * merges — absent on a project that is not turbo, or `not-turboable` — since
- * neither adds anything to the sentence.
+ * `appliedReviewSummary` and `reviewSummary`'s own clean-outcome sentence:
+ * empty when it never merges — absent on a project that is not turbo, or
+ * `not-turboable` — since neither adds anything to the sentence.
  */
 function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
   if (merge?.kind !== "left-for-human") {

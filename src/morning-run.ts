@@ -1559,6 +1559,14 @@ async function markCleanReviewReady(
  * on the iteration, never raised — the ready-mark and the turbo comment are
  * each tried whether or not the label landed, since it is the ticket having
  * closed that matters, but neither is ever tried when closing itself failed.
+ *
+ * On a turbo project, a clean review runs the same merge gate an apply-review
+ * ticket's own finish does, once, right after its ticket has closed —
+ * `CONTEXT.md`'s "Turboable", ADR 0009: same turboable-timeline check against
+ * its implementation ticket, same mergeable-green-no-declined-threads checks,
+ * same merge-or-`ready-for-human` outcome. A review with findings never gets
+ * it directly: turbo posts `/apply-review` instead, and the gate fires after
+ * that ticket's own finish, as it always has. See `finishReview`.
  */
 async function runReview(
   ports: MorningLoopPorts,
@@ -1583,6 +1591,22 @@ async function runReview(
   if (resolved !== undefined) {
     return resolved;
   }
+
+  // Resolved here, before the ticket itself is ever closed, exactly as
+  // `runApplyReview`'s own `mergeGateContext` is: `listOpenIssues` only ever
+  // reports an open issue, and `ticket` is exactly that until this run closes
+  // it. Skipped outright on a project that is not turbo — the merge gate
+  // never asks there — and used only if the review turns out clean; a review
+  // with findings never reads it, but the lookup runs all the same, the same
+  // waste `runApplyReview` already accepts for the identical reason.
+  const mergeGateContext: MergeGateContext | undefined = turbo
+    ? {
+        implementation: await implementationTicketFor(ports.tracker, ticket).catch(
+          () => undefined,
+        ),
+        invocation,
+      }
+    : undefined;
 
   const startedAt = ports.clock.now();
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
@@ -1683,6 +1707,25 @@ async function runReview(
   const commented = turbo && !clean
     ? await postTurboComment(ports, ticket.pullRequest.url)
     : {};
+  // A clean review is the other place, besides an apply-review ticket's own
+  // finish, the merge gate ever fires — CONTEXT.md's "Turboable", ADR 0009.
+  // A review with findings reaches turbo's own comment above instead, and
+  // gets the gate only once its apply-review ticket later finishes. Never
+  // asked when the ready-mark itself failed: a still-draft pull request
+  // would only fail the merge the same way, and reporting both would only
+  // repeat the one thing the developer has to fix.
+  const merge = turbo && clean && readied.notReadied === undefined
+    ? await mergeGate(
+        ports,
+        ticket,
+        mergeGateContext?.implementation,
+        mergeGateContext?.invocation.runSpans() ?? [],
+        () =>
+          ports.repoHost
+            .readApplyReviewAnswers(ticket.pullRequest.url, startedAt)
+            .then((answers) => answers.declinedOpen),
+      )
+    : undefined;
   const reviewed: Reviewed = {
     kind: "reviewed",
     review,
@@ -1691,6 +1734,7 @@ async function runReview(
     ...labelled,
     ...readied,
     ...commented,
+    ...(merge !== undefined && { merge }),
   };
   return withDiscoveries(reviewed, routed);
 }
@@ -2056,7 +2100,7 @@ async function finishApplyReview(
     ticket,
     mergeGateContext.implementation,
     mergeGateContext.invocation.runSpans(),
-    declinedOpen,
+    () => Promise.resolve(declinedOpen),
   );
   return { ...closed, merge };
 }
@@ -2065,13 +2109,16 @@ async function finishApplyReview(
  * The merge gate: whether `implementation` — `ticket`'s own implementation
  * ticket, resolved by the caller while it was still open — carried
  * `turboable` before its own run started — `CONTEXT.md`'s "Turboable", ADR
- * 0009 — and, only then, whether the pull request is free of `declinedOpen`
+ * 0009 — and, only then, whether the pull request is free of declined
  * threads and its own checks read green, attempting the merge itself to
- * settle mergeable. Fires once, right after the one apply-review run already
- * in the loop: no retry, no `/rebase`, whatever it finds. Never throws: every
- * read this makes past `implementation` and `span` is guarded, so a tracker
- * or repo host failure comes back as a verdict rather than sinking a ticket
- * that has already closed.
+ * settle mergeable. Fires once, right after the one apply-review run, or the
+ * one clean review, already in the loop: no retry, no `/rebase`, whatever it
+ * finds. Never throws: every read this makes past `implementation` and
+ * `span` is guarded, so a tracker or repo host failure comes back as a
+ * verdict rather than sinking a ticket that has already closed —
+ * `declinedOpen` included, called only once the timeline check has passed,
+ * so a review's own extra round trip to read it is never spent on a ticket
+ * that was never turboable in time to begin with.
  *
  * `implementation` absent, or carrying no run span, reads the same as not
  * turboable in time: neither is proof the manager can act on, and
@@ -2079,10 +2126,10 @@ async function finishApplyReview(
  */
 async function mergeGate(
   ports: MorningLoopPorts,
-  ticket: ApplyReviewTicket,
+  ticket: PullRequestTicket,
   implementation: Ticket | undefined,
   spans: readonly RunSpan[],
-  declinedOpen: number,
+  declinedOpen: () => Promise<number>,
 ): Promise<MergeGate> {
   if (implementation === undefined) {
     return { kind: "not-turboable", reason: "could not find its implementation ticket" };
@@ -2105,8 +2152,14 @@ async function mergeGate(
   }
 
   const pullRequest = ticket.pullRequest.url;
-  if (declinedOpen > 0) {
-    return leftForHuman(ports, pullRequest, declinedThreadsReason(declinedOpen));
+  let declinedOpenCount: number;
+  try {
+    declinedOpenCount = await declinedOpen();
+  } catch (error: unknown) {
+    return leftForHuman(ports, pullRequest, errorMessage(error));
+  }
+  if (declinedOpenCount > 0) {
+    return leftForHuman(ports, pullRequest, declinedThreadsReason(declinedOpenCount));
   }
   let checks: ChecksStatus;
   try {
