@@ -687,10 +687,11 @@ async function linkOrExplain(
  * Where sub-issues are unavailable — an older GitHub Enterprise, a token
  * without the scope — the relationship goes into `child`'s own body instead,
  * per `docs/agents/issue-tracker.md`: `body`, the one `child` was created
- * with, prefixed with a `Part of #N.` reference. Only where they are
- * unavailable: a refusal, a rate limit or a dropped connection is a tracker
- * that has sub-issues and could not be asked, and writing the reference into
- * the body would answer it by quietly downgrading the relationship forever.
+ * with, prefixed with a `Part of …` reference — see {@link parentReference}
+ * for its exact form. Only where they are unavailable: a refusal, a rate
+ * limit or a dropped connection is a tracker that has sub-issues and could
+ * not be asked, and writing the reference into the body would answer it by
+ * quietly downgrading the relationship forever.
  *
  * `body` is called at most once, and only in that fallback: where sub-issues
  * are native, as they ordinarily are, the POST alone links `child`, and a
@@ -725,9 +726,23 @@ async function linkToParent(
       "edit",
       ...issueArgs(child),
       "--body",
-      `Part of #${parent.number}.\n\n${await body()}`,
+      `Part of ${parentReference(child, parent)}.\n\n${await body()}`,
     ]);
   }
+}
+
+/**
+ * How `linkToParent`'s fallback names `parent` in `child`'s own body: a bare
+ * `#N`, the same short form the rest of the manager writes, where `child`
+ * and `parent` share a repo — GitHub resolves a bare number against the
+ * body's own repo, which is the right one there. Where they differ, a bare
+ * number would resolve against `child`'s repo instead and name the wrong
+ * issue, so `owner/repo#N` is written instead, which GitHub also auto-links.
+ */
+function parentReference(child: Ticket, parent: Ticket): string {
+  return child.repo === parent.repo
+    ? `#${parent.number}`
+    : `${parent.repo}#${parent.number}`;
 }
 
 /**

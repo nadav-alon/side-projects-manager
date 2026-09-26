@@ -2266,6 +2266,38 @@ describe("ghIssueTracker.linkSpecReviewTicket", () => {
     assert.match(body, /Reviews #40\.$/);
   });
 
+  it("names the parent's own repo in the fallback reference where it differs from the child's", async (t) => {
+    const otherSupertask: Ticket = {
+      repo: repoSlug("nadav-alon/other"),
+      number: issueNumber(40),
+      title: "Too big for one run, elsewhere",
+    };
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+        `  "api --method") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await ghIssueTracker().linkSpecReviewTicket(
+      SPEC_REVIEW,
+      otherSupertask,
+      async () => "Reviews nadav-alon/other#40.",
+    );
+
+    const edit = callWith(await gh.calls(), "issue", "edit");
+    assert.ok(edit, "the spec review's body should carry the reference instead");
+    // The edit still targets the child's own repo — only the reference
+    // inside the body names the parent's.
+    assert.equal(valueOf(edit, "--repo"), PILOT);
+    const body = valueOf(edit, "--body") ?? "";
+    assert.match(body, /^Part of nadav-alon\/other#40\./);
+  });
+
   it("says so, naming both tickets, when linking fails", async (t) => {
     await recordingGh(
       t,
