@@ -42,7 +42,6 @@ import {
   isRepoSlug,
   isTicketPriority,
   modelLabelOf,
-  repoSlug,
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,
@@ -740,7 +739,7 @@ async function linkToParent(
  * issue, so `owner/repo#N` is written instead, which GitHub also auto-links.
  */
 function parentReference(child: Ticket, parent: Ticket): string {
-  return child.repo === parent.repo
+  return sameRepo(child.repo, parent.repo)
     ? `#${parent.number}`
     : `${parent.repo}#${parent.number}`;
 }
@@ -864,31 +863,39 @@ function priorityLabelIn(labels: string[]): TicketPriority | undefined {
 }
 
 /**
+ * Whether `a` and `b` name the same repo, matched without regard to case, as
+ * GitHub matches owner and repo names.
+ */
+function sameRepo(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
  * Whether the issue at `url` lives in `repo`. Read from the URL, since that is
  * the one place `gh` names a linked issue's repo; owner and repo names are
  * matched without regard to case, as GitHub matches them.
  */
 function isInRepo(url: string, repo: RepoSlug): boolean {
-  const [owner, name] = new URL(url).pathname.split("/").filter(Boolean);
-  return `${owner}/${name}`.toLowerCase() === repo.toLowerCase();
+  const [owner, name] = parseUrlPath(url) ?? [];
+  return sameRepo(`${owner}/${name}`, repo);
 }
 
 /**
  * The repo a REST `repository_url` names — `https://api.github.com/repos/
- * <owner>/<repo>` — as a `RepoSlug`. Thrown naming `field` at `at`, the same
- * as any other malformed answer `subIssuesIn` refuses: `gh` itself would
- * never shape one differently, but a tracker that did must be refused loudly
- * rather than handed on as a `Ticket`.
+ * <owner>/<repo>` — as a `RepoSlug`. Thrown naming `at`, the same as any other
+ * malformed answer `subIssuesIn` refuses: `gh` itself would never shape one
+ * differently, but a tracker that did must be refused loudly rather than
+ * handed on as a `Ticket`.
  */
-function repoInUrl(url: string, field: string, at: string): RepoSlug {
+function repoInUrl(url: string, at: string): RepoSlug {
   const segments = parseUrlPath(url);
   const slug = segments?.[0] === "repos" ? `${segments[1]}/${segments[2]}` : "";
   if (!isRepoSlug(slug)) {
     throw new Error(
-      `${at}: "${field}" was not shaped like .../repos/owner/repo: ${JSON.stringify(url)}`,
+      `${at}: "repository_url" was not shaped like .../repos/owner/repo: ${JSON.stringify(url)}`,
     );
   }
-  return repoSlug(slug);
+  return slug;
 }
 
 /** `url`'s own path segments, or undefined where `url` is not a well-formed URL at all. */
@@ -999,9 +1006,13 @@ function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
       labels: parseLabelNames(labels, at),
       repositoryUrl: expectField(repositoryUrl, "string", "repository_url", at),
     };
+    const repo = repoInUrl(issue.repositoryUrl, at);
     return {
       ticket: {
-        repo: repoInUrl(issue.repositoryUrl, "repository_url", at),
+        // `parent.repo` is kept where it names the same repo, so a same-repo
+        // sub-issue's repo is unchanged even where the configured slug and
+        // `repository_url`'s canonical casing differ.
+        repo: sameRepo(repo, parent.repo) ? parent.repo : repo,
         number: issue.number,
         title: issue.title,
         ...labelDerivedTicketFields(issue.body, issue.labels),

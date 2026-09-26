@@ -2298,6 +2298,34 @@ describe("ghIssueTracker.linkSpecReviewTicket", () => {
     assert.match(body, /^Part of nadav-alon\/other#40\./);
   });
 
+  it("writes the bare fallback form where the parent's repo differs from the child's only in case", async (t) => {
+    const differentlyCasedSupertask: Ticket = {
+      repo: repoSlug("Nadav-Alon/Pilot"),
+      number: issueNumber(40),
+      title: "Too big for one run",
+    };
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "api repos/nadav-alon/pilot/issues/50") echo ${SPEC_REVIEW_ID} ;;`,
+        `  "api --method") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await ghIssueTracker().linkSpecReviewTicket(
+      SPEC_REVIEW,
+      differentlyCasedSupertask,
+      async () => "Reviews #40.",
+    );
+
+    const edit = callWith(await gh.calls(), "issue", "edit");
+    const body = valueOf(edit, "--body") ?? "";
+    assert.match(body, /^Part of #40\./);
+  });
+
   it("says so, naming both tickets, when linking fails", async (t) => {
     await recordingGh(
       t,
@@ -2393,6 +2421,24 @@ describe("ghIssueTracker.listSubIssues", () => {
     const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
 
     assert.equal(listed[0]?.ticket.repo, "nadav-alon/other");
+  });
+
+  it("keeps the supertask's own casing for a same-repo sub-issue, even where repository_url's canonical casing differs", async (t) => {
+    await recordingGh(
+      t,
+      subIssues([
+        {
+          number: 41,
+          title: "Part one",
+          state: "open",
+          repository_url: "https://api.github.com/repos/Nadav-Alon/Pilot",
+        },
+      ]),
+    );
+
+    const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    assert.equal(listed[0]?.ticket.repo, PILOT);
   });
 
   it("throws naming the answer where a sub-issue's repository_url is not shaped like one", async (t) => {
