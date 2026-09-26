@@ -90,7 +90,7 @@ export interface Budget {
  *
  * Expressed in `weightedTokenCount`'s tokens: scaled down by 0.3 from a
  * straight sum of usage fields, the ratio a realistic mix of input, output
- * and cache tokens weighs to (see ADR 0009), rather than the cache-read
+ * and cache tokens weighs to (see ADR 0010), rather than the cache-read
  * weight alone. The developer's own recalibration against `state.json` is
  * what corrects it for a machine whose own mix differs.
  */
