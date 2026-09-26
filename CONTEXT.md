@@ -643,10 +643,10 @@ _Avoid_: apply-review tag, done label
 
 **Turboable**:
 Per-ticket consent, the `turboable` label set by a human on an implementation ticket, letting the
-manager merge its pull request, on a turbo project (see **Turbo**), once its apply-review ticket
-finishes — whether that ticket followed from turbo or from the developer typing `/apply-review`
-by hand. On any other project the label grants nothing: the merge gate in ADR 0009 never runs
-there. Checked three ways, each closing a gap the others leave: against the label's own timeline
+manager merge its pull request once its apply-review ticket finishes — whether that ticket followed
+from turbo or from the developer typing `/apply-review` by hand. Only on a turbo project (see
+**Turbo**); on any other project the label grants nothing: the manager never checks for it there.
+Checked three ways, each closing a gap the others leave: against the label's own timeline
 — labeled before that ticket's implementation run started, not merely present now — which stops
 a run granting its own ticket consent mid-run; the manager also strips `turboable` from every
 ticket it opens, so one it opens can never start out carrying it; and against every run span (see
