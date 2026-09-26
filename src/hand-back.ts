@@ -31,6 +31,7 @@ import {
   SIZE_LABEL_PREFIX,
   SIZES,
   targetNoun,
+  ticketReference,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
 import { modelProblem } from "./model-resolution.ts";
@@ -510,7 +511,7 @@ function discoveryBlockedComment(
     findings,
     ...(ending.crossTarget === undefined
       ? []
-      : [`Also filed against the ${targetNoun(ticket)}, #${ending.crossTarget.number}.`]),
+      : [`Also filed against the ${targetNoun(ticket)}, ${ticketReference(ending.crossTarget)}.`]),
     ...(ending.output === undefined
       ? []
       : [

@@ -72,6 +72,7 @@ export {
   targetNoun,
   ticketKind,
   ticketPrioritiesIn,
+  ticketReference,
   turboableConsentAt,
 } from "./issue-tracker.ts";
 export type {

@@ -74,6 +74,7 @@ import {
   isReviewTicket,
   localDay,
   localTimeOfMinute,
+  ticketReference,
 } from "./ports/index.ts";
 
 /**
@@ -117,19 +118,19 @@ function passedOverAside(projects: ProjectOutcome[]): string {
     const reasons = [
       ...(supertasks === undefined
         ? []
-        : [`${numbers(supertasks)} declared a supertask`]),
+        : [`${numbers(repo, supertasks)} declared a supertask`]),
       ...(blocked === undefined
         ? []
-        : [`${numbers(blocked)} blocked by an open ticket`]),
+        : [`${numbers(repo, blocked)} blocked by an open ticket`]),
     ];
     return reasons.length > 0 ? [`${repo} (${reasons.join("; ")})`] : [];
   });
   return passedOver.length > 0 ? ` Passed over ${passedOver.join(", ")}.` : "";
 }
 
-/** Tickets as the summary names them: `#1, #2`. */
-function numbers(tickets: Ticket[]): string {
-  return tickets.map((ticket) => `#${ticket.number}`).join(", ");
+/** Tickets as the summary names them: `owner/repo#1, owner/repo#2`. */
+function numbers(repo: RepoSlug, tickets: Ticket[]): string {
+  return tickets.map((ticket) => `${repo}#${ticket.number}`).join(", ");
 }
 
 /**
@@ -142,7 +143,7 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
   const flagged = projects.flatMap(({ repo, missingSupertaskLabel }) =>
     missingSupertaskLabel === undefined
       ? []
-      : [`${repo} (${numbers(missingSupertaskLabel)})`],
+      : [`${repo} (${numbers(repo, missingSupertaskLabel)})`],
   );
   return flagged.length > 0
     ? ` Check for a missed supertask label: ${flagged.join(", ")}.`
@@ -493,8 +494,8 @@ function whyStoodDown(
         ? withoutTrailingStop(standDown.limitRefusal)
         : `a provider failure stopped it: ${withoutTrailingStop(standDown.providerFailure)}`;
     const ticketNote = handedBack
-      ? `${ticket.repo} #${ticket.number} was handed back for the blocking discovery it filed.`
-      : `${ticket.repo} #${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
+      ? `${ticket.repo}#${ticket.number} was handed back for the blocking discovery it filed.`
+      : `${ticket.repo}#${ticket.number} is still ${READY_FOR_AGENT_LABEL} and will come round again.`;
     return `${said}. ${ticketNote}`;
   }
   const ready =
@@ -782,7 +783,7 @@ function discoveriesSection(iterations: IterationOutcome[]): string | undefined 
  * cannot drift apart.
  */
 function discoveredTicketRef(ticket: Ticket): string {
-  return `#${ticket.number}${ticket.readyDiscovery === true ? `, ${READY_FOR_AGENT_LABEL}` : ""}`;
+  return `${ticketReference(ticket)}${ticket.readyDiscovery === true ? `, ${READY_FOR_AGENT_LABEL}` : ""}`;
 }
 
 /**
@@ -806,9 +807,9 @@ function discoveryLines(
   iteration: { repo: RepoSlug; ticket: Ticket },
   { routing, crossTarget }: DiscoveryReport,
 ): string[] {
-  const who = `${iteration.repo} #${iteration.ticket.number}`;
+  const who = `${iteration.repo}#${iteration.ticket.number}`;
   const landedOn =
-    crossTarget === undefined ? `#${iteration.ticket.number}` : `#${crossTarget.number}`;
+    ticketReference(crossTarget ?? iteration.ticket);
   const filed = routing.filed.flatMap((filed) => {
     if (isBlockingDiscoveryKind(filed.discovery.kind)) {
       return [];
@@ -852,7 +853,7 @@ function freedFromDeadInvocationSection(
   }
   const lines = freed.map(
     ({ ticket, invocation }) =>
-      `- ${ticket.repo} #${ticket.number}: freed — recorded by the invocation opened ${localDay(invocation.openedAt)} ${localTimeOfMinute(invocation.openedAt)} by process ${invocation.process}, never closed`,
+      `- ${ticket.repo}#${ticket.number}: freed — recorded by the invocation opened ${localDay(invocation.openedAt)} ${localTimeOfMinute(invocation.openedAt)} by process ${invocation.process}, never closed`,
   );
   return ["## Freed from a dead invocation", ...lines].join("\n");
 }
@@ -983,10 +984,10 @@ function specReviewSweepAside(specReviewSweeps: SpecReviewSweepOutcome[]): strin
   const flagged = specReviewSweepProjects(specReviewSweeps).flatMap((project) => {
     const bits = [
       ...(project.opened.length > 0
-        ? [`opened ${numbers(project.opened)}`]
+        ? [`opened ${numbers(project.repo, project.opened)}`]
         : []),
       ...(project.linked.length > 0
-        ? [`linked ${numbers(project.linked.map((link) => link.specReview))}`]
+        ? [`linked ${numbers(project.repo, project.linked.map((link) => link.specReview))}`]
         : []),
       ...(project.refusals.length > 0
         ? [`refused ${project.refusals.length === 1 ? "once" : `${project.refusals.length} times`}`]
@@ -1015,10 +1016,10 @@ function specReviewSweepSection(
   }
   const lines = projects.flatMap((project) => [
     ...project.opened.map(
-      (ticket) => `- ${project.repo}: opened #${ticket.number} (${ticket.title})`,
+      (ticket) => `- ${project.repo}: opened ${project.repo}#${ticket.number} (${ticket.title})`,
     ),
     ...project.linked.map(
-      (link) => `- ${project.repo}: linked #${link.specReview.number} (${link.specReview.title})`,
+      (link) => `- ${project.repo}: linked ${project.repo}#${link.specReview.number} (${link.specReview.title})`,
     ),
     ...project.refusals.map((refusal) => specReviewSweepRefusalLine(project.repo, refusal)),
   ]);
@@ -1038,11 +1039,11 @@ function specReviewSweepRefusalLine(
   const error = withoutTrailingStop(refusal.error);
   switch (refusal.action) {
     case "read":
-      return `- ${repo}: could not check #${refusal.supertask.number} for a spec review: ${error}`;
+      return `- ${repo}: could not check ${repo}#${refusal.supertask.number} for a spec review: ${error}`;
     case "open":
-      return `- ${repo}: could not open a spec review for #${refusal.supertask.number}: ${error}`;
+      return `- ${repo}: could not open a spec review for ${repo}#${refusal.supertask.number}: ${error}`;
     case "link":
-      return `- ${repo}: could not link an existing spec review to #${refusal.supertask.number}: ${error}`;
+      return `- ${repo}: could not link an existing spec review to ${repo}#${refusal.supertask.number}: ${error}`;
   }
 }
 
@@ -1148,7 +1149,7 @@ function discoveryBlockedWaitingLine(iteration: {
   discoveryReport: DiscoveryReport;
 }): string {
   const blocking = blockingDiscoveryClause(iteration.discoveryReport.routing);
-  return `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the ticket is the problem, not the run: it filed ${blocking}`;
+  return `- ${iteration.repo}#${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the ticket is the problem, not the run: it filed ${blocking}`;
 }
 
 /** A ticket whose hand-back itself failed: still eligible, still waiting on a human to relabel it by hand. */
@@ -1156,7 +1157,7 @@ function stillEligibleLine(iteration: {
   repo: RepoSlug;
   ticket: Ticket;
 }): string {
-  return `- ${iteration.repo} #${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
+  return `- ${iteration.repo}#${iteration.ticket.number}: still ${READY_FOR_AGENT_LABEL} — the hand-back itself failed, relabel it yourself`;
 }
 
 /** What the developer may want to do about a ticket that keeps getting stopped short — said the same way everywhere it comes up. */
@@ -1167,7 +1168,7 @@ function repeatedStopShortWaitingLine(
   iteration: { repo: RepoSlug; ticket: Ticket },
   stopShorts: number,
 ): string {
-  return `- ${iteration.repo} #${iteration.ticket.number}: stopped short ${stopShorts} times in a row — ${CONSIDER_SPLITTING}`;
+  return `- ${iteration.repo}#${iteration.ticket.number}: stopped short ${stopShorts} times in a row — ${CONSIDER_SPLITTING}`;
 }
 
 /**
@@ -1278,7 +1279,7 @@ function waitingSection(
             ? [stillEligibleLine(iteration)]
             : handover === undefined && handedBack.outcome !== "already-closed"
               ? [
-                  `- ${iteration.repo} #${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
+                  `- ${iteration.repo}#${iteration.ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — the run committed nothing`,
                 ]
               : []),
         ];
@@ -1367,7 +1368,7 @@ function handoverLines(
       reviewOutcome.handedBack.outcome === "already-closed")
   ) {
     return [
-      `- ${repo}: ${handover.pullRequest} — review queued as #${handover.reviewTicket.number}`,
+      `- ${repo}: ${handover.pullRequest} — review queued as ${ticketReference(handover.reviewTicket)}`,
     ];
   }
   if (reviewOutcome.kind === "reviewed" && !reviewLeftOpen(reviewOutcome)) {
@@ -1415,7 +1416,7 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
   const { repo, ticket } = iteration;
   if (!handedBackFailure(iteration)) {
     return [
-      `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(iteration.failure.reason)}`,
+      `- ${repo}#${ticket.number}: still ${READY_FOR_AGENT_LABEL} — the sandbox or checkout failed, so fix the setup: ${withoutTrailingStop(iteration.failure.reason)}`,
     ];
   }
   const { failure, handedBack } = iteration;
@@ -1427,27 +1428,27 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
   }
   switch (failure.kind) {
     case "gave-up":
-      return [`- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`];
+      return [`- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL}`];
     case "handover-failed":
       return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${withoutTrailingStop(failure.reason)}`,
+        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its work is on ${workLocation(failure)}, but ${withoutTrailingStop(failure.reason)}`,
       ];
     case "model-refused":
     case "conflicting-model-labels":
     case "unusable-model-label": {
       const { problem, fix } = modelProblem(ticket, failure);
       return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${problem}, so ${fix}`,
+        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${problem}, so ${fix}`,
       ];
     }
     case "unsettled-mergeability":
       return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`,
+        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`,
       ];
     case "unusable-size-label": {
       const { problem, fix } = sizeProblem(failure);
       return [
-        `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${problem}, so ${fix}`,
+        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${problem}, so ${fix}`,
       ];
     }
   }
@@ -1510,11 +1511,11 @@ function transcriptNote(transcript: TranscriptPath | undefined): string {
 function describeIteration(iteration: IterationOutcome): string {
   switch (iteration.kind) {
     case "limit-refused":
-      return `The provider limit refused the run on ${iteration.repo} #${iteration.ticket.number}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
+      return `The provider limit refused the run on ${iteration.repo}#${iteration.ticket.number}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
     case "provider-failed":
-      return `A provider failure stopped the run on ${iteration.repo} #${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
+      return `A provider failure stopped the run on ${iteration.repo}#${iteration.ticket.number}: ${withoutTrailingStop(iteration.providerFailure)}.${keptBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
     case "budget-exhausted":
-      return `The run on ${iteration.repo} #${iteration.ticket.number} was stopped by its spend ceiling: ${withoutTrailingStop(iteration.words)}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
+      return `The run on ${iteration.repo}#${iteration.ticket.number} was stopped by its spend ceiling: ${withoutTrailingStop(iteration.words)}.${keptBranchNote(iteration)}${salvageNote(salvageOf(iteration.discard))}${transcriptNote(iteration.transcript)}`;
     case "failed": {
       const { repo, ticket } = iteration;
       // Named as a rebase, since a rebase ticket's own title says nothing a
@@ -1538,7 +1539,7 @@ function describeIteration(iteration: IterationOutcome): string {
       return `Worked ${iteration.repo}: ${landed(iteration)}.${queued(iteration)}${handbackNote(iteration)}${transcriptNote(iteration.run.transcript)}`;
     case "discovery-blocked": {
       const blocking = blockingDiscoveryClause(iteration.discoveryReport.routing);
-      return `Worked ${iteration.repo} #${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
+      return `Worked ${iteration.repo}#${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
     }
   }
 }
@@ -1571,10 +1572,10 @@ function reviewSummary(
   switch (notClosed?.kind) {
     case undefined: {
       const posted = clean
-        ? `Reviewed ${repo} #${ticket.number}: found nothing to flag on ${pullRequest}${
+        ? `Reviewed ${repo}#${ticket.number}: found nothing to flag on ${pullRequest}${
             notReadied === undefined ? ", now ready for review" : ""
           }.`
-        : `Reviewed ${repo} #${ticket.number}: posted findings on ${pullRequest}.`;
+        : `Reviewed ${repo}#${ticket.number}: posted findings on ${pullRequest}.`;
       const labelNote =
         notLabelled === undefined
           ? ""
@@ -1586,12 +1587,12 @@ function reviewSummary(
       return `${posted}${labelNote}${readyNote}${commentNote}`;
     }
     case "check-failed":
-      return `Reviewed ${repo} #${ticket.number}, but ${pullRequest} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${pullRequest} and close it yourself.`;
+      return `Reviewed ${repo}#${ticket.number}, but ${pullRequest} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${pullRequest} and close it yourself.`;
     case "close-failed": {
       const posted = clean
         ? `found nothing to flag on ${pullRequest}`
         : `posted findings on ${pullRequest}`;
-      return `Reviewed ${repo} #${ticket.number}: ${posted}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+      return `Reviewed ${repo}#${ticket.number}: ${posted}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
     }
   }
 }
@@ -1623,7 +1624,7 @@ function notLabelledLine(
   label: PullRequestLabel,
   notLabelled: NotLabelled,
 ): string {
-  return `- ${repo} #${ticket.number}: ${notLabelledNote(ticket.pullRequest.url, label, notLabelled)}`;
+  return `- ${repo}#${ticket.number}: ${notLabelledNote(ticket.pullRequest.url, label, notLabelled)}`;
 }
 
 /**
@@ -1648,7 +1649,7 @@ function notReadiedLine(
   { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
   notReadied: NotReadied,
 ): string {
-  return `- ${repo} #${ticket.number}: ${notReadiedNote(ticket.pullRequest.url, notReadied)}`;
+  return `- ${repo}#${ticket.number}: ${notReadiedNote(ticket.pullRequest.url, notReadied)}`;
 }
 
 /**
@@ -1676,7 +1677,7 @@ function notCommentedLine(
   { repo, ticket }: { repo: RepoSlug; ticket: ReviewTicket },
   notCommented: NotCommented,
 ): string {
-  return `- ${repo} #${ticket.number}: ${notCommentedNote(ticket.pullRequest.url, notCommented)}`;
+  return `- ${repo}#${ticket.number}: ${notCommentedNote(ticket.pullRequest.url, notCommented)}`;
 }
 
 /** The Waiting-on-you line for a review that ran but left its ticket open. */
@@ -1684,7 +1685,7 @@ function notClosedLine(
   { repo, ticket, clean }: { repo: RepoSlug; ticket: ReviewTicket; clean?: boolean },
   notClosed: NotClosed,
 ): string {
-  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
+  const still = `- ${repo}#${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed.kind) {
     case "check-failed":
       return `${still} — ${ticket.pullRequest.url} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}; check it and close the ticket yourself`;
@@ -1716,7 +1717,7 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
  */
 function readyPhrase(merge: MergeGate | undefined): string {
   return merge?.kind === "merged"
-    ? `merged, closing #${merge.implementationTicket.number}, its branch deleted`
+    ? `merged, closing ${ticketReference(merge.implementationTicket)}, its branch deleted`
     : "now ready for review";
 }
 
@@ -1745,7 +1746,7 @@ function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefi
 function appliedReviewSummary(iteration: AppliedReviewIteration): string {
   const { repo, ticket, notClosed, notLabelled, merge } = iteration;
   const pullRequest = ticket.pullRequest.url;
-  const applied = `Applied review on ${repo} #${ticket.number}`;
+  const applied = `Applied review on ${repo}#${ticket.number}`;
   switch (notClosed?.kind) {
     case undefined: {
       const ready = `${applied}: ${answered(iteration)}, ${readyPhrase(merge)}.`;
@@ -1772,7 +1773,7 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
 function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | undefined {
   const { repo, ticket, notClosed, merge } = iteration;
   const pullRequest = ticket.pullRequest.url;
-  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
+  const still = `- ${repo}#${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed?.kind) {
     case undefined:
       if (merge?.kind === "merged") {
@@ -1797,8 +1798,8 @@ type RebasedIteration = Attempt<RebaseTicket> & Rebased;
 function rebasedWhat({ repo, ticket, rebase }: RebasedIteration): string {
   const pullRequest = ticket.pullRequest.url;
   return rebase === undefined
-    ? `Nothing to rebase for ${repo} #${ticket.number}: ${pullRequest} already sits on its base`
-    : `Rebased ${pullRequest} for ${repo} #${ticket.number}`;
+    ? `Nothing to rebase for ${repo}#${ticket.number}: ${pullRequest} already sits on its base`
+    : `Rebased ${pullRequest} for ${repo}#${ticket.number}`;
 }
 
 /**
@@ -1828,7 +1829,7 @@ function rebasedSummary(iteration: RebasedIteration): string {
 function rebasedWaitingLine(iteration: RebasedIteration): string {
   const { repo, ticket, rebase, notClosed } = iteration;
   const pullRequest = ticket.pullRequest.url;
-  const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
+  const still = `- ${repo}#${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed?.kind) {
     case undefined:
       return rebase === undefined
@@ -1858,9 +1859,9 @@ function specReviewSummary(iteration: SpecReviewedIteration): string {
   const { repo, ticket, handedBack } = iteration;
   const now =
     handedBack.outcome === "refused"
-      ? ` ${handedBackNow(`#${ticket.number}`, handedBack)}`
+      ? ` ${handedBackNow(ticketReference(ticket), handedBack)}`
       : "";
-  return `Spec-reviewed ${repo} #${ticket.number}: its findings are on the ticket.${now}`;
+  return `Spec-reviewed ${repo}#${ticket.number}: its findings are on the ticket.${now}`;
 }
 
 /**
@@ -1878,7 +1879,7 @@ function specReviewWaitingLine(iteration: SpecReviewedIteration): string[] {
     return [];
   }
   return [
-    `- ${repo} #${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its findings are on the ticket`,
+    `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its findings are on the ticket`,
   ];
 }
 
@@ -1898,9 +1899,9 @@ function pullRequestResolvedSummary(
   const pullRequest = ticket.pullRequest.url;
   const what = pullRequestResolutionPhrase(resolution);
   if (notClosed === undefined) {
-    return `Closed ${repo} #${ticket.number}: ${pullRequest} was already ${what}, so no run started.`;
+    return `Closed ${repo}#${ticket.number}: ${pullRequest} was already ${what}, so no run started.`;
   }
-  return `${repo} #${ticket.number}: ${pullRequest} was already ${what}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
+  return `${repo}#${ticket.number}: ${pullRequest} was already ${what}, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: close it yourself.`;
 }
 
 /** The Waiting-on-you line for a pull request ticket the loop found already resolved but could not close. */
@@ -1908,7 +1909,7 @@ function pullRequestResolvedWaitingLine(
   { repo, ticket }: PullRequestResolvedIteration,
   notClosed: NotClosed & { kind: "close-failed" },
 ): string {
-  return `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL} — its pull request is already resolved, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
+  return `- ${repo}#${ticket.number}: still ${READY_FOR_AGENT_LABEL} — its pull request is already resolved, but the ticket could not be closed: ${withoutTrailingStop(notClosed.error)}; close it yourself`;
 }
 
 /**
@@ -1918,7 +1919,7 @@ function pullRequestResolvedWaitingLine(
  */
 function queued(finished: Finished): string {
   const review = finished.handover?.reviewTicket;
-  return review === undefined ? "" : ` Queued #${review.number} to review it.`;
+  return review === undefined ? "" : ` Queued ${ticketReference(review)} to review it.`;
 }
 
 /**
@@ -1944,7 +1945,7 @@ function handedBackNow(which: string, handedBack: HandBackRecord): string {
  * of what happened is in the comment waiting there.
  */
 function stoppedBecause(iteration: Attempt & Failed): string {
-  const which = `#${iteration.ticket.number}`;
+  const which = ticketReference(iteration.ticket);
   if (!handedBackFailure(iteration)) {
     const { failure } = iteration;
     const what =

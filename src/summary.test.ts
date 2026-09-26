@@ -553,13 +553,13 @@ describe("waitingSection", () => {
       reviewFailed(174),
     ]);
 
-    assert.deepEqual(lines, [`- ${REPO} #174: relabelled ready-for-human`]);
+    assert.deepEqual(lines, [`- ${REPO}#174: relabelled ready-for-human`]);
   });
 
   it("still renders the review as queued when it was not worked this invocation", () => {
     const lines = waitingLines([finishedWithHandover(implementationTicket(175), 176)]);
 
-    assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as #176`]);
+    assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as ${REPO}#176`]);
   });
 
   it("still renders the review as queued when it never started this invocation: an infrastructure failure leaves it untouched", () => {
@@ -569,8 +569,8 @@ describe("waitingSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO}: ${PULL_REQUEST} — review queued as #178`,
-      `- ${REPO} #178: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
+      `- ${REPO}: ${PULL_REQUEST} — review queued as ${REPO}#178`,
+      `- ${REPO}#178: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
     ]);
   });
 
@@ -581,7 +581,7 @@ describe("waitingSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #180: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+      `- ${REPO}#180: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
     ]);
   });
 
@@ -591,7 +591,7 @@ describe("waitingSection", () => {
       reviewFailedAlreadyClosed(191),
     ]);
 
-    assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as #191`]);
+    assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — review queued as ${REPO}#191`]);
   });
 
   it("renders nothing for a review ticket closed this invocation because its own pull request had already resolved", () => {
@@ -610,7 +610,7 @@ describe("waitingSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #182: still ready-for-agent — its findings are on ${PULL_REQUEST}, but it could not be closed: the tracker was unreachable; close it yourself`,
+      `- ${REPO}#182: still ready-for-agent — its findings are on ${PULL_REQUEST}, but it could not be closed: the tracker was unreachable; close it yourself`,
     ]);
   });
 
@@ -622,7 +622,7 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`,
-      `- ${REPO} #183: ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself`,
+      `- ${REPO}#183: ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself`,
     ]);
   });
 
@@ -634,7 +634,7 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — reviewed, findings posted`,
-      `- ${REPO} #186: ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself`,
+      `- ${REPO}#186: ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself`,
     ]);
   });
 
@@ -657,7 +657,7 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag`,
-      `- ${REPO} #200: ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself`,
+      `- ${REPO}#200: ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself`,
     ]);
   });
 
@@ -666,7 +666,7 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — ready for review`,
-      `- ${REPO} #184: ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself`,
+      `- ${REPO}#184: ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself`,
     ]);
   });
 
@@ -695,7 +695,7 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — left for you to merge: Pull Request is not mergeable`,
-      `- ${REPO} #187: ${PULL_REQUEST} could not be labelled ready-for-human: the repo host refused the label; add the label yourself`,
+      `- ${REPO}#187: ${PULL_REQUEST} could not be labelled ready-for-human: the repo host refused the label; add the label yourself`,
     ]);
   });
 
@@ -708,7 +708,7 @@ describe("waitingSection", () => {
       ]);
 
       assert.deepEqual(lines, [
-        `- ${REPO} #196: relabelled ready-for-human — the ticket is the problem, not the run: it filed a correction`,
+        `- ${REPO}#196: relabelled ready-for-human — the ticket is the problem, not the run: it filed a correction`,
       ]);
     });
 
@@ -726,7 +726,7 @@ describe("waitingSection", () => {
       ]);
 
       assert.deepEqual(lines, [
-        `- ${REPO} #197: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as #201`,
+        `- ${REPO}#197: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as ${REPO}#201`,
       ]);
     });
 
@@ -744,7 +744,7 @@ describe("waitingSection", () => {
       ]);
 
       assert.deepEqual(lines, [
-        `- ${REPO} #198: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as #205, ready-for-agent`,
+        `- ${REPO}#198: relabelled ready-for-human — the ticket is the problem, not the run: it filed a prerequisite, opened as ${REPO}#205, ready-for-agent`,
       ]);
     });
 
@@ -761,7 +761,7 @@ describe("waitingSection", () => {
       const lines = waitingLines([iteration]);
 
       assert.deepEqual(lines, [
-        `- ${REPO} #202: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+        `- ${REPO}#202: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
       ]);
     });
 
@@ -801,8 +801,8 @@ describe("waitingSection", () => {
       section.split("\n").filter((line) => line !== ""),
       [
         "## Waiting on you",
-        `- ${REPO} #189: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
-        `- ${REPO} #190: still ready-for-agent — the sandbox or checkout failed, so fix the setup: disk full`,
+        `- ${REPO}#189: still ready-for-agent — the sandbox or checkout failed, so fix the setup: docker died`,
+        `- ${REPO}#190: still ready-for-agent — the sandbox or checkout failed, so fix the setup: disk full`,
       ],
     );
   });
@@ -811,7 +811,7 @@ describe("waitingSection", () => {
     const lines = waitingLines([specReviewedCleanly(194)]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #194: relabelled ready-for-human — its findings are on the ticket`,
+      `- ${REPO}#194: relabelled ready-for-human — its findings are on the ticket`,
     ]);
   });
 
@@ -819,7 +819,7 @@ describe("waitingSection", () => {
     const lines = waitingLines([specReviewedNotHandedBack(195)]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #195: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
+      `- ${REPO}#195: still ready-for-agent — the hand-back itself failed, relabel it yourself`,
     ]);
   });
 
@@ -846,7 +846,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #222: commented on #222 — clarification, "The ticket names the wrong file"`,
+      `- ${REPO}#222: commented on ${REPO}#222 — clarification, "The ticket names the wrong file"`,
     ]);
   });
 
@@ -866,7 +866,7 @@ describe("discoveriesSection", () => {
       ),
     ]);
 
-    assert.deepEqual(lines, [`- ${REPO} #223: opened #230 — suggestion, "Worth a retry"`]);
+    assert.deepEqual(lines, [`- ${REPO}#223: opened ${REPO}#230 — suggestion, "Worth a retry"`]);
   });
 
   it("says a discovered ticket born ready skipped triage", () => {
@@ -886,7 +886,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #225: opened #231, ready-for-agent — suggestion, "Worth a retry"`,
+      `- ${REPO}#225: opened ${REPO}#231, ready-for-agent — suggestion, "Worth a retry"`,
     ]);
   });
 
@@ -900,7 +900,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #224: commented on #7 — clarification, "The ticket names the wrong file"`,
+      `- ${REPO}#224: commented on ${REPO}#7 — clarification, "The ticket names the wrong file"`,
     ]);
   });
 
@@ -914,7 +914,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #232: commented on #50 — clarification, "The ticket names the wrong file"`,
+      `- ${REPO}#232: commented on ${REPO}#50 — clarification, "The ticket names the wrong file"`,
     ]);
   });
 
@@ -935,7 +935,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #226: commented on #226 — clarification, "The ticket names the wrong file"`,
+      `- ${REPO}#226: commented on ${REPO}#226 — clarification, "The ticket names the wrong file"`,
     ]);
   });
 
@@ -945,7 +945,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #226: dropped 2 suggestions past the one already filed`,
+      `- ${REPO}#226: dropped 2 suggestions past the one already filed`,
     ]);
   });
 
@@ -955,7 +955,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #227: dropped 1 suggestion past the one already filed`,
+      `- ${REPO}#227: dropped 1 suggestion past the one already filed`,
     ]);
   });
 
@@ -965,7 +965,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #228: dropped 3 files under /discoveries — not valid JSON, or naming an unknown kind`,
+      `- ${REPO}#228: dropped 3 files under /discoveries — not valid JSON, or naming an unknown kind`,
     ]);
   });
 
@@ -982,7 +982,7 @@ describe("discoveriesSection", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #229: could not file a clarification ("The ticket names the wrong file"): the tracker was unreachable`,
+      `- ${REPO}#229: could not file a clarification ("The ticket names the wrong file"): the tracker was unreachable`,
     ]);
   });
 
@@ -999,7 +999,7 @@ describe("discoveriesSection", () => {
       ),
     ]);
 
-    assert.deepEqual(lines, [`- ${REPO} #231: opened #241 — suggestion, "Worth a retry"`]);
+    assert.deepEqual(lines, [`- ${REPO}#231: opened ${REPO}#241 — suggestion, "Worth a retry"`]);
   });
 });
 
@@ -1078,7 +1078,7 @@ describe("attemptsSection", () => {
   it("names a spec review's own ticket, since its findings are on the ticket rather than a pull request", () => {
     const lines = attemptsLines([specReviewedCleanly(307)]);
 
-    assert.match(lines[0] ?? "", new RegExp(`Spec-reviewed ${REPO} #307: its findings are on the ticket\\.`));
+    assert.match(lines[0] ?? "", new RegExp(`Spec-reviewed ${REPO}#307: its findings are on the ticket\\.`));
   });
 });
 
@@ -1108,7 +1108,7 @@ describe("a ticket handed back for an unusable size label", () => {
     const { problem, fix } = sizeProblem(FAILURE);
 
     assert.deepEqual(waitingLines([unusableSizeLabel(307)]), [
-      `- ${REPO} #307: relabelled ready-for-human — ${problem}, so ${fix}`,
+      `- ${REPO}#307: relabelled ready-for-human — ${problem}, so ${fix}`,
     ]);
   });
 });
@@ -1186,7 +1186,7 @@ describe("a ticket handed back for a model problem", () => {
     const { problem, fix } = modelProblem(ticket, failure);
 
     assert.deepEqual(waitingLines([iteration]), [
-      `- ${REPO} #308: relabelled ready-for-human — ${problem}, so ${fix}`,
+      `- ${REPO}#308: relabelled ready-for-human — ${problem}, so ${fix}`,
     ]);
   });
 
@@ -1195,7 +1195,7 @@ describe("a ticket handed back for a model problem", () => {
     const { problem, fix } = modelProblem(ticket, failure);
 
     assert.deepEqual(waitingLines([iteration]), [
-      `- ${REPO} #310: relabelled ready-for-human — ${problem}, so ${fix}`,
+      `- ${REPO}#310: relabelled ready-for-human — ${problem}, so ${fix}`,
     ]);
   });
 
@@ -1204,7 +1204,7 @@ describe("a ticket handed back for a model problem", () => {
     const { problem, fix } = modelProblem(ticket, failure);
 
     assert.deepEqual(waitingLines([iteration]), [
-      `- ${REPO} #309: relabelled ready-for-human — ${problem}, so ${fix}`,
+      `- ${REPO}#309: relabelled ready-for-human — ${problem}, so ${fix}`,
     ]);
   });
 });
@@ -1213,7 +1213,7 @@ describe("summaryLine", () => {
   it("reads a reviewed iteration exactly as today when notLabelled is absent", () => {
     const line = summaryLine(facts([reviewedCleanly(210)]));
 
-    assert.equal(line, `Reviewed ${REPO} #210: posted findings on ${PULL_REQUEST}.`);
+    assert.equal(line, `Reviewed ${REPO}#210: posted findings on ${PULL_REQUEST}.`);
   });
 
   it("names the pull request, the reviewed label and the error when a reviewed iteration could not be labelled", () => {
@@ -1221,7 +1221,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Reviewed ${REPO} #211: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself.`,
+      `Reviewed ${REPO}#211: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be labelled reviewed: the label already existed with different case; add the label yourself.`,
     );
   });
 
@@ -1230,7 +1230,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Reviewed ${REPO} #214: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself.`,
+      `Reviewed ${REPO}#214: posted findings on ${PULL_REQUEST}. ${PULL_REQUEST} could not be posted /apply-review on: the pull request is locked; comment it yourself.`,
     );
   });
 
@@ -1239,7 +1239,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Reviewed ${REPO} #215: found nothing to flag on ${PULL_REQUEST}, now ready for review.`,
+      `Reviewed ${REPO}#215: found nothing to flag on ${PULL_REQUEST}, now ready for review.`,
     );
   });
 
@@ -1248,7 +1248,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Reviewed ${REPO} #216: found nothing to flag on ${PULL_REQUEST}. ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself.`,
+      `Reviewed ${REPO}#216: found nothing to flag on ${PULL_REQUEST}. ${PULL_REQUEST} could not be marked ready for review: the pull request is locked; mark it ready yourself.`,
     );
   });
 
@@ -1257,7 +1257,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #212: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+      `Applied review on ${REPO}#212: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
     );
   });
 
@@ -1266,7 +1266,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself.`,
+      `Applied review on ${REPO}#213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself.`,
     );
   });
 
@@ -1275,7 +1275,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+      `Applied review on ${REPO}#216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
     );
   });
 
@@ -1284,7 +1284,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #217: 2 applied, 0 declined on ${PULL_REQUEST}, merged, closing #7, its branch deleted.`,
+      `Applied review on ${REPO}#217: 2 applied, 0 declined on ${PULL_REQUEST}, merged, closing ${REPO}#7, its branch deleted.`,
     );
   });
 
@@ -1293,7 +1293,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #218: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Left for you to merge: Pull Request is not mergeable.`,
+      `Applied review on ${REPO}#218: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Left for you to merge: Pull Request is not mergeable.`,
     );
   });
 
@@ -1302,7 +1302,7 @@ describe("summaryLine", () => {
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #219: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Left for you to merge: Pull Request is not mergeable. ${PULL_REQUEST} could not be labelled ready-for-human: the repo host refused the label; add the label yourself.`,
+      `Applied review on ${REPO}#219: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Left for you to merge: Pull Request is not mergeable. ${PULL_REQUEST} could not be labelled ready-for-human: the repo host refused the label; add the label yourself.`,
     );
   });
 
@@ -1321,7 +1321,7 @@ describe("summaryLine", () => {
 
     const line = summaryLine(facts([iteration]));
 
-    assert.match(line, /the sandbox failed on #183 after the agent had already run/);
+    assert.match(line, /the sandbox failed on nadav-alon\/pilot#183 after the agent had already run/);
   });
 
   it("says the run would not start when the infrastructure failure carries no spend", () => {
@@ -1334,7 +1334,7 @@ describe("summaryLine", () => {
 
     const line = summaryLine(facts([iteration]));
 
-    assert.match(line, /the run would not start on #184/);
+    assert.match(line, /the run would not start on nadav-alon\/pilot#184/);
   });
 
   describe("a blocking-discovery hand-back", () => {
@@ -1367,7 +1367,7 @@ describe("summaryLine", () => {
         ],
       }))]));
 
-      assert.match(line, /a prerequisite, opened as #199/);
+      assert.match(line, /a prerequisite, opened as nadav-alon\/pilot#199/);
       assert.doesNotMatch(line, /#199, ready-for-agent/);
     });
 
@@ -1382,7 +1382,7 @@ describe("summaryLine", () => {
         ],
       }))]));
 
-      assert.match(line, /a prerequisite, opened as #206, ready-for-agent/);
+      assert.match(line, /a prerequisite, opened as nadav-alon\/pilot#206, ready-for-agent/);
     });
 
     it("names a refused blocking discovery by its kind and why, naming no ticket", () => {
@@ -1410,7 +1410,7 @@ describe("summaryLine", () => {
         ],
       }))]));
 
-      assert.match(line, /a correction; a prerequisite, opened as #198/);
+      assert.match(line, /a correction; a prerequisite, opened as nadav-alon\/pilot#198/);
       assert.doesNotMatch(line, /#198, ready-for-agent/);
     });
   });
@@ -1746,7 +1746,7 @@ describe("salvage", () => {
 
     assert.equal(
       line,
-      `The provider limit refused the run on ${REPO} #221.`,
+      `The provider limit refused the run on ${REPO}#221.`,
     );
   });
 
@@ -1806,7 +1806,7 @@ describe("salvage", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #227: stopped short 2 times in a row — consider splitting it or giving it a larger size or model`,
+      `- ${REPO}#227: stopped short 2 times in a row — consider splitting it or giving it a larger size or model`,
     ]);
   });
 
@@ -1836,7 +1836,7 @@ describe("salvage", () => {
 
     assert.equal(
       line,
-      `The run on ${REPO} #230 was stopped by its spend ceiling: ${BUDGET_EXHAUSTED_JSON_RESULT}.`,
+      `The run on ${REPO}#230 was stopped by its spend ceiling: ${BUDGET_EXHAUSTED_JSON_RESULT}.`,
     );
   });
 
@@ -1859,7 +1859,7 @@ describe("salvage", () => {
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO} #232: stopped short 2 times in a row — consider splitting it or giving it a larger size or model`,
+      `- ${REPO}#232: stopped short 2 times in a row — consider splitting it or giving it a larger size or model`,
     ]);
   });
 
@@ -2193,8 +2193,8 @@ describe("spec review sweeps", () => {
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Spec review sweep"));
 
-    assert.match(section, new RegExp(`- ${REPO}: opened #68 \\(Spec review for #40\\)`));
-    assert.match(section, new RegExp(`- ${OTHER_REPO}: opened #20 \\(Spec review for #10\\)`));
+    assert.match(section, new RegExp(`- ${REPO}: opened ${REPO}#68 \\(Spec review for #40\\)`));
+    assert.match(section, new RegExp(`- ${OTHER_REPO}: opened ${OTHER_REPO}#20 \\(Spec review for #10\\)`));
   });
 
   it("names the supertask and the error for an open refusal, in the body", () => {
@@ -2212,7 +2212,7 @@ describe("spec review sweeps", () => {
 
     assert.match(
       body,
-      new RegExp(`- ${REPO}: could not open a spec review for #40: tracker unreachable`),
+      new RegExp(`- ${REPO}: could not open a spec review for ${REPO}#40: tracker unreachable`),
     );
   });
 
@@ -2230,7 +2230,7 @@ describe("spec review sweeps", () => {
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Spec review sweep"));
 
-    assert.match(section, new RegExp(`- ${REPO}: could not link an existing spec review to #40: denied`));
+    assert.match(section, new RegExp(`- ${REPO}: could not link an existing spec review to ${REPO}#40: denied`));
     assert.doesNotMatch(section, /could not open a spec review/);
   });
 
@@ -2252,7 +2252,7 @@ describe("spec review sweeps", () => {
     ];
 
     const body = bodyOf(sweeps);
-    const matches = body.match(/could not open a spec review for #40/g);
+    const matches = body.match(/could not open a spec review for nadav-alon\/pilot#40/g);
 
     assert.equal(matches?.length, 1);
     assert.match(
@@ -2268,7 +2268,7 @@ describe("spec review sweeps", () => {
 
     assert.match(
       summaryLine(opened),
-      new RegExp(`Spec review sweep: ${REPO} \\(opened #68\\)`),
+      new RegExp(`Spec review sweep: ${REPO} \\(opened ${REPO}#68\\)`),
     );
   });
 
@@ -2282,7 +2282,7 @@ describe("spec review sweeps", () => {
       },
     ]);
 
-    assert.match(summaryLine(opened), /opened #68, #20/);
+    assert.match(summaryLine(opened), /opened nadav-alon\/pilot#68, nadav-alon\/pilot#20/);
   });
 
   it("mentions the sweep in the summary line when it was refused something", () => {
@@ -2316,8 +2316,8 @@ describe("spec review sweeps", () => {
     const body = bodyOf(sweeps);
     const section = body.slice(body.indexOf("## Spec review sweep"));
 
-    assert.match(section, new RegExp(`- ${REPO}: opened #20 \\(Spec review for #10\\)`));
-    assert.match(section, new RegExp(`- ${REPO}: linked #68 \\(Spec review for #40\\)`));
+    assert.match(section, new RegExp(`- ${REPO}: opened ${REPO}#20 \\(Spec review for #10\\)`));
+    assert.match(section, new RegExp(`- ${REPO}: linked ${REPO}#68 \\(Spec review for #40\\)`));
   });
 
   it("mentions the sweep in the summary line when it linked a floating spec review", () => {
@@ -2333,7 +2333,7 @@ describe("spec review sweeps", () => {
 
     assert.match(
       summaryLine(linked),
-      new RegExp(`Spec review sweep: ${REPO} \\(linked #68\\)`),
+      new RegExp(`Spec review sweep: ${REPO} \\(linked ${REPO}#68\\)`),
     );
   });
 
@@ -2363,12 +2363,12 @@ describe("spec review sweeps", () => {
     ];
 
     const body = bodyOf(sweeps);
-    const matches = body.match(/linked #68 \(Spec review for #40\)/g);
+    const matches = body.match(/linked nadav-alon\/pilot#68 \(Spec review for #40\)/g);
 
     assert.equal(matches?.length, 1);
     assert.match(
       summaryLine(factsWithSpecReviewSweeps(sweeps)),
-      new RegExp(`Spec review sweep: ${REPO} \\(linked #68\\)`),
+      new RegExp(`Spec review sweep: ${REPO} \\(linked ${REPO}#68\\)`),
     );
   });
 });
@@ -2408,7 +2408,7 @@ describe("freed from a dead invocation", () => {
     const body = summaryBody(built, summaryLine(built));
     const section = body.slice(body.indexOf("## Freed from a dead invocation"));
 
-    assert.match(section, new RegExp(`- ${REPO} #432: freed`));
+    assert.match(section, new RegExp(`- ${REPO}#432: freed`));
     assert.match(section, /process 7563/);
     assert.match(section, /never closed/);
   });
@@ -2424,8 +2424,8 @@ describe("freed from a dead invocation", () => {
 
     const body = summaryBody(built, summaryLine(built));
 
-    assert.match(body, new RegExp(`- ${REPO} #432: freed`));
-    assert.match(body, new RegExp(`- ${REPO} #434: freed`));
+    assert.match(body, new RegExp(`- ${REPO}#432: freed`));
+    assert.match(body, new RegExp(`- ${REPO}#434: freed`));
   });
 });
 
@@ -2759,7 +2759,7 @@ describe("composeInvocationReport", () => {
 
     assert.equal(report.outcome, "dry-queue");
     assert.equal(tracker.published.length, 1);
-    assert.match(tracker.published[0]?.body ?? "", new RegExp(`- ${REPO} #432: freed`));
+    assert.match(tracker.published[0]?.body ?? "", new RegExp(`- ${REPO}#432: freed`));
   });
 
   it("publishes a quiet morning when today is not yet announced", async () => {
