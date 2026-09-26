@@ -3862,7 +3862,7 @@ describe("morningLoop", () => {
       function queuedTurboable(
         ports: FakePorts,
         { threads = 0, turbo = true, grantedAt = GRANTED_IN_TIME } = {},
-      ): { ticket: ApplyReviewTicket; implementation: Ticket } {
+      ): Ticket {
         ports.store.register(PILOT, { turbo });
         for (let opened = 0; opened < threads; opened++) {
           ports.repoHost.openApplyReviewThread(PULL_REQUEST);
@@ -3873,18 +3873,18 @@ describe("morningLoop", () => {
         });
         ports.store.markRunSpan(implementation, RUN_STARTED, RUN_ENDED);
         ports.tracker.recordTurboableEvent(implementation, "labeled", grantedAt);
-        const ticket = ports.tracker.addEligibleTicket(PILOT, {
+        ports.tracker.addEligibleTicket(PILOT, {
           number: issueNumber(43),
           title: "Apply the review on the draft pull request for #7",
           pullRequest: { kind: "apply-review", url: PULL_REQUEST },
           parent: IMPLEMENTATION,
-        }) as ApplyReviewTicket;
-        return { ticket, implementation };
+        });
+        return implementation;
       }
 
       it("merges the pull request with a merge commit once a turboable ticket's apply-review finishes clean", async () => {
         const ports = fakePorts();
-        const { implementation } = queuedTurboable(ports);
+        const implementation = queuedTurboable(ports);
 
         const report = await morningLoop(ports);
 
