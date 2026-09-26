@@ -1279,12 +1279,12 @@ describe("summaryLine", () => {
     );
   });
 
-  it("says merged, its branch deleted, rather than ready for review, once the merge gate has merged the pull request", () => {
+  it("names the merged pull request's implementation ticket, its branch deleted, rather than ready for review", () => {
     const line = summaryLine(facts([appliedReviewMerged(217, implementationTicket(7))]));
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #217: 2 applied, 0 declined on ${PULL_REQUEST}, merged #7, its branch deleted.`,
+      `Applied review on ${REPO} #217: 2 applied, 0 declined on ${PULL_REQUEST}, merged, closing #7, its branch deleted.`,
     );
   });
 
