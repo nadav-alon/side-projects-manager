@@ -1582,8 +1582,8 @@ function handbackNote(finished: Finished): string {
  * landed, or why the loop could not finish the ticket off. A clean review on
  * a turbo project also says what the merge gate came to
  * (`readyPhrase`/`leftForHumanNote`) — CONTEXT.md's "Turboable", ADR 0009 —
- * exactly as `appliedReviewSummary` already does for an apply-review ticket's
- * own finish.
+ * exactly as `appliedReviewSummary` does for an apply-review ticket's own
+ * finish.
  */
 function reviewSummary(
   iteration: { repo: RepoSlug; ticket: ReviewTicket } & Reviewed,
