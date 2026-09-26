@@ -29,9 +29,12 @@ export function repoSlug(value: string): RepoSlug { … }
 ```
 
 **A zod schema already validates the primitive** — brand the schema itself with `.brand<"X">()`,
-so `safeParse`'s output carries the brand automatically:
+so `safeParse`'s output carries the brand automatically. Keep the schema module-private so the
+guard and constructor stay the only way in:
 
 ```ts
+import { z } from "zod";
+
 const emailSchema = z.string().email().brand<"Email">();
 
 export type Email = z.infer<typeof emailSchema>;
