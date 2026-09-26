@@ -12,7 +12,9 @@ or a repo's display name — and every one of those is a `string` too, so the co
 any of them. Branding makes the type say what the value actually is, and forces every value to enter
 through one checked door.
 
-The pattern:
+Two patterns are accepted.
+
+**No zod schema for the primitive yet** — brand with a type-only marker:
 
 ```ts
 declare const repoSlugBrand: unique symbol;
@@ -26,15 +28,37 @@ export function isRepoSlug(value: string): value is RepoSlug { … }
 export function repoSlug(value: string): RepoSlug { … }
 ```
 
-Three things travel together, and a brand without all three is worse than no brand:
+**A zod schema already validates the primitive** — brand the schema itself with `.brand<"X">()`,
+so `safeParse`'s output carries the brand automatically:
+
+```ts
+const uidSchema = z.string().min(1).brand<"Uid">();
+
+export type Uid = z.infer<typeof uidSchema>;
+
+export function isUid(value: string): value is Uid {
+  return uidSchema.safeParse(value).success;
+}
+
+export function uid(value: string): Uid {
+  const result = uidSchema.safeParse(value);
+  if (!result.success) {
+    throw new Error(`Not a Uid: ${JSON.stringify(value)}`);
+  }
+  return result.data;
+}
+```
+
+Three things travel together either way, and a brand without all three is worse than no brand:
 
 1. the branded type,
 2. a **type guard** (`isX`), for values arriving from outside — parsed documents, CLI output, `JSON.parse`,
 3. a **constructor** (`x`), which narrows or throws, for values written in source and tests.
 
-The `declare const … : unique symbol` is type-only and erases, so branding stays compatible with
-`erasableSyntaxOnly`. Never widen a brand back with a cast: if you need one, the guard is wrong or
-the value genuinely isn't that thing.
+The `declare const … : unique symbol` form is type-only and erases, so branding stays compatible
+with `erasableSyntaxOnly`. The zod form has no such marker to erase — the brand rides on the schema
+instead. Never widen a brand back with a cast: if you need one, the guard is wrong or the value
+genuinely isn't that thing.
 
 **Brand when** the primitive has a format (`owner/repo`, a branch name, an issue URL), a unit
 (tokens, milliseconds, a fraction), or an identity that must not be swapped with a sibling of the
