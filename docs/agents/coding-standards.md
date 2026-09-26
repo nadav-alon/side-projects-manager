@@ -39,10 +39,12 @@ const emailSchema = z.string().email().brand<"Email">();
 
 export type Email = z.infer<typeof emailSchema>;
 
+/** The guard. */
 export function isEmail(value: string): value is Email {
   return emailSchema.safeParse(value).success;
 }
 
+/** The constructor: narrows, or throws naming the offending value. */
 export function email(value: string): Email {
   const result = emailSchema.safeParse(value);
   if (!result.success) {
