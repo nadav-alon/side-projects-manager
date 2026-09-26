@@ -564,7 +564,8 @@ neither a defect nor a nit. Closed and labelled exactly as a review with finding
 request is also marked ready for review, and it posts no `/apply-review`, turbo project or not (see
 Turbo) — there is nothing on it for the developer to apply. Told apart from a run that posted
 nothing at all — still Gave up — by whether a review landed on the pull request at all, not by
-whether it carries a finding.
+whether it carries a finding. On a turbo project, once the ticket has closed, this is also the other
+place — beside an apply-review ticket's own finish — the merge gate ever fires: see **Turboable**.
 _Avoid_: empty review, no-findings review, silent review
 
 **Apply-review ticket**:
@@ -657,10 +658,11 @@ check and stripping alone cannot tell that grant from a human's. Known gap: reco
 best-effort, so a run whose write failed leaves no span for this third check to see; and since a
 ticket run more than once keeps only its latest run's span (see **Run span**), an earlier run's own
 grant is no longer covered once that ticket runs again. Once a turboable ticket's apply-review
-ticket finishes, one pass: the manager merges the pull request, with a merge commit, and deletes
-its branch, but only if it is mergeable, green and carries no declined threads; otherwise it labels
-the pull request `ready-for-human` and stops — no retry, no re-rebase. Stacked pull requests are
-out of scope until that is specced. See ADR 0009.
+ticket finishes, or its review comes back clean (see **Clean review**) — whichever happens, and
+only the one that does — one pass: the manager merges the pull request, with a merge commit, and
+deletes its branch, but only if it is mergeable, green and carries no declined threads; otherwise
+it labels the pull request `ready-for-human` and stops — no retry, no re-rebase. Stacked pull
+requests are out of scope until that is specced. See ADR 0009.
 _Avoid_: auto-merge, merge flag, greenlight
 
 ### Budget

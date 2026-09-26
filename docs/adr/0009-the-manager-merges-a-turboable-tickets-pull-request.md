@@ -7,8 +7,11 @@ status: accepted
 The manager has never merged a pull request: it opens one, promotes it once its apply-review ticket
 finishes, and leaves the merge itself to the developer. An implementation ticket may now carry
 `turboable`, a label a human sets, that lets the manager finish the loop itself: once such a
-ticket's apply-review ticket finishes, the manager merges its pull request if it is mergeable, green
-and free of declined threads, and otherwise leaves it for the developer. Decided in triage on #325.
+ticket's apply-review ticket finishes, or its review comes back clean — CONTEXT.md's "Clean
+review" — with no apply-review ticket ever opened, the manager merges its pull request if it is
+mergeable, green and free of declined threads, and otherwise leaves it for the developer. Decided in
+triage on #325; extended to a clean review's own finish on #936, so a turboable ticket whose review
+needs nothing applied still reaches the gate.
 
 ## Why it went this way
 
@@ -37,10 +40,14 @@ latest run's span, so an earlier run's own grant is no longer covered once that 
 
 **One pass, bounded the same way apply-review and rebase already are.** "Merge once finished" could
 otherwise cycle indefinitely through rebase and apply-review chasing a moving mergeable state. Only
-the single apply-review run already in the loop is trusted: the manager checks once, right after it,
-merges if the pull request is mergeable, green and has no declined threads, and otherwise labels it
-`ready-for-human` and stops. No retry, and no `/rebase` posted on its behalf — unlike a hand back,
-which never labels a pull request, only its ticket.
+the single apply-review run already in the loop is trusted — or, when the review needed nothing
+applied, the single review run itself: the manager checks once, right after whichever of the two
+just finished the ticket, merges if the pull request is mergeable, green and has no declined
+threads, and otherwise labels it `ready-for-human` and stops. No retry, and no `/rebase` posted on
+its behalf — unlike a hand back, which never labels a pull request, only its ticket. A review with
+findings never reaches the gate this way: turbo posts `/apply-review` instead, exactly as it always
+has, and the gate fires only once that ticket later finishes — never both, since a review is either
+clean or is not.
 
 **Merge commit, and the branch deleted with it.** Merge commit because that is how the developer
 already merges a pull request by hand; nothing about turboable should read differently in the repo's
@@ -63,7 +70,9 @@ it is, turboable assumes every pull request stands alone.
   Known gaps: a failed span write leaves no span to check, and a ticket's later run replaces its
   earlier run's span.
 - **Fires once**, right after the one apply-review run a turboable ticket's pull request already
-  gets: merge — mergeable, green, no declined threads — or `ready-for-human` on the pull request and
-  stop. No retry, no re-rebase.
+  gets, or, when its review comes back clean, right after that review's own run instead: merge —
+  mergeable, green, no declined threads — or `ready-for-human` on the pull request and stop. No
+  retry, no re-rebase. A review with findings never fires it directly: it reaches the gate only
+  once its own apply-review ticket later finishes.
 - **Merge commit, branch deleted after.** The only merge method the manager uses.
 - **Stacked pull requests**: out of scope until #32 specs them.
