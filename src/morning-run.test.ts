@@ -3862,7 +3862,7 @@ describe("morningLoop", () => {
       function queuedTurboable(
         ports: FakePorts,
         { threads = 0, turbo = true, grantedAt = GRANTED_IN_TIME } = {},
-      ): ApplyReviewTicket {
+      ): { ticket: ApplyReviewTicket; implementation: Ticket } {
         ports.store.register(PILOT, { turbo });
         for (let opened = 0; opened < threads; opened++) {
           ports.repoHost.openApplyReviewThread(PULL_REQUEST);
@@ -3873,17 +3873,18 @@ describe("morningLoop", () => {
         });
         ports.store.markRunSpan(implementation, RUN_STARTED, RUN_ENDED);
         ports.tracker.recordTurboableEvent(implementation, "labeled", grantedAt);
-        return ports.tracker.addEligibleTicket(PILOT, {
+        const ticket = ports.tracker.addEligibleTicket(PILOT, {
           number: issueNumber(43),
           title: "Apply the review on the draft pull request for #7",
           pullRequest: { kind: "apply-review", url: PULL_REQUEST },
           parent: IMPLEMENTATION,
         }) as ApplyReviewTicket;
+        return { ticket, implementation };
       }
 
       it("merges the pull request with a merge commit once a turboable ticket's apply-review finishes clean", async () => {
         const ports = fakePorts();
-        queuedTurboable(ports);
+        const { implementation } = queuedTurboable(ports);
 
         const report = await morningLoop(ports);
 
@@ -3892,7 +3893,7 @@ describe("morningLoop", () => {
         assert.equal(outcome?.kind, "applied-review");
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "merged" },
+          { kind: "merged", implementationTicket: implementation },
         );
         assert.deepEqual(
           ports.repoHost.labelled.filter(

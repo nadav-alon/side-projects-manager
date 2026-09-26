@@ -710,8 +710,13 @@ export type MergeGate =
    * not be read.
    */
   | { kind: "not-turboable"; reason: string }
-  /** Mergeable, green and free of declined threads: merged with a merge commit, its branch deleted with it. */
-  | { kind: "merged" }
+  /**
+   * Mergeable, green and free of declined threads: merged with a merge
+   * commit, its branch deleted with it. `implementationTicket` is the ticket
+   * `mergeGate` already resolved to check `turboable`'s own timeline, carried
+   * along so the summary can name it beside the pull request.
+   */
+  | { kind: "merged"; implementationTicket: Ticket }
   /**
    * Failed one of the gate's own checks — a declined thread, checks not
    * green, or a merge the repo host refused as not mergeable — and so left
