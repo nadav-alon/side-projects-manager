@@ -262,14 +262,29 @@ function appliedReviewButNotLabelled(number: number): IterationOutcome {
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
 
-/** A turboable ticket's apply-review run whose pull request the merge gate merged. */
-function appliedReviewMerged(number: number): IterationOutcome {
+/** A turbo project's apply-review run the merge gate looked at but found not eligible to merge. */
+function appliedReviewNotTurboable(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 1 },
+    merge: { kind: "not-turboable", reason: "not turboable before its own run started" },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** A turboable ticket's apply-review run whose pull request the merge gate merged, closing `implementation`. */
+function appliedReviewMerged(
+  number: number,
+  implementation: Ticket = implementationTicket(900),
+): IterationOutcome {
   const appliedReview: AppliedReview = {
     kind: "applied-review",
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
     tokensUsed: tokenCount(500),
     answers: { applied: 2, declined: 0 },
-    merge: { kind: "merged" },
+    merge: { kind: "merged", implementationTicket: implementation },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
@@ -659,6 +674,12 @@ describe("waitingSection", () => {
     const lines = waitingLines([appliedReviewMerged(185)]);
 
     assert.deepEqual(lines, []);
+  });
+
+  it("lists the ordinary ready-for-review line, not a merge gate line, for a pull request the merge gate found not eligible to merge", () => {
+    const lines = waitingLines([appliedReviewNotTurboable(188)]);
+
+    assert.deepEqual(lines, [`- ${REPO}: ${PULL_REQUEST} — ready for review`]);
   });
 
   it("lists an apply-review iteration under waiting on you as left for the developer to merge, once the merge gate leaves it", () => {
@@ -1249,12 +1270,21 @@ describe("summaryLine", () => {
     );
   });
 
-  it("says merged, its branch deleted, rather than ready for review, once the merge gate has merged the pull request", () => {
-    const line = summaryLine(facts([appliedReviewMerged(217)]));
+  it("reads exactly as an untouched apply-review iteration for a pull request the merge gate found not eligible to merge", () => {
+    const line = summaryLine(facts([appliedReviewNotTurboable(216)]));
 
     assert.equal(
       line,
-      `Applied review on ${REPO} #217: 2 applied, 0 declined on ${PULL_REQUEST}, merged, its branch deleted.`,
+      `Applied review on ${REPO} #216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+    );
+  });
+
+  it("says merged, its branch deleted, rather than ready for review, once the merge gate has merged the pull request", () => {
+    const line = summaryLine(facts([appliedReviewMerged(217, implementationTicket(7))]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO} #217: 2 applied, 0 declined on ${PULL_REQUEST}, merged #7, its branch deleted.`,
     );
   });
 
