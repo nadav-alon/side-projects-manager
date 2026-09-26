@@ -2483,6 +2483,12 @@ describe("morningLoop", () => {
           const report = await morningLoop(ports);
 
           assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
@@ -2506,6 +2512,12 @@ describe("morningLoop", () => {
           const report = await morningLoop(ports);
 
           assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
@@ -2603,6 +2615,12 @@ describe("morningLoop", () => {
           const report = await morningLoop(ports);
 
           assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
@@ -2621,6 +2639,12 @@ describe("morningLoop", () => {
           const report = await morningLoop(ports);
 
           assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
