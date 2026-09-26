@@ -644,22 +644,23 @@ _Avoid_: apply-review tag, done label
 **Turboable**:
 Per-ticket consent, the `turboable` label set by a human on an implementation ticket, letting the
 manager merge its pull request once its apply-review ticket finishes — whether that ticket followed
-from turbo or from the developer typing `/apply-review` by hand. Checked three ways, each closing a
-gap the others leave: against the label's own timeline — labeled before that ticket's implementation
-run started, not merely present now — which stops a run granting its own ticket consent mid-run; the
-manager also strips `turboable` from every ticket it opens, so one it opens can never start out
-carrying it; and against every run span (see **Run span**) in the ticket's own repo — the granting
-event must fall inside none of them — which stops a run on one ticket (posting with the developer's
-own identity) from labeling a *different*, not-yet-run ticket `turboable` before that ticket's own run
-starts, since the timeline check and stripping alone cannot tell that grant from a human's. Known
-gap: recording a span is best-effort, so a run whose write failed leaves no span for this third check
-to see; and since a ticket run more than once keeps only its latest run's span (see **Run span**), an
-earlier run's own grant is no longer covered once that ticket runs again. Once a
-turboable ticket's apply-review ticket finishes, one
-pass: the manager merges the pull request, with a merge commit, and deletes its branch, but only if
-it is mergeable, green and carries no declined threads; otherwise it labels the pull request
-`ready-for-human` and stops — no retry, no re-rebase. Stacked pull requests are out of scope until
-that is specced. See ADR 0009.
+from turbo or from the developer typing `/apply-review` by hand. Only on a turbo project (see
+**Turbo**); on any other project the label grants nothing: the manager never checks for it there.
+Checked three ways, each closing a gap the others leave: against the label's own timeline
+— labeled before that ticket's implementation run started, not merely present now — which stops
+a run granting its own ticket consent mid-run; the manager also strips `turboable` from every
+ticket it opens, so one it opens can never start out carrying it; and against every run span (see
+**Run span**) in the ticket's own repo — the granting event must fall inside none of them —
+which stops a run on one ticket (posting with the developer's own identity) from labeling a
+*different*, not-yet-run ticket `turboable` before that ticket's own run starts, since the timeline
+check and stripping alone cannot tell that grant from a human's. Known gap: recording a span is
+best-effort, so a run whose write failed leaves no span for this third check to see; and since a
+ticket run more than once keeps only its latest run's span (see **Run span**), an earlier run's own
+grant is no longer covered once that ticket runs again. Once a turboable ticket's apply-review
+ticket finishes, one pass: the manager merges the pull request, with a merge commit, and deletes
+its branch, but only if it is mergeable, green and carries no declined threads; otherwise it labels
+the pull request `ready-for-human` and stops — no retry, no re-rebase. Stacked pull requests are
+out of scope until that is specced. See ADR 0009.
 _Avoid_: auto-merge, merge flag, greenlight
 
 ### Budget
