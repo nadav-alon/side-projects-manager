@@ -257,6 +257,18 @@ describe("invocationState", () => {
       assert.equal((await store.loadState()).runSpans, undefined);
     });
 
+    it("reads every span recorded so far, live, for the merge gate", async () => {
+      const store = new FakeStore();
+      const invocation = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+
+      assert.deepEqual(invocation.runSpans(), []);
+
+      await invocation.recordRunSpanStarted(TICKET_7, startedAt);
+
+      assert.deepEqual(invocation.runSpans(), [{ ...TICKET_7, startedAt }]);
+    });
+
     it("does not close a span a different run opened", async () => {
       const store = new FakeStore();
       const earlierStart = new Date("2025-12-31T09:00:00.000Z");

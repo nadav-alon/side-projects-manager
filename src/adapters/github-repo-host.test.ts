@@ -1065,7 +1065,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 1, unanswered: 1 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 1,
+      unanswered: 1,
+      declinedOpen: 1,
+    });
   });
 
   it("does not let one marked reply answer two review bodies", async (t) => {
@@ -1081,7 +1086,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 1 });
+    assert.deepEqual(answers, {
+      appliedSince: 0,
+      declinedSince: 1,
+      unanswered: 1,
+      declinedOpen: 1,
+    });
   });
 
   it("answers a review body's thread with a marked reply that opens with no quote at all", async (t) => {
@@ -1093,7 +1103,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 0,
+      unanswered: 0,
+      declinedOpen: 0,
+    });
   });
 
   it("reopens a review body's thread when a later unmarked comment quotes it", async (t) => {
@@ -1108,7 +1123,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 1 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 0,
+      unanswered: 1,
+      declinedOpen: 0,
+    });
   });
 
   it("does not let a later comment quoting no review reopen a review body's thread", async (t) => {
@@ -1123,7 +1143,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 0,
+      unanswered: 0,
+      declinedOpen: 0,
+    });
   });
 
   it("answers a reopened review body's thread with the next marked reply", async (t) => {
@@ -1139,7 +1164,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 0,
+      unanswered: 0,
+      declinedOpen: 0,
+    });
   });
 
   it("counts a marked reply posted after every review body already has one", async (t) => {
@@ -1154,7 +1184,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 1, unanswered: 0 });
+    assert.deepEqual(answers, {
+      appliedSince: 0,
+      declinedSince: 1,
+      unanswered: 0,
+      declinedOpen: 1,
+    });
   });
 
   it("does not let a marked reply posted before the review body answer it", async (t) => {
@@ -1168,7 +1203,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 0, declinedSince: 0, unanswered: 1 });
+    assert.deepEqual(answers, {
+      appliedSince: 0,
+      declinedSince: 0,
+      unanswered: 1,
+      declinedOpen: 0,
+    });
   });
 
   it("answers a review body's thread with a reply that abridges its quote", async (t) => {
@@ -1197,7 +1237,12 @@ describe("reading a pull request's apply-review answers", () => {
       }),
     );
 
-    assert.deepEqual(answers, { appliedSince: 1, declinedSince: 0, unanswered: 0 });
+    assert.deepEqual(answers, {
+      appliedSince: 1,
+      declinedSince: 0,
+      unanswered: 0,
+      declinedOpen: 0,
+    });
   });
 
   it("names the field a response it cannot read is missing", async (t) => {

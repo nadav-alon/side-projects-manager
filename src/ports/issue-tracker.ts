@@ -565,6 +565,25 @@ export function backlogIn(open: OpenIssues): Backlog {
 }
 
 /**
+ * `ticket`'s own parent among `open` — see `OpenIssue.parent` — resolved to
+ * the ticket it names. `undefined` where `ticket` is no one's sub-issue among
+ * `open`, or where its parent's own number isn't there either: a truncated
+ * backlog, most likely, or a parent already closed.
+ *
+ * The one lookup `discoveryTargetFor` (`discovery-routing.ts`) and
+ * `implementationTicketFor` (`morning-run.ts`) both do for a pull request
+ * ticket's parent, so the two read one open backlog the same way.
+ */
+export function parentTicketIn(open: OpenIssues, ticket: Ticket): Ticket | undefined {
+  const parentNumber = open.issues.find(
+    (issue) => issue.ticket.number === ticket.number,
+  )?.parent;
+  return parentNumber === undefined
+    ? undefined
+    : open.issues.find((issue) => issue.ticket.number === parentNumber)?.ticket;
+}
+
+/**
  * The ticket priority of each issue in `open` that has one, by issue number,
  * per `CONTEXT.md`'s "Ticket priority": the smallest of its own priority
  * label and that of every issue reaching it by stepping, in any mix, from a

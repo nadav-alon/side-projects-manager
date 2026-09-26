@@ -686,9 +686,41 @@ export interface AppliedReview {
    * once the ticket is already closed, and reported rather than retried.
    */
   notLabelled?: NotLabelled;
+  /**
+   * What the merge gate did, per `CONTEXT.md`'s "Turboable" and ADR 0009.
+   * Present only on a turbo project, once the ticket has closed
+   * (`notClosed` absent): a project that is not turbo never asks, so `merge`
+   * is absent.
+   */
+  merge?: MergeGate;
   /** As `Finished.discoveryReport`. */
   discoveryReport?: DiscoveryReport;
 }
+
+/**
+ * What the merge gate — the one pass right after a turbo project's
+ * apply-review ticket finishes — came to. Per `CONTEXT.md`'s "Turboable" and
+ * ADR 0009: fires once, no retry and no `/rebase`, whatever it finds.
+ */
+export type MergeGate =
+  /**
+   * The manager never merges: `reason` says why — the implementation ticket
+   * did not carry `turboable` before its own run started, never ran at all
+   * per the timeline this reads, could not be found, or its timeline could
+   * not be read.
+   */
+  | { kind: "not-turboable"; reason: string }
+  /** Mergeable, green and free of declined threads: merged with a merge commit, its branch deleted with it. */
+  | { kind: "merged" }
+  /**
+   * Failed one of the gate's own checks — a declined thread, checks not
+   * green, or a merge the repo host refused as not mergeable — and so left
+   * for the developer: `reason` says which, and
+   * `READY_FOR_HUMAN_PULL_REQUEST_LABEL` is applied to the pull request. A
+   * refusal labelling it is reported here too, never raised, the same as
+   * `AppliedReview.notLabelled`.
+   */
+  | { kind: "left-for-human"; reason: string; notLabelled?: NotLabelled };
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
 export interface ApplyReviewNotClosed {

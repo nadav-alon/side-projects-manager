@@ -262,6 +262,46 @@ function appliedReviewButNotLabelled(number: number): IterationOutcome {
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
 
+/** A turboable ticket's apply-review run whose pull request the merge gate merged. */
+function appliedReviewMerged(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 0 },
+    merge: { kind: "merged" },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** A turboable ticket's apply-review run whose pull request the merge gate left for the developer to merge. */
+function appliedReviewLeftForHuman(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 0 },
+    merge: { kind: "left-for-human", reason: "Pull Request is not mergeable" },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** As `appliedReviewLeftForHuman`, but the ready-for-human label itself could not be applied. */
+function appliedReviewLeftForHumanButNotLabelled(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 0 },
+    merge: {
+      kind: "left-for-human",
+      reason: "Pull Request is not mergeable",
+      notLabelled: { error: "the repo host refused the label" },
+    },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
 /** A review ticket's own run that found its pull request already resolved, and closed it. */
 function reviewResolved(number: number): IterationOutcome {
   const resolved: PullRequestResolved = {
@@ -612,6 +652,29 @@ describe("waitingSection", () => {
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — ready for review`,
       `- ${REPO} #184: ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself`,
+    ]);
+  });
+
+  it("lists nothing under waiting on you once the merge gate has merged an apply-review iteration's pull request", () => {
+    const lines = waitingLines([appliedReviewMerged(185)]);
+
+    assert.deepEqual(lines, []);
+  });
+
+  it("lists an apply-review iteration under waiting on you as left for the developer to merge, once the merge gate leaves it", () => {
+    const lines = waitingLines([appliedReviewLeftForHuman(186)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — left for you to merge: Pull Request is not mergeable`,
+    ]);
+  });
+
+  it("also lists a refused ready-for-human label, alongside the merge gate's own left-for-you line", () => {
+    const lines = waitingLines([appliedReviewLeftForHumanButNotLabelled(187)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — left for you to merge: Pull Request is not mergeable`,
+      `- ${REPO} #187: ${PULL_REQUEST} could not be labelled ready-for-human: the repo host refused the label; add the label yourself`,
     ]);
   });
 
@@ -1183,6 +1246,33 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Applied review on ${REPO} #213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself.`,
+    );
+  });
+
+  it("says merged, its branch deleted, rather than ready for review, once the merge gate has merged the pull request", () => {
+    const line = summaryLine(facts([appliedReviewMerged(217)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO} #217: 2 applied, 0 declined on ${PULL_REQUEST}, merged, its branch deleted.`,
+    );
+  });
+
+  it("names the merge gate's own reason once it leaves the pull request for the developer to merge", () => {
+    const line = summaryLine(facts([appliedReviewLeftForHuman(218)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO} #218: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Left for you to merge: Pull Request is not mergeable.`,
+    );
+  });
+
+  it("also names a refused ready-for-human label, after the merge gate's own left-for-you sentence", () => {
+    const line = summaryLine(facts([appliedReviewLeftForHumanButNotLabelled(219)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO} #219: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Left for you to merge: Pull Request is not mergeable. ${PULL_REQUEST} could not be labelled ready-for-human: the repo host refused the label; add the label yourself.`,
     );
   });
 

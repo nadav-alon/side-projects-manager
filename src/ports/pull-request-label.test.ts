@@ -5,6 +5,7 @@ import {
   APPLIED_REVIEW_LABEL,
   isPullRequestLabel,
   pullRequestLabel,
+  READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
 } from "./pull-request-label.ts";
 
@@ -49,5 +50,11 @@ describe("the two labels the loop applies", () => {
   it("are reviewed and applied-review", () => {
     assert.equal(REVIEWED_LABEL, "reviewed");
     assert.equal(APPLIED_REVIEW_LABEL, "applied-review");
+  });
+});
+
+describe("READY_FOR_HUMAN_PULL_REQUEST_LABEL", () => {
+  it("is ready-for-human, the same text as the ticket label", () => {
+    assert.equal(READY_FOR_HUMAN_PULL_REQUEST_LABEL, "ready-for-human");
   });
 });

@@ -28,6 +28,7 @@ import {
   type Finished,
   type Handover,
   type IterationOutcome,
+  type MergeGate,
   type NotClosed,
   type NotCommented,
   type NotLabelled,
@@ -65,6 +66,7 @@ import {
   NEEDS_REBASE_LABEL,
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
+  READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REBASE_COMMENT,
   REVIEWED_LABEL,
   declaredSize,
@@ -1206,12 +1208,14 @@ function waitingSection(
       }
       case "applied-review": {
         const waiting = appliedReviewWaitingLine(iteration);
-        if (!appliedReviewNotLabelled(iteration)) {
-          return [waiting];
-        }
         return [
-          waiting,
-          notLabelledLine(iteration, APPLIED_REVIEW_LABEL, iteration.notLabelled),
+          ...(waiting === undefined ? [] : [waiting]),
+          ...(appliedReviewNotLabelled(iteration)
+            ? [notLabelledLine(iteration, APPLIED_REVIEW_LABEL, iteration.notLabelled)]
+            : []),
+          ...(iteration.merge?.kind === "left-for-human" && iteration.merge.notLabelled !== undefined
+            ? [notLabelledLine(iteration, READY_FOR_HUMAN_PULL_REQUEST_LABEL, iteration.merge.notLabelled)]
+            : []),
         ];
       }
       case "rebased":
@@ -1705,20 +1709,48 @@ function answered({ ticket, answers }: AppliedReviewIteration): string {
 }
 
 /**
+ * Whether the merge gate merged `merge`'s own pull request — CONTEXT.md's
+ * "Turboable", ADR 0009 — so `appliedReviewSummary` and
+ * `appliedReviewWaitingLine` can say "ready for review" only where that is
+ * still true, rather than of a pull request already merged.
+ */
+function readyPhrase(merge: MergeGate | undefined): string {
+  return merge?.kind === "merged" ? "merged, its branch deleted" : "now ready for review";
+}
+
+/**
+ * What the merge gate left for the developer, appended to
+ * `appliedReviewSummary`'s own clean-outcome sentence: empty when it never
+ * merges — absent on a project that is not turbo, or `not-turboable` — since
+ * neither adds anything to the sentence.
+ */
+function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
+  if (merge?.kind !== "left-for-human") {
+    return "";
+  }
+  const left = ` Left for you to merge: ${withoutTrailingStop(merge.reason)}.`;
+  return merge.notLabelled === undefined
+    ? left
+    : `${left} ${notLabelledNote(pullRequest, READY_FOR_HUMAN_PULL_REQUEST_LABEL, merge.notLabelled)}.`;
+}
+
+/**
  * How an apply-review ticket's iteration reads to the developer: what it
- * applied and declined and that the pull request is ready for review, or why
- * the loop could not finish the ticket off.
+ * applied and declined, that the pull request is ready for review or, on a
+ * turbo project, what the merge gate came to — or why the loop could not
+ * finish the ticket off.
  */
 function appliedReviewSummary(iteration: AppliedReviewIteration): string {
-  const { repo, ticket, notClosed, notLabelled } = iteration;
+  const { repo, ticket, notClosed, notLabelled, merge } = iteration;
   const pullRequest = ticket.pullRequest.url;
   const applied = `Applied review on ${repo} #${ticket.number}`;
   switch (notClosed?.kind) {
     case undefined: {
-      const ready = `${applied}: ${answered(iteration)}, now ready for review.`;
-      return notLabelled === undefined
+      const ready = `${applied}: ${answered(iteration)}, ${readyPhrase(merge)}.`;
+      const labelled = notLabelled === undefined
         ? ready
         : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
+      return `${labelled}${leftForHumanNote(pullRequest, merge)}`;
     }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
@@ -1729,14 +1761,24 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
   }
 }
 
-/** The Waiting-on-you line for an apply-review iteration: its pull request to review, or the ticket left open. */
-function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string {
-  const { repo, ticket, notClosed } = iteration;
+/**
+ * The Waiting-on-you line for an apply-review iteration: its pull request to
+ * review or, on a turbo project, to merge yourself once the gate leaves it
+ * for you — or the ticket left open. Absent once the merge gate has merged
+ * the pull request itself: nothing is left for the developer to do.
+ */
+function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | undefined {
+  const { repo, ticket, notClosed, merge } = iteration;
   const pullRequest = ticket.pullRequest.url;
   const still = `- ${repo} #${ticket.number}: still ${READY_FOR_AGENT_LABEL}`;
   switch (notClosed?.kind) {
     case undefined:
-      return `- ${repo}: ${pullRequest} — ready for review`;
+      if (merge?.kind === "merged") {
+        return undefined;
+      }
+      return merge?.kind === "left-for-human"
+        ? `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`
+        : `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
     case "ready-failed":

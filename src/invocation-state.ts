@@ -7,6 +7,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunSpan,
   State,
   Store,
   WorkedTicket,
@@ -181,6 +182,14 @@ export interface InvocationState {
   projectStates(): ReadonlyMap<RepoSlug, ProjectState>;
 
   /**
+   * Every ticket's own run span recorded so far, live — CONTEXT.md's "Run
+   * span". What the merge gate reads to find when a turboable ticket's
+   * implementation run started, and every span in the same repo to check a
+   * grant against.
+   */
+  runSpans(): readonly RunSpan[];
+
+  /**
    * Every ticket freed on construction because a dead in-flight invocation
    * had recorded it — CONTEXT.md's "Worked today". Fixed for the life of this
    * invocation's state: nothing recorded or unrecorded during the invocation
@@ -330,6 +339,7 @@ export function invocationState(
       }
     },
     projectStates: () => projects,
+    runSpans: () => runSpans ?? [],
     freed: () => freed,
     save: () => doSave(buildState()),
   };

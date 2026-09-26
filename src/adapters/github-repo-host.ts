@@ -9,6 +9,7 @@ import type {
   ApplyReviewThread,
   Branch,
   Checkout,
+  ChecksStatus,
   ClosingPullRequest,
   DraftPullRequestOpening,
   IssueNumber,
@@ -476,6 +477,19 @@ export function githubRepoHost(
       return mergeStatusOf(pullRequest);
     },
 
+    async readChecksStatus(pullRequest: PullRequestUrl): Promise<ChecksStatus> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "statusCheckRollup",
+        "--jq",
+        ".statusCheckRollup",
+      ]);
+      return checksStatusFrom(stdout);
+    },
+
     async removeNeedsRebaseLabel(pullRequest: PullRequestUrl): Promise<void> {
       // Checked first, so a pull request that never carried the label — one
       // opened before the workflow labelled it, or in a project whose
@@ -629,6 +643,46 @@ async function mergeStatusOf(pullRequest: PullRequestUrl): Promise<MergeStatus> 
     default:
       return "unknown";
   }
+}
+
+/** One check as GitHub's `statusCheckRollup` reports it: a check run or a legacy status context. */
+interface RawCheck {
+  status?: string;
+  conclusion?: string | null;
+  state?: string;
+}
+
+/** {@link RawCheck} conclusions and states that read a check as {@link ChecksStatus}'s `"red"`. */
+const RED_CONCLUSIONS = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"]);
+const RED_STATES = new Set(["ERROR", "FAILURE"]);
+
+/**
+ * `stdout`, `.statusCheckRollup`'s own JSON, read down to {@link ChecksStatus}:
+ * a check run (`status`/`conclusion`) or a legacy status context (`state`),
+ * mixed freely since a pull request may carry either kind. Red beats pending,
+ * which beats green, and no checks at all reads green — there is nothing to
+ * wait on.
+ */
+function checksStatusFrom(stdout: string): ChecksStatus {
+  const checks = JSON.parse(stdout) as RawCheck[];
+  let pending = false;
+  for (const check of checks) {
+    if (check.state !== undefined) {
+      if (RED_STATES.has(check.state)) {
+        return "red";
+      }
+      pending ||= check.state !== "SUCCESS";
+      continue;
+    }
+    if (check.status !== "COMPLETED") {
+      pending = true;
+      continue;
+    }
+    if (check.conclusion !== undefined && check.conclusion !== null && RED_CONCLUSIONS.has(check.conclusion)) {
+      return "red";
+    }
+  }
+  return pending ? "pending" : "green";
 }
 
 /**
