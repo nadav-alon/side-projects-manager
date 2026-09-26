@@ -115,3 +115,19 @@ second such ticket from that run's own discoveries, so unreviewed work never cha
 - A label may not exist yet in a given repo: create it on first use (`gh label create ready-discovery`)
   before `gh issue edit --add-label`.
 - Applied by the loop alone, at the ticket's creation, and never removed by anything afterward.
+
+## Turboable label
+
+Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run
+starts, per `CONTEXT.md`'s "Turboable". It lets the manager merge that ticket's pull request on a
+turbo project once the ticket's apply-review ticket finishes, provided the pull request is also
+mergeable, green and free of declined threads; otherwise the manager labels it `ready-for-human`
+instead.
+
+| Label       | Meaning                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `turboable` | Consents to the manager merging this ticket's pull request once its apply-review ticket finishes.  |
+
+- A label may not exist yet in a given repo: create it on first use (`gh label create turboable`)
+  before `gh issue edit --add-label`.
+- The manager strips it from every ticket it opens, and never applies it.
