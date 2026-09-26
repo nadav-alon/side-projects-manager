@@ -735,7 +735,7 @@ describe("opening a draft pull request for a completed run", () => {
     "Closes #7.",
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
-    "It stays a draft: promoting and merging it are yours.",
+    "It stays a draft: promoting and merging it are yours, unless it's turboable on a turbo project, when the manager may do both itself.",
   ].join("\n");
 
   it("opens with the closing body alone when the run carried no gist", async (t) => {

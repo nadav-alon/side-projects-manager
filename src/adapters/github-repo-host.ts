@@ -956,16 +956,16 @@ export function pullRequestFrom(
  * finding of its own.
  *
  * The closing reference is what links the two in GitHub's own UI. It closes
- * nothing by itself — the pull request is a draft, and only a merge the
- * developer makes acts on it. It stays on its own line either way: a
- * reviewing agent finds the ticket by reading for it.
+ * nothing by itself — the pull request is a draft, and only a merge acts on
+ * it. It stays on its own line either way: a reviewing agent finds the
+ * ticket by reading for it.
  */
 function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string {
   const body = [
     `Closes #${ticket.number}.`,
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
-    "It stays a draft: promoting and merging it are yours.",
+    "It stays a draft: promoting and merging it are yours, unless it's turboable on a turbo project, when the manager may do both itself.",
   ].join("\n");
   const withGist = gist === undefined ? body : [gist, "", body].join("\n");
   return nits === undefined
