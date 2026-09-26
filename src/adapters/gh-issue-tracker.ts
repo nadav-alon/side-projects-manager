@@ -39,8 +39,10 @@ import {
   isIssueNumber,
   isIssueUrl,
   isPullRequestUrl,
+  isRepoSlug,
   isTicketPriority,
   modelLabelOf,
+  repoSlug,
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,
@@ -300,7 +302,7 @@ export function ghIssueTracker(
         `repos/${ticket.repo}/issues/${ticket.number}/sub_issues`,
         "--paginate",
         "--jq",
-        ".[] | {number, title, body, state, labels: [.labels[].name]}",
+        ".[] | {number, title, body, state, labels: [.labels[].name], repository_url}",
       ]);
       return subIssuesIn(stdout, ticket);
     },
@@ -857,6 +859,33 @@ function isInRepo(url: string, repo: RepoSlug): boolean {
 }
 
 /**
+ * The repo a REST `repository_url` names — `https://api.github.com/repos/
+ * <owner>/<repo>` — as a `RepoSlug`. Thrown naming `field` at `at`, the same
+ * as any other malformed answer `subIssuesIn` refuses: `gh` itself would
+ * never shape one differently, but a tracker that did must be refused loudly
+ * rather than handed on as a `Ticket`.
+ */
+function repoInUrl(url: string, field: string, at: string): RepoSlug {
+  const segments = parseUrlPath(url);
+  const slug = segments?.[0] === "repos" ? `${segments[1]}/${segments[2]}` : "";
+  if (!isRepoSlug(slug)) {
+    throw new Error(
+      `${at}: "${field}" was not shaped like .../repos/owner/repo: ${JSON.stringify(url)}`,
+    );
+  }
+  return repoSlug(slug);
+}
+
+/** `url`'s own path segments, or undefined where `url` is not a well-formed URL at all. */
+function parseUrlPath(url: string): string[] | undefined {
+  try {
+    return new URL(url).pathname.split("/").filter(Boolean);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The ticket fields `listOpenIssues` and `subIssuesIn` both read the same way
  * from an issue's own body and labels: whether it is bound to a pull request,
  * its model, priority and size labels, and whether it carries the supertask
@@ -905,10 +934,14 @@ function labelDerivedTicketFields(
 
 /**
  * One sub-issue as `gh api repos/<repo>/issues/<n>/sub_issues --paginate
- * --jq '.[] | {number, title, body, state, labels: [.labels[].name]}'`
- * reports it, one per line — the REST API's own issue shape, unlike
- * `RawIssue`'s GraphQL one, so `state` reads lowercase `open` or `closed`
- * rather than `OPEN` or `CLOSED`.
+ * --jq '.[] | {number, title, body, state, labels: [.labels[].name],
+ * repository_url}'` reports it, one per line — the REST API's own issue
+ * shape, unlike `RawIssue`'s GraphQL one, so `state` reads lowercase `open`
+ * or `closed` rather than `OPEN` or `CLOSED`.
+ *
+ * `repositoryUrl` is read rather than assumed to be `parent`'s own repo: a
+ * sub-issue can live in another repo under the same owner, and GitHub's own
+ * REST issue shape carries which one it is on every issue it returns.
  */
 interface RawSubIssue {
   number: IssueNumber;
@@ -916,14 +949,15 @@ interface RawSubIssue {
   body: string;
   state: string;
   labels: string[];
+  repositoryUrl: string;
 }
 
 /**
  * `gh api .../sub_issues --paginate --jq '.[] | {...}'`: newline-delimited
- * JSON, one `{ number, title, body, state, labels }` per sub-issue of
- * `parent` — open or closed alike, per `CONTEXT.md`'s "Spec review sweep" —
- * across every page `--paginate` reads, so a supertask with more sub-issues
- * than fit on one page is read whole.
+ * JSON, one `{ number, title, body, state, labels, repository_url }` per
+ * sub-issue of `parent` — open or closed alike, per `CONTEXT.md`'s "Spec
+ * review sweep" — across every page `--paginate` reads, so a supertask with
+ * more sub-issues than fit on one page is read whole.
  */
 function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
   const where = `gh api repos/${parent.repo}/issues/${parent.number}/sub_issues --paginate`;
@@ -940,17 +974,19 @@ function subIssuesIn(stdout: string, parent: Ticket): SubIssue[] {
     if (typeof raw !== "object" || raw === null) {
       throw new Error(`${at}: expected an object.`);
     }
-    const { number, title, body, state, labels } = raw as Record<string, unknown>;
+    const { number, title, body, state, labels, repository_url: repositoryUrl } =
+      raw as Record<string, unknown>;
     const issue: RawSubIssue = {
       number: expectIssueNumber(number, "number", at),
       title: expectField(title, "string", "title", at),
       body: expectField(body, "string", "body", at),
       state: expectField(state, "string", "state", at),
       labels: parseLabelNames(labels, at),
+      repositoryUrl: expectField(repositoryUrl, "string", "repository_url", at),
     };
     return {
       ticket: {
-        repo: parent.repo,
+        repo: repoInUrl(issue.repositoryUrl, "repository_url", at),
         number: issue.number,
         title: issue.title,
         ...labelDerivedTicketFields(issue.body, issue.labels),

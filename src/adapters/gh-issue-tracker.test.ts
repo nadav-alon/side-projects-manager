@@ -2294,18 +2294,28 @@ describe("ghIssueTracker.listSubIssues", () => {
     body?: string;
     state: string;
     labels?: string[];
+    repository_url?: string;
   }
 
   /**
    * A fake `gh` body answering as `--paginate --jq '.[] | {...}'` does: one
-   * JSON object per line, not a single array — see `subIssuesIn`.
+   * JSON object per line, not a single array — see `subIssuesIn`. Defaults
+   * `repository_url` to the supertask's own repo, since most sub-issues live
+   * beside their parent; a test of the cross-repo case names its own.
    */
   function subIssues(entries: RawSubIssue[]): string {
     if (entries.length === 0) {
       return ":";
     }
     const lines = entries
-      .map((entry) => JSON.stringify({ body: "", labels: [], ...entry }))
+      .map((entry) =>
+        JSON.stringify({
+          body: "",
+          labels: [],
+          repository_url: `https://api.github.com/repos/${PILOT}`,
+          ...entry,
+        }),
+      )
       .map((line) => `'${line}'`)
       .join(" ");
     return `printf '%s\\n' ${lines}`;
@@ -2333,6 +2343,38 @@ describe("ghIssueTracker.listSubIssues", () => {
     const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
 
     assert.equal(listed[0]?.closed, true);
+  });
+
+  it("reads a sub-issue's own repo where it differs from the supertask's", async (t) => {
+    await recordingGh(
+      t,
+      subIssues([
+        {
+          number: 41,
+          title: "Part one",
+          state: "open",
+          repository_url: "https://api.github.com/repos/nadav-alon/other",
+        },
+      ]),
+    );
+
+    const listed = await ghIssueTracker().listSubIssues(SUPERTASK);
+
+    assert.equal(listed[0]?.ticket.repo, "nadav-alon/other");
+  });
+
+  it("throws naming the answer where a sub-issue's repository_url is not shaped like one", async (t) => {
+    await recordingGh(
+      t,
+      subIssues([
+        { number: 41, title: "Part one", state: "open", repository_url: "not a url" },
+      ]),
+    );
+
+    await assert.rejects(
+      ghIssueTracker().listSubIssues(SUPERTASK),
+      /sub-issue 1.*"repository_url" was not shaped like/,
+    );
   });
 
   it("reads a sub-issue carrying the spec review label as a spec review", async (t) => {
@@ -2380,7 +2422,7 @@ describe("ghIssueTracker.listSubIssues", () => {
   it("throws naming the answer when a sub-issue's state is neither open nor closed", async (t) => {
     await recordingGh(
       t,
-      `echo '{"number": 41, "title": "Part one", "body": "", "state": "draft", "labels": []}'`,
+      `echo '{"number": 41, "title": "Part one", "body": "", "state": "draft", "labels": [], "repository_url": "https://api.github.com/repos/nadav-alon/pilot"}'`,
     );
 
     await assert.rejects(
