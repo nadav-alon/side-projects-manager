@@ -716,25 +716,23 @@ describe("waitingSection", () => {
     ]);
   });
 
-  it("names the merged pull request's implementation ticket on a clean review's own handover line, its branch deleted, rather than marked ready", () => {
+  it("lists nothing for a clean review's own handover once the merge gate has merged its pull request", () => {
     const lines = waitingLines([
       finishedWithHandover(implementationTicket(205), 206),
       cleanReviewMerged(206, implementationTicket(7)),
     ]);
 
-    assert.deepEqual(lines, [
-      `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag, merged, closing ${REPO}#7, its branch deleted`,
-    ]);
+    assert.deepEqual(lines, []);
   });
 
-  it("names the merge gate's own reason on a clean review's own handover line, once it leaves the pull request for the developer to merge", () => {
+  it("lists a clean review's own handover as left for the developer to merge, in the review's own wording rather than the handover's", () => {
     const lines = waitingLines([
       finishedWithHandover(implementationTicket(207), 208),
       cleanReviewLeftForHuman(208),
     ]);
 
     assert.deepEqual(lines, [
-      `- ${REPO}: ${PULL_REQUEST} — reviewed, found nothing to flag, ready for review — left for you to merge: Pull Request is not mergeable`,
+      `- ${REPO}: ${PULL_REQUEST} — left for you to merge: Pull Request is not mergeable`,
     ]);
   });
 

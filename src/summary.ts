@@ -1189,7 +1189,6 @@ function waitingSection(
   projects: ProjectOutcome[],
 ): string | undefined {
   const reviewOutcomes = workedReviewOutcomes(iterations);
-  const handedOverReviews = handoverReviewKeys(iterations);
   const iterationLines = iterations.flatMap((iteration): string[] => {
     switch (iteration.kind) {
       case "reviewed": {
@@ -1197,13 +1196,6 @@ function waitingSection(
           return [notClosedLine(iteration, iteration.notClosed)];
         }
         const { merge } = iteration;
-        // A clean review this same invocation also opened, by way of an
-        // implementation run's own handover, already has its merge-gate
-        // outcome said inline on `handoverLines`' own bullet — saying it
-        // again here would only repeat it.
-        const saidByHandover = handedOverReviews.has(
-          ticketKey(iteration.repo, iteration.ticket.number),
-        );
         return [
           ...(iteration.notLabelled === undefined
             ? []
@@ -1214,7 +1206,7 @@ function waitingSection(
           ...(iteration.notCommented === undefined
             ? []
             : [notCommentedLine(iteration, iteration.notCommented)]),
-          ...(merge?.kind === "left-for-human" && !saidByHandover
+          ...(merge?.kind === "left-for-human"
             ? [
                 `- ${iteration.repo}: ${iteration.ticket.pullRequest.url} — left for you to merge: ${withoutTrailingStop(merge.reason)}`,
               ]
@@ -1358,42 +1350,6 @@ function workedReviewOutcomes(
 }
 
 /**
- * Every review ticket, keyed by repo and ticket number, this same invocation
- * both opened and finished by way of a finished implementation run's own
- * `handover` — `handoverLines`' own precondition for running at all. Read by
- * the `reviewed` case in `waitingSection` so a clean review's merge-gate
- * outcome is never said twice: once inline on `handoverLines`' own bullet,
- * once again on its own.
- */
-function handoverReviewKeys(iterations: IterationOutcome[]): Set<string> {
-  const keys = new Set<string>();
-  for (const iteration of iterations) {
-    if (iteration.kind === "finished" && iteration.handover !== undefined) {
-      keys.add(reviewKey(iteration.repo, iteration.handover));
-    }
-  }
-  return keys;
-}
-
-/**
- * The tail `handoverLines` appends to a clean review's own bullet once it is
- * marked ready for review: what the merge gate came to, on a turbo project —
- * CONTEXT.md's "Turboable", ADR 0009 — or the plain ready-mark otherwise.
- * Bullet-list wording rather than `readyPhrase`/`leftForHumanNote`'s own
- * sentence: this is one clause inside a `- repo: pull request — …` line, not
- * a sentence of its own.
- */
-function handoverReadyPhrase(merge: MergeGate | undefined): string {
-  if (merge?.kind === "merged") {
-    return `, merged, closing ${ticketReference(merge.implementationTicket)}, its branch deleted`;
-  }
-  if (merge?.kind === "left-for-human") {
-    return `, ready for review — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
-  }
-  return ", marked ready for review";
-}
-
-/**
  * The Waiting-on-you lines for a finished run's handover: zero or one. A
  * review not yet worked this invocation is still queued, the same as one an
  * overlapping run closed out from under before this invocation's own attempt
@@ -1403,11 +1359,15 @@ function handoverReadyPhrase(merge: MergeGate | undefined): string {
  * pull request as reviewed: the `reviewed` case adds nothing of its own for
  * that outcome, except — when the label itself failed — its own line about
  * the label rather than the review, so the two stand as separate lines
- * rather than one repeating the other. One that failed some other way, ran
- * but could not close its ticket, or closed instead of running because its
- * own pull request had already resolved, already has its own line — or none
- * — from that iteration's own case, so nothing is added here — a second line
- * would only repeat it.
+ * rather than one repeating the other. A clean review the merge gate merged
+ * or left for the developer to merge is the one exception: the `reviewed`
+ * case already has its own line for either — none at all once merged,
+ * nothing left for the developer to do — so nothing is added here, which
+ * keeps a merged pull request from reading as if it still waited on someone.
+ * One that failed some other way, ran but could not close its ticket, or
+ * closed instead of running because its own pull request had already
+ * resolved, already has its own line — or none — from that iteration's own
+ * case, so nothing is added here — a second line would only repeat it.
  */
 function handoverLines(
   repo: RepoSlug,
@@ -1424,18 +1384,20 @@ function handoverLines(
       `- ${repo}: ${handover.pullRequest} — review queued as ${ticketReference(handover.reviewTicket)}`,
     ];
   }
-  if (reviewOutcome.kind === "reviewed" && !reviewLeftOpen(reviewOutcome)) {
-    return [
-      reviewOutcome.clean
-        ? `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag${
-            reviewOutcome.notReadied === undefined
-              ? handoverReadyPhrase(reviewOutcome.merge)
-              : ""
-          }`
-        : `- ${repo}: ${handover.pullRequest} — reviewed, findings posted`,
-    ];
+  if (reviewOutcome.kind !== "reviewed" || reviewLeftOpen(reviewOutcome)) {
+    return [];
   }
-  return [];
+  if (!reviewOutcome.clean) {
+    return [`- ${repo}: ${handover.pullRequest} — reviewed, findings posted`];
+  }
+  if (reviewOutcome.merge?.kind === "merged" || reviewOutcome.merge?.kind === "left-for-human") {
+    return [];
+  }
+  return [
+    `- ${repo}: ${handover.pullRequest} — reviewed, found nothing to flag${
+      reviewOutcome.notReadied === undefined ? ", marked ready for review" : ""
+    }`,
+  ];
 }
 
 /**
