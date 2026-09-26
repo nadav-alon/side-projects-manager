@@ -32,18 +32,18 @@ export function repoSlug(value: string): RepoSlug { … }
 so `safeParse`'s output carries the brand automatically:
 
 ```ts
-const uidSchema = z.string().min(1).brand<"Uid">();
+const emailSchema = z.string().email().brand<"Email">();
 
-export type Uid = z.infer<typeof uidSchema>;
+export type Email = z.infer<typeof emailSchema>;
 
-export function isUid(value: string): value is Uid {
-  return uidSchema.safeParse(value).success;
+export function isEmail(value: string): value is Email {
+  return emailSchema.safeParse(value).success;
 }
 
-export function uid(value: string): Uid {
-  const result = uidSchema.safeParse(value);
+export function email(value: string): Email {
+  const result = emailSchema.safeParse(value);
   if (!result.success) {
-    throw new Error(`Not a Uid: ${JSON.stringify(value)}`);
+    throw new Error(`Not an Email: ${JSON.stringify(value)}`);
   }
   return result.data;
 }
