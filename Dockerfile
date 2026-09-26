@@ -19,6 +19,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# A Java 21 runtime: the Firebase emulators are Java programs, and a project
+# whose security rules are tested against the Firestore emulator can only run
+# those tests where Java is. Without it the agent writes rules tests it cannot
+# run, and CI is the first place they ever execute. Copied from the Temurin
+# image because firebase-tools refuses anything before 21 and this base's
+# Debian release packages only 17.
+COPY --from=eclipse-temurin:21-jre /opt/java/openjdk /opt/java/openjdk
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
 # The CLI version is a build argument so the layer's cache key carries it.
 # Installed unversioned, the command text never changes, so docker reuses the
 # layer and a rebuild keeps whatever CLI the first build fetched, while the
