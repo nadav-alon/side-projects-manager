@@ -14,7 +14,7 @@ through one checked door.
 
 Two patterns are accepted.
 
-**No zod schema for the primitive yet** — brand with a type-only marker:
+**No schema validates the primitive** — brand with a type-only marker:
 
 ```ts
 declare const repoSlugBrand: unique symbol;
