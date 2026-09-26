@@ -1885,10 +1885,10 @@ async function runSpecReview(
  */
 
 /**
- * What `finishApplyReview` needs to run the merge gate, built once by
- * `runApplyReview` before the ticket closes: `implementation`, resolved while
- * it was still open, and `invocation`, read for its run spans. Absent on a
- * project that is not turbo — the merge gate never asks there.
+ * What `finishApplyReview` and `runReview` need to run the merge gate, built
+ * once by their own callers before the ticket closes: `implementation`,
+ * resolved while it was still open, and `invocation`, read for its run spans.
+ * Absent on a project that is not turbo — the merge gate never asks there.
  */
 interface MergeGateContext {
   implementation: Ticket | undefined;
