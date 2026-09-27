@@ -232,8 +232,8 @@ function specReviewBody(
 }
 
 /**
- * One `- #N` bullet `specReviewBody` names a sub-issue with, per its unmerged
- * pull request if it has one. Named `owner/repo#N`, per `ticketReference`,
+ * One bullet `specReviewBody` names a sub-issue with, per its unmerged pull
+ * request if it has one. Named `owner/repo#N`, per `ticketReference`,
  * where `sub` lives in another repo than `supertaskRepo`: a bare `#N` would
  * resolve against the spec review's own repo — `supertaskRepo` — and name the
  * wrong issue there. The pull request search is scoped the same way: a
