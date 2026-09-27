@@ -1211,6 +1211,9 @@ function waitingSection(
                 `- ${iteration.repo}: ${iteration.ticket.pullRequest.url} — left for you to merge: ${withoutTrailingStop(merge.reason)}`,
               ]
             : []),
+          ...(merge?.kind === "timeline-unreadable"
+            ? [timelineUnreadableWaitingLine(iteration.repo, iteration.ticket.pullRequest.url, merge.error)]
+            : []),
           ...(merge?.kind === "left-for-human" && merge.notLabelled !== undefined
             ? [notLabelledLine(iteration, READY_FOR_HUMAN_PULL_REQUEST_LABEL, merge.notLabelled)]
             : []),
@@ -1359,11 +1362,12 @@ function workedReviewOutcomes(
  * pull request as reviewed: the `reviewed` case adds nothing of its own for
  * that outcome, except — when the label itself failed — its own line about
  * the label rather than the review, so the two stand as separate lines
- * rather than one repeating the other. A clean review the merge gate merged
- * or left for the developer to merge is the one exception: the `reviewed`
- * case already has its own line for either — none at all once merged,
- * nothing left for the developer to do — so nothing is added here, which
- * keeps a merged pull request from reading as if it still waited on someone.
+ * rather than one repeating the other. A clean review the merge gate merged,
+ * left for the developer to merge, or could not check the turboable timeline
+ * of is the one exception: the `reviewed` case already has its own line for
+ * each — none at all once merged, nothing left for the developer to do — so
+ * nothing is added here, which keeps a merged pull request from reading as if
+ * it still waited on someone.
  * One that failed some other way, ran but could not close its ticket, or
  * closed instead of running because its own pull request had already
  * resolved, already has its own line — or none — from that iteration's own
@@ -1390,7 +1394,11 @@ function handoverLines(
   if (!reviewOutcome.clean) {
     return [`- ${repo}: ${handover.pullRequest} — reviewed, findings posted`];
   }
-  if (reviewOutcome.merge?.kind === "merged" || reviewOutcome.merge?.kind === "left-for-human") {
+  if (
+    reviewOutcome.merge?.kind === "merged" ||
+    reviewOutcome.merge?.kind === "left-for-human" ||
+    reviewOutcome.merge?.kind === "timeline-unreadable"
+  ) {
     return [];
   }
   return [
@@ -1747,9 +1755,14 @@ function readyPhrase(merge: MergeGate | undefined): string {
  * What the merge gate left for the developer, appended to
  * `appliedReviewSummary` and `reviewSummary`'s own clean-outcome sentence:
  * empty when it never merges — absent on a project that is not turbo, or
- * `not-turboable` — since neither adds anything to the sentence.
+ * `not-turboable`, since neither adds anything to the sentence. A
+ * `timeline-unreadable` gate gets its own note, since a read failure is not
+ * proof the pull request was ineligible, unlike `not-turboable`.
  */
 function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
+  if (merge?.kind === "timeline-unreadable") {
+    return ` ${timelineUnreadableNote(merge.error)}.`;
+  }
   if (merge?.kind !== "left-for-human") {
     return "";
   }
@@ -1757,6 +1770,26 @@ function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefi
   return merge.notLabelled === undefined
     ? left
     : `${left} ${notLabelledNote(pullRequest, READY_FOR_HUMAN_PULL_REQUEST_LABEL, merge.notLabelled)}.`;
+}
+
+/**
+ * The sentence a merge gate read failure reads as, capitalized to open a new
+ * sentence: read at `leftForHumanNote`'s own full-summary note. The
+ * waiting-on-you line says the same thing lowercased, after its own dash —
+ * see `timelineUnreadableWaitingLine`.
+ */
+function timelineUnreadableNote(error: string): string {
+  return `Merge gate could not check turboable: ${withoutTrailingStop(error)}; merge it yourself if it was turboable`;
+}
+
+/**
+ * The Waiting-on-you line for a pull request the merge gate could not check
+ * the turboable timeline of: the gate never settled eligibility, so this is
+ * not the ordinary `ready for review` line a `not-turboable` verdict leaves
+ * unremarked — the developer needs to know the gate never ran.
+ */
+function timelineUnreadableWaitingLine(repo: RepoSlug, pullRequest: PullRequestUrl, error: string): string {
+  return `- ${repo}: ${pullRequest} — merge gate could not check turboable: ${withoutTrailingStop(error)}; merge it yourself if it was turboable`;
 }
 
 /**
@@ -1788,9 +1821,10 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
 
 /**
  * The Waiting-on-you line for an apply-review iteration: its pull request to
- * review or, on a turbo project, to merge yourself once the gate leaves it
- * for you — or the ticket left open. Absent once the merge gate has merged
- * the pull request itself: nothing is left for the developer to do.
+ * review or, on a turbo project, to merge yourself once the gate leaves it or
+ * could not check its turboable timeline — or the ticket left open. Absent
+ * once the merge gate has merged the pull request itself: nothing is left for
+ * the developer to do.
  */
 function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | undefined {
   const { repo, ticket, notClosed, merge } = iteration;
@@ -1801,8 +1835,11 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       if (merge?.kind === "merged") {
         return undefined;
       }
-      return merge?.kind === "left-for-human"
-        ? `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`
+      if (merge?.kind === "left-for-human") {
+        return `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
+      }
+      return merge?.kind === "timeline-unreadable"
+        ? timelineUnreadableWaitingLine(repo, pullRequest, merge.error)
         : `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
