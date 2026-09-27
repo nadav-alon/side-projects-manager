@@ -248,6 +248,26 @@ export function githubRepoHost(
         : { kind: "pushed", branch, failure: result.failure };
     },
 
+    async readChangedPaths(directory: Checkout, branch: Branch): Promise<string[]> {
+      const base = await currentBranch(directory);
+      if (base === undefined) {
+        throw new Error(
+          `${directory} is not on a branch, so there is no base to diff ${branch} against.`,
+        );
+      }
+      // Three dots, not two: diffed against the merge base rather than the
+      // base branch's own tip, so a base that has moved on since the run
+      // branched never shows up as part of the run's own diff.
+      const { stdout } = await run("git", [
+        "-C",
+        directory,
+        "diff",
+        "--name-only",
+        `${base}...${branch}`,
+      ]);
+      return stdout.split("\n").filter((line) => line !== "");
+    },
+
     async openDraftPullRequest(
       directory: Checkout,
       branch: Branch,

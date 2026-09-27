@@ -5,6 +5,7 @@ import {
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   branch,
+  checkout,
   issueNumber,
   MergeabilityUnknown,
   pullRequestUrl,
@@ -179,6 +180,26 @@ describe("FakeRepoHost readChecksStatus", () => {
     host.checksStatus = () => "red";
 
     assert.equal(await host.readChecksStatus(PULL_REQUEST), "red");
+  });
+});
+
+describe("FakeRepoHost readChangedPaths", () => {
+  const DIRECTORY = checkout(`${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`);
+  const RAN = branch("issue-7-add-the-thing");
+
+  it("answers with nothing by default", async () => {
+    const host = new FakeRepoHost();
+
+    assert.deepEqual(await host.readChangedPaths(DIRECTORY, RAN), []);
+  });
+
+  it("answers with what changedPaths is scripted to say for the branch asked about", async () => {
+    const host = new FakeRepoHost();
+    host.changedPaths = (asked) => (asked === RAN ? ["docs/agents/coding-standards.md"] : []);
+
+    assert.deepEqual(await host.readChangedPaths(DIRECTORY, RAN), [
+      "docs/agents/coding-standards.md",
+    ]);
   });
 });
 
