@@ -186,15 +186,8 @@ export interface InvocationState {
    * Every ticket's own run span recorded so far, live — CONTEXT.md's "Run
    * span". What the merge gate reads to find when a turboable ticket's
    * implementation run started, and every span in the same repo to check a
-   * grant against.
-   *
-   * A span still missing `endedAt` whose opening invocation is dead — not
-   * `runSpanInProgress`, checked the same way `freeDeadInvocations` frees a
-   * dead invocation's worked-today entries — reads here as ended at its own
-   * `startedAt`, its own end instant left unknown, so a grant made after the
-   * crash is not rejected as still inside it. A span still genuinely in
-   * progress, or one this invocation has no journal identity to check, is
-   * returned exactly as recorded.
+   * grant against — a span a crash left open read as `effectiveRunSpans`
+   * reads it, not as stored.
    */
   runSpans(): readonly RunSpan[];
 
