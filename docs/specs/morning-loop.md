@@ -66,7 +66,7 @@ the manager leaves every project working.
 23. As a developer, I want the harness baked into the sandbox image, so that runs don't reinstall it every morning.
 24. As a developer, I want runs to happen one at a time, so that budget accounting stays exact.
 25. As a developer, I want a completed ticket to become a draft PR linked to its issue, so that I can review it where I already read code.
-26. As a developer, I want the PR to stay a draft, so that nothing looks review-ready before I've looked at it.
+26. As a developer, I want the PR to stay a draft until a review promotes it — mine to apply, or one that comes back clean — so that nothing looks review-ready before a review has actually happened.
 
 **Reviewing what it built**
 
@@ -203,9 +203,16 @@ the branch still conflicts. The PR's draft state is never touched. A read or clo
 the run is reported on the iteration, never raised. The summary names a rebased PR under what is
 waiting on the developer, and a handed-back rebase ticket under attempts.
 
-**Merge is manual.** Draft PRs stay drafts until the developer asks for their review to be applied:
-an apply-review ticket that finishes promotes its PR. Nothing else is auto-promoted and nothing is
-auto-merged; merge is always the developer's.
+**Merge is manual, except for a turboable ticket.** Draft PRs stay drafts until the developer asks
+for their review to be applied, or until a review comes back clean: an apply-review ticket that
+finishes, or a clean review (CONTEXT.md's "Clean review"), promotes its PR. On a turbo project, a
+ticket a human labelled `turboable` before its own run started (CONTEXT.md's "Turboable") has its PR
+merged by the manager too, in the same pass, once that apply-review ticket finishes or that clean
+review's ticket closes — with a merge commit and its branch deleted, and only if the PR is
+mergeable, green and free of declined threads; otherwise the manager labels the PR `ready-for-human`
+and stops, with no retry and no re-rebase, leaving it for the developer. See
+`docs/adr/0009-the-manager-merges-a-turboable-tickets-pull-request.md`. Every other merge stays the
+developer's.
 
 **Failure policy.** A run that fails — agent gives up, tests stay red, sandbox errors — discards its
 branch, comments on the ticket, and relabels it for human attention. It is not retried automatically,
@@ -282,8 +289,9 @@ project rather than following one.
 - Running the loop anywhere but the developer's own machine. A cloud trigger is anticipated by keeping
   the loop callable from any trigger, but is not built.
 - Parallel runs. Sequential only.
-- Automatic merging of pull requests, and automatic promotion other than when an apply-review ticket
-  finishes.
+- Merging any pull request other than a turboable ticket's on a turbo project, and promoting one
+  other than through a finished apply-review ticket or a clean review — beyond what **Merge is
+  manual** above describes.
 - Automatic triage. Applying ready-for-agent to implementation tickets stays a human act; pull request
   tickets are the exceptions.
 - Any automatic retry, escalation, or fix-ticket generation arising from review findings, other than
