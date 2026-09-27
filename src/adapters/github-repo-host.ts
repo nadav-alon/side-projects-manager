@@ -1360,7 +1360,7 @@ function closingIssuesIn(value: unknown, at: string): ClosingIssue[] {
  * The repo `closingIssuesReferences` names a closing issue with: `owner/repo`,
  * built from its own `repository: { name, owner: { login } }` — the shape
  * `gh pr list` answers with, distinct from `repository_url`'s URL shape
- * elsewhere in this file.
+ * `gh-issue-tracker.ts` parses.
  */
 function closingIssueRepo(issue: Record<string, unknown>, at: string): RepoSlug {
   const repository = objectField(issue, "repository", at);
