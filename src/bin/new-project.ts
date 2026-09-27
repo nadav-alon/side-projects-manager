@@ -9,7 +9,7 @@ import { errorMessage } from "../error-message.ts";
 import { newProject, type NewProjectRequest } from "../new-project.ts";
 import { repoSlug } from "../ports/index.ts";
 
-const USAGE = `Usage: new-project <owner/repo> [description] [--existing]
+const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--public]
 
   Creates the repo, clones it to the managed location, scaffolds the harness
   into it, registers it, and hands you an interactive session that turns the
@@ -19,7 +19,10 @@ const USAGE = `Usage: new-project <owner/repo> [description] [--existing]
               one. For projects that predate the manager. Its harness is
               proposed as a draft pull request rather than committed to a
               branch you had, and the project is registered paused until you
-              merge it.`;
+              merge it.
+
+  --public    Create the repo public rather than private. Ignored with
+              --existing, which takes the repo as it already stands.`;
 
 /** The composition root of the new-project command, and nothing else. */
 async function main(): Promise<void> {
@@ -57,7 +60,10 @@ function readRequest(argv: string[]): NewProjectRequest {
 function parseRequest(argv: string[]): NewProjectRequest {
   const { values, positionals } = parseArgs({
     args: argv,
-    options: { existing: { type: "boolean", default: false } },
+    options: {
+      existing: { type: "boolean", default: false },
+      public: { type: "boolean", default: false },
+    },
     allowPositionals: true,
   });
 
@@ -71,7 +77,12 @@ function parseRequest(argv: string[]): NewProjectRequest {
     );
   }
 
-  return { repo: repoSlug(repo), description, existing: values.existing };
+  return {
+    repo: repoSlug(repo),
+    description,
+    existing: values.existing,
+    public: values.public,
+  };
 }
 
 main().catch((error: unknown) => {
