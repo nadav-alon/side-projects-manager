@@ -5,6 +5,7 @@ import type {
   HandoverFailed,
   HandoverReach,
   ModelRefused,
+  UniformFilesTouched,
   UnsettledMergeability,
 } from "./iteration-outcome.ts";
 import type {
@@ -173,6 +174,7 @@ export type HandBackEnding =
     })
   | AheadOfGateFailure
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
+  | (UniformFilesTouched & { checkout: Checkout; run: RunFinished })
   | { kind: "finished"; run: RunFinished; handover?: Handover }
   | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath }
   | {
@@ -260,7 +262,8 @@ export async function discardBranch(
 
 /**
  * Discards the branch `ending` left behind, when it left one — none but a
- * gave-up, a worked model refusal, or a worked discovery block ever does.
+ * gave-up, a worked model refusal, a worked discovery block, or a run whose
+ * diff touched a uniform file ever does.
  */
 async function discardIfWorked(
   repoHost: RepoHost,
@@ -274,6 +277,9 @@ async function discardIfWorked(
   }
   if (ending.kind === "discovery-blocked" && ending.worked !== undefined) {
     return discardBranch(repoHost, ending.worked.checkout, ending.worked.run);
+  }
+  if (ending.kind === "uniform-files-touched") {
+    return discardBranch(repoHost, ending.checkout, ending.run);
   }
   return { kind: "none" };
 }
@@ -307,6 +313,8 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
       return unsettledMergeabilityComment(ending);
     case "handover-failed":
       return handoverFailedComment(ending);
+    case "uniform-files-touched":
+      return uniformFilesTouchedComment(ending, discard);
     case "finished":
       return ending.handover === undefined
         ? committedNothingComment(ending.run)
@@ -373,6 +381,25 @@ function handoverFailedComment(ending: HandoverFailed & { transcript?: Transcrip
     `Its work is on the branch ${workLocation(ending, (text) => `\`${text}\``)}.`,
     `This ticket is yours again: it will not be retried.`,
     ...transcriptNote(ending.transcript),
+  ].join("\n\n");
+}
+
+/**
+ * What a ticket is told when a finished run's diff touched a file the manager
+ * keeps uniform across every project: which files, and that no pull request
+ * was opened for it, so a project-local copy never drifts from the one
+ * source silently.
+ */
+function uniformFilesTouchedComment(
+  ending: UniformFilesTouched & { run: RunFinished },
+  discard: Discard,
+): string {
+  return [
+    `The morning loop finished this ticket, but its diff touches a file the manager keeps in sync across every project: ${ending.files.map((file) => `\`${file}\``).join(", ")}.`,
+    `No pull request was opened for it — that would leave this project's own copy drifting from the one source.`,
+    ...branchNote(ending.run.branch, discard),
+    notRetried(),
+    ...transcriptNote(ending.run.transcript),
   ].join("\n\n");
 }
 

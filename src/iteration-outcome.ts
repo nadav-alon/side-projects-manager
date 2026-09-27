@@ -47,6 +47,7 @@ export type RunFailure =
   | HandoverFailed
   | InfrastructureFailure
   | ModelRefused
+  | UniformFilesTouched
   | UnsettledMergeability
   | UnusableModelLabel
   | UnusableSizeLabel;
@@ -85,6 +86,20 @@ export type HandoverReach =
   | { kind: "pushed" }
   /** On the host, in `pullRequest`: only the review ticket failed. */
   | { kind: "opened"; pullRequest: PullRequestUrl };
+
+/**
+ * A run that finished and committed, whose diff touches a file the manager
+ * keeps uniform across every project (`UNIFORM_FILES`, per
+ * `src/ports/harness.ts`). Never opened as a project-local pull request: a
+ * project's own copy drifting from the one source is exactly what a uniform
+ * file exists to prevent, so the branch is discarded, never pushed, and the
+ * ticket is handed back naming the files touched.
+ */
+export interface UniformFilesTouched {
+  kind: "uniform-files-touched";
+  /** The uniform files the run's diff touched, in `UNIFORM_FILES`'s own order. */
+  files: readonly string[];
+}
 
 /**
  * Where the model a run was started on came from. Absent from a run started

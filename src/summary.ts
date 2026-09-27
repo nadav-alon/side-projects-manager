@@ -1465,6 +1465,10 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
       return [
         `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its pull request's mergeability never settled, so check whether it is still open`,
       ];
+    case "uniform-files-touched":
+      return [
+        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`,
+      ];
     case "unusable-size-label": {
       const { problem, fix } = sizeProblem(failure);
       return [
@@ -2039,6 +2043,8 @@ function stoppedBecause(iteration: Attempt & Failed): string {
       return `the agent gave up on ${which}: ${withoutTrailingStop(failure.reason)}. ${now}`;
     case "handover-failed":
       return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${withoutTrailingStop(failure.reason)}. ${now}`;
+    case "uniform-files-touched":
+      return `${which} finished, but its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened. ${now}`;
     case "model-refused":
       return `${which} was not worked, because ${withoutTrailingStop(modelProblem(iteration.ticket, failure).problem)}. ${now}`;
     case "conflicting-model-labels":

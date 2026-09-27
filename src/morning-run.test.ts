@@ -1796,6 +1796,73 @@ describe("morningLoop", () => {
       assert.match(report.message, new RegExp(BRANCH));
     });
 
+    describe("a run whose diff touches a uniform file", () => {
+      it("opens no draft pull request", async () => {
+        const ports = fakePorts();
+        ran(ports);
+        ports.repoHost.changedPaths = () => ["docs/agents/coding-standards.md"];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+      });
+
+      it("discards the branch, rather than leaving it anywhere the developer could push it on", async () => {
+        const ports = fakePorts();
+        ran(ports);
+        ports.repoHost.changedPaths = () => ["docs/agents/coding-standards.md"];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.discarded, [
+          { directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`, branch: BRANCH },
+        ]);
+      });
+
+      it("hands the ticket back, with a comment naming the file touched", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports);
+        ports.repoHost.changedPaths = () => ["docs/agents/coding-standards.md"];
+
+        const report = await morningLoop(ports);
+
+        assert.equal(failureOf(report.iterations[0])?.kind, "uniform-files-touched");
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.ok(handback, "the implementation ticket should have been handed back");
+        assert.match(handback.comment, /docs\/agents\/coding-standards\.md/);
+        assert.equal(ports.tracker.carriesLabel(ticket, "ready-for-human"), true);
+      });
+
+      it("still opens a draft pull request when the diff touches no uniform file", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports);
+        ports.repoHost.changedPaths = () => ["src/widget.ts"];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, [
+          {
+            directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            branch: BRANCH,
+            ticket,
+          },
+        ]);
+      });
+
+      it("takes the ticket out of the queue, so a later invocation does not select it again", async () => {
+        const ports = fakePorts();
+        ran(ports);
+        ports.repoHost.changedPaths = () => ["docs/agents/coding-standards.md"];
+
+        await morningLoop(ports);
+        const tomorrow = await morningLoop(ports);
+
+        assert.equal(tomorrow.outcome, "dry-queue");
+      });
+    });
+
     describe("a blocking discovery", () => {
       function correction(overrides: Partial<Discovery> = {}): Discovery {
         return {

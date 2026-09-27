@@ -13,6 +13,7 @@ import type {
   PullRequestResolved,
   Reviewed,
   SpecReviewed,
+  UniformFilesTouched,
   UnusableModelLabel,
   UnusableSizeLabel,
 } from "./iteration-outcome.ts";
@@ -1264,6 +1265,38 @@ describe("a ticket handed back for an unusable size label", () => {
 
     assert.deepEqual(waitingLines([unusableSizeLabel(307)]), [
       `- ${REPO}#307: relabelled ready-for-human — ${problem}, so ${fix}`,
+    ]);
+  });
+});
+
+describe("a ticket handed back for touching a uniform file", () => {
+  const FAILURE: UniformFilesTouched = {
+    kind: "uniform-files-touched",
+    files: ["docs/agents/coding-standards.md"],
+  };
+
+  function uniformFilesTouched(number: number): IterationOutcome {
+    return {
+      repo: REPO,
+      ticket: implementationTicket(number),
+      kind: "failed",
+      failure: FAILURE,
+      handedBack: { outcome: "handed-back" },
+    };
+  }
+
+  it("says it finished but opened no pull request, and why, in the one-line summary", () => {
+    const line = summaryLine(facts([uniformFilesTouched(306)]));
+
+    assert.match(
+      line,
+      /#306 finished, but its diff touched docs\/agents\/coding-standards\.md, which the manager keeps uniform across every project, so no pull request was opened\. Handed back for a human\./,
+    );
+  });
+
+  it("names the files touched in the waiting-on-you line", () => {
+    assert.deepEqual(waitingLines([uniformFilesTouched(307)]), [
+      `- ${REPO}#307: relabelled ready-for-human — its diff touched docs/agents/coding-standards.md, which the manager keeps uniform across every project, so no pull request was opened`,
     ]);
   });
 });
