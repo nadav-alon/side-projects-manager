@@ -20,6 +20,7 @@ import {
   recordRunSpanStarted,
   recordWorked,
   runSpanFor,
+  runSpanInProgress,
   sameInvocation,
   ticketKey,
   unrecordWorked,
@@ -186,6 +187,14 @@ export interface InvocationState {
    * span". What the merge gate reads to find when a turboable ticket's
    * implementation run started, and every span in the same repo to check a
    * grant against.
+   *
+   * A span still missing `endedAt` whose opening invocation is dead — not
+   * `runSpanInProgress`, checked the same way `freeDeadInvocations` frees a
+   * dead invocation's worked-today entries — reads here as ended at its own
+   * `startedAt`, its own end instant left unknown, so a grant made after the
+   * crash is not rejected as still inside it. A span still genuinely in
+   * progress, or one this invocation has no journal identity to check, is
+   * returned exactly as recorded.
    */
   runSpans(): readonly RunSpan[];
 
@@ -339,12 +348,40 @@ export function invocationState(
       }
     },
     projectStates: () => projects,
-    runSpans: () => runSpans ?? [],
+    runSpans: () => effectiveRunSpans(runSpans, current),
     freed: () => freed,
     save: () => doSave(buildState()),
   };
   exposeRecorder?.(doRecord);
   return state;
+}
+
+/**
+ * `spans` as the merge gate should read them: a span still missing
+ * `endedAt` whose opening invocation is dead — `runSpanInProgress` false —
+ * reads as ended at its own `startedAt` rather than covering everything
+ * after it, so a run a crash left open does not go on blocking every later
+ * turboable grant in its repo. `current` absent, or its journal unreadable,
+ * leaves every span exactly as recorded: the same "frees nothing" fallback
+ * `freeDeadInvocations` takes for the same reason, since dead and alive
+ * cannot be told apart without a journal to check.
+ */
+function effectiveRunSpans(
+  spans: RunSpan[] | undefined,
+  current: CurrentInvocation | undefined,
+): readonly RunSpan[] {
+  if (spans === undefined) {
+    return [];
+  }
+  if (current === undefined || current.journal === undefined) {
+    return spans;
+  }
+  const { self, journal } = current;
+  return spans.map((span) =>
+    span.endedAt === undefined && !runSpanInProgress(span, self, journal)
+      ? { ...span, endedAt: span.startedAt }
+      : span,
+  );
 }
 
 /**
