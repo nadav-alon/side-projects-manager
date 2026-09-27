@@ -66,7 +66,7 @@ the manager leaves every project working.
 23. As a developer, I want the harness baked into the sandbox image, so that runs don't reinstall it every morning.
 24. As a developer, I want runs to happen one at a time, so that budget accounting stays exact.
 25. As a developer, I want a completed ticket to become a draft PR linked to its issue, so that I can review it where I already read code.
-26. As a developer, I want the PR to stay a draft, so that nothing looks review-ready before I've looked at it.
+26. As a developer, I want the PR to stay a draft until a review promotes it — mine to apply, or one that comes back clean — so that nothing looks review-ready before a review has actually happened.
 
 **Reviewing what it built**
 
