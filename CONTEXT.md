@@ -481,8 +481,8 @@ _Avoid_: feature ticket, build ticket
 **Draft pull request**:
 How a run's work reaches the developer: the branch it committed to, pushed, with a draft pull
 request open against the ticket it implemented. The manager opens one and merges it only for a
-turboable ticket — see Turboable. It promotes one — marks it ready for review — only when an
-apply-review ticket on it finishes.
+turboable ticket — see Turboable. It promotes one — marks it ready for review — when an
+apply-review ticket on it finishes, or when its review comes back clean (see **Clean review**).
 _Avoid_: PR (say pull request), submission, patch
 
 **Ticket gist**:
