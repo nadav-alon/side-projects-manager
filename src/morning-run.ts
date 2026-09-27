@@ -2140,10 +2140,7 @@ async function mergeGate(
       context.invocation.runSpans(),
     );
   } catch (error: unknown) {
-    return {
-      kind: "not-turboable",
-      reason: `could not check its turboable timeline: ${errorMessage(error)}`,
-    };
+    return { kind: "timeline-unreadable", error: errorMessage(error) };
   }
   if (!inTime) {
     return { kind: "not-turboable", reason: "not turboable before its own run started" };

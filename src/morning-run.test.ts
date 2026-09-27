@@ -2606,6 +2606,26 @@ describe("morningLoop", () => {
           );
         });
 
+        it("closes the ticket as timeline-unreadable, rather than raising, when reading its turboable timeline fails", async (t) => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          t.mock.method(ports.tracker, "wasTurboableAt", async () => {
+            throw new Error("tracker unavailable");
+          });
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.equal(outcome?.kind, "reviewed");
+          assert.deepEqual(ports.tracker.closedReviewTickets.length, 1);
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "timeline-unreadable", error: "tracker unavailable" },
+          );
+        });
+
         it("labels the pull request ready-for-human instead of merging when its checks are still running", async () => {
           const ports = fakePorts();
           queuedTurboableReview(ports);
@@ -4269,7 +4289,7 @@ describe("morningLoop", () => {
         );
       });
 
-      it("closes the ticket as not-turboable, rather than raising, when reading its turboable timeline fails", async (t) => {
+      it("closes the ticket as timeline-unreadable, rather than raising, when reading its turboable timeline fails", async (t) => {
         const ports = fakePorts();
         queuedTurboable(ports);
         t.mock.method(ports.tracker, "wasTurboableAt", async () => {
@@ -4279,15 +4299,18 @@ describe("morningLoop", () => {
         const report = await morningLoop(ports);
 
         assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(
+          ports.repoHost.labelled.filter(
+            (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+          ),
+          [],
+        );
         const outcome = report.iterations[0];
         assert.equal(outcome?.kind, "applied-review");
         assert.deepEqual(ports.tracker.closedApplyReviewTickets.length, 1);
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          {
-            kind: "not-turboable",
-            reason: "could not check its turboable timeline: tracker unavailable",
-          },
+          { kind: "timeline-unreadable", error: "tracker unavailable" },
         );
       });
 

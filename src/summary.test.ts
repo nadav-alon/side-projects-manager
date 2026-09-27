@@ -251,6 +251,18 @@ function cleanReviewNotTurboable(number: number): IterationOutcome {
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
 
+/** A turbo project's clean review the merge gate could not check the turboable timeline of. */
+function cleanReviewTimelineUnreadable(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    clean: true,
+    merge: { kind: "timeline-unreadable", error: "tracker unavailable" },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
 /** A turboable ticket's clean review whose pull request the merge gate merged, closing `implementation`. */
 function cleanReviewMerged(
   number: number,
@@ -325,6 +337,18 @@ function appliedReviewNotTurboable(number: number): IterationOutcome {
     tokensUsed: tokenCount(500),
     answers: { applied: 2, declined: 1 },
     merge: { kind: "not-turboable", reason: "not turboable before its own run started" },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** A turbo project's apply-review run the merge gate could not check the turboable timeline of. */
+function appliedReviewTimelineUnreadable(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 0 },
+    merge: { kind: "timeline-unreadable", error: "tracker unavailable" },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
@@ -736,6 +760,17 @@ describe("waitingSection", () => {
     ]);
   });
 
+  it("lists a clean review's own handover as a merge gate read failure once, not alongside the ordinary handover line", () => {
+    const lines = waitingLines([
+      finishedWithHandover(implementationTicket(210), 211),
+      cleanReviewTimelineUnreadable(211),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — merge gate could not check turboable: tracker unavailable; merge it yourself if it was turboable`,
+    ]);
+  });
+
   it("lists an applied-review iteration under waiting on you when its pull request could not be labelled, alongside its ready-for-review line", () => {
     const lines = waitingLines([appliedReviewButNotLabelled(184)]);
 
@@ -765,6 +800,14 @@ describe("waitingSection", () => {
     ]);
   });
 
+  it("lists an apply-review iteration's own merge gate read failure, rather than the ordinary ready-for-review line", () => {
+    const lines = waitingLines([appliedReviewTimelineUnreadable(189)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — merge gate could not check turboable: tracker unavailable; merge it yourself if it was turboable`,
+    ]);
+  });
+
   it("also lists a refused ready-for-human label, alongside the merge gate's own left-for-you line", () => {
     const lines = waitingLines([appliedReviewLeftForHumanButNotLabelled(187)]);
 
@@ -784,6 +827,14 @@ describe("waitingSection", () => {
     const lines = waitingLines([cleanReviewNotTurboable(202)]);
 
     assert.deepEqual(lines, []);
+  });
+
+  it("lists a clean review's own merge gate read failure, unlike a settled not-turboable verdict, which lists nothing", () => {
+    const lines = waitingLines([cleanReviewTimelineUnreadable(209)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — merge gate could not check turboable: tracker unavailable; merge it yourself if it was turboable`,
+    ]);
   });
 
   it("lists a clean review iteration under waiting on you as left for the developer to merge, once the merge gate leaves it", () => {
@@ -1365,6 +1416,15 @@ describe("summaryLine", () => {
     );
   });
 
+  it("says the merge gate could not check turboable for a clean review whose timeline read failed, rather than reading silently as ready for review", () => {
+    const line = summaryLine(facts([cleanReviewTimelineUnreadable(224)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO}#224: found nothing to flag on ${PULL_REQUEST}, now ready for review. Merge gate could not check turboable: tracker unavailable; merge it yourself if it was turboable.`,
+    );
+  });
+
   it("names the merged pull request's implementation ticket, its branch deleted, rather than ready for review, for a clean review", () => {
     const line = summaryLine(facts([cleanReviewMerged(221, implementationTicket(7))]));
 
@@ -1416,6 +1476,15 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Applied review on ${REPO}#216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+    );
+  });
+
+  it("says the merge gate could not check turboable for an apply-review iteration whose timeline read failed, rather than reading silently as ready for review", () => {
+    const line = summaryLine(facts([appliedReviewTimelineUnreadable(220)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO}#220: 2 applied, 0 declined on ${PULL_REQUEST}, now ready for review. Merge gate could not check turboable: tracker unavailable; merge it yourself if it was turboable.`,
     );
   });
 
