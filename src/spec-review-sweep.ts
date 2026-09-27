@@ -236,7 +236,10 @@ function specReviewBody(
  * pull request if it has one. Named `owner/repo#N`, per `ticketReference`,
  * where `sub` lives in another repo than `supertaskRepo`: a bare `#N` would
  * resolve against the spec review's own repo — `supertaskRepo` — and name the
- * wrong issue there.
+ * wrong issue there. The pull request search is scoped the same way: a
+ * candidate only matches where its `closesIssues` names `sub`'s own repo and
+ * number together, since a cross-repo sub-issue's number can coincide with an
+ * unrelated issue `closesIssues` names in `supertaskRepo`.
  */
 function subIssueLine(
   supertaskRepo: RepoSlug,
@@ -248,7 +251,9 @@ function subIssueLine(
       ? `#${sub.ticket.number}`
       : ticketReference(sub.ticket);
   const pullRequest = closingPullRequests.find((candidate) =>
-    candidate.closesIssues.includes(sub.ticket.number),
+    candidate.closesIssues.some(
+      (closed) => closed.repo === sub.ticket.repo && closed.number === sub.ticket.number,
+    ),
   );
   if (pullRequest === undefined || pullRequest.state === "merged") {
     return `- ${name}`;

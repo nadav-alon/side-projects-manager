@@ -314,6 +314,16 @@ export interface OpenPullRequest {
 }
 
 /**
+ * One issue a {@link ClosingPullRequest} closes, in whichever repo it lives:
+ * a pull request can close an issue in another repo, and GitHub's own
+ * `closingIssuesReferences` names that repo on every issue it lists, so
+ * matching a sub-issue to the pull request that closes it (`subIssueLine`,
+ * `spec-review-sweep.ts`) never has to assume it shares the pull request's
+ * own repo.
+ */
+export type ClosingIssue = Pick<Ticket, "repo" | "number">;
+
+/**
  * One pull request of any state, as {@link RepoHost.listPullRequestsClosingIssues}
  * lists it: its own number, its state, its own branch, and the issues its
  * body closes — every one of them, since a pull request can close more than
@@ -329,7 +339,7 @@ export interface ClosingPullRequest {
   number: IssueNumber;
   state: PullRequestState;
   branch: Branch;
-  closesIssues: readonly IssueNumber[];
+  closesIssues: readonly ClosingIssue[];
 }
 
 /**

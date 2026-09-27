@@ -264,7 +264,7 @@ describe("FakeRepoHost listPullRequestsClosingIssues", () => {
         number: issueNumber(50),
         state: "merged" as const,
         branch: branch("41-part-one"),
-        closesIssues: [issueNumber(41)],
+        closesIssues: [{ repo: PILOT, number: issueNumber(41) }],
       },
     ];
     host.setPullRequestsClosingIssues(PILOT, scripted);

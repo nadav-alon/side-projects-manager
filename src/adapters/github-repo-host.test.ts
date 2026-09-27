@@ -2009,12 +2009,23 @@ describe("listing a repo's open pull requests", () => {
 });
 
 describe("listing a repo's pull requests closing issues", () => {
+  interface RawClosingIssue {
+    number: number;
+    repository: { name: string; owner: { login: string } };
+  }
+
+  const IN_PILOT = { name: "pilot", owner: { login: "nadav-alon" } };
+
+  function closingIssue(number: number, repository = IN_PILOT): RawClosingIssue {
+    return { number, repository };
+  }
+
   function listing(
     entries: {
       number: number;
       state: string;
       headRefName: string;
-      closingIssuesReferences: { number: number }[];
+      closingIssuesReferences: RawClosingIssue[];
     }[],
   ): string {
     return JSON.stringify(entries);
@@ -2026,7 +2037,7 @@ describe("listing a repo's pull requests closing issues", () => {
       number: number;
       state: string;
       headRefName: string;
-      closingIssuesReferences: { number: number }[];
+      closingIssuesReferences: RawClosingIssue[];
     }[],
   ) {
     const gh = await recordingGh(t, `cat <<'JSON'\n${listing(entries)}\nJSON`);
@@ -2040,12 +2051,17 @@ describe("listing a repo's pull requests closing issues", () => {
         number: 50,
         state: "MERGED",
         headRefName: "41-part-one",
-        closingIssuesReferences: [{ number: 41 }],
+        closingIssuesReferences: [closingIssue(41)],
       },
     ]);
 
     assert.deepEqual(pullRequests, [
-      { number: 50, state: "merged", branch: "41-part-one", closesIssues: [41] },
+      {
+        number: 50,
+        state: "merged",
+        branch: "41-part-one",
+        closesIssues: [{ repo: PILOT, number: 41 }],
+      },
     ]);
   });
 
@@ -2055,11 +2071,31 @@ describe("listing a repo's pull requests closing issues", () => {
         number: 50,
         state: "OPEN",
         headRefName: "combo",
-        closingIssuesReferences: [{ number: 41 }, { number: 42 }],
+        closingIssuesReferences: [closingIssue(41), closingIssue(42)],
       },
     ]);
 
-    assert.deepEqual(pullRequests[0]?.closesIssues, [41, 42]);
+    assert.deepEqual(pullRequests[0]?.closesIssues, [
+      { repo: PILOT, number: 41 },
+      { repo: PILOT, number: 42 },
+    ]);
+  });
+
+  it("names the repo of an issue it closes in another repo", async (t) => {
+    const { pullRequests } = await listedFrom(t, [
+      {
+        number: 50,
+        state: "OPEN",
+        headRefName: "cross-repo",
+        closingIssuesReferences: [
+          closingIssue(41, { name: "other", owner: { login: "nadav-alon" } }),
+        ],
+      },
+    ]);
+
+    assert.deepEqual(pullRequests[0]?.closesIssues, [
+      { repo: repoSlug("nadav-alon/other"), number: 41 },
+    ]);
   });
 
   it("lists a pull request closing no issue with an empty list, not dropped and not an error", async (t) => {
@@ -2075,6 +2111,18 @@ describe("listing a repo's pull requests closing issues", () => {
     assert.deepEqual(pullRequests, [
       { number: 50, state: "closed", branch: "stray", closesIssues: [] },
     ]);
+  });
+
+  it("throws naming the answer when a closing issue's repository is malformed", async (t) => {
+    await recordingGh(
+      t,
+      `echo '[{"number": 50, "state": "OPEN", "headRefName": "x", "closingIssuesReferences": [{"number": 41, "repository": {"name": "pilot"}}]}]'`,
+    );
+
+    await assert.rejects(
+      githubRepoHost().listPullRequestsClosingIssues(PILOT),
+      /"owner" must be an object/,
+    );
   });
 
   it("asks for pull requests of any state, capped at CLOSING_PULL_REQUEST_LIMIT", async (t) => {
