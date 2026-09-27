@@ -1365,7 +1365,9 @@ function closingIssuesIn(value: unknown, at: string): ClosingIssue[] {
 function closingIssueRepo(issue: Record<string, unknown>, at: string): RepoSlug {
   const repository = objectField(issue, "repository", at);
   const owner = objectField(repository, "owner", at);
-  const slug = `${expectField(owner.login, "string", "owner.login", at)}/${expectField(repository.name, "string", "repository.name", at)}`;
+  const login = expectField(owner.login, "string", "owner.login", at);
+  const name = expectField(repository.name, "string", "repository.name", at);
+  const slug = `${login}/${name}`;
   if (!isRepoSlug(slug)) {
     throw new Error(
       `${at}: "repository" did not name a repo slug: ${JSON.stringify(slug)}`,
