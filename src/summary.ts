@@ -1196,6 +1196,7 @@ function waitingSection(
           return [notClosedLine(iteration, iteration.notClosed)];
         }
         const { merge } = iteration;
+        const mergeLine = mergeGateWaitingLine(iteration.repo, iteration.ticket.pullRequest.url, merge);
         return [
           ...(iteration.notLabelled === undefined
             ? []
@@ -1206,14 +1207,7 @@ function waitingSection(
           ...(iteration.notCommented === undefined
             ? []
             : [notCommentedLine(iteration, iteration.notCommented)]),
-          ...(merge?.kind === "left-for-human"
-            ? [
-                `- ${iteration.repo}: ${iteration.ticket.pullRequest.url} — left for you to merge: ${withoutTrailingStop(merge.reason)}`,
-              ]
-            : []),
-          ...(merge?.kind === "timeline-unreadable"
-            ? [timelineUnreadableWaitingLine(iteration.repo, iteration.ticket.pullRequest.url, merge.error)]
-            : []),
+          ...(mergeLine === undefined ? [] : [mergeLine]),
           ...(merge?.kind === "left-for-human" && merge.notLabelled !== undefined
             ? [notLabelledLine(iteration, READY_FOR_HUMAN_PULL_REQUEST_LABEL, merge.notLabelled)]
             : []),
@@ -1794,6 +1788,30 @@ function timelineUnreadableWaitingLine(repo: RepoSlug, pullRequest: PullRequestU
 }
 
 /**
+ * The Waiting-on-you line for what the merge gate left the developer to do
+ * themselves: merge a pull request it left for human review, or check
+ * turboable itself for one whose timeline it could not read. Undefined for
+ * every other verdict — merged or not-turboable leave nothing to add, and
+ * a caller with no merge gate at all has nothing to ask this about. Shared
+ * by `waitingSection`'s `reviewed` case and `appliedReviewWaitingLine`, so
+ * a verdict kind added later needs one edit instead of two.
+ */
+function mergeGateWaitingLine(
+  repo: RepoSlug,
+  pullRequest: PullRequestUrl,
+  merge: MergeGate | undefined,
+): string | undefined {
+  switch (merge?.kind) {
+    case "left-for-human":
+      return `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
+    case "timeline-unreadable":
+      return timelineUnreadableWaitingLine(repo, pullRequest, merge.error);
+    default:
+      return undefined;
+  }
+}
+
+/**
  * How an apply-review ticket's iteration reads to the developer: what it
  * applied and declined, that the pull request is ready for review or, on a
  * turbo project, what the merge gate came to — or why the loop could not
@@ -1836,12 +1854,7 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       if (merge?.kind === "merged") {
         return undefined;
       }
-      if (merge?.kind === "left-for-human") {
-        return `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
-      }
-      return merge?.kind === "timeline-unreadable"
-        ? timelineUnreadableWaitingLine(repo, pullRequest, merge.error)
-        : `- ${repo}: ${pullRequest} — ready for review`;
+      return mergeGateWaitingLine(repo, pullRequest, merge) ?? `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
     case "ready-failed":
