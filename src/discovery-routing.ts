@@ -1,17 +1,64 @@
 import type {
   Discovery,
   DiscoveryKind,
+  IssueReference,
   IssueTracker,
+  RepoSlug,
   Ticket,
 } from "./ports/index.ts";
 import {
   discoveredBody,
+  isIssueNumber,
   isPullRequestTicket,
+  isRepoSlug,
   isSpecReviewTicket,
   parentTicketIn,
   targetNoun,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
+
+/**
+ * GitHub's own two shapes for naming an issue in text, per `ticketReference`:
+ * `owner/repo#n`, or a bare `#n` for the repo the text is posted in. Matched
+ * loosely — the owner and repo character classes are looser than
+ * `isRepoSlug`'s own, which `referencedIssueIn` checks afterwards — so a
+ * match here is a candidate, never a guarantee.
+ */
+const ISSUE_REFERENCE = /([A-Za-z0-9][\w.-]*\/[A-Za-z0-9._-]+)#(\d+)|#(\d+)/;
+
+/**
+ * The existing issue a prerequisite discovery's body names it waits on, per
+ * `CONTEXT.md`'s "Discovery": the first `owner/repo#n` or bare `#n` found in
+ * `body`, the two shapes `ticketReference` itself produces and so the two
+ * GitHub autolinks from any repo. A bare `#n` names an issue in `sameRepo` —
+ * the target the prerequisite would otherwise block — the way GitHub itself
+ * resolves one to whichever repo the text is posted in. `undefined` where
+ * `body` names neither, or names a repo that is not shaped like one — a typo
+ * misread as a nonexistent issue is safer than one silently redirected to
+ * `sameRepo`.
+ */
+export function referencedIssueIn(
+  body: string,
+  sameRepo: RepoSlug,
+): IssueReference | undefined {
+  const match = ISSUE_REFERENCE.exec(body);
+  if (match === null) {
+    return undefined;
+  }
+  const [, repoText, crossNumber, bareNumber] = match;
+  const numberText = crossNumber ?? bareNumber;
+  if (numberText === undefined) {
+    return undefined;
+  }
+  const number = Number(numberText);
+  if (!isIssueNumber(number)) {
+    return undefined;
+  }
+  if (repoText === undefined) {
+    return { repo: sameRepo, number };
+  }
+  return isRepoSlug(repoText) ? { repo: repoText, number } : undefined;
+}
 
 /**
  * Whether `kind` stops the run's own ticket from finishing normally, per

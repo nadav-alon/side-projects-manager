@@ -5,6 +5,7 @@ import {
   blockingDiscoveriesOf,
   hasBlockingDiscovery,
   isAgentBrief,
+  referencedIssueIn,
   routeDiscoveries,
   routeRunDiscoveries,
 } from "./discovery-routing.ts";
@@ -15,6 +16,7 @@ import {
   READY_FOR_AGENT_LABEL,
   issueNumber,
   pullRequestUrl,
+  repoSlug,
   type Discovery,
 } from "./ports/index.ts";
 import { AGENT_BRIEF_BODY, FakeIssueTracker, PILOT } from "./testing/index.ts";
@@ -353,6 +355,42 @@ describe("isAgentBrief", () => {
       "**Out of scope:** a configurable backoff strategy.",
     ].join("\n\n");
     assert.equal(isAgentBrief(body), true);
+  });
+});
+
+describe("referencedIssueIn", () => {
+  const PILOT_SLUG = repoSlug("nadav-alon/pilot");
+
+  it("reads a bare #n as an issue in the same repo", () => {
+    assert.deepEqual(referencedIssueIn("Needs #9 done first.", PILOT_SLUG), {
+      repo: PILOT_SLUG,
+      number: issueNumber(9),
+    });
+  });
+
+  it("reads owner/repo#n as an issue in the named repo", () => {
+    assert.deepEqual(
+      referencedIssueIn("Needs nadav-alon/data-platform#9 done first.", PILOT_SLUG),
+      { repo: repoSlug("nadav-alon/data-platform"), number: issueNumber(9) },
+    );
+  });
+
+  it("takes the first reference when more than one appears", () => {
+    assert.deepEqual(
+      referencedIssueIn("Needs #9 first, related to #12.", PILOT_SLUG),
+      { repo: PILOT_SLUG, number: issueNumber(9) },
+    );
+  });
+
+  it("answers undefined when the body names no issue", () => {
+    assert.equal(
+      referencedIssueIn("There is no widget port to build against yet.", PILOT_SLUG),
+      undefined,
+    );
+  });
+
+  it("answers undefined rather than guessing the same repo, when the named repo is not shaped like one", () => {
+    assert.equal(referencedIssueIn("Needs foo_bar/baz#9 done first.", PILOT_SLUG), undefined);
   });
 });
 
