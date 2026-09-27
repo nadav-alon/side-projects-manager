@@ -16,6 +16,7 @@ import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
+const OTHER = repoSlug("nadav-alon/other");
 
 /**
  * A fresh tracker and repo host, with a supertask (#40, "Too big for one
@@ -46,6 +47,21 @@ async function sweptSupertask(): Promise<{
   tracker.closeOutOfBand(child);
   const openIssues = await tracker.listOpenIssues(PILOT);
   return { tracker, repoHost, supertask, openIssues };
+}
+
+/**
+ * A closed sub-issue of `supertask`, in `OTHER` rather than `PILOT`, numbered
+ * the same as `supertask`'s own #41 — what the cross-repo tests below share
+ * before each diverges on the pull requests it hands the sweep.
+ */
+function crossRepoSubIssue(tracker: FakeIssueTracker, supertask: Ticket): Ticket {
+  const crossRepoChild = tracker.addEligibleTicket(OTHER, {
+    number: issueNumber(41),
+    title: "Same-numbered issue in another repo",
+  });
+  tracker.closeOutOfBand(crossRepoChild);
+  tracker.linkSubIssue(supertask, crossRepoChild);
+  return crossRepoChild;
 }
 
 describe("specReviewSweep", () => {
@@ -411,14 +427,8 @@ describe("specReviewSweep", () => {
   });
 
   it("names a sub-issue in another repo as owner/repo#N, not a bare number that would resolve against the supertask's own repo", async () => {
-    const OTHER = repoSlug("nadav-alon/other");
     const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
-    const crossRepoChild = tracker.addEligibleTicket(OTHER, {
-      number: issueNumber(41),
-      title: "Same-numbered issue in another repo",
-    });
-    tracker.closeOutOfBand(crossRepoChild);
-    tracker.linkSubIssue(supertask, crossRepoChild);
+    crossRepoSubIssue(tracker, supertask);
 
     await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
 
@@ -428,14 +438,8 @@ describe("specReviewSweep", () => {
   });
 
   it("does not credit a cross-repo sub-issue with a pull request that closes a same-numbered issue in the supertask's own repo", async () => {
-    const OTHER = repoSlug("nadav-alon/other");
     const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
-    const crossRepoChild = tracker.addEligibleTicket(OTHER, {
-      number: issueNumber(41),
-      title: "Same-numbered issue in another repo",
-    });
-    tracker.closeOutOfBand(crossRepoChild);
-    tracker.linkSubIssue(supertask, crossRepoChild);
+    crossRepoSubIssue(tracker, supertask);
     repoHost.setPullRequestsClosingIssues(PILOT, [
       {
         number: issueNumber(50),
@@ -450,6 +454,27 @@ describe("specReviewSweep", () => {
     const body = tracker.specReviewTickets[0]?.body ?? "";
     assert.match(body, /^- #41: pull request #50 on branch `41-part-one`, open\s*$/m);
     assert.match(body, /^- nadav-alon\/other#41\s*$/m);
+  });
+
+  it("credits a cross-repo sub-issue with a pull request that closes it in its own repo", async () => {
+    const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
+    crossRepoSubIssue(tracker, supertask);
+    repoHost.setPullRequestsClosingIssues(PILOT, [
+      {
+        number: issueNumber(50),
+        state: "open",
+        branch: branch("41-part-one"),
+        closesIssues: [{ repo: OTHER, number: issueNumber(41) }],
+      },
+    ]);
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    const body = tracker.specReviewTickets[0]?.body ?? "";
+    assert.match(
+      body,
+      /^- nadav-alon\/other#41: pull request #50 on branch `41-part-one`, open\s*$/m,
+    );
   });
 
   it("records a refusal and carries on to the next supertask", async () => {
