@@ -1874,6 +1874,34 @@ describe("morningLoop", () => {
         );
       });
 
+      it("proceeds exactly as normal for a prerequisite naming an existing open issue, blocking it directly instead of handing the ticket back", async () => {
+        const ports = fakePorts();
+        const blocker = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        const ticket = ran(ports, {
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: `There is no widget port yet: needs #${blocker.number} done first.`,
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(pullRequestOf(report.iterations[0]), FakeRepoHost.RUN_PULL_REQUEST);
+        assert.equal(ports.tracker.discoveredTickets.length, 0);
+        assert.equal(report.iterations[0]?.kind, "finished");
+        const comment = ports.tracker.comments.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.match(comment?.comment ?? "", /Blocked on nadav-alon\/pilot#9 until it closes\./);
+        assert.doesNotMatch(comment?.comment ?? "", /blocking discovery/);
+      });
+
       it("files only the first of two suggestions, reporting one dropped", async () => {
         const ports = fakePorts();
         ran(ports, {
@@ -3202,6 +3230,49 @@ describe("morningLoop", () => {
         assert.notEqual(handback?.ticket.number, implementation.number);
         assert.match(handback?.comment ?? "", /implementation ticket, nadav-alon\/pilot#7/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
+
+      it("blocks the implementation ticket on an existing open issue directly, closing the review ticket normally rather than handing anything back", async () => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: review } = queuedWithImplementation(
+          ports,
+          "review",
+        );
+        const blocker = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: `There is no widget port yet: needs #${blocker.number} done first.`,
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 0);
+        assert.deepEqual(
+          ports.tracker.closedReviewTickets.map((ticket) => ticket.number),
+          [review.number],
+        );
+        assert.equal(
+          ports.tracker.handbacks.some((entry) => entry.ticket.number === implementation.number),
+          false,
+        );
+        assert.equal(ports.tracker.carriesLabel(implementation, READY_FOR_AGENT_LABEL), true);
+        const comment = ports.tracker.comments.find(
+          (entry) => entry.ticket.number === implementation.number,
+        );
+        assert.match(comment?.comment ?? "", /Blocked on nadav-alon\/pilot#9 until it closes\./);
+        assert.equal(report.iterations[0]?.kind, "reviewed");
       });
 
       it("hands back the review ticket for a gave-up run that also filed a correction, not as a gave-up run", async () => {
