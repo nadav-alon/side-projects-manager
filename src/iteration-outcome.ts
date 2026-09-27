@@ -715,10 +715,19 @@ export type MergeGate =
   /**
    * The manager never merges: `reason` says why — the implementation ticket
    * did not carry `turboable` before its own run started, never ran at all
-   * per the timeline this reads, could not be found, or its timeline could
-   * not be read.
+   * per the timeline this reads, or could not be found. Settled: proof the
+   * pull request was not eligible, unlike `timeline-unreadable`.
    */
   | { kind: "not-turboable"; reason: string }
+  /**
+   * The gate never settled eligibility: reading the implementation ticket's
+   * turboable timeline itself failed, so whether it carried `turboable` in
+   * time is unknown rather than disproved. `error` is the read failure.
+   * Unlike `not-turboable`, this is not proof the pull request was
+   * ineligible, so it gets its own waiting-on-you line rather than reading
+   * as an ordinary `now ready for review`.
+   */
+  | { kind: "timeline-unreadable"; error: string }
   /**
    * Mergeable, green and free of declined threads: merged with a merge
    * commit, its branch deleted with it. `implementationTicket` is the
