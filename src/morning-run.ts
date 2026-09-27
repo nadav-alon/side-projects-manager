@@ -898,7 +898,22 @@ async function handOver(
     return { kind: "finished", run, tokensUsed: run.tokensUsed, handedBack };
   }
 
-  const touched = await touchedUniformFiles(ports.repoHost, checkout, run.branch);
+  let touched: string[];
+  try {
+    touched = await touchedUniformFiles(ports.repoHost, checkout, run.branch);
+  } catch (error: unknown) {
+    // The same checkout state (typically a detached HEAD) that would have
+    // failed the push inside `openDraftPullRequest` below fails this read
+    // first — handled the same way, so a run whose checkout cannot be
+    // diffed is no worse off than one whose branch could not be pushed.
+    return handoverFailed(
+      ports,
+      ticket,
+      run,
+      `its diff could not be read: ${errorMessage(error)}`,
+      { kind: "unpushed", checkout },
+    );
+  }
   if (touched.length > 0) {
     return uniformFilesTouchedOutcome(ports, ticket, checkout, run, touched);
   }

@@ -1851,6 +1851,30 @@ describe("morningLoop", () => {
         ]);
       });
 
+      it("hands the ticket back as a failed handover, rather than crashing the invocation, when its diff cannot be read", async (t) => {
+        const ports = fakePorts();
+        ran(ports);
+        t.mock.method(ports.repoHost, "readChangedPaths", async () => {
+          throw new Error("fatal: not a git repository");
+        });
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(8),
+          title: "Add the other thing",
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.outcome, "work-selected");
+        assert.equal(failureOf(report.iterations[0])?.kind, "handover-failed");
+        assert.match(report.message, /fatal: not a git repository/);
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        // The next iteration still ran: #8, after #7's diff could not be read.
+        assert.deepEqual(
+          ports.sandbox.runs.map((run) => run.ticket.number),
+          [7, 8],
+        );
+      });
+
       it("takes the ticket out of the queue, so a later invocation does not select it again", async () => {
         const ports = fakePorts();
         ran(ports);
