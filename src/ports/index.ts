@@ -22,6 +22,7 @@ export { exitCode, isExitCode } from "./exit-code.ts";
 export type { ExitCode } from "./exit-code.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
 export type { Harness, Scaffold } from "./harness.ts";
+export { UNIFORM_FILES } from "./harness.ts";
 export { isIssueNumber, issueNumber } from "./issue-number.ts";
 export type { IssueNumber } from "./issue-number.ts";
 export { isIssueUrl, issueUrl } from "./issue-url.ts";

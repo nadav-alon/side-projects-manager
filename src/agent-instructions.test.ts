@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { UNIFORM_FILES } from "./adapters/directory-harness.ts";
 import { agentInstructions } from "./agent-instructions.ts";
-import { repoSlug } from "./ports/index.ts";
+import { UNIFORM_FILES, repoSlug } from "./ports/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 

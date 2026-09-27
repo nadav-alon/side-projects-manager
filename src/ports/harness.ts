@@ -1,5 +1,31 @@
 import type { Checkout } from "./checkout.ts";
 
+/**
+ * The files every project gets, byte for byte, at the paths the agent
+ * instructions point at.
+ *
+ * These are the manager's own copies: the manager is a registered project like
+ * any other, so improving the conventions it works under improves the ones
+ * every project it scaffolds works under, from one source rather than a
+ * drifting copy in each project. Nothing listed here may name the manager, or a project would
+ * arrive carrying a reference back to it.
+ *
+ * Declared here, beside the port, rather than only in the adapter that copies
+ * them: the loop reads this same list to catch a run's diff touching one of
+ * them before it becomes a project-local pull request (see `morning-run.ts`'s
+ * `handOver`), and a second copy of the list would drift from this one
+ * unnoticed.
+ */
+export const UNIFORM_FILES = [
+  "docs/agents/coding-standards.md",
+  "docs/agents/issue-tracker.md",
+  "docs/agents/ticket-scope.md",
+  "docs/agents/triage-labels.md",
+  "docs/agents/domain.md",
+  ".github/workflows/apply-review.yml",
+  ".github/workflows/rebase.yml",
+] as const;
+
 /** What one scaffolding put into a checkout. */
 export interface Scaffold {
   /** Every path written, relative to the checkout, in the order written. */

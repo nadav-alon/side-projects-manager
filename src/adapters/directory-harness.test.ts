@@ -5,8 +5,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import type { Checkout } from "../ports/index.ts";
-import { checkout } from "../ports/index.ts";
-import { UNIFORM_FILES, directoryHarness } from "./directory-harness.ts";
+import { UNIFORM_FILES, checkout } from "../ports/index.ts";
+import { directoryHarness } from "./directory-harness.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 const INSTRUCTIONS = "# pilot\n\nA flight log that files itself.\n";
