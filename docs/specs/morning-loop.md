@@ -289,9 +289,9 @@ project rather than following one.
 - Running the loop anywhere but the developer's own machine. A cloud trigger is anticipated by keeping
   the loop callable from any trigger, but is not built.
 - Parallel runs. Sequential only.
-- Merging any pull request other than a turboable ticket's, and promoting one other than through a
-  finished apply-review or clean review ticket — see CONTEXT.md's "Turboable" and "Clean review"
-  entries, and `docs/adr/0009-the-manager-merges-a-turboable-tickets-pull-request.md`.
+- Merging any pull request other than a turboable ticket's on a turbo project, and promoting one
+  other than through a finished apply-review ticket or a clean review — beyond what **Merge is
+  manual** above describes.
 - Automatic triage. Applying ready-for-agent to implementation tickets stays a human act; pull request
   tickets are the exceptions.
 - Any automatic retry, escalation, or fix-ticket generation arising from review findings, other than
