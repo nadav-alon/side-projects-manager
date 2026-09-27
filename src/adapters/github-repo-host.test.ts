@@ -118,7 +118,7 @@ describe("creating a repo", () => {
   it("creates it private by default", async (t) => {
     const gh = await recordingGh(t, ":");
 
-    await githubRepoHost().create(PILOT, "", false);
+    await githubRepoHost().create(PILOT, "", "private");
 
     assert.deepEqual(callWith(await gh.calls(), "repo", "create"), [
       "repo",
@@ -131,7 +131,7 @@ describe("creating a repo", () => {
   it("creates it public when asked", async (t) => {
     const gh = await recordingGh(t, ":");
 
-    await githubRepoHost().create(PILOT, "", true);
+    await githubRepoHost().create(PILOT, "", "public");
 
     assert.deepEqual(callWith(await gh.calls(), "repo", "create"), [
       "repo",
@@ -144,7 +144,7 @@ describe("creating a repo", () => {
   it("passes the description along with the visibility", async (t) => {
     const gh = await recordingGh(t, ":");
 
-    await githubRepoHost().create(PILOT, "A flight log", true);
+    await githubRepoHost().create(PILOT, "A flight log", "public");
 
     assert.deepEqual(callWith(await gh.calls(), "repo", "create"), [
       "repo",

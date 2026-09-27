@@ -18,6 +18,7 @@ import type {
   ReviewFinding,
   Ticket,
   TicketGist,
+  Visibility,
 } from "../ports/index.ts";
 import {
   APPLIED_REPLY_PREFIX,
@@ -203,10 +204,10 @@ export class FakeRepoHost implements RepoHost {
   async create(
     repo: RepoSlug,
     _description: string,
-    isPublic: boolean,
+    visibility: Visibility,
   ): Promise<void> {
     this.created.push(repo);
-    if (isPublic) {
+    if (visibility === "public") {
       this.createdPublic.push(repo);
     }
     this.#existing.add(repo);

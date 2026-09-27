@@ -11,6 +11,7 @@ import type {
   RepoSlug,
   Scaffold,
   Store,
+  Visibility,
 } from "./ports/index.ts";
 import { branch } from "./ports/index.ts";
 
@@ -95,6 +96,7 @@ export async function newProject(
 ): Promise<NewProjectReport> {
   const { repo, description } = request;
   const existing = request.existing ?? false;
+  const visibility: Visibility = request.public ?? false ? "public" : "private";
   const onHost = await ports.host.exists(repo);
 
   if (existing && !onHost) {
@@ -111,7 +113,7 @@ export async function newProject(
   }
 
   if (!existing) {
-    await ports.host.create(repo, description, request.public ?? false);
+    await ports.host.create(repo, description, visibility);
   }
 
   const directory = await ports.host.clone(repo);

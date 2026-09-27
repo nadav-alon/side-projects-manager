@@ -493,6 +493,14 @@ export type DraftPullRequestOpening =
   | { kind: "unpushed"; failure: string };
 
 /**
+ * Whether a repo {@link RepoHost.create} makes is world-readable or not. A
+ * named union rather than a bare `boolean`, so a call site reads `"public"`
+ * or `"private"` rather than a `true` or `false` that says nothing without
+ * the signature open beside it.
+ */
+export type Visibility = "public" | "private";
+
+/**
  * How the manager reaches GitHub and git: creating a repo, getting a checkout
  * of it into the managed location, publishing what the new-project command
  * scaffolded into it, and handing a completed run's work to the developer.
@@ -511,8 +519,12 @@ export type DraftPullRequestOpening =
 export interface RepoHost {
   /** Whether `repo` already exists on the host. */
   exists(repo: RepoSlug): Promise<boolean>;
-  /** Creates `repo`, public if `isPublic`, private otherwise. */
-  create(repo: RepoSlug, description: string, isPublic: boolean): Promise<void>;
+  /** Creates `repo`, with the given {@link Visibility}. */
+  create(
+    repo: RepoSlug,
+    description: string,
+    visibility: Visibility,
+  ): Promise<void>;
   /**
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is
