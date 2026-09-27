@@ -393,6 +393,23 @@ describe("specReviewSweep", () => {
     assert.match(body, /^- #41\s*$/m);
   });
 
+  it("credits a same-repo sub-issue's pull request even where closesIssues names its repo in GitHub's own casing, not the configured slug's", async () => {
+    const { tracker, repoHost, openIssues } = await sweptSupertask();
+    repoHost.setPullRequestsClosingIssues(PILOT, [
+      {
+        number: issueNumber(50),
+        state: "open",
+        branch: branch("41-part-one"),
+        closesIssues: [{ repo: repoSlug("Nadav-Alon/Pilot"), number: issueNumber(41) }],
+      },
+    ]);
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    const body = tracker.specReviewTickets[0]?.body ?? "";
+    assert.match(body, /^- #41: pull request #50 on branch `41-part-one`, open\s*$/m);
+  });
+
   it("names a sub-issue in another repo as owner/repo#N, not a bare number that would resolve against the supertask's own repo", async () => {
     const OTHER = repoSlug("nadav-alon/other");
     const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();

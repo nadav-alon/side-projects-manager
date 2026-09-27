@@ -9,7 +9,7 @@ import type {
   SubIssue,
   Ticket,
 } from "./ports/index.ts";
-import { isSupertask, specReviewTitle, ticketReference } from "./ports/index.ts";
+import { isSupertask, sameRepo, specReviewTitle, ticketReference } from "./ports/index.ts";
 
 /** The two ports one sweep reads and writes through, narrowed to what it calls. */
 export interface SpecReviewSweepPorts {
@@ -239,7 +239,9 @@ function specReviewBody(
  * wrong issue there. The pull request search is scoped the same way: a
  * candidate only matches where its `closesIssues` names `sub`'s own repo and
  * number together, since a cross-repo sub-issue's number can coincide with an
- * unrelated issue `closesIssues` names in `supertaskRepo`.
+ * unrelated issue `closesIssues` names in `supertaskRepo`. The repo names are
+ * matched with `sameRepo`, not `===`: `closesIssues` carries GitHub's own
+ * canonical casing, which need not match the configured repo slug's.
  */
 function subIssueLine(
   supertaskRepo: RepoSlug,
@@ -252,7 +254,8 @@ function subIssueLine(
       : ticketReference(sub.ticket);
   const pullRequest = closingPullRequests.find((candidate) =>
     candidate.closesIssues.some(
-      (closed) => closed.repo === sub.ticket.repo && closed.number === sub.ticket.number,
+      (closed) =>
+        sameRepo(closed.repo, sub.ticket.repo) && closed.number === sub.ticket.number,
     ),
   );
   if (pullRequest === undefined || pullRequest.state === "merged") {

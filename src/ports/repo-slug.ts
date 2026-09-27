@@ -48,3 +48,8 @@ export function repoSlug(value: string): RepoSlug {
   }
   return value;
 }
+
+/** Whether `a` and `b` name the same repo, matched without regard to case, as GitHub matches owner and repo names. */
+export function sameRepo(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
