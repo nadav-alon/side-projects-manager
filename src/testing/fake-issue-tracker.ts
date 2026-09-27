@@ -3,6 +3,7 @@ import type {
   DiscoveredTicketRequest,
   HandBackOutcome,
   IssueNumber,
+  IssueReference,
   IssueTracker,
   IssueUrl,
   LabelAction,
@@ -143,7 +144,7 @@ interface Stored {
 }
 
 /** `ticket`'s identity as a map key: its repo and number, which together name it uniquely. */
-function ticketKey(ticket: Ticket): string {
+function ticketKey(ticket: IssueReference): string {
   return `${ticket.repo}#${ticket.number}`;
 }
 
@@ -158,6 +159,16 @@ function ticketKey(ticket: Ticket): string {
 export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   readonly #issues = new Map<RepoSlug, Stored[]>();
   readonly #truncated = new Set<RepoSlug>();
+  /**
+   * The prerequisites `blockOnIfOpen` was asked to block a ticket on and
+   * found open, by the blocked ticket's own key — never `discovery.blocking`'s
+   * own edge, which `createDiscoveredTicket` tracks through `openBlockerNumbers`
+   * on the stored issue itself. Kept apart because a prerequisite may name an
+   * issue in another repo, which `openBlockerNumbers` — same-repo only, per
+   * `OpenIssue`'s own doc — cannot hold; `listOpenIssues` folds both into the
+   * `Ticket` it reports.
+   */
+  readonly #namedPrerequisites = new Map<string, IssueReference[]>();
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
@@ -294,10 +305,23 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     return this.#find(ticket)?.labels.has(label) ?? false;
   }
 
-  #find(ticket: Ticket): Stored | undefined {
+  #find(ticket: IssueReference): Stored | undefined {
     return (this.#issues.get(ticket.repo) ?? []).find(
       (candidate) => candidate.issue.number === ticket.number,
     );
+  }
+
+  /**
+   * Whether `reference` is open right now: not found at all counts as open,
+   * the same convention `listOpenIssues` already applies to a same-repo
+   * blocker `addBlockedTicket` names without a stored entry to check — a
+   * number this fake never saw is not something it can call closed.
+   * `blockOnIfOpen` itself never stores a reference it did not first confirm
+   * this way, so in practice a reference read back here is always found.
+   */
+  #stillOpen(reference: IssueReference): boolean {
+    const blocker = this.#find(reference);
+    return blocker === undefined || blocker.closed !== true;
   }
 
   #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
@@ -384,14 +408,29 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
         );
         return blocker === undefined || blocker.closed !== true;
       });
-      const openBlockers = (staticBlockers ?? 0) + openBlockerNumbers.length;
+      // `blockOnIfOpen`'s own edges, recomputed the same live way: a
+      // same-repo one joins `openBlockerNumbers`, per `OpenIssue`'s own doc
+      // on it being same-repo only; a cross-repo one — the whole reason a
+      // prerequisite may name another project's issue — only ever reaches
+      // `openBlockers`.
+      const named = this.#namedPrerequisites.get(ticketKey({ repo, number: entry.issue.number })) ?? [];
+      const openNamedSameRepo = named
+        .filter((reference) => reference.repo === repo)
+        .map((reference) => reference.number)
+        .filter((number) => this.#stillOpen({ repo, number }));
+      const openNamedCrossRepo = named.filter(
+        (reference) => reference.repo !== repo && this.#stillOpen(reference),
+      ).length;
+      const allOpenBlockerNumbers = [...openBlockerNumbers, ...openNamedSameRepo];
+      const openBlockers =
+        (staticBlockers ?? 0) + allOpenBlockerNumbers.length + openNamedCrossRepo;
       return {
         ticket: {
           ...this.#ticketOf(entry),
           ...(openBlockers > 0 && { openBlockers }),
         },
         eligible: carriesReadyForAgent(entry.labels),
-        openBlockerNumbers,
+        openBlockerNumbers: allOpenBlockerNumbers,
         ...(parent !== undefined && { parent }),
       };
     });
@@ -620,6 +659,23 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       ticket: opened,
     });
     return opened;
+  }
+
+  /**
+   * Records `prerequisite` against `ticket` and answers `true` when it is
+   * open right now — never found closed and, unlike a real tracker, never
+   * found missing either, since a test can only name a `prerequisite` this
+   * fake already holds. Read back on the next `listOpenIssues`, the same as
+   * every other edge this fake tracks.
+   */
+  async blockOnIfOpen(ticket: Ticket, prerequisite: IssueReference): Promise<boolean> {
+    if (!this.#stillOpen(prerequisite)) {
+      return false;
+    }
+    const key = ticketKey(ticket);
+    const named = this.#namedPrerequisites.get(key) ?? [];
+    this.#namedPrerequisites.set(key, [...named, prerequisite]);
+    return true;
   }
 
   /**

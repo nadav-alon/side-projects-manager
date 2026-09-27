@@ -860,6 +860,136 @@ describe("ghIssueTracker.createDiscoveredTicket", () => {
   });
 });
 
+describe("ghIssueTracker.blockOnIfOpen", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const DATA_PLATFORM = repoSlug("nadav-alon/data-platform");
+
+  const TICKET: Ticket = {
+    repo: PILOT,
+    number: issueNumber(7),
+    title: "Add the thing",
+  };
+
+  const PREREQUISITE_ID = "2159872999";
+
+  /** A tracker where the prerequisite reads open and blocking succeeds. */
+  const OPEN = [
+    `case "$1 $2" in`,
+    `  "issue view") echo "OPEN" ;;`,
+    `  "api repos/nadav-alon/pilot/issues/3") echo ${PREREQUISITE_ID} ;;`,
+    `  "api repos/nadav-alon/data-platform/issues/9") echo ${PREREQUISITE_ID} ;;`,
+    `  *) : ;;`,
+    `esac`,
+  ].join("\n");
+
+  it("answers true and adds the edge, keyed on the prerequisite's own database id, when it is open", async (t) => {
+    const gh = await recordingGh(t, OPEN);
+
+    const blocked = await ghIssueTracker().blockOnIfOpen(TICKET, {
+      repo: PILOT,
+      number: issueNumber(3),
+    });
+
+    assert.equal(blocked, true);
+    const view = callWith(await gh.calls(), "issue", "view", "3");
+    assert.ok(view, "the prerequisite's own state should be read");
+    assert.equal(valueOf(view, "--repo"), PILOT);
+    const edge = callWith(await gh.calls(), "api", "--method", "POST");
+    assert.ok(edge, "a blocked_by edge should be added");
+    assert.ok(edge.includes("repos/nadav-alon/pilot/issues/7/dependencies/blocked_by"));
+    assert.equal(valueOf(edge, "-F"), `issue_id=${PREREQUISITE_ID}`);
+  });
+
+  it("names another project's repo when the prerequisite lives there, and still blocks the ticket in its own", async (t) => {
+    const gh = await recordingGh(t, OPEN);
+
+    const blocked = await ghIssueTracker().blockOnIfOpen(TICKET, {
+      repo: DATA_PLATFORM,
+      number: issueNumber(9),
+    });
+
+    assert.equal(blocked, true);
+    const view = callWith(await gh.calls(), "issue", "view", "9");
+    assert.equal(valueOf(view, "--repo"), DATA_PLATFORM);
+    const edge = callWith(await gh.calls(), "api", "--method", "POST");
+    assert.ok(edge?.includes("repos/nadav-alon/pilot/issues/7/dependencies/blocked_by"));
+  });
+
+  it("answers false and adds no edge when the prerequisite is closed", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "CLOSED" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const blocked = await ghIssueTracker().blockOnIfOpen(TICKET, {
+      repo: PILOT,
+      number: issueNumber(3),
+    });
+
+    assert.equal(blocked, false);
+    assert.equal(callWith(await gh.calls(), "api", "--method", "POST"), undefined);
+  });
+
+  it("answers false and adds no edge when the prerequisite does not exist", async (t) => {
+    const gh = await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "Could not resolve to an issue or pull request with the number of 3. (repository.issue)" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    const blocked = await ghIssueTracker().blockOnIfOpen(TICKET, {
+      repo: PILOT,
+      number: issueNumber(3),
+    });
+
+    assert.equal(blocked, false);
+    assert.equal(callWith(await gh.calls(), "api", "--method", "POST"), undefined);
+  });
+
+  it("raises a read failure that is not a not-found, rather than guessing whether the prerequisite is open", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "rate limited" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      ghIssueTracker().blockOnIfOpen(TICKET, { repo: PILOT, number: issueNumber(3) }),
+      /rate limited/,
+    );
+  });
+
+  it("raises when the state read answers with neither OPEN nor CLOSED", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$1 $2" in`,
+        `  "issue view") echo "MERGED" ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      ghIssueTracker().blockOnIfOpen(TICKET, { repo: PILOT, number: issueNumber(3) }),
+      /neither OPEN nor CLOSED/,
+    );
+  });
+});
+
 /**
  * One issue as `gh issue list` answers for it: every field the adapter asks
  * for, filled in as a ticket with none of it — no body, sub-issues, blockers

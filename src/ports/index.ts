@@ -80,6 +80,7 @@ export type {
   Backlog,
   DiscoveredTicketRequest,
   HandBackOutcome,
+  IssueReference,
   IssueTracker,
   LabelAction,
   LabelTimelineEvent,

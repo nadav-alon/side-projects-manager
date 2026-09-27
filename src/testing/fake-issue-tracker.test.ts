@@ -27,6 +27,7 @@ import {
 import { FakeIssueTracker } from "./fake-issue-tracker.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
+const DATA_PLATFORM = repoSlug("nadav-alon/data-platform");
 
 describe("FakeIssueTracker", () => {
   it("lists only tickets carrying ready-for-agent", async () => {
@@ -536,6 +537,87 @@ describe("FakeIssueTracker.createDiscoveredTicket", () => {
     });
 
     assert.equal(tracker.discoveredTickets[0]?.blocking, false);
+  });
+});
+
+describe("FakeIssueTracker.blockOnIfOpen", () => {
+  it("answers true and adds a same-repo edge when the prerequisite is open", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const prerequisite = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(3),
+      title: "The widget port",
+    });
+
+    const blocked = await tracker.blockOnIfOpen(ticket, prerequisite);
+
+    assert.equal(blocked, true);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, 1);
+    assert.deepEqual(found?.openBlockerNumbers, [prerequisite.number]);
+  });
+
+  it("answers false and adds no edge when the prerequisite is closed", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const prerequisite = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(3),
+      title: "The widget port",
+    });
+    tracker.closeOutOfBand(prerequisite);
+
+    const blocked = await tracker.blockOnIfOpen(ticket, prerequisite);
+
+    assert.equal(blocked, false);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, undefined);
+  });
+
+  it("counts an open prerequisite in another project toward openBlockers, but never openBlockerNumbers", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const prerequisite = tracker.addEligibleTicket(DATA_PLATFORM, {
+      number: issueNumber(9),
+      title: "The upstream migration",
+    });
+
+    const blocked = await tracker.blockOnIfOpen(ticket, prerequisite);
+
+    assert.equal(blocked, true);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, 1);
+    assert.deepEqual(found?.openBlockerNumbers, []);
+  });
+
+  it("drops the block once the prerequisite closes, in another project same as its own", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    const prerequisite = tracker.addEligibleTicket(DATA_PLATFORM, {
+      number: issueNumber(9),
+      title: "The upstream migration",
+    });
+    await tracker.blockOnIfOpen(ticket, prerequisite);
+
+    tracker.closeOutOfBand(prerequisite);
+
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, undefined);
   });
 });
 
