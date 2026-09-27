@@ -2143,7 +2143,7 @@ async function mergeGate(
   } catch (error: unknown) {
     return { kind: "timeline-unreadable", error: errorMessage(error) };
   }
-  if (!consent.grantedInTime) {
+  if (!consent.consented) {
     const reason =
       consent.reason === "not-labeled-in-time"
         ? "not turboable before its own run started"

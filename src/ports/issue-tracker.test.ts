@@ -600,14 +600,14 @@ describe("turboableConsentAt", () => {
 
   it("reads as consent where the label predates the instant and no span covers the grant", () => {
     const events = [event("labeled", DAY_1)];
-    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_3, []), { grantedInTime: true });
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_3, []), { consented: true });
   });
 
   it("reads as no consent, naming the run span, where a span in the same repo, closed, covers the grant", () => {
     const events = [event("labeled", DAY_2)];
     const spans = [span(OTHER_TICKET, DAY_1, DAY_3)];
     assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), {
-      grantedInTime: false,
+      consented: false,
       reason: "inside-run-span",
     });
   });
@@ -616,7 +616,7 @@ describe("turboableConsentAt", () => {
     const events = [event("labeled", DAY_2)];
     const spans = [span(OTHER_TICKET, DAY_1)];
     assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), {
-      grantedInTime: false,
+      consented: false,
       reason: "inside-run-span",
     });
   });
@@ -625,18 +625,18 @@ describe("turboableConsentAt", () => {
     const spans = [span(OTHER_TICKET, DAY_2, DAY_3)];
     assert.deepEqual(
       turboableConsentAt(TICKET, [event("labeled", DAY_2)], DAY_4, spans),
-      { grantedInTime: false, reason: "inside-run-span" },
+      { consented: false, reason: "inside-run-span" },
     );
     assert.deepEqual(
       turboableConsentAt(TICKET, [event("labeled", DAY_3)], DAY_4, spans),
-      { grantedInTime: false, reason: "inside-run-span" },
+      { consented: false, reason: "inside-run-span" },
     );
   });
 
   it("ignores a span in a different repo", () => {
     const events = [event("labeled", DAY_2)];
     const spans = [span({ repo: OTHER_REPO, number: OTHER_TICKET.number }, DAY_1, DAY_3)];
-    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { grantedInTime: true });
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { consented: true });
   });
 
   it("reads as consent where the label was removed and re-added outside every span", () => {
@@ -646,30 +646,30 @@ describe("turboableConsentAt", () => {
       event("labeled", DAY_4),
     ];
     const spans = [span(OTHER_TICKET, DAY_1, DAY_2)];
-    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { grantedInTime: true });
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { consented: true });
   });
 
   it("rejects a ticket's own span covering its own grant", () => {
     const events = [event("labeled", DAY_1)];
     const spans = [span(TICKET, DAY_1, DAY_3)];
     assert.deepEqual(turboableConsentAt(TICKET, events, DAY_2, spans), {
-      grantedInTime: false,
+      consented: false,
       reason: "inside-run-span",
     });
   });
 
   it("behaves identically to labelWasPresentAt when no spans are recorded", () => {
     const events = [event("labeled", DAY_1), event("unlabeled", DAY_2)];
-    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_1, []), { grantedInTime: true });
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_1, []), { consented: true });
     assert.deepEqual(turboableConsentAt(TICKET, events, DAY_3, []), {
-      grantedInTime: false,
+      consented: false,
       reason: "not-labeled-in-time",
     });
   });
 
   it("reads as no consent, naming the timeline, where turboable was never granted, whatever the spans", () => {
     assert.deepEqual(turboableConsentAt(TICKET, [], DAY_2, []), {
-      grantedInTime: false,
+      consented: false,
       reason: "not-labeled-in-time",
     });
   });

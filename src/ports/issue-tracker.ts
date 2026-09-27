@@ -423,20 +423,22 @@ export function labelWasPresentAt(
 }
 
 /**
- * Whether `turboableConsentAt` found consent, and which of its two checks
- * said no when it did not — so a caller's own "not turboable" reason can
- * name the one that actually failed rather than blaming both at once:
+ * Whether `turboableConsentAt` found consent, and, when it did not, which of
+ * its two checks said no — so a caller's own "not turboable" reason can name
+ * the one that actually failed rather than blaming both at once:
  * `"not-labeled-in-time"` when the timeline check itself never grants it in
  * time, `"inside-run-span"` when the timeline grants it but the run-span
  * check rejects it.
  */
 export type TurboableConsent =
-  | { readonly grantedInTime: true }
-  | { readonly grantedInTime: false; readonly reason: "not-labeled-in-time" }
-  | { readonly grantedInTime: false; readonly reason: "inside-run-span" };
+  | { readonly consented: true }
+  | {
+      readonly consented: false;
+      readonly reason: "not-labeled-in-time" | "inside-run-span";
+    };
 
 /**
- * Whether `ticket` had turboable consent at `instant`, replaying `events` —
+ * The `TurboableConsent` `ticket` had at `instant`, replaying `events` —
  * its full label timeline — and checking the granting event against
  * `spans`, every run span recorded for any ticket. Per `CONTEXT.md`'s
  * "Turboable", the timeline check alone (`labelWasPresentAt`) and stripping
@@ -467,12 +469,12 @@ export function turboableConsentAt(
 ): TurboableConsent {
   const grant = mostRecentLabelEvent(events, TURBOABLE_LABEL, instant);
   if (grant?.action !== "labeled") {
-    return { grantedInTime: false, reason: "not-labeled-in-time" };
+    return { consented: false, reason: "not-labeled-in-time" };
   }
   const insideSpan = spans.some(
     (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),
   );
-  return insideSpan ? { grantedInTime: false, reason: "inside-run-span" } : { grantedInTime: true };
+  return insideSpan ? { consented: false, reason: "inside-run-span" } : { consented: true };
 }
 
 /**
