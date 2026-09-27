@@ -81,9 +81,19 @@ export function githubRepoHost(
       }
     },
 
-    async create(repo: RepoSlug, description: string): Promise<void> {
+    async create(
+      repo: RepoSlug,
+      description: string,
+      isPublic: boolean,
+    ): Promise<void> {
       const options = description === "" ? [] : ["--description", description];
-      await run("gh", ["repo", "create", repo, "--private", ...options]);
+      await run("gh", [
+        "repo",
+        "create",
+        repo,
+        isPublic ? "--public" : "--private",
+        ...options,
+      ]);
     },
 
     async clone(repo: RepoSlug): Promise<Checkout> {

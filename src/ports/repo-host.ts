@@ -511,8 +511,8 @@ export type DraftPullRequestOpening =
 export interface RepoHost {
   /** Whether `repo` already exists on the host. */
   exists(repo: RepoSlug): Promise<boolean>;
-  /** Creates `repo` as a private repository. */
-  create(repo: RepoSlug, description: string): Promise<void>;
+  /** Creates `repo`, public if `isPublic`, private otherwise. */
+  create(repo: RepoSlug, description: string, isPublic: boolean): Promise<void>;
   /**
    * Ensures a checkout of `repo` in the managed location, and returns it.
    * A clone already sitting there is reused rather than replaced, which is

@@ -38,6 +38,8 @@ export interface NewProjectRequest {
    * is the one they meant.
    */
   existing?: boolean;
+  /** Create the repo public rather than private. Ignored with `existing`. */
+  public?: boolean;
 }
 
 export type NewProjectOutcome =
@@ -109,7 +111,7 @@ export async function newProject(
   }
 
   if (!existing) {
-    await ports.host.create(repo, description);
+    await ports.host.create(repo, description, request.public ?? false);
   }
 
   const directory = await ports.host.clone(repo);
