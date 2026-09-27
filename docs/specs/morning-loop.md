@@ -206,11 +206,13 @@ waiting on the developer, and a handed-back rebase ticket under attempts.
 **Merge is manual, except for a turboable ticket.** Draft PRs stay drafts until the developer asks
 for their review to be applied, or until a review comes back clean: an apply-review ticket that
 finishes, or a clean review (CONTEXT.md's "Clean review"), promotes its PR. On a turbo project, a
-ticket also carrying the `turboable` label (CONTEXT.md's "Turboable") has its PR merged by the
-manager too, in the same pass, right after that apply-review ticket or clean review — with a merge
-commit, and only if the PR is mergeable, green and free of declined threads; otherwise the PR is left
-for the developer. See `docs/adr/0009-the-manager-merges-a-turboable-tickets-pull-request.md`. Every
-other merge stays the developer's.
+ticket a human labelled `turboable` before its own run started (CONTEXT.md's "Turboable") has its PR
+merged by the manager too, in the same pass, once that apply-review ticket finishes or that clean
+review's ticket closes — with a merge commit and its branch deleted, and only if the PR is
+mergeable, green and free of declined threads; otherwise the manager labels the PR `ready-for-human`
+and stops, with no retry and no re-rebase, leaving it for the developer. See
+`docs/adr/0009-the-manager-merges-a-turboable-tickets-pull-request.md`. Every other merge stays the
+developer's.
 
 **Failure policy.** A run that fails — agent gives up, tests stay red, sandbox errors — discards its
 branch, comments on the ticket, and relabels it for human attention. It is not retried automatically,
