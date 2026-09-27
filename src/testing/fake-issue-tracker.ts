@@ -166,6 +166,14 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * `Ticket` it reports.
    */
   readonly #namedPrerequisites = new Map<string, IssueReference[]>();
+  /**
+   * Sub-issue links `listSubIssues` reports outside the `parent` field on
+   * `TicketInput`: a cross-repo sub-issue, keyed by its parent's `ticketReference`.
+   * `parent` alone cannot model one — `OpenIssue.parent`'s own contract keeps
+   * it same-repo-only, and `parent` feeds that field too — so `linkSubIssue`
+   * is the only way to add one.
+   */
+  readonly #subIssueLinks = new Map<string, Ticket[]>();
 
   /** The review tickets opened, in the order they were opened. */
   readonly reviewTickets: FakeReviewTicket[] = [];
@@ -267,6 +275,21 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     openBlockers: number,
   ): Ticket {
     return this.#add(repo, { ...ticket, openBlockers }, READY_FOR_AGENT_LABEL);
+  }
+
+  /**
+   * Links `child` — already added, in whichever repo it lives — as a
+   * sub-issue of `parent` for `listSubIssues` to report, the way a real
+   * cross-repo sub-issue relation is visible there but never through
+   * `listOpenIssues`'s own `parent` field. A same-repo sub-issue is linked by
+   * passing `parent` to `addEligibleTicket` instead; this exists for the case
+   * `parent` cannot model.
+   */
+  linkSubIssue(parent: Ticket, child: Ticket): void {
+    const key = ticketReference(parent);
+    const links = this.#subIssueLinks.get(key) ?? [];
+    links.push(child);
+    this.#subIssueLinks.set(key, links);
   }
 
   /**
@@ -448,18 +471,29 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
-   * Every entry stored against `ticket`'s repo whose `parent` names it —
-   * open or closed alike, unlike `listOpenIssues`, which drops a closed one
-   * outright. Listed in the order they were added.
+   * Every entry stored against `ticket`'s repo whose `parent` names it, plus
+   * every one `linkSubIssue` linked to it in another repo — open or closed
+   * alike, unlike `listOpenIssues`, which drops a closed one outright. Listed
+   * in the order each was added or linked, same-repo first.
    */
   async listSubIssues(ticket: Ticket): Promise<SubIssue[]> {
     const entries = this.#issues.get(ticket.repo) ?? [];
-    return entries
+    const sameRepo = entries
       .filter((entry) => entry.issue.parent === ticket.number)
       .map((entry) => ({
         ticket: this.#ticketOf(entry),
         closed: entry.closed === true,
       }));
+    const linked = (this.#subIssueLinks.get(ticketReference(ticket)) ?? []).map(
+      (child) => {
+        const entry = this.#find(child);
+        return {
+          ticket: entry === undefined ? child : this.#ticketOf(entry),
+          closed: entry?.closed === true,
+        };
+      },
+    );
+    return [...sameRepo, ...linked];
   }
 
   readonly #turboableEvents = new Map<string, LabelTimelineEvent[]>();

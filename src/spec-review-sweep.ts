@@ -9,7 +9,7 @@ import type {
   SubIssue,
   Ticket,
 } from "./ports/index.ts";
-import { isSupertask, specReviewTitle } from "./ports/index.ts";
+import { isSupertask, specReviewTitle, ticketReference } from "./ports/index.ts";
 
 /** The two ports one sweep reads and writes through, narrowed to what it calls. */
 export interface SpecReviewSweepPorts {
@@ -227,20 +227,31 @@ function specReviewBody(
     "",
     "Sub-issues:",
     "Each pull request fact below was read once, from the repo host, the moment this ticket opened; a sub-issue named with none either merged or never had a pull request.",
-    ...subIssues.map((sub) => subIssueLine(sub, closingPullRequests)),
+    ...subIssues.map((sub) => subIssueLine(supertask.repo, sub, closingPullRequests)),
   ].join("\n");
 }
 
-/** One `- #N` bullet `specReviewBody` names a sub-issue with, per its unmerged pull request if it has one. */
+/**
+ * One `- #N` bullet `specReviewBody` names a sub-issue with, per its unmerged
+ * pull request if it has one. Named `owner/repo#N`, per `ticketReference`,
+ * where `sub` lives in another repo than `supertaskRepo`: a bare `#N` would
+ * resolve against the spec review's own repo — `supertaskRepo` — and name the
+ * wrong issue there.
+ */
 function subIssueLine(
+  supertaskRepo: RepoSlug,
   sub: SubIssue,
   closingPullRequests: readonly ClosingPullRequest[],
 ): string {
+  const name =
+    sub.ticket.repo === supertaskRepo
+      ? `#${sub.ticket.number}`
+      : ticketReference(sub.ticket);
   const pullRequest = closingPullRequests.find((candidate) =>
     candidate.closesIssues.includes(sub.ticket.number),
   );
   if (pullRequest === undefined || pullRequest.state === "merged") {
-    return `- #${sub.ticket.number}`;
+    return `- ${name}`;
   }
-  return `- #${sub.ticket.number}: pull request #${pullRequest.number} on branch \`${pullRequest.branch}\`, ${pullRequest.state}`;
+  return `- ${name}: pull request #${pullRequest.number} on branch \`${pullRequest.branch}\`, ${pullRequest.state}`;
 }

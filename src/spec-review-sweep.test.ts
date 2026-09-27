@@ -393,6 +393,23 @@ describe("specReviewSweep", () => {
     assert.match(body, /^- #41\s*$/m);
   });
 
+  it("names a sub-issue in another repo as owner/repo#N, not a bare number that would resolve against the supertask's own repo", async () => {
+    const OTHER = repoSlug("nadav-alon/other");
+    const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
+    const crossRepoChild = tracker.addEligibleTicket(OTHER, {
+      number: issueNumber(41),
+      title: "Same-numbered issue in another repo",
+    });
+    tracker.closeOutOfBand(crossRepoChild);
+    tracker.linkSubIssue(supertask, crossRepoChild);
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    const body = tracker.specReviewTickets[0]?.body ?? "";
+    assert.match(body, /^- #41\s*$/m);
+    assert.match(body, /^- nadav-alon\/other#41\s*$/m);
+  });
+
   it("records a refusal and carries on to the next supertask", async () => {
     const tracker = new FakeIssueTracker();
     const repoHost = new FakeRepoHost();
