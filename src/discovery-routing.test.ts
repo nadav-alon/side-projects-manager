@@ -67,6 +67,109 @@ describe("routeDiscoveries", () => {
     assert.equal(tracker.discoveredTickets[0]?.blocking, true);
   });
 
+  it("blocks the named existing issue directly, with no new ticket, when a prerequisite names one that is open", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const blocker = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "The widget port",
+    });
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      title: "Needs the widget port first",
+      body: `There is no widget port yet: needs #${blocker.number} done first.`,
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    assert.equal(routing.filed.length, 1);
+    const [filed] = routing.filed;
+    assert.equal(filed?.action, "blocked-on-existing");
+    assert.equal(filed?.action === "blocked-on-existing" ? filed.blocker.number : undefined, 9);
+    assert.equal(tracker.discoveredTickets.length, 0);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.deepEqual(found?.openBlockerNumbers, [blocker.number]);
+    assert.equal(tracker.comments.length, 1);
+    assert.match(tracker.comments[0]?.comment ?? "", /Blocked on nadav-alon\/pilot#9 until it closes\./);
+  });
+
+  it("names another project's issue when a prerequisite's body gives owner/repo#n, and blocks it there", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const blocker = tracker.addEligibleTicket(repoSlug("nadav-alon/data-platform"), {
+      number: issueNumber(9),
+      title: "The upstream migration",
+    });
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      body: "Needs nadav-alon/data-platform#9 done first.",
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    const [filed] = routing.filed;
+    assert.equal(filed?.action, "blocked-on-existing");
+    assert.equal(tracker.discoveredTickets.length, 0);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, 1);
+    assert.deepEqual(found?.openBlockerNumbers, []);
+    assert.equal(blocker.repo, "nadav-alon/data-platform");
+  });
+
+  it("falls back to opening a discovered ticket when the named issue is closed", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const blocker = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "The widget port",
+    });
+    tracker.closeOutOfBand(blocker);
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      body: `Needs #${blocker.number} done first.`,
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    const [filed] = routing.filed;
+    assert.equal(filed?.action, "discovered-ticket");
+    assert.equal(tracker.discoveredTickets.length, 1);
+    assert.equal(tracker.discoveredTickets[0]?.blocking, true);
+  });
+
+  it("falls back to opening a discovered ticket when the named issue does not exist", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      body: "Needs #999 done first.",
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    const [filed] = routing.filed;
+    assert.equal(filed?.action, "discovered-ticket");
+    assert.equal(tracker.discoveredTickets.length, 1);
+    assert.equal(tracker.discoveredTickets[0]?.blocking, true);
+  });
+
+  it("falls back to opening a discovered ticket when a prerequisite names no issue at all", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      body: "There is no widget port to build against yet.",
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    const [filed] = routing.filed;
+    assert.equal(filed?.action, "discovered-ticket");
+    assert.equal(tracker.discoveredTickets.length, 1);
+  });
+
   it("opens a discovered ticket with no edge for a suggestion", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
@@ -395,27 +498,65 @@ describe("referencedIssueIn", () => {
 });
 
 describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
-  it("is false when every discovery is advisory", () => {
-    const discoveries = [discovery({ kind: "suggestion" })];
-    assert.equal(hasBlockingDiscovery(discoveries), false);
-    assert.deepEqual(blockingDiscoveriesOf(discoveries), []);
+  it("is false when every discovery is advisory", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [
+      discovery({ kind: "suggestion" }),
+    ]);
+
+    assert.equal(hasBlockingDiscovery(routing), false);
+    assert.deepEqual(blockingDiscoveriesOf(routing), []);
   });
 
-  it("is true for a correction or a prerequisite, filed or refused makes no difference", () => {
+  it("is true for a correction or a prerequisite, filed or refused makes no difference", async (t) => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
     const correction = discovery({ kind: "correction" });
-    assert.equal(hasBlockingDiscovery([correction]), true);
-    assert.deepEqual(blockingDiscoveriesOf([correction]), [correction]);
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [correction]);
+    assert.equal(hasBlockingDiscovery(routing), true);
+    assert.deepEqual(blockingDiscoveriesOf(routing), [correction]);
+
+    t.mock.method(tracker, "comment", async () => {
+      throw new Error("the tracker refused the comment");
+    });
+    const refusedRouting = await routeDiscoveries(tracker, ticket, ticket, [correction]);
+    assert.equal(hasBlockingDiscovery(refusedRouting), true);
+    assert.deepEqual(blockingDiscoveriesOf(refusedRouting), [correction]);
   });
 
-  it("keeps the agent's own order across a mix of advisory and blocking kinds", () => {
+  it("keeps the agent's own order across a mix of advisory and blocking kinds", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
     const clarification = discovery({ kind: "clarification", title: "First" });
     const correction = discovery({ kind: "correction", title: "Second" });
     const prerequisite = discovery({ kind: "prerequisite", title: "Third" });
 
-    assert.deepEqual(blockingDiscoveriesOf([clarification, correction, prerequisite]), [
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [
+      clarification,
       correction,
       prerequisite,
     ]);
+
+    assert.deepEqual(blockingDiscoveriesOf(routing), [correction, prerequisite]);
+  });
+
+  it("excludes a prerequisite that named an existing, still-open issue and blocked it directly", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, implementation());
+    const blocker = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(9),
+      title: "The widget port",
+    });
+    const prerequisite = discovery({
+      kind: "prerequisite",
+      body: `Needs #${blocker.number} done first.`,
+    });
+
+    const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
+
+    assert.equal(hasBlockingDiscovery(routing), false);
+    assert.deepEqual(blockingDiscoveriesOf(routing), []);
   });
 });
 

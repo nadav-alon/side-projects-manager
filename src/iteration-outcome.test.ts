@@ -156,7 +156,7 @@ describe("countsAsWork", () => {
     const iteration: Iteration = {
       kind: "discovery-blocked",
       discoveryReport: {
-        routing: { filed: [], suggestionsDropped: 0, refused: [], discoveriesDropped: 0 },
+        routing: { filed: [], suggestionsDropped: 0, refused: [], blocking: [], discoveriesDropped: 0 },
       },
       tokensUsed: tokenCount(500),
       handedBack: { outcome: "handed-back" },
@@ -236,7 +236,7 @@ describe("freesTicketToday", () => {
     const iteration: Iteration = {
       kind: "discovery-blocked",
       discoveryReport: {
-        routing: { filed: [], suggestionsDropped: 0, refused: [], discoveriesDropped: 0 },
+        routing: { filed: [], suggestionsDropped: 0, refused: [], blocking: [], discoveriesDropped: 0 },
       },
       tokensUsed: tokenCount(500),
       handedBack: { outcome: "handed-back" },

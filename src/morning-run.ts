@@ -1050,7 +1050,7 @@ async function discoveryBlockedOutcome(
   const { crossTarget } = routed;
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
-    discoveries: blockingDiscoveriesOf(routed.discoveries),
+    discoveries: blockingDiscoveriesOf(routed.routing),
     ...(crossTarget !== undefined && { crossTarget }),
     ...(worked !== undefined && { worked }),
     ...(output !== undefined && { output }),
@@ -1104,7 +1104,7 @@ async function routeOrBlock(
     outcome.discoveries,
     outcome.discoveriesDropped,
   );
-  if (routed !== undefined && hasBlockingDiscovery(routed.discoveries)) {
+  if (routed !== undefined && hasBlockingDiscovery(routed.routing)) {
     const { worked } = options ?? {};
     if (worked !== undefined) {
       await retireSalvage(ports, worked.checkout, worked.salvages, ticket, worked.run.branch);

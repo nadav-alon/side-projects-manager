@@ -663,13 +663,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * Records `prerequisite` against `ticket` and answers `true` when it is
-   * open right now — never found closed and, unlike a real tracker, never
-   * found missing either, since a test can only name a `prerequisite` this
-   * fake already holds. Read back on the next `listOpenIssues`, the same as
-   * every other edge this fake tracks.
+   * open right now. Unlike `#stillOpen` — which the recompute in
+   * `listOpenIssues` uses, where a reference it already holds is missing only
+   * because the fake never removes an entry — a `prerequisite` this fake
+   * never held at all is not open: the real tracker's own not-found answers
+   * `false`, per `blockOnIfOpen`'s own doc on the port, and a test naming a
+   * nonexistent number must see the same fallback.
    */
   async blockOnIfOpen(ticket: Ticket, prerequisite: IssueReference): Promise<boolean> {
-    if (!this.#stillOpen(prerequisite)) {
+    const blocker = this.#find(prerequisite);
+    if (blocker === undefined || blocker.closed === true) {
       return false;
     }
     const key = ticketKey(ticket);

@@ -581,6 +581,24 @@ describe("FakeIssueTracker.blockOnIfOpen", () => {
     assert.equal(found?.ticket.openBlockers, undefined);
   });
 
+  it("answers false and adds no edge when the prerequisite does not exist", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+
+    const blocked = await tracker.blockOnIfOpen(ticket, {
+      repo: PILOT,
+      number: issueNumber(999),
+    });
+
+    assert.equal(blocked, false);
+    const { issues } = await tracker.listOpenIssues(PILOT);
+    const found = issues.find((issue) => issue.ticket.number === ticket.number);
+    assert.equal(found?.ticket.openBlockers, undefined);
+  });
+
   it("counts an open prerequisite in another project toward openBlockers, but never openBlockerNumbers", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, {
