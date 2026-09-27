@@ -1590,7 +1590,7 @@ function handbackNote(finished: Finished): string {
  * How a review ticket's own run reads to the developer: where its findings
  * landed, or why the loop could not finish the ticket off. A clean review on
  * a turbo project also says what the merge gate came to
- * (`readyPhrase`/`leftForHumanNote`) — CONTEXT.md's "Turboable", ADR 0009 —
+ * (`readyPhrase`/`mergeGateNote`) — CONTEXT.md's "Turboable", ADR 0009 —
  * exactly as `appliedReviewSummary` does for an apply-review ticket's own
  * finish.
  */
@@ -1615,7 +1615,7 @@ function reviewSummary(
         notReadied === undefined ? "" : ` ${notReadiedNote(pullRequest, notReadied)}.`;
       const commentNote =
         notCommented === undefined ? "" : ` ${notCommentedNote(pullRequest, notCommented)}.`;
-      return `${posted}${labelNote}${readyNote}${commentNote}${leftForHumanNote(pullRequest, merge)}`;
+      return `${posted}${labelNote}${readyNote}${commentNote}${mergeGateNote(pullRequest, merge)}`;
     }
     case "check-failed":
       return `Reviewed ${repo}#${ticket.number}, but ${pullRequest} could not be checked for a posted review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: check ${pullRequest} and close it yourself.`;
@@ -1760,9 +1760,10 @@ function readyPhrase(merge: MergeGate | undefined): string {
  * `timeline-unreadable` gate gets its own note, since a read failure is not
  * proof the pull request was ineligible, unlike `not-turboable`.
  */
-function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
+function mergeGateNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
   if (merge?.kind === "timeline-unreadable") {
-    return ` ${timelineUnreadableNote(merge.error)}.`;
+    const phrase = timelineUnreadablePhrase(merge.error);
+    return ` ${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
   }
   if (merge?.kind !== "left-for-human") {
     return "";
@@ -1774,13 +1775,12 @@ function leftForHumanNote(pullRequest: PullRequestUrl, merge: MergeGate | undefi
 }
 
 /**
- * The sentence a merge gate read failure reads as, capitalized to open a new
- * sentence: read at `leftForHumanNote`'s own full-summary note. The
- * waiting-on-you line says the same thing lowercased, after its own dash —
- * see `timelineUnreadableWaitingLine`.
+ * The lowercase phrase a merge gate read failure reads as: shared by
+ * `timelineUnreadableWaitingLine`, after its own dash, and `mergeGateNote`,
+ * which capitalizes it to open a new sentence.
  */
-function timelineUnreadableNote(error: string): string {
-  return `Merge gate could not check turboable: ${withoutTrailingStop(error)}; merge it yourself if it was turboable`;
+function timelineUnreadablePhrase(error: string): string {
+  return `merge gate could not check turboable: ${withoutTrailingStop(error)}; merge it yourself if it was turboable`;
 }
 
 /**
@@ -1790,7 +1790,7 @@ function timelineUnreadableNote(error: string): string {
  * unremarked — the developer needs to know the gate never ran.
  */
 function timelineUnreadableWaitingLine(repo: RepoSlug, pullRequest: PullRequestUrl, error: string): string {
-  return `- ${repo}: ${pullRequest} — merge gate could not check turboable: ${withoutTrailingStop(error)}; merge it yourself if it was turboable`;
+  return `- ${repo}: ${pullRequest} — ${timelineUnreadablePhrase(error)}`;
 }
 
 /**
@@ -1809,7 +1809,7 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
       const labelled = notLabelled === undefined
         ? ready
         : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
-      return `${labelled}${leftForHumanNote(pullRequest, merge)}`;
+      return `${labelled}${mergeGateNote(pullRequest, merge)}`;
     }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
