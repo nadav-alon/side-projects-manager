@@ -615,6 +615,15 @@ export interface Reviewed {
    * turbo comment at all, and for one whose comment posted fine.
    */
   notCommented?: NotCommented;
+  /**
+   * What the merge gate did, per `CONTEXT.md`'s "Turboable" and ADR 0009.
+   * Present only on a turbo project whose review was clean, once the ticket
+   * has closed (`notClosed` absent): a project that is not turbo, or a
+   * review with findings, never asks — a review with findings gets the gate
+   * only later, after its apply-review ticket's own finish — so `merge` is
+   * absent for either.
+   */
+  merge?: MergeGate;
   /** As `Finished.discoveryReport`. */
   discoveryReport?: DiscoveryReport;
 }

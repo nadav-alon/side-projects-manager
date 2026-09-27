@@ -2416,6 +2416,242 @@ describe("morningLoop", () => {
 
         assert.deepEqual(ports.repoHost.readyMarked, []);
       });
+
+      describe("the merge gate", () => {
+        const IMPLEMENTATION = issueNumber(7);
+        const RUN_STARTED = new Date(FROZEN_NOW.getTime() - 3_600_000);
+        const RUN_ENDED = new Date(FROZEN_NOW.getTime() - 1_800_000);
+        const GRANTED_IN_TIME = new Date(RUN_STARTED.getTime() - 60_000);
+
+        /**
+         * A turbo project's implementation ticket #7, turboable before its
+         * own run started, and the review ticket its pull request already
+         * carries, linked to it as a sub-issue — the merge gate's own
+         * precondition for even asking. As `queuedTurboable` in the
+         * apply-review describe above, but for a review ticket.
+         */
+        function queuedTurboableReview(
+          ports: FakePorts,
+          { turbo = true, grantedAt = GRANTED_IN_TIME } = {},
+        ): Ticket {
+          ports.store.register(PILOT, { turbo });
+          const implementation = ports.tracker.addEligibleTicket(PILOT, {
+            number: IMPLEMENTATION,
+            title: "Add the thing",
+          });
+          ports.store.markRunSpan(implementation, RUN_STARTED, RUN_ENDED);
+          ports.tracker.recordTurboableEvent(implementation, "labeled", grantedAt);
+          ports.tracker.addEligibleTicket(PILOT, {
+            number: issueNumber(42),
+            title: "Review the draft pull request for #7",
+            pullRequest: { kind: "review", url: PULL_REQUEST },
+            parent: IMPLEMENTATION,
+          });
+          return implementation;
+        }
+
+        it("merges the pull request with a merge commit once a turboable ticket's review comes back clean", async () => {
+          const ports = fakePorts();
+          const implementation = queuedTurboableReview(ports);
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+          const outcome = report.iterations[0];
+          assert.equal(outcome?.kind, "reviewed");
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "merged", implementationTicket: implementation },
+          );
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [],
+          );
+        });
+
+        it("labels the pull request ready-for-human instead of merging when the repo host refuses the merge, reporting rather than raising it", async (t) => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          t.mock.method(ports.repoHost, "mergePullRequest", async () => {
+            throw new Error("Pull Request is not mergeable");
+          });
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "left-for-human", reason: "Pull Request is not mergeable" },
+          );
+        });
+
+        it("labels the pull request ready-for-human without attempting a merge when the pull request still carries a declined thread", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          ports.repoHost.openApplyReviewThread(PULL_REQUEST);
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            0,
+            "declined",
+            "out of scope",
+            new Date(FROZEN_NOW.getTime() - 120_000),
+          );
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "left-for-human", reason: "1 declined thread" },
+          );
+        });
+
+        it("never merges when the implementation ticket was not turboable before its own run started", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports, {
+            grantedAt: new Date(RUN_STARTED.getTime() + 60_000),
+          });
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "not-turboable", reason: "not turboable before its own run started" },
+          );
+        });
+
+        it("never merges on a project that is not turbo, whatever the implementation ticket carries", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports, { turbo: false });
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+          const outcome = report.iterations[0];
+          assert.equal(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            undefined,
+          );
+        });
+
+        it("never asks the gate for a review that comes back with findings, even on a turbo project", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedAFinding(ports);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.equal(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            undefined,
+          );
+          assert.deepEqual(ports.repoHost.comments, [
+            { pullRequest: PULL_REQUEST, body: APPLY_REVIEW_COMMENT },
+          ]);
+        });
+
+        it("closes the ticket as not-turboable, rather than raising, when the implementation ticket lookup fails", async (t) => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          let calls = 0;
+          const original = ports.tracker.listOpenIssues.bind(ports.tracker);
+          t.mock.method(
+            ports.tracker,
+            "listOpenIssues",
+            async (...args: Parameters<typeof original>) => {
+              calls++;
+              if (calls > 1) {
+                throw new Error("tracker unavailable");
+              }
+              return original(...args);
+            },
+          );
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.equal(outcome?.kind, "reviewed");
+          assert.deepEqual(ports.tracker.closedReviewTickets.length, 1);
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "not-turboable", reason: "could not find its implementation ticket" },
+          );
+        });
+
+        it("labels the pull request ready-for-human instead of merging when its checks are still running", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          ports.repoHost.checksStatus = () => "pending";
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "left-for-human", reason: "checks still running" },
+          );
+        });
+
+        it("labels the pull request ready-for-human, reporting rather than raising, when reading its declined threads fails", async (t) => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          t.mock.method(ports.repoHost, "readApplyReviewAnswers", async () => {
+            throw new Error("thread read unavailable");
+          });
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "left-for-human", reason: "thread read unavailable" },
+          );
+        });
+      });
     });
 
     it("adds no label when the review ticket cannot be closed", async (t) => {

@@ -32,7 +32,6 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunSandboxFailed,
-  RunSpan,
   RunStarted,
   Salvaged,
   Sandbox,
@@ -1559,6 +1558,14 @@ async function markCleanReviewReady(
  * on the iteration, never raised — the ready-mark and the turbo comment are
  * each tried whether or not the label landed, since it is the ticket having
  * closed that matters, but neither is ever tried when closing itself failed.
+ *
+ * On a turbo project, a clean review runs the same merge gate an apply-review
+ * ticket's own finish does, once, right after its ticket has closed —
+ * `CONTEXT.md`'s "Turboable", ADR 0009: same turboable-timeline check against
+ * its implementation ticket, same mergeable-green-no-declined-threads checks,
+ * same merge-or-`ready-for-human` outcome. A review with findings never gets
+ * it directly: turbo posts `/apply-review` instead, and the gate fires after
+ * that ticket's own finish.
  */
 async function runReview(
   ports: MorningLoopPorts,
@@ -1583,6 +1590,11 @@ async function runReview(
   if (resolved !== undefined) {
     return resolved;
   }
+
+  // Used only if the review turns out clean; a review with findings never
+  // reads it, but the lookup runs all the same, the same waste
+  // `runApplyReview` already accepts for the identical reason.
+  const mergeGateContext = await mergeGateContextFor(ports, ticket, invocation, turbo);
 
   const startedAt = ports.clock.now();
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted) =>
@@ -1683,6 +1695,22 @@ async function runReview(
   const commented = turbo && !clean
     ? await postTurboComment(ports, ticket.pullRequest.url)
     : {};
+  // A clean review is the other place, besides an apply-review ticket's own
+  // finish, the merge gate ever fires — CONTEXT.md's "Turboable", ADR 0009.
+  // A review with findings reaches turbo's own comment above instead, and
+  // gets the gate only once its apply-review ticket later finishes. Never
+  // asked when the ready-mark itself failed: the ticket has already closed
+  // by then, so nothing will come back to run the gate later, and the pull
+  // request is left a draft, without `ready-for-human` — `notReadied`'s own
+  // note is what tells the developer to mark it ready and take it from
+  // there by hand.
+  const merge = mergeGateContext !== undefined && clean && readied.notReadied === undefined
+    ? await mergeGate(ports, ticket, mergeGateContext, () =>
+        ports.repoHost
+          .readApplyReviewAnswers(ticket.pullRequest.url, startedAt)
+          .then((answers) => answers.declinedOpen),
+      )
+    : undefined;
   const reviewed: Reviewed = {
     kind: "reviewed",
     review,
@@ -1691,6 +1719,7 @@ async function runReview(
     ...labelled,
     ...readied,
     ...commented,
+    ...(merge !== undefined && { merge }),
   };
   return withDiscoveries(reviewed, routed);
 }
@@ -1841,14 +1870,43 @@ async function runSpecReview(
  */
 
 /**
- * What `finishApplyReview` needs to run the merge gate, built once by
- * `runApplyReview` before the ticket closes: `implementation`, resolved while
- * it was still open, and `invocation`, read for its run spans. Absent on a
- * project that is not turbo — the merge gate never asks there.
+ * What `finishApplyReview` and `runReview` need to run the merge gate, built
+ * once by their own callers before the ticket closes: `implementation`,
+ * resolved while it was still open, and `invocation`, read for its run spans.
+ * Absent on a project that is not turbo — the merge gate never asks there.
  */
 interface MergeGateContext {
   implementation: Ticket | undefined;
   invocation: Pick<RunRecording, "runSpans">;
+}
+
+/**
+ * Builds `MergeGateContext` for `ticket`, resolved here, before the ticket
+ * itself is ever closed: `listOpenIssues` only ever reports an open issue,
+ * and `ticket` is exactly that until the caller closes it. Shared by
+ * `runApplyReview` and `runReview`, which each build it the same way right
+ * before their own close. Skipped outright on a project that is not turbo,
+ * per `mergeGate`'s own doc — the merge gate never asks there.
+ *
+ * The lookup is caught rather than left to raise: it exists only to feed a
+ * gate that fires after this run, so a transient tracker failure here must
+ * not sink the run itself — it reads the same as an implementation ticket
+ * the lookup found none for, and `mergeGate` reports it as such.
+ */
+async function mergeGateContextFor(
+  ports: MorningLoopPorts,
+  ticket: PullRequestTicket,
+  invocation: RunRecording,
+  turbo: boolean,
+): Promise<MergeGateContext | undefined> {
+  return turbo
+    ? {
+        implementation: await implementationTicketFor(ports.tracker, ticket).catch(
+          () => undefined,
+        ),
+        invocation,
+      }
+    : undefined;
 }
 
 async function runApplyReview(
@@ -1877,23 +1935,7 @@ async function runApplyReview(
     return resolved;
   }
 
-  // Resolved here, before the ticket itself is ever closed: `listOpenIssues`
-  // only ever reports an open issue, and `ticket` is exactly that until
-  // `finishApplyReview` closes it. Skipped outright on a project that is not
-  // turbo, per `mergeGate`'s own doc — the merge gate never asks there.
-  //
-  // The lookup is caught rather than left to raise: it exists only to feed a
-  // gate that fires after this run, so a transient tracker failure here must
-  // not sink the run itself — it reads the same as an implementation ticket
-  // the lookup found none for, and `mergeGate` reports it as such.
-  const mergeGateContext: MergeGateContext | undefined = turbo
-    ? {
-        implementation: await implementationTicketFor(ports.tracker, ticket).catch(
-          () => undefined,
-        ),
-        invocation,
-      }
-    : undefined;
+  const mergeGateContext = await mergeGateContextFor(ports, ticket, invocation, turbo);
 
   const startedAt = ports.clock.now();
   let before: ApplyReviewAnswers;
@@ -2051,49 +2093,52 @@ async function finishApplyReview(
   if (mergeGateContext === undefined) {
     return closed;
   }
-  const merge = await mergeGate(
-    ports,
-    ticket,
-    mergeGateContext.implementation,
-    mergeGateContext.invocation.runSpans(),
-    declinedOpen,
+  const merge = await mergeGate(ports, ticket, mergeGateContext, () =>
+    Promise.resolve(declinedOpen),
   );
   return { ...closed, merge };
 }
 
 /**
- * The merge gate: whether `implementation` — `ticket`'s own implementation
- * ticket, resolved by the caller while it was still open — carried
- * `turboable` before its own run started — `CONTEXT.md`'s "Turboable", ADR
- * 0009 — and, only then, whether the pull request is free of `declinedOpen`
- * threads and its own checks read green, attempting the merge itself to
- * settle mergeable. Fires once, right after the one apply-review run already
- * in the loop: no retry, no `/rebase`, whatever it finds. Never throws: every
- * read this makes past `implementation` and `span` is guarded, so a tracker
- * or repo host failure comes back as a verdict rather than sinking a ticket
- * that has already closed.
+ * The merge gate: whether `context.implementation` — `ticket`'s own
+ * implementation ticket, resolved by the caller while it was still open —
+ * carried `turboable` before its own run started — `CONTEXT.md`'s
+ * "Turboable", ADR 0009 — and, only then, whether the pull request is free
+ * of declined threads and its own checks read green, attempting the merge
+ * itself to settle mergeable. Fires once, right after the one apply-review
+ * run, or the one clean review, already in the loop: no retry, no
+ * `/rebase`, whatever it finds. Never throws: every read this makes past
+ * `implementation` and `span` is guarded, so a tracker or repo host failure
+ * comes back as a verdict rather than sinking a ticket that has already
+ * closed — `declinedOpen` included, called only once the timeline check has
+ * passed, so a review's own extra round trip to read it is never spent on a
+ * ticket that was never turboable in time to begin with.
  *
- * `implementation` absent, or carrying no run span, reads the same as not
- * turboable in time: neither is proof the manager can act on, and
+ * `context.implementation` absent, or carrying no run span, reads the same
+ * as not turboable in time: neither is proof the manager can act on, and
  * `CONTEXT.md`'s "Turboable" already documents both as known gaps.
  */
 async function mergeGate(
   ports: MorningLoopPorts,
-  ticket: ApplyReviewTicket,
-  implementation: Ticket | undefined,
-  spans: readonly RunSpan[],
-  declinedOpen: number,
+  ticket: PullRequestTicket,
+  context: MergeGateContext,
+  declinedOpen: () => Promise<number>,
 ): Promise<MergeGate> {
+  const { implementation } = context;
   if (implementation === undefined) {
     return { kind: "not-turboable", reason: "could not find its implementation ticket" };
   }
-  const span = runSpanFor(spans, implementation);
+  const span = runSpanFor(context.invocation.runSpans(), implementation);
   if (span === undefined) {
     return { kind: "not-turboable", reason: "its implementation ticket carries no run span" };
   }
   let inTime: boolean;
   try {
-    inTime = await ports.tracker.wasTurboableAt(implementation, span.startedAt, spans);
+    inTime = await ports.tracker.wasTurboableAt(
+      implementation,
+      span.startedAt,
+      context.invocation.runSpans(),
+    );
   } catch (error: unknown) {
     return {
       kind: "not-turboable",
@@ -2105,8 +2150,14 @@ async function mergeGate(
   }
 
   const pullRequest = ticket.pullRequest.url;
-  if (declinedOpen > 0) {
-    return leftForHuman(ports, pullRequest, declinedThreadsReason(declinedOpen));
+  let declinedOpenCount: number;
+  try {
+    declinedOpenCount = await declinedOpen();
+  } catch (error: unknown) {
+    return leftForHuman(ports, pullRequest, errorMessage(error));
+  }
+  if (declinedOpenCount > 0) {
+    return leftForHuman(ports, pullRequest, declinedThreadsReason(declinedOpenCount));
   }
   let checks: ChecksStatus;
   try {
