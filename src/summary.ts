@@ -1365,9 +1365,10 @@ function workedReviewOutcomes(
  * rather than one repeating the other. A clean review the merge gate merged,
  * left for the developer to merge, or could not check the turboable timeline
  * of is the one exception: the `reviewed` case already has its own line for
- * each — none at all once merged, nothing left for the developer to do — so
- * nothing is added here, which keeps a merged pull request from reading as if
- * it still waited on someone.
+ * each — none once merged, the left-for-you or could-not-check line
+ * otherwise — so nothing is added here, which keeps the pull request from
+ * being listed twice, or a merged one from reading as if it still waited on
+ * someone.
  * One that failed some other way, ran but could not close its ticket, or
  * closed instead of running because its own pull request had already
  * resolved, already has its own line — or none — from that iteration's own
