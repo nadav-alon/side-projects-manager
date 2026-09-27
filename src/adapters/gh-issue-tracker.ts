@@ -20,6 +20,7 @@ import type {
   SubIssue,
   Ticket,
   TicketPriority,
+  TurboableConsent,
 } from "../ports/index.ts";
 import {
   ENHANCEMENT_LABEL,
@@ -310,7 +311,7 @@ export function ghIssueTracker(
       ticket: Ticket,
       instant: Date,
       spans: readonly RunSpan[],
-    ): Promise<boolean> {
+    ): Promise<TurboableConsent> {
       // `--paginate`, so an issue with a longer timeline than fits one page
       // is read whole — the same reason `listSubIssues` paginates. Filtered
       // to the two event kinds a label's history is made of, so a comment or

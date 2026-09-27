@@ -2540,9 +2540,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
   it("answers false where the ticket's timeline carries no turboable event", async (t) => {
     await recordingGh(t, timeline([]));
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      false,
+      { grantedInTime: false, reason: "not-labeled-in-time" },
     );
   });
 
@@ -2554,13 +2554,13 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z"), []),
-      true,
+      { grantedInTime: true },
     );
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      true,
+      { grantedInTime: true },
     );
   });
 
@@ -2574,9 +2574,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), []),
-      true,
+      { grantedInTime: true },
     );
   });
 
@@ -2588,9 +2588,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      false,
+      { grantedInTime: false, reason: "not-labeled-in-time" },
     );
   });
 
@@ -2603,9 +2603,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z"), []),
-      false,
+      { grantedInTime: false, reason: "not-labeled-in-time" },
     );
   });
 
@@ -2617,9 +2617,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      false,
+      { grantedInTime: false, reason: "not-labeled-in-time" },
     );
   });
 
@@ -2676,9 +2676,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
         endedAt: new Date("2026-01-03T00:00:00Z"),
       },
     ];
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
-      false,
+      { grantedInTime: false, reason: "inside-run-span" },
     );
   });
 
@@ -2698,9 +2698,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
         endedAt: new Date("2026-01-03T00:00:00Z"),
       },
     ];
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
-      true,
+      { grantedInTime: true },
     );
   });
 });

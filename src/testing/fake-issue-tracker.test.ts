@@ -864,7 +864,10 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2, []), false);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, []), {
+      grantedInTime: false,
+      reason: "not-labeled-in-time",
+    });
   });
 
   it("answers true once turboable was labelled, at and after that instant", async () => {
@@ -872,8 +875,8 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1, []), true);
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_2, []), true);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_1, []), { grantedInTime: true });
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, []), { grantedInTime: true });
   });
 
   it("answers false for a turboable label added after the instant", async () => {
@@ -881,7 +884,10 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_1, []), false);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_1, []), {
+      grantedInTime: false,
+      reason: "not-labeled-in-time",
+    });
   });
 
   it("answers false once turboable was added and then removed again before the instant", async () => {
@@ -890,7 +896,10 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
     tracker.recordTurboableEvent(ticket, "unlabeled", DAY_2);
 
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, []), false);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, []), {
+      grantedInTime: false,
+      reason: "not-labeled-in-time",
+    });
   });
 
   it("reads only the ticket its events were recorded against", async () => {
@@ -899,7 +908,10 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
     tracker.recordTurboableEvent(turboable, "labeled", DAY_1);
 
-    assert.equal(await tracker.wasTurboableAt(other, DAY_2, []), false);
+    assert.deepEqual(await tracker.wasTurboableAt(other, DAY_2, []), {
+      grantedInTime: false,
+      reason: "not-labeled-in-time",
+    });
   });
 
   it("leaves the ticket's current labels untouched, independent of addLabel/removeLabel", async () => {
@@ -919,7 +931,10 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const spans: RunSpan[] = [
       { repo: other.repo, number: other.number, startedAt: DAY_1, endedAt: DAY_3 },
     ];
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), false);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), {
+      grantedInTime: false,
+      reason: "inside-run-span",
+    });
   });
 
   it("answers false where the grant falls inside another ticket's still-open run span in the same repo", async () => {
@@ -929,7 +944,10 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
 
     const spans: RunSpan[] = [{ repo: other.repo, number: other.number, startedAt: DAY_1 }];
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), false);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), {
+      grantedInTime: false,
+      reason: "inside-run-span",
+    });
   });
 
   it("ignores a run span for the same numbered ticket in a different repo", async () => {
@@ -941,6 +959,6 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const spans: RunSpan[] = [
       { repo: otherRepo, number: ticket.number, startedAt: DAY_1, endedAt: DAY_3 },
     ];
-    assert.equal(await tracker.wasTurboableAt(ticket, DAY_3, spans), true);
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), { grantedInTime: true });
   });
 });

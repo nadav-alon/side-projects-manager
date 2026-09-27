@@ -40,6 +40,7 @@ import type {
   Ticket,
   TokenCount,
   TranscriptPath,
+  TurboableConsent,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -2132,9 +2133,9 @@ async function mergeGate(
   if (span === undefined) {
     return { kind: "not-turboable", reason: "its implementation ticket carries no run span" };
   }
-  let inTime: boolean;
+  let consent: TurboableConsent;
   try {
-    inTime = await ports.tracker.wasTurboableAt(
+    consent = await ports.tracker.wasTurboableAt(
       implementation,
       span.startedAt,
       context.invocation.runSpans(),
@@ -2142,8 +2143,12 @@ async function mergeGate(
   } catch (error: unknown) {
     return { kind: "timeline-unreadable", error: errorMessage(error) };
   }
-  if (!inTime) {
-    return { kind: "not-turboable", reason: "not turboable before its own run started" };
+  if (!consent.grantedInTime) {
+    const reason =
+      consent.reason === "not-labeled-in-time"
+        ? "not turboable before its own run started"
+        : "turboable granted inside a run span";
+    return { kind: "not-turboable", reason };
   }
 
   const pullRequest = ticket.pullRequest.url;

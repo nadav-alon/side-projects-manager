@@ -600,37 +600,43 @@ describe("turboableConsentAt", () => {
 
   it("reads as consent where the label predates the instant and no span covers the grant", () => {
     const events = [event("labeled", DAY_1)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_3, []), true);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_3, []), { grantedInTime: true });
   });
 
-  it("reads as no consent where a span in the same repo, closed, covers the grant", () => {
+  it("reads as no consent, naming the run span, where a span in the same repo, closed, covers the grant", () => {
     const events = [event("labeled", DAY_2)];
     const spans = [span(OTHER_TICKET, DAY_1, DAY_3)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), false);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), {
+      grantedInTime: false,
+      reason: "inside-run-span",
+    });
   });
 
-  it("reads as no consent where a still-open span in the same repo covers the grant", () => {
+  it("reads as no consent, naming the run span, where a still-open span in the same repo covers the grant", () => {
     const events = [event("labeled", DAY_2)];
     const spans = [span(OTHER_TICKET, DAY_1)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), false);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), {
+      grantedInTime: false,
+      reason: "inside-run-span",
+    });
   });
 
   it("rejects a grant at exactly a span's startedAt or endedAt — inclusive bounds", () => {
     const spans = [span(OTHER_TICKET, DAY_2, DAY_3)];
-    assert.equal(
+    assert.deepEqual(
       turboableConsentAt(TICKET, [event("labeled", DAY_2)], DAY_4, spans),
-      false,
+      { grantedInTime: false, reason: "inside-run-span" },
     );
-    assert.equal(
+    assert.deepEqual(
       turboableConsentAt(TICKET, [event("labeled", DAY_3)], DAY_4, spans),
-      false,
+      { grantedInTime: false, reason: "inside-run-span" },
     );
   });
 
   it("ignores a span in a different repo", () => {
     const events = [event("labeled", DAY_2)];
     const spans = [span({ repo: OTHER_REPO, number: OTHER_TICKET.number }, DAY_1, DAY_3)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), true);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { grantedInTime: true });
   });
 
   it("reads as consent where the label was removed and re-added outside every span", () => {
@@ -640,22 +646,31 @@ describe("turboableConsentAt", () => {
       event("labeled", DAY_4),
     ];
     const spans = [span(OTHER_TICKET, DAY_1, DAY_2)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_4, spans), true);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { grantedInTime: true });
   });
 
   it("rejects a ticket's own span covering its own grant", () => {
     const events = [event("labeled", DAY_1)];
     const spans = [span(TICKET, DAY_1, DAY_3)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_2, spans), false);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_2, spans), {
+      grantedInTime: false,
+      reason: "inside-run-span",
+    });
   });
 
   it("behaves identically to labelWasPresentAt when no spans are recorded", () => {
     const events = [event("labeled", DAY_1), event("unlabeled", DAY_2)];
-    assert.equal(turboableConsentAt(TICKET, events, DAY_1, []), true);
-    assert.equal(turboableConsentAt(TICKET, events, DAY_3, []), false);
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_1, []), { grantedInTime: true });
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_3, []), {
+      grantedInTime: false,
+      reason: "not-labeled-in-time",
+    });
   });
 
-  it("reads as no consent where turboable was never granted, whatever the spans", () => {
-    assert.equal(turboableConsentAt(TICKET, [], DAY_2, []), false);
+  it("reads as no consent, naming the timeline, where turboable was never granted, whatever the spans", () => {
+    assert.deepEqual(turboableConsentAt(TICKET, [], DAY_2, []), {
+      grantedInTime: false,
+      reason: "not-labeled-in-time",
+    });
   });
 });

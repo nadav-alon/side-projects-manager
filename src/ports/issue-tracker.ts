@@ -423,6 +423,19 @@ export function labelWasPresentAt(
 }
 
 /**
+ * Whether `turboableConsentAt` found consent, and which of its two checks
+ * said no when it did not — so a caller's own "not turboable" reason can
+ * name the one that actually failed rather than blaming both at once:
+ * `"not-labeled-in-time"` when the timeline check itself never grants it in
+ * time, `"inside-run-span"` when the timeline grants it but the run-span
+ * check rejects it.
+ */
+export type TurboableConsent =
+  | { readonly grantedInTime: true }
+  | { readonly grantedInTime: false; readonly reason: "not-labeled-in-time" }
+  | { readonly grantedInTime: false; readonly reason: "inside-run-span" };
+
+/**
  * Whether `ticket` had turboable consent at `instant`, replaying `events` —
  * its full label timeline — and checking the granting event against
  * `spans`, every run span recorded for any ticket. Per `CONTEXT.md`'s
@@ -451,14 +464,15 @@ export function turboableConsentAt(
   events: readonly LabelTimelineEvent[],
   instant: Date,
   spans: readonly RunSpan[],
-): boolean {
+): TurboableConsent {
   const grant = mostRecentLabelEvent(events, TURBOABLE_LABEL, instant);
   if (grant?.action !== "labeled") {
-    return false;
+    return { grantedInTime: false, reason: "not-labeled-in-time" };
   }
-  return !spans.some(
+  const insideSpan = spans.some(
     (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),
   );
+  return insideSpan ? { grantedInTime: false, reason: "inside-run-span" } : { grantedInTime: true };
 }
 
 /**
@@ -832,13 +846,14 @@ export interface IssueTracker {
    * removed again before it, or added by a run on a different ticket before
    * this one's own run started, must not count as consent given in time —
    * and only a read of history, rather than the present, can tell any of
-   * those from a human's grant.
+   * those from a human's grant. Answers with a {@link TurboableConsent} so
+   * the caller's own "not turboable" reason can name which check said no.
    */
   wasTurboableAt(
     ticket: Ticket,
     instant: Date,
     spans: readonly RunSpan[],
-  ): Promise<boolean>;
+  ): Promise<TurboableConsent>;
   /**
    * Opens a spec review ticket against `ticket`, a supertask — a sub-issue
    * carrying `body` — and answers with it.

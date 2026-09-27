@@ -2542,6 +2542,26 @@ describe("morningLoop", () => {
           );
         });
 
+        it("never merges, naming the run span rather than the timeline, when the grant falls inside another ticket's run span in the same repo", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          ports.store.markRunSpan(
+            { repo: PILOT, number: issueNumber(99) },
+            new Date(GRANTED_IN_TIME.getTime() - 60_000),
+            new Date(GRANTED_IN_TIME.getTime() + 60_000),
+          );
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "not-turboable", reason: "turboable granted inside a run span" },
+          );
+        });
+
         it("never merges on a project that is not turbo, whatever the implementation ticket carries", async () => {
           const ports = fakePorts();
           queuedTurboableReview(ports, { turbo: false });

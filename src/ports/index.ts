@@ -95,6 +95,7 @@ export type {
   SubIssue,
   Ticket,
   TicketKind,
+  TurboableConsent,
 } from "./issue-tracker.ts";
 export { isIterationLimit, iterationLimit } from "./iteration-limit.ts";
 export type { IterationLimit } from "./iteration-limit.ts";
