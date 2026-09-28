@@ -477,6 +477,49 @@ describe("specReviewSweep", () => {
     );
   });
 
+  it("finds a cross-repo sub-issue's own pull request where it actually lives, in the sub-issue's own repo rather than the supertask's", async () => {
+    const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
+    crossRepoSubIssue(tracker, supertask);
+    repoHost.setPullRequestsClosingIssues(OTHER, [
+      {
+        number: issueNumber(50),
+        state: "open",
+        branch: branch("41-part-one"),
+        closesIssues: [{ repo: OTHER, number: issueNumber(41) }],
+      },
+    ]);
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    const body = tracker.specReviewTickets[0]?.body ?? "";
+    assert.match(
+      body,
+      /^- nadav-alon\/other#41: pull request nadav-alon\/other#50 on branch `41-part-one`, open\s*$/m,
+    );
+  });
+
+  it("reads a repo's closing pull requests at most once, even where two cross-repo sub-issues share it", async (t) => {
+    const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
+    crossRepoSubIssue(tracker, supertask);
+    const secondCrossRepoChild = tracker.addEligibleTicket(OTHER, {
+      number: issueNumber(42),
+      title: "Another sub-issue in the same other repo",
+    });
+    tracker.closeOutOfBand(secondCrossRepoChild);
+    tracker.linkSubIssue(supertask, secondCrossRepoChild);
+    const listPullRequestsClosingIssues = t.mock.method(
+      repoHost,
+      "listPullRequestsClosingIssues",
+    );
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    assert.deepEqual(
+      listPullRequestsClosingIssues.mock.calls.map((call) => call.arguments[0]),
+      [PILOT, OTHER],
+    );
+  });
+
   it("records a refusal and carries on to the next supertask", async () => {
     const tracker = new FakeIssueTracker();
     const repoHost = new FakeRepoHost();

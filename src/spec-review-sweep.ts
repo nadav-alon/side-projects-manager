@@ -68,9 +68,11 @@ export interface SpecReviewSweepOutcome {
  * would fire again the very next morning the spec review it opened closed.
  *
  * A supertask that clears both checks gets its spec review: its body names
- * every sub-issue `listSubIssues` found, and — read once here, at exactly
- * this instant, through {@link RepoHost.listPullRequestsClosingIssues} — the
- * branch and state of whichever of them has a pull request still unmerged.
+ * every sub-issue `listSubIssues` found, and — read here, at exactly this
+ * instant, through {@link RepoHost.listPullRequestsClosingIssues}, once per
+ * repo across the supertask's own repo and every other repo a sub-issue
+ * lives in — the branch and state of whichever of them has a pull request
+ * still unmerged, in its own repo.
  *
  * Before that spec review is opened, `openIssues` is searched once more —
  * this time for an issue carrying the spec-review label and the exact title
@@ -99,10 +101,11 @@ export async function specReviewSweep(
   const opened: Ticket[] = [];
   const linked: SpecReviewSweepLink[] = [];
   const refusals: SpecReviewSweepRefusal[] = [];
-  // Read at most once per sweep, lazily: a sweep that opens nothing still
-  // spends nothing, and every supertask that does need it this scan shares
-  // the one `gh pr list`, per `CONTEXT.md`'s "Spec review sweep".
-  let closingPullRequests: Promise<readonly ClosingPullRequest[]> | undefined;
+  // Read at most once per repo per sweep, lazily: a sweep that opens nothing
+  // still spends nothing, and every supertask that does need a given repo
+  // this scan shares the one `gh pr list` for it, per `CONTEXT.md`'s "Spec
+  // review sweep".
+  const closingPullRequestReads = new Map<RepoSlug, Promise<readonly ClosingPullRequest[]>>();
 
   for (const { ticket: supertask } of openIssues.issues) {
     if (!isSupertask(supertask) || hasOpenSubIssue(supertask, openIssues.issues)) {
@@ -148,8 +151,13 @@ export async function specReviewSweep(
         // ordinary way never spends the `gh pr list` disclosure read below,
         // and never overwrites `floating`'s own existing text with it.
         await ports.tracker.linkSpecReviewTicket(floating, supertask, async () => {
-          closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
-          return specReviewBody(supertask, subIssues, await closingPullRequests);
+          const closingPullRequests = await closingPullRequestsForSupertask(
+            ports,
+            closingPullRequestReads,
+            supertask.repo,
+            subIssues,
+          );
+          return specReviewBody(supertask, subIssues, closingPullRequests);
         });
         linked.push({ supertask, specReview: floating });
       } catch (error) {
@@ -159,8 +167,13 @@ export async function specReviewSweep(
     }
 
     try {
-      closingPullRequests ??= ports.repoHost.listPullRequestsClosingIssues(repo);
-      const body = specReviewBody(supertask, subIssues, await closingPullRequests);
+      const closingPullRequests = await closingPullRequestsForSupertask(
+        ports,
+        closingPullRequestReads,
+        supertask.repo,
+        subIssues,
+      );
+      const body = specReviewBody(supertask, subIssues, closingPullRequests);
       const specReview = await ports.tracker.createSpecReviewTicket(supertask, body);
       opened.push(specReview);
     } catch (error) {
@@ -186,6 +199,52 @@ function hasOpenSubIssue(ticket: Ticket, issues: readonly OpenIssue[]): boolean 
 /** Whether `sub` is a spec review already opened for its supertask — the guard itself. */
 function alreadySpecReviewed(sub: SubIssue): boolean {
   return sub.ticket.specReview === true;
+}
+
+/**
+ * One {@link ClosingPullRequest} paired with the repo it was read from —
+ * lost the moment it leaves {@link RepoHost.listPullRequestsClosingIssues},
+ * whose result carries no repo of its own, per `ClosingPullRequest`'s doc
+ * comment. `subIssueLine` needs it back: a pull request read from a
+ * sub-issue's own repo, rather than the supertask's, is named `owner/repo#N`
+ * in the spec review body the same way the sub-issue itself is.
+ */
+interface RepoClosingPullRequest {
+  repo: RepoSlug;
+  pullRequest: ClosingPullRequest;
+}
+
+/**
+ * Every closing pull request a spec review for `supertask` could name:
+ * read, through `closingPullRequestReads` — shared across every supertask
+ * this sweep still has to look at, so a repo common to more than one of
+ * them is asked for exactly once — from `supertaskRepo` and from every
+ * other repo `subIssues` lives in. A cross-repo sub-issue's own pull
+ * request usually lives in that sub-issue's repo rather than
+ * `supertaskRepo` (issue #994), so both are read and `subIssueLine`
+ * matches against the union.
+ */
+async function closingPullRequestsForSupertask(
+  ports: SpecReviewSweepPorts,
+  closingPullRequestReads: Map<RepoSlug, Promise<readonly ClosingPullRequest[]>>,
+  supertaskRepo: RepoSlug,
+  subIssues: readonly SubIssue[],
+): Promise<readonly RepoClosingPullRequest[]> {
+  const repos = new Set<RepoSlug>([supertaskRepo]);
+  for (const sub of subIssues) {
+    repos.add(sub.ticket.repo);
+  }
+  const perRepo = await Promise.all(
+    [...repos].map(async (repo) => {
+      let read = closingPullRequestReads.get(repo);
+      if (read === undefined) {
+        read = ports.repoHost.listPullRequestsClosingIssues(repo);
+        closingPullRequestReads.set(repo, read);
+      }
+      return (await read).map((pullRequest) => ({ repo, pullRequest }));
+    }),
+  );
+  return perRepo.flat();
 }
 
 /**
@@ -220,7 +279,7 @@ function findFloatingSpecReview(
 function specReviewBody(
   supertask: Ticket,
   subIssues: readonly SubIssue[],
-  closingPullRequests: readonly ClosingPullRequest[],
+  closingPullRequests: readonly RepoClosingPullRequest[],
 ): string {
   return [
     `Reviews #${supertask.number}, now that every sub-issue has closed.`,
@@ -242,24 +301,35 @@ function specReviewBody(
  * unrelated issue `closesIssues` names in `supertaskRepo`. The repo names are
  * matched with `sameRepo`, not `===`: `closesIssues` carries GitHub's own
  * canonical casing, which need not match the configured repo slug's.
+ *
+ * The matched pull request's own number is written the same way as `sub`'s:
+ * bare where `closingPullRequestsForSupertask` read it from `supertaskRepo`,
+ * `owner/repo#N` where it read it from `sub`'s own repo instead — a bare
+ * number would otherwise resolve against `supertaskRepo`, same as the
+ * sub-issue's own would (issue #994).
  */
 function subIssueLine(
   supertaskRepo: RepoSlug,
   sub: SubIssue,
-  closingPullRequests: readonly ClosingPullRequest[],
+  closingPullRequests: readonly RepoClosingPullRequest[],
 ): string {
   const name =
     sub.ticket.repo === supertaskRepo
       ? `#${sub.ticket.number}`
       : ticketReference(sub.ticket);
-  const pullRequest = closingPullRequests.find((candidate) =>
-    candidate.closesIssues.some(
+  const match = closingPullRequests.find(({ pullRequest }) =>
+    pullRequest.closesIssues.some(
       (closed) =>
         sameRepo(closed.repo, sub.ticket.repo) && closed.number === sub.ticket.number,
     ),
   );
-  if (pullRequest === undefined || pullRequest.state === "merged") {
+  if (match === undefined || match.pullRequest.state === "merged") {
     return `- ${name}`;
   }
-  return `- ${name}: pull request #${pullRequest.number} on branch \`${pullRequest.branch}\`, ${pullRequest.state}`;
+  const { repo, pullRequest } = match;
+  const number =
+    repo === supertaskRepo
+      ? `#${pullRequest.number}`
+      : ticketReference({ repo, number: pullRequest.number });
+  return `- ${name}: pull request ${number} on branch \`${pullRequest.branch}\`, ${pullRequest.state}`;
 }
