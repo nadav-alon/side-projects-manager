@@ -977,8 +977,8 @@ export interface IssueTracker {
    * prerequisite naming an issue that is already ticketed and still open
    * blocks `ticket` on that issue directly, rather than opening a new one
    * nobody will ever close. `false` where `prerequisite` is closed or does
-   * not exist, in which case nothing on the tracker changes and the caller's
-   * own fallback applies — today's behavior, unchanged.
+   * not exist: nothing on the tracker changes, and the caller falls back to
+   * `createDiscoveredTicket`.
    *
    * `prerequisite` names only a repo and a number, never a full `Ticket`:
    * nothing else about it is read, and it may be `ticket`'s own repo or
