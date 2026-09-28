@@ -732,10 +732,15 @@ export type MergeGate =
   /**
    * The manager never merges: `reason` says why — the implementation ticket
    * did not carry `turboable` before its own run started, never ran at all
-   * per the timeline this reads, or could not be found. Settled: proof the
-   * pull request was not eligible, unlike `timeline-unreadable`.
+   * per the timeline this reads, could not be found, or carried no run span.
+   * Settled: proof the pull request was not eligible, unlike
+   * `timeline-unreadable`. `declinedGrant` tells the summary
+   * (`mergeGateNote`) whether `reason` traces to a `turboable` grant the
+   * gate rejected — worth naming to the developer — or to there being no
+   * grant to report at all: the implementation ticket unresolvable, missing
+   * a run span, or never labelled `turboable` in the first place.
    */
-  | { kind: "not-turboable"; reason: string }
+  | { kind: "not-turboable"; reason: string; declinedGrant: boolean }
   /**
    * The gate never settled eligibility: reading the implementation ticket's
    * turboable timeline itself failed, so whether it carried `turboable` in

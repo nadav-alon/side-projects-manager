@@ -960,13 +960,13 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
   const DAY_2 = new Date("2026-01-02T00:00:00Z");
   const DAY_3 = new Date("2026-01-03T00:00:00Z");
 
-  it("refuses, not labeled in time, for a ticket with no recorded turboable event", async () => {
+  it("refuses, never labeled, for a ticket with no recorded turboable event", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
 
     assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, []), {
       consented: false,
-      reason: "not-labeled-in-time",
+      reason: "never-labeled",
     });
   });
 
@@ -1010,7 +1010,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
 
     assert.deepEqual(await tracker.wasTurboableAt(other, DAY_2, []), {
       consented: false,
-      reason: "not-labeled-in-time",
+      reason: "never-labeled",
     });
   });
 
