@@ -625,9 +625,14 @@ issues, unlinked: carrying the spec-review label and the exact title this supert
 review is given, the way one left behind by a tracker write that created the ticket but failed to
 link it as a sub-issue would. Found, that one is linked instead, never duplicated; the guard above
 cannot see it by itself, since it reads by the sub-issue relation alone and a ticket never linked
-carries none. Opened or linked, its body names every sub-issue and, for each whose pull request is
-not merged, that pull request's branch and state — disclosed rather than verified: read once, at
-exactly this instant, through one `gh pr list`, which gives exact branches, exact merged state and
+carries none. Opened or linked, its body names every sub-issue — a cross-repo one as `owner/repo#N`,
+same as a pull request `ticketReference` names elsewhere, so a bare number never resolves against the
+spec review's own repo instead — and, for each whose pull request is not merged, that pull request's
+own number, named the same `owner/repo#N` way where it was read from the sub-issue's own repo rather
+than the supertask's, plus its branch and state — disclosed rather than verified: read at exactly
+this instant, through one `gh pr list` per repo — the supertask's own and every other repo a
+sub-issue lives in, since a cross-repo sub-issue's own pull request usually lives in that
+sub-issue's repo rather than the supertask's — which gives exact branches, exact merged state and
 exact issue linkage without a read per sub-issue and without a new failure mode for a sub-issue that
 never had a pull request. A sub-issue closed with its pull request merged, or with none at all, is
 named but nothing further is said of it — closed reads as intent, not as a gap. The scan that opens
