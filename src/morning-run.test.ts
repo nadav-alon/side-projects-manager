@@ -3950,8 +3950,12 @@ describe("morningLoop", () => {
      * An apply-review ticket, eligible like any other, on a pull request with
      * `threads` open threads.
      */
-    function queued(ports: FakePorts, threads = 1): ApplyReviewTicket {
-      ports.store.register(PILOT);
+    function queued(
+      ports: FakePorts,
+      threads = 1,
+      registration: Registration = {},
+    ): ApplyReviewTicket {
+      ports.store.register(PILOT, registration);
       for (let opened = 0; opened < threads; opened++) {
         ports.repoHost.openApplyReviewThread(PULL_REQUEST);
       }
@@ -4170,6 +4174,41 @@ describe("morningLoop", () => {
       assert.match(handback?.comment ?? "", /will not be retried/);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+    });
+
+    describe("a push that touches a uniform file", () => {
+      it("hands the ticket back, naming the files touched and that the push was reverted", async () => {
+        const ports = fakePorts();
+        const ticket = queued(ports);
+        ports.sandbox.applyReviewResult = () => ({
+          kind: "uniform-files-reverted",
+          files: ["docs/agents/coding-standards.md"],
+          tokensUsed: tokenCount(2_000),
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(failureOf(report.iterations[0])?.kind, "uniform-files-touched");
+        const [handback] = ports.tracker.handbacks;
+        assert.equal(handback?.ticket.number, ticket.number);
+        assert.match(handback?.comment ?? "", /docs\/agents\/coding-standards\.md/);
+        assert.match(handback?.comment ?? "", /reverted/);
+        assert.match(handback?.comment ?? "", new RegExp(PULL_REQUEST));
+        assert.match(handback?.comment ?? "", /will not be retried/);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+        assert.equal(ports.tracker.carriesLabel(ticket, "ready-for-human"), true);
+      });
+
+      it("passes manager through to the sandbox for the manager's own registered project", async () => {
+        const ports = fakePorts();
+        queued(ports, 1, { manager: true });
+        answering(ports, ["applied"]);
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.applyReviews[0]?.manager, true);
+      });
     });
 
     it("carries the run's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {
@@ -4761,8 +4800,8 @@ describe("morningLoop", () => {
     );
 
     /** A rebase ticket, eligible like any other, on a pull request that conflicts with its base. */
-    function queued(ports: FakePorts): RebaseTicket {
-      ports.store.register(PILOT);
+    function queued(ports: FakePorts, registration: Registration = {}): RebaseTicket {
+      ports.store.register(PILOT, registration);
       ports.repoHost.mergeStatus = () => "conflicting";
       return ports.tracker.addEligibleTicket(PILOT, {
         number: issueNumber(44),
@@ -4944,6 +4983,42 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.tracker.closedRebaseTickets, []);
       assert.deepEqual(ports.repoHost.readyMarked, []);
       assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
+    });
+
+    describe("a push that touches a uniform file", () => {
+      it("hands the ticket back, naming the files touched and that the push was reverted", async () => {
+        const ports = fakePorts();
+        const ticket = queued(ports);
+        ports.repoHost.labelNeedsRebase(PULL_REQUEST);
+        ports.sandbox.rebaseResult = () => ({
+          kind: "uniform-files-reverted",
+          files: ["docs/agents/coding-standards.md"],
+          tokensUsed: tokenCount(2_000),
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(failureOf(report.iterations[0])?.kind, "uniform-files-touched");
+        const [handback] = ports.tracker.handbacks;
+        assert.equal(handback?.ticket.number, ticket.number);
+        assert.match(handback?.comment ?? "", /docs\/agents\/coding-standards\.md/);
+        assert.match(handback?.comment ?? "", /reverted/);
+        assert.match(handback?.comment ?? "", /will not be retried/);
+        assert.deepEqual(ports.tracker.closedRebaseTickets, []);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+        assert.equal(ports.repoHost.hasNeedsRebaseLabel(PULL_REQUEST), true);
+        assert.equal(ports.tracker.carriesLabel(ticket, "ready-for-human"), true);
+      });
+
+      it("passes manager through to the sandbox for the manager's own registered project", async () => {
+        const ports = fakePorts();
+        queued(ports, { manager: true });
+        rebasing(ports, "clean");
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.rebases[0]?.manager, true);
+      });
     });
 
     it("carries the run's transcript into the failed iteration, rather than dropping it with the rest of the outcome", async () => {

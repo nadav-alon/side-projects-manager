@@ -35,6 +35,7 @@ import type {
   Ticket,
   TicketKind,
   TranscriptDirectory,
+  UniformFilesReverted,
   Usd,
 } from "../ports/index.ts";
 import {
@@ -57,6 +58,7 @@ import {
   tokenCount,
   transcriptDirectory,
   transcriptPath,
+  uniformFilesAmong,
   weightedTokenCount,
   type Milliseconds,
   type Nits,
@@ -1552,12 +1554,17 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
  * `--force-create`: the clone already has a local branch of that name when
  * the checkout was on it, and that copy may be stale; the repo host's is the
  * one.
+ *
+ * Answers with the branch `project` was on before the switch — the pull
+ * request's base, exactly as `readChangedPaths` reads an implementation
+ * run's own base (`github-repo-host.ts`): cloning `project` leaves it as the
+ * clone's own checked-out branch, before `head` ever displaces it.
  */
 async function cloneOntoPullRequestHead(
   project: Checkout,
   clone: Checkout,
   head: Branch,
-): Promise<void> {
+): Promise<Branch> {
   const remote = await withCheckoutLock(project, async () => {
     await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
     const { stdout } = await run("git", [
@@ -1575,6 +1582,13 @@ async function cloneOntoPullRequestHead(
     }
     return origin;
   });
+  const { stdout: onto } = await run("git", ["-C", clone, "branch", "--show-current"]);
+  const base = onto.trim();
+  if (!isBranch(base)) {
+    throw new Error(
+      `${clone} is not on a usable branch, so there is no base to check ${head}'s push against.`,
+    );
+  }
   await run("git", [
     "-C",
     clone,
@@ -1609,6 +1623,7 @@ async function cloneOntoPullRequestHead(
     head,
     `origin/${head}`,
   ]);
+  return base;
 }
 
 /**
@@ -1630,16 +1645,23 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   kind: "apply-review" | "rebase",
   container: Container,
   pullRequestHead: PullRequestHead,
-  request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
+  request: {
+    ticket: T;
+    checkout: Checkout;
+    spendCeiling: Usd;
+    model?: ModelName;
+    manager?: true;
+  },
   promptFor: (ticket: T) => string,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+  const { ticket, checkout: project, spendCeiling, model, manager } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
 
   return withThrowawayClone(kind, async (clone) => {
-    await cloneOntoPullRequestHead(project, clone, head);
+    const base = await cloneOntoPullRequestHead(project, clone, head);
+    const before = commitSha(await revision(clone, "HEAD"));
 
     const agent = await attempt(
       container,
@@ -1650,7 +1672,16 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       onStarted,
     );
 
-    return pushRejectedOutcomeOf(agent, model);
+    const { outcome, moved } = pushOutcomeOf(agent, model);
+    if (moved || manager === true) {
+      return outcome;
+    }
+    // Read as close to the agent's own push as the run allows, before any of
+    // `revertPushIfUniformFilesTouched`'s own git calls have a chance to run:
+    // the lease it forces back with is only as tight as how soon after the
+    // agent this was read.
+    const landed = await currentRemoteHead(clone, head);
+    return revertPushIfUniformFilesTouched(clone, base, head, before, landed, outcome);
   });
 }
 
@@ -1705,36 +1736,174 @@ const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
 const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * `endingOf`, as an apply-review or rebase run ends it: no branch or commits
- * to carry, and an agent that reports the branch moved under its push has
- * given up, whatever its exit code — its commits never reached the pull
- * request, whether the push was plain (apply-review) or forced (rebase).
+ * `endingOf`, as an apply-review or rebase run ends it, together with
+ * whether the repo host rejected its push because the branch moved: no
+ * branch or commits to carry, and an agent that reports the branch moved
+ * under its push has given up, whatever its exit code — its commits never
+ * reached the pull request, whether the push was plain (apply-review) or
+ * forced (rebase). A pure classifier, with no git of its own to run:
+ * `pushingRunOnClone` is what reads `moved` back to decide whether there is
+ * a push left on the repo host worth checking against `UNIFORM_FILES` at
+ * all.
  */
-function pushRejectedOutcomeOf(
+function pushOutcomeOf(
   agent: FinishedAgentRun,
   model: ModelName | undefined,
-): ApplyReviewOutcome {
+): { outcome: ApplyReviewOutcome; moved: boolean } {
   const ending = endingOf(agent, model);
-  const moved = BRANCH_MOVED.exec(agent.output)?.[1];
+  const movedTo = BRANCH_MOVED.exec(agent.output)?.[1];
   if (
     (ending.kind === "finished" || ending.kind === "gave-up") &&
-    moved !== undefined &&
-    isCommitSha(moved)
+    movedTo !== undefined &&
+    isCommitSha(movedTo)
   ) {
     // Only a full hash is carried: an abbreviation cannot be compared with
     // the head the repo host reports. The push was rejected all the same.
-    return withTranscriptAndDiscoveryFields(
-      {
-        kind: "gave-up",
-        output: agent.output,
-        reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
-        ...(FULL_HASH.test(moved) ? { movedHead: moved } : {}),
-        tokensUsed: agent.tokensUsed,
-      },
-      agent,
-    );
+    return {
+      moved: true,
+      outcome: withTranscriptAndDiscoveryFields(
+        {
+          kind: "gave-up",
+          output: agent.output,
+          reason: `The push was rejected: the pull request's branch had moved to ${movedTo}.`,
+          ...(FULL_HASH.test(movedTo) ? { movedHead: movedTo } : {}),
+          tokensUsed: agent.tokensUsed,
+        },
+        agent,
+      ),
+    };
   }
-  return withTranscriptAndDiscoveryFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
+  return {
+    moved: false,
+    outcome: withTranscriptAndDiscoveryFields({ ...ending, tokensUsed: agent.tokensUsed }, agent),
+  };
+}
+
+/**
+ * `outcome`, unless `clone`'s push since `before` touches a file the manager
+ * keeps uniform across every project (`UNIFORM_FILES`): a push that does has
+ * `head` forced back to `before` on the repo host, and the outcome becomes
+ * `UniformFilesReverted` naming the files instead. Never called by
+ * `pushingRunOnClone` for `manager` — the one project where `UNIFORM_FILES`
+ * are the source, not a copy (`RegisteredProject.manager`, `store.ts`) — or
+ * for a rejected push, since the remote left `before` for a reason that has
+ * nothing to do with this run, and forcing it back would erase that instead.
+ *
+ * The force-back is `--force-with-lease` against `landed` — the sha
+ * `pushingRunOnClone` read off the repo host right after the agent's own run,
+ * before any of this function's own git calls had a chance to run — never a
+ * plain `--force`: a push that lands there from anywhere else — the
+ * developer, a second run — between the agent's own push and this one must
+ * not be clobbered by it, and a lease is only as tight as how soon after the
+ * agent it was taken. `landed` absent, or still `before`, means the agent's
+ * own push never reached the repo host at all — nothing was ever there to
+ * force back, and there is neither a push nor a lease to make.
+ */
+async function revertPushIfUniformFilesTouched(
+  clone: Checkout,
+  base: Branch,
+  head: Branch,
+  before: CommitSha,
+  landed: CommitSha | undefined,
+  outcome: ApplyReviewOutcome,
+): Promise<ApplyReviewOutcome> {
+  const touched = uniformFilesAmong(await touchedSinceBefore(clone, base, before));
+  if (touched.length === 0) {
+    return outcome;
+  }
+  if (landed === undefined || landed === before) {
+    return uniformFilesRevertedOutcome(outcome, touched);
+  }
+  try {
+    await run("git", [
+      "-C",
+      clone,
+      "push",
+      `--force-with-lease=refs/heads/${head}:${landed}`,
+      "origin",
+      `${before}:refs/heads/${head}`,
+    ]);
+  } catch (error: unknown) {
+    return uniformFilesRevertedOutcome(outcome, touched, errorMessage(error));
+  }
+  return uniformFilesRevertedOutcome(outcome, touched);
+}
+
+/** `outcome`'s own `Ended` fields, carried onto a `UniformFilesReverted` naming `files`. */
+function uniformFilesRevertedOutcome(
+  outcome: ApplyReviewOutcome,
+  files: string[],
+  notReverted?: string,
+): UniformFilesReverted {
+  return {
+    kind: "uniform-files-reverted",
+    files,
+    tokensUsed: outcome.tokensUsed,
+    ...(notReverted !== undefined && { notReverted: { reason: notReverted } }),
+    ...(outcome.transcript !== undefined && { transcript: outcome.transcript }),
+    ...(outcome.discoveries !== undefined && { discoveries: outcome.discoveries }),
+    ...(outcome.discoveriesDropped !== undefined && {
+      discoveriesDropped: outcome.discoveriesDropped,
+    }),
+  };
+}
+
+/** The commit `head` carries on the repo host right now, absent when git names none. */
+async function currentRemoteHead(clone: Checkout, head: Branch): Promise<CommitSha | undefined> {
+  const { stdout } = await run("git", ["-C", clone, "ls-remote", "origin", `refs/heads/${head}`]);
+  const sha = stdout.split(/\s+/, 1)[0];
+  return sha === undefined || sha === "" ? undefined : commitSha(sha);
+}
+
+/**
+ * The paths `clone`'s push since `before` actually changed, relative to
+ * `base` — the pull request's own diff against its base, now, minus
+ * whatever was already part of that diff before this run started.
+ *
+ * A plain `before..HEAD` reads a rebase's whole tree move as the agent's own
+ * change: replaying the pull request's commits onto a `base` that moved
+ * brings every base-side commit along with them, and a two-point diff cannot
+ * tell that apart from a commit the agent actually made — the same is true
+ * of a base an apply-review agent merged in rather than rebased onto.
+ * Diffing each side against its own merge-base with `base` first instead,
+ * then keeping only what is new since `before`, leaves only what changed on
+ * the pull request's own side, whichever way `base` reached it.
+ */
+async function touchedSinceBefore(
+  clone: Checkout,
+  base: Branch,
+  before: CommitSha,
+): Promise<string[]> {
+  await run("git", [
+    "-C",
+    clone,
+    "fetch",
+    "--quiet",
+    "--no-tags",
+    "origin",
+    `+refs/heads/${base}:refs/remotes/origin/${base}`,
+  ]);
+  const [beforeChanged, afterChanged] = await Promise.all([
+    changedAgainstBase(clone, base, before),
+    changedAgainstBase(clone, base, "HEAD"),
+  ]);
+  return [...afterChanged].filter((file) => !beforeChanged.has(file));
+}
+
+/** The paths that differ between `at` and its own merge-base with `base`, in `clone`. */
+async function changedAgainstBase(
+  clone: Checkout,
+  base: Branch,
+  at: string,
+): Promise<Set<string>> {
+  const { stdout } = await run("git", [
+    "-C",
+    clone,
+    "diff",
+    "--name-only",
+    `origin/${base}...${at}`,
+  ]);
+  return new Set(stdout.split("\n").filter((line) => line !== ""));
 }
 
 /**

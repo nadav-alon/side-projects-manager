@@ -544,6 +544,7 @@ describe("handBack", () => {
 
       const record = await handBack({ tracker, repoHost }, ticket, {
         kind: "uniform-files-touched",
+        ticketKind: "implementation",
         files: ["docs/agents/coding-standards.md"],
         checkout: CHECKOUT,
         run: finishedRun(),
@@ -565,6 +566,7 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "uniform-files-touched",
+        ticketKind: "implementation",
         files: ["docs/agents/coding-standards.md", ".github/workflows/rebase.yml"],
         checkout: CHECKOUT,
         run: finishedRun(),
@@ -581,12 +583,86 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "uniform-files-touched",
+        ticketKind: "implementation",
         files: ["docs/agents/coding-standards.md"],
         checkout: CHECKOUT,
         run: finishedRun({ transcript: TRANSCRIPT }),
       });
 
       assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
+
+    it("hands an apply-review ticket back, naming the files touched, that the push was reverted, and its pull request", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, applyReviewTicket());
+
+      const record = await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "apply-review",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+      });
+
+      assert.deepEqual(record, { outcome: "handed-back" });
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /reverted/);
+      assert.match(comment, new RegExp(PULL_REQUEST));
+      assert.match(comment, /will not be retried/);
+      assert.equal(tracker.carriesLabel(ticket, "ready-for-human"), true);
+    });
+
+    it("names the transcript's host path on an apply-review uniform-files hand-back that left one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, applyReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "apply-review",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+        transcript: TRANSCRIPT,
+      });
+
+      assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
+
+    it("hands a rebase ticket back, naming the files touched and that the push was reverted", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, rebaseTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "rebase",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+      });
+
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /reverted/);
+      assert.match(comment, /will not be retried/);
+    });
+
+    it("names why, when the force-back itself failed, and that the push is still on the pull request", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, applyReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "apply-review",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+        notReverted: { reason: "the lease no longer matched" },
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /could not be reverted/);
+      assert.match(comment, /the lease no longer matched/);
+      assert.match(comment, /still on the pull request/);
     });
   });
 

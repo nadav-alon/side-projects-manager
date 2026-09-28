@@ -21,6 +21,7 @@ import type {
   RebaseFinished,
   RebaseGaveUp,
   RebaseTicket,
+  RegisteredProject,
   RepoHost,
   RepoSlug,
   ReviewFinished,
@@ -42,6 +43,7 @@ import type {
   TokenCount,
   TranscriptPath,
   TurboableConsent,
+  UniformFilesReverted,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -51,7 +53,6 @@ import {
   MergeabilityUnknown,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
-  UNIFORM_FILES,
   hasAnnouncedOn,
   isApplyReviewTicket,
   isRebaseTicket,
@@ -63,6 +64,7 @@ import {
   runSpanFor,
   ticketKind,
   tokenCount,
+  uniformFilesAmong,
 } from "./ports/index.ts";
 import {
   invocationBudgetGate,
@@ -637,7 +639,7 @@ async function work(
   if (isRebaseTicket(selection.ticket)) {
     return await runRebase(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
@@ -647,12 +649,11 @@ async function work(
   if (isApplyReviewTicket(selection.ticket)) {
     return await runApplyReview(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
       model,
-      selection.project.turbo,
     );
   }
   if (isReviewTicket(selection.ticket)) {
@@ -1042,8 +1043,7 @@ async function touchedUniformFiles(
   checkout: Checkout,
   branch: Branch,
 ): Promise<string[]> {
-  const changed = new Set(await repoHost.readChangedPaths(checkout, branch));
-  return UNIFORM_FILES.filter((file) => changed.has(file));
+  return uniformFilesAmong(await repoHost.readChangedPaths(checkout, branch));
 }
 
 /**
@@ -1062,7 +1062,12 @@ async function uniformFilesTouchedOutcome(
   files: string[],
 ): Promise<Failed> {
   const failure: UniformFilesTouched = { kind: "uniform-files-touched", files };
-  const handedBack = await handBack(ports, ticket, { ...failure, checkout, run });
+  const handedBack = await handBack(ports, ticket, {
+    ...failure,
+    ticketKind: "implementation",
+    checkout,
+    run,
+  });
   return {
     kind: "failed",
     run,
@@ -2039,12 +2044,11 @@ async function mergeGateContextFor(
 
 async function runApplyReview(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: ApplyReviewTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-  turbo: boolean,
 ): Promise<
   | AppliedReview
   | LimitRefused
@@ -2054,6 +2058,7 @@ async function runApplyReview(
   | PullRequestResolved
   | DiscoveryBlocked
 > {
+  const { repo, turbo, manager } = project;
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -2089,13 +2094,17 @@ async function runApplyReview(
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
-      ? ports.sandbox.applyReview({ ticket, checkout, spendCeiling }, onStarted)
+      ? ports.sandbox.applyReview(
+          { ticket, checkout, spendCeiling, ...(manager !== undefined && { manager }) },
+          onStarted,
+        )
       : ports.sandbox.applyReview(
           {
             ticket,
             checkout,
             spendCeiling,
             model: model.name,
+            ...(manager !== undefined && { manager }),
           },
           onStarted,
         ),
@@ -2126,6 +2135,12 @@ async function runApplyReview(
 
   if (run.kind === "gave-up") {
     return withDiscoveries(await handApplyReviewBack(ports, ticket, run, run.reason), routed);
+  }
+  if (run.kind === "uniform-files-reverted") {
+    return withDiscoveries(
+      await handPushUniformFilesBack(ports, ticket, "apply-review", run),
+      routed,
+    );
   }
 
   let answers: ApplyReviewAnswers;
@@ -2388,6 +2403,36 @@ async function handApplyReviewBack(
 }
 
 /**
+ * Hands back an apply-review or rebase run whose push touched a uniform
+ * file: the sandbox has already tried forcing it back
+ * (`container-sandbox.ts`'s `revertPushIfUniformFilesTouched`), so there is
+ * no branch here to discard — only the ticket to hand back, naming which
+ * files, and, when the force-back itself failed, why.
+ */
+async function handPushUniformFilesBack(
+  ports: MorningLoopPorts,
+  ticket: ApplyReviewTicket | RebaseTicket,
+  ticketKind: "apply-review" | "rebase",
+  run: UniformFilesReverted,
+): Promise<Failed> {
+  const failure: UniformFilesTouched = { kind: "uniform-files-touched", files: run.files };
+  const handedBack = await handBack(ports, ticket, {
+    ...failure,
+    ticketKind,
+    pullRequest: ticket.pullRequest.url,
+    ...(run.notReverted !== undefined && { notReverted: run.notReverted }),
+    ...transcriptField(run.transcript),
+  });
+  return {
+    kind: "failed",
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    failure,
+    handedBack,
+  };
+}
+
+/**
  * A rebase ticket's own run: the agent replays the pull request the ticket
  * names onto its base branch and force-pushes it itself, from a clone on that
  * pull request's branch. Whether it worked is read back from the repo host,
@@ -2416,7 +2461,7 @@ async function handApplyReviewBack(
  */
 async function runRebase(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: RebaseTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
@@ -2430,6 +2475,7 @@ async function runRebase(
   | PullRequestResolved
   | DiscoveryBlocked
 > {
+  const { repo, manager } = project;
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -2459,13 +2505,17 @@ async function runRebase(
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
-      ? ports.sandbox.rebase({ ticket, checkout, spendCeiling }, onStarted)
+      ? ports.sandbox.rebase(
+          { ticket, checkout, spendCeiling, ...(manager !== undefined && { manager }) },
+          onStarted,
+        )
       : ports.sandbox.rebase(
           {
             ticket,
             checkout,
             spendCeiling,
             model: model.name,
+            ...(manager !== undefined && { manager }),
           },
           onStarted,
         ),
@@ -2496,6 +2546,9 @@ async function runRebase(
 
   if (run.kind === "gave-up") {
     return withDiscoveries(await handRebaseBack(ports, ticket, run, run.reason), routed);
+  }
+  if (run.kind === "uniform-files-reverted") {
+    return withDiscoveries(await handPushUniformFilesBack(ports, ticket, "rebase", run), routed);
   }
 
   try {
@@ -2593,3 +2646,4 @@ async function handRebaseBack(
     handedBack,
   };
 }
+

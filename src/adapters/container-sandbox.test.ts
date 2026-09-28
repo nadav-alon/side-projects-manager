@@ -49,6 +49,7 @@ import {
   repoSlug,
   reviewFindingTemplate,
   tokenCount,
+  UNIFORM_FILES,
   usd,
   type ApplyReviewOutcome,
   type ApplyReviewTicket,
@@ -3678,6 +3679,95 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(await exists(clone), false);
   });
 
+  describe("a push that touches a uniform file", () => {
+    /** An agent that commits a change to `UNIFORM_FILES[0]` and pushes it, plain. */
+    const touchesUniformFile: Container = async ({ directory }) => {
+      const file = UNIFORM_FILES[0] ?? "";
+      await identify(directory);
+      await mkdir(path.join(directory, path.dirname(file)), { recursive: true });
+      await writeFile(path.join(directory, file), "changed\n");
+      await run("git", ["-C", directory, "add", "."]);
+      await run("git", ["-C", directory, "commit", "--message", "Touch a uniform file"]);
+      await run("git", ["-C", directory, "push", "--quiet"]);
+      return { output: "answered the thread", tokensUsed: tokenCount(1_000) };
+    };
+
+    it("reverts the push and reports which uniform file it touched", async () => {
+      const { directory, hosted, headCommit } = await hostedProject();
+      const sandbox = testSandbox(touchesUniformFile, headIsBranch);
+
+      const result = await applyReviewOn(sandbox, directory);
+
+      assert.deepEqual(result, {
+        kind: "uniform-files-reverted",
+        files: [UNIFORM_FILES[0]],
+        tokensUsed: tokenCount(1_000),
+        discoveries: [],
+        discoveriesDropped: 0,
+      });
+      assert.equal(await headOf(hosted, BRANCH), headCommit);
+    });
+
+    it("names every uniform file touched, in UNIFORM_FILES's own order rather than the diff's", async () => {
+      const { directory } = await hostedProject();
+      const [first, second] = UNIFORM_FILES;
+      const sandbox = testSandbox(async ({ directory: mounted }) => {
+        await identify(mounted);
+        for (const file of [second, first]) {
+          await mkdir(path.join(mounted, path.dirname(file ?? "")), { recursive: true });
+          await writeFile(path.join(mounted, file ?? ""), "changed\n");
+        }
+        await run("git", ["-C", mounted, "add", "."]);
+        await run("git", ["-C", mounted, "commit", "--message", "Touch two uniform files"]);
+        await run("git", ["-C", mounted, "push", "--quiet"]);
+        return { output: "", tokensUsed: tokenCount(0) };
+      }, headIsBranch);
+
+      const result = await applyReviewOn(sandbox, directory);
+
+      assert.deepEqual(variant(result, "uniform-files-reverted")?.files, [first, second]);
+    });
+
+    it("never reverts, and never reports the touch, on the manager's own project", async () => {
+      const { directory, hosted } = await hostedProject();
+      let pushed = "";
+      const sandbox = testSandbox(async (request) => {
+        const outcome = await touchesUniformFile(request);
+        pushed = await headOf(request.directory);
+        return outcome;
+      }, headIsBranch);
+
+      const result = await sandbox.applyReview({
+        ticket: APPLY_REVIEW_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+        manager: true,
+      });
+
+      assert.equal(result.kind, "finished");
+      assert.equal(await headOf(hosted, BRANCH), pushed);
+    });
+
+    it("never reverts a push the repo host rejected for a moved branch, since forcing it back would erase whatever actually landed there instead", async () => {
+      const { directory, hosted } = await hostedProject();
+      const report = [
+        "Push rejected: the branch moved under me.",
+        `Branch moved: ${MOVED_HEAD}`,
+      ].join("\n");
+      let pushed = "";
+      const sandbox = testSandbox(async (request) => {
+        await touchesUniformFile(request);
+        pushed = await headOf(request.directory);
+        return { output: report, tokensUsed: tokenCount(0) };
+      }, headIsBranch);
+
+      const result = await applyReviewOn(sandbox, directory);
+
+      assert.equal(result.kind, "gave-up");
+      assert.equal(await headOf(hosted, BRANCH), pushed);
+    });
+  });
+
   /**
    * `headIsBranch` stands in for the pull request head lookup in every test
    * above; these three exercise the factory's own default instead — `gh pr
@@ -4097,6 +4187,139 @@ describe("containerSandbox.rebase", () => {
     await rebaseOn(sandbox, directory);
 
     assert.equal(await exists(clone), false);
+  });
+
+  describe("a push that touches a uniform file", () => {
+    /** An agent that amends the tip commit to touch `UNIFORM_FILES[0]` and force-pushes it. */
+    const touchesUniformFile: Container = async ({ directory }) => {
+      const file = UNIFORM_FILES[0] ?? "";
+      await identify(directory);
+      await mkdir(path.join(directory, path.dirname(file)), { recursive: true });
+      await writeFile(path.join(directory, file), "changed\n");
+      await run("git", ["-C", directory, "add", "."]);
+      await run("git", ["-C", directory, "commit", "--amend", "--message", "Rebase, touching a uniform file"]);
+      await run("git", ["-C", directory, "push", "--quiet", "--force-with-lease"]);
+      return { output: "rebased", tokensUsed: tokenCount(1_000) };
+    };
+
+    it("reverts the push and reports which uniform file it touched", async () => {
+      const { directory, hosted, headCommit } = await hostedProject();
+      const sandbox = testSandbox(touchesUniformFile, headIsBranch);
+
+      const result = await rebaseOn(sandbox, directory);
+
+      assert.deepEqual(result, {
+        kind: "uniform-files-reverted",
+        files: [UNIFORM_FILES[0]],
+        tokensUsed: tokenCount(1_000),
+        discoveries: [],
+        discoveriesDropped: 0,
+      });
+      assert.equal(await headOf(hosted, BRANCH), headCommit);
+    });
+
+    it("never reverts, and never reports the touch, on the manager's own project", async () => {
+      const { directory, hosted } = await hostedProject();
+      let pushed = "";
+      const sandbox = testSandbox(async (request) => {
+        const outcome = await touchesUniformFile(request);
+        pushed = await headOf(request.directory);
+        return outcome;
+      }, headIsBranch);
+
+      const result = await sandbox.rebase({
+        ticket: REBASE_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+        manager: true,
+      });
+
+      assert.equal(result.kind, "finished");
+      assert.equal(await headOf(hosted, BRANCH), pushed);
+    });
+
+    it("never reverts a push the repo host rejected for a moved branch, since forcing it back would erase whatever actually landed there instead", async () => {
+      const { directory, hosted } = await hostedProject();
+      const report = [
+        "Push rejected: the branch moved under me.",
+        `Branch moved: ${MOVED_HEAD}`,
+      ].join("\n");
+      let pushed = "";
+      const sandbox = testSandbox(async (request) => {
+        await touchesUniformFile(request);
+        pushed = await headOf(request.directory);
+        return { output: report, tokensUsed: tokenCount(0) };
+      }, headIsBranch);
+
+      const result = await rebaseOn(sandbox, directory);
+
+      assert.equal(result.kind, "gave-up");
+      assert.equal(await headOf(hosted, BRANCH), pushed);
+    });
+
+    it("stays finished when a clean rebase's own replay touches nothing, even though the base it rebased onto touched a uniform file", async () => {
+      const { directory, hosted } = await hostedProject();
+      const file = UNIFORM_FILES[0] ?? "";
+      await mkdir(path.join(directory, path.dirname(file)), { recursive: true });
+      await writeFile(path.join(directory, file), "changed on main\n");
+      await run("git", ["-C", directory, "add", "."]);
+      await run("git", ["-C", directory, "commit", "--message", "Touch a uniform file on main"]);
+      await run("git", ["-C", directory, "push", "--quiet", "origin", "main"]);
+
+      const sandbox = testSandbox(async ({ directory: mounted }) => {
+        await identify(mounted);
+        await run("git", ["-C", mounted, "rebase", "origin/main"]);
+        await run("git", ["-C", mounted, "push", "--quiet", "--force-with-lease"]);
+        return { output: "rebased onto main", tokensUsed: tokenCount(1_000) };
+      }, headIsBranch);
+
+      const result = await rebaseOn(sandbox, directory);
+
+      assert.equal(result.kind, "finished");
+      assert.notEqual(await headOf(hosted, BRANCH), await headOf(directory, "main"));
+    });
+
+    it("neither pushes nor leases when the agent's own commit touching a uniform file never reached the repo host", async () => {
+      const { directory, hosted, headCommit } = await hostedProject();
+      const sandbox = testSandbox(async ({ directory: mounted }) => {
+        const file = UNIFORM_FILES[0] ?? "";
+        await identify(mounted);
+        await mkdir(path.join(mounted, path.dirname(file)), { recursive: true });
+        await writeFile(path.join(mounted, file), "changed\n");
+        await run("git", ["-C", mounted, "add", "."]);
+        await run("git", ["-C", mounted, "commit", "--message", "Committed, never pushed"]);
+        return { output: "gave up before pushing", tokensUsed: tokenCount(500) };
+      }, headIsBranch);
+
+      const result = await rebaseOn(sandbox, directory);
+
+      assert.equal(result.kind, "uniform-files-reverted");
+      assert.deepEqual(variant(result, "uniform-files-reverted")?.files, [UNIFORM_FILES[0]]);
+      assert.equal(variant(result, "uniform-files-reverted")?.notReverted, undefined);
+      assert.equal(await headOf(hosted, BRANCH), headCommit);
+    });
+
+    it("reports the revert failed, rather than throwing, when the force-back push cannot land", async (t) => {
+      const { directory, hosted } = await hostedProject();
+      const refsHeads = path.join(hosted, "refs", "heads");
+      t.after(() => chmod(refsHeads, 0o755));
+      let touched = "";
+      const sandbox = testSandbox(async (request) => {
+        const outcome = await touchesUniformFile(request);
+        touched = await headOf(hosted, BRANCH);
+        // Blocks the ref update `--force-with-lease` needs to make, deterministically
+        // failing the revert push without racing a second one against it.
+        await chmod(refsHeads, 0o555);
+        return outcome;
+      }, headIsBranch);
+
+      const result = await rebaseOn(sandbox, directory);
+
+      assert.equal(result.kind, "uniform-files-reverted");
+      assert.notEqual(variant(result, "uniform-files-reverted")?.notReverted, undefined);
+      await chmod(refsHeads, 0o755);
+      assert.equal(await headOf(hosted, BRANCH), touched);
+    });
   });
 });
 
