@@ -190,6 +190,32 @@ describe("specReviewSweep", () => {
     );
   });
 
+  it("finds a cross-repo sub-issue's own pull request when linking a floating spec review, same as when opening a new one", async () => {
+    const { tracker, repoHost, supertask } = await sweptSupertask();
+    crossRepoSubIssue(tracker, supertask);
+    tracker.addSpecReviewTicket(PILOT, {
+      number: issueNumber(99),
+      title: specReviewTitle(supertask),
+    });
+    repoHost.setPullRequestsClosingIssues(OTHER, [
+      {
+        number: issueNumber(50),
+        state: "open",
+        branch: branch("41-part-one"),
+        closesIssues: [{ repo: OTHER, number: issueNumber(41) }],
+      },
+    ]);
+    const openIssues = await tracker.listOpenIssues(PILOT);
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    const body = tracker.linkedSpecReviewTickets[0]?.body ?? "";
+    assert.match(
+      body,
+      /^- nadav-alon\/other#41: pull request nadav-alon\/other#50 on branch `41-part-one`, open\s*$/m,
+    );
+  });
+
   it("opens a spec review rather than re-parenting one already linked elsewhere with a matching title", async () => {
     const { tracker, repoHost, supertask } = await sweptSupertask();
     const elsewhere = tracker.addSupertask(PILOT, {
@@ -496,6 +522,44 @@ describe("specReviewSweep", () => {
       body,
       /^- nadav-alon\/other#41: pull request nadav-alon\/other#50 on branch `41-part-one`, open\s*$/m,
     );
+  });
+
+  it("credits a cross-repo sub-issue with a closed, unmerged pull request found in its own repo", async () => {
+    const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
+    crossRepoSubIssue(tracker, supertask);
+    repoHost.setPullRequestsClosingIssues(OTHER, [
+      {
+        number: issueNumber(50),
+        state: "closed",
+        branch: branch("41-part-one"),
+        closesIssues: [{ repo: OTHER, number: issueNumber(41) }],
+      },
+    ]);
+
+    await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    const body = tracker.specReviewTickets[0]?.body ?? "";
+    assert.match(
+      body,
+      /^- nadav-alon\/other#41: pull request nadav-alon\/other#50 on branch `41-part-one`, closed\s*$/m,
+    );
+  });
+
+  it("does not refuse the supertask where reading a cross-repo sub-issue's own repo fails, naming it with a bare bullet instead", async () => {
+    const { tracker, repoHost, supertask, openIssues } = await sweptSupertask();
+    crossRepoSubIssue(tracker, supertask);
+    repoHost.listPullRequestsClosingIssues = async (repo) => {
+      if (repo === OTHER) {
+        throw new Error("other repo unavailable");
+      }
+      return [];
+    };
+
+    const outcome = await specReviewSweep({ tracker, repoHost }, PILOT, openIssues);
+
+    assert.deepEqual(outcome.refusals, []);
+    const body = tracker.specReviewTickets[0]?.body ?? "";
+    assert.match(body, /^- nadav-alon\/other#41\s*$/m);
   });
 
   it("reads a repo's closing pull requests at most once, even where two cross-repo sub-issues share it", async (t) => {
