@@ -675,10 +675,10 @@ const APPLY_REVIEW_BODY =
  * The line the `/rebase` workflow writes — never this adapter, and never by
  * hand — read back the same way `REVIEW_BODY` and `APPLY_REVIEW_BODY` are:
  * matched per line, so it survives beside a `Part of #N.` line or any other
- * the body carries.
+ * the body carries. Unlike those two, its pull request need not be a draft —
+ * `/rebase` works on either — so the line itself does not say "draft".
  */
-const REBASE_BODY =
-  /^Rebase (\S+), the draft pull request opened for #\d+\.$/m;
+const REBASE_BODY = /^Rebase (\S+), the pull request opened for #\d+\.$/m;
 
 /**
  * The pull request an issue's body binds it to, and which of the three bound

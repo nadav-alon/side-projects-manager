@@ -1,8 +1,8 @@
 # Turns a developer's `/rebase` comment into a rebase ticket: an issue asking
-# an agent to rebase a draft pull request, linked as a sub-issue of the ticket
-# the pull request closes (CONTEXT.md: Draft pull request, Review ticket,
-# Implementation ticket). Also labels that pull request `needs-rebase`, so it
-# reads as not mergeable without touching its draft state.
+# an agent to rebase a pull request, draft or ready, linked as a sub-issue of
+# the ticket the pull request closes (CONTEXT.md: Draft pull request, Review
+# ticket, Implementation ticket). Also labels that pull request `needs-rebase`,
+# so it reads as not mergeable without touching its draft state.
 name: Rebase
 
 on:
@@ -143,16 +143,16 @@ jobs:
               fi
             fi
           else
-            # On an implementation ticket: only if exactly one open draft
-            # pull request closes it.
+            # On an implementation ticket: only if exactly one open pull
+            # request closes it, draft or ready.
             TICKET_NUMBER="$ISSUE_NUMBER"
-            matches="$(gh pr list --repo "$REPO" --state open --json number,url,body,isDraft --limit 500 \
-              | jq -c --arg keyword "$CLOSING_KEYWORD" --arg ticket_number "$TICKET_NUMBER" '[.[] | select(.isDraft) | select(.body | test($keyword + $ticket_number +"([^0-9]|$)"; "i"))]')"
+            matches="$(gh pr list --repo "$REPO" --state open --json number,url,body --limit 500 \
+              | jq -c --arg keyword "$CLOSING_KEYWORD" --arg ticket_number "$TICKET_NUMBER" '[.[] | select(.body | test($keyword + $ticket_number +"([^0-9]|$)"; "i"))]')"
             count="$(jq 'length' <<<"$matches")"
             if [[ "$count" == "0" ]]; then
-              FAIL_REASON="no open draft pull request closes #$TICKET_NUMBER, so there is nothing to rebase."
+              FAIL_REASON="no open pull request closes #$TICKET_NUMBER, so there is nothing to rebase."
             elif [[ "$count" -gt 1 ]]; then
-              FAIL_REASON="$count open draft pull requests close #$TICKET_NUMBER, so I can't tell which one to rebase."
+              FAIL_REASON="$count open pull requests close #$TICKET_NUMBER, so I can't tell which one to rebase."
             else
               PULL_REQUEST_NUMBER="$(jq -r '.[0].number' <<<"$matches")"
               PULL_REQUEST_URL="$(jq -r '.[0].url' <<<"$matches")"
@@ -165,7 +165,7 @@ jobs:
             exit 0
           fi
 
-          expected_line="Rebase $PULL_REQUEST_URL, the draft pull request opened for #$TICKET_NUMBER."
+          expected_line="Rebase $PULL_REQUEST_URL, the pull request opened for #$TICKET_NUMBER."
           existing_number="$(gh issue list --repo "$REPO" --state open --json number,body --limit 500 \
             | jq -r --arg line "$expected_line" '[.[] | select(.body | contains($line))][0].number // empty')"
 
