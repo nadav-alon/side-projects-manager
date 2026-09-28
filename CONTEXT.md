@@ -513,8 +513,8 @@ handed back naming the files touched.
 _Avoid_: work, result, outcome
 
 **Pull request ticket**:
-A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound to one draft pull
-request.
+A review ticket, an apply-review ticket, or a rebase ticket: a sub-issue bound to one pull request —
+always a draft for a review or an apply-review ticket, draft or ready for a rebase ticket.
 _Avoid_: PR ticket, review sub-issue (unqualified)
 
 **Pull request resolved**:
@@ -527,9 +527,9 @@ find the same pull request in the same state.
 _Avoid_: resolved, settled, pull request outcome
 
 **Rebase ticket**:
-A sub-issue of an implementation ticket asking for that ticket's draft pull request to be put back
-on top of its base branch. Opened by a workflow in the project repo when the developer comments
-`/rebase` — or, for a turbo project, when the conflict sweep does — born ready-for-agent, and
+A sub-issue of an implementation ticket asking for that ticket's pull request, draft or ready, to be
+put back on top of its base branch. Opened by a workflow in the project repo when the developer
+comments `/rebase` — or, for a turbo project, when the conflict sweep does — born ready-for-agent, and
 selected before apply-review tickets; the same workflow labels the pull request `needs-rebase`, so
 it reads as not mergeable without the developer having to open the ticket to see why. Finished — the
 repo host reporting the pull request no longer conflicting — it closes and takes `needs-rebase` back
