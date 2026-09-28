@@ -21,6 +21,7 @@ import type {
   RebaseFinished,
   RebaseGaveUp,
   RebaseTicket,
+  RegisteredProject,
   RepoHost,
   RepoSlug,
   ReviewFinished,
@@ -638,24 +639,21 @@ async function work(
   if (isRebaseTicket(selection.ticket)) {
     return await runRebase(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
       model,
-      selection.project.manager,
     );
   }
   if (isApplyReviewTicket(selection.ticket)) {
     return await runApplyReview(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
       model,
-      selection.project.turbo,
-      selection.project.manager,
     );
   }
   if (isReviewTicket(selection.ticket)) {
@@ -2046,13 +2044,11 @@ async function mergeGateContextFor(
 
 async function runApplyReview(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: ApplyReviewTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-  turbo: boolean,
-  manager: true | undefined,
 ): Promise<
   | AppliedReview
   | LimitRefused
@@ -2062,6 +2058,7 @@ async function runApplyReview(
   | PullRequestResolved
   | DiscoveryBlocked
 > {
+  const { repo, turbo, manager } = project;
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -2464,12 +2461,11 @@ async function handPushUniformFilesBack(
  */
 async function runRebase(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: RebaseTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-  manager: true | undefined,
 ): Promise<
   | Rebased
   | LimitRefused
@@ -2479,6 +2475,7 @@ async function runRebase(
   | PullRequestResolved
   | DiscoveryBlocked
 > {
+  const { repo, manager } = project;
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
