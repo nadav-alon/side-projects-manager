@@ -109,6 +109,18 @@ export function isBlockingFiledDiscovery(filed: FiledDiscovery): boolean {
   return isBlockingDiscoveryKind(filed.discovery.kind) && filed.action !== "blocked-on-existing";
 }
 
+/**
+ * Whether `discovery` blocks the run that found it despite never being
+ * filed — a refusal, whether `routeDiscoveries`' own loop met it or no target
+ * could be resolved to file against at all: there is no filed outcome to read
+ * for one, so `isBlockingFiledDiscovery` never applies, and kind alone
+ * decides instead, same as it would have had the write succeeded and named no
+ * existing issue.
+ */
+function blockingIfRefused(discovery: Discovery): boolean {
+  return isBlockingDiscoveryKind(discovery.kind);
+}
+
 /** A discovery the tracker refused to write: what was attempted, and why. */
 export interface RefusedDiscovery {
   discovery: Discovery;
@@ -339,7 +351,7 @@ export async function routeDiscoveries(
       }
     } catch (error: unknown) {
       refused.push({ discovery, reason: errorMessage(error) });
-      if (isBlockingDiscoveryKind(discovery.kind)) {
+      if (blockingIfRefused(discovery)) {
         blocking.push(discovery);
       }
     }
@@ -456,9 +468,7 @@ export async function routeRunDiscoveries(
           discovery,
           reason: resolved.error,
         })),
-        // Nothing was filed for any of them, so kind alone decides, the same
-        // as a refusal inside `routeDiscoveries`'s own loop would.
-        blocking: found.filter((discovery) => isBlockingDiscoveryKind(discovery.kind)),
+        blocking: found.filter(blockingIfRefused),
         discoveriesDropped,
       },
     };
