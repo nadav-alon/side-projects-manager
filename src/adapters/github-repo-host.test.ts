@@ -909,6 +909,83 @@ describe("opening a draft pull request for a completed run", () => {
   });
 });
 
+/**
+ * The paths a run's own branch changed, relative to its base — read before
+ * deciding whether to open a pull request at all, so a diff touching a
+ * uniform file can be caught first.
+ */
+describe("reading the paths a run's branch changed", () => {
+  const BASE = "release-2";
+  const RAN = "issue-7-add-the-thing";
+
+  /**
+   * A checkout with `BASE` cut from `main` and `RAN` cut from `BASE`,
+   * carrying one commit that writes every path in `paths`. Left on `BASE`,
+   * the branch the diff should read as the base — exactly as the sandbox
+   * leaves a checkout after fetching a run's branch back.
+   */
+  async function ran(paths: Record<string, string>): Promise<Checkout> {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+
+    await run("git", ["-C", directory, "switch", "--create", BASE]);
+    await run("git", ["-C", directory, "push", "origin", BASE]);
+
+    await run("git", ["-C", directory, "switch", "--create", RAN]);
+    for (const [file, contents] of Object.entries(paths)) {
+      await writeFile(path.join(directory, file), contents);
+      await run("git", ["-C", directory, "add", file]);
+    }
+    await run("git", ["-C", directory, "commit", "--message", "Add the thing"]);
+    await run("git", ["-C", directory, "switch", BASE]);
+    return directory;
+  }
+
+  it("names the path a run's own commit touched", async () => {
+    const directory = await ran({ "thing.md": "the thing\n" });
+
+    assert.deepEqual(
+      await githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
+      ["thing.md"],
+    );
+  });
+
+  it("names every path a multi-file commit touched", async () => {
+    const directory = await ran({
+      "thing.md": "the thing\n",
+      "other.md": "the other thing\n",
+    });
+
+    assert.deepEqual(
+      (await githubRepoHost().readChangedPaths(directory, toBranch(RAN))).sort(),
+      ["other.md", "thing.md"],
+    );
+  });
+
+  it("names nothing for a branch that never diverged from the checkout's own", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await run("git", ["-C", directory, "branch", RAN]);
+
+    assert.deepEqual(
+      await githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
+      [],
+    );
+  });
+
+  it("refuses when the checkout has no current branch to diff against", async () => {
+    const directory = await ran({ "thing.md": "the thing\n" });
+    await run("git", ["-C", directory, "checkout", "--detach"]);
+
+    await assert.rejects(
+      githubRepoHost().readChangedPaths(directory, toBranch(RAN)),
+      /is not on a branch/,
+    );
+  });
+});
+
 describe("discarding a failed run's branch", () => {
   const FAILED = toBranch("issue-7-add-the-thing");
 

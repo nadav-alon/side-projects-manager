@@ -526,6 +526,70 @@ describe("handBack", () => {
     });
   });
 
+  describe("a run whose diff touched a uniform file", () => {
+    function finishedRun(overrides: { transcript?: ReturnType<typeof transcriptPath> } = {}) {
+      return {
+        kind: "finished" as const,
+        branch: BRANCH,
+        commits: [commitSha("c0ffee1")],
+        output: "Updated the coding standards doc.",
+        tokensUsed: tokenCount(42_000),
+        ...(overrides.transcript !== undefined && { transcript: overrides.transcript }),
+      };
+    }
+
+    it("leaves the branch unpushed, relabels the ticket, and names the file touched", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      const record = await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        files: ["docs/agents/coding-standards.md"],
+        checkout: CHECKOUT,
+        run: finishedRun(),
+      });
+
+      assert.deepEqual(record, { outcome: "handed-back" });
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /no pull request was opened/i);
+      assert.match(comment, new RegExp(`not pushed.*${CHECKOUT}`));
+      assert.match(comment, /will not be retried/);
+      assert.equal(tracker.carriesLabel(ticket, "ready-for-human"), true);
+    });
+
+    it("names every file touched, when the diff touched more than one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        files: ["docs/agents/coding-standards.md", ".github/workflows/rebase.yml"],
+        checkout: CHECKOUT,
+        run: finishedRun(),
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /\.github\/workflows\/rebase\.yml/);
+    });
+
+    it("names the transcript's host path, when the run left one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, implementationTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        files: ["docs/agents/coding-standards.md"],
+        checkout: CHECKOUT,
+        run: finishedRun({ transcript: TRANSCRIPT }),
+      });
+
+      assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
+  });
+
   describe("unusable model labels", () => {
     it("names conflicting model labels", async () => {
       const { tracker, repoHost } = ports();

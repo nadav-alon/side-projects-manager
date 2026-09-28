@@ -141,6 +141,9 @@ export class FakeRepoHost implements RepoHost {
     pullRequest: FakeRepoHost.RUN_PULL_REQUEST,
   });
 
+  /** What `readChangedPaths` answers, for any branch. None, unless a test says otherwise. */
+  changedPaths: (branch: Branch) => string[] = () => [];
+
   /**
    * What `needsRebase` and `readMergeStatus` read for a pull request.
    * `needsRebase` calls it once per attempt, so a test can answer `"unknown"`
@@ -241,6 +244,10 @@ export class FakeRepoHost implements RepoHost {
       branch,
     });
     return this.proposal(branch);
+  }
+
+  async readChangedPaths(_directory: Checkout, branch: Branch): Promise<string[]> {
+    return this.changedPaths(branch);
   }
 
   async openDraftPullRequest(

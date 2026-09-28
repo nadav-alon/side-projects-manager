@@ -236,7 +236,9 @@ _Avoid_: PR (say pull request), suggestion, patch
 
 **Uniform files**:
 The half of the harness every project gets byte for byte, so that improving a convention improves it
-everywhere from one source.
+everywhere from one source. A run whose own diff touches one never gets a **Handover**: the change
+would otherwise become a copy living in just that one project, silently drifting from the source it
+was copied from.
 _Avoid_: shared files, common files, boilerplate
 
 **Agent instructions**:
@@ -395,8 +397,8 @@ _Avoid_: outage (a provider failure, if the provider was down), crash, system er
 
 **Discard**:
 What becomes of the branch of a run that gave up or filed a blocking discovery: deleted from the
-project checkout, never having been pushed. A branch git refuses to delete is kept, and the
-hand-back comment says so rather than letting it stop the hand-back.
+project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back
+comment says so rather than letting it stop the hand-back.
 _Avoid_: clean up, delete
 
 **Salvage**:
@@ -503,7 +505,9 @@ commits are waiting in. A run that committed nothing, and one the agent did not 
 without a handover. A handover that fails part way — the branch would not push, no draft pull
 request would open, or its review ticket could not be created — is a failed iteration: the ticket is
 handed back naming the branch and any pull request, the branch is kept, and the invocation carries
-on.
+on. A run whose own diff touches a uniform file (see **Uniform files**) is also without one, whatever
+it committed: no pull request is ever opened for it, its branch is left unpushed, and the ticket is
+handed back naming the files touched.
 _Avoid_: work, result, outcome
 
 **Pull request ticket**:

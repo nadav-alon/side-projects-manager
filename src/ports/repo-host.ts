@@ -564,6 +564,19 @@ export interface RepoHost {
     branch: Branch,
   ): Promise<Proposal>;
   /**
+   * The paths `branch` changed relative to the branch `directory` is
+   * currently on — the base a pull request for it would open against, per
+   * {@link openDraftPullRequest}'s own doc comment: the sandbox clones the
+   * checkout at its HEAD, so the branch it is on is the base the commits
+   * actually sit on.
+   *
+   * Read before opening a pull request, so a run whose diff touches a file
+   * the manager keeps uniform across every project (`UNIFORM_FILES`) can be
+   * caught first, rather than becoming a project-local copy nobody notices
+   * drifted.
+   */
+  readChangedPaths(directory: Checkout, branch: Branch): Promise<string[]>;
+  /**
    * Pushes `branch` from the checkout at `directory` and opens a draft pull
    * request for it against `ticket`, answering with how far it got. Failures
    * resolve rather than reject, so a caller has one thing to read: which end

@@ -33,6 +33,14 @@ export interface RegisteredProject {
   turbo: boolean;
   /** Overrides least-recently-worked ordering. Absent for most projects. */
   priority?: Priority;
+  /**
+   * Set only on the manager's own entry — the one place `UNIFORM_FILES`
+   * (`src/ports/harness.ts`) are the source, not a copy. Absent for every
+   * other project, which is what the uniform-file check (`morning-run.ts`'s
+   * `handOver`) reads to tell them apart: a run here that touches one is the
+   * source being updated, not drift.
+   */
+  manager?: true;
 }
 
 /** What one run cost, kept so the reserve can be calibrated against real spend. */

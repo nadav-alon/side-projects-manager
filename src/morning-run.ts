@@ -51,6 +51,7 @@ import {
   MergeabilityUnknown,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
+  UNIFORM_FILES,
   hasAnnouncedOn,
   isApplyReviewTicket,
   isRebaseTicket,
@@ -135,6 +136,7 @@ import {
   type Rebased,
   type Reviewed,
   type SpecReviewed,
+  type UniformFilesTouched,
   type UnsettledMergeability,
 } from "./iteration-outcome.ts";
 import {
@@ -791,7 +793,10 @@ async function work(
   }
   if (run.kind === "finished") {
     await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
-    return withDiscoveries(await handOver(ports, run, checkout, selection.ticket), routed);
+    return withDiscoveries(
+      await handOver(ports, run, checkout, selection.ticket, selection.project.manager),
+      routed,
+    );
   }
 
   await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
@@ -939,16 +944,44 @@ async function infrastructureFailureSalvage(
  *
  * Only a run that finished. A failed agent's commits never reach here — they
  * go to `discardBranch` instead, because they are not work to review.
+ *
+ * `manager` skips the uniform-file check below: the manager's own registered
+ * project (`RegisteredProject.manager`) is where `UNIFORM_FILES` are the
+ * source, not a copy, so a run there touching one is legitimate work, not
+ * drift.
  */
 async function handOver(
   ports: MorningLoopPorts,
   run: RunFinished,
   checkout: Checkout,
   ticket: Ticket,
+  manager: true | undefined,
 ): Promise<Finished | Failed> {
   if (run.commits.length === 0) {
     const handedBack = await handBack(ports, ticket, { kind: "finished", run });
     return { kind: "finished", run, tokensUsed: run.tokensUsed, handedBack };
+  }
+
+  if (manager === undefined) {
+    let touched: string[];
+    try {
+      touched = await touchedUniformFiles(ports.repoHost, checkout, run.branch);
+    } catch (error: unknown) {
+      // The same checkout state (typically a detached HEAD) that would have
+      // failed the push inside `openDraftPullRequest` below fails this read
+      // first — handled the same way, so a run whose checkout cannot be
+      // diffed is no worse off than one whose branch could not be pushed.
+      return handoverFailed(
+        ports,
+        ticket,
+        run,
+        `its diff could not be read: ${errorMessage(error)}`,
+        { kind: "unpushed", checkout },
+      );
+    }
+    if (touched.length > 0) {
+      return uniformFilesTouchedOutcome(ports, ticket, checkout, run, touched);
+    }
   }
 
   const opening = await ports.repoHost.openDraftPullRequest(
@@ -998,6 +1031,46 @@ async function handOver(
   const handedBack = await handBack(ports, ticket, { kind: "finished", run, handover });
 
   return { kind: "finished", run, tokensUsed: run.tokensUsed, handover, handedBack };
+}
+
+/**
+ * The uniform files (`UNIFORM_FILES`) a run's own diff touches, in
+ * `UNIFORM_FILES`'s own order — empty when it touches none.
+ */
+async function touchedUniformFiles(
+  repoHost: RepoHost,
+  checkout: Checkout,
+  branch: Branch,
+): Promise<string[]> {
+  const changed = new Set(await repoHost.readChangedPaths(checkout, branch));
+  return UNIFORM_FILES.filter((file) => changed.has(file));
+}
+
+/**
+ * A finished run whose diff touches a uniform file, as the failed iteration
+ * it comes to: the branch is left unpushed, and the ticket is handed back
+ * naming the files touched — see CONTEXT.md's "Uniform files". Never a
+ * `Finished`, even though the run did: a project-local pull request is
+ * exactly the drift a uniform file exists to prevent, so this is no more
+ * delivered than a handover that failed part way.
+ */
+async function uniformFilesTouchedOutcome(
+  ports: MorningLoopPorts,
+  ticket: Ticket,
+  checkout: Checkout,
+  run: RunFinished,
+  files: string[],
+): Promise<Failed> {
+  const failure: UniformFilesTouched = { kind: "uniform-files-touched", files };
+  const handedBack = await handBack(ports, ticket, { ...failure, checkout, run });
+  return {
+    kind: "failed",
+    run,
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    failure,
+    handedBack,
+  };
 }
 
 /**

@@ -2,7 +2,8 @@
   "projects": [
     {
       "repo": "nadav-alon/side-projects-manager",
-      "turbo": true
+      "turbo": true,
+      "manager": true
     },
     {
       "repo": "nadav-alon/data-platform",

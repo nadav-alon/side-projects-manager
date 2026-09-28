@@ -288,11 +288,12 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
- * `{ "projects": [{ "repo": "owner/repo", "paused": true, "turbo": true, "priority": 1 }] }`
+ * `{ "projects": [{ "repo": "owner/repo", "paused": true, "turbo": true, "priority": 1, "manager": true }] }`
  *
- * `paused`, `turbo` and `priority` are optional: a project is registered
- * active, without standing consent to apply its own reviews, and without an
- * explicit priority unless the developer says otherwise.
+ * `paused`, `turbo`, `priority` and `manager` are optional: a project is
+ * registered active, without standing consent to apply its own reviews,
+ * without an explicit priority, and not the manager's own repo, unless the
+ * developer says otherwise.
  */
 function parseRegistry(
   document: unknown,
@@ -330,16 +331,21 @@ function parseRegistry(
       throw new Error(`${where}: "turbo" must be true or false.`);
     }
 
+    const manager = fieldOf(entry, "manager", where);
+    if (manager !== undefined && manager !== true) {
+      throw new Error(`${where}: "manager" must be true, or omitted.`);
+    }
+
     const priority = fieldOf(entry, "priority", where);
     if (priority === undefined) {
-      return { repo, paused, turbo };
+      return { repo, paused, turbo, ...(manager === true && { manager: true as const }) };
     }
     if (typeof priority !== "number" || !isPriority(priority)) {
       throw new Error(
         `${where}: "priority" must be a whole number of 1 or more: ${JSON.stringify(priority)}`,
       );
     }
-    return { repo, paused, turbo, priority };
+    return { repo, paused, turbo, priority, ...(manager === true && { manager: true as const }) };
   });
 }
 
@@ -894,6 +900,7 @@ function formatRegistry(projects: RegisteredProject[]): string {
     ...(project.paused && { paused: true }),
     ...(project.turbo && { turbo: true }),
     ...(project.priority !== undefined && { priority: project.priority }),
+    ...(project.manager === true && { manager: true }),
   }));
 
   return `${JSON.stringify({ projects: entries }, undefined, 2)}\n`;

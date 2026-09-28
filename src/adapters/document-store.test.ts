@@ -111,6 +111,31 @@ describe("the registry document", () => {
     await assert.rejects(store.loadRegistry(), /"turbo"/);
   });
 
+  it("reads manager, absent unless the entry says otherwise", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({
+          projects: [{ repo: MANAGER, manager: true }, { repo: PILOT }],
+        }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadRegistry(), [
+      { repo: MANAGER, paused: false, turbo: false, manager: true },
+      { repo: PILOT, paused: false, turbo: false },
+    ]);
+  });
+
+  it("rejects a manager that is not true, naming the field", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({ projects: [{ repo: PILOT, manager: false }] }),
+      }),
+    );
+
+    await assert.rejects(store.loadRegistry(), /"manager"/);
+  });
+
   it("registers nothing when the document does not exist", async () => {
     const store = documentStore(await home());
 
@@ -215,6 +240,24 @@ describe("writing the registry document", () => {
     assert.equal(
       written,
       `${JSON.stringify({ projects: [{ repo: PILOT, turbo: true }] }, undefined, 2)}\n`,
+    );
+  });
+
+  it("keeps the manager flag through a full rewrite", async () => {
+    const directory = await home();
+
+    await documentStore(directory).saveRegistry([
+      { repo: MANAGER, paused: false, turbo: true, manager: true },
+    ]);
+
+    const written = await readFile(path.join(directory, "registry.json"), "utf8");
+    assert.equal(
+      written,
+      `${JSON.stringify(
+        { projects: [{ repo: MANAGER, turbo: true, manager: true }] },
+        undefined,
+        2,
+      )}\n`,
     );
   });
 

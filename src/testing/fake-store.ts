@@ -41,6 +41,7 @@ export interface Registration {
   paused?: boolean;
   turbo?: boolean;
   priority?: Priority;
+  manager?: true;
 }
 
 /**
@@ -79,6 +80,7 @@ export class FakeStore implements Store {
       ...(registration.priority !== undefined && {
         priority: registration.priority,
       }),
+      ...(registration.manager === true && { manager: true }),
     });
   }
 

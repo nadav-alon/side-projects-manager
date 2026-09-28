@@ -2,27 +2,8 @@ import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
+import { UNIFORM_FILES } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
-
-/**
- * The files every project gets, byte for byte, at the paths the agent
- * instructions point at.
- *
- * These are the manager's own copies: the manager is a registered project like
- * any other, so improving the conventions it works under improves the ones
- * every project it scaffolds works under, from one source rather than a
- * drifting copy in each project. Nothing listed here may name the manager, or a project would
- * arrive carrying a reference back to it.
- */
-export const UNIFORM_FILES = [
-  "docs/agents/coding-standards.md",
-  "docs/agents/issue-tracker.md",
-  "docs/agents/ticket-scope.md",
-  "docs/agents/triage-labels.md",
-  "docs/agents/domain.md",
-  ".github/workflows/apply-review.yml",
-  ".github/workflows/rebase.yml",
-] as const;
 
 /** Where the generated, project-specific instructions go. */
 const INSTRUCTIONS_FILE = "AGENTS.md";
