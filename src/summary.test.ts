@@ -1509,12 +1509,12 @@ describe("summaryLine", () => {
     );
   });
 
-  it("reads a clean review exactly as today for a pull request the merge gate found not eligible to merge", () => {
+  it("names the merge gate's own reason for a clean review's pull request the merge gate found not eligible to merge", () => {
     const line = summaryLine(facts([cleanReviewNotTurboable(220)]));
 
     assert.equal(
       line,
-      `Reviewed ${REPO}#220: found nothing to flag on ${PULL_REQUEST}, now ready for review.`,
+      `Reviewed ${REPO}#220: found nothing to flag on ${PULL_REQUEST}, now ready for review. Not merged: not turboable before its own run started.`,
     );
   });
 
@@ -1572,12 +1572,12 @@ describe("summaryLine", () => {
     );
   });
 
-  it("reads exactly as an untouched apply-review iteration for a pull request the merge gate found not eligible to merge", () => {
+  it("names the merge gate's own reason for an apply-review iteration's pull request the merge gate found not eligible to merge", () => {
     const line = summaryLine(facts([appliedReviewNotTurboable(216)]));
 
     assert.equal(
       line,
-      `Applied review on ${REPO}#216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
+      `Applied review on ${REPO}#216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. Not merged: not turboable before its own run started.`,
     );
   });
 

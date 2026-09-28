@@ -1809,15 +1809,23 @@ function readyPhrase(merge: MergeGate | undefined): string {
 /**
  * What the merge gate left for the developer, appended to
  * `appliedReviewSummary` and `reviewSummary`'s own clean-outcome sentence:
- * empty when it never merges — absent on a project that is not turbo, or
- * `not-turboable`, since neither adds anything to the sentence. A
- * `timeline-unreadable` gate gets its own note, since a read failure is not
- * proof the pull request was ineligible, unlike `not-turboable`.
+ * empty on a project that is not turbo, since it never asks at all. A
+ * `not-turboable` verdict names the gate's own reason — CONTEXT.md's
+ * "Turboable", ADR 0009 — so a ticket the developer labelled `turboable`
+ * that the gate declined does not read exactly like one never labelled at
+ * all; it carries no Waiting-on-you line of its own (`mergeGateWaitingLine`),
+ * since a settled `not-turboable` leaves nothing for the developer to do
+ * beyond the ordinary review. A `timeline-unreadable` gate gets its own
+ * note too, since a read failure is not proof the pull request was
+ * ineligible, unlike `not-turboable`.
  */
 function mergeGateNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
   if (merge?.kind === "timeline-unreadable") {
     const phrase = timelineUnreadablePhrase(merge.error);
     return ` ${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
+  }
+  if (merge?.kind === "not-turboable") {
+    return ` Not merged: ${withoutTrailingStop(merge.reason)}.`;
   }
   if (merge?.kind !== "left-for-human") {
     return "";
