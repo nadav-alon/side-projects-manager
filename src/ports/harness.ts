@@ -26,6 +26,18 @@ export const UNIFORM_FILES = [
   ".github/workflows/rebase.yml",
 ] as const;
 
+/**
+ * The members of `UNIFORM_FILES` present in `changed`, in `UNIFORM_FILES`'s
+ * own order rather than `changed`'s — empty when it holds none. Shared by
+ * every uniform-file check (`morning-run.ts`'s `handOver`,
+ * `container-sandbox.ts`'s apply-review and rebase push guard) so the one
+ * rule — which paths count — cannot drift between them.
+ */
+export function uniformFilesAmong(changed: Iterable<string>): string[] {
+  const set = changed instanceof Set ? changed : new Set(changed);
+  return UNIFORM_FILES.filter((file) => set.has(file));
+}
+
 /** What one scaffolding put into a checkout. */
 export interface Scaffold {
   /** Every path written, relative to the checkout, in the order written. */

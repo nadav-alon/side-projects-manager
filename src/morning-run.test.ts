@@ -4177,11 +4177,11 @@ describe("morningLoop", () => {
     });
 
     describe("a push that touches a uniform file", () => {
-      it("hands the ticket back, naming the files touched and that the push was discarded", async () => {
+      it("hands the ticket back, naming the files touched and that the push was reverted", async () => {
         const ports = fakePorts();
         const ticket = queued(ports);
         ports.sandbox.applyReviewResult = () => ({
-          kind: "uniform-files-touched",
+          kind: "uniform-files-reverted",
           files: ["docs/agents/coding-standards.md"],
           tokensUsed: tokenCount(2_000),
         });
@@ -4192,7 +4192,7 @@ describe("morningLoop", () => {
         const [handback] = ports.tracker.handbacks;
         assert.equal(handback?.ticket.number, ticket.number);
         assert.match(handback?.comment ?? "", /docs\/agents\/coding-standards\.md/);
-        assert.match(handback?.comment ?? "", /discarded/);
+        assert.match(handback?.comment ?? "", /reverted/);
         assert.match(handback?.comment ?? "", new RegExp(PULL_REQUEST));
         assert.match(handback?.comment ?? "", /will not be retried/);
         assert.deepEqual(ports.repoHost.readyMarked, []);
@@ -4986,12 +4986,12 @@ describe("morningLoop", () => {
     });
 
     describe("a push that touches a uniform file", () => {
-      it("hands the ticket back, naming the files touched and that the push was discarded", async () => {
+      it("hands the ticket back, naming the files touched and that the push was reverted", async () => {
         const ports = fakePorts();
         const ticket = queued(ports);
         ports.repoHost.labelNeedsRebase(PULL_REQUEST);
         ports.sandbox.rebaseResult = () => ({
-          kind: "uniform-files-touched",
+          kind: "uniform-files-reverted",
           files: ["docs/agents/coding-standards.md"],
           tokensUsed: tokenCount(2_000),
         });
@@ -5002,7 +5002,7 @@ describe("morningLoop", () => {
         const [handback] = ports.tracker.handbacks;
         assert.equal(handback?.ticket.number, ticket.number);
         assert.match(handback?.comment ?? "", /docs\/agents\/coding-standards\.md/);
-        assert.match(handback?.comment ?? "", /discarded/);
+        assert.match(handback?.comment ?? "", /reverted/);
         assert.match(handback?.comment ?? "", /will not be retried/);
         assert.deepEqual(ports.tracker.closedRebaseTickets, []);
         assert.deepEqual(ports.repoHost.readyMarked, []);

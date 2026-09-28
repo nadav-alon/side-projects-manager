@@ -592,7 +592,7 @@ describe("handBack", () => {
       assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
     });
 
-    it("hands an apply-review ticket back, naming the files touched, that the push was discarded, and its pull request", async () => {
+    it("hands an apply-review ticket back, naming the files touched, that the push was reverted, and its pull request", async () => {
       const { tracker, repoHost } = ports();
       const ticket = eligible(tracker, applyReviewTicket());
 
@@ -607,7 +607,7 @@ describe("handBack", () => {
       assert.deepEqual(repoHost.discarded, []);
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.match(comment, /docs\/agents\/coding-standards\.md/);
-      assert.match(comment, /discarded/);
+      assert.match(comment, /reverted/);
       assert.match(comment, new RegExp(PULL_REQUEST));
       assert.match(comment, /will not be retried/);
       assert.equal(tracker.carriesLabel(ticket, "ready-for-human"), true);
@@ -628,7 +628,7 @@ describe("handBack", () => {
       assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
     });
 
-    it("hands a rebase ticket back, naming the files touched and that the push was discarded", async () => {
+    it("hands a rebase ticket back, naming the files touched and that the push was reverted", async () => {
       const { tracker, repoHost } = ports();
       const ticket = eligible(tracker, rebaseTicket());
 
@@ -642,8 +642,27 @@ describe("handBack", () => {
       assert.deepEqual(repoHost.discarded, []);
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.match(comment, /docs\/agents\/coding-standards\.md/);
-      assert.match(comment, /discarded/);
+      assert.match(comment, /reverted/);
       assert.match(comment, /will not be retried/);
+    });
+
+    it("names why, when the force-back itself failed, and that the push is still on the pull request", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, applyReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "apply-review",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+        notReverted: { reason: "the lease no longer matched" },
+      });
+
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /could not be reverted/);
+      assert.match(comment, /the lease no longer matched/);
+      assert.match(comment, /still on the pull request/);
     });
   });
 

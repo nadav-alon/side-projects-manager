@@ -87,7 +87,7 @@ export interface ApplyReviewRequest {
   /**
    * As `RegisteredProject.manager` (`store.ts`): set only for the manager's
    * own project, where `UNIFORM_FILES` are the source rather than a copy, so
-   * a push touching one here is never discarded.
+   * a push touching one here is never forced back.
    */
   manager?: true;
 }
@@ -356,17 +356,32 @@ export interface ApplyReviewGaveUp extends ReviewGaveUp {
 /**
  * An apply-review or rebase run whose push touched a file the manager keeps
  * uniform across every project (`UNIFORM_FILES`, `src/ports/harness.ts`) —
- * caught, and discarded, by the sandbox itself: `container-sandbox.ts`'s
- * `pushingRunOnClone` forces the pull request's branch back to where it stood
- * before the run, since nothing but the repo host ever saw the push land. See
- * `UniformFilesTouched` in `iteration-outcome.ts` for the same response to an
- * implementation run's diff, reached by a different door — this push never
- * goes through `openDraftPullRequest` for that check to catch it first.
+ * caught, and forced back, by the sandbox itself:
+ * `container-sandbox.ts`'s `revertPushIfUniformFilesTouched` forces the pull
+ * request's branch back to where it stood before the run, since nothing but
+ * the repo host ever saw the push land. See `UniformFilesTouched` in
+ * `iteration-outcome.ts` for the same response to an implementation run's
+ * diff, reached by a different door — this push never goes through
+ * `openDraftPullRequest` for that check to catch it first. Named apart from
+ * `UniformFilesTouched`, and given its own `kind`, rather than sharing its
+ * shape: the two are told apart by more than which door caught them — one
+ * names a branch still sitting unpushed in the checkout, the other a push
+ * already forced back on the repo host, and a `kind` two differently shaped
+ * types share would leave a narrowing unable to tell which it had reached.
  */
-export interface UniformFilesPushed extends Ended {
-  kind: "uniform-files-touched";
+export interface UniformFilesReverted extends Ended {
+  kind: "uniform-files-reverted";
   /** The uniform files the run's push touched, in `UNIFORM_FILES`'s own order. */
   files: string[];
+  /**
+   * Present, naming why, when the force-with-lease push meant to force the
+   * pull request's branch back failed: the diff this run's push touched is
+   * still on the pull request, for the developer to force back themselves.
+   * Absent otherwise — the common case — including when the agent's own
+   * push never reached the repo host to begin with, and so needed no push of
+   * this run's to undo.
+   */
+  notReverted?: { reason: string };
 }
 
 /**
@@ -381,7 +396,7 @@ export type ApplyReviewOutcome =
   | ReviewLimitRefused
   | ReviewModelRefused
   | ReviewProviderFailed
-  | UniformFilesPushed;
+  | UniformFilesReverted;
 
 /**
  * As `ReviewOutcome`, for a spec review run: no branch or commits on any
@@ -410,7 +425,7 @@ export type RebaseOutcome =
   | ReviewLimitRefused
   | ReviewModelRefused
   | ReviewProviderFailed
-  | UniformFilesPushed;
+  | UniformFilesReverted;
 
 /**
  * Runs a coding agent against one ticket, in a container, on a checkout of its

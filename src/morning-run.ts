@@ -42,7 +42,7 @@ import type {
   TokenCount,
   TranscriptPath,
   TurboableConsent,
-  UniformFilesPushed,
+  UniformFilesReverted,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -52,7 +52,6 @@ import {
   MergeabilityUnknown,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REVIEWED_LABEL,
-  UNIFORM_FILES,
   hasAnnouncedOn,
   isApplyReviewTicket,
   isRebaseTicket,
@@ -64,6 +63,7 @@ import {
   runSpanFor,
   ticketKind,
   tokenCount,
+  uniformFilesAmong,
 } from "./ports/index.ts";
 import {
   invocationBudgetGate,
@@ -1045,8 +1045,7 @@ async function touchedUniformFiles(
   checkout: Checkout,
   branch: Branch,
 ): Promise<string[]> {
-  const changed = new Set(await repoHost.readChangedPaths(checkout, branch));
-  return UNIFORM_FILES.filter((file) => changed.has(file));
+  return uniformFilesAmong(await repoHost.readChangedPaths(checkout, branch));
 }
 
 /**
@@ -2140,8 +2139,11 @@ async function runApplyReview(
   if (run.kind === "gave-up") {
     return withDiscoveries(await handApplyReviewBack(ports, ticket, run, run.reason), routed);
   }
-  if (run.kind === "uniform-files-touched") {
-    return withDiscoveries(await handApplyReviewUniformFilesBack(ports, ticket, run), routed);
+  if (run.kind === "uniform-files-reverted") {
+    return withDiscoveries(
+      await handPushUniformFilesBack(ports, ticket, "apply-review", run),
+      routed,
+    );
   }
 
   let answers: ApplyReviewAnswers;
@@ -2404,22 +2406,24 @@ async function handApplyReviewBack(
 }
 
 /**
- * Hands back an apply-review run whose push touched a uniform file: the
- * sandbox has already discarded it (`container-sandbox.ts`'s
- * `pushOutcomeOf`), forcing the pull request's branch back to where it stood
- * before the run, so there is nothing here to discard — only the ticket to
- * hand back, naming which files.
+ * Hands back an apply-review or rebase run whose push touched a uniform
+ * file: the sandbox has already tried forcing it back
+ * (`container-sandbox.ts`'s `revertPushIfUniformFilesTouched`), so there is
+ * no branch here to discard — only the ticket to hand back, naming which
+ * files, and, when the force-back itself failed, why.
  */
-async function handApplyReviewUniformFilesBack(
+async function handPushUniformFilesBack(
   ports: MorningLoopPorts,
-  ticket: ApplyReviewTicket,
-  run: UniformFilesPushed,
+  ticket: ApplyReviewTicket | RebaseTicket,
+  ticketKind: "apply-review" | "rebase",
+  run: UniformFilesReverted,
 ): Promise<Failed> {
   const failure: UniformFilesTouched = { kind: "uniform-files-touched", files: run.files };
   const handedBack = await handBack(ports, ticket, {
     ...failure,
-    ticketKind: "apply-review",
+    ticketKind,
     pullRequest: ticket.pullRequest.url,
+    ...(run.notReverted !== undefined && { notReverted: run.notReverted }),
     ...transcriptField(run.transcript),
   });
   return {
@@ -2546,8 +2550,8 @@ async function runRebase(
   if (run.kind === "gave-up") {
     return withDiscoveries(await handRebaseBack(ports, ticket, run, run.reason), routed);
   }
-  if (run.kind === "uniform-files-touched") {
-    return withDiscoveries(await handRebaseUniformFilesBack(ports, ticket, run), routed);
+  if (run.kind === "uniform-files-reverted") {
+    return withDiscoveries(await handPushUniformFilesBack(ports, ticket, "rebase", run), routed);
   }
 
   try {
@@ -2646,24 +2650,3 @@ async function handRebaseBack(
   };
 }
 
-/** As `handApplyReviewUniformFilesBack`, for a rebase ticket. */
-async function handRebaseUniformFilesBack(
-  ports: MorningLoopPorts,
-  ticket: RebaseTicket,
-  run: UniformFilesPushed,
-): Promise<Failed> {
-  const failure: UniformFilesTouched = { kind: "uniform-files-touched", files: run.files };
-  const handedBack = await handBack(ports, ticket, {
-    ...failure,
-    ticketKind: "rebase",
-    pullRequest: ticket.pullRequest.url,
-    ...transcriptField(run.transcript),
-  });
-  return {
-    kind: "failed",
-    tokensUsed: run.tokensUsed,
-    ...(run.transcript !== undefined && { transcript: run.transcript }),
-    failure,
-    handedBack,
-  };
-}

@@ -238,7 +238,9 @@ _Avoid_: PR (say pull request), suggestion, patch
 The half of the harness every project gets byte for byte, so that improving a convention improves it
 everywhere from one source. A run whose own diff touches one never gets a **Handover**: the change
 would otherwise become a copy living in just that one project, silently drifting from the source it
-was copied from.
+was copied from. An apply-review or rebase run's own push is checked the same way, since it never
+goes through a Handover for that check to catch first: a push that touches one is forced back on the
+repo host instead.
 _Avoid_: shared files, common files, boilerplate
 
 **Agent instructions**:
