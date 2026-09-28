@@ -119,9 +119,17 @@ export class FakeStore implements Store {
   /**
    * Records `ticket`'s own run span, as an earlier invocation's run would
    * have left it — replacing whatever span `ticket` already carried.
+   * `openedBy` names the invocation that opened it, when a test needs the
+   * merge gate to tell this span apart from one a dead invocation left open;
+   * absent, as a real span predating that field would be.
    */
-  markRunSpan(ticket: WorkedTicket, startedAt: Date, endedAt?: Date): void {
-    const started = recordRunSpanStarted(this.#runSpans, ticket, startedAt);
+  markRunSpan(
+    ticket: WorkedTicket,
+    startedAt: Date,
+    endedAt?: Date,
+    openedBy?: OpenInvocation,
+  ): void {
+    const started = recordRunSpanStarted(this.#runSpans, ticket, startedAt, openedBy);
     this.#runSpans =
       endedAt === undefined ? started : recordRunSpanEnded(started, ticket, endedAt);
   }

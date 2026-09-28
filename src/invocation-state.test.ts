@@ -291,6 +291,51 @@ describe("invocationState", () => {
     });
   });
 
+  describe("runSpans", () => {
+    it("reads a span left open by a dead invocation as ended at its own start", () => {
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+      const stored: State = {
+        projects: new Map(),
+        runSpans: [{ ...TICKET_7, startedAt, openedBy: DEAD }],
+      };
+      const journal = journalOf([{ ...DEAD }, { ...SELF }]);
+      const invocation = invocationState({ store: new FakeStore() }, stored, TODAY, noForeignFields, {
+        self: SELF,
+        journal,
+      });
+
+      assert.deepEqual(invocation.runSpans(), [
+        { ...TICKET_7, startedAt, endedAt: startedAt, openedBy: DEAD },
+      ]);
+    });
+
+    it("leaves a span this invocation itself still has open as recorded", () => {
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+      const stored: State = {
+        projects: new Map(),
+        runSpans: [{ ...TICKET_7, startedAt, openedBy: SELF }],
+      };
+      const journal = journalOf([{ ...SELF }]);
+      const invocation = invocationState({ store: new FakeStore() }, stored, TODAY, noForeignFields, {
+        self: SELF,
+        journal,
+      });
+
+      assert.deepEqual(invocation.runSpans(), [{ ...TICKET_7, startedAt, openedBy: SELF }]);
+    });
+
+    it("leaves every span as recorded when this invocation has no journal identity", () => {
+      const startedAt = new Date("2026-01-01T09:00:00.000Z");
+      const stored: State = {
+        projects: new Map(),
+        runSpans: [{ ...TICKET_7, startedAt, openedBy: DEAD }],
+      };
+      const invocation = invocationState({ store: new FakeStore() }, stored, TODAY, noForeignFields);
+
+      assert.deepEqual(invocation.runSpans(), [{ ...TICKET_7, startedAt, openedBy: DEAD }]);
+    });
+  });
+
   describe("iterationEnded", () => {
     it("frees a ticket a cut-off run says nothing about", async () => {
       const store = new FakeStore();

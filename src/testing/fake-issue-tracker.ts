@@ -17,6 +17,7 @@ import type {
   RunSpan,
   SubIssue,
   Ticket,
+  TurboableConsent,
 } from "../ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
@@ -487,7 +488,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     instant: Date,
     spans: readonly RunSpan[],
-  ): Promise<boolean> {
+  ): Promise<TurboableConsent> {
     return turboableConsentAt(
       ticket,
       this.#turboableEvents.get(ticketReference(ticket)) ?? [],

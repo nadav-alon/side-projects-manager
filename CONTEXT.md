@@ -420,8 +420,8 @@ run started once its own invocation record has closed, let alone once the day ha
 told apart by the invocation that opened the span, checked against the journal the same way **Worked
 today** frees a dead invocation's entries: a span still missing `endedAt` whose opening invocation
 is still **in flight** there but is not the invocation now holding the **invocation lease** reads as
-ended, not in progress, its own end instant left unknown rather than assumed to be the journal's
-last-seen one. What "The manager merges a turboable ticket's pull request" (ADR 0009)'s merge gate
+ended at its own `startedAt`, not in progress, rather than assumed to be the journal's last-seen one.
+What "The manager merges a turboable ticket's pull request" (ADR 0009)'s merge gate
 reads a ticket's own implementation run started at, to check a `turboable` label's timeline against
 it, and also reads every ticket's span in the same repo, to check whether a grant falls inside any of
 them — see **Turboable**.
@@ -660,9 +660,12 @@ ticket it opens, so one it opens can never start out carrying it; and against ev
 which stops a run on one ticket (posting with the developer's own identity) from labeling a
 *different*, not-yet-run ticket `turboable` before that ticket's own run starts, since the timeline
 check and stripping alone cannot tell that grant from a human's. Known gap: recording a span is
-best-effort, so a run whose write failed leaves no span for this third check to see; and since a
+best-effort, so a run whose write failed leaves no span for this third check to see; since a
 ticket run more than once keeps only its latest run's span (see **Run span**), an earlier run's own
-grant is no longer covered once that ticket runs again. Once a turboable ticket's apply-review
+grant is no longer covered once that ticket runs again; and a span a crash left open reads as ended
+at its own `startedAt` (see **Run span**), so a `turboable` grant that crashed run itself made
+between its own start and its death now falls outside its own span too, and counts as consent. Once
+a turboable ticket's apply-review
 ticket finishes, or its review comes back clean (see **Clean review**) — whichever happens, and
 only the one that does — one pass: the manager merges the pull request, with a merge commit, and
 deletes its branch, but only if it is mergeable, green and carries no declined threads; otherwise

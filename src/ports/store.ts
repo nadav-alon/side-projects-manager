@@ -286,8 +286,12 @@ export function runSpanFor(
 /**
  * Whether `span` covers `instant`. Bounds are inclusive: `instant` at
  * exactly `startedAt` or `endedAt` counts as covered. A `span` with no
- * `endedAt` — its run still going, or the manager died before it closed one
- * — covers everything from its `startedAt` on.
+ * `endedAt` covers everything from its `startedAt` on — true of one whose
+ * run is still going. A dead opener's span reaching here with no `endedAt`
+ * too, covering everything the same way, is possible only when no journal
+ * was available to read it as ended first: the merge gate's own spans
+ * already have `effectiveRunSpans` close a dead opener's span at its own
+ * `startedAt` before this is ever called on them.
  */
 export function runSpanCovers(span: RunSpan, instant: Date): boolean {
   const at = instant.getTime();

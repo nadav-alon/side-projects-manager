@@ -2601,6 +2601,83 @@ describe("morningLoop", () => {
           );
         });
 
+        it("never merges, naming the run span rather than the timeline, when the grant falls inside another ticket's run span in the same repo", async () => {
+          const ports = fakePorts();
+          queuedTurboableReview(ports);
+          ports.store.markRunSpan(
+            { repo: PILOT, number: issueNumber(99) },
+            new Date(GRANTED_IN_TIME.getTime() - 60_000),
+            new Date(GRANTED_IN_TIME.getTime() + 60_000),
+          );
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "not-turboable", reason: "turboable granted inside a run span" },
+          );
+        });
+
+        it("merges once the only span covering the grant was left open by a dead invocation, now read as ended at its own start", async () => {
+          const ports = fakePorts();
+          const implementation = queuedTurboableReview(ports);
+          const DEAD: OpenInvocation = {
+            openedAt: new Date(GRANTED_IN_TIME.getTime() - 3_600_000),
+            process: processId(4242),
+          };
+          await ports.store.openInvocation(DEAD);
+          ports.store.markRunSpan(
+            { repo: PILOT, number: issueNumber(99) },
+            new Date(GRANTED_IN_TIME.getTime() - 60_000),
+            undefined,
+            DEAD,
+          );
+          const SELF: OpenInvocation = { openedAt: FROZEN_NOW, process: processId(5555) };
+          await ports.store.openInvocation(SELF);
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports, { invocation: SELF });
+
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "merged", implementationTicket: implementation },
+          );
+        });
+
+        it("still rejects a grant landing exactly at a crash-left-open span's own start — inclusive bounds", async () => {
+          const ports = fakePorts();
+          const deadStarted = new Date(RUN_STARTED.getTime() - 120_000);
+          queuedTurboableReview(ports, { grantedAt: deadStarted });
+          const DEAD: OpenInvocation = {
+            openedAt: new Date(deadStarted.getTime() - 3_600_000),
+            process: processId(4242),
+          };
+          await ports.store.openInvocation(DEAD);
+          ports.store.markRunSpan(
+            { repo: PILOT, number: issueNumber(99) },
+            deadStarted,
+            undefined,
+            DEAD,
+          );
+          const SELF: OpenInvocation = { openedAt: FROZEN_NOW, process: processId(5555) };
+          await ports.store.openInvocation(SELF);
+          postedACleanReview(ports);
+
+          const report = await morningLoop(ports, { invocation: SELF });
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "not-turboable", reason: "turboable granted inside a run span" },
+          );
+        });
+
         it("never merges on a project that is not turbo, whatever the implementation ticket carries", async () => {
           const ports = fakePorts();
           queuedTurboableReview(ports, { turbo: false });

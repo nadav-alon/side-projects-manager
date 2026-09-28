@@ -2667,16 +2667,16 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     return `printf '%s\\n' ${lines}`;
   }
 
-  it("answers false where the ticket's timeline carries no turboable event", async (t) => {
+  it("refuses, not labeled in time, where the ticket's timeline carries no turboable event", async (t) => {
     await recordingGh(t, timeline([]));
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      false,
+      { consented: false, reason: "not-labeled-in-time" },
     );
   });
 
-  it("answers true once turboable was labelled, at and after that instant", async (t) => {
+  it("grants consent once turboable was labelled, at and after that instant", async (t) => {
     await recordingGh(
       t,
       timeline([
@@ -2684,17 +2684,17 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z"), []),
-      true,
+      { consented: true },
     );
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      true,
+      { consented: true },
     );
   });
 
-  it("answers true once turboable was removed and re-labelled before the instant", async (t) => {
+  it("grants consent once turboable was removed and re-labelled before the instant", async (t) => {
     await recordingGh(
       t,
       timeline([
@@ -2704,13 +2704,13 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), []),
-      true,
+      { consented: true },
     );
   });
 
-  it("answers false for a turboable label added after the instant", async (t) => {
+  it("refuses, not labeled in time, for a turboable label added after the instant", async (t) => {
     await recordingGh(
       t,
       timeline([
@@ -2718,13 +2718,13 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      false,
+      { consented: false, reason: "not-labeled-in-time" },
     );
   });
 
-  it("answers false once turboable was added and then removed again before the instant", async (t) => {
+  it("refuses, not labeled in time, once turboable was added and then removed again before the instant", async (t) => {
     await recordingGh(
       t,
       timeline([
@@ -2733,9 +2733,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z"), []),
-      false,
+      { consented: false, reason: "not-labeled-in-time" },
     );
   });
 
@@ -2747,9 +2747,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       ]),
     );
 
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      false,
+      { consented: false, reason: "not-labeled-in-time" },
     );
   });
 
@@ -2790,7 +2790,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
   });
 
-  it("answers false where the grant falls inside another ticket's run span in the same repo", async (t) => {
+  it("refuses, inside a run span, where the grant falls inside another ticket's run span in the same repo", async (t) => {
     await recordingGh(
       t,
       timeline([
@@ -2806,13 +2806,13 @@ describe("ghIssueTracker.wasTurboableAt", () => {
         endedAt: new Date("2026-01-03T00:00:00Z"),
       },
     ];
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
-      false,
+      { consented: false, reason: "inside-run-span" },
     );
   });
 
-  it("answers true where every span given leaves the grant uncovered", async (t) => {
+  it("grants consent where every span given leaves the grant uncovered", async (t) => {
     await recordingGh(
       t,
       timeline([
@@ -2828,9 +2828,9 @@ describe("ghIssueTracker.wasTurboableAt", () => {
         endedAt: new Date("2026-01-03T00:00:00Z"),
       },
     ];
-    assert.equal(
+    assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
-      true,
+      { consented: true },
     );
   });
 });
