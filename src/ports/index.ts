@@ -228,6 +228,7 @@ export type {
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
+  UniformFilesPushed,
 } from "./sandbox.ts";
 export { isTicketGist, ticketGist } from "./ticket-gist.ts";
 export type { TicketGist } from "./ticket-gist.ts";

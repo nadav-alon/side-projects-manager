@@ -146,6 +146,23 @@ type GaveUpContext =
     };
 
 /**
+ * What a uniform-files-touched hand-back's comment needs beyond
+ * `UniformFilesTouched.files`, particular to which kind of ticket the
+ * diff or push came from. An implementation run's diff never reached the
+ * repo host, so its branch is left unpushed in the checkout for the
+ * developer to read — see #944's own triage. An apply-review or rebase
+ * run's push already reached the repo host before this: the sandbox itself
+ * (`container-sandbox.ts`'s `pushOutcomeOf`) has already forced the pull
+ * request's branch back to where it stood before the run, so there is no
+ * branch to name here, only the pull request the discarded push would have
+ * landed on.
+ */
+type UniformFilesTouchedContext =
+  | { ticketKind: "implementation"; checkout: Checkout; run: RunFinished }
+  | { ticketKind: "apply-review"; pullRequest: PullRequestUrl; transcript?: TranscriptPath }
+  | { ticketKind: "rebase"; pullRequest: PullRequestUrl; transcript?: TranscriptPath };
+
+/**
  * How one iteration ended, for the one ticket it selected — everything
  * `handBack` needs to decide the branch, pick the comment and say what
  * happened. Told apart by `kind`, matching the ways CONTEXT.md's Hand back
@@ -174,7 +191,7 @@ export type HandBackEnding =
     })
   | AheadOfGateFailure
   | (UnsettledMergeability & { pullRequest: PullRequestUrl })
-  | (UniformFilesTouched & { checkout: Checkout; run: RunFinished })
+  | (UniformFilesTouched & UniformFilesTouchedContext)
   | { kind: "finished"; run: RunFinished; handover?: Handover }
   | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath }
   | {
@@ -263,10 +280,13 @@ export async function discardBranch(
 /**
  * Discards the branch `ending` left behind, when it left one to discard —
  * none but a gave-up, a worked model refusal, or a worked discovery block
- * ever does. A run whose diff touched a uniform file is never discarded: its
- * branch is left unpushed instead, the way `handoverFailed`'s is, since the
- * triage decision on #944 only says the ticket is handed back naming the
- * files — not that the work is thrown away.
+ * ever does. An implementation run whose diff touched a uniform file is never
+ * discarded here: its branch is left unpushed instead, the way
+ * `handoverFailed`'s is, since the triage decision on #944 only says the
+ * ticket is handed back naming the files — not that the work is thrown away.
+ * An apply-review or rebase run whose push touched one leaves no branch at
+ * all: the sandbox already discarded the push itself, on the repo host,
+ * before this ever runs.
  */
 async function discardIfWorked(
   repoHost: RepoHost,
@@ -385,25 +405,40 @@ function handoverFailedComment(ending: HandoverFailed & { transcript?: Transcrip
 }
 
 /**
- * What a ticket is told when a finished run's diff touched a file the manager
- * keeps uniform across every project: which files, that no pull request was
- * opened for it, so a project-local copy never drifts from the one source
- * silently, and where its branch is — left unpushed, not discarded, so the
- * developer acting on the note still has a diff to read.
+ * What a ticket is told when a run's diff or push touched a file the manager
+ * keeps uniform across every project: which files, and how the response
+ * differed by where the touch was caught. An implementation run's diff never
+ * reached the repo host, so its branch is left unpushed for the developer to
+ * read. An apply-review or rebase run's push already reached the repo host,
+ * so the sandbox itself discarded it — forcing the pull request's branch back
+ * to where it stood before the run — and there is no branch left to name,
+ * only the pull request the discarded push would have landed on.
  */
 function uniformFilesTouchedComment(
-  ending: UniformFilesTouched & { checkout: Checkout; run: RunFinished },
+  ending: UniformFilesTouched & UniformFilesTouchedContext,
 ): string {
-  return [
-    `The morning loop finished this ticket, but its diff touches a file the manager keeps uniform across every project: ${ending.files.map((file) => `\`${file}\``).join(", ")}.`,
-    `No pull request was opened for it — that would leave this project's own copy drifting from the one source.`,
-    `Its work is on the branch ${workLocation(
-      { branch: ending.run.branch, where: { kind: "unpushed", checkout: ending.checkout } },
-      (text) => `\`${text}\``,
-    )}.`,
-    notRetried(),
-    ...transcriptNote(ending.run.transcript),
-  ].join("\n\n");
+  const files = ending.files.map((file) => `\`${file}\``).join(", ");
+  switch (ending.ticketKind) {
+    case "implementation":
+      return [
+        `The morning loop finished this ticket, but its diff touches a file the manager keeps uniform across every project: ${files}.`,
+        `No pull request was opened for it — that would leave this project's own copy drifting from the one source.`,
+        `Its work is on the branch ${workLocation(
+          { branch: ending.run.branch, where: { kind: "unpushed", checkout: ending.checkout } },
+          (text) => `\`${text}\``,
+        )}.`,
+        notRetried(),
+        ...transcriptNote(ending.run.transcript),
+      ].join("\n\n");
+    case "apply-review":
+    case "rebase":
+      return [
+        `The morning loop ran this ticket, but its push to ${ending.pullRequest} touches a file the manager keeps uniform across every project: ${files}.`,
+        `The push has been discarded — that would leave this project's own copy drifting from the one source — and ${untouchedDraftState(ending.pullRequest)}`,
+        notRetried(),
+        ...transcriptNote(ending.transcript),
+      ].join("\n\n");
+  }
 }
 
 /** The layout every gave-up comment shares, with `notes` before the last line. */

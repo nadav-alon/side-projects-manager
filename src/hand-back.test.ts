@@ -544,6 +544,7 @@ describe("handBack", () => {
 
       const record = await handBack({ tracker, repoHost }, ticket, {
         kind: "uniform-files-touched",
+        ticketKind: "implementation",
         files: ["docs/agents/coding-standards.md"],
         checkout: CHECKOUT,
         run: finishedRun(),
@@ -565,6 +566,7 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "uniform-files-touched",
+        ticketKind: "implementation",
         files: ["docs/agents/coding-standards.md", ".github/workflows/rebase.yml"],
         checkout: CHECKOUT,
         run: finishedRun(),
@@ -581,12 +583,67 @@ describe("handBack", () => {
 
       await handBack({ tracker, repoHost }, ticket, {
         kind: "uniform-files-touched",
+        ticketKind: "implementation",
         files: ["docs/agents/coding-standards.md"],
         checkout: CHECKOUT,
         run: finishedRun({ transcript: TRANSCRIPT }),
       });
 
       assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
+
+    it("hands an apply-review ticket back, naming the files touched, that the push was discarded, and its pull request", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, applyReviewTicket());
+
+      const record = await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "apply-review",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+      });
+
+      assert.deepEqual(record, { outcome: "handed-back" });
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /discarded/);
+      assert.match(comment, new RegExp(PULL_REQUEST));
+      assert.match(comment, /will not be retried/);
+      assert.equal(tracker.carriesLabel(ticket, "ready-for-human"), true);
+    });
+
+    it("names the transcript's host path on an apply-review uniform-files hand-back that left one", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, applyReviewTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "apply-review",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+        transcript: TRANSCRIPT,
+      });
+
+      assert.match(tracker.handbacks[0]?.comment ?? "", endsWithTranscript(TRANSCRIPT));
+    });
+
+    it("hands a rebase ticket back, naming the files touched and that the push was discarded", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, rebaseTicket());
+
+      await handBack({ tracker, repoHost }, ticket, {
+        kind: "uniform-files-touched",
+        ticketKind: "rebase",
+        files: ["docs/agents/coding-standards.md"],
+        pullRequest: PULL_REQUEST,
+      });
+
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /docs\/agents\/coding-standards\.md/);
+      assert.match(comment, /discarded/);
+      assert.match(comment, /will not be retried/);
     });
   });
 

@@ -36,9 +36,10 @@ export interface RegisteredProject {
   /**
    * Set only on the manager's own entry — the one place `UNIFORM_FILES`
    * (`src/ports/harness.ts`) are the source, not a copy. Absent for every
-   * other project, which is what the uniform-file check (`morning-run.ts`'s
-   * `handOver`) reads to tell them apart: a run here that touches one is the
-   * source being updated, not drift.
+   * other project, which is what the uniform-file checks (`morning-run.ts`'s
+   * `handOver`, and `container-sandbox.ts`'s `pushingRunOnClone` for an
+   * apply-review or rebase run's own push) read to tell them apart: a run
+   * here that touches one is the source being updated, not drift.
    */
   manager?: true;
 }

@@ -84,6 +84,12 @@ export interface ApplyReviewRequest {
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
   model?: ModelName;
+  /**
+   * As `RegisteredProject.manager` (`store.ts`): set only for the manager's
+   * own project, where `UNIFORM_FILES` are the source rather than a copy, so
+   * a push touching one here is never discarded.
+   */
+  manager?: true;
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -109,6 +115,8 @@ export interface RebaseRequest {
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
   model?: ModelName;
+  /** As `ApplyReviewRequest.manager`. */
+  manager?: true;
 }
 
 /**
@@ -346,6 +354,22 @@ export interface ApplyReviewGaveUp extends ReviewGaveUp {
 }
 
 /**
+ * An apply-review or rebase run whose push touched a file the manager keeps
+ * uniform across every project (`UNIFORM_FILES`, `src/ports/harness.ts`) —
+ * caught, and discarded, by the sandbox itself: `container-sandbox.ts`'s
+ * `pushingRunOnClone` forces the pull request's branch back to where it stood
+ * before the run, since nothing but the repo host ever saw the push land. See
+ * `UniformFilesTouched` in `iteration-outcome.ts` for the same response to an
+ * implementation run's diff, reached by a different door — this push never
+ * goes through `openDraftPullRequest` for that check to catch it first.
+ */
+export interface UniformFilesPushed extends Ended {
+  kind: "uniform-files-touched";
+  /** The uniform files the run's push touched, in `UNIFORM_FILES`'s own order. */
+  files: string[];
+}
+
+/**
  * As `ReviewOutcome`, for an apply-review run. No branch or commits on any
  * variant: the agent pushes to the pull request's branch itself, and what it
  * pushed and answered is read back from the repo host, never from here.
@@ -356,7 +380,8 @@ export type ApplyReviewOutcome =
   | ApplyReviewGaveUp
   | ReviewLimitRefused
   | ReviewModelRefused
-  | ReviewProviderFailed;
+  | ReviewProviderFailed
+  | UniformFilesPushed;
 
 /**
  * As `ReviewOutcome`, for a spec review run: no branch or commits on any
@@ -384,7 +409,8 @@ export type RebaseOutcome =
   | RebaseGaveUp
   | ReviewLimitRefused
   | ReviewModelRefused
-  | ReviewProviderFailed;
+  | ReviewProviderFailed
+  | UniformFilesPushed;
 
 /**
  * Runs a coding agent against one ticket, in a container, on a checkout of its

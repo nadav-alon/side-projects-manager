@@ -57,6 +57,7 @@ import {
   tokenCount,
   transcriptDirectory,
   transcriptPath,
+  UNIFORM_FILES,
   weightedTokenCount,
   type Milliseconds,
   type Nits,
@@ -1630,16 +1631,23 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   kind: "apply-review" | "rebase",
   container: Container,
   pullRequestHead: PullRequestHead,
-  request: { ticket: T; checkout: Checkout; spendCeiling: Usd; model?: ModelName },
+  request: {
+    ticket: T;
+    checkout: Checkout;
+    spendCeiling: Usd;
+    model?: ModelName;
+    manager?: true;
+  },
   promptFor: (ticket: T) => string,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
-  const { ticket, checkout: project, spendCeiling, model } = request;
+  const { ticket, checkout: project, spendCeiling, model, manager } = request;
   const head = await pullRequestHead(ticket.pullRequest.url);
 
   return withThrowawayClone(kind, async (clone) => {
     await cloneOntoPullRequestHead(project, clone, head);
+    const before = await revision(clone, "HEAD");
 
     const agent = await attempt(
       container,
@@ -1650,7 +1658,12 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
       onStarted,
     );
 
-    return pushRejectedOutcomeOf(agent, model);
+    return pushOutcomeOf(agent, model, {
+      clone,
+      head,
+      before,
+      ...(manager !== undefined && { manager }),
+    });
   });
 }
 
@@ -1709,11 +1722,21 @@ const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
  * to carry, and an agent that reports the branch moved under its push has
  * given up, whatever its exit code — its commits never reached the pull
  * request, whether the push was plain (apply-review) or forced (rebase).
+ *
+ * Otherwise, `push.clone`'s own commits since `push.before` are checked
+ * against `UNIFORM_FILES`: a push that touches one is discarded — the repo
+ * host's `push.head` is forced back to `push.before` — and the outcome
+ * becomes `UniformFilesPushed` instead of whatever `endingOf` otherwise came
+ * to. Skipped for `push.manager`, the one project where `UNIFORM_FILES` are
+ * the source, not a copy (`RegisteredProject.manager`, `store.ts`) — and for
+ * a rejected push, since the remote left `push.before` for a reason that has
+ * nothing to do with this run, and forcing it back would erase that instead.
  */
-function pushRejectedOutcomeOf(
+async function pushOutcomeOf(
   agent: FinishedAgentRun,
   model: ModelName | undefined,
-): ApplyReviewOutcome {
+  push: { clone: Checkout; head: Branch; before: string; manager?: true },
+): Promise<ApplyReviewOutcome> {
   const ending = endingOf(agent, model);
   const moved = BRANCH_MOVED.exec(agent.output)?.[1];
   if (
@@ -1734,7 +1757,42 @@ function pushRejectedOutcomeOf(
       agent,
     );
   }
-  return withTranscriptAndDiscoveryFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
+  const outcome = withTranscriptAndDiscoveryFields({ ...ending, tokensUsed: agent.tokensUsed }, agent);
+  if (push.manager === true) {
+    return outcome;
+  }
+  const touched = await touchedUniformFiles(push.clone, push.before);
+  if (touched.length === 0) {
+    return outcome;
+  }
+  await run("git", [
+    "-C",
+    push.clone,
+    "push",
+    "--force",
+    "origin",
+    `${push.before}:refs/heads/${push.head}`,
+  ]);
+  return {
+    kind: "uniform-files-touched",
+    files: touched,
+    tokensUsed: outcome.tokensUsed,
+    ...(outcome.transcript !== undefined && { transcript: outcome.transcript }),
+    ...(outcome.discoveries !== undefined && { discoveries: outcome.discoveries }),
+    ...(outcome.discoveriesDropped !== undefined && {
+      discoveriesDropped: outcome.discoveriesDropped,
+    }),
+  };
+}
+
+/**
+ * The uniform files (`UNIFORM_FILES`) `clone`'s own commits since `before`
+ * touch, in `UNIFORM_FILES`'s own order — empty when they touch none.
+ */
+async function touchedUniformFiles(clone: Checkout, before: string): Promise<string[]> {
+  const { stdout } = await run("git", ["-C", clone, "diff", "--name-only", `${before}..HEAD`]);
+  const changed = new Set(stdout.split("\n").filter((line) => line !== ""));
+  return UNIFORM_FILES.filter((file) => changed.has(file));
 }
 
 /**

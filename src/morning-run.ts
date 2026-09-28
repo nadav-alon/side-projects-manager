@@ -42,6 +42,7 @@ import type {
   TokenCount,
   TranscriptPath,
   TurboableConsent,
+  UniformFilesPushed,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
@@ -642,6 +643,7 @@ async function work(
       invocation,
       spendCeiling,
       model,
+      selection.project.manager,
     );
   }
   if (isApplyReviewTicket(selection.ticket)) {
@@ -653,6 +655,7 @@ async function work(
       spendCeiling,
       model,
       selection.project.turbo,
+      selection.project.manager,
     );
   }
   if (isReviewTicket(selection.ticket)) {
@@ -1062,7 +1065,12 @@ async function uniformFilesTouchedOutcome(
   files: string[],
 ): Promise<Failed> {
   const failure: UniformFilesTouched = { kind: "uniform-files-touched", files };
-  const handedBack = await handBack(ports, ticket, { ...failure, checkout, run });
+  const handedBack = await handBack(ports, ticket, {
+    ...failure,
+    ticketKind: "implementation",
+    checkout,
+    run,
+  });
   return {
     kind: "failed",
     run,
@@ -2045,6 +2053,7 @@ async function runApplyReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
   turbo: boolean,
+  manager: true | undefined,
 ): Promise<
   | AppliedReview
   | LimitRefused
@@ -2089,13 +2098,17 @@ async function runApplyReview(
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
-      ? ports.sandbox.applyReview({ ticket, checkout, spendCeiling }, onStarted)
+      ? ports.sandbox.applyReview(
+          { ticket, checkout, spendCeiling, ...(manager !== undefined && { manager }) },
+          onStarted,
+        )
       : ports.sandbox.applyReview(
           {
             ticket,
             checkout,
             spendCeiling,
             model: model.name,
+            ...(manager !== undefined && { manager }),
           },
           onStarted,
         ),
@@ -2126,6 +2139,9 @@ async function runApplyReview(
 
   if (run.kind === "gave-up") {
     return withDiscoveries(await handApplyReviewBack(ports, ticket, run, run.reason), routed);
+  }
+  if (run.kind === "uniform-files-touched") {
+    return withDiscoveries(await handApplyReviewUniformFilesBack(ports, ticket, run), routed);
   }
 
   let answers: ApplyReviewAnswers;
@@ -2388,6 +2404,34 @@ async function handApplyReviewBack(
 }
 
 /**
+ * Hands back an apply-review run whose push touched a uniform file: the
+ * sandbox has already discarded it (`container-sandbox.ts`'s
+ * `pushOutcomeOf`), forcing the pull request's branch back to where it stood
+ * before the run, so there is nothing here to discard — only the ticket to
+ * hand back, naming which files.
+ */
+async function handApplyReviewUniformFilesBack(
+  ports: MorningLoopPorts,
+  ticket: ApplyReviewTicket,
+  run: UniformFilesPushed,
+): Promise<Failed> {
+  const failure: UniformFilesTouched = { kind: "uniform-files-touched", files: run.files };
+  const handedBack = await handBack(ports, ticket, {
+    ...failure,
+    ticketKind: "apply-review",
+    pullRequest: ticket.pullRequest.url,
+    ...transcriptField(run.transcript),
+  });
+  return {
+    kind: "failed",
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    failure,
+    handedBack,
+  };
+}
+
+/**
  * A rebase ticket's own run: the agent replays the pull request the ticket
  * names onto its base branch and force-pushes it itself, from a clone on that
  * pull request's branch. Whether it worked is read back from the repo host,
@@ -2421,6 +2465,7 @@ async function runRebase(
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
+  manager: true | undefined,
 ): Promise<
   | Rebased
   | LimitRefused
@@ -2459,13 +2504,17 @@ async function runRebase(
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
-      ? ports.sandbox.rebase({ ticket, checkout, spendCeiling }, onStarted)
+      ? ports.sandbox.rebase(
+          { ticket, checkout, spendCeiling, ...(manager !== undefined && { manager }) },
+          onStarted,
+        )
       : ports.sandbox.rebase(
           {
             ticket,
             checkout,
             spendCeiling,
             model: model.name,
+            ...(manager !== undefined && { manager }),
           },
           onStarted,
         ),
@@ -2496,6 +2545,9 @@ async function runRebase(
 
   if (run.kind === "gave-up") {
     return withDiscoveries(await handRebaseBack(ports, ticket, run, run.reason), routed);
+  }
+  if (run.kind === "uniform-files-touched") {
+    return withDiscoveries(await handRebaseUniformFilesBack(ports, ticket, run), routed);
   }
 
   try {
@@ -2583,6 +2635,28 @@ async function handRebaseBack(
     output: run.output,
     pullRequest: ticket.pullRequest.url,
     ...(run.kind === "gave-up" && run.movedHead !== undefined && { movedHead: run.movedHead }),
+    ...transcriptField(run.transcript),
+  });
+  return {
+    kind: "failed",
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    failure,
+    handedBack,
+  };
+}
+
+/** As `handApplyReviewUniformFilesBack`, for a rebase ticket. */
+async function handRebaseUniformFilesBack(
+  ports: MorningLoopPorts,
+  ticket: RebaseTicket,
+  run: UniformFilesPushed,
+): Promise<Failed> {
+  const failure: UniformFilesTouched = { kind: "uniform-files-touched", files: run.files };
+  const handedBack = await handBack(ports, ticket, {
+    ...failure,
+    ticketKind: "rebase",
+    pullRequest: ticket.pullRequest.url,
     ...transcriptField(run.transcript),
   });
   return {
