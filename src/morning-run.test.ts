@@ -2918,6 +2918,12 @@ describe("morningLoop", () => {
           const report = await morningLoop(ports);
 
           assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [],
+          );
           const outcome = report.iterations[0];
           assert.equal(outcome?.kind, "reviewed");
           assert.deepEqual(ports.tracker.closedReviewTickets.length, 1);
