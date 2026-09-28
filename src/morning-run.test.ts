@@ -1851,6 +1851,33 @@ describe("morningLoop", () => {
         ]);
       });
 
+      it("still opens a draft pull request on the manager's own registered project, even when its diff touches a uniform file", async () => {
+        const ports = fakePorts();
+        ports.store.register(MANAGER, { manager: true });
+        const ticket = ports.tracker.addEligibleTicket(MANAGER, {
+          number: issueNumber(7),
+          title: "Add the thing",
+        });
+        ports.sandbox.result = () => ({
+          kind: "finished",
+          branch: BRANCH,
+          commits: [commitSha("c0ffee1")],
+          output: "",
+          tokensUsed: tokenCount(42_000),
+        });
+        ports.repoHost.changedPaths = () => ["docs/agents/coding-standards.md"];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, [
+          {
+            directory: `${FakeRepoHost.MANAGED_LOCATION}/${MANAGER}`,
+            branch: BRANCH,
+            ticket,
+          },
+        ]);
+      });
+
       it("hands the ticket back as a failed handover, rather than crashing the invocation, when its diff cannot be read", async (t) => {
         const ports = fakePorts();
         ran(ports);
