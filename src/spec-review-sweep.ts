@@ -312,7 +312,13 @@ function specReviewBody(
  * number together, since a cross-repo sub-issue's number can coincide with an
  * unrelated issue `closesIssues` names in `supertaskRepo`. The repo names are
  * matched with `sameRepo`, not `===`: `closesIssues` carries GitHub's own
- * canonical casing, which need not match the configured repo slug's.
+ * canonical casing, which need not match the configured repo slug's. Where
+ * more than one candidate matches — a pull request elsewhere naming `sub` in
+ * its own `closesIssues`, alongside the pull request that actually lives in
+ * `sub`'s own repo — the one read from `sub`'s own repo wins: that is where
+ * its own pull request actually lives, so preferring it over one merely
+ * naming it from afar is what keeps a stray cross-repo close reference from
+ * shadowing the pull request this bullet is really about.
  *
  * The matched pull request's own number is written the same way as `sub`'s:
  * bare where `closingPullRequestsForSupertask` read it from `supertaskRepo`,
@@ -329,12 +335,14 @@ function subIssueLine(
     sub.ticket.repo === supertaskRepo
       ? `#${sub.ticket.number}`
       : ticketReference(sub.ticket);
-  const match = closingPullRequests.find(({ pullRequest }) =>
+  const candidates = closingPullRequests.filter(({ pullRequest }) =>
     pullRequest.closesIssues.some(
       (closed) =>
         sameRepo(closed.repo, sub.ticket.repo) && closed.number === sub.ticket.number,
     ),
   );
+  const match =
+    candidates.find(({ repo }) => repo === sub.ticket.repo) ?? candidates[0];
   if (match === undefined || match.pullRequest.state === "merged") {
     return `- ${name}`;
   }
