@@ -993,11 +993,11 @@ async function touchedUniformFiles(
 
 /**
  * A finished run whose diff touches a uniform file, as the failed iteration
- * it comes to: the branch is discarded, never having been pushed, and the
- * ticket is handed back naming the files touched — see CONTEXT.md's "Uniform
- * files". Never a `Finished`, even though the run did: a project-local pull
- * request is exactly the drift a uniform file exists to prevent, so this is
- * no more delivered than a handover that failed part way.
+ * it comes to: the branch is left unpushed, and the ticket is handed back
+ * naming the files touched — see CONTEXT.md's "Uniform files". Never a
+ * `Finished`, even though the run did: a project-local pull request is
+ * exactly the drift a uniform file exists to prevent, so this is no more
+ * delivered than a handover that failed part way.
  */
 async function uniformFilesTouchedOutcome(
   ports: MorningLoopPorts,

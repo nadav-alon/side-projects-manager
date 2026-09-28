@@ -92,8 +92,8 @@ export type HandoverReach =
  * keeps uniform across every project (`UNIFORM_FILES`, per
  * `src/ports/harness.ts`). Never opened as a project-local pull request: a
  * project's own copy drifting from the one source is exactly what a uniform
- * file exists to prevent, so the branch is discarded, never pushed, and the
- * ticket is handed back naming the files touched.
+ * file exists to prevent, so the branch is left unpushed, and the ticket is
+ * handed back naming the files touched.
  */
 export interface UniformFilesTouched {
   kind: "uniform-files-touched";

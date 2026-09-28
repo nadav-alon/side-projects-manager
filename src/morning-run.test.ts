@@ -1807,16 +1807,19 @@ describe("morningLoop", () => {
         assert.deepEqual(ports.repoHost.pullRequests, []);
       });
 
-      it("discards the branch, rather than leaving it anywhere the developer could push it on", async () => {
+      it("leaves the branch unpushed in the checkout, rather than discarding it", async () => {
         const ports = fakePorts();
         ran(ports);
         ports.repoHost.changedPaths = () => ["docs/agents/coding-standards.md"];
 
-        await morningLoop(ports);
+        const report = await morningLoop(ports);
 
-        assert.deepEqual(ports.repoHost.discarded, [
-          { directory: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`, branch: BRANCH },
-        ]);
+        assert.deepEqual(ports.repoHost.discarded, []);
+        assert.match(
+          ports.tracker.handbacks[0]?.comment ?? "",
+          new RegExp(`not pushed.*${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`),
+        );
+        assert.equal(failureOf(report.iterations[0])?.kind, "uniform-files-touched");
       });
 
       it("hands the ticket back, with a comment naming the file touched", async () => {
@@ -1833,6 +1836,47 @@ describe("morningLoop", () => {
         assert.ok(handback, "the implementation ticket should have been handed back");
         assert.match(handback.comment, /docs\/agents\/coding-standards\.md/);
         assert.equal(ports.tracker.carriesLabel(ticket, "ready-for-human"), true);
+      });
+
+      it("opens no draft pull request when the diff touches a uniform file alongside other files", async () => {
+        const ports = fakePorts();
+        ran(ports);
+        ports.repoHost.changedPaths = () => ["src/widget.ts", "docs/agents/coding-standards.md"];
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+      });
+
+      it("opens no draft pull request when the diff touches a uniform workflow file", async () => {
+        const ports = fakePorts();
+        ran(ports);
+        ports.repoHost.changedPaths = () => [".github/workflows/rebase.yml"];
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        assert.equal(failureOf(report.iterations[0])?.kind, "uniform-files-touched");
+      });
+
+      it("names every file touched, in UNIFORM_FILES's own order rather than the diff's", async () => {
+        const ports = fakePorts();
+        const ticket = ran(ports);
+        ports.repoHost.changedPaths = () => [
+          ".github/workflows/rebase.yml",
+          "docs/agents/coding-standards.md",
+        ];
+
+        await morningLoop(ports);
+
+        const handback = ports.tracker.handbacks.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.ok(handback, "the implementation ticket should have been handed back");
+        assert.match(
+          handback.comment,
+          /docs\/agents\/coding-standards\.md.*\.github\/workflows\/rebase\.yml/s,
+        );
       });
 
       it("still opens a draft pull request when the diff touches no uniform file", async () => {
@@ -1880,7 +1924,7 @@ describe("morningLoop", () => {
 
       it("hands the ticket back as a failed handover, rather than crashing the invocation, when its diff cannot be read", async (t) => {
         const ports = fakePorts();
-        ran(ports);
+        const ticket = ran(ports);
         t.mock.method(ports.repoHost, "readChangedPaths", async () => {
           throw new Error("fatal: not a git repository");
         });
@@ -1895,6 +1939,9 @@ describe("morningLoop", () => {
         assert.equal(failureOf(report.iterations[0])?.kind, "handover-failed");
         assert.match(report.message, /fatal: not a git repository/);
         assert.deepEqual(ports.repoHost.pullRequests, []);
+        // The branch is kept, unpushed, exactly as any other failed handover's is.
+        assert.deepEqual(ports.repoHost.discarded, []);
+        assert.equal(ports.tracker.carriesLabel(ticket, "ready-for-human"), true);
         // The next iteration still ran: #8, after #7's diff could not be read.
         assert.deepEqual(
           ports.sandbox.runs.map((run) => run.ticket.number),

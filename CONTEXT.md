@@ -391,9 +391,9 @@ it can still be reached. The invocation carries on.
 _Avoid_: outage (a provider failure, if the provider was down), crash, system error
 
 **Discard**:
-What becomes of the branch of a run that gave up, filed a blocking discovery, or whose diff touched a
-uniform file: deleted from the project checkout, never having been pushed. A branch git refuses to
-delete is kept, and the hand-back comment says so rather than letting it stop the hand-back.
+What becomes of the branch of a run that gave up or filed a blocking discovery: deleted from the
+project checkout, never having been pushed. A branch git refuses to delete is kept, and the hand-back
+comment says so rather than letting it stop the hand-back.
 _Avoid_: clean up, delete
 
 **Salvage**:
@@ -501,8 +501,8 @@ without a handover. A handover that fails part way — the branch would not push
 request would open, or its review ticket could not be created — is a failed iteration: the ticket is
 handed back naming the branch and any pull request, the branch is kept, and the invocation carries
 on. A run whose own diff touches a uniform file (see **Uniform files**) is also without one, whatever
-it committed: no pull request is ever opened for it, its branch is discarded rather than kept, and the
-ticket is handed back naming the files touched.
+it committed: no pull request is ever opened for it, its branch is left unpushed, and the ticket is
+handed back naming the files touched.
 _Avoid_: work, result, outcome
 
 **Pull request ticket**:

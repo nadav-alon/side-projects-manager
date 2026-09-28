@@ -538,7 +538,7 @@ describe("handBack", () => {
       };
     }
 
-    it("discards the branch, relabels the ticket, and names the file touched", async () => {
+    it("leaves the branch unpushed, relabels the ticket, and names the file touched", async () => {
       const { tracker, repoHost } = ports();
       const ticket = eligible(tracker, implementationTicket());
 
@@ -550,11 +550,11 @@ describe("handBack", () => {
       });
 
       assert.deepEqual(record, { outcome: "handed-back" });
-      assert.deepEqual(repoHost.discarded, [{ directory: CHECKOUT, branch: BRANCH }]);
+      assert.deepEqual(repoHost.discarded, []);
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.match(comment, /docs\/agents\/coding-standards\.md/);
       assert.match(comment, /no pull request was opened/i);
-      assert.match(comment, /branch it worked on has been discarded/);
+      assert.match(comment, new RegExp(`not pushed.*${CHECKOUT}`));
       assert.match(comment, /will not be retried/);
       assert.equal(tracker.carriesLabel(ticket, "ready-for-human"), true);
     });
@@ -573,27 +573,6 @@ describe("handBack", () => {
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.match(comment, /docs\/agents\/coding-standards\.md/);
       assert.match(comment, /\.github\/workflows\/rebase\.yml/);
-    });
-
-    it("hands the ticket back even when the branch will not delete, and says so", async (t) => {
-      const { tracker, repoHost } = ports();
-      const ticket = eligible(tracker, implementationTicket());
-      t.mock.method(repoHost, "discardBranch", async () => {
-        throw new Error("used by worktree at /elsewhere");
-      });
-
-      const record = await handBack({ tracker, repoHost }, ticket, {
-        kind: "uniform-files-touched",
-        files: ["docs/agents/coding-standards.md"],
-        checkout: CHECKOUT,
-        run: finishedRun(),
-      });
-
-      assert.deepEqual(record, { outcome: "handed-back" });
-      assert.match(
-        tracker.handbacks[0]?.comment ?? "",
-        /could not be discarded.*used by worktree at \/elsewhere/s,
-      );
     });
 
     it("names the transcript's host path, when the run left one", async () => {
