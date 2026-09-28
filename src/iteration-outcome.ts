@@ -200,7 +200,8 @@ export type Iteration =
   | LimitRefused
   | ProviderFailed
   | BudgetExhausted
-  | DiscoveryBlocked;
+  | DiscoveryBlocked
+  | BlockedOnExisting;
 
 /**
  * A limit refusal: an implementation, review, apply-review or rebase run the
@@ -558,7 +559,8 @@ export type IterationOutcome =
   | (Attempt & LimitRefused)
   | (Attempt & ProviderFailed)
   | (Attempt & BudgetExhausted)
-  | (Attempt & DiscoveryBlocked);
+  | (Attempt & DiscoveryBlocked)
+  | (Attempt & BlockedOnExisting);
 
 /**
  * A review ticket's own run that finished without the agent giving up, having
@@ -836,6 +838,33 @@ export interface DiscoveryBlocked {
 }
 
 /**
+ * An implementation run whose only blocking-kind discovery named an
+ * already-ticketed, still-open issue and blocked its own ticket on that
+ * directly — `"blocked-on-existing"`, per `FiledDiscovery` — per CONTEXT.md's
+ * "Discovery": unlike `DiscoveryBlocked`, the ticket is not handed back. It
+ * keeps ready-for-agent, so selection's own blocked-ticket skip is what holds
+ * it until the named issue closes; the comment `fileDiscovery` already posted
+ * naming the blocker is the only word it gets. No pull request opens even
+ * when the run went on to commit — its branch is discarded exactly as a
+ * `DiscoveryBlocked` run's is, per CONTEXT.md's "Discard", whatever the agent
+ * committed or would otherwise have finished. Never built for a review,
+ * apply-review, rebase or spec review run: their discoveries always land on a
+ * cross target, so a blocked-on-existing prerequisite of theirs never keeps
+ * their own ticket from finishing or being handed back normally.
+ */
+export interface BlockedOnExisting {
+  kind: "blocked-on-existing";
+  /** What every discovery the run filed came to, blocking and advisory alike, and the ticket they landed on — always its own, since a cross target never reaches this kind. */
+  discoveryReport: DiscoveryReport;
+  tokensUsed: TokenCount;
+  transcript?: TranscriptPath;
+  /** The run's own branch, so the summary can name it when `discard` could not throw it away. */
+  branch: Branch;
+  /** What became of the run's own branch, discarded as a `DiscoveryBlocked` run's is. */
+  discard: Discard;
+}
+
+/**
  * A pull request ticket — review, apply-review or rebase — whose own pull
  * request the repo host already reports merged or closed, checked before
  * anything else the ticket's iteration would do: closed with a comment
@@ -876,6 +905,7 @@ export function handedBackAheadOfGate(iteration: Iteration): boolean {
     case "provider-failed":
     case "budget-exhausted":
     case "discovery-blocked":
+    case "blocked-on-existing":
       return false;
   }
 }
@@ -919,6 +949,7 @@ export function countsAsWork(iteration: Iteration): boolean {
     case "provider-failed":
     case "budget-exhausted":
     case "discovery-blocked":
+    case "blocked-on-existing":
       return true;
   }
 }
@@ -948,6 +979,7 @@ export function ranNothing(iteration: Iteration): boolean {
     case "provider-failed":
     case "budget-exhausted":
     case "discovery-blocked":
+    case "blocked-on-existing":
       return false;
   }
 }
@@ -977,6 +1009,7 @@ export function failedOnInfrastructure(iteration: Iteration): boolean {
     case "provider-failed":
     case "budget-exhausted":
     case "discovery-blocked":
+    case "blocked-on-existing":
       return false;
   }
 }
@@ -994,13 +1027,18 @@ export function failedOnInfrastructure(iteration: Iteration): boolean {
  * apply-review, a rebase or a resolved pull request frees it exactly when it
  * closed without a `notClosed`, and leaves it recorded when one is set — the
  * ticket is still ready-for-agent, due to come round again on its own, so the
- * record still has something to protect.
+ * record still has something to protect. A `blocked-on-existing` run always
+ * frees it too: it never calls the tracker's own hand-back, so there is
+ * nothing here it could have failed to take away, and the native `blocked_by`
+ * edge `fileDiscovery` already added is what selection's own blocked-ticket
+ * skip reads to keep it out of the queue.
  */
 export function freesTicketToday(iteration: Iteration): boolean {
   switch (iteration.kind) {
     case "limit-refused":
     case "provider-failed":
     case "budget-exhausted":
+    case "blocked-on-existing":
       return true;
     case "finished":
     case "spec-reviewed":

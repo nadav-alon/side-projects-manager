@@ -1,32 +1,125 @@
 import type {
   Discovery,
   DiscoveryKind,
+  IssueReference,
   IssueTracker,
+  RepoSlug,
   Ticket,
 } from "./ports/index.ts";
 import {
   discoveredBody,
+  isIssueNumber,
   isPullRequestTicket,
+  isRepoSlug,
   isSpecReviewTicket,
   parentTicketIn,
   targetNoun,
+  ticketReference,
 } from "./ports/index.ts";
 import { errorMessage } from "./error-message.ts";
 
 /**
- * Whether `kind` stops the run's own ticket from finishing normally, per
- * CONTEXT.md's "Discovery": a correction (the ticket is wrong) and a
- * prerequisite (the work needs something nobody ticketed) are blocking; a
- * clarification and a suggestion are advisory.
+ * The one line a body names its blocker on, per `CONTEXT.md`'s "Discovery"
+ * and the discovery instructions: `Blocked on: owner/repo#n`, or a bare `#n`
+ * for the repo the text is posted in — the two shapes `ticketReference`
+ * itself produces, so the two GitHub autolinks from any repo, behind the
+ * literal marker `DISCOVERY_INSTRUCTIONS` (`container-sandbox.ts`) tells the
+ * agent to write. Anchored to the start of a line — with `m` — rather than
+ * matched anywhere in the body: prose naming an unrelated issue elsewhere
+ * ("unlike #12, this needs...") is not a claim that this one waits on it, and
+ * matching loosely there let one such mention silently pick the wrong
+ * blocker. The owner and repo character classes are looser than
+ * `isRepoSlug`'s own, which `referencedIssueIn` checks afterwards, so a match
+ * here is a candidate, never a guarantee.
+ */
+const BLOCKED_ON_LINE =
+  /^[ \t]*blocked on:?[ \t]+(?:([A-Za-z0-9][\w.-]*\/[A-Za-z0-9._-]+)#(\d+)|#(\d+))/im;
+
+/**
+ * The existing issue a prerequisite discovery's body names it waits on, per
+ * `CONTEXT.md`'s "Discovery": the issue a `Blocked on:` line names, per
+ * `BLOCKED_ON_LINE` — never one merely mentioned in passing elsewhere in the
+ * body. A bare `#n` names an issue in `sameRepo` — the target the prerequisite
+ * would otherwise block — the way GitHub itself resolves one to whichever
+ * repo the text is posted in. `undefined` where `body` carries no such line,
+ * or names a repo that is not shaped like one — a typo misread as a
+ * nonexistent issue is safer than one silently redirected to `sameRepo`.
+ */
+export function referencedIssueIn(
+  body: string,
+  sameRepo: RepoSlug,
+): IssueReference | undefined {
+  const match = BLOCKED_ON_LINE.exec(body);
+  if (match === null) {
+    return undefined;
+  }
+  const [, repoText, crossNumber, bareNumber] = match;
+  const numberText = crossNumber ?? bareNumber;
+  if (numberText === undefined) {
+    return undefined;
+  }
+  const number = Number(numberText);
+  if (!isIssueNumber(number)) {
+    return undefined;
+  }
+  if (repoText === undefined) {
+    return { repo: sameRepo, number };
+  }
+  return isRepoSlug(repoText) ? { repo: repoText, number } : undefined;
+}
+
+/**
+ * Whether `kind` is one of the two kinds that can stop the run's own ticket
+ * from finishing normally, per CONTEXT.md's "Discovery": a correction (the
+ * ticket is wrong) and a prerequisite (the work needs something nobody
+ * ticketed); a clarification and a suggestion are advisory and never do.
+ *
+ * Necessary but not sufficient for a prerequisite: one naming an issue that
+ * is already ticketed and still open blocks that issue directly instead —
+ * `"blocked-on-existing"`, per `FiledDiscovery` — and the run it was filed
+ * against goes on same as an advisory kind would. `isBlockingFiledDiscovery`
+ * is what reads a filed discovery's actual outcome; this is what every other
+ * caller — one deciding before anything is filed, such as
+ * `routeDiscoveries`'s own refusal path, where there is no outcome yet to
+ * read — still has.
  */
 export function isBlockingDiscoveryKind(kind: DiscoveryKind): boolean {
   return kind === "correction" || kind === "prerequisite";
 }
 
-/** One discovery once the loop decided what to do with it: a comment posted, or a ticket opened, with or without a blocking edge. */
+/**
+ * One discovery once the loop decided what to do with it: a comment posted,
+ * a native `blocked_by` edge added to an issue that was already ticketed —
+ * `"blocked-on-existing"`, naming it as `blocker` — or a ticket opened, with
+ * or without a blocking edge of its own.
+ */
 export type FiledDiscovery =
   | { discovery: Discovery; action: "commented" }
+  | { discovery: Discovery; action: "blocked-on-existing"; blocker: IssueReference }
   | { discovery: Discovery; action: "discovered-ticket"; ticket: Ticket };
+
+/**
+ * Whether a filed discovery still blocks the run that filed it from
+ * finishing normally, per CONTEXT.md's "Discovery": a correction always
+ * does; a prerequisite does unless it named an already-ticketed, still-open
+ * issue and blocked that one directly instead, in which case the run goes
+ * on; a clarification or a suggestion never does.
+ */
+export function isBlockingFiledDiscovery(filed: FiledDiscovery): boolean {
+  return isBlockingDiscoveryKind(filed.discovery.kind) && filed.action !== "blocked-on-existing";
+}
+
+/**
+ * Whether `discovery` blocks the run that found it despite never being
+ * filed — a refusal, whether `routeDiscoveries`' own loop met it or no target
+ * could be resolved to file against at all: there is no filed outcome to read
+ * for one, so `isBlockingFiledDiscovery` never applies, and kind alone
+ * decides instead, same as it would have had the write succeeded and named no
+ * existing issue.
+ */
+function blockingIfRefused(discovery: Discovery): boolean {
+  return isBlockingDiscoveryKind(discovery.kind);
+}
 
 /** A discovery the tracker refused to write: what was attempted, and why. */
 export interface RefusedDiscovery {
@@ -37,25 +130,39 @@ export interface RefusedDiscovery {
 /**
  * What became of a run's discoveries once the loop routed every one of them:
  * by kind, per CONTEXT.md's "Discovery" — a correction or a clarification is
- * a comment, a prerequisite is a discovered ticket that blocks the target, a
- * suggestion is a discovered ticket with no edge. At most one suggestion is
- * ever filed; the rest are counted in `suggestionsDropped` rather than sent
- * to the tracker at all — distinct from a **dropped discovery**
- * (`container-sandbox.ts`'s `readDiscoveries`), which never became a
- * `Discovery` in the first place. Clarifications carry no such cap.
+ * a comment, a prerequisite is a discovered ticket that blocks the target
+ * unless it named an existing, still-open issue, in which case it blocks
+ * that one directly instead, a suggestion is a discovered ticket with no
+ * edge. At most one suggestion is ever filed; the rest are counted in
+ * `suggestionsDropped` rather than sent to the tracker at all — distinct
+ * from a **dropped discovery** (`container-sandbox.ts`'s `readDiscoveries`),
+ * which never became a `Discovery` in the first place. Clarifications carry
+ * no such cap.
  *
  * A discovery the tracker refused to write is counted in `refused` rather
- * than `filed`, but still counts toward whether the run's ticket carries a
- * blocking discovery, since the refusal is the tracker's problem, not a
- * reason to treat what the agent found as though it never happened —
- * see `hasBlockingDiscovery`, which reads the run's own discoveries rather
- * than this split, so it need not care which side of it a discovery landed
- * on.
+ * than `filed`, but a blocking-kind one still counts toward `blocking`, since
+ * the refusal is the tracker's problem, not a reason to treat what the agent
+ * found as though it never happened — there is no filed outcome to read for
+ * one, so `isBlockingFiledDiscovery` never applies to it; kind alone
+ * (`isBlockingDiscoveryKind`) decides instead, same as it would have had the
+ * write succeeded and named no existing issue.
  */
 export interface DiscoveryRouting {
   filed: FiledDiscovery[];
   suggestionsDropped: number;
   refused: RefusedDiscovery[];
+  /**
+   * The discoveries that still block the run's own ticket from finishing
+   * normally, in the order the agent filed them: every correction, every
+   * refused prerequisite, and every filed prerequisite except one that named
+   * an existing, still-open issue and blocked that one directly instead.
+   * Computed once here — in the one loop (`routeDiscoveries`) that already
+   * knows each discovery's own outcome the moment it is filed or refused —
+   * rather than by every caller re-deriving it from `filed` and `refused`
+   * separately. `hasBlockingDiscovery` reads it for the yes/no; a caller
+   * needing the discoveries themselves reads the field directly.
+   */
+  blocking: Discovery[];
   /**
    * How many files under the run's own `/discoveries` mount never became a
    * `Discovery` at all — CONTEXT.md's **Dropped discovery**: not valid JSON,
@@ -66,22 +173,9 @@ export interface DiscoveryRouting {
   discoveriesDropped: number;
 }
 
-/**
- * Whether `discoveries` names a correction or a prerequisite — either blocks
- * the run's own ticket from finishing normally. Takes the run's own
- * discoveries rather than a `DiscoveryRouting`: neither blocking kind is ever
- * dropped by the suggestion cap, so every one reaches `filed` or `refused`
- * regardless, and reading `discoveries` directly keeps the agent's own order
- * rather than the filed-then-refused order `DiscoveryRouting` splits them
- * into.
- */
-export function hasBlockingDiscovery(discoveries: readonly Discovery[]): boolean {
-  return discoveries.some((discovery) => isBlockingDiscoveryKind(discovery.kind));
-}
-
-/** The correction and prerequisite discoveries among `discoveries`, in the order the agent filed them. */
-export function blockingDiscoveriesOf(discoveries: readonly Discovery[]): Discovery[] {
-  return discoveries.filter((discovery) => isBlockingDiscoveryKind(discovery.kind));
+/** Whether `routing` carries a discovery that still blocks the run's own ticket from finishing normally. */
+export function hasBlockingDiscovery(routing: DiscoveryRouting): boolean {
+  return routing.blocking.length > 0;
 }
 
 /**
@@ -137,22 +231,37 @@ function opensReady(target: Ticket, discovery: Discovery): boolean {
 }
 
 /**
+ * Whether `reference` names `target` itself — a prerequisite cannot block its
+ * own target on itself, and `IssueTracker.blockOnIfOpen`'s own native
+ * `blocked_by` edge would refuse a self-edge outright. Checked here rather
+ * than left to that refusal, so a prerequisite that merely names its own
+ * ticket in passing still falls back to `createDiscoveredTicket` instead of
+ * being counted refused.
+ */
+function isSelfReference(target: Ticket, reference: IssueReference): boolean {
+  return reference.repo === target.repo && reference.number === target.number;
+}
+
+/**
  * Files one discovery against `target`: a comment for a correction or a
- * clarification, a discovered ticket for a prerequisite — blocking `target`
- * — or a suggestion — no edge, opened ready per `opensReady` where either
- * declares itself one. For a comment, `runTicket` names what `discoveredBody`
- * says this was discovered while working, so a discovery landing on a
- * different ticket than the one that found it still reads in context; a
- * discovered ticket's own body names `target` that way instead —
- * `createDiscoveredTicket`'s callers build it from the ticket they were
- * handed, per `discoveredBody`, so it reads as discovered while working the
- * ticket it blocks or rides alongside, not the run that found it. `target` is
- * also what `opensReady` reads for the chain guard: whatever ticket the run
- * itself was working, it is `target` that may or may not have come from a
- * ready discovery.
+ * clarification; for a prerequisite, a native `blocked_by` edge onto an
+ * issue its own body names — where that issue is open right now — with a
+ * comment naming it, or, failing that, a discovered ticket that blocks
+ * `target` instead; for a suggestion, a discovered ticket with no edge —
+ * opened ready per `opensReady` where either declares itself one. For a
+ * comment, `runTicket` names what `discoveredBody` says this was discovered
+ * while working, so a discovery landing on a different ticket than the one
+ * that found it still reads in context; a discovered ticket's own body names
+ * `target` that way instead — `createDiscoveredTicket`'s callers build it
+ * from the ticket they were handed, per `discoveredBody`, so it reads as
+ * discovered while working the ticket it blocks or rides alongside, not the
+ * run that found it. `target` is also what `opensReady` reads for the chain
+ * guard: whatever ticket the run itself was working, it is `target` that may
+ * or may not have come from a ready discovery, and what `referencedIssueIn`
+ * reads as the repo a bare `#n` names, per CONTEXT.md's "Discovery".
  */
 async function fileDiscovery(
-  tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
+  tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket" | "blockOnIfOpen">,
   runTicket: Ticket,
   target: Ticket,
   discovery: Discovery,
@@ -163,6 +272,32 @@ async function fileDiscovery(
       `${discovery.title}\n\n${discoveredBody(runTicket, discovery.body)}`,
     );
     return { discovery, action: "commented" };
+  }
+  if (discovery.kind === "prerequisite") {
+    const named = referencedIssueIn(discovery.body, target.repo);
+    const blocker =
+      named !== undefined && !isSelfReference(target, named) ? named : undefined;
+    if (blocker !== undefined) {
+      // A transient tracker failure here — or `blocker` naming a pull
+      // request, or an edge that already exists — is not a reason to lose
+      // the discovery: today's fallback, a discovered ticket, still applies,
+      // per CONTEXT.md's "Discovery" ("keeps today's behavior").
+      const blockedOnExisting = await tracker.blockOnIfOpen(target, blocker).catch(() => false);
+      if (blockedOnExisting) {
+        // Best effort: the edge is what actually blocks `target`, so a
+        // comment that fails to post is not worth losing that over, or worth
+        // this discovery being counted refused and blocking on its own
+        // account when it already blocked another way.
+        await tracker
+          .comment(
+            target,
+            `${discovery.title}\n\n${discoveredBody(runTicket, discovery.body)}\n\n` +
+              `Blocked on ${ticketReference(blocker)} until it closes.`,
+          )
+          .catch(() => undefined);
+        return { discovery, action: "blocked-on-existing", blocker };
+      }
+    }
   }
   const ticket = await tracker.createDiscoveredTicket(target, {
     title: discovery.title,
@@ -184,7 +319,7 @@ async function fileDiscovery(
  * that parsed.
  */
 export async function routeDiscoveries(
-  tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket">,
+  tracker: Pick<IssueTracker, "comment" | "createDiscoveredTicket" | "blockOnIfOpen">,
   runTicket: Ticket,
   target: Ticket,
   discoveries: readonly Discovery[],
@@ -192,6 +327,7 @@ export async function routeDiscoveries(
 ): Promise<DiscoveryRouting> {
   const filed: FiledDiscovery[] = [];
   const refused: RefusedDiscovery[] = [];
+  const blocking: Discovery[] = [];
   let suggestionFiled = false;
   let suggestionsDropped = 0;
 
@@ -201,16 +337,23 @@ export async function routeDiscoveries(
       continue;
     }
     try {
-      filed.push(await fileDiscovery(tracker, runTicket, target, discovery));
+      const outcome = await fileDiscovery(tracker, runTicket, target, discovery);
+      filed.push(outcome);
       if (discovery.kind === "suggestion") {
         suggestionFiled = true;
       }
+      if (isBlockingFiledDiscovery(outcome)) {
+        blocking.push(discovery);
+      }
     } catch (error: unknown) {
       refused.push({ discovery, reason: errorMessage(error) });
+      if (blockingIfRefused(discovery)) {
+        blocking.push(discovery);
+      }
     }
   }
 
-  return { filed, suggestionsDropped, refused, discoveriesDropped };
+  return { filed, suggestionsDropped, refused, blocking, discoveriesDropped };
 }
 
 /**
@@ -242,9 +385,7 @@ async function discoveryTargetFor(
 
 /**
  * `routeRunDiscoveries`'s answer: the target its discoveries were routed
- * against, what became of every one of them, and the run's own discoveries in
- * the order the agent filed them — for `hasBlockingDiscovery` and
- * `blockingDiscoveriesOf`, which read this rather than `routing`.
+ * against, and what became of every one of them.
  */
 export interface RoutedDiscoveries {
   target: Ticket;
@@ -259,14 +400,13 @@ export interface RoutedDiscoveries {
    */
   crossTarget?: Ticket;
   routing: DiscoveryRouting;
-  discoveries: readonly Discovery[];
 }
 
 /**
  * The routing and cross-target pair every iteration outcome that can carry
  * discoveries carries together, per CONTEXT.md's "Discovery" — a slice of
- * `RoutedDiscoveries`, leaving out its own `target` and raw `discoveries`
- * list, which are `routeRunDiscoveries`'s callers' to keep to themselves.
+ * `RoutedDiscoveries`, leaving out its own `target`, which is
+ * `routeRunDiscoveries`'s callers' to keep to themselves.
  */
 export type DiscoveryReport = Pick<RoutedDiscoveries, "routing" | "crossTarget">;
 
@@ -293,7 +433,10 @@ export type DiscoveryReport = Pick<RoutedDiscoveries, "routing" | "crossTarget">
  * losing what the agent found.
  */
 export async function routeRunDiscoveries(
-  tracker: Pick<IssueTracker, "listOpenIssues" | "comment" | "createDiscoveredTicket">,
+  tracker: Pick<
+    IssueTracker,
+    "listOpenIssues" | "comment" | "createDiscoveredTicket" | "blockOnIfOpen"
+  >,
   ticket: Ticket,
   discoveries: readonly Discovery[] | undefined,
   discoveriesDropped = 0,
@@ -305,8 +448,7 @@ export async function routeRunDiscoveries(
   if (found.length === 0) {
     return {
       target: ticket,
-      routing: { filed: [], suggestionsDropped: 0, refused: [], discoveriesDropped },
-      discoveries: found,
+      routing: { filed: [], suggestionsDropped: 0, refused: [], blocking: [], discoveriesDropped },
     };
   }
   const resolved = await discoveryTargetFor(tracker, ticket).catch(
@@ -322,9 +464,9 @@ export async function routeRunDiscoveries(
           discovery,
           reason: resolved.error,
         })),
+        blocking: found.filter(blockingIfRefused),
         discoveriesDropped,
       },
-      discoveries: found,
     };
   }
   const crossTarget =
@@ -333,6 +475,5 @@ export async function routeRunDiscoveries(
     target: resolved.ticket,
     ...(crossTarget !== undefined && { crossTarget }),
     routing: await routeDiscoveries(tracker, ticket, resolved.ticket, found, discoveriesDropped),
-    discoveries: found,
   };
 }

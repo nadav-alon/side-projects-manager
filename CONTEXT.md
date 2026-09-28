@@ -328,26 +328,31 @@ be.
 _Avoid_: crashed, errored, failed (say which of the two)
 
 **Discovery**:
-Something a run learned about its ticket that the developer has to act on. One of four kinds, and
-the kind alone decides whether it is blocking: a correction (the ticket is wrong) and a prerequisite
-(the work needs something nobody ticketed) are blocking; a clarification (the ticket is ambiguous,
-and how the agent read it) and a suggestion (work worth doing that the ticket does not cover, by
-changing behavior or removing a real hazard — a future bug, a doc false enough to mislead) are
-advisory. Never a **Nit**: touching only names, glossary entries, prose, comments or wrapping is
-never a discovery of any kind, whichever kind a run is tempted to file it as. Always about the
-ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the
-pull request. A blocking discovery stops the run and hands its ticket back; an advisory one rides
-alongside a run that finishes. Stops the run whichever way it was already ending, a cut-off by the
-provider included: a limit refusal or a provider failure that also filed one hands its ticket back
-instead of leaving it eligible, discarding rather than salvaging whatever it committed, but the
-invocation still stands down over it exactly as it would without the discovery (see **Cut off**).
-One filed by a pull request ticket's run is about the implementation ticket it belongs to, and lands
-there, while the pull request ticket is the one handed back. One filed by a spec review ticket's run
-is about the supertask it reviews, and lands there, while the spec review ticket is the one handed
-back. Neither is the agent giving up nor the setup failing: the ticket itself is wrong or
-incomplete. By kind: a correction or a clarification becomes a comment on the target; a prerequisite
-becomes a discovered ticket that blocks it; a suggestion becomes a discovered ticket with no edge,
-but at most the first one a run files is acted on — the rest are dropped and counted, since a
+Something a run learned about its ticket that the developer has to act on. One of four kinds, and the
+kind decides whether it is blocking: a correction (the ticket is wrong) and a prerequisite (the work
+needs something nobody ticketed) are blocking; a clarification (the ticket is ambiguous, and how the
+agent read it) and a suggestion (work worth doing that the ticket does not cover, by changing behavior
+or removing a real hazard — a future bug, a doc false enough to mislead) are advisory. A prerequisite
+naming an issue that is already ticketed and still open is the one exception, routed as below: the run
+it was filed against still stops exactly as any other blocking prerequisite's does — no pull request
+opens and its branch is discarded, whatever it committed or would otherwise have finished — but the
+target it names is not handed back for it, keeping `ready-for-agent` instead, with only the comment
+naming the blocker. Never a **Nit**: touching only names, glossary entries, prose, comments or
+wrapping is never a discovery of any kind, whichever kind a run is tempted to file it as. Always about
+the ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the pull
+request. A blocking discovery stops the run and hands its ticket back; an advisory one rides alongside a
+run that finishes. Stops the run whichever way it was already ending, a cut-off by the provider
+included: a limit refusal or a provider failure that also filed one hands its ticket back instead of
+leaving it eligible, discarding rather than salvaging whatever it committed, but the invocation still
+stands down over it exactly as it would without the discovery (see **Cut off**). One filed by a pull
+request ticket's run is about the implementation ticket it belongs to, and lands there, while the pull
+request ticket is the one handed back. One filed by a spec review ticket's run is about the supertask it
+reviews, and lands there, while the spec review ticket is the one handed back. Neither is the agent
+giving up nor the setup failing: the ticket itself is wrong or incomplete. By kind: a correction or a
+clarification becomes a comment on the target; a prerequisite becomes a discovered ticket that blocks
+it, unless it named an already-ticketed, still-open issue, in which case it blocks that one directly
+instead, with a comment naming it, and opens no ticket; a suggestion becomes a discovered ticket with no
+edge, but at most the first one a run files is acted on — the rest are dropped and counted, since a
 run's own ticket already carries what it found and a pile of unread suggestions helps nobody.
 Clarifications carry no such cap.
 _Avoid_: finding, note, observation, feedback

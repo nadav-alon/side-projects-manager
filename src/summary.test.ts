@@ -464,6 +464,7 @@ function routing(overrides: Partial<DiscoveryRouting> = {}): DiscoveryRouting {
     filed: [],
     suggestionsDropped: 0,
     refused: [],
+    blocking: [],
     discoveriesDropped: 0,
     ...overrides,
   };
@@ -486,6 +487,23 @@ function discoveryBlocked(
     discoveryReport: { routing: discoveryRouting },
     tokensUsed: tokenCount(500),
     handedBack: { outcome: "handed-back" },
+  };
+}
+
+/** An implementation ticket's own run blocked on an existing issue instead, kept ready-for-agent. */
+function blockedOnExisting(
+  number: number,
+  discoveryRouting: DiscoveryRouting,
+  discard: Discard = { kind: "discarded" },
+): IterationOutcome {
+  return {
+    repo: REPO,
+    ticket: implementationTicket(number),
+    kind: "blocked-on-existing",
+    discoveryReport: { routing: discoveryRouting },
+    tokensUsed: tokenCount(500),
+    branch: branch("agent/900"),
+    discard,
   };
 }
 
@@ -903,6 +921,26 @@ describe("waitingSection", () => {
       ]);
     });
 
+    it("names the issue a blocked-on-existing prerequisite blocked on, when another discovery still blocked the run", () => {
+      const lines = waitingLines([
+        discoveryBlocked(199, routing({
+          filed: [
+            { discovery: discovery({ kind: "correction" }), action: "commented" },
+            {
+              discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+              action: "blocked-on-existing",
+              blocker: { repo: REPO, number: issueNumber(9) },
+            },
+          ],
+          blocking: [discovery({ kind: "correction" })],
+        })),
+      ]);
+
+      assert.deepEqual(lines, [
+        `- ${REPO}#199: relabelled ready-for-human — the ticket is the problem, not the run: it filed a correction; a prerequisite, blocked on ${REPO}#9`,
+      ]);
+    });
+
     it("still lists the ticket as eligible when the hand-back itself was refused, same as any other kind", () => {
       const iteration: IterationOutcome = {
         repo: REPO,
@@ -1081,6 +1119,28 @@ describe("discoveriesSection", () => {
     assert.deepEqual(lines, []);
   });
 
+  it("lists a prerequisite blocked on an existing issue, naming the issue it blocked on", () => {
+    const blocker = { repo: REPO, number: issueNumber(9) };
+    const lines = discoveriesLines([
+      finishedWithDiscoveries(
+        233,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+              action: "blocked-on-existing",
+              blocker,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}#233: blocked ${REPO}#233 on ${REPO}#9 — prerequisite, "Needs the widget port first"`,
+    ]);
+  });
+
   it("lists an advisory discovery filed by a cut-off run, same as a finished run's", () => {
     const lines = discoveriesLines([
       limitRefusedWithDiscoveries(
@@ -1234,6 +1294,48 @@ describe("attemptsSection", () => {
     const lines = attemptsLines([specReviewedCleanly(307)]);
 
     assert.match(lines[0] ?? "", new RegExp(`Spec-reviewed ${REPO}#307: its findings are on the ticket\\.`));
+  });
+
+  it("names the issue a run kept ready-for-agent by blocking on it directly", () => {
+    const lines = attemptsLines([
+      blockedOnExisting(
+        308,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite", title: "Needs the widget port first" }),
+              action: "blocked-on-existing",
+              blocker: { repo: REPO, number: issueNumber(9) },
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    assert.match(
+      lines[0] ?? "",
+      new RegExp(`Worked ${REPO}#308: kept ready-for-agent — blocked on ${REPO}#9 until it closes\\.`),
+    );
+  });
+
+  it("says its branch could not be discarded, when git refused", () => {
+    const lines = attemptsLines([
+      blockedOnExisting(
+        309,
+        routing({
+          filed: [
+            {
+              discovery: discovery({ kind: "prerequisite" }),
+              action: "blocked-on-existing",
+              blocker: { repo: REPO, number: issueNumber(9) },
+            },
+          ],
+        }),
+        { kind: "kept", reason: "not fully merged" },
+      ),
+    ]);
+
+    assert.match(lines[0] ?? "", /Its branch agent\/900 could not be discarded: not fully merged\./);
   });
 });
 

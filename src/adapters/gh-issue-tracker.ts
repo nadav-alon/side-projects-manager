@@ -6,6 +6,7 @@ import type {
   DiscoveredTicketRequest,
   HandBackOutcome,
   IssueNumber,
+  IssueReference,
   IssueTracker,
   IssueUrl,
   LabelAction,
@@ -438,6 +439,14 @@ export function ghIssueTracker(
 
       return discovered;
     },
+
+    async blockOnIfOpen(ticket: Ticket, prerequisite: IssueReference): Promise<boolean> {
+      if (!(await issueIsOpen(prerequisite))) {
+        return false;
+      }
+      await blockOn(ticket, prerequisite);
+      return true;
+    },
   };
 }
 
@@ -458,9 +467,10 @@ async function postComment(ticket: Ticket, comment: string): Promise<void> {
 /**
  * Adds a native `blocked_by` edge so `ticket` is blocked by `blocker`, keyed
  * on `blocker`'s database id — what the endpoint takes, never its `#number`
- * or node id, per `docs/agents/issue-tracker.md`.
+ * or node id, per `docs/agents/issue-tracker.md`. `blocker` names only a repo
+ * and a number: nothing else about it is read.
  */
-async function blockOn(ticket: Ticket, blocker: Ticket): Promise<void> {
+async function blockOn(ticket: Ticket, blocker: IssueReference): Promise<void> {
   const id = await issueIdOf(blocker);
   await execFileAsync("gh", [
     "api",
@@ -514,7 +524,7 @@ const LABEL_DESCRIPTIONS = {
  * the repo it lives in, both of which every per-ticket call needs since `gh`
  * does not infer a repo from a bare number.
  */
-function issueArgs(ticket: Ticket): string[] {
+function issueArgs(ticket: IssueReference): string[] {
   return [String(ticket.number), "--repo", ticket.repo];
 }
 
@@ -553,6 +563,56 @@ async function isClosed(ticket: Ticket): Promise<boolean> {
     default:
       throw new Error(
         `gh issue view ${ticket.repo}#${ticket.number}: "state" was neither OPEN nor CLOSED: ${JSON.stringify(state)}`,
+      );
+  }
+}
+
+/**
+ * Whether `gh`'s own error for `reference` says there is no such issue or
+ * pull request — the CLI's wording for a number that never existed, was
+ * transferred away, or belongs to a repo `reference` does not name. What
+ * `issueIsOpen` reads to answer `false` for a missing prerequisite rather
+ * than raising, the same distinction `subIssuesUnavailable` draws for a
+ * different endpoint's own not-found shape.
+ */
+function issueNotFound(error: unknown): boolean {
+  return /Could not resolve to an issue or pull request/.test(errorMessage(error));
+}
+
+/**
+ * Whether `reference` is open right now: `false` for a closed issue and,
+ * unlike `isClosed`, for one that does not exist at all — `blockOnIfOpen`
+ * needs the two told apart from an unrelated read failure, which is left to
+ * throw and reach the discovery as a refusal, per `CONTEXT.md`'s "Discovery".
+ */
+async function issueIsOpen(reference: IssueReference): Promise<boolean> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("gh", [
+      "issue",
+      "view",
+      ...issueArgs(reference),
+      "--json",
+      "state",
+      "--jq",
+      ".state",
+    ]));
+  } catch (error) {
+    if (issueNotFound(error)) {
+      return false;
+    }
+    throw error;
+  }
+
+  const state = stdout.trim();
+  switch (state) {
+    case "OPEN":
+      return true;
+    case "CLOSED":
+      return false;
+    default:
+      throw new Error(
+        `gh issue view ${reference.repo}#${reference.number}: "state" was neither OPEN nor CLOSED: ${JSON.stringify(state)}`,
       );
   }
 }
@@ -781,11 +841,11 @@ function issueId(value: number): IssueId {
   return value;
 }
 
-/** Asks the tracker for `ticket`'s database id. */
-async function issueIdOf(ticket: Ticket): Promise<IssueId> {
+/** Asks the tracker for `reference`'s database id. */
+async function issueIdOf(reference: IssueReference): Promise<IssueId> {
   const { stdout } = await execFileAsync("gh", [
     "api",
-    `repos/${ticket.repo}/issues/${ticket.number}`,
+    `repos/${reference.repo}/issues/${reference.number}`,
     "--jq",
     ".id",
   ]);
@@ -798,7 +858,7 @@ async function issueIdOf(ticket: Ticket): Promise<IssueId> {
     // answered with what, and `Number("")` is `0` rather than the nothing it
     // came from.
     throw new Error(
-      `gh api repos/${ticket.repo}/issues/${ticket.number}: "id" was not an issue id: ${JSON.stringify(answer)}`,
+      `gh api repos/${reference.repo}/issues/${reference.number}: "id" was not an issue id: ${JSON.stringify(answer)}`,
     );
   }
 }

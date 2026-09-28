@@ -11,6 +11,7 @@ import {
   DEFAULT_BUDGET,
   MergeabilityUnknown,
   NEEDS_REBASE,
+  READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REBASE_COMMENT,
@@ -93,6 +94,11 @@ function discoveryBlocked(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "discovery-blocked" ? iteration : undefined;
 }
 
+/** The blocked-on-existing half of an iteration outcome — undefined if it ended any other way. */
+function blockedOnExisting(iteration: IterationOutcome | undefined) {
+  return iteration?.kind === "blocked-on-existing" ? iteration : undefined;
+}
+
 /** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
 function gateRefusal(report: InvocationReport) {
   const standDown = report.standDown;
@@ -124,7 +130,8 @@ function ranWith(iteration: IterationOutcome | undefined) {
     iteration.kind === "rebased" ||
     iteration.kind === "spec-reviewed" ||
     iteration.kind === "pull-request-resolved" ||
-    iteration.kind === "discovery-blocked"
+    iteration.kind === "discovery-blocked" ||
+    iteration.kind === "blocked-on-existing"
     ? undefined
     : iteration.run;
 }
@@ -1873,6 +1880,58 @@ describe("morningLoop", () => {
         );
       });
 
+      it("blocks the ticket on an existing open issue directly, keeping it ready-for-agent rather than opening a pull request or handing it back", async () => {
+        const ports = fakePorts();
+        const blocker = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        const ticket = ran(ports, {
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.pullRequests, []);
+        assert.equal(ports.tracker.discoveredTickets.length, 0);
+        assert.equal(report.iterations[0]?.kind, "blocked-on-existing");
+        assert.equal(ports.tracker.carriesLabel(ticket, READY_FOR_AGENT_LABEL), true);
+        assert.equal(
+          ports.tracker.handbacks.some((entry) => entry.ticket.number === ticket.number),
+          false,
+        );
+        const comment = ports.tracker.comments.find(
+          (entry) => entry.ticket.number === ticket.number,
+        );
+        assert.match(comment?.comment ?? "", /Blocked on nadav-alon\/pilot#9 until it closes\./);
+        assert.doesNotMatch(comment?.comment ?? "", /blocking discovery/);
+      });
+
+      it("discards the branch of a run blocked on an existing issue, even though it committed", async () => {
+        const ports = fakePorts();
+        ports.tracker.addIneligibleTicket(PILOT, { number: issueNumber(9), title: "The widget port" });
+        ran(ports, {
+          commits: [commitSha("c0ffee1")],
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: "Blocked on: #9.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(blockedOnExisting(report.iterations[0])?.discard.kind, "discarded");
+      });
+
       it("files only the first of two suggestions, reporting one dropped", async () => {
         const ports = fakePorts();
         ran(ports, {
@@ -3201,6 +3260,49 @@ describe("morningLoop", () => {
         assert.notEqual(handback?.ticket.number, implementation.number);
         assert.match(handback?.comment ?? "", /implementation ticket, nadav-alon\/pilot#7/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
+      });
+
+      it("blocks the implementation ticket on an existing open issue directly, closing the review ticket normally rather than handing anything back", async () => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: review } = queuedWithImplementation(
+          ports,
+          "review",
+        );
+        const blocker = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        postedAFinding(ports);
+        ports.sandbox.reviewResult = () => ({
+          kind: "finished",
+          output: "",
+          tokensUsed: tokenCount(1_000),
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 0);
+        assert.deepEqual(
+          ports.tracker.closedReviewTickets.map((ticket) => ticket.number),
+          [review.number],
+        );
+        assert.equal(
+          ports.tracker.handbacks.some((entry) => entry.ticket.number === implementation.number),
+          false,
+        );
+        assert.equal(ports.tracker.carriesLabel(implementation, READY_FOR_AGENT_LABEL), true);
+        const comment = ports.tracker.comments.find(
+          (entry) => entry.ticket.number === implementation.number,
+        );
+        assert.match(comment?.comment ?? "", /Blocked on nadav-alon\/pilot#9 until it closes\./);
+        assert.equal(report.iterations[0]?.kind, "reviewed");
       });
 
       it("hands back the review ticket for a gave-up run that also filed a correction, not as a gave-up run", async () => {
