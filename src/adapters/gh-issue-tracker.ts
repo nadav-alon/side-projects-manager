@@ -468,9 +468,7 @@ async function postComment(ticket: Ticket, comment: string): Promise<void> {
  * Adds a native `blocked_by` edge so `ticket` is blocked by `blocker`, keyed
  * on `blocker`'s database id — what the endpoint takes, never its `#number`
  * or node id, per `docs/agents/issue-tracker.md`. `blocker` names only a repo
- * and a number: `createDiscoveredTicket` passes the full `Ticket` it just
- * opened, and `blockOnIfOpen` passes an `IssueReference` it never created —
- * neither needs anything else about it.
+ * and a number: nothing else about it is read.
  */
 async function blockOn(ticket: Ticket, blocker: IssueReference): Promise<void> {
   const id = await issueIdOf(blocker);
