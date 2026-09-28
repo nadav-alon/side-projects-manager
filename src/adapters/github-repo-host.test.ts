@@ -867,9 +867,9 @@ describe("opening a draft pull request for a completed run", () => {
 });
 
 /**
- * What `handOver` in `morning-run.ts` reads before deciding whether to open a
- * pull request at all: the paths a run's own branch touched, so a diff
- * touching a uniform file can be caught first.
+ * The paths a run's own branch changed, relative to its base — read before
+ * deciding whether to open a pull request at all, so a diff touching a
+ * uniform file can be caught first.
  */
 describe("reading the paths a run's branch changed", () => {
   const BASE = "release-2";
