@@ -308,6 +308,17 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /**
+   * Whether `reference` is open right now, given `ifMissing` for a reference
+   * not found at all — the one thing `#stillOpen` and `blockOnIfOpen` disagree
+   * on, so each names its own answer explicitly rather than share a fixed
+   * convention a reader would have to look up.
+   */
+  #isOpen(reference: IssueReference, ifMissing: boolean): boolean {
+    const found = this.#find(reference);
+    return found === undefined ? ifMissing : found.closed !== true;
+  }
+
+  /**
    * Whether `reference` is open right now: not found at all counts as open,
    * the same convention `listOpenIssues` already applies to a same-repo
    * blocker `addBlockedTicket` names without a stored entry to check — a
@@ -316,8 +327,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * this way, so in practice a reference read back here is always found.
    */
   #stillOpen(reference: IssueReference): boolean {
-    const blocker = this.#find(reference);
-    return blocker === undefined || blocker.closed !== true;
+    return this.#isOpen(reference, true);
   }
 
   #add(repo: RepoSlug, ticket: TicketInput, label: string): Ticket {
@@ -659,16 +669,13 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
 
   /**
    * Records `prerequisite` against `ticket` and answers `true` when it is
-   * open right now. Unlike `#stillOpen` — which the recompute in
-   * `listOpenIssues` uses, where a reference it already holds is missing only
-   * because the fake never removes an entry — a `prerequisite` this fake
-   * never held at all is not open: the real tracker's own not-found answers
-   * `false`, per `blockOnIfOpen`'s own doc on the port, and a test naming a
-   * nonexistent number must see the same fallback.
+   * open right now — a `prerequisite` this fake never held at all is not
+   * open, the real tracker's own not-found answer per `blockOnIfOpen`'s own
+   * doc on the port, so a test naming a nonexistent number sees the same
+   * fallback.
    */
   async blockOnIfOpen(ticket: Ticket, prerequisite: IssueReference): Promise<boolean> {
-    const blocker = this.#find(prerequisite);
-    if (blocker === undefined || blocker.closed === true) {
+    if (!this.#isOpen(prerequisite, false)) {
       return false;
     }
     const key = ticketReference(ticket);
