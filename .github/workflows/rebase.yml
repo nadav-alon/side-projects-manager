@@ -166,8 +166,13 @@ jobs:
           fi
 
           expected_line="Rebase $PULL_REQUEST_URL, the pull request opened for #$TICKET_NUMBER."
+          # A ticket opened before this workflow dropped "draft" still reads
+          # this way; without it, a comment on the same pull request would
+          # open a second ticket rather than finding the first.
+          legacy_line="Rebase $PULL_REQUEST_URL, the draft pull request opened for #$TICKET_NUMBER."
           existing_number="$(gh issue list --repo "$REPO" --state open --json number,body --limit 500 \
-            | jq -r --arg line "$expected_line" '[.[] | select(.body | contains($line))][0].number // empty')"
+            | jq -r --arg line "$expected_line" --arg legacy_line "$legacy_line" \
+              '[.[] | select((.body | contains($line)) or (.body | contains($legacy_line)))][0].number // empty')"
 
           if [[ -n "$existing_number" ]]; then
             reply "There is already an open rebase ticket for this: #$existing_number."
