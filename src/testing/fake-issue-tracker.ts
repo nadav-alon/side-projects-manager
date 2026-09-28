@@ -37,6 +37,7 @@ import {
   reviewTitle,
   sizeLabelOf,
   specReviewTitle,
+  ticketReference,
   turboableConsentAt,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../summary.ts";
@@ -141,11 +142,6 @@ interface Stored {
    * the entry could never get that wrong.
    */
   closed?: boolean;
-}
-
-/** `ticket`'s identity as a map key: its repo and number, which together name it uniquely. */
-function ticketKey(ticket: IssueReference): string {
-  return `${ticket.repo}#${ticket.number}`;
 }
 
 /**
@@ -413,7 +409,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       // on it being same-repo only; a cross-repo one — the whole reason a
       // prerequisite may name another project's issue — only ever reaches
       // `openBlockers`.
-      const named = this.#namedPrerequisites.get(ticketKey({ repo, number: entry.issue.number })) ?? [];
+      const named = this.#namedPrerequisites.get(ticketReference({ repo, number: entry.issue.number })) ?? [];
       const openNamedSameRepo = named
         .filter((reference) => reference.repo === repo)
         .map((reference) => reference.number)
@@ -470,7 +466,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     action: LabelAction,
     at: Date,
   ): void {
-    const key = ticketKey(ticket);
+    const key = ticketReference(ticket);
     const events = this.#turboableEvents.get(key) ?? [];
     events.push({ label: TURBOABLE_LABEL, action, at });
     this.#turboableEvents.set(key, events);
@@ -484,7 +480,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   ): Promise<boolean> {
     return turboableConsentAt(
       ticket,
-      this.#turboableEvents.get(ticketKey(ticket)) ?? [],
+      this.#turboableEvents.get(ticketReference(ticket)) ?? [],
       instant,
       spans,
     );
@@ -675,7 +671,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     if (blocker === undefined || blocker.closed === true) {
       return false;
     }
-    const key = ticketKey(ticket);
+    const key = ticketReference(ticket);
     const named = this.#namedPrerequisites.get(key) ?? [];
     this.#namedPrerequisites.set(key, [...named, prerequisite]);
     return true;
