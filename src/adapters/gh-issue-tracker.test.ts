@@ -1461,6 +1461,31 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
     });
   });
 
+  /**
+   * `rebase.yml` reaches a project only at scaffold time, so a project
+   * scaffolded before "draft" was dropped from the line still writes it.
+   */
+  it("still carries the pull request when the body names it draft", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 1);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+
   it("never mistakes a rebase body and an apply-review body for each other", async (t) => {
     await recordingGh(
       t,
