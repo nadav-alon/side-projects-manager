@@ -320,8 +320,9 @@ function specReviewBody(
  * naming it from afar is what keeps a stray cross-repo close reference from
  * shadowing the pull request this bullet is really about.
  *
- * The matched pull request's own number is written the same way as `sub`'s:
- * bare where `closingPullRequestsForSupertask` read it from `supertaskRepo`,
+ * The matched pull request's own number is written the same rule
+ * `referenceFrom` writes `sub`'s own name with: bare where
+ * `closingPullRequestsForSupertask` read it from `supertaskRepo`,
  * `owner/repo#N` where it read it from `sub`'s own repo instead — a bare
  * number would otherwise resolve against `supertaskRepo`, same as the
  * sub-issue's own would.
@@ -331,10 +332,7 @@ function subIssueLine(
   sub: SubIssue,
   closingPullRequests: readonly RepoClosingPullRequest[],
 ): string {
-  const name =
-    sub.ticket.repo === supertaskRepo
-      ? `#${sub.ticket.number}`
-      : ticketReference(sub.ticket);
+  const name = referenceFrom(supertaskRepo, sub.ticket);
   const candidates = closingPullRequests.filter(({ pullRequest }) =>
     pullRequest.closesIssues.some(
       (closed) =>
@@ -347,9 +345,21 @@ function subIssueLine(
     return `- ${name}`;
   }
   const { repo, pullRequest } = match;
-  const number =
-    repo === supertaskRepo
-      ? `#${pullRequest.number}`
-      : ticketReference({ repo, number: pullRequest.number });
+  const number = referenceFrom(supertaskRepo, { repo, number: pullRequest.number });
   return `- ${name}: pull request ${number} on branch \`${pullRequest.branch}\`, ${pullRequest.state}`;
+}
+
+/**
+ * `target` named the way the spec review body names anything outside
+ * `supertaskRepo` itself: bare `#N` where `target` lives in `supertaskRepo`,
+ * `owner/repo#N` — per `ticketReference` — otherwise, since a bare number
+ * would resolve against `supertaskRepo`, the spec review's own repo, and
+ * name the wrong issue or pull request there. The one rule `subIssueLine`
+ * applies to both a sub-issue's own name and its matched pull request's.
+ */
+function referenceFrom(
+  supertaskRepo: RepoSlug,
+  target: Pick<Ticket, "repo" | "number">,
+): string {
+  return target.repo === supertaskRepo ? `#${target.number}` : ticketReference(target);
 }
