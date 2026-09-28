@@ -129,6 +129,10 @@ first tickets, writing the terms you settle on into its `CONTEXT.md` as you agre
 step is interactive on purpose: starting a project is when you most want to be in the conversation,
 because those tickets are what the next month of mornings will build.
 
+The repo is created private unless you pass `--public`, which a project needs when its GitHub Pages
+has to serve on the free plan, or when a `github:<owner>/<repo>#tag` dependency has to install
+without a token.
+
 Scaffolding puts two kinds of file into the new repo. The uniform files
 ([`docs/agents/`](docs/agents)) are copied byte for byte, so improving a convention here improves it
 in every project. `AGENTS.md` is generated for that project, naming it and its purpose — never

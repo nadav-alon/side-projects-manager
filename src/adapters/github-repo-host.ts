@@ -26,6 +26,7 @@ import type {
   ReviewFinding,
   Ticket,
   TicketGist,
+  Visibility,
 } from "../ports/index.ts";
 import {
   branch,
@@ -81,9 +82,13 @@ export function githubRepoHost(
       }
     },
 
-    async create(repo: RepoSlug, description: string): Promise<void> {
+    async create(
+      repo: RepoSlug,
+      description: string,
+      visibility: Visibility,
+    ): Promise<void> {
       const options = description === "" ? [] : ["--description", description];
-      await run("gh", ["repo", "create", repo, "--private", ...options]);
+      await run("gh", ["repo", "create", repo, `--${visibility}`, ...options]);
     },
 
     async clone(repo: RepoSlug): Promise<Checkout> {

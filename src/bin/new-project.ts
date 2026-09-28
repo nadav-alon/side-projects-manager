@@ -1,15 +1,13 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
-
 import { agentGrilling } from "../adapters/agent-grilling.ts";
 import { directoryHarness } from "../adapters/directory-harness.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { githubRepoHost } from "../adapters/github-repo-host.ts";
 import { errorMessage } from "../error-message.ts";
 import { newProject, type NewProjectRequest } from "../new-project.ts";
-import { repoSlug } from "../ports/index.ts";
+import { parseRequest } from "./new-project-request.ts";
 
-const USAGE = `Usage: new-project <owner/repo> [description] [--existing]
+const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--public]
 
   Creates the repo, clones it to the managed location, scaffolds the harness
   into it, registers it, and hands you an interactive session that turns the
@@ -19,7 +17,11 @@ const USAGE = `Usage: new-project <owner/repo> [description] [--existing]
               one. For projects that predate the manager. Its harness is
               proposed as a draft pull request rather than committed to a
               branch you had, and the project is registered paused until you
-              merge it.`;
+              merge it.
+
+  --public    Create the repo public rather than private. Rejected together
+              with --existing, which takes the repo as it already stands —
+              change its visibility on GitHub instead.`;
 
 /** The composition root of the new-project command, and nothing else. */
 async function main(): Promise<void> {
@@ -52,26 +54,6 @@ function readRequest(argv: string[]): NewProjectRequest {
   } catch (error) {
     throw new Error(`${errorMessage(error)}\n\n${USAGE}`);
   }
-}
-
-function parseRequest(argv: string[]): NewProjectRequest {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    options: { existing: { type: "boolean", default: false } },
-    allowPositionals: true,
-  });
-
-  const [repo, description = ""] = positionals;
-  if (repo === undefined) {
-    throw new Error("a repo to start is required.");
-  }
-  if (positionals.length > 2) {
-    throw new Error(
-      `unexpected argument ${JSON.stringify(positionals[2])}; quote the description.`,
-    );
-  }
-
-  return { repo: repoSlug(repo), description, existing: values.existing };
 }
 
 main().catch((error: unknown) => {

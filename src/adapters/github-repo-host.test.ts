@@ -114,6 +114,49 @@ describe("parsing what gh pr create answered", () => {
   });
 });
 
+describe("creating a repo", () => {
+  it("creates it private by default", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().create(PILOT, "", "private");
+
+    assert.deepEqual(callWith(await gh.calls(), "repo", "create"), [
+      "repo",
+      "create",
+      PILOT,
+      "--private",
+    ]);
+  });
+
+  it("creates it public when asked", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().create(PILOT, "", "public");
+
+    assert.deepEqual(callWith(await gh.calls(), "repo", "create"), [
+      "repo",
+      "create",
+      PILOT,
+      "--public",
+    ]);
+  });
+
+  it("passes the description along with the visibility", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await githubRepoHost().create(PILOT, "A flight log", "public");
+
+    assert.deepEqual(callWith(await gh.calls(), "repo", "create"), [
+      "repo",
+      "create",
+      PILOT,
+      "--public",
+      "--description",
+      "A flight log",
+    ]);
+  });
+});
+
 /**
  * Proposing against a bare repo on disk. The push is real; opening the pull
  * request is not, because `gh` cannot resolve a local path to a repository —

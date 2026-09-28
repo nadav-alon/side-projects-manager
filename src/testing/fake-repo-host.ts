@@ -18,6 +18,7 @@ import type {
   ReviewFinding,
   Ticket,
   TicketGist,
+  Visibility,
 } from "../ports/index.ts";
 import {
   APPLIED_REPLY_PREFIX,
@@ -96,6 +97,8 @@ export class FakeRepoHost implements RepoHost {
 
   /** Repos created, in the order they were created. */
   readonly created: RepoSlug[] = [];
+  /** Repos created public, in the order they were created. */
+  readonly createdPublic: RepoSlug[] = [];
   /** Repos cloned, in the order they were cloned. */
   readonly clones: RepoSlug[] = [];
   /** What was committed and pushed to the checkout's own branch, in order. */
@@ -198,8 +201,15 @@ export class FakeRepoHost implements RepoHost {
     return this.#existing.has(repo);
   }
 
-  async create(repo: RepoSlug, _description: string): Promise<void> {
+  async create(
+    repo: RepoSlug,
+    _description: string,
+    visibility: Visibility,
+  ): Promise<void> {
     this.created.push(repo);
+    if (visibility === "public") {
+      this.createdPublic.push(repo);
+    }
     this.#existing.add(repo);
   }
 

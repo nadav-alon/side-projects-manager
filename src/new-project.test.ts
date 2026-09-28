@@ -19,9 +19,19 @@ describe("starting a new project", () => {
     const report = await newProject(ports, IDEA);
 
     assert.deepEqual(ports.host.created, [PILOT]);
+    assert.deepEqual(ports.host.createdPublic, []);
     assert.deepEqual(ports.host.clones, [PILOT]);
     assert.equal(report.directory, PILOT_CHECKOUT);
     assert.equal(report.outcome, "created");
+  });
+
+  it("creates the repo public when asked", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, { ...IDEA, public: true });
+
+    assert.deepEqual(ports.host.created, [PILOT]);
+    assert.deepEqual(ports.host.createdPublic, [PILOT]);
   });
 
   it("installs the harness into the checkout it just made", async () => {

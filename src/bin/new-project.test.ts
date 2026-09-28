@@ -44,6 +44,13 @@ describe("the new-project command", () => {
     assert.doesNotMatch(stderr, /\n\s+at /);
   });
 
+  it("accepts --public as a flag, not a positional", async () => {
+    const { stderr, code } = await run("--public");
+
+    assert.equal(code, 1);
+    assert.match(stderr, /a repo to start is required/);
+  });
+
   it("tells the developer to quote a description it was handed loose", async () => {
     const { stderr, code } = await run(
       "nadav-alon/pilot",
