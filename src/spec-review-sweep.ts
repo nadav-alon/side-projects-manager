@@ -144,6 +144,10 @@ export async function specReviewSweep(
     // filtered by label and title per supertask, every sweep, to catch a
     // case this narrow.
     const floating = findFloatingSpecReview(supertask, openIssues.issues);
+    // `subIssues` is fixed for the rest of this supertask's turn, so both
+    // branches below share the one reader rather than repeating its call.
+    const readClosingPullRequests = () =>
+      closingPullRequestsForSupertask(ports, closingPullRequestReads, supertask.repo, subIssues);
     if (floating !== undefined) {
       try {
         // `body` is composed only if the tracker actually falls back to it —
@@ -151,12 +155,7 @@ export async function specReviewSweep(
         // ordinary way never spends the `gh pr list` disclosure read below,
         // and never overwrites `floating`'s own existing text with it.
         await ports.tracker.linkSpecReviewTicket(floating, supertask, async () => {
-          const closingPullRequests = await closingPullRequestsForSupertask(
-            ports,
-            closingPullRequestReads,
-            supertask.repo,
-            subIssues,
-          );
+          const closingPullRequests = await readClosingPullRequests();
           return specReviewBody(supertask, subIssues, closingPullRequests);
         });
         linked.push({ supertask, specReview: floating });
@@ -167,12 +166,7 @@ export async function specReviewSweep(
     }
 
     try {
-      const closingPullRequests = await closingPullRequestsForSupertask(
-        ports,
-        closingPullRequestReads,
-        supertask.repo,
-        subIssues,
-      );
+      const closingPullRequests = await readClosingPullRequests();
       const body = specReviewBody(supertask, subIssues, closingPullRequests);
       const specReview = await ports.tracker.createSpecReviewTicket(supertask, body);
       opened.push(specReview);
