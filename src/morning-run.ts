@@ -97,7 +97,6 @@ import {
   type WorkedBranch,
 } from "./hand-back.ts";
 import {
-  blockingDiscoveriesOf,
   hasBlockingDiscovery,
   routeRunDiscoveries,
   type DiscoveryReport,
@@ -1105,7 +1104,7 @@ async function discoveryBlockedOutcome(
   const { crossTarget } = routed;
   const handedBack = await handBack(ports, ticket, {
     kind: "discovery-blocked",
-    discoveries: blockingDiscoveriesOf(routed.routing),
+    discoveries: routed.routing.blocking,
     ...(crossTarget !== undefined && { crossTarget }),
     ...(worked !== undefined && { worked }),
     ...(output !== undefined && { output }),

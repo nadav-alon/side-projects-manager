@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  blockingDiscoveriesOf,
   hasBlockingDiscovery,
   isAgentBrief,
   referencedIssueIn,
@@ -511,7 +510,7 @@ describe("referencedIssueIn", () => {
   });
 });
 
-describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
+describe("hasBlockingDiscovery and DiscoveryRouting.blocking", () => {
   it("is false when every discovery is advisory", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
@@ -520,7 +519,7 @@ describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
     ]);
 
     assert.equal(hasBlockingDiscovery(routing), false);
-    assert.deepEqual(blockingDiscoveriesOf(routing), []);
+    assert.deepEqual(routing.blocking, []);
   });
 
   it("is true for a correction or a prerequisite, filed or refused makes no difference", async (t) => {
@@ -529,14 +528,14 @@ describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
     const correction = discovery({ kind: "correction" });
     const routing = await routeDiscoveries(tracker, ticket, ticket, [correction]);
     assert.equal(hasBlockingDiscovery(routing), true);
-    assert.deepEqual(blockingDiscoveriesOf(routing), [correction]);
+    assert.deepEqual(routing.blocking, [correction]);
 
     t.mock.method(tracker, "comment", async () => {
       throw new Error("the tracker refused the comment");
     });
     const refusedRouting = await routeDiscoveries(tracker, ticket, ticket, [correction]);
     assert.equal(hasBlockingDiscovery(refusedRouting), true);
-    assert.deepEqual(blockingDiscoveriesOf(refusedRouting), [correction]);
+    assert.deepEqual(refusedRouting.blocking, [correction]);
   });
 
   it("keeps the agent's own order across a mix of advisory and blocking kinds", async () => {
@@ -552,7 +551,7 @@ describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
       prerequisite,
     ]);
 
-    assert.deepEqual(blockingDiscoveriesOf(routing), [correction, prerequisite]);
+    assert.deepEqual(routing.blocking, [correction, prerequisite]);
   });
 
   it("excludes a prerequisite that named an existing, still-open issue and blocked it directly", async () => {
@@ -570,7 +569,7 @@ describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
     const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
 
     assert.equal(hasBlockingDiscovery(routing), false);
-    assert.deepEqual(blockingDiscoveriesOf(routing), []);
+    assert.deepEqual(routing.blocking, []);
   });
 });
 

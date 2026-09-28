@@ -155,11 +155,12 @@ export interface DiscoveryRouting {
    * The discoveries that still block the run's own ticket from finishing
    * normally, in the order the agent filed them: every correction, every
    * refused prerequisite, and every filed prerequisite except one that named
-   * an existing, still-open issue and blocked that one directly instead. What
-   * `hasBlockingDiscovery` and `blockingDiscoveriesOf` read, computed once
-   * here — in the one loop (`routeDiscoveries`) that already knows each
-   * discovery's own outcome the moment it is filed or refused — rather than
-   * by every caller re-deriving it from `filed` and `refused` separately.
+   * an existing, still-open issue and blocked that one directly instead.
+   * Computed once here — in the one loop (`routeDiscoveries`) that already
+   * knows each discovery's own outcome the moment it is filed or refused —
+   * rather than by every caller re-deriving it from `filed` and `refused`
+   * separately. `hasBlockingDiscovery` reads it for the yes/no; a caller
+   * needing the discoveries themselves reads the field directly.
    */
   blocking: Discovery[];
   /**
@@ -175,11 +176,6 @@ export interface DiscoveryRouting {
 /** Whether `routing` carries a discovery that still blocks the run's own ticket from finishing normally. */
 export function hasBlockingDiscovery(routing: DiscoveryRouting): boolean {
   return routing.blocking.length > 0;
-}
-
-/** The discoveries in `routing` that still block the run's own ticket, in the order the agent filed them. */
-export function blockingDiscoveriesOf(routing: DiscoveryRouting): Discovery[] {
-  return routing.blocking;
 }
 
 /**
