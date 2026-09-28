@@ -285,7 +285,7 @@ function assertDiscoveryInstructions(asked: string): void {
   assert.match(asked, /"title"/);
   assert.match(asked, /"body"/);
   assert.match(asked, /stop without committing further/);
-  assert.match(asked, /already ticketed and still open, name the existing issue/);
+  assert.match(asked, /already ticketed and still open, add a line naming it/);
   assert.match(asked, /an open pull request's own closing issue counts as/);
   assert.match(asked, /at most one suggestion/);
   assert.match(asked, /"ready": true/);
