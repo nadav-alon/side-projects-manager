@@ -10,6 +10,7 @@ import type {
   Branch,
   Checkout,
   ChecksStatus,
+  ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
   IssueNumber,
@@ -38,6 +39,7 @@ import {
   isMarkedReply,
   isPullRequestLabel,
   isPullRequestUrl,
+  isRepoSlug,
   NEEDS_REBASE_LABEL,
   NIT_SECTION_HEADING,
   OPEN_PULL_REQUEST_LIMIT,
@@ -1327,7 +1329,7 @@ function closingPullRequestsFrom(
         expectField(headRefName, "string", "headRefName", at),
         at,
       ),
-      closesIssues: closingIssueNumbersIn(closingIssuesReferences, at),
+      closesIssues: closingIssuesIn(closingIssuesReferences, at),
     };
   });
 }
@@ -1357,16 +1359,41 @@ function closingBranch(value: string, at: string): Branch {
 
 /**
  * `closingIssuesReferences` as `gh pr list` answers it: an array of issue
- * objects, of which only each one's number is kept — the rest is nothing a
- * spec review sweep reads.
+ * objects, each kept as its own repo and number — a pull request can close an
+ * issue in another repo, and `repository` is how GitHub names which one on
+ * every entry here, unlike `number` alone.
  */
-function closingIssueNumbersIn(value: unknown, at: string): IssueNumber[] {
+function closingIssuesIn(value: unknown, at: string): ClosingIssue[] {
   if (!Array.isArray(value)) {
     throw new Error(`${at}: "closingIssuesReferences" must be an array.`);
   }
-  return value.map((entry) =>
-    closingIssueNumber(objectAt(entry, at).number, "closingIssuesReferences.number", at),
-  );
+  return value.map((entry) => {
+    const issue = objectAt(entry, at);
+    return {
+      repo: closingIssueRepo(issue, at),
+      number: closingIssueNumber(issue.number, "closingIssuesReferences.number", at),
+    };
+  });
+}
+
+/**
+ * The repo `closingIssuesReferences` names a closing issue with: `owner/repo`,
+ * built from its own `repository: { name, owner: { login } }` — the shape
+ * `gh pr list` answers with, distinct from `repository_url`'s URL shape
+ * `gh-issue-tracker.ts` parses.
+ */
+function closingIssueRepo(issue: Record<string, unknown>, at: string): RepoSlug {
+  const repository = objectField(issue, "repository", at);
+  const owner = objectField(repository, "owner", at);
+  const login = expectField(owner.login, "string", "owner.login", at);
+  const name = expectField(repository.name, "string", "repository.name", at);
+  const slug = `${login}/${name}`;
+  if (!isRepoSlug(slug)) {
+    throw new Error(
+      `${at}: "repository" did not name a repo slug: ${JSON.stringify(slug)}`,
+    );
+  }
+  return slug;
 }
 
 /**

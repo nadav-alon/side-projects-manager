@@ -45,6 +45,7 @@ import {
   isTicketPriority,
   modelLabelOf,
   reviewTitle,
+  sameRepo,
   sizeLabelOf,
   specReviewTitle,
   turboableConsentAt,
@@ -921,14 +922,6 @@ function priorityLabelIn(labels: string[]): TicketPriority | undefined {
   return levels.length > 0
     ? levels.reduce((smallest, level) => (level < smallest ? level : smallest))
     : undefined;
-}
-
-/**
- * Whether `a` and `b` name the same repo, matched without regard to case, as
- * GitHub matches owner and repo names.
- */
-function sameRepo(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
 }
 
 /**

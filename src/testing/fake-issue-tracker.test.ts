@@ -691,6 +691,57 @@ describe("FakeIssueTracker — sub-issues", () => {
     assert.deepEqual(subIssues, []);
   });
 
+  it("lists a sub-issue linked in another repo, alongside a same-repo one", async () => {
+    const tracker = new FakeIssueTracker();
+    const OTHER = repoSlug("nadav-alon/other");
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+    const sameRepoChild = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(41),
+      title: "Part one",
+      parent: supertask.number,
+    });
+    const crossRepoChild = tracker.addEligibleTicket(OTHER, {
+      number: issueNumber(7),
+      title: "Part two, elsewhere",
+    });
+    tracker.linkSubIssue(supertask, crossRepoChild);
+
+    const subIssues = await tracker.listSubIssues(supertask);
+
+    assert.deepEqual(subIssues, [
+      {
+        ticket: { repo: PILOT, number: sameRepoChild.number, title: sameRepoChild.title },
+        closed: false,
+      },
+      {
+        ticket: { repo: OTHER, number: crossRepoChild.number, title: crossRepoChild.title },
+        closed: false,
+      },
+    ]);
+  });
+
+  it("reports a linked cross-repo sub-issue's current closed state, not a snapshot from when it was linked", async () => {
+    const tracker = new FakeIssueTracker();
+    const OTHER = repoSlug("nadav-alon/other");
+    const supertask = tracker.addSupertask(PILOT, {
+      number: issueNumber(40),
+      title: "Too big for one run",
+    });
+    const crossRepoChild = tracker.addEligibleTicket(OTHER, {
+      number: issueNumber(7),
+      title: "Part two, elsewhere",
+    });
+    tracker.linkSubIssue(supertask, crossRepoChild);
+
+    tracker.closeOutOfBand(crossRepoChild);
+    const subIssues = await tracker.listSubIssues(supertask);
+
+    assert.equal(subIssues[0]?.closed, true);
+  });
+
   it("opens a spec review ticket carrying ready-for-agent, spec-review and size:L, linked to its supertask", async () => {
     const tracker = new FakeIssueTracker();
     const supertask = tracker.addSupertask(PILOT, {

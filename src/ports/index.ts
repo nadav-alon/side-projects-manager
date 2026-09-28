@@ -179,6 +179,7 @@ export type {
   ApplyReviewComment,
   ApplyReviewThread,
   ChecksStatus,
+  ClosingIssue,
   ClosingPullRequest,
   DraftPullRequestOpening,
   MergeStatus,
@@ -190,7 +191,7 @@ export type {
   ReviewFinding,
   Visibility,
 } from "./repo-host.ts";
-export { isRepoSlug, repoName, repoSlug } from "./repo-slug.ts";
+export { isRepoSlug, repoName, repoSlug, sameRepo } from "./repo-slug.ts";
 export type { RepoSlug } from "./repo-slug.ts";
 export { isReserveFraction, reserveFraction } from "./reserve-fraction.ts";
 export type { ReserveFraction } from "./reserve-fraction.ts";
