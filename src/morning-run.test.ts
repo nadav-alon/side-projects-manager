@@ -1891,7 +1891,7 @@ describe("morningLoop", () => {
             {
               kind: "prerequisite",
               title: "Needs the widget port first",
-              body: `There is no widget port yet: needs #${blocker.number} done first.`,
+              body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
             },
           ],
         });
@@ -1922,7 +1922,7 @@ describe("morningLoop", () => {
             {
               kind: "prerequisite",
               title: "Needs the widget port first",
-              body: "Needs #9 done first.",
+              body: "Blocked on: #9.",
             },
           ],
         });
@@ -3281,7 +3281,7 @@ describe("morningLoop", () => {
             {
               kind: "prerequisite",
               title: "Needs the widget port first",
-              body: `There is no widget port yet: needs #${blocker.number} done first.`,
+              body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
             },
           ],
         });

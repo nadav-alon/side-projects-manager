@@ -77,7 +77,7 @@ describe("routeDiscoveries", () => {
     const prerequisite = discovery({
       kind: "prerequisite",
       title: "Needs the widget port first",
-      body: `There is no widget port yet: needs #${blocker.number} done first.`,
+      body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
     });
 
     const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
@@ -103,7 +103,7 @@ describe("routeDiscoveries", () => {
     });
     const prerequisite = discovery({
       kind: "prerequisite",
-      body: "Needs nadav-alon/data-platform#9 done first.",
+      body: "Blocked on: nadav-alon/data-platform#9.",
     });
 
     const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
@@ -128,7 +128,7 @@ describe("routeDiscoveries", () => {
     tracker.closeOutOfBand(blocker);
     const prerequisite = discovery({
       kind: "prerequisite",
-      body: `Needs #${blocker.number} done first.`,
+      body: `Blocked on: #${blocker.number}.`,
     });
 
     const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
@@ -144,7 +144,7 @@ describe("routeDiscoveries", () => {
     const ticket = tracker.addEligibleTicket(PILOT, implementation());
     const prerequisite = discovery({
       kind: "prerequisite",
-      body: "Needs #999 done first.",
+      body: "Blocked on: #999.",
     });
 
     const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);
@@ -464,25 +464,39 @@ describe("isAgentBrief", () => {
 describe("referencedIssueIn", () => {
   const PILOT_SLUG = repoSlug("nadav-alon/pilot");
 
-  it("reads a bare #n as an issue in the same repo", () => {
-    assert.deepEqual(referencedIssueIn("Needs #9 done first.", PILOT_SLUG), {
+  it("reads a bare #n on a Blocked on: line as an issue in the same repo", () => {
+    assert.deepEqual(referencedIssueIn("There is no widget port yet.\n\nBlocked on: #9.", PILOT_SLUG), {
       repo: PILOT_SLUG,
       number: issueNumber(9),
     });
   });
 
-  it("reads owner/repo#n as an issue in the named repo", () => {
+  it("reads owner/repo#n on a Blocked on: line as an issue in the named repo", () => {
     assert.deepEqual(
-      referencedIssueIn("Needs nadav-alon/data-platform#9 done first.", PILOT_SLUG),
+      referencedIssueIn("Blocked on: nadav-alon/data-platform#9.", PILOT_SLUG),
       { repo: repoSlug("nadav-alon/data-platform"), number: issueNumber(9) },
     );
   });
 
-  it("takes the first reference when more than one appears", () => {
+  it("ignores a bare #n mentioned in prose, unlike one on a Blocked on: line", () => {
+    assert.equal(
+      referencedIssueIn("Unlike #12, this needs its own widget port first.", PILOT_SLUG),
+      undefined,
+    );
+  });
+
+  it("takes the Blocked on: line's own issue even when another is mentioned in prose first", () => {
     assert.deepEqual(
-      referencedIssueIn("Needs #9 first, related to #12.", PILOT_SLUG),
+      referencedIssueIn("Unlike #12, this needs its own widget port.\n\nBlocked on: #9.", PILOT_SLUG),
       { repo: PILOT_SLUG, number: issueNumber(9) },
     );
+  });
+
+  it("accepts Blocked on without a colon, and matched case-insensitively", () => {
+    assert.deepEqual(referencedIssueIn("blocked ON #9.", PILOT_SLUG), {
+      repo: PILOT_SLUG,
+      number: issueNumber(9),
+    });
   });
 
   it("answers undefined when the body names no issue", () => {
@@ -493,7 +507,7 @@ describe("referencedIssueIn", () => {
   });
 
   it("answers undefined rather than guessing the same repo, when the named repo is not shaped like one", () => {
-    assert.equal(referencedIssueIn("Needs foo_bar/baz#9 done first.", PILOT_SLUG), undefined);
+    assert.equal(referencedIssueIn("Blocked on: foo_bar/baz#9.", PILOT_SLUG), undefined);
   });
 });
 
@@ -550,7 +564,7 @@ describe("hasBlockingDiscovery and blockingDiscoveriesOf", () => {
     });
     const prerequisite = discovery({
       kind: "prerequisite",
-      body: `Needs #${blocker.number} done first.`,
+      body: `Blocked on: #${blocker.number}.`,
     });
 
     const routing = await routeDiscoveries(tracker, ticket, ticket, [prerequisite]);

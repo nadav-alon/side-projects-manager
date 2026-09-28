@@ -19,30 +19,37 @@ import {
 import { errorMessage } from "./error-message.ts";
 
 /**
- * GitHub's own two shapes for naming an issue in text, per `ticketReference`:
- * `owner/repo#n`, or a bare `#n` for the repo the text is posted in. Matched
- * loosely — the owner and repo character classes are looser than
- * `isRepoSlug`'s own, which `referencedIssueIn` checks afterwards — so a
- * match here is a candidate, never a guarantee.
+ * The one line a body names its blocker on, per `CONTEXT.md`'s "Discovery"
+ * and the discovery instructions: `Blocked on: owner/repo#n`, or a bare `#n`
+ * for the repo the text is posted in — the two shapes `ticketReference`
+ * itself produces, so the two GitHub autolinks from any repo, behind the
+ * literal marker `DISCOVERY_INSTRUCTIONS` (`container-sandbox.ts`) tells the
+ * agent to write. Anchored to the start of a line — with `m` — rather than
+ * matched anywhere in the body: prose naming an unrelated issue elsewhere
+ * ("unlike #12, this needs...") is not a claim that this one waits on it, and
+ * matching loosely there let one such mention silently pick the wrong
+ * blocker. The owner and repo character classes are looser than
+ * `isRepoSlug`'s own, which `referencedIssueIn` checks afterwards, so a match
+ * here is a candidate, never a guarantee.
  */
-const ISSUE_REFERENCE = /([A-Za-z0-9][\w.-]*\/[A-Za-z0-9._-]+)#(\d+)|#(\d+)/;
+const BLOCKED_ON_LINE =
+  /^[ \t]*blocked on:?[ \t]+(?:([A-Za-z0-9][\w.-]*\/[A-Za-z0-9._-]+)#(\d+)|#(\d+))/im;
 
 /**
  * The existing issue a prerequisite discovery's body names it waits on, per
- * `CONTEXT.md`'s "Discovery": the first `owner/repo#n` or bare `#n` found in
- * `body`, the two shapes `ticketReference` itself produces and so the two
- * GitHub autolinks from any repo. A bare `#n` names an issue in `sameRepo` —
- * the target the prerequisite would otherwise block — the way GitHub itself
- * resolves one to whichever repo the text is posted in. `undefined` where
- * `body` names neither, or names a repo that is not shaped like one — a typo
- * misread as a nonexistent issue is safer than one silently redirected to
- * `sameRepo`.
+ * `CONTEXT.md`'s "Discovery": the issue a `Blocked on:` line names, per
+ * `BLOCKED_ON_LINE` — never one merely mentioned in passing elsewhere in the
+ * body. A bare `#n` names an issue in `sameRepo` — the target the prerequisite
+ * would otherwise block — the way GitHub itself resolves one to whichever
+ * repo the text is posted in. `undefined` where `body` carries no such line,
+ * or names a repo that is not shaped like one — a typo misread as a
+ * nonexistent issue is safer than one silently redirected to `sameRepo`.
  */
 export function referencedIssueIn(
   body: string,
   sameRepo: RepoSlug,
 ): IssueReference | undefined {
-  const match = ISSUE_REFERENCE.exec(body);
+  const match = BLOCKED_ON_LINE.exec(body);
   if (match === null) {
     return undefined;
   }
@@ -216,6 +223,18 @@ function opensReady(target: Ticket, discovery: Discovery): boolean {
 }
 
 /**
+ * Whether `reference` names `target` itself — a prerequisite cannot block its
+ * own target on itself, and `IssueTracker.blockOnIfOpen`'s own native
+ * `blocked_by` edge would refuse a self-edge outright. Checked here rather
+ * than left to that refusal, so a prerequisite that merely names its own
+ * ticket in passing still falls back to `createDiscoveredTicket` instead of
+ * being counted refused.
+ */
+function isSelfReference(target: Ticket, reference: IssueReference): boolean {
+  return reference.repo === target.repo && reference.number === target.number;
+}
+
+/**
  * Files one discovery against `target`: a comment for a correction or a
  * clarification; for a prerequisite, a native `blocked_by` edge onto an
  * issue its own body names — where that issue is open right now — with a
@@ -248,13 +267,28 @@ async function fileDiscovery(
   }
   if (discovery.kind === "prerequisite") {
     const named = referencedIssueIn(discovery.body, target.repo);
-    if (named !== undefined && (await tracker.blockOnIfOpen(target, named))) {
-      await tracker.comment(
-        target,
-        `${discovery.title}\n\n${discoveredBody(runTicket, discovery.body)}\n\n` +
-          `Blocked on ${ticketReference(named)} until it closes.`,
-      );
-      return { discovery, action: "blocked-on-existing", blocker: named };
+    const blocker =
+      named !== undefined && !isSelfReference(target, named) ? named : undefined;
+    if (blocker !== undefined) {
+      // A transient tracker failure here — or `blocker` naming a pull
+      // request, or an edge that already exists — is not a reason to lose
+      // the discovery: today's fallback, a discovered ticket, still applies,
+      // per CONTEXT.md's "Discovery" ("keeps today's behavior").
+      const blockedOnExisting = await tracker.blockOnIfOpen(target, blocker).catch(() => false);
+      if (blockedOnExisting) {
+        // Best effort: the edge is what actually blocks `target`, so a
+        // comment that fails to post is not worth losing that over, or worth
+        // this discovery being counted refused and blocking on its own
+        // account when it already blocked another way.
+        await tracker
+          .comment(
+            target,
+            `${discovery.title}\n\n${discoveredBody(runTicket, discovery.body)}\n\n` +
+              `Blocked on ${ticketReference(blocker)} until it closes.`,
+          )
+          .catch(() => undefined);
+        return { discovery, action: "blocked-on-existing", blocker };
+      }
     }
   }
   const ticket = await tracker.createDiscoveredTicket(target, {
