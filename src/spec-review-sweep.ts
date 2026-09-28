@@ -306,7 +306,7 @@ function specReviewBody(
  * bare where `closingPullRequestsForSupertask` read it from `supertaskRepo`,
  * `owner/repo#N` where it read it from `sub`'s own repo instead — a bare
  * number would otherwise resolve against `supertaskRepo`, same as the
- * sub-issue's own would (issue #994).
+ * sub-issue's own would.
  */
 function subIssueLine(
   supertaskRepo: RepoSlug,
