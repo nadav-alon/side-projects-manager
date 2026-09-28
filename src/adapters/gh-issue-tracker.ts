@@ -841,11 +841,11 @@ function issueId(value: number): IssueId {
   return value;
 }
 
-/** Asks the tracker for `ticket`'s database id. */
-async function issueIdOf(ticket: IssueReference): Promise<IssueId> {
+/** Asks the tracker for `reference`'s database id. */
+async function issueIdOf(reference: IssueReference): Promise<IssueId> {
   const { stdout } = await execFileAsync("gh", [
     "api",
-    `repos/${ticket.repo}/issues/${ticket.number}`,
+    `repos/${reference.repo}/issues/${reference.number}`,
     "--jq",
     ".id",
   ]);
@@ -858,7 +858,7 @@ async function issueIdOf(ticket: IssueReference): Promise<IssueId> {
     // answered with what, and `Number("")` is `0` rather than the nothing it
     // came from.
     throw new Error(
-      `gh api repos/${ticket.repo}/issues/${ticket.number}: "id" was not an issue id: ${JSON.stringify(answer)}`,
+      `gh api repos/${reference.repo}/issues/${reference.number}: "id" was not an issue id: ${JSON.stringify(answer)}`,
     );
   }
 }
