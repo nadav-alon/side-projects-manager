@@ -190,8 +190,8 @@ on two axes: conformance to the repo's documented standards, and fidelity to wha
 ticket asked for. A reviewer that could push would become a second implementer and reintroduce
 exactly the context bias the separation exists to remove.
 
-**Rebase is a separate job too.** Commenting `/rebase` on a draft PR opens a rebase ticket, worked
-like an apply-review ticket but with a different verb. Before any run, the repo host is asked whether
+**Rebase is a separate job too.** Commenting `/rebase` on an open PR, draft or ready, opens a rebase
+ticket, worked like an apply-review ticket but with a different verb. Before any run, the repo host is asked whether
 the PR needs a rebase; if not, no run starts and the ticket closes, saying the PR already sits on its
 base; if GitHub never settles whether it does, the ticket is handed back with no run. Otherwise the
 sandbox runs the rebase on a clone of the PR's branch, and the agent resolves the conflicts and
