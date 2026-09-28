@@ -2597,7 +2597,11 @@ describe("morningLoop", () => {
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "not-turboable", reason: "not turboable before its own run started" },
+            {
+              kind: "not-turboable",
+              reason: "not turboable before its own run started",
+              declinedGrant: true,
+            },
           );
         });
 
@@ -2617,7 +2621,7 @@ describe("morningLoop", () => {
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "not-turboable", reason: "turboable granted inside a run span" },
+            { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
           );
         });
 
@@ -2674,7 +2678,7 @@ describe("morningLoop", () => {
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "not-turboable", reason: "turboable granted inside a run span" },
+            { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
           );
         });
 
@@ -2738,7 +2742,11 @@ describe("morningLoop", () => {
           assert.deepEqual(ports.tracker.closedReviewTickets.length, 1);
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "not-turboable", reason: "could not find its implementation ticket" },
+            {
+              kind: "not-turboable",
+              reason: "could not find its implementation ticket",
+              declinedGrant: false,
+            },
           );
         });
 
@@ -4399,7 +4407,11 @@ describe("morningLoop", () => {
         const outcome = report.iterations[0];
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "not-turboable", reason: "not turboable before its own run started" },
+          {
+            kind: "not-turboable",
+            reason: "not turboable before its own run started",
+            declinedGrant: true,
+          },
         );
       });
 
@@ -4464,7 +4476,11 @@ describe("morningLoop", () => {
         assert.deepEqual(ports.tracker.closedApplyReviewTickets.length, 1);
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "not-turboable", reason: "could not find its implementation ticket" },
+          {
+            kind: "not-turboable",
+            reason: "could not find its implementation ticket",
+            declinedGrant: false,
+          },
         );
       });
 

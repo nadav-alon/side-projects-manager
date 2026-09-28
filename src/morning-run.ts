@@ -2170,8 +2170,10 @@ async function finishApplyReview(
  * ticket that was never turboable in time to begin with.
  *
  * `context.implementation` absent, or carrying no run span, reads the same
- * as not turboable in time: neither is proof the manager can act on, and
- * `CONTEXT.md`'s "Turboable" already documents both as known gaps.
+ * as never labelled `turboable`: none of the three is a grant the gate
+ * rejected, so the verdict's own `declinedGrant` reads `false` for all
+ * three, and `CONTEXT.md`'s "Turboable" already documents the first two as
+ * known gaps.
  */
 async function mergeGate(
   ports: MorningLoopPorts,
@@ -2181,11 +2183,19 @@ async function mergeGate(
 ): Promise<MergeGate> {
   const { implementation } = context;
   if (implementation === undefined) {
-    return { kind: "not-turboable", reason: "could not find its implementation ticket" };
+    return {
+      kind: "not-turboable",
+      reason: "could not find its implementation ticket",
+      declinedGrant: false,
+    };
   }
   const span = runSpanFor(context.invocation.runSpans(), implementation);
   if (span === undefined) {
-    return { kind: "not-turboable", reason: "its implementation ticket carries no run span" };
+    return {
+      kind: "not-turboable",
+      reason: "its implementation ticket carries no run span",
+      declinedGrant: false,
+    };
   }
   let consent: TurboableConsent;
   try {
@@ -2198,11 +2208,14 @@ async function mergeGate(
     return { kind: "timeline-unreadable", error: errorMessage(error) };
   }
   if (!consent.consented) {
+    if (consent.reason === "never-labeled") {
+      return { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false };
+    }
     const reason =
       consent.reason === "not-labeled-in-time"
         ? "not turboable before its own run started"
         : "turboable granted inside a run span";
-    return { kind: "not-turboable", reason };
+    return { kind: "not-turboable", reason, declinedGrant: true };
   }
 
   const pullRequest = ticket.pullRequest.url;

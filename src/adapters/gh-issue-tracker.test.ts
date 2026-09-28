@@ -2667,12 +2667,12 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     return `printf '%s\\n' ${lines}`;
   }
 
-  it("refuses, not labeled in time, where the ticket's timeline carries no turboable event", async (t) => {
+  it("refuses, never labeled, where the ticket's timeline carries no turboable event", async (t) => {
     await recordingGh(t, timeline([]));
 
     assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      { consented: false, reason: "not-labeled-in-time" },
+      { consented: false, reason: "never-labeled" },
     );
   });
 
@@ -2749,7 +2749,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
 
     assert.deepEqual(
       await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
-      { consented: false, reason: "not-labeled-in-time" },
+      { consented: false, reason: "never-labeled" },
     );
   });
 

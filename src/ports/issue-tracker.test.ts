@@ -667,8 +667,16 @@ describe("turboableConsentAt", () => {
     });
   });
 
-  it("reads as no consent, naming the timeline, where turboable was never granted, whatever the spans", () => {
+  it("reads as no consent, naming that it was never labelled, where turboable was never granted, whatever the spans", () => {
     assert.deepEqual(turboableConsentAt(TICKET, [], DAY_2, []), {
+      consented: false,
+      reason: "never-labeled",
+    });
+  });
+
+  it("reads as no consent, naming the timeline rather than never-labeled, where turboable was labelled but not by the instant", () => {
+    const events = [event("labeled", DAY_3)];
+    assert.deepEqual(turboableConsentAt(TICKET, events, DAY_2, []), {
       consented: false,
       reason: "not-labeled-in-time",
     });

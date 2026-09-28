@@ -1811,20 +1811,25 @@ function readyPhrase(merge: MergeGate | undefined): string {
  * `appliedReviewSummary` and `reviewSummary`'s own clean-outcome sentence:
  * empty on a project that is not turbo, since it never asks at all. A
  * `not-turboable` verdict names the gate's own reason — CONTEXT.md's
- * "Turboable", ADR 0009 — so a ticket the developer labelled `turboable`
- * that the gate declined does not read exactly like one never labelled at
- * all; it carries no Waiting-on-you line of its own (`mergeGateWaitingLine`),
- * since a settled `not-turboable` leaves nothing for the developer to do
- * beyond the ordinary review. A `timeline-unreadable` gate gets its own
- * note too, since a read failure is not proof the pull request was
- * ineligible, unlike `not-turboable`.
+ * "Turboable", ADR 0009 — only where `declinedGrant` is true: the
+ * implementation ticket carried `turboable`, and the gate declined it
+ * anyway, so the sentence doesn't read exactly like a ticket never labelled
+ * at all. Where `declinedGrant` is false — no grant to report, whether
+ * because the implementation ticket was never found, carried no run span,
+ * or never carried `turboable` in the first place — the sentence stays the
+ * ordinary `now ready for review`, the same as on a project that isn't
+ * turbo. Either way it carries no Waiting-on-you line of its own
+ * (`mergeGateWaitingLine`), since a settled `not-turboable` leaves nothing
+ * for the developer to do beyond the ordinary review. A `timeline-unreadable`
+ * gate gets its own note too, since a read failure is not proof the pull
+ * request was ineligible, unlike `not-turboable`.
  */
 function mergeGateNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
   if (merge?.kind === "timeline-unreadable") {
     const phrase = timelineUnreadablePhrase(merge.error);
     return ` ${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
   }
-  if (merge?.kind === "not-turboable") {
+  if (merge?.kind === "not-turboable" && merge.declinedGrant) {
     return ` Not merged: ${withoutTrailingStop(merge.reason)}.`;
   }
   if (merge?.kind !== "left-for-human") {

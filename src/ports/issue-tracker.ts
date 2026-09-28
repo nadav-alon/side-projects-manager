@@ -436,18 +436,21 @@ export function labelWasPresentAt(
 }
 
 /**
- * Whether `turboableConsentAt` found consent, and, when it did not, which of
- * its two checks said no — so a caller's own "not turboable" reason can name
- * the one that actually failed rather than blaming both at once:
- * `"not-labeled-in-time"` when the timeline check itself never grants it in
- * time, `"inside-run-span"` when the timeline grants it but the run-span
- * check rejects it.
+ * Whether `turboableConsentAt` found consent, and, when it did not, why:
+ * `"never-labeled"` when `turboable` never had a `labeled` event in the
+ * ticket's timeline at all — nobody ever granted it — told apart from
+ * `"not-labeled-in-time"`, where a `labeled` event exists but the one at or
+ * before `instant` isn't it — added too late, or added and removed again
+ * before `instant` — and `"inside-run-span"`, where the timeline grants it
+ * but the run-span check rejects it. A caller's own "not turboable" reason
+ * reads `"never-labeled"` as no grant to report at all, and the other two as
+ * a grant it declined, worth naming.
  */
 export type TurboableConsent =
   | { readonly consented: true }
   | {
       readonly consented: false;
-      readonly reason: "not-labeled-in-time" | "inside-run-span";
+      readonly reason: "never-labeled" | "not-labeled-in-time" | "inside-run-span";
     };
 
 /**
@@ -482,7 +485,10 @@ export function turboableConsentAt(
 ): TurboableConsent {
   const grant = mostRecentLabelEvent(events, TURBOABLE_LABEL, instant);
   if (grant?.action !== "labeled") {
-    return { consented: false, reason: "not-labeled-in-time" };
+    const everLabeled = events.some(
+      (event) => event.label.toLowerCase() === TURBOABLE_LABEL.toLowerCase() && event.action === "labeled",
+    );
+    return { consented: false, reason: everLabeled ? "not-labeled-in-time" : "never-labeled" };
   }
   const insideSpan = spans.some(
     (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),

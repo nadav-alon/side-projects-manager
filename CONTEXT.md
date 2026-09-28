@@ -670,7 +670,11 @@ ticket finishes, or its review comes back clean (see **Clean review**) — which
 only the one that does — one pass: the manager merges the pull request, with a merge commit, and
 deletes its branch, but only if it is mergeable, green and carries no declined threads; otherwise
 it labels the pull request `ready-for-human` and stops — no retry, no re-rebase. Stacked pull
-requests are out of scope until that is specced. See ADR 0009.
+requests are out of scope until that is specced. When the gate declines a grant — the label came too
+late, or fell inside a run span — the summary names its own reason in the review sentence, so the
+developer knows their grant did not count; an implementation ticket that never carried `turboable` at
+all, that the gate could not find, or that carried no run span reads as ordinary, silent, ready for
+review, the same as on a project that isn't turbo, since there is no grant to report. See ADR 0009.
 _Avoid_: auto-merge, merge flag, greenlight
 
 ### Budget

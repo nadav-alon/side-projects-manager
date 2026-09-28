@@ -246,7 +246,43 @@ function cleanReviewNotTurboable(number: number): IterationOutcome {
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
     clean: true,
-    merge: { kind: "not-turboable", reason: "not turboable before its own run started" },
+    merge: {
+      kind: "not-turboable",
+      reason: "not turboable before its own run started",
+      declinedGrant: true,
+    },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
+/** As `cleanReviewNotTurboable`, but declined for the run-span reason rather than the timeline. */
+function cleanReviewNotTurboableInsideSpan(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    clean: true,
+    merge: {
+      kind: "not-turboable",
+      reason: "turboable granted inside a run span",
+      declinedGrant: true,
+    },
+  };
+  return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
+}
+
+/**
+ * A turbo project's clean review whose implementation ticket never carried
+ * `turboable` at all: the merge gate still declines to merge, but there is
+ * no grant to report, so the sentence carries no note of its own.
+ */
+function cleanReviewNeverLabelledTurboable(number: number): IterationOutcome {
+  const reviewed: Reviewed = {
+    kind: "reviewed",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
+    tokensUsed: tokenCount(500),
+    clean: true,
+    merge: { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
@@ -336,7 +372,43 @@ function appliedReviewNotTurboable(number: number): IterationOutcome {
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
     tokensUsed: tokenCount(500),
     answers: { applied: 2, declined: 1 },
-    merge: { kind: "not-turboable", reason: "not turboable before its own run started" },
+    merge: {
+      kind: "not-turboable",
+      reason: "not turboable before its own run started",
+      declinedGrant: true,
+    },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** As `appliedReviewNotTurboable`, but declined for the run-span reason rather than the timeline. */
+function appliedReviewNotTurboableInsideSpan(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 1 },
+    merge: {
+      kind: "not-turboable",
+      reason: "turboable granted inside a run span",
+      declinedGrant: true,
+    },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/**
+ * A turbo project's apply-review run whose implementation ticket never
+ * carried `turboable` at all: no grant to report, so the sentence carries
+ * no note of its own.
+ */
+function appliedReviewNeverLabelledTurboable(number: number): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 2, declined: 1 },
+    merge: { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
@@ -1518,6 +1590,24 @@ describe("summaryLine", () => {
     );
   });
 
+  it("names the run-span reason, not the timeline one, for a clean review's pull request the merge gate declined over a run span", () => {
+    const line = summaryLine(facts([cleanReviewNotTurboableInsideSpan(225)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO}#225: found nothing to flag on ${PULL_REQUEST}, now ready for review. Not merged: turboable granted inside a run span.`,
+    );
+  });
+
+  it("reads a clean review's pull request exactly as an ordinary ready-for-review when its implementation ticket never carried turboable at all", () => {
+    const line = summaryLine(facts([cleanReviewNeverLabelledTurboable(226)]));
+
+    assert.equal(
+      line,
+      `Reviewed ${REPO}#226: found nothing to flag on ${PULL_REQUEST}, now ready for review.`,
+    );
+  });
+
   it("says the merge gate could not check turboable for a clean review whose timeline read failed, rather than reading silently as ready for review", () => {
     const line = summaryLine(facts([cleanReviewTimelineUnreadable(224)]));
 
@@ -1578,6 +1668,24 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Applied review on ${REPO}#216: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. Not merged: not turboable before its own run started.`,
+    );
+  });
+
+  it("names the run-span reason, not the timeline one, for an apply-review iteration's pull request the merge gate declined over a run span", () => {
+    const line = summaryLine(facts([appliedReviewNotTurboableInsideSpan(227)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO}#227: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. Not merged: turboable granted inside a run span.`,
+    );
+  });
+
+  it("reads an apply-review iteration's pull request exactly as an ordinary ready-for-review when its implementation ticket never carried turboable at all", () => {
+    const line = summaryLine(facts([appliedReviewNeverLabelledTurboable(228)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO}#228: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review.`,
     );
   });
 
