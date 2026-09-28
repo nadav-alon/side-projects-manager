@@ -221,8 +221,8 @@ interface RepoClosingPullRequest {
  * them is asked for exactly once — from `supertaskRepo` and from every
  * other repo `subIssues` lives in. A cross-repo sub-issue's own pull
  * request usually lives in that sub-issue's repo rather than
- * `supertaskRepo` (issue #994), so both are read and `subIssueLine`
- * matches against the union.
+ * `supertaskRepo`, so both are read and `subIssueLine` matches against
+ * the union.
  */
 async function closingPullRequestsForSupertask(
   ports: SpecReviewSweepPorts,
