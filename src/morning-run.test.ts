@@ -94,6 +94,11 @@ function discoveryBlocked(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "discovery-blocked" ? iteration : undefined;
 }
 
+/** The blocked-on-existing half of an iteration outcome — undefined if it ended any other way. */
+function blockedOnExisting(iteration: IterationOutcome | undefined) {
+  return iteration?.kind === "blocked-on-existing" ? iteration : undefined;
+}
+
 /** Why the gate refused — undefined if it never did, or something else stood the morning down instead. */
 function gateRefusal(report: InvocationReport) {
   const standDown = report.standDown;
@@ -125,7 +130,8 @@ function ranWith(iteration: IterationOutcome | undefined) {
     iteration.kind === "rebased" ||
     iteration.kind === "spec-reviewed" ||
     iteration.kind === "pull-request-resolved" ||
-    iteration.kind === "discovery-blocked"
+    iteration.kind === "discovery-blocked" ||
+    iteration.kind === "blocked-on-existing"
     ? undefined
     : iteration.run;
 }
@@ -1874,7 +1880,7 @@ describe("morningLoop", () => {
         );
       });
 
-      it("proceeds exactly as normal for a prerequisite naming an existing open issue, blocking it directly instead of handing the ticket back", async () => {
+      it("blocks the ticket on an existing open issue directly, keeping it ready-for-agent rather than opening a pull request or handing it back", async () => {
         const ports = fakePorts();
         const blocker = ports.tracker.addIneligibleTicket(PILOT, {
           number: issueNumber(9),
@@ -1892,14 +1898,38 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
-        assert.equal(pullRequestOf(report.iterations[0]), FakeRepoHost.RUN_PULL_REQUEST);
+        assert.deepEqual(ports.repoHost.pullRequests, []);
         assert.equal(ports.tracker.discoveredTickets.length, 0);
-        assert.equal(report.iterations[0]?.kind, "finished");
+        assert.equal(report.iterations[0]?.kind, "blocked-on-existing");
+        assert.equal(ports.tracker.carriesLabel(ticket, READY_FOR_AGENT_LABEL), true);
+        assert.equal(
+          ports.tracker.handbacks.some((entry) => entry.ticket.number === ticket.number),
+          false,
+        );
         const comment = ports.tracker.comments.find(
           (entry) => entry.ticket.number === ticket.number,
         );
         assert.match(comment?.comment ?? "", /Blocked on nadav-alon\/pilot#9 until it closes\./);
         assert.doesNotMatch(comment?.comment ?? "", /blocking discovery/);
+      });
+
+      it("discards the branch of a run blocked on an existing issue, even though it committed", async () => {
+        const ports = fakePorts();
+        ports.tracker.addIneligibleTicket(PILOT, { number: issueNumber(9), title: "The widget port" });
+        ran(ports, {
+          commits: [commitSha("c0ffee1")],
+          discoveries: [
+            {
+              kind: "prerequisite",
+              title: "Needs the widget port first",
+              body: "Needs #9 done first.",
+            },
+          ],
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(blockedOnExisting(report.iterations[0])?.discard.kind, "discarded");
       });
 
       it("files only the first of two suggestions, reporting one dropped", async () => {

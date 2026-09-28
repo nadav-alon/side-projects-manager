@@ -22,6 +22,7 @@ import {
   ranNothing,
   type AppliedReview,
   type Attempt,
+  type BlockedOnExisting,
   type BudgetExhausted,
   type CutOff,
   type Failed,
@@ -744,6 +745,7 @@ export async function composeInvocationReport(
 function discoveryReportOf(iteration: IterationOutcome): DiscoveryReport | undefined {
   switch (iteration.kind) {
     case "discovery-blocked":
+    case "blocked-on-existing":
     case "finished":
     case "failed":
     case "reviewed":
@@ -792,16 +794,19 @@ function discoveredTicketRef(ticket: Ticket): string {
  * for a positive count of suggestions the cap dropped, one for a positive
  * count of files `/discoveries` dropped for not being valid JSON or naming an
  * unknown kind, and one per refused write, blocking or advisory alike. A
- * blocking discovery is always filed by a `discovery-blocked` iteration —
- * routing hands any other kind's run back as one instead of leaving it its
- * own kind, per CONTEXT.md's "Discovery" — so it has its own kind and
- * outcome said instead by that iteration's own line and Waiting-on-you entry,
- * and is left out here. Every other iteration reaching this function carries
- * advisory discoveries only, listed here the same way regardless of kind.
- * Alongside a refused write, either way, only what happened to the write
- * itself is said. A discovered ticket opened from a **Ready discovery**, and
- * so born `ready-for-agent`, says so, so the developer reading this line can
- * tell it skipped their triage.
+ * discovery that still blocks its run — `isBlockingFiledDiscovery` — is
+ * always filed by a `discovery-blocked` iteration instead — routing hands any
+ * other kind's run back as one instead of leaving it its own kind, per
+ * CONTEXT.md's "Discovery" — so it has its own kind and outcome said instead
+ * by that iteration's own line and Waiting-on-you entry, and is left out
+ * here. Every other iteration reaching this function carries only discoveries
+ * that did not block it — advisory ones, and a prerequisite that named an
+ * already-ticketed, still-open issue and blocked it directly instead of
+ * opening a new one, listed here the same way regardless of kind. Alongside a
+ * refused write, either way, only what happened to the write itself is said.
+ * A discovered ticket opened from a **Ready discovery**, and so born
+ * `ready-for-agent`, says so, so the developer reading this line can tell it
+ * skipped their triage.
  */
 function discoveryLines(
   iteration: { repo: RepoSlug; ticket: Ticket },
@@ -811,6 +816,20 @@ function discoveryLines(
   const landedOn =
     ticketReference(crossTarget ?? iteration.ticket);
   const filed = routing.filed.flatMap((filed) => {
+    if (filed.action === "blocked-on-existing") {
+      // Did not block — `isBlockingFiledDiscovery` says so — but it opened no
+      // ticket and posted no plain comment either: `fileDiscovery` already
+      // named the blocker in its own. Left out when another discovery in the
+      // same `routing` did block, though: that made this a `discovery-blocked`
+      // iteration, whose own line already names it — `blockingDiscoveryPhrases`
+      // reads this same `routing` there — so the two must not both say it.
+      if (routing.blocking.length > 0) {
+        return [];
+      }
+      return [
+        `- ${who}: blocked ${landedOn} on ${ticketReference(filed.blocker)} — ${filed.discovery.kind}, "${filed.discovery.title}"`,
+      ];
+    }
     if (isBlockingDiscoveryKind(filed.discovery.kind)) {
       return [];
     }
@@ -1105,7 +1124,8 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
  * The blocking discoveries a discovery-blocked run's own `routing` carries,
  * each as the phrase `describeIteration` and `discoveryBlockedWaitingLine`
  * both read: a correction or a prerequisite, filed — naming the discovered
- * ticket a prerequisite opened, and whether it was opened from a **Ready
+ * ticket a prerequisite opened, or the existing issue a prerequisite blocked
+ * directly instead, and whether an opened one was opened from a **Ready
  * discovery** — or refused, naming why. Worded the same neutral way
  * `discoveryLines` words a refused write, rather than naming the tracker:
  * `routeRunDiscoveries` refuses every discovery the same way when it cannot
@@ -1113,6 +1133,12 @@ function sizeFlag(ticket: Ticket): Size | "unsized" {
  * from `routing` rather than recomputing the ticket's own hand-back wording,
  * so the summary and the ticket comment can drift in phrasing without
  * drifting in fact.
+ *
+ * A `"blocked-on-existing"` prerequisite is named here too, even though it is
+ * not itself why the run stopped — `isBlockingFiledDiscovery` says as much —
+ * because it only rides alongside one that is: a run whose sole blocking
+ * discovery blocked on an existing issue never reaches a `discovery-blocked`
+ * iteration at all, per `BlockedOnExisting`.
  */
 function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
   const filed = routing.filed.flatMap((filed) =>
@@ -1120,7 +1146,9 @@ function blockingDiscoveryPhrases(routing: DiscoveryRouting): string[] {
       ? [
           filed.action === "discovered-ticket"
             ? `a ${filed.discovery.kind}, opened as ${discoveredTicketRef(filed.ticket)}`
-            : `a ${filed.discovery.kind}`,
+            : filed.action === "blocked-on-existing"
+              ? `a ${filed.discovery.kind}, blocked on ${ticketReference(filed.blocker)}`
+              : `a ${filed.discovery.kind}`,
         ]
       : [],
   );
@@ -1266,6 +1294,11 @@ function waitingSection(
         }
         return [discoveryBlockedWaitingLine(iteration)];
       }
+      // Kept ready-for-agent, per CONTEXT.md's "Discovery": nothing here waits
+      // on the developer — the comment `fileDiscovery` already posted, and
+      // selection's own blocked-ticket skip, are the whole of it.
+      case "blocked-on-existing":
+        return [];
       case "finished": {
         // A finished run's own hand-back, covering the two cases a queued
         // review does not: a run that committed nothing, which has nothing to
@@ -1481,6 +1514,17 @@ function keptBranchNote(iteration: CutOff | BudgetExhausted): string {
     : "";
 }
 
+/**
+ * As `keptBranchNote`, for a `BlockedOnExisting` iteration: it never carries a
+ * `run` of its own — nothing else here needs it — so `branch` is read off the
+ * iteration directly instead.
+ */
+function keptBlockedBranchNote(iteration: BlockedOnExisting): string {
+  return iteration.discard.kind === "kept"
+    ? ` Its branch ${iteration.branch} could not be discarded: ${withoutTrailingStop(iteration.discard.reason)}.`
+    : "";
+}
+
 /** `discard`'s salvage, when it is one — undefined for every other `Discard` kind. */
 function salvageOf(discard: Discard): Salvaged | undefined {
   return discard.kind === "salvaged" ? discard : undefined;
@@ -1561,7 +1605,23 @@ function describeIteration(iteration: IterationOutcome): string {
       const blocking = blockingDiscoveryClause(iteration.discoveryReport.routing);
       return `Worked ${iteration.repo}#${iteration.ticket.number}: the ticket is the problem, not the run — it filed ${blocking}.${transcriptNote(iteration.transcript)}`;
     }
+    case "blocked-on-existing": {
+      const on = blockedOnExistingRefs(iteration.discoveryReport.routing).join(", ");
+      return `Worked ${iteration.repo}#${iteration.ticket.number}: kept ${READY_FOR_AGENT_LABEL} — blocked on ${on} until it closes.${keptBlockedBranchNote(iteration)}${transcriptNote(iteration.transcript)}`;
+    }
   }
+}
+
+/**
+ * The existing issue, or issues, a `blocked-on-existing` iteration's own
+ * `routing` named — the ticket reference `fileDiscovery`'s own comment
+ * already carries, read back here rather than recomputed, per
+ * `blockingDiscoveryPhrases`'s own reasoning.
+ */
+function blockedOnExistingRefs(routing: DiscoveryRouting): string[] {
+  return routing.filed.flatMap((filed) =>
+    filed.action === "blocked-on-existing" ? [ticketReference(filed.blocker)] : [],
+  );
 }
 
 /**

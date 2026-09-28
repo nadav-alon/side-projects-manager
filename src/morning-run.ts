@@ -28,6 +28,7 @@ import type {
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
+  RunGaveUp,
   RunLimitRefused,
   RunModelRefused,
   RunOutcome,
@@ -111,6 +112,7 @@ import {
   cutOffRunOutcome,
   type AheadOfGateFailure,
   type AppliedReview,
+  type BlockedOnExisting,
   type BudgetExhausted,
   type CutOff,
   type CutOffRun,
@@ -775,6 +777,18 @@ async function work(
     return routing.blocked;
   }
   const { routed } = routing;
+  // A prerequisite that named an already-ticketed, still-open issue blocked
+  // it directly rather than opening a new one — `routeOrBlock` never treats
+  // that as blocking, since the run itself is not the developer's problem —
+  // but per CONTEXT.md's "Discovery" the ticket it named is not handed back
+  // for it either: it keeps ready-for-agent, and the comment `fileDiscovery`
+  // already posted is the only word it gets. This is the one call site
+  // `routed.target` is ever this run's own ticket rather than a cross target,
+  // so it is the one place that still has to check.
+  if (routed !== undefined && blockedOnExistingFiled(routed)) {
+    await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
+    return blockedOnExistingOutcome(ports, checkout, run, routed);
+  }
   if (run.kind === "finished") {
     await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     return withDiscoveries(await handOver(ports, run, checkout, selection.ticket), routed);
@@ -817,6 +831,47 @@ function withDiscoveries<T extends { discoveryReport?: DiscoveryReport }>(
       routing: routed.routing,
       ...(routed.crossTarget !== undefined && { crossTarget: routed.crossTarget }),
     },
+  };
+}
+
+/**
+ * Whether `routed` carries a prerequisite that named an already-ticketed,
+ * still-open issue and blocked it directly — `"blocked-on-existing"`, per
+ * `FiledDiscovery` — landed on the run's own ticket rather than a cross
+ * target. `routeOrBlock` already answers `{ routed }` rather than `{ blocked
+ * }` for one of these, since it is not blocking; this is what tells that
+ * apart from a run that filed nothing of the kind at all, which still goes on
+ * to finish or give up exactly as before.
+ */
+function blockedOnExistingFiled(routed: RoutedDiscoveries): boolean {
+  return (
+    routed.crossTarget === undefined &&
+    routed.routing.filed.some((filed) => filed.action === "blocked-on-existing")
+  );
+}
+
+/**
+ * The outcome for an implementation run whose ticket `blockedOnExistingFiled`
+ * found blocked on an existing issue instead: its branch discarded exactly as
+ * a `DiscoveryBlocked` run's is, whatever it committed or would otherwise
+ * have finished, and no call to `handBack` — the ticket keeps ready-for-agent,
+ * per CONTEXT.md's "Discovery", and the comment `fileDiscovery` already
+ * posted naming the blocker is the only word it gets.
+ */
+async function blockedOnExistingOutcome(
+  ports: MorningLoopPorts,
+  checkout: Checkout,
+  run: RunFinished | RunGaveUp,
+  routed: RoutedDiscoveries,
+): Promise<BlockedOnExisting> {
+  const discard = await discardBranch(ports.repoHost, checkout, run);
+  return {
+    kind: "blocked-on-existing",
+    discoveryReport: { routing: routed.routing },
+    tokensUsed: run.tokensUsed,
+    ...(run.transcript !== undefined && { transcript: run.transcript }),
+    branch: run.branch,
+    discard,
   };
 }
 

@@ -333,9 +333,11 @@ kind decides whether it is blocking: a correction (the ticket is wrong) and a pr
 needs something nobody ticketed) are blocking; a clarification (the ticket is ambiguous, and how the
 agent read it) and a suggestion (work worth doing that the ticket does not cover, by changing behavior
 or removing a real hazard — a future bug, a doc false enough to mislead) are advisory. A prerequisite
-naming an issue that is already ticketed and still open is the one exception, routed as below, and goes
-on same as an advisory kind would: the run it was filed against is not stopped, and the target it names
-keeps `ready-for-agent`. Never a **Nit**: touching only names, glossary entries, prose, comments or
+naming an issue that is already ticketed and still open is the one exception, routed as below: the run
+it was filed against still stops exactly as any other blocking prerequisite's does — no pull request
+opens and its branch is discarded, whatever it committed or would otherwise have finished — but the
+target it names is not handed back for it, keeping `ready-for-agent` instead, with only the comment
+naming the blocker. Never a **Nit**: touching only names, glossary entries, prose, comments or
 wrapping is never a discovery of any kind, whichever kind a run is tempted to file it as. Always about
 the ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the pull
 request. A blocking discovery stops the run and hands its ticket back; an advisory one rides alongside a
