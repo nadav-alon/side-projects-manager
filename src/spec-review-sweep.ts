@@ -222,7 +222,12 @@ interface RepoClosingPullRequest {
  * other repo `subIssues` lives in. A cross-repo sub-issue's own pull
  * request usually lives in that sub-issue's repo rather than
  * `supertaskRepo`, so both are read and `subIssueLine` matches against
- * the union.
+ * the union. A failed read of `supertaskRepo` itself still refuses the
+ * supertask, exactly as it always has; a failed read of any other repo
+ * falls back to no pull requests from it, so one repo a sweep can't read
+ * — its credential, say — costs only that repo's disclosure, the same
+ * bare bullet a sub-issue with no pull request at all gets, rather than
+ * refusing every supertask that happens to share it.
  */
 async function closingPullRequestsForSupertask(
   ports: SpecReviewSweepPorts,
@@ -240,6 +245,13 @@ async function closingPullRequestsForSupertask(
       if (read === undefined) {
         read = ports.repoHost.listPullRequestsClosingIssues(repo);
         closingPullRequestReads.set(repo, read);
+      }
+      if (repo !== supertaskRepo) {
+        try {
+          return (await read).map((pullRequest) => ({ repo, pullRequest }));
+        } catch {
+          return [];
+        }
       }
       return (await read).map((pullRequest) => ({ repo, pullRequest }));
     }),
