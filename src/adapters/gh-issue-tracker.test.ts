@@ -1447,6 +1447,31 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
         {
           number: 42,
           title: "Rebase #7",
+          body: `Rebase ${PULL_REQUEST}, the pull request opened for #7.`,
+        },
+      ]),
+    );
+
+    const { issues } = await ghIssueTracker().listOpenIssues(PILOT);
+
+    assert.equal(issues.length, 1);
+    assert.deepEqual(issues[0]?.ticket.pullRequest, {
+      kind: "rebase",
+      url: PULL_REQUEST,
+    });
+  });
+
+  /**
+   * `rebase.yml` reaches a project only at scaffold time, so a project
+   * scaffolded before "draft" was dropped from the line still writes it.
+   */
+  it("still carries the pull request when the body names it draft", async (t) => {
+    await recordingGh(
+      t,
+      listing([
+        {
+          number: 42,
+          title: "Rebase #7",
           body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
         },
       ]),
@@ -1473,7 +1498,7 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
         {
           number: 10,
           title: "Rebase #7",
-          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+          body: `Rebase ${PULL_REQUEST}, the pull request opened for #7.`,
         },
       ]),
     );
@@ -1493,7 +1518,7 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
         {
           number: 9,
           title: "Rebase #7",
-          body: `Apply the review on not-a-url, the draft pull request opened for #7.\n\nRebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+          body: `Apply the review on not-a-url, the draft pull request opened for #7.\n\nRebase ${PULL_REQUEST}, the pull request opened for #7.`,
         },
       ]),
     );
@@ -1513,17 +1538,17 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
         {
           number: 9,
           title: "Rebase #7",
-          body: "Rebase not-a-url, the draft pull request opened for #7.",
+          body: "Rebase not-a-url, the pull request opened for #7.",
         },
         {
           number: 10,
           title: "Rebase #7",
-          body: `Rebase ${PULL_REQUEST}, the draft pull request opened for it.`,
+          body: `Rebase ${PULL_REQUEST}, the pull request opened for it.`,
         },
         {
           number: 11,
           title: "Rebase #7",
-          body: `Rebasing ${PULL_REQUEST}, the draft pull request opened for #7.`,
+          body: `Rebasing ${PULL_REQUEST}, the pull request opened for #7.`,
         },
       ]),
     );
@@ -1548,7 +1573,7 @@ describe("ghIssueTracker.listOpenIssues — rebase tickets", () => {
         {
           number: 42,
           title: "Rebase #7",
-          body: `Part of #7.\n\nRebase ${PULL_REQUEST}, the draft pull request opened for #7.`,
+          body: `Part of #7.\n\nRebase ${PULL_REQUEST}, the pull request opened for #7.`,
         },
       ]),
     );

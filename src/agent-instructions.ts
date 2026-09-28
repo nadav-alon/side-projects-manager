@@ -52,8 +52,9 @@ export function agentInstructions(project: ProjectDescription): string {
       " an agent to work every open review thread on it. See" +
       " `.github/workflows/apply-review.yml`.",
     "## Rebase",
-    "Commenting `/rebase` on a draft pull request opens a ticket asking an" +
-      " agent to rebase it, and labels the pull request `needs-rebase`. See" +
+    "Commenting `/rebase` on an open pull request, draft or ready, opens a" +
+      " ticket asking an agent to rebase it — leaving its draft state as it" +
+      " was — and labels the pull request `needs-rebase`. See" +
       " `.github/workflows/rebase.yml`.",
   ].join("\n\n")}\n`;
 }

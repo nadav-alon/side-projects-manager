@@ -246,10 +246,10 @@ export function sizeLabelOf(labels: Iterable<string>): SizeLabel | undefined {
  * The pull request a ticket is bound to, and why: `review` binds a review
  * ticket to the draft it was opened to review; `apply-review` binds an
  * apply-review ticket to the draft the apply-review workflow asks the loop to
- * revise; `rebase` binds a rebase ticket to the draft the `/rebase` workflow
- * asks the loop to put back on top of its base branch. Each names the one
- * thing a run cannot work out for itself, since the sandbox's clone has no
- * GitHub remote to infer it from.
+ * revise; `rebase` binds a rebase ticket to the pull request, draft or ready,
+ * the `/rebase` workflow asks the loop to put back on top of its base
+ * branch. Each names the one thing a run cannot work out for itself, since
+ * the sandbox's clone has no GitHub remote to infer it from.
  *
  * `kind` names the three pull-request-bound kinds explicitly, rather than
  * `Exclude<TicketKind, "implementation">`: a spec review ticket is not bound
