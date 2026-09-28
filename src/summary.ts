@@ -37,6 +37,7 @@ import {
   type Rebased,
   type Reviewed,
   type SpecReviewed,
+  type UniformFilesTouched,
 } from "./iteration-outcome.ts";
 import { modelProblem } from "./model-resolution.ts";
 import { sizeProblem } from "./size-resolution.ts";
@@ -1467,7 +1468,7 @@ function waitingOnFailure(iteration: Attempt & Failed): string[] {
       ];
     case "uniform-files-touched":
       return [
-        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`,
+        `- ${repo}#${ticket.number}: relabelled ${READY_FOR_HUMAN_LABEL} — ${uniformFilesTouchedPhrase(failure)}`,
       ];
     case "unusable-size-label": {
       const { problem, fix } = sizeProblem(failure);
@@ -1792,6 +1793,15 @@ function timelineUnreadableWaitingLine(repo: RepoSlug, pullRequest: PullRequestU
 }
 
 /**
+ * The phrase a uniform-files-touched failure reads as: shared by
+ * `waitingOnFailure` and `stoppedBecause`, so a wording change touches one
+ * place.
+ */
+function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
+  return `its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`;
+}
+
+/**
  * The Waiting-on-you line for what the merge gate left the developer to do
  * themselves: merge a pull request it left for human review, or check
  * turboable itself for one whose timeline it could not read. Undefined for
@@ -2044,7 +2054,7 @@ function stoppedBecause(iteration: Attempt & Failed): string {
     case "handover-failed":
       return `${which} finished on ${workLocation(failure)}, but its work could not be handed over: ${withoutTrailingStop(failure.reason)}. ${now}`;
     case "uniform-files-touched":
-      return `${which} finished, but its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened. ${now}`;
+      return `${which} finished, but ${uniformFilesTouchedPhrase(failure)}. ${now}`;
     case "model-refused":
       return `${which} was not worked, because ${withoutTrailingStop(modelProblem(iteration.ticket, failure).problem)}. ${now}`;
     case "conflicting-model-labels":
