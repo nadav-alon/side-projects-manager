@@ -8536,7 +8536,7 @@ describe("morningLoop", () => {
     it("proposes a fix, naming the stale files, when the harness reports drift", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.harness.stale = ["docs/agents/coding-standards.md"];
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
 
       const report = await morningLoop(ports);
 
@@ -8544,7 +8544,7 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.repoHost.proposals[0]?.paths, [
         "docs/agents/coding-standards.md",
       ]);
-      assert.match(report.message, /Uniform sync:.*proposed in/);
+      assert.match(report.message, /Uniform sync sweep:.*proposed in/);
     });
 
     it("carries a refused clone into the summary, without failing the invocation", async (t) => {
@@ -8557,13 +8557,13 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(report.outcome, "dry-queue");
-      assert.match(report.message, /Uniform sync:.*refused: the repo host is down/);
+      assert.match(report.message, /Uniform sync sweep:.*refused: the repo host is down/);
     });
 
     it("sweeps once even though nothing is eligible", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
-      ports.harness.stale = ["docs/agents/coding-standards.md"];
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
 
       const report = await morningLoop(ports);
 

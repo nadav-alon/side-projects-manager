@@ -32,11 +32,11 @@ export class FakeHarness implements Harness {
   readonly syncs: Checkout[] = [];
 
   /**
-   * What the next `sync` reports as stale, and copies. None, unless a test
+   * What the next `sync` reports as changed, and copies. None, unless a test
    * says otherwise — the same default a checkout already in step would read
    * as.
    */
-  stale: string[] = [];
+  changed: string[] = [];
 
   async install(directory: Checkout, instructions: string): Promise<Scaffold> {
     this.installs.push({ directory, instructions });
@@ -48,6 +48,6 @@ export class FakeHarness implements Harness {
 
   async sync(directory: Checkout): Promise<string[]> {
     this.syncs.push(directory);
-    return [...this.stale];
+    return [...this.changed];
   }
 }

@@ -24,7 +24,7 @@ describe("uniformSyncSweep", () => {
   it("answers unchanged, and proposes nothing, once the checkout already matched", async () => {
     const repoHost = new FakeRepoHost();
     const harness = new FakeHarness();
-    harness.stale = [];
+    harness.changed = [];
 
     const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT);
 
@@ -35,7 +35,7 @@ describe("uniformSyncSweep", () => {
   it("proposes the stale files, naming them, once the checkout had drifted", async () => {
     const repoHost = new FakeRepoHost();
     const harness = new FakeHarness();
-    harness.stale = ["docs/agents/coding-standards.md"];
+    harness.changed = ["docs/agents/coding-standards.md"];
 
     const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT);
 
@@ -74,7 +74,7 @@ describe("uniformSyncSweep", () => {
   it("answers refused rather than throwing when proposing the fix fails", async (t) => {
     const repoHost = new FakeRepoHost();
     const harness = new FakeHarness();
-    harness.stale = ["docs/agents/coding-standards.md"];
+    harness.changed = ["docs/agents/coding-standards.md"];
     t.mock.method(repoHost, "commitAndPropose", async () => {
       throw new Error("push rejected");
     });

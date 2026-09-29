@@ -31,7 +31,7 @@ const SYNC_BRANCH = branch("uniform-sync");
 
 /**
  * A uniform sync sweep of one registered project (`CONTEXT.md`'s "Uniform
- * sync sweep", issue #1027): clones it, asks `harness.sync` to bring its
+ * sync sweep"): clones it, asks `harness.sync` to bring its
  * uniform files back in step with the manager's own, and — only when
  * something had actually drifted — proposes the result rather than pushing it
  * straight to the checkout's own branch, the same as scaffolding a project
@@ -52,15 +52,15 @@ export async function uniformSyncSweep(
 ): Promise<UniformSyncSweepOutcome> {
   try {
     const checkout = await ports.repoHost.clone(repo);
-    const stale = await ports.harness.sync(checkout);
-    if (stale.length === 0) {
+    const changed = await ports.harness.sync(checkout);
+    if (changed.length === 0) {
       return { repo, result: { kind: "unchanged" } };
     }
     const result = await ports.repoHost.commitAndPropose(
       checkout,
       SYNC_MESSAGE,
-      syncBody(stale),
-      stale,
+      syncBody(changed),
+      changed,
       SYNC_BRANCH,
     );
     return { repo, result };
@@ -70,9 +70,9 @@ export async function uniformSyncSweep(
 }
 
 /** What the pull request says drifted, named rather than left to the diff. */
-function syncBody(stale: string[]): string {
+function syncBody(changed: string[]): string {
   return [
     "This project's copy of the uniform files had drifted from the manager's own. Brought back in step:",
-    ...stale.map((file) => `- \`${file}\``),
+    ...changed.map((file) => `- \`${file}\``),
   ].join("\n") + "\n";
 }
