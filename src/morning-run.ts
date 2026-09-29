@@ -307,10 +307,9 @@ export async function morningLoop(
   let specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
   // Populated from `uniformSyncSweepAll` below: one uniform sync sweep per
   // non-paused, non-manager registered project, run once for the whole
-  // invocation rather than once per scan the way the two sweeps above are —
-  // whether a project's uniform files are stale says nothing about ticket
-  // selection, and a clone is too heavy a thing to repeat on every scan an
-  // invocation makes.
+  // invocation rather than once per scan — whether a project's uniform files
+  // are stale says nothing about ticket selection, and a clone is too heavy a
+  // thing to repeat on every scan an invocation makes.
   let uniformSyncSweepOutcomes: UniformSyncSweepOutcome[] = [];
   // Populated from `worked.freed()` once `worked` exists: every ticket a dead
   // in-flight invocation had recorded, freed for this invocation to select.
