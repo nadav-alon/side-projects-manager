@@ -36,18 +36,17 @@ interface WorkflowDocument {
 }
 
 /**
- * Every rule #1048 wants a checked-in-script step held to, checked against
- * one workflow file's own YAML: a job that runs a path under
+ * Every rule a checked-in-script step is held to, checked against one
+ * workflow file's own YAML: a job that runs a path under
  * `.github/workflows/scripts/` needs an `actions/checkout` step earlier in
- * the same job, and `contents: read` among the permissions that apply to
- * it — its own `permissions:` block if it has one, the workflow's
+ * the same job, and permissions that grant it read access to the repo's
+ * contents — its own `permissions:` block if it has one, the workflow's
  * otherwise, the same way GitHub Actions itself resolves a job's effective
  * permissions (a job's block replaces the workflow's rather than adding to
  * it).
  *
- * Anything else about the YAML — actionlint-style linting — is out of scope
- * (#1048); a file that doesn't parse to a mapping of jobs is treated as
- * having none.
+ * Nothing else about the YAML is checked; a file that doesn't parse to a
+ * mapping of jobs is treated as having none.
  */
 export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFailure[] {
   const document = parseYaml(source.content) as WorkflowDocument | null;
