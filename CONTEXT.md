@@ -310,9 +310,9 @@ _Avoid_: estimate label, cost label, points, effort
 
 **ready-for-human**:
 The triage label a ticket carries once the loop has stopped working on it. Also the label a
-turboable ticket's pull request carries when the manager's one merge pass finds it not mergeable,
-not green, or carrying a declined thread — see Turboable; there it stops the manager rather than the
-loop, and moves nothing off ready-for-agent, since a pull request has no triage state of its own.
+turboable ticket's pull request carries when the manager's one merge pass finds it not mergeable or
+not green — see Turboable; there it stops the manager rather than the loop, and moves nothing off
+ready-for-agent, since a pull request has no triage state of its own.
 Always written in full, as the tracker spells it.
 _Avoid_: needs-human, manual, blocked (a blocked ticket is something else)
 
@@ -694,8 +694,9 @@ between its own start and its death now falls outside its own span too, and coun
 a turboable ticket's apply-review
 ticket finishes, or its review comes back clean (see **Clean review**) — whichever happens, and
 only the one that does — one pass: the manager merges the pull request, with a merge commit, and
-deletes its branch, but only if it is mergeable, green and carries no declined threads; otherwise
-it labels the pull request `ready-for-human` and stops — no retry, no re-rebase. Stacked pull
+deletes its branch, but only if it is mergeable and green; otherwise it labels the pull request
+`ready-for-human` and stops — no retry, no re-rebase. A declined thread, open or not, is never
+asked about. Stacked pull
 requests are out of scope until that is specced. When the gate declines a grant — the label came too
 late, or fell inside a run span — the summary names its own reason in the review sentence, so the
 developer knows their grant did not count; an implementation ticket that never carried `turboable` at
