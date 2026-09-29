@@ -1218,7 +1218,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 1,
       unanswered: 1,
-      declinedOpen: 1,
     });
   });
 
@@ -1239,7 +1238,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 0,
       declinedSince: 1,
       unanswered: 1,
-      declinedOpen: 1,
     });
   });
 
@@ -1256,7 +1254,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
@@ -1276,7 +1273,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 1,
-      declinedOpen: 0,
     });
   });
 
@@ -1296,7 +1292,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
@@ -1317,7 +1312,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
@@ -1337,7 +1331,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 0,
       declinedSince: 1,
       unanswered: 0,
-      declinedOpen: 1,
     });
   });
 
@@ -1356,7 +1349,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 0,
       declinedSince: 0,
       unanswered: 1,
-      declinedOpen: 0,
     });
   });
 
@@ -1390,7 +1382,6 @@ describe("reading a pull request's apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 

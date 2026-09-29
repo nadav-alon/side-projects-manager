@@ -40,7 +40,6 @@ describe("FakeRepoHost apply-review answers", () => {
       appliedSince: 1,
       declinedSince: 1,
       unanswered: 1,
-      declinedOpen: 1,
     });
   });
 
@@ -54,7 +53,6 @@ describe("FakeRepoHost apply-review answers", () => {
       appliedSince: 0,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
