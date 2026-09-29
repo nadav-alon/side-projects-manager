@@ -10,7 +10,7 @@ import { callWith, recordingGh, valueOf } from "../testing/index.ts";
 
 const run = promisify(execFile);
 
-/** `.github/workflows/rebase.yml`'s embedded shell, extracted so it can run outside Actions. */
+/** The script `.github/workflows/rebase.yml`'s main step runs. */
 const SCRIPT = path.join(
   import.meta.dirname,
   "..",
