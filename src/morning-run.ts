@@ -55,6 +55,7 @@ import {
   REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
+  isBlocked,
   isRebaseTicket,
   isReviewTicket,
   isSpecReviewTicket,
@@ -2088,12 +2089,22 @@ async function runApplyReview(
     return infrastructureFailure(error);
   }
   if (before.unanswered === 0) {
+    // No sandbox runs on this branch, so there is no fresh `routed` to read a
+    // `Blocked on:` off — including on a retry right after `finishApplyReview`
+    // itself failed to demote one. `implementation.openBlockers` (`isBlocked`)
+    // reports the same fact independently of this call: it still counts the
+    // edge an earlier pass's `blockOnIfOpen` added, for as long as the
+    // blocker stays open.
+    const implementation = await implementationTicketFor(ports.tracker, ticket).catch(
+      () => undefined,
+    );
     return finishApplyReview(
       ports,
       ticket,
       { kind: "applied-review" },
       mergeGateContext,
       before.declinedOpen,
+      implementation !== undefined && isBlocked(implementation) ? implementation : undefined,
     );
   }
 
