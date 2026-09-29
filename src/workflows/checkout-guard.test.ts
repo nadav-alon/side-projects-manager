@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 
+import { checkout } from "../ports/checkout.ts";
 import {
   CHECKOUT_GUARD_REASONS,
   checkoutGuardFailures,
@@ -9,8 +10,8 @@ import {
   type WorkflowSource,
 } from "./checkout-guard.ts";
 
-/** The checkout root, from `src/workflows` or its built `dist/workflows`. */
-const CHECKOUT_ROOT = path.join(import.meta.dirname, "..", "..");
+/** This repo's own checkout, from `src/workflows` or its built `dist/workflows`. */
+const REPO_CHECKOUT = checkout(path.join(import.meta.dirname, "..", ".."));
 
 /** A minimal workflow: one job, one `steps` list, everything else filled in around it. */
 function workflow(
@@ -131,7 +132,7 @@ describe("checkoutGuardFailures", () => {
 
 describe("repoWorkflowSources", () => {
   it("finds no job across this repo's own workflows that runs a checked-in script unguarded", async () => {
-    const sources = await repoWorkflowSources(CHECKOUT_ROOT);
+    const sources = await repoWorkflowSources(REPO_CHECKOUT);
 
     assert.ok(sources.length > 0);
     assert.deepEqual(sources.flatMap(checkoutGuardFailures), []);

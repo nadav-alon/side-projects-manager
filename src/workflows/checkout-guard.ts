@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { parse as parseYaml } from "yaml";
 
+import type { Checkout } from "../ports/checkout.ts";
+
 /** One workflow file's own source, however it was read. */
 export interface WorkflowSource {
   /** The workflow's path relative to the repo root — named in a failure. */
@@ -116,9 +118,9 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
   return failures;
 }
 
-/** Every `.github/workflows/*.yml` file's own source, read from `root`. */
-export async function repoWorkflowSources(root: string): Promise<WorkflowSource[]> {
-  const dir = path.join(root, ".github", "workflows");
+/** Every `.github/workflows/*.yml` file's own source, read from `checkout`. */
+export async function repoWorkflowSources(checkout: Checkout): Promise<WorkflowSource[]> {
+  const dir = path.join(checkout, ".github", "workflows");
   const entries = await readdir(dir, { withFileTypes: true });
   const sources: WorkflowSource[] = [];
   for (const entry of entries) {
