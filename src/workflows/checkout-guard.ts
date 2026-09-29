@@ -10,11 +10,17 @@ export interface WorkflowSource {
   content: string;
 }
 
+/** The one-source-of-truth wording for each way a job can break the rules below. */
+export const CHECKOUT_GUARD_REASONS = {
+  noCheckout: "runs a checked-in script with no earlier actions/checkout step",
+  noContentsRead: 'runs a checked-in script without "contents: read" among its permissions',
+} as const;
+
 /** A job whose checked-in script step breaks one of the rules below. */
 export interface CheckoutGuardFailure {
   workflow: string;
   job: string;
-  reason: string;
+  reason: (typeof CHECKOUT_GUARD_REASONS)[keyof typeof CHECKOUT_GUARD_REASONS];
 }
 
 const SCRIPT_UNDER_WORKFLOWS = /\.github\/workflows\/scripts\/\S+/;
@@ -77,6 +83,9 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
   const failures: CheckoutGuardFailure[] = [];
 
   for (const [jobId, job] of Object.entries(jobs)) {
+    const fail = (reason: CheckoutGuardFailure["reason"]) =>
+      failures.push({ workflow: source.path, job: jobId, reason });
+
     let checkedOut = false;
     let runsScript = false;
 
@@ -88,11 +97,7 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
       if (step.run !== undefined && SCRIPT_UNDER_WORKFLOWS.test(step.run)) {
         runsScript = true;
         if (!checkedOut) {
-          failures.push({
-            workflow: source.path,
-            job: jobId,
-            reason: "runs a checked-in script with no earlier actions/checkout step",
-          });
+          fail(CHECKOUT_GUARD_REASONS.noCheckout);
           break;
         }
       }
@@ -104,11 +109,7 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
 
     const permissions = job.permissions ?? document?.permissions;
     if (!grantsContentsRead(permissions)) {
-      failures.push({
-        workflow: source.path,
-        job: jobId,
-        reason: 'runs a checked-in script without "contents: read" among its permissions',
-      });
+      fail(CHECKOUT_GUARD_REASONS.noContentsRead);
     }
   }
 

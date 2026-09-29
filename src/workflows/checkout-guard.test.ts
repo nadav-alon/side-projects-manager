@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { checkoutGuardFailures, repoWorkflowSources, type WorkflowSource } from "./checkout-guard.ts";
+import {
+  CHECKOUT_GUARD_REASONS,
+  checkoutGuardFailures,
+  repoWorkflowSources,
+  type WorkflowSource,
+} from "./checkout-guard.ts";
 
 /** The checkout root, from `src/workflows` or its built `dist/workflows`. */
 const CHECKOUT_ROOT = path.join(import.meta.dirname, "..", "..");
@@ -38,7 +43,7 @@ describe("checkoutGuardFailures", () => {
       {
         workflow: "example.yml",
         job: "demo",
-        reason: "runs a checked-in script with no earlier actions/checkout step",
+        reason: CHECKOUT_GUARD_REASONS.noCheckout,
       },
     ]);
   });
@@ -52,7 +57,7 @@ describe("checkoutGuardFailures", () => {
       {
         workflow: "example.yml",
         job: "demo",
-        reason: "runs a checked-in script with no earlier actions/checkout step",
+        reason: CHECKOUT_GUARD_REASONS.noCheckout,
       },
     ]);
   });
@@ -64,7 +69,7 @@ describe("checkoutGuardFailures", () => {
       {
         workflow: "example.yml",
         job: "demo",
-        reason: 'runs a checked-in script without "contents: read" among its permissions',
+        reason: CHECKOUT_GUARD_REASONS.noContentsRead,
       },
     ]);
   });
@@ -125,7 +130,7 @@ describe("checkoutGuardFailures", () => {
       {
         workflow: "example.yml",
         job: "demo",
-        reason: 'runs a checked-in script without "contents: read" among its permissions',
+        reason: CHECKOUT_GUARD_REASONS.noContentsRead,
       },
     ]);
   });
