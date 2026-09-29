@@ -224,6 +224,16 @@ export class FakeRepoHost implements RepoHost {
     return checkout(`${FakeRepoHost.MANAGED_LOCATION}/${repo}`);
   }
 
+  /** What `hasUncommittedChanges` answers, for any paths. None dirty, unless a test says otherwise. */
+  uncommittedChanges: (paths: string[]) => boolean = () => false;
+
+  async hasUncommittedChanges(
+    _directory: Checkout,
+    paths: string[],
+  ): Promise<boolean> {
+    return this.uncommittedChanges(paths);
+  }
+
   async commitAndPush(
     directory: Checkout,
     message: string,

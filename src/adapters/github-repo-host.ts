@@ -121,6 +121,13 @@ export function githubRepoHost(
       });
     },
 
+    async hasUncommittedChanges(
+      directory: Checkout,
+      paths: string[],
+    ): Promise<boolean> {
+      return hasChanges(directory, paths);
+    },
+
     async commitAndPush(
       directory: Checkout,
       message: string,

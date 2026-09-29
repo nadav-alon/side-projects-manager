@@ -395,6 +395,72 @@ describe("publishing to a checkout the developer already had", () => {
   });
 });
 
+describe("checking a checkout for uncommitted changes", () => {
+  it("answers false when none of the named paths differ from HEAD", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      false,
+    );
+  });
+
+  it("answers true for an unstaged edit to a named path", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot, edited\n");
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a staged edit to a named path", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot, edited\n");
+    await run("git", ["-C", directory, "add", "AGENTS.md"]);
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a named path that is untracked", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("ignores a dirty path the caller did not name", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", [
+      "AGENTS.md",
+      "seed.md",
+    ]);
+    await writeFile(path.join(directory, "half-finished.ts"), "// mine\n");
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      false,
+    );
+  });
+});
+
 describe("finding the checkout", () => {
   it("reuses a clone of this project already in the managed location", async () => {
     const directory = await checkout();
