@@ -4717,6 +4717,69 @@ describe("morningLoop", () => {
         );
       });
 
+      it("merges once checks that read pending settle green within the wait", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const reads = ["pending", "pending", "green"] as const;
+        let read = 0;
+        ports.repoHost.checksStatus = () => reads[Math.min(read++, reads.length - 1)] ?? "green";
+
+        const report = await morningLoop(ports);
+
+        assert.equal(read, 3);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+        const outcome = report.iterations[0];
+        assert.equal(outcome?.kind === "applied-review" ? outcome.merge?.kind : undefined, "merged");
+      });
+
+      it("leaves the pull request ready-for-human when checks that read pending settle failing", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const reads = ["pending", "red"] as const;
+        let read = 0;
+        ports.repoHost.checksStatus = () => reads[Math.min(read++, reads.length - 1)] ?? "red";
+
+        const report = await morningLoop(ports);
+
+        assert.equal(read, 2);
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "checks failing" },
+        );
+      });
+
+      it("stops reading checks three minutes after the first pending read, and posts no rebase or apply-review", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        let read = 0;
+        ports.repoHost.checksStatus = () => {
+          read += 1;
+          return "pending";
+        };
+
+        await morningLoop(ports);
+
+        assert.equal(read, 1 + (3 * 60) / 15);
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(ports.repoHost.comments, []);
+      });
+
+      it("reads checks once when the first read is already settled", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        let read = 0;
+        ports.repoHost.checksStatus = () => {
+          read += 1;
+          return "red";
+        };
+
+        await morningLoop(ports);
+
+        assert.equal(read, 1);
+      });
+
       it("labels the pull request ready-for-human instead of merging when its checks are red", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);

@@ -121,7 +121,7 @@ second such ticket from that run's own discoveries, so unreviewed work never cha
 Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run
 starts, per `CONTEXT.md`'s "Turboable". It lets the manager merge that ticket's pull request on a
 turbo project once the ticket's apply-review ticket finishes, provided the pull request is also
-mergeable and green; otherwise the manager labels it `ready-for-human` instead.
+mergeable and green — checks still running are waited on for at most 3 minutes; otherwise the manager labels it `ready-for-human` instead.
 
 | Label       | Meaning                                                                                            |
 | ----------- | --------------------------------------------------------------------------------------------------- |
