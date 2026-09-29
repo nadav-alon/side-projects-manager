@@ -118,13 +118,13 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
   return failures;
 }
 
-/** Every `.github/workflows/*.yml` file's own source, read from `checkout`. */
+/** Every `.github/workflows/*.yml` or `*.yaml` file's own source, read from `checkout`. */
 export async function repoWorkflowSources(checkout: Checkout): Promise<WorkflowSource[]> {
   const dir = path.join(checkout, ".github", "workflows");
   const entries = await readdir(dir, { withFileTypes: true });
   const sources: WorkflowSource[] = [];
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".yml")) {
+    if (!entry.isFile() || !/\.ya?ml$/.test(entry.name)) {
       continue;
     }
     sources.push({

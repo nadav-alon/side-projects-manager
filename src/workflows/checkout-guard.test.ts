@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
@@ -136,5 +138,25 @@ describe("repoWorkflowSources", () => {
 
     assert.ok(sources.length > 0);
     assert.deepEqual(sources.flatMap(checkoutGuardFailures), []);
+  });
+
+  it("picks up a .yaml workflow and fails it the same way as a .yml one", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "checkout-guard-"));
+    const dir = path.join(root, ".github", "workflows");
+    await mkdir(dir, { recursive: true });
+    const { content } = workflow([RUNS_SCRIPT]);
+    await writeFile(path.join(dir, "example.yaml"), content);
+    await writeFile(path.join(dir, "notes.txt"), content);
+
+    const sources = await repoWorkflowSources(checkout(root));
+
+    assert.deepEqual(
+      sources.map((source) => source.path),
+      [path.join(".github", "workflows", "example.yaml")],
+    );
+    assert.deepEqual(
+      sources.flatMap(checkoutGuardFailures).map((failure) => failure.reason),
+      [CHECKOUT_GUARD_REASONS.noCheckout],
+    );
   });
 });
