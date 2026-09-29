@@ -274,6 +274,35 @@ describe("proposing a scaffold to a project that predates the manager", () => {
       "seed.md",
     ]);
   });
+
+  it("updates a still-open proposal on a second call rather than failing", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v1\n");
+    await propose(directory, ["AGENTS.md"]);
+
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v2\n");
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    assert.deepEqual(await pushedFiles(directory, "origin/harness"), [
+      "AGENTS.md",
+      "seed.md",
+    ]);
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "show",
+      "origin/harness:AGENTS.md",
+    ]);
+    assert.equal(stdout, "# pilot v2\n");
+    const { stdout: current } = await run("git", [
+      "-C",
+      directory,
+      "branch",
+      "--show-current",
+    ]);
+    assert.equal(current.trim(), "main");
+  });
 });
 
 describe("publishing a scaffold", () => {
