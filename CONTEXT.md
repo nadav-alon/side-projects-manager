@@ -691,17 +691,16 @@ ticket run more than once keeps only its latest run's span (see **Run span**), a
 grant is no longer covered once that ticket runs again; and a span a crash left open reads as ended
 at its own `startedAt` (see **Run span**), so a `turboable` grant that crashed run itself made
 between its own start and its death now falls outside its own span too, and counts as consent. Once
-a turboable ticket's apply-review
-ticket finishes, or its review comes back clean (see **Clean review**) — whichever happens, and
-only the one that does — one pass: the manager merges the pull request, with a merge commit, and
-deletes its branch, but only if it is mergeable and green; otherwise it labels the pull request
-`ready-for-human` and stops — no retry, no re-rebase. A declined thread, open or not, is never
-asked about. Stacked pull
-requests are out of scope until that is specced. When the gate declines a grant — the label came too
-late, or fell inside a run span — the summary names its own reason in the review sentence, so the
-developer knows their grant did not count; an implementation ticket that never carried `turboable` at
-all, that the gate could not find, or that carried no run span reads as ordinary, silent, ready for
-review, the same as on a project that isn't turbo, since there is no grant to report. See ADR 0009.
+a turboable ticket's apply-review ticket finishes, or its review comes back clean (see **Clean
+review**) — whichever happens, and only the one that does — one pass: the manager merges the pull
+request, with a merge commit, and deletes its branch, but only if it is mergeable and green;
+otherwise it labels the pull request `ready-for-human` and stops — no retry, no re-rebase. A
+declined thread, open or not, is never asked about. Stacked pull requests are out of scope until
+that is specced. When the gate declines a grant — the label came too late, or fell inside a run
+span — the summary names its own reason in the review sentence, so the developer knows their grant
+did not count; an implementation ticket that never carried `turboable` at all, that the gate could
+not find, or that carried no run span reads as ordinary, silent, ready for review, the same as on a
+project that isn't turbo, since there is no grant to report. See ADR 0009.
 _Avoid_: auto-merge, merge flag, greenlight
 
 ### Budget
