@@ -114,4 +114,44 @@ describe("rebase.sh", () => {
       `body=Opened https://github.com/${REPO}/issues/99 to rebase.`,
     );
   });
+
+  it("opens a rebase ticket when /rebase is commented directly on a ready pull request", async (t: TestContext) => {
+    const gh = await recordingGh(
+      t,
+      fakeGh({
+        prCommand: "view",
+        prResponse: JSON.stringify({
+          number: 7,
+          state: "OPEN",
+          body: "Closes #42",
+          url: `https://github.com/${REPO}/pull/7`,
+        }),
+        newIssueUrl: `https://github.com/${REPO}/issues/100`,
+      }),
+    );
+
+    await runRebaseScript({
+      GH_TOKEN: "test-token",
+      REPO,
+      ISSUE_NUMBER: "7",
+      ISSUE_BODY: "",
+      IS_PULL_REQUEST: "true",
+      COMMENT_ID: "777",
+      COMMENT_BODY: "/rebase",
+    });
+
+    const calls = await gh.calls();
+    const created = callWith(calls, "issue", "create");
+    assert.equal(valueOf(created, "--title"), "Rebase #7");
+    assert.equal(
+      valueOf(created, "--body"),
+      `Rebase https://github.com/${REPO}/pull/7, the pull request opened for #42.`,
+    );
+
+    const replied = callWith(calls, "api", `repos/${REPO}/issues/7/comments`);
+    assert.equal(
+      valueOf(replied, "-f"),
+      `body=Opened https://github.com/${REPO}/issues/100 to rebase.`,
+    );
+  });
 });
