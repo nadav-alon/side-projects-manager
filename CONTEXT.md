@@ -249,8 +249,10 @@ Once per invocation, ahead of the first iteration, every non-paused, non-manager
 is cloned and asked to bring its **Uniform files** back in step with the manager's own; a project
 found already in step is left untouched. One whose copy had drifted gets the fix proposed as a pull
 request, the same way scaffolding a project that predates the manager is — never pushed straight to
-the project's own branch. A clone or a push the repo host refuses is carried into the summary rather
-than failing the invocation.
+the project's own branch. A checkout already carrying an uncommitted edit to one of the **Uniform
+files** is refused rather than synced, so the developer's own edit is never overwritten. A clone or a
+push the repo host refuses, or a checkout refused this way, is carried into the summary rather than
+failing the invocation.
 _Avoid_: uniform sync, sync sweep
 
 **Agent instructions**:
