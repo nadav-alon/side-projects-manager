@@ -1812,6 +1812,19 @@ function readyPhrase(merge: MergeGate | undefined): string {
 }
 
 /**
+ * Appended to `appliedReviewSummary`'s clean-outcome sentence when the run
+ * demoted `pullRequest`'s own closing reference: empty where `demoted` is
+ * absent, since most iterations demote nothing. Read `readyPhrase` first —
+ * whoever merges `pullRequest` needs to know it no longer closes `demoted`
+ * before they act on "now ready for review" or a turbo merge.
+ */
+function demotedNote(pullRequest: PullRequestUrl, demoted: Ticket | undefined): string {
+  return demoted === undefined
+    ? ""
+    : ` ${pullRequest} no longer closes ${ticketReference(demoted)}: a still-open \`Blocked on:\` demoted its \`Closes\` line to \`Part of\`.`;
+}
+
+/**
  * What the merge gate left for the developer, appended to
  * `appliedReviewSummary` and `reviewSummary`'s own clean-outcome sentence:
  * empty on a project that is not turbo, since it never asks at all. A
@@ -1905,7 +1918,7 @@ function mergeGateWaitingLine(
  * finish the ticket off.
  */
 function appliedReviewSummary(iteration: AppliedReviewIteration): string {
-  const { repo, ticket, notClosed, notLabelled, merge } = iteration;
+  const { repo, ticket, notClosed, notLabelled, merge, demoted } = iteration;
   const pullRequest = ticket.pullRequest.url;
   const applied = `Applied review on ${repo}#${ticket.number}`;
   switch (notClosed?.kind) {
@@ -1914,10 +1927,12 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
       const labelled = notLabelled === undefined
         ? ready
         : `${ready} ${notLabelledNote(pullRequest, APPLIED_REVIEW_LABEL, notLabelled)}.`;
-      return `${labelled}${mergeGateNote(pullRequest, merge)}`;
+      return `${labelled}${demotedNote(pullRequest, demoted)}${mergeGateNote(pullRequest, merge)}`;
     }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
+    case "demote-failed":
+      return `${applied}: ${answered(iteration)}, but a still-open Blocked on: could not be taken off ${pullRequest}'s closing reference: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: change its "Closes #${notClosed.ticket.number}." to "Part of #${notClosed.ticket.number}.", then mark it ready and close the ticket yourself.`;
     case "ready-failed":
       return `${applied}: ${answered(iteration)}, but it could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: mark ${pullRequest} ready and close the ticket yourself.`;
     case "close-failed":
@@ -1944,6 +1959,8 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       return mergeGateWaitingLine(repo, pullRequest, merge) ?? `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
+    case "demote-failed":
+      return `${still} — a still-open Blocked on: could not be taken off ${pullRequest}'s closing reference: ${withoutTrailingStop(notClosed.error)}; change its "Closes #${notClosed.ticket.number}." to "Part of #${notClosed.ticket.number}.", then mark it ready and close the ticket yourself`;
     case "ready-failed":
       return `${still} — ${pullRequest} could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}; mark it ready and close the ticket yourself`;
     case "close-failed":

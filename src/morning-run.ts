@@ -55,6 +55,7 @@ import {
   REVIEWED_LABEL,
   hasAnnouncedOn,
   isApplyReviewTicket,
+  isBlocked,
   isRebaseTicket,
   isReviewTicket,
   isSpecReviewTicket,
@@ -788,7 +789,7 @@ async function work(
   // already posted is the only word it gets. This is the one call site
   // `routed.target` is ever this run's own ticket rather than a cross target,
   // so it is the one place that still has to check.
-  if (routed !== undefined && blockedOnExistingFiled(routed)) {
+  if (routed !== undefined && blockedOnExistingOwnTicket(routed)) {
     await retireSalvage(ports, checkout, salvages, selection.ticket, run.branch);
     return blockedOnExistingOutcome(ports, checkout, run, routed);
   }
@@ -843,21 +844,28 @@ function withDiscoveries<T extends { discoveryReport?: DiscoveryReport }>(
 /**
  * Whether `routed` carries a prerequisite that named an already-ticketed,
  * still-open issue and blocked it directly — `"blocked-on-existing"`, per
- * `FiledDiscovery` — landed on the run's own ticket rather than a cross
- * target. `routeOrBlock` already answers `{ routed }` rather than `{ blocked
- * }` for one of these, since it is not blocking; this is what tells that
- * apart from a run that filed nothing of the kind at all, which still goes on
- * to finish or give up exactly as before.
+ * `FiledDiscovery`. Landed on `routed.target`, whatever ticket that is: the
+ * run's own for an implementation run, or the implementation ticket it
+ * cross-targets for a pull-request ticket's run. `routeOrBlock` already
+ * answers `{ routed }` rather than `{ blocked }` for one of these, since it is
+ * not blocking; this is what tells that apart from a run that filed nothing of
+ * the kind at all, which still goes on to finish or give up exactly as before.
  */
-function blockedOnExistingFiled(routed: RoutedDiscoveries): boolean {
-  return (
-    routed.crossTarget === undefined &&
-    routed.routing.filed.some((filed) => filed.action === "blocked-on-existing")
-  );
+function leavesBlockedOnExisting(routed: RoutedDiscoveries): boolean {
+  return routed.routing.filed.some((filed) => filed.action === "blocked-on-existing");
 }
 
 /**
- * The outcome for an implementation run whose ticket `blockedOnExistingFiled`
+ * As `leavesBlockedOnExisting`, narrowed to a `Blocked on:` landed on the
+ * run's own ticket rather than a cross target — true only for an
+ * implementation run, whose target is its own ticket.
+ */
+function blockedOnExistingOwnTicket(routed: RoutedDiscoveries): boolean {
+  return routed.crossTarget === undefined && leavesBlockedOnExisting(routed);
+}
+
+/**
+ * The outcome for an implementation run whose ticket `blockedOnExistingOwnTicket`
  * found blocked on an existing issue instead: its branch discarded exactly as
  * a `DiscoveryBlocked` run's is, whatever it committed or would otherwise
  * have finished, and no call to `handBack` — the ticket keeps ready-for-agent,
@@ -2081,12 +2089,22 @@ async function runApplyReview(
     return infrastructureFailure(error);
   }
   if (before.unanswered === 0) {
+    // No sandbox runs on this branch, so there is no fresh `routed` to read a
+    // `Blocked on:` off — including on a retry right after `finishApplyReview`
+    // itself failed to demote one. `implementation.openBlockers` (`isBlocked`)
+    // reports the same fact independently of this call: it still counts the
+    // edge an earlier pass's `blockOnIfOpen` added, for as long as the
+    // blocker stays open.
+    const implementation = await implementationTicketFor(ports.tracker, ticket).catch(
+      () => undefined,
+    );
     return finishApplyReview(
       ports,
       ticket,
       { kind: "applied-review" },
       mergeGateContext,
       before.declinedOpen,
+      implementation !== undefined && isBlocked(implementation) ? implementation : undefined,
     );
   }
 
@@ -2183,6 +2201,7 @@ async function runApplyReview(
     },
     mergeGateContext,
     answers.declinedOpen,
+    routed !== undefined && leavesBlockedOnExisting(routed) ? routed.target : undefined,
   );
   return withDiscoveries(finished, routed);
 }
@@ -2194,11 +2213,22 @@ async function runApplyReview(
  * ticket is reported on the iteration and leaves the ticket open; a refused
  * label is reported too, but by then the ticket has already closed.
  *
+ * `stillBlocked`, when given, is the implementation ticket a `Blocked on:` the
+ * run left still open belongs to (per CONTEXT.md's "Discovery"): the pull
+ * request's own closing reference for it is demoted from `Closes #N.` to
+ * `Part of #N.` first, so merging it does not close a ticket whose criterion
+ * behind the blocker is still unmet. A failure demoting it is reported the
+ * same way a failure marking the pull request ready is, and for the same
+ * reason: the ticket must not close on the strength of a stale reference this
+ * call could not rewrite.
+ *
  * On a turbo project, once the ticket has closed, this also runs the merge
  * gate (`mergeGate`) — `declinedOpen` and `mergeGateContext.implementation`
  * both read by the caller before the ticket closed — and folds its own
  * verdict in as `merge` — never when closing itself failed, the same as the
- * label above.
+ * label above. The merge gate is unaffected by `stillBlocked`: a pull request it
+ * merges no longer closes the ticket either, per the demotion above, so
+ * merging it is still the right outcome.
  */
 async function finishApplyReview(
   ports: MorningLoopPorts,
@@ -2206,8 +2236,19 @@ async function finishApplyReview(
   applied: AppliedReview,
   mergeGateContext: MergeGateContext | undefined,
   declinedOpen: number,
+  stillBlocked?: Ticket,
 ): Promise<AppliedReview> {
   const pullRequest = ticket.pullRequest.url;
+  if (stillBlocked !== undefined) {
+    try {
+      await ports.repoHost.demoteClosingReference(pullRequest, stillBlocked);
+    } catch (error: unknown) {
+      return {
+        ...applied,
+        notClosed: { kind: "demote-failed", error: errorMessage(error), ticket: stillBlocked },
+      };
+    }
+  }
   try {
     await ports.repoHost.markPullRequestReady(pullRequest);
   } catch (error: unknown) {
@@ -2219,7 +2260,7 @@ async function finishApplyReview(
   try {
     await ports.tracker.closeApplyReviewTicket(
       ticket,
-      appliedReviewComment(pullRequest, applied.answers),
+      appliedReviewComment(pullRequest, applied.answers, stillBlocked),
     );
   } catch (error: unknown) {
     return {
@@ -2232,7 +2273,11 @@ async function finishApplyReview(
     pullRequest,
     APPLIED_REVIEW_LABEL,
   );
-  const closed: AppliedReview = { ...applied, ...labelled };
+  const closed: AppliedReview = {
+    ...applied,
+    ...labelled,
+    ...(stillBlocked !== undefined && { demoted: stillBlocked }),
+  };
   if (mergeGateContext === undefined) {
     return closed;
   }

@@ -702,10 +702,22 @@ export interface AppliedReview {
   answers?: { applied: number; declined: number };
   /**
    * Set when the loop could not finish the ticket off: the answers could not
-   * be read, the pull request could not be marked ready, or the ticket could
-   * not be closed. Either way the ticket is still ready-for-agent.
+   * be read, a still-open `Blocked on:` the run left could not be demoted off
+   * the pull request's closing reference, the pull request could not be
+   * marked ready, or the ticket could not be closed. Either way the ticket is
+   * still ready-for-agent.
    */
   notClosed?: ApplyReviewNotClosed;
+  /**
+   * The implementation ticket whose closing reference on the pull request was
+   * demoted from `Closes #N.` to `Part of #N.`, set once that demotion
+   * succeeds — never on a `notClosed` outcome, `demote-failed` included: a
+   * demotion that failed left nothing to report here. Read by the close
+   * comment and the summary, so a developer who merges the pull request
+   * knows it will not close `demoted` the way the pull request's own body
+   * used to promise.
+   */
+  demoted?: Ticket;
   /**
    * Set when the ticket closed but `APPLIED_REVIEW_LABEL` could not be added
    * to its pull request. As `Reviewed.notLabelled`: the last step, tried only
@@ -766,11 +778,18 @@ export type MergeGate =
    */
   | { kind: "left-for-human"; reason: string; notLabelled?: NotLabelled };
 
-/** Why an apply-review iteration left its ticket open, and the error that stopped it. */
-export interface ApplyReviewNotClosed {
-  kind: "check-failed" | "ready-failed" | "close-failed";
-  error: string;
-}
+/**
+ * Why an apply-review iteration left its ticket open, and the error that
+ * stopped it. `demote-failed` alone names `ticket`, the implementation
+ * ticket whose `Closes #N.` the run could not rewrite to `Part of #N.`: the
+ * one extra fact the developer needs to finish the job by hand — which line
+ * to change, on which ticket, before marking the pull request ready.
+ */
+export type ApplyReviewNotClosed =
+  | { kind: "check-failed"; error: string }
+  | { kind: "demote-failed"; error: string; ticket: Ticket }
+  | { kind: "ready-failed"; error: string }
+  | { kind: "close-failed"; error: string };
 
 /**
  * A rebase ticket's own iteration whose pull request no longer needs a

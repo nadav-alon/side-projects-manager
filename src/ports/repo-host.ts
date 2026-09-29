@@ -678,6 +678,23 @@ export interface RepoHost {
    */
   markPullRequestReady(pullRequest: PullRequestUrl): Promise<void>;
   /**
+   * Rewrites `pullRequest`'s own closing reference for `ticket` from `Closes
+   * #N.` to `Part of #N.`, so merging the pull request no longer closes the
+   * ticket. What `finishApplyReview` (`morning-run.ts`) calls once an
+   * apply-review run leaves a `Blocked on:` still open — a prerequisite
+   * discovery that named an already-ticketed, still-open issue, per
+   * CONTEXT.md's "Discovery" — since the criterion behind it is not met, and
+   * `ticket` has to stay open until whatever blocks it clears.
+   *
+   * A pull request whose body already carries `Part of #N.` is left alone —
+   * an earlier pass already demoted it. Anything else — a closing line
+   * `gh`'s own normalizing changed, or a body edited by hand since — throws
+   * rather than returning quietly: silently carrying on as if this succeeded
+   * is exactly how a pull request closes `ticket` unnoticed, the failure mode
+   * this call exists to prevent.
+   */
+  demoteClosingReference(pullRequest: PullRequestUrl, ticket: Ticket): Promise<void>;
+  /**
    * Posts `body` as a comment on `pullRequest`.
    *
    * Kept as narrow as the write verbs above it: turbo mode (CONTEXT.md's

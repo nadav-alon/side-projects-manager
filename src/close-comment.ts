@@ -1,6 +1,6 @@
 import type { Rebased } from "./iteration-outcome.ts";
-import type { PullRequestResolution, PullRequestUrl } from "./ports/index.ts";
-import { NEEDS_REBASE_LABEL } from "./ports/index.ts";
+import type { PullRequestResolution, PullRequestUrl, Ticket } from "./ports/index.ts";
+import { NEEDS_REBASE_LABEL, ticketReference } from "./ports/index.ts";
 
 /**
  * What a pull request ticket is told when its own pull request is already
@@ -36,16 +36,28 @@ export function pullRequestResolutionPhrase(
  * applied and declined, or that none was left unanswered, and that the pull
  * request is now ready for review. Without counts it never claims no run
  * happened: an earlier run whose ticket was left open may have answered them.
+ *
+ * `demoted`, when given, names the implementation ticket whose `Closes #N.`
+ * on `pullRequest` was just rewritten to `Part of #N.`: the closing comment
+ * is the one place that tells whoever merges the pull request it will not
+ * close `demoted` the way its body used to promise.
  */
 export function appliedReviewComment(
   pullRequest: PullRequestUrl,
   answers: { applied: number; declined: number } | undefined,
+  demoted?: Ticket,
 ): string {
   const what =
     answers === undefined
       ? `The morning loop found no review thread on ${pullRequest} left unanswered, so there was nothing left to apply.`
       : `The morning loop applied the review on ${pullRequest}: ${answers.applied} applied, ${answers.declined} declined. Every thread has a reply saying which, and why.`;
-  return [what, `${pullRequest} is marked ready for review.`].join("\n\n");
+  const lines = [what, `${pullRequest} is marked ready for review.`];
+  if (demoted !== undefined) {
+    lines.push(
+      `${pullRequest} no longer closes ${ticketReference(demoted)}: its \`Closes\` line was demoted to \`Part of\`, since a \`Blocked on:\` this run left is still open.`,
+    );
+  }
+  return lines.join("\n\n");
 }
 
 /**

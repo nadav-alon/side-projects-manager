@@ -1570,6 +1570,65 @@ describe("marking a pull request ready for review", () => {
   });
 });
 
+describe("demoting a pull request's closing reference", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+  const TICKET: Ticket = {
+    repo: PILOT,
+    number: issueNumber(12),
+    title: "Cut a release",
+  };
+
+  /** A `gh` that answers `pr view --json body` with `body`, for `pr edit` to be checked against. */
+  const reportingBody = (body: string) =>
+    `if [ "$2" = view ]; then cat <<'JSON'\n${JSON.stringify({ body })}\nJSON\nfi`;
+
+  it("rewrites the ticket's closing line to a non-closing reference", async (t) => {
+    const gh = await recordingGh(
+      t,
+      reportingBody(
+        ["Closes #12.", "", "Implemented by the morning loop."].join("\n"),
+      ),
+    );
+
+    await githubRepoHost().demoteClosingReference(PULL_REQUEST, TICKET);
+
+    assert.equal(
+      valueOf(callWith(await gh.calls(), "edit"), "--body"),
+      ["Part of #12.", "", "Implemented by the morning loop."].join("\n"),
+    );
+  });
+
+  it("throws, rather than closing silently on merge, when the body carries neither line", async (t) => {
+    const gh = await recordingGh(t, reportingBody("Some other body entirely."));
+
+    await assert.rejects(
+      githubRepoHost().demoteClosingReference(PULL_REQUEST, TICKET),
+      /body carries neither/,
+    );
+
+    assert.equal(callWith(await gh.calls(), "edit"), undefined);
+  });
+
+  it("leaves a body already demoted alone, rather than doubling up", async (t) => {
+    const gh = await recordingGh(t, reportingBody("Part of #12."));
+
+    await githubRepoHost().demoteClosingReference(PULL_REQUEST, TICKET);
+
+    assert.equal(callWith(await gh.calls(), "edit"), undefined);
+  });
+
+  it("throws naming the pull request when gh answers with something outside the declared shape", async (t) => {
+    await recordingGh(t, `if [ "$2" = view ]; then echo 'not json'; fi`);
+
+    await assert.rejects(
+      githubRepoHost().demoteClosingReference(PULL_REQUEST, TICKET),
+      new RegExp(`gh pr view ${PULL_REQUEST}: did not return JSON`),
+    );
+  });
+});
+
 describe("posting a comment on a pull request", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",

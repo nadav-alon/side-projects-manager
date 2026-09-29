@@ -4791,6 +4791,156 @@ describe("morningLoop", () => {
         assert.match(handback?.comment ?? "", /implementation ticket, nadav-alon\/pilot#7/);
         assert.equal(report.iterations[0]?.kind, "discovery-blocked");
       });
+
+      it("demotes the pull request's closing reference and closes the apply-review ticket normally when a Blocked on: lands on an existing open issue", async () => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: applyReview } = queuedWithImplementation(
+          ports,
+          "apply-review",
+        );
+        const blocker = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            0,
+            "declined",
+            "cutting the release needs the widget port first",
+            DURING_THE_RUN,
+          );
+          return {
+            kind: "finished",
+            output: "answered",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
+              },
+            ],
+          };
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.equal(ports.tracker.discoveredTickets.length, 0);
+        assert.deepEqual(
+          ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket.number),
+          [applyReview.number],
+        );
+        assert.equal(ports.repoHost.demoted.length, 1);
+        assert.equal(ports.repoHost.demoted[0]?.pullRequest, PULL_REQUEST);
+        assert.equal(ports.repoHost.demoted[0]?.ticket.number, implementation.number);
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        const iteration = report.iterations[0];
+        assert.equal(iteration?.kind, "applied-review");
+        assert.equal(
+          iteration?.kind === "applied-review" ? iteration.demoted?.number : undefined,
+          implementation.number,
+        );
+        assert.match(
+          ports.tracker.closedApplyReviewTickets[0]?.comment ?? "",
+          new RegExp(`no longer closes.*${implementation.number}`),
+        );
+        assert.match(report.message, new RegExp(`no longer closes.*${implementation.number}`));
+      });
+
+      it("leaves the ticket open, and never marks the pull request ready, when a still-open Blocked on: cannot be demoted off it", async (t) => {
+        const ports = fakePorts();
+        queuedWithImplementation(ports, "apply-review");
+        const blocker = ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            0,
+            "declined",
+            "cutting the release needs the widget port first",
+            DURING_THE_RUN,
+          );
+          return {
+            kind: "finished",
+            output: "answered",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: `There is no widget port yet.\n\nBlocked on: #${blocker.number}.`,
+              },
+            ],
+          };
+        };
+        t.mock.method(ports.repoHost, "demoteClosingReference", async () => {
+          throw new Error("pull request is locked");
+        });
+
+        const report = await morningLoop(ports);
+
+        assert.equal(report.iterations[0]?.kind, "applied-review");
+        assert.match(report.message, /pull request is locked/);
+        assert.deepEqual(ports.tracker.closedApplyReviewTickets, []);
+        assert.deepEqual(ports.repoHost.readyMarked, []);
+      });
+
+      it("retries the demotion on the next pass, rather than closing on the stale reference, once every thread is already answered", async (t) => {
+        const ports = fakePorts();
+        const { implementation, pullRequestTicket: applyReview } = queuedWithImplementation(
+          ports,
+          "apply-review",
+        );
+        ports.tracker.addIneligibleTicket(PILOT, {
+          number: issueNumber(9),
+          title: "The widget port",
+        });
+        ports.sandbox.applyReviewResult = () => {
+          ports.repoHost.answerApplyReviewThread(
+            PULL_REQUEST,
+            0,
+            "declined",
+            "cutting the release needs the widget port first",
+            DURING_THE_RUN,
+          );
+          return {
+            kind: "finished",
+            output: "answered",
+            tokensUsed: tokenCount(0),
+            discoveries: [
+              {
+                kind: "prerequisite",
+                title: "Needs the widget port first",
+                body: "There is no widget port yet.\n\nBlocked on: #9.",
+              },
+            ],
+          };
+        };
+        const demote = t.mock.method(ports.repoHost, "demoteClosingReference", async () => {
+          throw new Error("pull request is locked");
+        });
+
+        await morningLoop(ports);
+        demote.mock.restore();
+        ports.clock = new FakeClock(new Date(FROZEN_NOW.getTime() + 24 * 60 * 60 * 1000));
+        const tomorrow = await morningLoop(ports);
+
+        // The retry finds every thread already answered, so the second pass
+        // never runs the sandbox again — this is the short-circuit path the
+        // first pass left the ticket to retry on.
+        assert.equal(ports.sandbox.applyReviews.length, 1);
+        assert.equal(ports.repoHost.demoted.length, 1);
+        assert.equal(ports.repoHost.demoted[0]?.ticket.number, implementation.number);
+        assert.deepEqual(
+          ports.tracker.closedApplyReviewTickets.map((closed) => closed.ticket.number),
+          [applyReview.number],
+        );
+        assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
+        assert.equal(tomorrow.iterations[0]?.kind, "applied-review");
+      });
     });
   });
 

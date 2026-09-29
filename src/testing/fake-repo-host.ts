@@ -117,6 +117,9 @@ export class FakeRepoHost implements RepoHost {
   /** Every pull request `markPullRequestReady` was called on, in order. */
   readonly readyMarked: PullRequestUrl[] = [];
 
+  /** Every pull request `demoteClosingReference` was called on, with the ticket it named, in order. */
+  readonly demoted: { pullRequest: PullRequestUrl; ticket: Ticket }[] = [];
+
   /** Every label added to a pull request, in the order `labelPullRequest` was called. */
   readonly labelled: { pullRequest: PullRequestUrl; label: PullRequestLabel }[] =
     [];
@@ -402,6 +405,13 @@ export class FakeRepoHost implements RepoHost {
 
   async markPullRequestReady(pullRequest: PullRequestUrl): Promise<void> {
     this.readyMarked.push(pullRequest);
+  }
+
+  async demoteClosingReference(
+    pullRequest: PullRequestUrl,
+    ticket: Ticket,
+  ): Promise<void> {
+    this.demoted.push({ pullRequest, ticket });
   }
 
   async labelPullRequest(

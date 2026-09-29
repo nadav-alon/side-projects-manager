@@ -466,6 +466,29 @@ export function githubRepoHost(
       await run("gh", ["pr", "ready", pullRequest]);
     },
 
+    async demoteClosingReference(
+      pullRequest: PullRequestUrl,
+      ticket: Ticket,
+    ): Promise<void> {
+      // Read back first, so a body already demoted is left alone rather than
+      // rewritten on `gh pr edit`'s own say-so.
+      const { stdout } = await run("gh", ["pr", "view", pullRequest, "--json", "body"]);
+      const where = `gh pr view ${pullRequest}`;
+      const payload = jsonIn(stdout, where);
+      const body = expectField(objectAt(payload, where).body, "string", "body", where);
+      const closing = closingLine(ticket);
+      const partOf = partOfLine(ticket);
+      if (body.includes(partOf)) {
+        return;
+      }
+      if (!body.includes(closing)) {
+        throw new Error(
+          `${where}: body carries neither ${JSON.stringify(closing)} nor ${JSON.stringify(partOf)}.`,
+        );
+      }
+      await run("gh", ["pr", "edit", pullRequest, "--body", body.replace(closing, partOf)]);
+    },
+
     async postComment(pullRequest: PullRequestUrl, body: string): Promise<void> {
       await run("gh", ["pr", "comment", pullRequest, "--body", body]);
     },
@@ -761,12 +784,7 @@ function parseApplyReviewAnswers(
 ): RawApplyReviewPullRequest {
   const where = `gh api graphql for ${pullRequest}`;
 
-  let response: unknown;
-  try {
-    response = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const response = jsonIn(stdout, where);
 
   const data = objectField(response, "data", where);
   const repository = objectField(data, "repository", where);
@@ -989,7 +1007,7 @@ export function pullRequestFrom(
  */
 function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string {
   const body = [
-    `Closes #${ticket.number}.`,
+    closingLine(ticket),
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It opens as a draft; the manager marks it ready once an apply-review pass on it finishes. Merging it is yours, unless its ticket is turboable, when the manager may merge it itself.",
@@ -998,6 +1016,20 @@ function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string
   return nits === undefined
     ? withGist
     : [withGist, "", NIT_SECTION_HEADING, nits].join("\n");
+}
+
+/** The line {@link pullRequestBody} opens with, naming `ticket` as what the pull request closes. */
+function closingLine(ticket: Ticket): string {
+  return `Closes #${ticket.number}.`;
+}
+
+/**
+ * What {@link closingLine} is rewritten to by {@link
+ * RepoHost.demoteClosingReference}: none of GitHub's nine closing keywords,
+ * so merging the pull request leaves `ticket` open.
+ */
+function partOfLine(ticket: Ticket): string {
+  return `Part of #${ticket.number}.`;
 }
 
 /** Whether `directory` has a local branch named `of`. */
@@ -1155,6 +1187,20 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
 }
 
 /**
+ * `stdout` parsed as JSON, naming `where` when it isn't valid JSON at all: a
+ * malformed response is a `gh` failure, not a repo host with nothing to say.
+ * Shared by every caller that reads a `gh` invocation's stdout down to a
+ * typed shape of its own.
+ */
+function jsonIn(stdout: string, where: string): unknown {
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+}
+
+/**
  * The raw items across every page `stdout` — a `gh api --paginate --slurp`
  * call — carries: one JSON array per page, wrapped by `--slurp` into an outer
  * array, flattened here into the one list a caller reads. Throws naming
@@ -1162,12 +1208,7 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
  * `gh` failure, not a repo host with zero items.
  */
 function paginatedArrayIn(stdout: string, where: string): unknown[] {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const payload = jsonIn(stdout, where);
   if (!Array.isArray(payload) || !payload.every(Array.isArray)) {
     throw new Error(`${where}: expected paginated arrays.`);
   }
@@ -1247,12 +1288,7 @@ function openPullRequestsFrom(
 ): OpenPullRequest[] {
   const where = `gh pr list for ${repo}`;
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const payload = jsonIn(stdout, where);
   if (!Array.isArray(payload)) {
     throw new Error(`${where}: expected an array.`);
   }
@@ -1303,12 +1339,7 @@ function closingPullRequestsFrom(
 ): ClosingPullRequest[] {
   const where = `gh pr list --state all for ${repo}`;
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const payload = jsonIn(stdout, where);
   if (!Array.isArray(payload)) {
     throw new Error(`${where}: expected an array.`);
   }
