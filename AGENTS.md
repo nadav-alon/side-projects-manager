@@ -4,10 +4,11 @@ Shared files for coding side projects: workflow, harnesses, agentic principles.
 
 ## Agent skills
 
-The files under `docs/agents/`, with `.github/workflows/apply-review.yml` and
-`.github/workflows/rebase.yml`, are also the uniform half of the harness (`UNIFORM_FILES`):
-`new-project` copies them byte for byte into every project it scaffolds. Editing one changes what
-every project reads, so keep them true of any repo — nothing in them may name this one.
+The files under `docs/agents/`, with `.github/workflows/apply-review.yml`,
+`.github/workflows/rebase.yml` and `.github/workflows/scripts/rebase.sh`, are also the uniform half
+of the harness (`UNIFORM_FILES`): `new-project` copies them byte for byte into every project it
+scaffolds. Editing one changes what every project reads, so keep them true of any repo — nothing in
+them may name this one.
 
 ### Coding standards
 
@@ -40,4 +41,4 @@ review thread on it. See `.github/workflows/apply-review.yml`.
 
 Commenting `/rebase` on an open pull request, draft or ready, opens a ticket asking an agent to
 rebase it — leaving its draft state as it was — and labels the pull request `needs-rebase`. See
-`.github/workflows/rebase.yml`.
+`.github/workflows/rebase.yml`, whose logic is `.github/workflows/scripts/rebase.sh`.

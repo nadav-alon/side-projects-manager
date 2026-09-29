@@ -42,11 +42,11 @@ export const APPLY_REVIEW_COMMENT = "/apply-review";
 /**
  * The bare comment the conflict sweep posts on a turbo project's conflicting
  * pull request, standing in for the developer typing `/rebase` themselves.
- * `.github/workflows/rebase.yml` matches a comment's trimmed body against
- * this exactly, so any marker or trailing note here would silently stop the
- * chain — a named constant beside {@link APPLY_REVIEW_COMMENT}, for the same
- * reason that one is named rather than spelled inline, keeps the manager's
- * spelling and the workflow's from drifting apart unnoticed. See
+ * `.github/workflows/scripts/rebase.sh` matches a comment's trimmed body
+ * against this exactly, so any marker or trailing note here would silently
+ * stop the chain — a named constant beside {@link APPLY_REVIEW_COMMENT}, for
+ * the same reason that one is named rather than spelled inline, keeps the
+ * manager's spelling and the workflow's from drifting apart unnoticed. See
  * `CONTEXT.md`'s "Conflict sweep" and ADR 0007.
  */
 export const REBASE_COMMENT = "/rebase";
@@ -260,7 +260,7 @@ export type PullRequestResolution = Exclude<PullRequestState, "open">;
 /**
  * GitHub's nine closing keywords — `close(s|d)`, `fix(es|ed)`, `resolve(s|d)`
  * — case-insensitive, starting at a word boundary, with an optional colon
- * before the `#`. Translated from the ERE `.github/workflows/rebase.yml`'s
+ * before the `#`. Translated from the ERE `.github/workflows/scripts/rebase.sh`'s
  * `closing_number` matches with `grep` (`CLOSING_KEYWORD`) — the copy that
  * reads a single pull request's body — so this and that reader agree on
  * every body. `[^\S\n]` rather than `\s`, to mirror `grep`'s `[[:space:]]`
@@ -268,7 +268,7 @@ export type PullRequestResolution = Exclude<PullRequestState, "open">;
  * processes a body one line at a time and can't either, but within a line it
  * matches more than plain spaces and tabs, including `\r`, `\f` and `\v`.
  *
- * `rebase.yml` also feeds `CLOSING_KEYWORD` to `jq`'s `test()` against a
+ * `rebase.sh` also feeds `CLOSING_KEYWORD` to `jq`'s `test()` against a
  * whole body at once (its "implementation ticket" branch), where a keyword
  * on one line *can* pair with a `#N` on the next — this function does not
  * reproduce that second, non-line-oriented copy. Both are the same shell
@@ -289,8 +289,8 @@ const CLOSING_KEYWORD =
  * same answer.
  *
  * What {@link RepoHost.listOpenPullRequests} reads a pull request's closed
- * ticket with, the same way `.github/workflows/rebase.yml` reads it in
- * shell, so a sweep built on the former never picks a pull request the
+ * ticket with, the same way `.github/workflows/scripts/rebase.sh` reads it
+ * in shell, so a sweep built on the former never picks a pull request the
  * latter would refuse.
  */
 export function closedTicketIn(body: string): IssueNumber | undefined {
@@ -344,17 +344,17 @@ export interface ClosingPullRequest {
 
 /**
  * How many pull requests {@link RepoHost.listPullRequestsClosingIssues} reads,
- * any state, newest first. `.github/workflows/rebase.yml` reads up to 500 in
- * the same place; this asks the same width for the same reason — a repo busy
- * enough to exceed it is not one a single `gh pr list` was ever going to
- * cover completely.
+ * any state, newest first. `.github/workflows/scripts/rebase.sh` reads up to
+ * 500 in the same place; this asks the same width for the same reason — a
+ * repo busy enough to exceed it is not one a single `gh pr list` was ever
+ * going to cover completely.
  */
 export const CLOSING_PULL_REQUEST_LIMIT = 500;
 
 /**
  * How many of a repo's open pull requests {@link RepoHost.listOpenPullRequests}
  * reads: the newest this many, by the repo host's own ordering, when a repo
- * has more open at once. `rebase.yml` reads up to 500 in the same place; this
+ * has more open at once. `rebase.sh` reads up to 500 in the same place; this
  * is the conflict sweep's own limit, not a promise to see every pull request
  * the workflow would. A repo with more than this many open truncates
  * silently, unlike `OPEN_ISSUE_READ_LIMIT` in `gh-issue-tracker.ts`, which
@@ -411,13 +411,13 @@ export class MergeabilityUnknown extends Error {
 
 /**
  * The label the `/rebase` workflow adds to the pull request it opens a
- * rebase ticket for (`.github/workflows/rebase.yml`, `AGENTS.md`), so that
- * pull request reads as not mergeable without touching its draft state.
+ * rebase ticket for (`.github/workflows/scripts/rebase.sh`, `AGENTS.md`), so
+ * that pull request reads as not mergeable without touching its draft state.
  * Declared here, beside {@link RepoHost.removeNeedsRebaseLabel}, the one
  * place that ever takes it back off, so the two agree on the label's name
- * rather than by coincidence. The workflow that adds the label
- * (`.github/workflows/rebase.yml`) and `agent-instructions.ts` still spell
- * it as their own literal.
+ * rather than by coincidence. The script that adds the label
+ * (`.github/workflows/scripts/rebase.sh`) and `agent-instructions.ts` still
+ * spell it as their own literal.
  */
 export const NEEDS_REBASE_LABEL = "needs-rebase";
 
@@ -777,8 +777,8 @@ export interface RepoHost {
    * and the ticket its body closes (see {@link closedTicketIn}).
    *
    * What the conflict sweep asks every project with, before every selection:
-   * the same closing-keyword definition `.github/workflows/rebase.yml` uses,
-   * so the sweep never picks a pull request the workflow would refuse.
+   * the same closing-keyword definition `.github/workflows/scripts/rebase.sh`
+   * uses, so the sweep never picks a pull request the workflow would refuse.
    */
   listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]>;
   /**

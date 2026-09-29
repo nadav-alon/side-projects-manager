@@ -24,6 +24,7 @@ export const UNIFORM_FILES = [
   "docs/agents/domain.md",
   ".github/workflows/apply-review.yml",
   ".github/workflows/rebase.yml",
+  ".github/workflows/scripts/rebase.sh",
 ] as const;
 
 /**

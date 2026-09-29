@@ -678,7 +678,7 @@ const APPLY_REVIEW_BODY =
  * the body carries. Unlike those two, its pull request need not be a draft —
  * `/rebase` works on either — so the line a freshly opened rebase ticket
  * carries does not say "draft". The `draft `-prefixed wording still matches
- * too: `rebase.yml` reaches a project only at scaffold time, so a project
+ * too: `rebase.sh` reaches a project only at scaffold time, so a project
  * scaffolded before this line dropped "draft" goes on writing it.
  */
 const REBASE_BODY =
