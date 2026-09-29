@@ -2245,7 +2245,7 @@ async function finishApplyReview(
     } catch (error: unknown) {
       return {
         ...applied,
-        notClosed: { kind: "demote-failed", error: errorMessage(error) },
+        notClosed: { kind: "demote-failed", error: errorMessage(error), ticket: leftUnmet },
       };
     }
   }
@@ -2260,7 +2260,7 @@ async function finishApplyReview(
   try {
     await ports.tracker.closeApplyReviewTicket(
       ticket,
-      appliedReviewComment(pullRequest, applied.answers),
+      appliedReviewComment(pullRequest, applied.answers, leftUnmet),
     );
   } catch (error: unknown) {
     return {
@@ -2273,7 +2273,11 @@ async function finishApplyReview(
     pullRequest,
     APPLIED_REVIEW_LABEL,
   );
-  const closed: AppliedReview = { ...applied, ...labelled };
+  const closed: AppliedReview = {
+    ...applied,
+    ...labelled,
+    ...(leftUnmet !== undefined && { demoted: leftUnmet }),
+  };
   if (mergeGateContext === undefined) {
     return closed;
   }

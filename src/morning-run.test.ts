@@ -4835,7 +4835,17 @@ describe("morningLoop", () => {
         assert.equal(ports.repoHost.demoted[0]?.pullRequest, PULL_REQUEST);
         assert.equal(ports.repoHost.demoted[0]?.ticket.number, implementation.number);
         assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
-        assert.equal(report.iterations[0]?.kind, "applied-review");
+        const iteration = report.iterations[0];
+        assert.equal(iteration?.kind, "applied-review");
+        assert.equal(
+          iteration?.kind === "applied-review" ? iteration.demoted?.number : undefined,
+          implementation.number,
+        );
+        assert.match(
+          ports.tracker.closedApplyReviewTickets[0]?.comment ?? "",
+          new RegExp(`no longer closes.*${implementation.number}`),
+        );
+        assert.match(report.message, new RegExp(`no longer closes.*${implementation.number}`));
       });
 
       it("leaves the ticket open, and never marks the pull request ready, when a still-open Blocked on: cannot be demoted off it", async (t) => {

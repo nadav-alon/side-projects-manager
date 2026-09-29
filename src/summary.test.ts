@@ -354,6 +354,36 @@ function appliedReviewCleanly(number: number): IterationOutcome {
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
 
+/** An apply-review ticket's own run that demoted a still-open Blocked on: off its pull request's closing reference before closing cleanly. */
+function appliedReviewDemoted(
+  number: number,
+  implementation: Ticket = implementationTicket(900),
+): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 0, declined: 1 },
+    demoted: implementation,
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
+/** An apply-review ticket's own run left ready-for-agent because a still-open Blocked on: could not be demoted off its pull request. */
+function appliedReviewDemoteFailed(
+  number: number,
+  implementation: Ticket = implementationTicket(900),
+): IterationOutcome {
+  const appliedReview: AppliedReview = {
+    kind: "applied-review",
+    review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
+    tokensUsed: tokenCount(500),
+    answers: { applied: 0, declined: 1 },
+    notClosed: { kind: "demote-failed", error: "pull request is locked", ticket: implementation },
+  };
+  return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
+}
+
 /** An apply-review ticket's own run that closed its ticket cleanly but could not label its pull request. */
 function appliedReviewButNotLabelled(number: number): IterationOutcome {
   const appliedReview: AppliedReview = {
@@ -868,6 +898,14 @@ describe("waitingSection", () => {
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — ready for review`,
       `- ${REPO}#184: ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself`,
+    ]);
+  });
+
+  it("tells the developer to demote the closing reference themselves under waiting on you when a still-open Blocked on: could not be taken off it", () => {
+    const lines = waitingLines([appliedReviewDemoteFailed(216)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}#216: still ready-for-agent — a still-open Blocked on: could not be taken off ${PULL_REQUEST}'s closing reference: pull request is locked; change its "Closes #900." to "Part of #900.", then mark it ready and close the ticket yourself`,
     ]);
   });
 
@@ -1692,6 +1730,24 @@ describe("summaryLine", () => {
     assert.equal(
       line,
       `Applied review on ${REPO}#213: 2 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} could not be labelled applied-review: the repo host refused the label; add the label yourself.`,
+    );
+  });
+
+  it("names the implementation ticket a still-open Blocked on: demoted the pull request's closing reference for", () => {
+    const line = summaryLine(facts([appliedReviewDemoted(214, implementationTicket(900))]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO}#214: 0 applied, 1 declined on ${PULL_REQUEST}, now ready for review. ${PULL_REQUEST} no longer closes ${REPO}#900: a still-open \`Blocked on:\` demoted its \`Closes\` line to \`Part of\`.`,
+    );
+  });
+
+  it("tells the developer to demote the closing reference themselves when a still-open Blocked on: could not be taken off it", () => {
+    const line = summaryLine(facts([appliedReviewDemoteFailed(215)]));
+
+    assert.equal(
+      line,
+      `Applied review on ${REPO}#215: 0 applied, 1 declined on ${PULL_REQUEST}, but a still-open Blocked on: could not be taken off ${PULL_REQUEST}'s closing reference: pull request is locked. Still ready-for-agent, and ${PULL_REQUEST} still a draft: change its "Closes #900." to "Part of #900.", then mark it ready and close the ticket yourself.`,
     );
   });
 
