@@ -10,6 +10,7 @@ on:
     types: [created]
 
 permissions:
+  contents: read
   issues: write
   pull-requests: write
 
@@ -33,6 +34,10 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/workflows/scripts
+
       - name: Resolve the pull request and act on it
         env:
           GH_TOKEN: ${{ github.token }}
