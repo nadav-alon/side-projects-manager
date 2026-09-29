@@ -537,16 +537,11 @@ export interface RepoHost {
   /**
    * Whether any of `paths` in the checkout at `directory` differs from what
    * it has committed — staged, unstaged or untracked.
-   *
-   * What a uniform sync sweep (`uniform-sync-sweep.ts`) asks, over
-   * `UNIFORM_FILES`, before ever calling `harness.sync`: `sync` writes
-   * straight into the checkout's working tree, unlike `commitAndPush` and
-   * `commitAndPropose` below, which only ever touch what they themselves
-   * commit. Without this check, a developer's own uncommitted edit to a
-   * uniform file sitting in that checkout when the sweep runs would be
-   * silently overwritten.
    */
-  hasUncommittedChanges(directory: Checkout, paths: string[]): Promise<boolean>;
+  hasUncommittedChanges(
+    directory: Checkout,
+    paths: readonly string[],
+  ): Promise<boolean>;
   /**
    * Commits `paths` in the checkout at `directory` and pushes, setting
    * upstream. A checkout where none of them changed is left alone.

@@ -123,7 +123,7 @@ export function githubRepoHost(
 
     async hasUncommittedChanges(
       directory: Checkout,
-      paths: string[],
+      paths: readonly string[],
     ): Promise<boolean> {
       return hasChanges(directory, paths);
     },
@@ -1064,7 +1064,7 @@ async function hasBranch(directory: Checkout, of: Branch): Promise<boolean> {
 /** Whether any of `paths` differs from what the checkout has committed. */
 async function hasChanges(
   directory: Checkout,
-  paths: string[],
+  paths: readonly string[],
 ): Promise<boolean> {
   const { stdout } = await run("git", [
     "-C",

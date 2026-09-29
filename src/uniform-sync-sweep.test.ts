@@ -69,7 +69,7 @@ describe("uniformSyncSweep", () => {
   it("checks the checkout's uniform files, not any dirty file, before syncing", async () => {
     const repoHost = new FakeRepoHost();
     const harness = new FakeHarness();
-    let asked: string[] = [];
+    let asked: readonly string[] = [];
     repoHost.uncommittedChanges = (paths) => {
       asked = paths;
       return false;

@@ -225,11 +225,11 @@ export class FakeRepoHost implements RepoHost {
   }
 
   /** What `hasUncommittedChanges` answers, for any paths. None dirty, unless a test says otherwise. */
-  uncommittedChanges: (paths: string[]) => boolean = () => false;
+  uncommittedChanges: (paths: readonly string[]) => boolean = () => false;
 
   async hasUncommittedChanges(
     _directory: Checkout,
-    paths: string[],
+    paths: readonly string[],
   ): Promise<boolean> {
     return this.uncommittedChanges(paths);
   }

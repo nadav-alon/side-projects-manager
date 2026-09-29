@@ -71,7 +71,7 @@ export async function uniformSyncSweep(
   try {
     const checkout = await ports.repoHost.clone(repo);
     if (
-      await ports.repoHost.hasUncommittedChanges(checkout, [...UNIFORM_FILES])
+      await ports.repoHost.hasUncommittedChanges(checkout, UNIFORM_FILES)
     ) {
       return { repo, result: { kind: "refused", error: DIRTY_CHECKOUT_ERROR } };
     }
