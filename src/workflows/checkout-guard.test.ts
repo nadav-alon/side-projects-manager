@@ -13,7 +13,10 @@ import {
 const CHECKOUT_ROOT = path.join(import.meta.dirname, "..", "..");
 
 /** A minimal workflow: one job, one `steps` list, everything else filled in around it. */
-function workflow(steps: string[], options: { permissions?: string } = {}): WorkflowSource {
+function workflow(
+  steps: string[],
+  options: { permissions?: string; jobPermissions?: string } = {},
+): WorkflowSource {
   return {
     path: "example.yml",
     content: [
@@ -23,6 +26,9 @@ function workflow(steps: string[], options: { permissions?: string } = {}): Work
       "jobs:",
       "  demo:",
       "    runs-on: ubuntu-latest",
+      ...(options.jobPermissions !== undefined
+        ? ["    permissions:", `      ${options.jobPermissions}`]
+        : []),
       "    steps:",
       ...steps.map((step) => `      ${step}`),
       "",
@@ -108,23 +114,10 @@ describe("checkoutGuardFailures", () => {
   });
 
   it("prefers a job's own permissions over the workflow's, the same way GitHub Actions resolves them", () => {
-    const source: WorkflowSource = {
-      path: "example.yml",
-      content: [
-        "name: Example",
-        "permissions:",
-        "  contents: read",
-        "jobs:",
-        "  demo:",
-        "    runs-on: ubuntu-latest",
-        "    permissions:",
-        "      issues: write",
-        "    steps:",
-        `      ${CHECKS_OUT}`,
-        `      ${RUNS_SCRIPT}`,
-        "",
-      ].join("\n"),
-    };
+    const source = workflow([CHECKS_OUT, RUNS_SCRIPT], {
+      permissions: "contents: read",
+      jobPermissions: "issues: write",
+    });
 
     assert.deepEqual(checkoutGuardFailures(source), [
       {
