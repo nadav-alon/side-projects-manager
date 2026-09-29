@@ -8,11 +8,14 @@ FROM node:22-slim
 
 # git and gh: the skills the harness ships shell out to both for every
 # tracker and branch operation (docs/agents/issue-tracker.md). git doubles
-# as how the plugin install below clones the marketplace.
+# as how the plugin install below clones the marketplace. jq: the rebase
+# workflow's script (`.github/workflows/scripts/rebase.sh`) shells out to it,
+# and `npm test` exercises that script for real here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
       ca-certificates \
+      jq \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \

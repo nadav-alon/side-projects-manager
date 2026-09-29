@@ -40,4 +40,4 @@ review thread on it. See `.github/workflows/apply-review.yml`.
 
 Commenting `/rebase` on an open pull request, draft or ready, opens a ticket asking an agent to
 rebase it — leaving its draft state as it was — and labels the pull request `needs-rebase`. See
-`.github/workflows/rebase.yml`.
+`.github/workflows/rebase.yml`, whose logic is `.github/workflows/scripts/rebase.sh`.
