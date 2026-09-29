@@ -1074,29 +1074,30 @@ function specReviewSweepRefusalLine(
   }
 }
 
+/** Every {@link UniformSyncSweepResult} kind `uniformSyncSweepFlagged` keeps. */
+type FlaggedUniformSyncSweepResult = Exclude<UniformSyncSweepResult, { kind: "unchanged" }>;
+
 /**
  * Every uniform sync sweep outcome worth telling the developer about: a
  * project the sweep proposed a fix for, pushed one for but could not open a
  * pull request, or could not even clone. A project the sweep found already in
  * step needs no comment, and is left out entirely — CONTEXT.md's "Uniform
- * sync sweep", issue #1027. One sweep runs per project per invocation, unlike
- * a conflict sweep or a spec review sweep, so there is nothing here to
- * deduplicate the way `conflictSweepProjects` and `specReviewSweepProjects`
- * both have to.
+ * sync sweep". One sweep runs per project per invocation, unlike a conflict
+ * sweep or a spec review sweep, so there is nothing here to deduplicate the
+ * way `conflictSweepProjects` and `specReviewSweepProjects` both have to.
  */
 function uniformSyncSweepFlagged(
   uniformSyncSweeps: UniformSyncSweepOutcome[],
-): UniformSyncSweepOutcome[] {
-  return uniformSyncSweeps.filter((sweep) => sweep.result.kind !== "unchanged");
+): { repo: RepoSlug; result: FlaggedUniformSyncSweepResult }[] {
+  return uniformSyncSweeps.filter(
+    (sweep): sweep is { repo: RepoSlug; result: FlaggedUniformSyncSweepResult } =>
+      sweep.result.kind !== "unchanged",
+  );
 }
 
 /** What one project's own sweep result says happened, worded for either the aside or the body. */
-function uniformSyncSweepPhrase(result: UniformSyncSweepResult): string {
+function uniformSyncSweepPhrase(result: FlaggedUniformSyncSweepResult): string {
   switch (result.kind) {
-    case "unchanged":
-      // Never reached: `uniformSyncSweepFlagged` filters this out before
-      // either caller below gets here.
-      return "unchanged";
     case "proposed":
       return `proposed in ${result.url}`;
     case "pushed":
@@ -1109,14 +1110,13 @@ function uniformSyncSweepPhrase(result: UniformSyncSweepResult): string {
 /**
  * The summary line's own short aside on the uniform sync sweep: present only
  * when a project's copy was actually stale, or the sweep could not even tell.
- * A project already in step stays in the body alone — there is none, since
- * `uniformSyncSweepSection` leaves it out too.
+ * A project already in step appears in neither the line nor the body.
  */
 function uniformSyncSweepAside(uniformSyncSweeps: UniformSyncSweepOutcome[]): string {
   const flagged = uniformSyncSweepFlagged(uniformSyncSweeps).map(
     (sweep) => `${sweep.repo} (${uniformSyncSweepPhrase(sweep.result)})`,
   );
-  return flagged.length > 0 ? ` Uniform sync: ${flagged.join(", ")}.` : "";
+  return flagged.length > 0 ? ` Uniform sync sweep: ${flagged.join(", ")}.` : "";
 }
 
 /** One bullet per project the uniform sync sweep flagged, naming what came of it. */
