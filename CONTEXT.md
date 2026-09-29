@@ -341,7 +341,12 @@ naming an issue that is already ticketed and still open is the one exception, ro
 it was filed against still stops exactly as any other blocking prerequisite's does — no pull request
 opens and its branch is discarded, whatever it committed or would otherwise have finished — but the
 target it names is not handed back for it, keeping `ready-for-agent` instead, with only the comment
-naming the blocker. Never a **Nit**: touching only names, glossary entries, prose, comments or
+naming the blocker. An apply-review ticket's own run reaching that same exception is not stopped
+either — it has no branch or pull request of its own to discard — but the pull request it is
+closing out has its own closing reference for the implementation ticket demoted from `Closes #N.`
+to `Part of #N.` before it is marked ready, so merging it leaves the implementation ticket open
+until the blocker clears, rather than closing it out from under the still-unmet criterion behind
+it. Never a **Nit**: touching only names, glossary entries, prose, comments or
 wrapping is never a discovery of any kind, whichever kind a run is tempted to file it as. Always about
 the ticket, never the diff — what a reviewer says about the diff is a review finding, posted to the pull
 request. A blocking discovery stops the run and hands its ticket back; an advisory one rides alongside a
