@@ -210,10 +210,15 @@ export function githubRepoHost(
           "--",
           ...paths,
         ]);
+        // `--force-with-lease`: a previous call may have already pushed this
+        // branch from a base that has since moved, or from before `switchTo`
+        // rebuilt it — the remote is a still-open proposal to update, not
+        // history to preserve.
         await run("git", [
           "-C",
           directory,
           "push",
+          "--force-with-lease",
           "--set-upstream",
           "origin",
           branch,
@@ -1066,19 +1071,19 @@ async function hasChanges(
 }
 
 /**
- * Puts the checkout on `branch`, creating it unless a previous run already
- * did.
+ * Puts the checkout on `branch`, rebuilding it from the current `HEAD` rather
+ * than reusing whatever a previous run left it pointing at.
  *
- * Re-running the command while a proposal is still open adds to that branch
- * rather than failing, which is what makes re-scaffolding after a convention
- * changes the same command as scaffolding the first time.
+ * Re-running the command while a proposal is still open updates that
+ * proposal rather than failing, which is what makes re-scaffolding after a
+ * convention changes the same command as scaffolding the first time. `-B`
+ * resets an existing local `branch` in place instead of failing the way `-b`
+ * does, and never touches the working tree — the checkout was already on the
+ * commit `branch` is being pointed at — so it succeeds regardless of
+ * uncommitted changes sitting on top of it.
  */
 async function switchTo(directory: Checkout, branch: Branch): Promise<void> {
-  try {
-    await run("git", ["-C", directory, "checkout", "-b", branch]);
-  } catch {
-    await run("git", ["-C", directory, "checkout", branch]);
-  }
+  await run("git", ["-C", directory, "checkout", "-B", branch]);
 }
 
 /**

@@ -240,8 +240,18 @@ everywhere from one source. A run whose own diff touches one never gets a **Hand
 would otherwise become a copy living in just that one project, silently drifting from the source it
 was copied from. An apply-review or rebase run's own push is checked the same way, since it never
 goes through a Handover for that check to catch first: a push that touches one is forced back on the
-repo host instead.
+repo host instead. Drift the other way — a project's own copy falling behind the manager's after a
+convention changes — is what the **Uniform sync sweep** catches instead.
 _Avoid_: shared files, common files, boilerplate
+
+**Uniform sync sweep**:
+Once per invocation, ahead of the first iteration, every non-paused, non-manager registered project
+is cloned and asked to bring its **Uniform files** back in step with the manager's own; a project
+found already in step is left untouched. One whose copy had drifted gets the fix proposed as a pull
+request, the same way scaffolding a project that predates the manager is — never pushed straight to
+the project's own branch. A clone or a push the repo host refuses is carried into the summary rather
+than failing the invocation.
+_Avoid_: uniform sync, sync sweep
 
 **Agent instructions**:
 The other half: one file per project, generated for that project, saying what the project is and

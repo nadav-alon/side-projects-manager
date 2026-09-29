@@ -114,3 +114,50 @@ describe("scaffolding the harness into a project", () => {
     );
   });
 });
+
+describe("syncing a project's uniform files with the manager's", () => {
+  it("reports every uniform file as changed in a checkout that had none of it", async () => {
+    const directory = await emptyCheckout();
+
+    const changed = await directoryHarness().sync(directory);
+
+    assert.deepEqual(changed, [...UNIFORM_FILES]);
+    for (const file of UNIFORM_FILES) {
+      assert.equal(
+        await contentsOf(directory, file),
+        await contentsOf(MANAGER_HOME, file),
+        `${file} was not copied verbatim`,
+      );
+    }
+  });
+
+  it("reports nothing changed, and touches nothing, once a checkout already matches", async () => {
+    const directory = await emptyCheckout();
+    await directoryHarness().install(directory, INSTRUCTIONS);
+
+    const changed = await directoryHarness().sync(directory);
+
+    assert.deepEqual(changed, []);
+  });
+
+  it("replaces and reports only the uniform files that had drifted, leaving the rest untouched", async () => {
+    const directory = await emptyCheckout();
+    await directoryHarness().install(directory, INSTRUCTIONS);
+    const stale = UNIFORM_FILES[0] ?? "";
+    await writeFile(path.join(directory, stale), "stale\n");
+
+    const changed = await directoryHarness().sync(directory);
+
+    assert.deepEqual(changed, [stale]);
+    assert.equal(await contentsOf(directory, stale), await contentsOf(MANAGER_HOME, stale));
+  });
+
+  it("never touches the agent instructions", async () => {
+    const directory = await emptyCheckout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# mine\n");
+
+    await directoryHarness().sync(directory);
+
+    assert.equal(await contentsOf(directory, "AGENTS.md"), "# mine\n");
+  });
+});

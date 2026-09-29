@@ -13,6 +13,10 @@ import type {
   SpecReviewSweepOutcome,
   SpecReviewSweepRefusal,
 } from "./spec-review-sweep.ts";
+import type {
+  UniformSyncSweepOutcome,
+  UniformSyncSweepResult,
+} from "./uniform-sync-sweep.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import { workLocation } from "./hand-back.ts";
 import {
@@ -420,6 +424,7 @@ export interface SummaryFacts {
   invocationFailure: string | undefined;
   conflictSweeps: ConflictSweepOutcome[];
   specReviewSweeps: SpecReviewSweepOutcome[];
+  uniformSyncSweeps: UniformSyncSweepOutcome[];
   /** Every ticket freed because a dead in-flight invocation had recorded it. */
   freedFromDeadInvocation: FreedWorkedTicket[];
 }
@@ -445,7 +450,8 @@ export function summaryLine(facts: SummaryFacts): string {
   const missingLabel = missingSupertaskLabelAside(projects);
   const sweeps = conflictSweepAside(facts.conflictSweeps);
   const specReviews = specReviewSweepAside(facts.specReviewSweeps);
-  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}`;
+  const uniformSync = uniformSyncSweepAside(facts.uniformSyncSweeps);
+  const aside = `${skipped.length > 0 ? ` Skipped ${skipped.join(", ")}.` : ""}${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}`;
 
   if (iterations.length > 0) {
     // A stand-down after the morning had already done some good is said after
@@ -465,7 +471,7 @@ export function summaryLine(facts: SummaryFacts): string {
   if (skipped.length === 0) {
     return "Nothing to do: no projects registered. Add one to registry.json (see README).";
   }
-  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}`;
+  return `Nothing to do: skipped ${skipped.join(", ")}.${passedOver}${missingLabel}${sweeps}${specReviews}${uniformSync}`;
 }
 
 /**
@@ -545,6 +551,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     discoveriesSection(facts.iterations),
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
+    uniformSyncSweepSection(facts.uniformSyncSweeps),
     freedFromDeadInvocationSection(facts.freedFromDeadInvocation),
   ]
     .filter((section): section is string => section !== undefined)
@@ -1065,6 +1072,65 @@ function specReviewSweepRefusalLine(
     case "link":
       return `- ${repo}: could not link an existing spec review to ${repo}#${refusal.supertask.number}: ${error}`;
   }
+}
+
+/** Every {@link UniformSyncSweepResult} kind `uniformSyncSweepFlagged` keeps. */
+type FlaggedUniformSyncSweepResult = Exclude<UniformSyncSweepResult, { kind: "unchanged" }>;
+
+/**
+ * Every uniform sync sweep outcome worth telling the developer about: a
+ * project the sweep proposed a fix for, pushed one for but could not open a
+ * pull request, or could not even clone. A project the sweep found already in
+ * step needs no comment, and is left out entirely — CONTEXT.md's "Uniform
+ * sync sweep". One sweep runs per project per invocation, unlike a conflict
+ * sweep or a spec review sweep, so there is nothing here to deduplicate the
+ * way `conflictSweepProjects` and `specReviewSweepProjects` both have to.
+ */
+function uniformSyncSweepFlagged(
+  uniformSyncSweeps: UniformSyncSweepOutcome[],
+): { repo: RepoSlug; result: FlaggedUniformSyncSweepResult }[] {
+  return uniformSyncSweeps.filter(
+    (sweep): sweep is { repo: RepoSlug; result: FlaggedUniformSyncSweepResult } =>
+      sweep.result.kind !== "unchanged",
+  );
+}
+
+/** What one project's own sweep result says happened, worded for either the aside or the body. */
+function uniformSyncSweepPhrase(result: FlaggedUniformSyncSweepResult): string {
+  switch (result.kind) {
+    case "proposed":
+      return `proposed in ${result.url}`;
+    case "pushed":
+      return `pushed to ${result.branch}, but ${withoutTrailingStop(result.failure)}`;
+    case "refused":
+      return `refused: ${withoutTrailingStop(result.error)}`;
+  }
+}
+
+/**
+ * The summary line's own short aside on the uniform sync sweep: present only
+ * when a project's copy was actually stale, or the sweep could not even tell.
+ * A project already in step appears in neither the line nor the body.
+ */
+function uniformSyncSweepAside(uniformSyncSweeps: UniformSyncSweepOutcome[]): string {
+  const flagged = uniformSyncSweepFlagged(uniformSyncSweeps).map(
+    (sweep) => `${sweep.repo} (${uniformSyncSweepPhrase(sweep.result)})`,
+  );
+  return flagged.length > 0 ? ` Uniform sync sweep: ${flagged.join(", ")}.` : "";
+}
+
+/** One bullet per project the uniform sync sweep flagged, naming what came of it. */
+function uniformSyncSweepSection(
+  uniformSyncSweeps: UniformSyncSweepOutcome[],
+): string | undefined {
+  const flagged = uniformSyncSweepFlagged(uniformSyncSweeps);
+  if (flagged.length === 0) {
+    return undefined;
+  }
+  const lines = flagged.map(
+    (sweep) => `- ${sweep.repo}: ${uniformSyncSweepPhrase(sweep.result)}`,
+  );
+  return ["## Uniform sync sweep", ...lines].join("\n");
 }
 
 /**

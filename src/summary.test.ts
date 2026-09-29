@@ -674,6 +674,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     invocationFailure: undefined,
     conflictSweeps: [],
     specReviewSweeps: [],
+    uniformSyncSweeps: [],
     freedFromDeadInvocation: [],
   };
 }
@@ -1951,6 +1952,7 @@ describe("summaryLine", () => {
         invocationFailure: undefined,
         conflictSweeps: [],
         specReviewSweeps: [],
+        uniformSyncSweeps: [],
         freedFromDeadInvocation: [],
       });
     }
@@ -2096,6 +2098,7 @@ describe("summaryLine", () => {
       invocationFailure: "the process crashed.",
       conflictSweeps: [],
       specReviewSweeps: [],
+      uniformSyncSweeps: [],
       freedFromDeadInvocation: [],
     });
 
@@ -2158,6 +2161,7 @@ describe("summaryLine", () => {
       invocationFailure: undefined,
       conflictSweeps: [],
       specReviewSweeps: [],
+      uniformSyncSweeps: [],
       freedFromDeadInvocation: [],
     });
 

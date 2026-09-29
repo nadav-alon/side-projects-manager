@@ -8,6 +8,7 @@ import type {
   Clock,
   Day,
   Discovery,
+  Harness,
   IssueTracker,
   IterationLimit,
   ModelRefusal,
@@ -151,9 +152,10 @@ import {
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
+import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
 
 /**
- * The seven outside-world dependencies of the loop. Everything it knows about
+ * The eight outside-world dependencies of the loop. Everything it knows about
  * GitHub, containers, session logs, the filesystem and the wall clock arrives
  * through these — `progress` alone carries nothing back: the loop only ever
  * writes through it, and reads nothing.
@@ -165,6 +167,7 @@ export interface MorningLoopPorts {
   ledger: UsageLedger;
   clock: Clock;
   store: Store;
+  harness: Harness;
   progress: Progress;
 }
 
@@ -303,6 +306,12 @@ export async function morningLoop(
   // review sweep the invocation ran, one per non-paused project per
   // selection.
   let specReviewSweepOutcomes: SpecReviewSweepOutcome[] = [];
+  // Populated from `uniformSyncSweepAll` below: one uniform sync sweep per
+  // non-paused, non-manager registered project, run once for the whole
+  // invocation rather than once per scan — whether a project's uniform files
+  // are stale says nothing about ticket selection, and a clone is too heavy a
+  // thing to repeat on every scan an invocation makes.
+  let uniformSyncSweepOutcomes: UniformSyncSweepOutcome[] = [];
   // Populated from `worked.freed()` once `worked` exists: every ticket a dead
   // in-flight invocation had recorded, freed for this invocation to select.
   let freedTickets: FreedWorkedTicket[] = [];
@@ -337,6 +346,10 @@ export async function morningLoop(
     // run recorded between two consultations is exactly what the next one
     // counts.
     const gate = invocationBudgetGate(ports, state.projectStates());
+    // Run once, ahead of the first iteration: a registered project's uniform
+    // files are either stale or they are not, regardless of which ticket, if
+    // any, this invocation goes on to select.
+    uniformSyncSweepOutcomes = await uniformSyncSweepAll(ports);
     // Keyed by each iteration's own completion, so the tickets an in-progress
     // consultation names are exactly the ones still running when it asks —
     // never the one it is asking on behalf of, which is passed separately.
@@ -553,6 +566,7 @@ export async function morningLoop(
     invocationFailure,
     conflictSweeps: sweepOutcomes,
     specReviewSweeps: specReviewSweepOutcomes,
+    uniformSyncSweeps: uniformSyncSweepOutcomes,
     freedFromDeadInvocation: freedTickets,
   };
 
@@ -1052,6 +1066,26 @@ async function touchedUniformFiles(
   branch: Branch,
 ): Promise<string[]> {
   return uniformFilesAmong(await repoHost.readChangedPaths(checkout, branch));
+}
+
+/**
+ * A uniform sync sweep of every non-paused, non-manager registered project —
+ * paused the same reason a conflict sweep never sweeps a paused project
+ * either: paused means never considered. The manager's own project is
+ * excluded because its uniform files are the source, not a copy to bring
+ * back in step.
+ */
+async function uniformSyncSweepAll(
+  ports: MorningLoopPorts,
+): Promise<UniformSyncSweepOutcome[]> {
+  const outcomes: UniformSyncSweepOutcome[] = [];
+  for (const project of await ports.store.loadRegistry()) {
+    if (project.paused || project.manager === true) {
+      continue;
+    }
+    outcomes.push(await uniformSyncSweep(ports, project.repo));
+  }
+  return outcomes;
 }
 
 /**

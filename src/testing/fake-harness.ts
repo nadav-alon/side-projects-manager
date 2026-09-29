@@ -28,11 +28,26 @@ export class FakeHarness implements Harness {
    */
   overwrites: string[] = [];
 
+  /** Every checkout `sync` was asked to bring in step, in order. */
+  readonly syncs: Checkout[] = [];
+
+  /**
+   * What the next `sync` reports as changed, and copies. None, unless a test
+   * says otherwise — the same default a checkout already in step would read
+   * as.
+   */
+  changed: string[] = [];
+
   async install(directory: Checkout, instructions: string): Promise<Scaffold> {
     this.installs.push({ directory, instructions });
     return {
       paths: [...FakeHarness.UNIFORM_FILES, FakeHarness.INSTRUCTIONS_FILE],
       overwritten: [...this.overwrites],
     };
+  }
+
+  async sync(directory: Checkout): Promise<string[]> {
+    this.syncs.push(directory);
+    return [...this.changed];
   }
 }
