@@ -166,9 +166,10 @@ export const STALL_TIMEOUT: Milliseconds = milliseconds(20 * 60 * 1000);
 /**
  * How often `watchForStall` checks a run's transcript for growth — far under
  * `STALL_TIMEOUT`, so a stall is caught close to the window's edge rather
- * than one poll's worth late.
+ * than one poll's worth late. Exported so a test can tick mocked time by
+ * this exact span, one poll at a time, rather than a guessed step.
  */
-const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
+export const STALL_POLL_INTERVAL: Milliseconds = milliseconds(30 * 1000);
 
 /**
  * Removes directories under `root` whose own last modification is older than
@@ -464,13 +465,20 @@ interface SandboxRoots {
  *
  * `home` defaults to `MANAGER_HOME`, which is resolved at module load from an
  * environment variable, so a test cannot redirect it the way it can any other
- * default — this parameter is the only seam that lets a test point session
+ * default — this parameter is the seam that lets a test point session
  * transcripts somewhere other than the developer's own checkout.
+ *
+ * `onPoll`, when given, is called once every time `run`'s own idle watchdog
+ * (`watchForStall`) finishes checking the transcript for growth — a seam
+ * for a test to wait on that check itself having happened, rather than
+ * guess how many real event-loop turns it takes; a production sandbox never
+ * passes one.
  */
 export function containerSandbox(
   container: Container = dockerContainer,
   pullRequestHead: PullRequestHead = ghPullRequestHead,
   home: string = MANAGER_HOME,
+  onPoll?: () => void,
 ): Sandbox {
   const roots: SandboxRoots = {
     transcriptsRoot: path.join(home, TRANSCRIPTS_DIRECTORY),
@@ -489,7 +497,7 @@ export function containerSandbox(
     request: RunRequest,
     onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
-    return runOnClone(container, request, roots, onStarted);
+    return runOnClone(container, request, roots, onStarted, onPoll);
   }
 
   function review(
@@ -594,6 +602,7 @@ async function runOnClone(
   request: RunRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
+  onPoll?: () => void,
 ): Promise<RunOutcome> {
   const { ticket, checkout: project, spendCeiling, model, salvageBranch } = request;
 
@@ -678,6 +687,7 @@ async function runOnClone(
         model,
         roots,
         onStarted,
+        onPoll,
       );
 
       // Set once the branch has actually reached the checkout, so a failure
@@ -832,6 +842,7 @@ async function attempt(
   model: ModelName | undefined,
   { transcriptsRoot, discoveriesRoot }: SandboxRoots,
   onStarted?: OnRunStarted,
+  onPoll?: () => void,
 ): Promise<FinishedAgentRun> {
   await mkdir(transcriptsRoot, { recursive: true });
   const transcriptDir = transcriptDirectory(
@@ -845,7 +856,7 @@ async function attempt(
     await mkdtemp(path.join(discoveriesRoot, `${kind}-`)),
   );
   const controller = new AbortController();
-  const watch = watchForStall(transcriptDir, controller);
+  const watch = watchForStall(transcriptDir, controller, onPoll);
   try {
     const agent = await container({
       ...options,
@@ -1107,10 +1118,17 @@ async function readDiscoveries(
  * grow, false if none ever was — told apart so `attempt` can word an abort
  * that never saw a transcript at all differently from one that saw growth
  * stop, see `stallWords`.
+ *
+ * `onPoll`, when given, is called once every poll has finished being
+ * accounted for above, whatever it found — a test's only way to wait on a
+ * poll actually having happened, instead of guessing how many real
+ * event-loop turns its `stat` takes (see `containerSandbox`'s own doc
+ * comment).
  */
 function watchForStall(
   directory: TranscriptDirectory,
   controller: AbortController,
+  onPoll?: () => void,
 ): { stopped: Promise<void>; wroteTranscript: () => boolean } {
   let lastGrowth = Date.now();
   let lastMtimeMs: number | undefined;
@@ -1118,16 +1136,20 @@ function watchForStall(
   const stopped = new Promise<void>((resolve) => {
     const timer = setInterval(() => {
       void latestTranscriptMtime(directory).then((mtimeMs) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        const now = Date.now();
-        if (mtimeMs !== undefined && mtimeMs !== lastMtimeMs) {
-          lastMtimeMs = mtimeMs;
-          lastGrowth = now;
-        }
-        if (now - lastGrowth >= STALL_TIMEOUT) {
-          controller.abort();
+        try {
+          if (controller.signal.aborted) {
+            return;
+          }
+          const now = Date.now();
+          if (mtimeMs !== undefined && mtimeMs !== lastMtimeMs) {
+            lastMtimeMs = mtimeMs;
+            lastGrowth = now;
+          }
+          if (now - lastGrowth >= STALL_TIMEOUT) {
+            controller.abort();
+          }
+        } finally {
+          onPoll?.();
         }
       });
     }, STALL_POLL_INTERVAL);
