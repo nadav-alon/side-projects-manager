@@ -466,6 +466,35 @@ export function githubRepoHost(
       await run("gh", ["pr", "ready", pullRequest]);
     },
 
+    async demoteClosingReference(
+      pullRequest: PullRequestUrl,
+      ticket: Ticket,
+    ): Promise<void> {
+      // Read back first, so a body already demoted — or one that never
+      // carried the exact line this loop writes — is left alone rather than
+      // rewritten on `gh pr edit`'s own say-so.
+      const { stdout } = await run("gh", ["pr", "view", pullRequest, "--json", "body"]);
+      const where = `gh pr view ${pullRequest}`;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(stdout);
+      } catch (error) {
+        throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+      }
+      const body = expectField(objectAt(payload, where).body, "string", "body", where);
+      const closing = closingLine(ticket);
+      if (!body.includes(closing)) {
+        return;
+      }
+      await run("gh", [
+        "pr",
+        "edit",
+        pullRequest,
+        "--body",
+        body.replace(closing, partOfLine(ticket)),
+      ]);
+    },
+
     async postComment(pullRequest: PullRequestUrl, body: string): Promise<void> {
       await run("gh", ["pr", "comment", pullRequest, "--body", body]);
     },
@@ -989,7 +1018,7 @@ export function pullRequestFrom(
  */
 function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string {
   const body = [
-    `Closes #${ticket.number}.`,
+    closingLine(ticket),
     "",
     "Implemented by the morning loop, in a sandbox, from the ticket above.",
     "It opens as a draft; the manager marks it ready once an apply-review pass on it finishes. Merging it is yours, unless its ticket is turboable, when the manager may merge it itself.",
@@ -998,6 +1027,20 @@ function pullRequestBody(ticket: Ticket, gist?: TicketGist, nits?: Nits): string
   return nits === undefined
     ? withGist
     : [withGist, "", NIT_SECTION_HEADING, nits].join("\n");
+}
+
+/** The line {@link pullRequestBody} opens with, naming `ticket` as what the pull request closes. */
+function closingLine(ticket: Ticket): string {
+  return `Closes #${ticket.number}.`;
+}
+
+/**
+ * What {@link closingLine} is rewritten to by {@link
+ * RepoHost.demoteClosingReference}: none of GitHub's nine closing keywords,
+ * so merging the pull request leaves `ticket` open.
+ */
+function partOfLine(ticket: Ticket): string {
+  return `Part of #${ticket.number}.`;
 }
 
 /** Whether `directory` has a local branch named `of`. */

@@ -12,6 +12,7 @@ import {
   repoSlug,
   REVIEWED_LABEL,
   type MergeStatus,
+  type Ticket,
 } from "../ports/index.ts";
 import { FakeRepoHost } from "./fake-repo-host.ts";
 
@@ -20,6 +21,7 @@ const OTHER = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/8");
 const SINCE = new Date("2026-09-15T00:00:00Z");
 const AFTER = new Date("2026-09-15T01:00:00Z");
 const PILOT = repoSlug("nadav-alon/pilot");
+const TICKET: Ticket = { repo: PILOT, number: issueNumber(12), title: "Cut a release" };
 
 describe("FakeRepoHost apply-review answers", () => {
   it("answers from the threads a test opened, answered and resolved", async () => {
@@ -71,6 +73,18 @@ describe("FakeRepoHost apply-review answers", () => {
     await host.markPullRequestReady(PULL_REQUEST);
 
     assert.deepEqual(host.readyMarked, [PULL_REQUEST]);
+  });
+
+  it("records every pull request demoted, with the ticket it named, in order", async () => {
+    const host = new FakeRepoHost();
+
+    await host.demoteClosingReference(PULL_REQUEST, TICKET);
+    await host.demoteClosingReference(OTHER, TICKET);
+
+    assert.deepEqual(host.demoted, [
+      { pullRequest: PULL_REQUEST, ticket: TICKET },
+      { pullRequest: OTHER, ticket: TICKET },
+    ]);
   });
 
   it("records every label added, in order", async () => {
