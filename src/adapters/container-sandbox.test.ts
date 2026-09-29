@@ -29,6 +29,7 @@ import {
   pruneOldDiscoveries,
   pruneOldTranscripts,
   SALVAGE_COMMIT_MESSAGE,
+  STALL_POLL_INTERVAL,
   STALL_TIMEOUT,
   TICKET_GIST_TAG,
   TRANSCRIPT_RETENTION,
@@ -43,6 +44,7 @@ import {
   checkout,
   commitSha,
   issueNumber,
+  milliseconds,
   modelName,
   NIT_SECTION_HEADING,
   pullRequestUrl,
@@ -55,6 +57,7 @@ import {
   type ApplyReviewTicket,
   type Branch,
   type Checkout,
+  type Milliseconds,
   type RebaseOutcome,
   type RebaseTicket,
   type ReviewOutcome,
@@ -96,8 +99,9 @@ const TEST_HOME = await tempHome("container-sandbox-home");
 function testSandbox(
   container?: Container,
   pullRequestHead?: PullRequestHead,
+  onPoll?: () => void,
 ): Sandbox {
-  return containerSandbox(container, pullRequestHead, TEST_HOME);
+  return containerSandbox(container, pullRequestHead, TEST_HOME, onPoll);
 }
 
 /** The `kind` variant of `result`, absent if it ended any other way. */
@@ -307,8 +311,17 @@ async function flushRealIo(): Promise<void> {
   }
 }
 
-/** The step `advancePastStall` and `advanceUntilSettled` both tick by. */
-const STALL_STEP = Math.ceil((STALL_TIMEOUT * 2) / 20);
+/**
+ * The number of steps `advancePastStall` ticks through — also `STALL_STEP`'s
+ * own divisor, so the "twice `STALL_TIMEOUT`" guarantee below can't drift
+ * out of step with the loop that relies on it.
+ */
+const STALL_STEPS = 20;
+
+/** The step `advancePastStall` ticks by. */
+const STALL_STEP: Milliseconds = milliseconds(
+  Math.ceil((STALL_TIMEOUT * 2) / STALL_STEPS),
+);
 
 /**
  * Advances mocked time well past `STALL_TIMEOUT` in several steps, flushing
@@ -322,49 +335,109 @@ const STALL_STEP = Math.ceil((STALL_TIMEOUT * 2) / 20);
  * remainder comfortably past the window even against that worst case.
  */
 async function advancePastStall(t: TestContext): Promise<void> {
-  const steps = 20;
-  for (let i = 0; i < steps; i++) {
+  for (let i = 0; i < STALL_STEPS; i++) {
     t.mock.timers.tick(STALL_STEP);
     await flushRealIo();
   }
 }
 
 /**
- * `advancePastStall`, then keeps ticking past it, in the same small steps,
- * for as long as `run` has still not settled — rather than trusting
- * `advancePastStall`'s own fixed span alone.
+ * The real, ref'd margin `boundedByRealTime` and `advanceUntilSettled` budget
+ * against `HANGS.timeout` — node:test's own per-test timeout timer is
+ * unref'd (see `HANGS`), so it never fires on its own while nothing else
+ * keeps the event loop alive, and a genuine hang here would otherwise stall
+ * forever rather than fail, taking every later test in the file down with it
+ * (see #1020). This margin is how long before `HANGS.timeout` a real timer
+ * of ours fires instead.
+ */
+const REAL_DEADLINE_MARGIN: Milliseconds = milliseconds(5_000);
+
+/** How long `boundedByRealTime` gives a run to settle, in real time. */
+const RUN_DEADLINE: Milliseconds = milliseconds(HANGS.timeout - REAL_DEADLINE_MARGIN);
+
+/**
+ * `run`, bounded by real wall-clock time rather than node:test's own
+ * per-test timeout. A real, ref'd `setTimeout` both keeps the event loop
+ * alive and fails this test alone, loudly, with its own message, if `run`
+ * never settles within `ms` — see `REAL_DEADLINE_MARGIN`'s own doc comment
+ * for why that backstop has to be real time, not node:test's.
+ */
+async function boundedByRealTime<T>(run: Promise<T>, ms: Milliseconds): Promise<T> {
+  let timer!: NodeJS.Timeout;
+  const bound = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`a run never settled after ${ms}ms of real time`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([run, bound]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * A signal that settles once `watchForStall`'s own poll has actually
+ * happened, and resets itself for the next one — `onPoll`, passed to
+ * `testSandbox`, is what calls it. Lets a test wait on a poll itself having
+ * happened, rather than guess how many real event-loop turns its `stat`
+ * takes (#1020's "wait on a signal the code under test actually gives ...
+ * the watcher having polled").
+ */
+function pollSignal(): { onPoll: () => void; next: () => Promise<void> } {
+  let resolvePending: () => void = () => {};
+  let pending = new Promise<void>((resolve) => {
+    resolvePending = resolve;
+  });
+  return {
+    onPoll: () => {
+      const resolveThisOne = resolvePending;
+      pending = new Promise((resolve) => {
+        resolvePending = resolve;
+      });
+      resolveThisOne();
+    },
+    next: () => pending,
+  };
+}
+
+/**
+ * `advancePastStall`, then keeps advancing mocked time one real poll at a
+ * time — waiting for `poll` to say the watcher has actually finished each
+ * one, rather than guessing how many real event-loop turns its `stat` takes
+ * — until `run` settles.
  *
  * A poll's real `stat` can be delayed by more than one step's worth of real
- * time on a slow enough runner. When it finally does resolve, it reads
- * whatever mocked `Date.now()` the steps since have already reached, so the
- * growth it reports gets timestamped later than it should — eating into the
- * margin `advancePastStall`'s own doc comment budgets against a poll merely
- * arriving late within a single step, not several. Ticking further, keyed to
- * `run` itself rather than a second guessed span, recovers that margin
- * however late the poll's own resolution lands, real time bounding the wait
- * only as a backstop against a genuine hang.
+ * time on a slow enough runner; guessing a fixed number of flush turns risks
+ * moving mocked time on before it lands. Waiting on the poll itself removes
+ * that risk regardless of how late it lands. `boundedByRealTime` still
+ * bounds the whole wait in real time, so a run that never settles fails this
+ * test alone, loudly, instead of the silent fallthrough that let a hang here
+ * cascade into the rest of the file (#1020).
  */
 async function advanceUntilSettled(
   t: TestContext,
   run: Promise<unknown>,
+  poll: { next: () => Promise<void> },
 ): Promise<void> {
   let settled = false;
-  run.then(
-    () => {
-      settled = true;
-    },
-    () => {
-      settled = true;
-    },
-  );
+  const settle = () => {
+    settled = true;
+  };
+  void run.then(settle, settle);
 
   await advancePastStall(t);
 
-  const deadline = performance.now() + HANGS.timeout - 5_000;
-  while (!settled && performance.now() < deadline) {
-    t.mock.timers.tick(STALL_STEP);
-    await flushRealIo();
-  }
+  await boundedByRealTime(
+    (async () => {
+      while (!settled) {
+        t.mock.timers.tick(STALL_POLL_INTERVAL);
+        await Promise.race([poll.next(), run]);
+      }
+    })(),
+    RUN_DEADLINE,
+  );
 }
 
 /**
@@ -1200,11 +1273,12 @@ describe("containerSandbox", () => {
     async function stalledRun(
       t: TestContext,
       body: Container,
+      onPoll?: () => void,
     ): Promise<{ run: Promise<RunOutcome> }> {
       t.mock.timers.enable({ apis: ["setInterval", "Date"] });
       const directory = await project();
       const { container, started } = starts(body);
-      const sandbox = testSandbox(container);
+      const sandbox = testSandbox(container, undefined, onPoll);
 
       const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
       await started;
@@ -1225,7 +1299,7 @@ describe("containerSandbox", () => {
       const { run } = await stalledRun(t, hangsUntilKilled);
       await advancePastStall(t);
 
-      const result = await run;
+      const result = await boundedByRealTime(run, RUN_DEADLINE);
 
       assert.equal(result.kind, "provider-failed");
       const words = variant(result, "provider-failed")?.words ?? "";
@@ -1258,7 +1332,7 @@ describe("containerSandbox", () => {
       }
 
       resolveAgent?.({ output: "", tokensUsed: tokenCount(0) });
-      const result = await run;
+      const result = await boundedByRealTime(run, RUN_DEADLINE);
 
       assert.equal(result.kind, "finished");
     });
@@ -1266,27 +1340,40 @@ describe("containerSandbox", () => {
     it("still reports the transcript it wrote before going quiet", HANGS, async (t) => {
       let written = "";
       const wrote = gate();
-      const { run } = await stalledRun(t, async ({ transcriptDirectory, signal }) => {
-        written = await writeTranscript(transcriptDirectory);
-        wrote.open();
-        return new Promise((_, reject) => {
-          signal.addEventListener(
-            "abort",
-            () => reject(new Error("the container was killed")),
-            { once: true },
-          );
-        });
-      });
+      const poll = pollSignal();
+      const { run } = await stalledRun(
+        t,
+        async ({ transcriptDirectory, signal }) => {
+          // The gate opens even if the write itself rejects, so a failure
+          // there surfaces as this test's own failure below rather than
+          // leaving `wrote.opened` — and everything waiting on it — hanging
+          // forever (#1020).
+          try {
+            written = await writeTranscript(transcriptDirectory);
+          } finally {
+            wrote.open();
+          }
+          return new Promise((_, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("the container was killed")),
+              { once: true },
+            );
+          });
+        },
+        poll.onPoll,
+      );
       // `started` (inside `stalledRun`) settles as soon as `container` is
       // invoked, before this body's own `await writeTranscript(...)` above
       // has landed on the real filesystem. Advancing mocked time off the back
       // of `started` alone would let ticking begin while that write is still
       // in flight, on a slow enough runner — wait for the write itself to say
-      // it is done instead.
-      await wrote.opened;
-      await advanceUntilSettled(t, run);
+      // it is done instead. Raced against `run` too, so a write that rejects
+      // (settling `run` on its own) does not leave this waiting forever.
+      await Promise.race([wrote.opened, run]);
+      await advanceUntilSettled(t, run, poll);
 
-      const result = await run;
+      const result = await boundedByRealTime(run, RUN_DEADLINE);
 
       assert.equal(result.kind, "provider-failed");
       assert.equal(variant(result, "provider-failed")?.transcript, written);
@@ -1321,7 +1408,7 @@ describe("containerSandbox", () => {
         "the abort fired, but the container's own kill has not settled yet",
       );
 
-      await run;
+      await boundedByRealTime(run, RUN_DEADLINE);
 
       assert.equal(await exists(clone), false);
     });
@@ -1384,11 +1471,11 @@ describe("containerSandbox", () => {
         await flushRealIo();
       }
 
-      const stalled = await stallingRun;
+      const stalled = await boundedByRealTime(stallingRun, RUN_DEADLINE);
       assert.equal(stalled.kind, "provider-failed");
 
       resolveHealthy?.({ output: "", tokensUsed: tokenCount(0) });
-      const healthy = await healthyRun;
+      const healthy = await boundedByRealTime(healthyRun, RUN_DEADLINE);
       assert.equal(healthy.kind, "finished");
     });
 
@@ -1401,7 +1488,7 @@ describe("containerSandbox", () => {
 
       const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
       await started;
-      const result = await run;
+      const result = await boundedByRealTime(run, RUN_DEADLINE);
 
       assert.equal(result.kind, "finished");
       assert.equal(clearIntervalCalls.mock.callCount(), 1);
