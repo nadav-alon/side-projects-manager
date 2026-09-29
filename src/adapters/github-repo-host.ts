@@ -475,12 +475,7 @@ export function githubRepoHost(
       // rewritten on `gh pr edit`'s own say-so.
       const { stdout } = await run("gh", ["pr", "view", pullRequest, "--json", "body"]);
       const where = `gh pr view ${pullRequest}`;
-      let payload: unknown;
-      try {
-        payload = JSON.parse(stdout);
-      } catch (error) {
-        throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-      }
+      const payload = jsonIn(stdout, where);
       const body = expectField(objectAt(payload, where).body, "string", "body", where);
       const closing = closingLine(ticket);
       if (!body.includes(closing)) {
@@ -790,12 +785,7 @@ function parseApplyReviewAnswers(
 ): RawApplyReviewPullRequest {
   const where = `gh api graphql for ${pullRequest}`;
 
-  let response: unknown;
-  try {
-    response = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const response = jsonIn(stdout, where);
 
   const data = objectField(response, "data", where);
   const repository = objectField(data, "repository", where);
@@ -1198,6 +1188,20 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
 }
 
 /**
+ * `stdout` parsed as JSON, naming `where` when it isn't valid JSON at all: a
+ * malformed response is a `gh` failure, not a repo host with nothing to say.
+ * Shared by every caller that reads a `gh` invocation's stdout down to a
+ * typed shape of its own.
+ */
+function jsonIn(stdout: string, where: string): unknown {
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
+  }
+}
+
+/**
  * The raw items across every page `stdout` — a `gh api --paginate --slurp`
  * call — carries: one JSON array per page, wrapped by `--slurp` into an outer
  * array, flattened here into the one list a caller reads. Throws naming
@@ -1205,12 +1209,7 @@ function isCloneOf(url: string, repo: RepoSlug): boolean {
  * `gh` failure, not a repo host with zero items.
  */
 function paginatedArrayIn(stdout: string, where: string): unknown[] {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const payload = jsonIn(stdout, where);
   if (!Array.isArray(payload) || !payload.every(Array.isArray)) {
     throw new Error(`${where}: expected paginated arrays.`);
   }
@@ -1290,12 +1289,7 @@ function openPullRequestsFrom(
 ): OpenPullRequest[] {
   const where = `gh pr list for ${repo}`;
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const payload = jsonIn(stdout, where);
   if (!Array.isArray(payload)) {
     throw new Error(`${where}: expected an array.`);
   }
@@ -1346,12 +1340,7 @@ function closingPullRequestsFrom(
 ): ClosingPullRequest[] {
   const where = `gh pr list --state all for ${repo}`;
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`${where}: did not return JSON: ${errorMessage(error)}`);
-  }
+  const payload = jsonIn(stdout, where);
   if (!Array.isArray(payload)) {
     throw new Error(`${where}: expected an array.`);
   }
