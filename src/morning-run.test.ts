@@ -1107,16 +1107,18 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.repoHost.clones, [PILOT]);
+      // Twice: once for the uniform sync sweep every non-paused project gets,
+      // once for the run itself.
+      assert.deepEqual(ports.repoHost.clones, [PILOT, PILOT]);
     });
 
-    it("clones nothing when the queue is dry", async () => {
+    it("clones only for the uniform sync sweep when the queue is dry", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.repoHost.clones, []);
+      assert.deepEqual(ports.repoHost.clones, [PILOT]);
       assert.deepEqual(ports.sandbox.runs, []);
     });
 
@@ -3298,7 +3300,9 @@ describe("morningLoop", () => {
       let clones = 0;
       t.mock.method(ports.repoHost, "clone", async (repo: typeof PILOT) => {
         clones += 1;
-        if (clones === 1) {
+        // The first clone is the uniform sync sweep's own; the second is the
+        // ticket's, which is the one this test means to fail.
+        if (clones === 2) {
           throw new Error("no such remote");
         }
         return clone(repo);
@@ -3438,7 +3442,8 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(ports.sandbox.reviews.length, 0);
-      assert.equal(ports.repoHost.clones.length, 0);
+      // One: the uniform sync sweep's own, since nothing here runs a ticket.
+      assert.equal(ports.repoHost.clones.length, 1);
       assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
       assert.deepEqual(ports.tracker.closedReviewTickets, [ticket]);
       const [closed] = ports.tracker.closedReviewTicketComments;
@@ -4107,7 +4112,8 @@ describe("morningLoop", () => {
       assert.deepEqual(closed?.ticket, ticket);
       assert.match(closed?.comment ?? "", /nothing left to apply/i);
       assert.deepEqual(ports.repoHost.readyMarked, [PULL_REQUEST]);
-      assert.equal(ports.repoHost.clones.length, 0);
+      // One: the uniform sync sweep's own, since nothing here runs a ticket.
+      assert.equal(ports.repoHost.clones.length, 1);
       const state = await ports.store.loadState();
       assert.equal(state.projects.get(PILOT), undefined);
       assert.match(report.message, /nothing left to apply/i);
@@ -4475,7 +4481,8 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(ports.sandbox.applyReviews.length, 0);
-      assert.equal(ports.repoHost.clones.length, 0);
+      // One: the uniform sync sweep's own, since nothing here runs a ticket.
+      assert.equal(ports.repoHost.clones.length, 1);
       assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
       const [closed] = ports.tracker.closedApplyReviewTickets;
       assert.deepEqual(closed?.ticket, ticket);
@@ -4884,7 +4891,8 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       assert.equal(ports.sandbox.rebases.length, 0);
-      assert.equal(ports.repoHost.clones.length, 0);
+      // One: the uniform sync sweep's own, since nothing here runs a ticket.
+      assert.equal(ports.repoHost.clones.length, 1);
       assert.equal(report.iterations[0]?.kind, "rebased");
       const [closed] = ports.tracker.closedRebaseTickets;
       assert.deepEqual(closed?.ticket, ticket);
@@ -5314,7 +5322,8 @@ describe("morningLoop", () => {
 
       assert.equal(needsRebase.mock.callCount(), 0);
       assert.equal(ports.sandbox.rebases.length, 0);
-      assert.equal(ports.repoHost.clones.length, 0);
+      // One: the uniform sync sweep's own, since nothing here runs a ticket.
+      assert.equal(ports.repoHost.clones.length, 1);
       assert.equal(report.iterations[0]?.kind, "pull-request-resolved");
       const [closed] = ports.tracker.closedRebaseTickets;
       assert.deepEqual(closed?.ticket, ticket);
@@ -5603,7 +5612,9 @@ describe("morningLoop", () => {
         let clones = 0;
         t.mock.method(ports.repoHost, "clone", async (repo: typeof PILOT) => {
           clones += 1;
-          if (clones === 1) {
+          // The first clone is the uniform sync sweep's own; the second is
+          // the review's, which is the one this test means to fail.
+          if (clones === 2) {
             throw new Error("no such remote");
           }
           return clone(repo);
@@ -5985,9 +5996,11 @@ describe("morningLoop", () => {
 
     /**
      * The two halves of the morning meet here: a gate that refused means no
-     * run, and no run means nothing cloned, nothing recorded, and nothing to
-     * hand over. A stand-down that still opened a pull request would be one
-     * for a branch that was never worked.
+     * run, and no run means nothing recorded and nothing to hand over. A
+     * stand-down that still opened a pull request would be one for a branch
+     * that was never worked. The uniform sync sweep still clones, since a
+     * gate refusing budget for a run says nothing about whether a project's
+     * uniform files are stale.
      */
     it("stands down rather than spend a token of the reserve, starting and recording nothing", async () => {
       const ports = readyToWork();
@@ -5998,7 +6011,7 @@ describe("morningLoop", () => {
       assert.equal(report.outcome, "stood-down");
       assert.equal(report.standDown?.reason, "weekly-reserve");
       assert.deepEqual(ports.sandbox.runs, []);
-      assert.deepEqual(ports.repoHost.clones, []);
+      assert.deepEqual(ports.repoHost.clones, [PILOT]);
       assert.deepEqual(ports.repoHost.pullRequests, []);
       assert.deepEqual(report.iterations, []);
       const state = await ports.store.loadState();
@@ -7577,7 +7590,9 @@ describe("morningLoop", () => {
         const report = await morningLoop(ports);
 
         assert.deepEqual(ports.sandbox.runs, []);
-        assert.deepEqual(ports.repoHost.clones, []);
+        // One: the uniform sync sweep's own, since this ticket is handed back
+        // ahead of the gate rather than run.
+        assert.deepEqual(ports.repoHost.clones, [PILOT]);
         // The comment's own wording is covered by hand-back.test.ts; here it
         // is enough that the hand back happened, without a run.
         assert.equal(ports.tracker.handbacks.length, 1);
@@ -7661,7 +7676,9 @@ describe("morningLoop", () => {
         const report = await morningLoop(ports);
 
         assert.deepEqual(ports.sandbox.runs, []);
-        assert.deepEqual(ports.repoHost.clones, []);
+        // One: the uniform sync sweep's own, since this ticket is handed back
+        // ahead of the gate rather than run.
+        assert.deepEqual(ports.repoHost.clones, [PILOT]);
         // The comment's exact wording is covered by hand-back.test.ts; here
         // it is enough that it quotes the offending label.
         assert.equal(ports.tracker.handbacks.length, 1);
@@ -8474,6 +8491,86 @@ describe("morningLoop", () => {
         assert.equal(overlapped, false);
       },
     );
+  });
+
+  describe("the uniform sync sweep", () => {
+    it("clones and syncs a non-paused, non-manager project's uniform files", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.clones, [PILOT]);
+      assert.deepEqual(ports.harness.syncs, [
+        `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+      ]);
+    });
+
+    it("never sweeps a paused project", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { paused: true });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.clones, []);
+    });
+
+    it("never sweeps the manager's own project", async () => {
+      const ports = fakePorts();
+      ports.store.register(MANAGER, { manager: true });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.clones, []);
+    });
+
+    it("proposes nothing when the harness reports nothing stale", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.proposals, []);
+    });
+
+    it("proposes a fix, naming the stale files, when the harness reports drift", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.harness.stale = ["docs/agents/coding-standards.md"];
+
+      const report = await morningLoop(ports);
+
+      assert.equal(ports.repoHost.proposals.length, 1);
+      assert.deepEqual(ports.repoHost.proposals[0]?.paths, [
+        "docs/agents/coding-standards.md",
+      ]);
+      assert.match(report.message, /Uniform sync:.*proposed in/);
+    });
+
+    it("carries a refused clone into the summary, without failing the invocation", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      t.mock.method(ports.repoHost, "clone", async () => {
+        throw new Error("the repo host is down");
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.match(report.message, /Uniform sync:.*refused: the repo host is down/);
+    });
+
+    it("sweeps once even though nothing is eligible", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.harness.stale = ["docs/agents/coding-standards.md"];
+
+      const report = await morningLoop(ports);
+
+      assert.equal(report.outcome, "dry-queue");
+      assert.equal(ports.repoHost.proposals.length, 1);
+      assert.match(ports.tracker.summaries[0]?.body ?? "", /## Uniform sync sweep/);
+    });
   });
 
   /**

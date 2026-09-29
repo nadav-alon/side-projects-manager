@@ -4,6 +4,7 @@ import {
   pruneOldDiscoveries,
   pruneOldTranscripts,
 } from "../adapters/container-sandbox.ts";
+import { directoryHarness } from "../adapters/directory-harness.ts";
 import { documentStore } from "../adapters/document-store.ts";
 import { fileHalt } from "../adapters/file-halt.ts";
 import { fileInvocationLease } from "../adapters/file-invocation-lease.ts";
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
       ledger: sessionLogUsageLedger,
       clock: systemClock,
       store,
+      harness: directoryHarness(),
       progress,
     },
     {
