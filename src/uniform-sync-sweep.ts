@@ -1,5 +1,5 @@
 import { errorMessage } from "./error-message.ts";
-import type { Harness, Proposal, RepoHost, RepoSlug } from "./ports/index.ts";
+import type { Checkout, Harness, Proposal, RepoHost, RepoSlug } from "./ports/index.ts";
 import { branch, UNIFORM_FILES } from "./ports/index.ts";
 
 /** The {@link RepoHost} verbs and the one {@link Harness} verb a sweep calls. */
@@ -33,13 +33,16 @@ const SYNC_MESSAGE = "Bring the uniform files back in step with the manager's";
 const SYNC_BRANCH = branch("uniform-sync");
 
 /**
- * What a sweep answers when the checkout already has an uncommitted change
- * to a uniform file: `harness.sync` writes straight into the working tree,
- * so running it over that checkout would silently discard the developer's
- * own edit.
+ * What a sweep answers when `checkout` already has an uncommitted change to
+ * a uniform file: `harness.sync` writes straight into the working tree, so
+ * running it over that checkout would silently discard the developer's own
+ * edit. Names `checkout` itself, not which of `UNIFORM_FILES` is dirty:
+ * `hasUncommittedChanges` only answers a boolean, so this sweep has no path
+ * to name.
  */
-const DIRTY_CHECKOUT_ERROR =
-  "the checkout has an uncommitted change to a uniform file; syncing would overwrite it, so this sweep left it alone";
+function dirtyCheckoutError(checkout: Checkout): string {
+  return `${checkout} has an uncommitted change to a uniform file; syncing would overwrite it, so this sweep left it alone`;
+}
 
 /**
  * A uniform sync sweep of one registered project (`CONTEXT.md`'s "Uniform
@@ -63,7 +66,7 @@ const DIRTY_CHECKOUT_ERROR =
  * catches the checkout up with its remote first. An uncommitted edit to a
  * uniform file the remote has also changed since is still refused, and the
  * edit still untouched either way, but as `clone`'s own generic refusal
- * rather than {@link DIRTY_CHECKOUT_ERROR} — see
+ * rather than {@link dirtyCheckoutError} — see
  * `github-repo-host.test.ts`'s "refuses to catch up when an uncommitted edit
  * conflicts with what landed upstream on the same file".
  *
@@ -81,7 +84,10 @@ export async function uniformSyncSweep(
     if (
       await ports.repoHost.hasUncommittedChanges(checkout, UNIFORM_FILES)
     ) {
-      return { repo, result: { kind: "refused", error: DIRTY_CHECKOUT_ERROR } };
+      return {
+        repo,
+        result: { kind: "refused", error: dirtyCheckoutError(checkout) },
+      };
     }
     const changed = await ports.harness.sync(checkout);
     if (changed.length === 0) {

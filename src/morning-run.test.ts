@@ -8686,6 +8686,21 @@ describe("morningLoop", () => {
       assert.match(report.message, /Uniform sync sweep:.*refused: the repo host is down/);
     });
 
+    it("carries a dirty-checkout refusal into the summary, without ever syncing", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.repoHost.uncommittedChanges = () => true;
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.harness.syncs, []);
+      assert.equal(report.outcome, "dry-queue");
+      assert.match(
+        report.message,
+        /Uniform sync sweep:.*refused: .*has an uncommitted change to a uniform file/,
+      );
+    });
+
     it("sweeps once even though nothing is eligible", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
