@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
@@ -395,6 +395,100 @@ describe("publishing to a checkout the developer already had", () => {
   });
 });
 
+describe("checking a checkout for uncommitted changes", () => {
+  it("answers false when none of the named paths differ from HEAD", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      false,
+    );
+  });
+
+  it("answers true for an unstaged edit to a named path", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot, edited\n");
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a staged edit to a named path", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot, edited\n");
+    await run("git", ["-C", directory, "add", "AGENTS.md"]);
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a named path that is untracked", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", ["seed.md"]);
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a named path deleted from the working tree", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await unlink(path.join(directory, "AGENTS.md"));
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a named path nested in a directory that isn't tracked yet", async () => {
+    const directory = await checkout();
+    await mkdir(path.join(directory, "docs", "agents"), { recursive: true });
+    await writeFile(
+      path.join(directory, "docs", "agents", "coding-standards.md"),
+      "# Coding Standards\n",
+    );
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, [
+        "docs/agents/coding-standards.md",
+      ]),
+      true,
+    );
+  });
+
+  it("ignores a dirty path the caller did not name", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await writeFile(path.join(directory, "seed.md"), "seed\n");
+    await githubRepoHost().commitAndPush(directory, "Seed", [
+      "AGENTS.md",
+      "seed.md",
+    ]);
+    await writeFile(path.join(directory, "half-finished.ts"), "// mine\n");
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      false,
+    );
+  });
+});
+
 describe("finding the checkout", () => {
   it("reuses a clone of this project already in the managed location", async () => {
     const directory = await checkout();
@@ -410,7 +504,11 @@ describe("finding the checkout", () => {
    * A commit landing on the remote from somewhere other than `directory` — a
    * pull request merged on GitHub, as far as the managed clone can tell.
    */
-  async function landedElsewhere(directory: string, file: string): Promise<void> {
+  async function landedElsewhere(
+    directory: string,
+    file: string,
+    content = `${file}\n`,
+  ): Promise<void> {
     const { stdout: origin } = await run("git", [
       "-C",
       directory,
@@ -422,9 +520,9 @@ describe("finding the checkout", () => {
     await run("git", ["clone", origin.trim(), elsewhere]);
     await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
     await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
-    await writeFile(path.join(elsewhere, file), `${file}\n`);
+    await writeFile(path.join(elsewhere, file), content);
     await run("git", ["-C", elsewhere, "add", file]);
-    await run("git", ["-C", elsewhere, "commit", "--message", `Add ${file}`]);
+    await run("git", ["-C", elsewhere, "commit", "--message", `Update ${file}`]);
     await run("git", ["-C", elsewhere, "push", "origin", "main"]);
   }
 
@@ -454,6 +552,26 @@ describe("finding the checkout", () => {
 
     assert.deepEqual(await committedFiles(found), ["merged.md", "seed.md"]);
     assert.equal(await readFile(path.join(found, "seed.md"), "utf8"), "mine\n");
+  });
+
+  /**
+   * The catch-up this runs before a caller ever gets to ask whether the
+   * checkout is dirty: an uncommitted edit that conflicts with what landed
+   * upstream on the very same file surfaces as this generic clone refusal,
+   * not as whatever more specific refusal the caller had in mind for a dirty
+   * checkout — `uniform-sync-sweep.ts`'s `DIRTY_CHECKOUT_ERROR` among them.
+   * The edit itself is never touched either way.
+   */
+  it("refuses to catch up when an uncommitted edit conflicts with what landed upstream on the same file", async () => {
+    const directory = await seeded();
+    await landedElsewhere(directory, "seed.md", "landed\n");
+    await writeFile(path.join(directory, "seed.md"), "mine\n");
+
+    await assert.rejects(
+      githubRepoHost(locationOf(directory)).clone(PILOT),
+      new RegExp(`${directory}.*cannot be brought up to date`),
+    );
+    assert.equal(await readFile(path.join(directory, "seed.md"), "utf8"), "mine\n");
   });
 
   it("refuses a clone whose branch has moved apart from its remote", async () => {

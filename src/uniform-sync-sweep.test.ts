@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { branch, repoSlug } from "./ports/index.ts";
+import { branch, repoSlug, UNIFORM_FILES } from "./ports/index.ts";
 import { FakeHarness } from "./testing/fake-harness.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 import { uniformSyncSweep } from "./uniform-sync-sweep.ts";
@@ -52,6 +52,32 @@ describe("uniformSyncSweep", () => {
         url: FakeRepoHost.PROPOSED_PULL_REQUEST,
       },
     });
+  });
+
+  it("refuses, without ever calling sync, once the checkout has an uncommitted change to a uniform file", async () => {
+    const repoHost = new FakeRepoHost();
+    const harness = new FakeHarness();
+    repoHost.uncommittedChanges = () => true;
+
+    const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT);
+
+    assert.equal(outcome.result.kind, "refused");
+    assert.deepEqual(harness.syncs, []);
+    assert.deepEqual(repoHost.proposals, []);
+  });
+
+  it("checks the checkout's uniform files, not any dirty file, before syncing", async () => {
+    const repoHost = new FakeRepoHost();
+    const harness = new FakeHarness();
+    let asked: readonly string[] = [];
+    repoHost.uncommittedChanges = (paths) => {
+      asked = paths;
+      return false;
+    };
+
+    await uniformSyncSweep({ repoHost, harness }, PILOT);
+
+    assert.deepEqual(asked, [...UNIFORM_FILES]);
   });
 
   it("answers refused rather than throwing when the clone fails", async (t) => {

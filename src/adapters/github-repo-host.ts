@@ -121,6 +121,16 @@ export function githubRepoHost(
       });
     },
 
+    // `hasChanges` is `git status --porcelain -- <paths>`, which is where the
+    // port's "staged, unstaged or untracked" guarantee comes from — except a
+    // gitignored untracked file, which `status` never reports.
+    async hasUncommittedChanges(
+      directory: Checkout,
+      paths: readonly string[],
+    ): Promise<boolean> {
+      return hasChanges(directory, paths);
+    },
+
     async commitAndPush(
       directory: Checkout,
       message: string,
@@ -1057,7 +1067,7 @@ async function hasBranch(directory: Checkout, of: Branch): Promise<boolean> {
 /** Whether any of `paths` differs from what the checkout has committed. */
 async function hasChanges(
   directory: Checkout,
-  paths: string[],
+  paths: readonly string[],
 ): Promise<boolean> {
   const { stdout } = await run("git", [
     "-C",

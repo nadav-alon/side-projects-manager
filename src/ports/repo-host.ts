@@ -535,6 +535,14 @@ export interface RepoHost {
    */
   clone(repo: RepoSlug): Promise<Checkout>;
   /**
+   * Whether any of `paths` in the checkout at `directory` differs from what
+   * it has committed — staged, unstaged or untracked.
+   */
+  hasUncommittedChanges(
+    directory: Checkout,
+    paths: readonly string[],
+  ): Promise<boolean>;
+  /**
    * Commits `paths` in the checkout at `directory` and pushes, setting
    * upstream. A checkout where none of them changed is left alone.
    *
