@@ -139,9 +139,9 @@ export interface ApplyReviewAnswers {
   unanswered: number;
   /**
    * Open threads whose last comment is a declined reply, however long ago it
-   * was posted — unlike `declinedSince`, not scoped to the read's instant.
-   * What the merge gate reads: a pull request the ticket's own pass leaves
-   * clean can still carry a thread declined on an earlier pass.
+   * was posted — unlike `declinedSince`, not scoped to the read's instant: a
+   * pull request the ticket's own pass leaves clean can still carry a thread
+   * declined on an earlier pass.
    */
   declinedOpen: number;
 }
