@@ -470,24 +470,23 @@ export function githubRepoHost(
       pullRequest: PullRequestUrl,
       ticket: Ticket,
     ): Promise<void> {
-      // Read back first, so a body already demoted — or one that never
-      // carried the exact line this loop writes — is left alone rather than
+      // Read back first, so a body already demoted is left alone rather than
       // rewritten on `gh pr edit`'s own say-so.
       const { stdout } = await run("gh", ["pr", "view", pullRequest, "--json", "body"]);
       const where = `gh pr view ${pullRequest}`;
       const payload = jsonIn(stdout, where);
       const body = expectField(objectAt(payload, where).body, "string", "body", where);
       const closing = closingLine(ticket);
-      if (!body.includes(closing)) {
+      const partOf = partOfLine(ticket);
+      if (body.includes(partOf)) {
         return;
       }
-      await run("gh", [
-        "pr",
-        "edit",
-        pullRequest,
-        "--body",
-        body.replace(closing, partOfLine(ticket)),
-      ]);
+      if (!body.includes(closing)) {
+        throw new Error(
+          `${where}: body carries neither ${JSON.stringify(closing)} nor ${JSON.stringify(partOf)}.`,
+        );
+      }
+      await run("gh", ["pr", "edit", pullRequest, "--body", body.replace(closing, partOf)]);
     },
 
     async postComment(pullRequest: PullRequestUrl, body: string): Promise<void> {

@@ -1600,10 +1600,13 @@ describe("demoting a pull request's closing reference", () => {
     );
   });
 
-  it("leaves a body carrying no closing line for the ticket alone", async (t) => {
+  it("throws, rather than closing silently on merge, when the body carries neither line", async (t) => {
     const gh = await recordingGh(t, reportingBody("Some other body entirely."));
 
-    await githubRepoHost().demoteClosingReference(PULL_REQUEST, TICKET);
+    await assert.rejects(
+      githubRepoHost().demoteClosingReference(PULL_REQUEST, TICKET),
+      /body carries neither/,
+    );
 
     assert.equal(callWith(await gh.calls(), "edit"), undefined);
   });

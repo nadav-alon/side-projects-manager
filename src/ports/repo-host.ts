@@ -686,9 +686,12 @@ export interface RepoHost {
    * CONTEXT.md's "Discovery" — since the criterion behind it is not met, and
    * `ticket` has to stay open until whatever blocks it clears.
    *
-   * A pull request whose body does not carry the exact closing line the loop
-   * itself writes for `ticket` is left alone: one already demoted by an
-   * earlier pass, or one edited by hand since.
+   * A pull request whose body already carries `Part of #N.` is left alone —
+   * an earlier pass already demoted it. Anything else — a closing line
+   * `gh`'s own normalizing changed, or a body edited by hand since — throws
+   * rather than returning quietly: silently carrying on as if this succeeded
+   * is exactly how a pull request closes `ticket` unnoticed, the failure mode
+   * this call exists to prevent.
    */
   demoteClosingReference(pullRequest: PullRequestUrl, ticket: Ticket): Promise<void>;
   /**
