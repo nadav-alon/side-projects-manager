@@ -504,7 +504,11 @@ describe("finding the checkout", () => {
    * A commit landing on the remote from somewhere other than `directory` — a
    * pull request merged on GitHub, as far as the managed clone can tell.
    */
-  async function landedElsewhere(directory: string, file: string): Promise<void> {
+  async function landedElsewhere(
+    directory: string,
+    file: string,
+    content = `${file}\n`,
+  ): Promise<void> {
     const { stdout: origin } = await run("git", [
       "-C",
       directory,
@@ -516,9 +520,9 @@ describe("finding the checkout", () => {
     await run("git", ["clone", origin.trim(), elsewhere]);
     await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
     await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
-    await writeFile(path.join(elsewhere, file), `${file}\n`);
+    await writeFile(path.join(elsewhere, file), content);
     await run("git", ["-C", elsewhere, "add", file]);
-    await run("git", ["-C", elsewhere, "commit", "--message", `Add ${file}`]);
+    await run("git", ["-C", elsewhere, "commit", "--message", `Update ${file}`]);
     await run("git", ["-C", elsewhere, "push", "origin", "main"]);
   }
 
@@ -548,6 +552,26 @@ describe("finding the checkout", () => {
 
     assert.deepEqual(await committedFiles(found), ["merged.md", "seed.md"]);
     assert.equal(await readFile(path.join(found, "seed.md"), "utf8"), "mine\n");
+  });
+
+  /**
+   * The catch-up this runs before a caller ever gets to ask whether the
+   * checkout is dirty: an uncommitted edit that conflicts with what landed
+   * upstream on the very same file surfaces as this generic clone refusal,
+   * not as whatever more specific refusal the caller had in mind for a dirty
+   * checkout — `uniform-sync-sweep.ts`'s `DIRTY_CHECKOUT_ERROR` among them.
+   * The edit itself is never touched either way.
+   */
+  it("refuses to catch up when an uncommitted edit conflicts with what landed upstream on the same file", async () => {
+    const directory = await seeded();
+    await landedElsewhere(directory, "seed.md", "landed\n");
+    await writeFile(path.join(directory, "seed.md"), "mine\n");
+
+    await assert.rejects(
+      githubRepoHost(locationOf(directory)).clone(PILOT),
+      new RegExp(`${directory}.*cannot be brought up to date`),
+    );
+    assert.equal(await readFile(path.join(directory, "seed.md"), "utf8"), "mine\n");
   });
 
   it("refuses a clone whose branch has moved apart from its remote", async () => {

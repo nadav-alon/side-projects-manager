@@ -59,6 +59,14 @@ const DIRTY_CHECKOUT_ERROR =
  * nothing is committed, and `commitAndPropose` is never even asked, so this
  * answers `{ kind: "unchanged" }` without a pull request nobody needed.
  *
+ * The dirty-checkout check runs only once `clone` has returned, and `clone`
+ * catches the checkout up with its remote first. An uncommitted edit to a
+ * uniform file the remote has also changed since is still refused, and the
+ * edit still untouched either way, but as `clone`'s own generic refusal
+ * rather than {@link DIRTY_CHECKOUT_ERROR} — see
+ * `github-repo-host.test.ts`'s "refuses to catch up when an uncommitted edit
+ * conflicts with what landed upstream on the same file".
+ *
  * Never throws: a clone or a push the repo host refuses, or a checkout found
  * dirty, is answered with `{ kind: "refused" }` rather than raised, the same
  * best-effort policy a conflict sweep's own refusals follow, so one
