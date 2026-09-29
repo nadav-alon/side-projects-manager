@@ -121,6 +121,9 @@ export function githubRepoHost(
       });
     },
 
+    // `hasChanges` is `git status --porcelain -- <paths>`, which is where the
+    // port's "staged, unstaged or untracked" guarantee comes from — except a
+    // gitignored untracked file, which `status` never reports.
     async hasUncommittedChanges(
       directory: Checkout,
       paths: readonly string[],
