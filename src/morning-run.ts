@@ -11,6 +11,7 @@ import type {
   Harness,
   IssueTracker,
   IterationLimit,
+  Milliseconds,
   ModelRefusal,
   OnRunStarted,
   OpenInvocation,
@@ -47,7 +48,6 @@ import type {
   UniformFilesReverted,
   UsageLedger,
   Usd,
-  Milliseconds,
 } from "./ports/index.ts";
 import {
   APPLIED_REVIEW_LABEL,
@@ -2322,10 +2322,10 @@ async function finishApplyReview(
  * checks read green — waiting out a pending read, up to `CHECKS_WAIT` —
  * attempting the merge itself to settle mergeable. Fires once, right after
  * the one apply-review run, or the one clean review, already in the loop: no
- * retry, no `/rebase`, whatever it finds. Never
- * throws: every read this makes past `implementation` and `span` is
- * guarded, so a tracker or repo host failure comes back as a verdict rather
- * than sinking a ticket that has already closed.
+ * retry beyond that wait, no `/rebase`, whatever it finds. Never throws:
+ * every read this makes past `implementation` and `span` is guarded, so a
+ * tracker or repo host failure comes back as a verdict rather than sinking a
+ * ticket that has already closed.
  *
  * `context.implementation` absent, or carrying no run span, reads the same
  * as never labelled `turboable`: none of the three is a grant the gate

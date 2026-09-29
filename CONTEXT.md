@@ -699,9 +699,8 @@ request, with a merge commit, and deletes its branch, but only if it is mergeabl
 otherwise it labels the pull request `ready-for-human` and stops — no re-rebase, and no retry beyond
 one bounded wait: checks that read `pending` are read again, inside the gate, for at most 3 minutes
 from the first pending read, so green merges, and failing or still pending after 3 minutes leaves it
-for the developer. A
-declined thread, open or not, is never asked about. Stacked pull requests are out of scope until
-that is specced. When the gate declines a grant — the label came too late, or fell inside a run
+for the developer. A declined thread, open or not, is never asked about. Stacked pull requests are
+out of scope until that is specced. When the gate declines a grant — the label came too late, or fell inside a run
 span — the summary names its own reason in the review sentence, so the developer knows their grant
 did not count; an implementation ticket that never carried `turboable` at all, that the gate could
 not find, or that carried no run span reads as ordinary, silent, ready for review, the same as on a

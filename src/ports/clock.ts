@@ -5,8 +5,8 @@ import type { Milliseconds } from "./milliseconds.ts";
  *
  * Rolling-window budget arithmetic and "when was this project last worked"
  * both read time, and both need to be assertable in tests, so nothing in the
- * loop calls `Date.now()` directly. Waiting is the same dependency: nothing
- * in the loop calls `setTimeout` directly either.
+ * loop calls `Date.now()` directly. Waiting is the same dependency: a wait the
+ * loop makes itself goes through `sleep`, not `setTimeout`.
  */
 export interface Clock {
   now(): Date;
