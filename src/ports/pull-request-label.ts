@@ -55,10 +55,10 @@ export const APPLIED_REVIEW_LABEL = pullRequestLabel("applied-review");
 /**
  * {@link READY_FOR_HUMAN_LABEL}, branded as a pull request label: what the
  * merge gate labels a turboable ticket's pull request once its apply-review
- * ticket finishes but the gate finds it not mergeable, not green, or
- * carrying a declined thread. Per `CONTEXT.md`'s "ready-for-human" and ADR
- * 0009 — the same text as the ticket label, on a pull request rather than an
- * issue, since a pull request carries no triage state of its own.
+ * ticket finishes but the gate finds it not mergeable or not green. Per
+ * `CONTEXT.md`'s "ready-for-human" and ADR 0009 — the same text as the
+ * ticket label, on a pull request rather than an issue, since a pull
+ * request carries no triage state of its own.
  */
 export const READY_FOR_HUMAN_PULL_REQUEST_LABEL = pullRequestLabel(
   READY_FOR_HUMAN_LABEL,

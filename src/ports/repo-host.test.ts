@@ -61,7 +61,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 2,
       declinedSince: 1,
       unanswered: 0,
-      declinedOpen: 1,
     });
   });
 
@@ -72,7 +71,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 0,
       declinedSince: 0,
       unanswered: 1,
-      declinedOpen: 0,
     });
   });
 
@@ -91,7 +89,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 1,
-      declinedOpen: 0,
     });
   });
 
@@ -105,7 +102,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 1,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
@@ -116,7 +112,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 0,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
@@ -137,7 +132,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 1,
       declinedSince: 1,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
@@ -156,7 +150,6 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 0,
       declinedSince: 1,
       unanswered: 0,
-      declinedOpen: 1,
     });
   });
 
@@ -167,20 +160,9 @@ describe("summarizeApplyReviewThreads", () => {
       appliedSince: 0,
       declinedSince: 0,
       unanswered: 0,
-      declinedOpen: 0,
     });
   });
 
-  it("counts a thread as declinedOpen even when it was declined before the read's instant, unlike declinedSince", () => {
-    const answers = summarizeApplyReviewThreads([declined("out of scope", BEFORE)], SINCE);
-
-    assert.deepEqual(answers, {
-      appliedSince: 0,
-      declinedSince: 0,
-      unanswered: 0,
-      declinedOpen: 1,
-    });
-  });
 });
 
 describe("resolveNeedsRebase", () => {

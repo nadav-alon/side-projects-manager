@@ -763,18 +763,17 @@ export type MergeGate =
    */
   | { kind: "timeline-unreadable"; error: string }
   /**
-   * Mergeable, green and free of declined threads: merged with a merge
-   * commit, its branch deleted with it. `implementationTicket` is the
-   * implementation ticket whose pull request this merged.
+   * Mergeable and green: merged with a merge commit, its branch deleted with
+   * it. `implementationTicket` is the implementation ticket whose pull
+   * request this merged.
    */
   | { kind: "merged"; implementationTicket: Ticket }
   /**
-   * Failed one of the gate's own checks — a declined thread, checks not
-   * green, or a merge the repo host refused as not mergeable — and so left
-   * for the developer: `reason` says which, and
-   * `READY_FOR_HUMAN_PULL_REQUEST_LABEL` is applied to the pull request. A
-   * refusal labelling it is reported here too, never raised, the same as
-   * `AppliedReview.notLabelled`.
+   * Failed one of the gate's own checks — checks not green, or a merge the
+   * repo host refused as not mergeable — and so left for the developer:
+   * `reason` says which, and `READY_FOR_HUMAN_PULL_REQUEST_LABEL` is applied
+   * to the pull request. A refusal labelling it is reported here too, never
+   * raised, the same as `AppliedReview.notLabelled`.
    */
   | { kind: "left-for-human"; reason: string; notLabelled?: NotLabelled };
 

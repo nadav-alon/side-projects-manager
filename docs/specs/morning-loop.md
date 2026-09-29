@@ -209,8 +209,8 @@ finishes, or a clean review (CONTEXT.md's "Clean review"), promotes its PR. On a
 ticket a human labelled `turboable` before its own run started (CONTEXT.md's "Turboable") has its PR
 merged by the manager too, in the same pass, once that apply-review ticket finishes or that clean
 review's ticket closes — with a merge commit and its branch deleted, and only if the PR is
-mergeable, green and free of declined threads; otherwise the manager labels the PR `ready-for-human`
-and stops, with no retry and no re-rebase, leaving it for the developer. See
+mergeable and green; otherwise the manager labels the PR `ready-for-human` and stops, with no retry
+and no re-rebase, leaving it for the developer. See
 `docs/adr/0009-the-manager-merges-a-turboable-tickets-pull-request.md`. Every other merge stays the
 developer's.
 

@@ -125,10 +125,9 @@ export interface ApplyReviewThread {
  *
  * The `…Since` counts are scoped to the read's instant, so a caller asking
  * what one run did is not handed counts an earlier pass already reported.
- * `unanswered` and `declinedOpen` are the threads' standing state, whatever
- * instant the caller reads from: a thread a marked reply answered days ago is
- * still answered, and one a later, unmarked comment spoke in is unanswered
- * again.
+ * `unanswered` is the threads' standing state, whatever instant the caller
+ * reads from: a thread a marked reply answered days ago is still answered,
+ * and one a later, unmarked comment spoke in is unanswered again.
  */
 export interface ApplyReviewAnswers {
   /** Applied replies posted since the read's instant. */
@@ -137,13 +136,6 @@ export interface ApplyReviewAnswers {
   declinedSince: number;
   /** Open threads whose last comment is not a marked reply. */
   unanswered: number;
-  /**
-   * Open threads whose last comment is a declined reply, however long ago it
-   * was posted — unlike `declinedSince`, not scoped to the read's instant.
-   * What the merge gate reads: a pull request the ticket's own pass leaves
-   * clean can still carry a thread declined on an earlier pass.
-   */
-  declinedOpen: number;
 }
 
 /**
@@ -159,7 +151,6 @@ export function summarizeApplyReviewThreads(
   let applied = 0;
   let declined = 0;
   let unanswered = 0;
-  let declinedOpen = 0;
 
   for (const thread of threads) {
     for (const comment of thread.comments) {
@@ -180,8 +171,6 @@ export function summarizeApplyReviewThreads(
     const last = thread.comments.at(-1);
     if (last === undefined || !isMarkedReply(last.body)) {
       unanswered++;
-    } else if (verdictOf(last.body) === "declined") {
-      declinedOpen++;
     }
   }
 
@@ -189,7 +178,6 @@ export function summarizeApplyReviewThreads(
     appliedSince: applied,
     declinedSince: declined,
     unanswered,
-    declinedOpen,
   };
 }
 

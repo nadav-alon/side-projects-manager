@@ -2722,9 +2722,9 @@ describe("morningLoop", () => {
           );
         });
 
-        it("labels the pull request ready-for-human without attempting a merge when the pull request still carries a declined thread", async () => {
+        it("merges the pull request even when it still carries a declined thread", async () => {
           const ports = fakePorts();
-          queuedTurboableReview(ports);
+          const implementation = queuedTurboableReview(ports);
           postedACleanReview(ports);
           ports.repoHost.openApplyReviewThread(PULL_REQUEST);
           ports.repoHost.answerApplyReviewThread(
@@ -2737,17 +2737,17 @@ describe("morningLoop", () => {
 
           const report = await morningLoop(ports);
 
-          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           assert.deepEqual(
             ports.repoHost.labelled.filter(
               (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
             ),
-            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+            [],
           );
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "left-for-human", reason: "1 declined thread" },
+            { kind: "merged", implementationTicket: implementation },
           );
         });
 
@@ -2962,30 +2962,6 @@ describe("morningLoop", () => {
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
             { kind: "left-for-human", reason: "checks still running" },
-          );
-        });
-
-        it("labels the pull request ready-for-human, reporting rather than raising, when reading its declined threads fails", async (t) => {
-          const ports = fakePorts();
-          queuedTurboableReview(ports);
-          postedACleanReview(ports);
-          t.mock.method(ports.repoHost, "readApplyReviewAnswers", async () => {
-            throw new Error("thread read unavailable");
-          });
-
-          const report = await morningLoop(ports);
-
-          assert.deepEqual(ports.repoHost.merged, []);
-          assert.deepEqual(
-            ports.repoHost.labelled.filter(
-              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
-            ),
-            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
-          );
-          const outcome = report.iterations[0];
-          assert.deepEqual(
-            outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "left-for-human", reason: "thread read unavailable" },
           );
         });
       });
@@ -4585,24 +4561,24 @@ describe("morningLoop", () => {
         );
       });
 
-      it("labels the pull request ready-for-human without attempting a merge when the run's own pass left a thread declined", async () => {
+      it("merges the pull request even when the run's own pass left a thread declined", async () => {
         const ports = fakePorts();
-        queuedTurboable(ports, { threads: 1 });
+        const implementation = queuedTurboable(ports, { threads: 1 });
         answering(ports, ["declined"]);
 
         const report = await morningLoop(ports);
 
-        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
         assert.deepEqual(
           ports.repoHost.labelled.filter(
             (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
           ),
-          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          [],
         );
         const outcome = report.iterations[0];
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "left-for-human", reason: "1 declined thread" },
+          { kind: "merged", implementationTicket: implementation },
         );
       });
 
@@ -4646,9 +4622,9 @@ describe("morningLoop", () => {
         );
       });
 
-      it("labels the pull request ready-for-human, without ever starting a run, when a thread was declined before this pass started", async () => {
+      it("merges the pull request, without ever starting a run, when a thread was declined before this pass started", async () => {
         const ports = fakePorts();
-        queuedTurboable(ports, { threads: 1 });
+        const implementation = queuedTurboable(ports, { threads: 1 });
         ports.repoHost.answerApplyReviewThread(
           PULL_REQUEST,
           0,
@@ -4660,11 +4636,11 @@ describe("morningLoop", () => {
         const report = await morningLoop(ports);
 
         assert.deepEqual(ports.sandbox.applyReviews, []);
-        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
         const outcome = report.iterations[0];
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "left-for-human", reason: "1 declined thread" },
+          { kind: "merged", implementationTicket: implementation },
         );
       });
 
