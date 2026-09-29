@@ -36,7 +36,7 @@ const SYNC_BRANCH = branch("uniform-sync");
  * What a sweep answers when the checkout already has an uncommitted change
  * to a uniform file: `harness.sync` writes straight into the working tree,
  * so running it over that checkout would silently discard the developer's
- * own edit (#1050).
+ * own edit.
  */
 const DIRTY_CHECKOUT_ERROR =
   "the checkout has an uncommitted change to a uniform file; syncing would overwrite it, so this sweep left it alone";
