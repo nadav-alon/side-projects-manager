@@ -75,6 +75,33 @@ describe("checkoutGuardFailures", () => {
     assert.deepEqual(checkoutGuardFailures(source), []);
   });
 
+  it("accepts contents: write, since it grants read access too", () => {
+    const source = workflow([CHECKS_OUT, RUNS_SCRIPT], { permissions: "contents: write" });
+
+    assert.deepEqual(checkoutGuardFailures(source), []);
+  });
+
+  it("accepts the read-all and write-all shorthand for a workflow's permissions", () => {
+    for (const shorthand of ["read-all", "write-all"]) {
+      const source: WorkflowSource = {
+        path: "example.yml",
+        content: [
+          "name: Example",
+          `permissions: ${shorthand}`,
+          "jobs:",
+          "  demo:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          `      ${CHECKS_OUT}`,
+          `      ${RUNS_SCRIPT}`,
+          "",
+        ].join("\n"),
+      };
+
+      assert.deepEqual(checkoutGuardFailures(source), []);
+    }
+  });
+
   it("prefers a job's own permissions over the workflow's, the same way GitHub Actions resolves them", () => {
     const source: WorkflowSource = {
       path: "example.yml",

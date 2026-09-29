@@ -25,14 +25,31 @@ interface WorkflowStep {
   run?: string;
 }
 
+/** A `permissions:` block, either the `{ contents: read }` mapping form or the `read-all`/`write-all` shorthand. */
+type WorkflowPermissions = Record<string, string> | string;
+
 interface WorkflowJob {
-  permissions?: Record<string, string>;
+  permissions?: WorkflowPermissions;
   steps?: WorkflowStep[];
 }
 
 interface WorkflowDocument {
-  permissions?: Record<string, string>;
+  permissions?: WorkflowPermissions;
   jobs?: Record<string, WorkflowJob>;
+}
+
+/**
+ * Whether `permissions` gives its job read access to the repo's contents —
+ * what `actions/checkout` needs. `write` grants it too, the same way GitHub
+ * Actions resolves the scope: a token permitted to write a resource can read
+ * it.
+ */
+function grantsContentsRead(permissions: WorkflowPermissions | undefined): boolean {
+  if (typeof permissions === "string") {
+    return permissions === "read-all" || permissions === "write-all";
+  }
+  const contents = permissions?.contents;
+  return contents === "read" || contents === "write";
 }
 
 /**
@@ -79,8 +96,8 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
       continue;
     }
 
-    const permissions = job.permissions ?? document?.permissions ?? {};
-    if (permissions.contents !== "read") {
+    const permissions = job.permissions ?? document?.permissions;
+    if (!grantsContentsRead(permissions)) {
       failures.push({
         workflow: source.path,
         job: jobId,
