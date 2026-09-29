@@ -250,7 +250,7 @@ is cloned and asked to bring its **Uniform files** back in step with the manager
 found already in step is left untouched. One whose copy had drifted gets the fix proposed as a pull
 request, the same way scaffolding a project that predates the manager is — never pushed straight to
 the project's own branch. A clone or a push the repo host refuses is carried into the summary rather
-than failing the invocation. See issue #1027.
+than failing the invocation.
 _Avoid_: uniform sync, sync sweep
 
 **Agent instructions**:
