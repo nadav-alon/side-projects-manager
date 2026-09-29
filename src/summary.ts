@@ -1918,6 +1918,8 @@ function appliedReviewSummary(iteration: AppliedReviewIteration): string {
     }
     case "check-failed":
       return `${applied}, but ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
+    case "demote-failed":
+      return `${applied}: ${answered(iteration)}, but a still-open Blocked on: could not be taken off ${pullRequest}'s closing reference: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}, and ${pullRequest} still a draft: check it, mark it ready and close the ticket yourself.`;
     case "ready-failed":
       return `${applied}: ${answered(iteration)}, but it could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}. Still ${READY_FOR_AGENT_LABEL}: mark ${pullRequest} ready and close the ticket yourself.`;
     case "close-failed":
@@ -1944,6 +1946,8 @@ function appliedReviewWaitingLine(iteration: AppliedReviewIteration): string | u
       return mergeGateWaitingLine(repo, pullRequest, merge) ?? `- ${repo}: ${pullRequest} — ready for review`;
     case "check-failed":
       return `${still} — ${pullRequest} could not be checked for its answers: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
+    case "demote-failed":
+      return `${still} — a still-open Blocked on: could not be taken off ${pullRequest}'s closing reference: ${withoutTrailingStop(notClosed.error)}; check it, mark it ready and close the ticket yourself`;
     case "ready-failed":
       return `${still} — ${pullRequest} could not be marked ready for review: ${withoutTrailingStop(notClosed.error)}; mark it ready and close the ticket yourself`;
     case "close-failed":

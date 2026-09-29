@@ -702,8 +702,10 @@ export interface AppliedReview {
   answers?: { applied: number; declined: number };
   /**
    * Set when the loop could not finish the ticket off: the answers could not
-   * be read, the pull request could not be marked ready, or the ticket could
-   * not be closed. Either way the ticket is still ready-for-agent.
+   * be read, a still-open `Blocked on:` the run left could not be demoted off
+   * the pull request's closing reference, the pull request could not be
+   * marked ready, or the ticket could not be closed. Either way the ticket is
+   * still ready-for-agent.
    */
   notClosed?: ApplyReviewNotClosed;
   /**
@@ -768,7 +770,7 @@ export type MergeGate =
 
 /** Why an apply-review iteration left its ticket open, and the error that stopped it. */
 export interface ApplyReviewNotClosed {
-  kind: "check-failed" | "ready-failed" | "close-failed";
+  kind: "check-failed" | "demote-failed" | "ready-failed" | "close-failed";
   error: string;
 }
 
