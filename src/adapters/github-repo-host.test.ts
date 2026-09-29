@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
@@ -440,6 +440,34 @@ describe("checking a checkout for uncommitted changes", () => {
 
     assert.equal(
       await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a named path deleted from the working tree", async () => {
+    const directory = await checkout();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot\n");
+    await githubRepoHost().commitAndPush(directory, "Install", ["AGENTS.md"]);
+    await unlink(path.join(directory, "AGENTS.md"));
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, ["AGENTS.md"]),
+      true,
+    );
+  });
+
+  it("answers true for a named path nested in a directory that isn't tracked yet", async () => {
+    const directory = await checkout();
+    await mkdir(path.join(directory, "docs", "agents"), { recursive: true });
+    await writeFile(
+      path.join(directory, "docs", "agents", "coding-standards.md"),
+      "# Coding Standards\n",
+    );
+
+    assert.equal(
+      await githubRepoHost().hasUncommittedChanges(directory, [
+        "docs/agents/coding-standards.md",
+      ]),
       true,
     );
   });
