@@ -75,5 +75,5 @@ jobs:
           if [[ "$command" == *"gh issue create"* ]]; then
             body+=$'\n\n'"Nothing was created: comment /rebase again to retry."
           fi
-          # REST for the same reason as reply() above.
+          # REST for the same reason as reply() in scripts/rebase.sh.
           gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" -f body="$body" >/dev/null

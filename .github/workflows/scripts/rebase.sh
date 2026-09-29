@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Both read by the failure step below: the command that broke, and
-# what it said. Stderr is teed so it still reaches the run log.
+# Both read by rebase.yml's "Reply with the failure" step: the command that
+# broke, and what it said. Stderr is teed so it still reaches the run log.
 exec 2> >(tee "${RUNNER_TEMP}/rebase-stderr.txt" >&2)
 trap 'printf "%s\n" "$BASH_COMMAND" > "${RUNNER_TEMP}/rebase-command.txt"' ERR
 
@@ -84,8 +84,8 @@ elif grep -qE '^Review https?://' <<<"$issue_body"; then
       candidate_repo="${BASH_REMATCH[1]}"
       candidate_number="${BASH_REMATCH[2]}"
       # Not guarded: a pull request that can't be read is an error
-      # for the failure step to report, not a pull request that is
-      # closed.
+      # for rebase.yml's "Reply with the failure" step to report, not
+      # a pull request that is closed.
       pull_request_json="$(gh pr view "$candidate_number" --repo "$candidate_repo" --json number,state,url)"
       pull_request_state="$(jq -r .state <<<"$pull_request_json")"
       if [[ "$pull_request_state" != "OPEN" ]]; then
@@ -140,8 +140,8 @@ body="$expected_line"
 
 ensure_label ready-for-agent "Fully specified, ready for an AFK agent" "$REPO"
 
-# A refusal here is the failure step's to report, which knows to say
-# nothing was created.
+# A refusal here is rebase.yml's "Reply with the failure" step's to
+# report, which knows to say nothing was created.
 create_out="$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label ready-for-agent)"
 
 new_url="$(printf '%s' "$create_out" | tail -n1 | tr -d '[:space:]')"
