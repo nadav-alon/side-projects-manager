@@ -2402,8 +2402,8 @@ async function mergeGate(
  * read says `pending`, counted from that first read, and how far apart the
  * reads are. The bound is not configurable per project.
  */
-const CHECKS_WAIT: Milliseconds = milliseconds(3 * 60 * 1000);
-const CHECKS_POLL_INTERVAL: Milliseconds = milliseconds(15 * 1000);
+export const CHECKS_WAIT: Milliseconds = milliseconds(3 * 60 * 1000);
+export const CHECKS_POLL_INTERVAL: Milliseconds = milliseconds(15 * 1000);
 
 /**
  * `pullRequest`'s checks status, waiting out `pending`: a first read of
