@@ -70,4 +70,18 @@ export interface Harness {
    * `instructions` as the project's own agent instructions.
    */
   install(directory: Checkout, instructions: string): Promise<Scaffold>;
+
+  /**
+   * Copies into `directory` every uniform file that does not already match
+   * the harness's own copy byte for byte, and answers with the ones it
+   * copied, in `UNIFORM_FILES`'s own order — empty when the checkout already
+   * matched every one of them.
+   *
+   * What tells a uniform sync sweep (`uniform-sync-sweep.ts`, issue #1027)
+   * that a registered project's copy has drifted from the manager's, once it
+   * is no longer scaffolding day: unlike `install`, a file already identical
+   * is left untouched rather than rewritten, so the answer names exactly the
+   * files that changed rather than every uniform file there is.
+   */
+  sync(directory: Checkout): Promise<string[]>;
 }

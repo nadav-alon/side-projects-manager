@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
@@ -42,6 +42,25 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
 
       return { paths, overwritten };
     },
+
+    async sync(directory: Checkout): Promise<string[]> {
+      const changed: string[] = [];
+
+      for (const file of UNIFORM_FILES) {
+        const to = path.join(directory, file);
+        const from = path.join(source, file);
+        // Asked before the copy, so a file already in step is left with its
+        // own mtime, rather than the copy this would otherwise become.
+        if (await sameContent(to, from)) {
+          continue;
+        }
+        changed.push(file);
+        await mkdir(path.dirname(to), { recursive: true });
+        await copyFile(from, to);
+      }
+
+      return changed;
+    },
   };
 }
 
@@ -52,4 +71,15 @@ async function exists(file: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Whether `to` exists and holds exactly what `from` does. A missing `to` never matches. */
+async function sameContent(to: string, from: string): Promise<boolean> {
+  let existing: Buffer;
+  try {
+    existing = await readFile(to);
+  } catch {
+    return false;
+  }
+  return existing.equals(await readFile(from));
 }
