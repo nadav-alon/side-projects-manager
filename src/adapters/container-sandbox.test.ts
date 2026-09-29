@@ -307,6 +307,9 @@ async function flushRealIo(): Promise<void> {
   }
 }
 
+/** The step `advancePastStall` and `advanceUntilSettled` both tick by. */
+const STALL_STEP = Math.ceil((STALL_TIMEOUT * 2) / 20);
+
 /**
  * Advances mocked time well past `STALL_TIMEOUT` in several steps, flushing
  * real I/O between each, rather than in one `tick`.
@@ -321,7 +324,45 @@ async function flushRealIo(): Promise<void> {
 async function advancePastStall(t: TestContext): Promise<void> {
   const steps = 20;
   for (let i = 0; i < steps; i++) {
-    t.mock.timers.tick(Math.ceil((STALL_TIMEOUT * 2) / steps));
+    t.mock.timers.tick(STALL_STEP);
+    await flushRealIo();
+  }
+}
+
+/**
+ * `advancePastStall`, then keeps ticking past it, in the same small steps,
+ * for as long as `run` has still not settled — rather than trusting
+ * `advancePastStall`'s own fixed span alone.
+ *
+ * A poll's real `stat` can be delayed by more than one step's worth of real
+ * time on a slow enough runner. When it finally does resolve, it reads
+ * whatever mocked `Date.now()` the steps since have already reached, so the
+ * growth it reports gets timestamped later than it should — eating into the
+ * margin `advancePastStall`'s own doc comment budgets against a poll merely
+ * arriving late within a single step, not several. Ticking further, keyed to
+ * `run` itself rather than a second guessed span, recovers that margin
+ * however late the poll's own resolution lands, real time bounding the wait
+ * only as a backstop against a genuine hang.
+ */
+async function advanceUntilSettled(
+  t: TestContext,
+  run: Promise<unknown>,
+): Promise<void> {
+  let settled = false;
+  run.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+
+  await advancePastStall(t);
+
+  const deadline = performance.now() + HANGS.timeout - 5_000;
+  while (!settled && performance.now() < deadline) {
+    t.mock.timers.tick(STALL_STEP);
     await flushRealIo();
   }
 }
@@ -1180,7 +1221,7 @@ describe("containerSandbox", () => {
         );
       });
 
-    it("kills a run whose transcript has gone quiet, and reads it as a provider failure naming how long", async (t) => {
+    it("kills a run whose transcript has gone quiet, and reads it as a provider failure naming how long", HANGS, async (t) => {
       const { run } = await stalledRun(t, hangsUntilKilled);
       await advancePastStall(t);
 
@@ -1192,7 +1233,7 @@ describe("containerSandbox", () => {
       assert.match(words, /20 minutes/);
     });
 
-    it("never kills a run whose transcript keeps growing, however long it runs", async (t) => {
+    it("never kills a run whose transcript keeps growing, however long it runs", HANGS, async (t) => {
       let transcriptDir = "";
       let resolveAgent: ((agent: AgentRun) => void) | undefined;
       const { run } = await stalledRun(t, ({ transcriptDirectory, signal }) => {
@@ -1222,10 +1263,12 @@ describe("containerSandbox", () => {
       assert.equal(result.kind, "finished");
     });
 
-    it("still reports the transcript it wrote before going quiet", async (t) => {
+    it("still reports the transcript it wrote before going quiet", HANGS, async (t) => {
       let written = "";
+      const wrote = gate();
       const { run } = await stalledRun(t, async ({ transcriptDirectory, signal }) => {
         written = await writeTranscript(transcriptDirectory);
+        wrote.open();
         return new Promise((_, reject) => {
           signal.addEventListener(
             "abort",
@@ -1234,7 +1277,14 @@ describe("containerSandbox", () => {
           );
         });
       });
-      await advancePastStall(t);
+      // `started` (inside `stalledRun`) settles as soon as `container` is
+      // invoked, before this body's own `await writeTranscript(...)` above
+      // has landed on the real filesystem. Advancing mocked time off the back
+      // of `started` alone would let ticking begin while that write is still
+      // in flight, on a slow enough runner — wait for the write itself to say
+      // it is done instead.
+      await wrote.opened;
+      await advanceUntilSettled(t, run);
 
       const result = await run;
 
@@ -1249,7 +1299,7 @@ describe("containerSandbox", () => {
      * run while the container is still bind-mounting the clone. A fake
      * `Container` whose own "kill" takes a moment stands in for that here.
      */
-    it("keeps the clone until the container is confirmed gone, even when killing it takes a moment", async (t) => {
+    it("keeps the clone until the container is confirmed gone, even when killing it takes a moment", HANGS, async (t) => {
       let clone = "";
       const { run } = await stalledRun(t, ({ directory: mounted, signal }) => {
         clone = mounted;
@@ -1276,7 +1326,7 @@ describe("containerSandbox", () => {
       assert.equal(await exists(clone), false);
     });
 
-    it("watches runs side by side, killing only the one whose transcript stalls", async (t) => {
+    it("watches runs side by side, killing only the one whose transcript stalls", HANGS, async (t) => {
       t.mock.timers.enable({ apis: ["setInterval", "Date"] });
       const directory = await project();
       const HEALTHY_TICKET: Ticket = {
@@ -1342,7 +1392,7 @@ describe("containerSandbox", () => {
       assert.equal(healthy.kind, "finished");
     });
 
-    it("leaves no timer behind once a run ends normally", async (t) => {
+    it("leaves no timer behind once a run ends normally", HANGS, async (t) => {
       t.mock.timers.enable({ apis: ["setInterval", "Date"] });
       const clearIntervalCalls = t.mock.method(globalThis, "clearInterval");
       const directory = await project();
