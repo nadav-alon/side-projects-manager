@@ -1,9 +1,9 @@
 ---
-name: status
+name: standup
 description: Report what every registered side project is waiting on the developer for, then rapid-fire the decisions and apply the answers to the tracker. Use when the developer asks for status, what's waiting, what's blocked, or to rapid-fire their stuff.
 ---
 
-Two phases: a **status** report, then **rapid fire** through what only the developer can decide. Run from the manager home, where `registry.json`, `journal.json` and `trigger.log` live. The labels are `docs/agents/triage-labels.md`'s; the terms (turbo, turboable, hand back) are `CONTEXT.md`'s.
+Two phases: a **standup** report, then **rapid fire** through what only the developer can decide. Run from the manager home, where `registry.json`, `journal.json` and `trigger.log` live. The labels are `docs/agents/triage-labels.md`'s; the terms (turbo, turboable, hand back) are `CONTEXT.md`'s.
 
 ## 1. Gather
 
@@ -42,7 +42,7 @@ When an answer is "don't understand", re-ask in plain words with the concrete in
 
 After each round, before the next:
 
-- Record the decision on the issue: `Decision (developer, <date>): …`, with enough for an agent to write the change.
+- Record the decision on the issue: `Decision (developer, <date>): …` carrying only the points the developer's answer covered. Everything you filled in yourself (scope, which file first, an edge case) goes under `Still assumed:` in the same comment; a blanket "do the rest" answers none of it.
 - Relabel `needs-triage` / `ready-for-human` → `ready-for-agent` once the ticket is one seam (`docs/agents/ticket-scope.md`).
 - A decision spanning repos splits: a new ticket in the repo that owns the change, and the original narrowed and blocked by it:
 
