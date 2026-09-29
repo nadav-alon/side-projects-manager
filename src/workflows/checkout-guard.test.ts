@@ -8,11 +8,13 @@ import { checkoutGuardFailures, repoWorkflowSources, type WorkflowSource } from 
 const CHECKOUT_ROOT = path.join(import.meta.dirname, "..", "..");
 
 /** A minimal workflow: one job, one `steps` list, everything else filled in around it. */
-function workflow(steps: string[]): WorkflowSource {
+function workflow(steps: string[], options: { permissions?: string } = {}): WorkflowSource {
   return {
     path: "example.yml",
     content: [
       "name: Example",
+      "permissions:",
+      `  ${options.permissions ?? "contents: read"}`,
       "jobs:",
       "  demo:",
       "    runs-on: ubuntu-latest",
@@ -54,10 +56,56 @@ describe("checkoutGuardFailures", () => {
       },
     ]);
   });
+
+  it("fails a job with no contents: read among its permissions, naming the workflow and the job", () => {
+    const source = workflow([CHECKS_OUT, RUNS_SCRIPT], { permissions: "issues: write" });
+
+    assert.deepEqual(checkoutGuardFailures(source), [
+      {
+        workflow: "example.yml",
+        job: "demo",
+        reason: 'runs a checked-in script without "contents: read" among its permissions',
+      },
+    ]);
+  });
+
+  it("reads a job's permissions from the workflow's own when the job sets none itself", () => {
+    const source = workflow([CHECKS_OUT, RUNS_SCRIPT], { permissions: "contents: read" });
+
+    assert.deepEqual(checkoutGuardFailures(source), []);
+  });
+
+  it("prefers a job's own permissions over the workflow's, the same way GitHub Actions resolves them", () => {
+    const source: WorkflowSource = {
+      path: "example.yml",
+      content: [
+        "name: Example",
+        "permissions:",
+        "  contents: read",
+        "jobs:",
+        "  demo:",
+        "    runs-on: ubuntu-latest",
+        "    permissions:",
+        "      issues: write",
+        "    steps:",
+        `      ${CHECKS_OUT}`,
+        `      ${RUNS_SCRIPT}`,
+        "",
+      ].join("\n"),
+    };
+
+    assert.deepEqual(checkoutGuardFailures(source), [
+      {
+        workflow: "example.yml",
+        job: "demo",
+        reason: 'runs a checked-in script without "contents: read" among its permissions',
+      },
+    ]);
+  });
 });
 
 describe("repoWorkflowSources", () => {
-  it("finds no job across this repo's own workflows that runs a checked-in script with no earlier checkout", async () => {
+  it("finds no job across this repo's own workflows that runs a checked-in script unguarded", async () => {
     const sources = await repoWorkflowSources(CHECKOUT_ROOT);
 
     assert.ok(sources.length > 0);

@@ -26,10 +26,12 @@ interface WorkflowStep {
 }
 
 interface WorkflowJob {
+  permissions?: Record<string, string>;
   steps?: WorkflowStep[];
 }
 
 interface WorkflowDocument {
+  permissions?: Record<string, string>;
   jobs?: Record<string, WorkflowJob>;
 }
 
@@ -37,7 +39,11 @@ interface WorkflowDocument {
  * Every rule #1048 wants a checked-in-script step held to, checked against
  * one workflow file's own YAML: a job that runs a path under
  * `.github/workflows/scripts/` needs an `actions/checkout` step earlier in
- * the same job.
+ * the same job, and `contents: read` among the permissions that apply to
+ * it — its own `permissions:` block if it has one, the workflow's
+ * otherwise, the same way GitHub Actions itself resolves a job's effective
+ * permissions (a job's block replaces the workflow's rather than adding to
+ * it).
  *
  * Anything else about the YAML — actionlint-style linting — is out of scope
  * (#1048); a file that doesn't parse to a mapping of jobs is treated as
@@ -50,20 +56,37 @@ export function checkoutGuardFailures(source: WorkflowSource): CheckoutGuardFail
 
   for (const [jobId, job] of Object.entries(jobs)) {
     let checkedOut = false;
+    let runsScript = false;
 
     for (const step of job.steps ?? []) {
       if (step.uses !== undefined && CHECKOUT_ACTION.test(step.uses)) {
         checkedOut = true;
         continue;
       }
-      if (step.run !== undefined && SCRIPT_UNDER_WORKFLOWS.test(step.run) && !checkedOut) {
-        failures.push({
-          workflow: source.path,
-          job: jobId,
-          reason: "runs a checked-in script with no earlier actions/checkout step",
-        });
-        break;
+      if (step.run !== undefined && SCRIPT_UNDER_WORKFLOWS.test(step.run)) {
+        runsScript = true;
+        if (!checkedOut) {
+          failures.push({
+            workflow: source.path,
+            job: jobId,
+            reason: "runs a checked-in script with no earlier actions/checkout step",
+          });
+          break;
+        }
       }
+    }
+
+    if (!runsScript) {
+      continue;
+    }
+
+    const permissions = job.permissions ?? document?.permissions ?? {};
+    if (permissions.contents !== "read") {
+      failures.push({
+        workflow: source.path,
+        job: jobId,
+        reason: 'runs a checked-in script without "contents: read" among its permissions',
+      });
     }
   }
 
