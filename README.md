@@ -461,7 +461,9 @@ npm run sandbox:build && npm run sandbox:verify
 
 ## Development
 
-Requires Node 22.18 or newer — TypeScript runs directly, and tests use the built-in runner.
+Requires Node 22.18 or newer — TypeScript runs directly, and tests use the built-in runner. Also
+requires `jq` on `PATH`: `src/workflows/rebase.test.ts` runs `.github/workflows/scripts/rebase.sh`
+for real, and that script shells out to it.
 
 ```sh
 npm install
