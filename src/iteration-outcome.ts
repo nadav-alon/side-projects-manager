@@ -738,7 +738,7 @@ export interface AppliedReview {
 /**
  * What the merge gate — the one pass right after a turbo project's
  * apply-review ticket finishes — came to. Per `CONTEXT.md`'s "Turboable" and
- * ADR 0009: fires once, no retry and no `/rebase`, whatever it finds.
+ * ADR 0009: fires once, no retry beyond its bounded wait on pending checks and no `/rebase`, whatever it finds.
  */
 export type MergeGate =
   /**

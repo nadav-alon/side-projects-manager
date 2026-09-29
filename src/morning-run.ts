@@ -11,6 +11,7 @@ import type {
   Harness,
   IssueTracker,
   IterationLimit,
+  Milliseconds,
   ModelRefusal,
   OnRunStarted,
   OpenInvocation,
@@ -61,6 +62,7 @@ import {
   isReviewTicket,
   isSpecReviewTicket,
   localDay,
+  milliseconds,
   notify,
   parentTicketIn,
   runSpanFor,
@@ -2317,12 +2319,13 @@ async function finishApplyReview(
  * implementation ticket, resolved by the caller while it was still open —
  * carried `turboable` before its own run started — `CONTEXT.md`'s
  * "Turboable", ADR 0009 — and, only then, whether the pull request's own
- * checks read green, attempting the merge itself to settle mergeable. Fires
- * once, right after the one apply-review run, or the one clean review,
- * already in the loop: no retry, no `/rebase`, whatever it finds. Never
- * throws: every read this makes past `implementation` and `span` is
- * guarded, so a tracker or repo host failure comes back as a verdict rather
- * than sinking a ticket that has already closed.
+ * checks read green — waiting out a pending read, up to `CHECKS_WAIT` —
+ * attempting the merge itself to settle mergeable. Fires once, right after
+ * the one apply-review run, or the one clean review, already in the loop: no
+ * retry beyond that wait, no `/rebase`, whatever it finds. Never throws:
+ * every read this makes past `implementation` and `span` is guarded, so a
+ * tracker or repo host failure comes back as a verdict rather than sinking a
+ * ticket that has already closed.
  *
  * `context.implementation` absent, or carrying no run span, reads the same
  * as never labelled `turboable`: none of the three is a grant the gate
@@ -2375,7 +2378,7 @@ async function mergeGate(
   const pullRequest = ticket.pullRequest.url;
   let checks: ChecksStatus;
   try {
-    checks = await ports.repoHost.readChecksStatus(pullRequest);
+    checks = await settledChecks(ports.repoHost, ports.clock, pullRequest);
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
   }
@@ -2392,6 +2395,38 @@ async function mergeGate(
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
   }
+}
+
+/**
+ * How long the merge gate keeps reading a pull request's checks once one
+ * read says `pending`, counted from that first read, and how far apart the
+ * reads are. The bound is not configurable per project.
+ */
+export const CHECKS_WAIT: Milliseconds = milliseconds(3 * 60 * 1000);
+export const CHECKS_POLL_INTERVAL: Milliseconds = milliseconds(15 * 1000);
+
+/**
+ * `pullRequest`'s checks status, waiting out `pending`: a first read of
+ * green or failing comes back at once, with no further read; a pending one
+ * is read again every `CHECKS_POLL_INTERVAL` until it settles or
+ * `CHECKS_WAIT` has passed since that first read, and then comes back
+ * `pending`. A read that throws, first or later, throws from here.
+ */
+async function settledChecks(
+  repoHost: Pick<RepoHost, "readChecksStatus">,
+  clock: Clock,
+  pullRequest: PullRequestUrl,
+): Promise<ChecksStatus> {
+  let checks = await repoHost.readChecksStatus(pullRequest);
+  if (checks !== "pending") {
+    return checks;
+  }
+  const deadline = clock.now().getTime() + CHECKS_WAIT;
+  while (checks === "pending" && clock.now().getTime() < deadline) {
+    await clock.sleep(CHECKS_POLL_INTERVAL);
+    checks = await repoHost.readChecksStatus(pullRequest);
+  }
+  return checks;
 }
 
 /**

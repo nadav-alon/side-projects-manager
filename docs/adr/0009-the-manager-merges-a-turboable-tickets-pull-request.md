@@ -49,10 +49,14 @@ its own span too, and counts as consent.
 **One pass, bounded the same way apply-review and rebase already are.** "Merge once finished" could
 otherwise cycle indefinitely through rebase and apply-review chasing a moving mergeable state. Only
 the single apply-review run already in the loop is trusted — or, when the review needed nothing
-applied, the single review run itself: the manager checks once, right after whichever of the two
-just finished the ticket, merges if the pull request is mergeable and green, and otherwise labels it
-`ready-for-human` and stops. No retry, and no `/rebase` posted on its behalf — unlike a hand back,
-which never labels a pull request, only its ticket. A review with findings never reaches the gate
+applied, the single review run itself: the manager checks once, waiting out pending checks, right
+after whichever of the two just finished the ticket, merges if the pull request is mergeable and
+green, and otherwise labels it `ready-for-human` and stops. A run that has just pushed commits
+usually meets checks still `pending`, so a pending read is waited out inside the gate — the run
+stays open — for at most 3 minutes from that first pending read: green merges, failing or still
+pending after 3 minutes is `ready-for-human`. Re-checking on a later sweep was decided against. No
+retry beyond that wait, and no `/rebase` posted on its behalf — unlike a hand back, which never
+labels a pull request, only its ticket. A review with findings never reaches the gate
 this way: turbo posts `/apply-review` instead, exactly as it always has, and the gate fires only once
 that ticket later finishes — never both, since a review is either clean or is not.
 
@@ -77,10 +81,12 @@ it is, turboable assumes every pull request stands alone.
   Known gaps: a failed span write leaves no span to check; a ticket's later run replaces its
   earlier run's span; and a span a crash left open reads as ended at its own start, so a grant that
   crashed run itself made before its death now falls outside its own span too.
-- **Fires once**, right after the one apply-review run a turboable ticket's pull request already
-  gets, or, when its review comes back clean, right after that review's own run instead: merge —
-  mergeable and green — or `ready-for-human` on the pull request and stop. No retry, no re-rebase.
-  A review with findings never fires it directly: it reaches the gate only once its own
-  apply-review ticket later finishes.
+- **Fires once**, with a bounded wait on pending checks, right after the one apply-review run a
+  turboable ticket's pull request already gets, or, when its review comes back clean, right after
+  that review's own run instead: merge — mergeable and green — or `ready-for-human` on the pull
+  request and stop. Checks reading `pending` are re-read inside the gate for at most 3 minutes from
+  the first pending read; the rest is unchanged. No retry beyond that, no re-rebase. A review with
+  findings never fires it directly: it reaches the gate only once its own apply-review ticket later
+  finishes.
 - **Merge commit, branch deleted after.** The only merge method the manager uses.
 - **Stacked pull requests**: out of scope until #32 specs them.

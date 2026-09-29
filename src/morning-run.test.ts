@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
-import { morningLoop } from "./morning-run.ts";
+import { CHECKS_POLL_INTERVAL, CHECKS_WAIT, morningLoop } from "./morning-run.ts";
 import type { InvocationReport } from "./summary.ts";
 import {
   APPLIED_REVIEW_LABEL,
@@ -36,6 +36,7 @@ import {
   transcriptPath,
   usd,
   type ApplyReviewTicket,
+  type ChecksStatus,
   type CommitSha,
   type Discovery,
   type Nits,
@@ -166,6 +167,18 @@ function postedAFinding(ports: FakePorts): void {
  */
 function postedACleanReview(ports: FakePorts): void {
   ports.repoHost.postCleanReview(PULL_REQUEST);
+}
+
+/**
+ * A `checksStatus` answering `statuses` in turn, the last one for every read
+ * after; `reads()` counts how many reads there have been.
+ */
+function readsInTurn(...statuses: [ChecksStatus, ...ChecksStatus[]]) {
+  let read = 0;
+  return {
+    checksStatus: (): ChecksStatus => statuses[Math.min(read++, statuses.length - 1)]!,
+    reads: () => read,
+  };
 }
 
 /** A spec review ticket, eligible like any other, naming no pull request. */
@@ -2698,6 +2711,24 @@ describe("morningLoop", () => {
           );
         });
 
+        it("merges once checks that read pending settle green within the wait, on a clean review too", async () => {
+          const ports = fakePorts();
+          const implementation = queuedTurboableReview(ports);
+          postedACleanReview(ports);
+          const checks = readsInTurn("pending", "green");
+          ports.repoHost.checksStatus = checks.checksStatus;
+
+          const report = await morningLoop(ports);
+
+          assert.equal(checks.reads(), 2);
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+          const outcome = report.iterations[0];
+          assert.deepEqual(
+            outcome?.kind === "reviewed" ? outcome.merge : undefined,
+            { kind: "merged", implementationTicket: implementation },
+          );
+        });
+
         it("labels the pull request ready-for-human instead of merging when the repo host refuses the merge, reporting rather than raising it", async (t) => {
           const ports = fakePorts();
           queuedTurboableReview(ports);
@@ -4715,6 +4746,136 @@ describe("morningLoop", () => {
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
           { kind: "left-for-human", reason: "checks still running" },
         );
+      });
+
+      it("merges once checks that read pending settle green within the wait", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const checks = readsInTurn("pending", "pending", "green");
+        ports.repoHost.checksStatus = checks.checksStatus;
+
+        const report = await morningLoop(ports);
+
+        assert.equal(checks.reads(), 3);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+        const outcome = report.iterations[0];
+        assert.equal(outcome?.kind === "applied-review" ? outcome.merge?.kind : undefined, "merged");
+      });
+
+      it("leaves the pull request ready-for-human when checks that read pending settle failing", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const checks = readsInTurn("pending", "red");
+        ports.repoHost.checksStatus = checks.checksStatus;
+
+        const report = await morningLoop(ports);
+
+        assert.equal(checks.reads(), 2);
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "checks failing" },
+        );
+      });
+
+      it("leaves the pull request ready-for-human, reading checks for three minutes from the first pending read and posting no rebase or apply-review", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const checks = readsInTurn("pending");
+        ports.repoHost.checksStatus = checks.checksStatus;
+
+        const report = await morningLoop(ports);
+
+        assert.equal(checks.reads(), 1 + CHECKS_WAIT / CHECKS_POLL_INTERVAL);
+        assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(ports.repoHost.comments, []);
+        assert.deepEqual(
+          ports.repoHost.labelled.filter(
+            (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+          ),
+          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+        );
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "checks still running" },
+        );
+      });
+
+      it("leaves the pull request ready-for-human with the error when a read throws mid-wait", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        let read = 0;
+        ports.repoHost.checksStatus = () => {
+          if (read++ > 0) {
+            throw new Error("checks unavailable");
+          }
+          return "pending";
+        };
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "checks unavailable" },
+        );
+      });
+
+      it("reads checks once, with no wait, when the first read is already red", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const checks = readsInTurn("red");
+        ports.repoHost.checksStatus = checks.checksStatus;
+
+        await morningLoop(ports);
+
+        assert.equal(checks.reads(), 1);
+      });
+
+      it("merges after one read, with no wait, when the first read is already green", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        const checks = readsInTurn("green");
+        ports.repoHost.checksStatus = checks.checksStatus;
+
+        await morningLoop(ports);
+
+        assert.equal(checks.reads(), 1);
+        assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+      });
+
+      it("reads checks zero times and never sleeps when the grant came too late", async (t) => {
+        const ports = fakePorts();
+        queuedTurboable(ports, { grantedAt: new Date(RUN_STARTED.getTime() + 60_000) });
+        const checks = readsInTurn("pending");
+        ports.repoHost.checksStatus = checks.checksStatus;
+        const sleep = t.mock.method(ports.clock, "sleep");
+
+        await morningLoop(ports);
+
+        assert.equal(checks.reads(), 0);
+        assert.equal(sleep.mock.callCount(), 0);
+      });
+
+      it("reads checks zero times and never sleeps when the grant falls inside a run span", async (t) => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.store.markRunSpan(
+          { repo: PILOT, number: issueNumber(99) },
+          new Date(GRANTED_IN_TIME.getTime() - 60_000),
+          new Date(GRANTED_IN_TIME.getTime() + 60_000),
+        );
+        const checks = readsInTurn("pending");
+        ports.repoHost.checksStatus = checks.checksStatus;
+        const sleep = t.mock.method(ports.clock, "sleep");
+
+        await morningLoop(ports);
+
+        assert.equal(checks.reads(), 0);
+        assert.equal(sleep.mock.callCount(), 0);
       });
 
       it("labels the pull request ready-for-human instead of merging when its checks are red", async () => {
