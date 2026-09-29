@@ -765,8 +765,7 @@ export type MergeGate =
   /**
    * Mergeable and green: merged with a merge commit, its branch deleted with
    * it. `implementationTicket` is the implementation ticket whose pull
-   * request this merged. A declined thread, open or not, is never asked
-   * about.
+   * request this merged.
    */
   | { kind: "merged"; implementationTicket: Ticket }
   /**

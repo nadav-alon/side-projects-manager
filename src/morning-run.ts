@@ -2322,8 +2322,7 @@ async function finishApplyReview(
  * already in the loop: no retry, no `/rebase`, whatever it finds. Never
  * throws: every read this makes past `implementation` and `span` is
  * guarded, so a tracker or repo host failure comes back as a verdict rather
- * than sinking a ticket that has already closed. A declined thread, open or
- * not, is never asked about.
+ * than sinking a ticket that has already closed.
  *
  * `context.implementation` absent, or carrying no run span, reads the same
  * as never labelled `turboable`: none of the three is a grant the gate
