@@ -8,9 +8,9 @@ FROM node:22-slim
 
 # git and gh: the skills the harness ships shell out to both for every
 # tracker and branch operation (docs/agents/issue-tracker.md). git doubles
-# as how the plugin install below clones the marketplace. jq: the rebase
-# workflow's script (`.github/workflows/scripts/rebase.sh`) shells out to it,
-# and `npm test` exercises that script for real here.
+# as how the plugin install below clones the marketplace. jq: the workflow
+# scripts under `.github/workflows/scripts/` shell out to it, and `npm test`
+# runs them for real here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
