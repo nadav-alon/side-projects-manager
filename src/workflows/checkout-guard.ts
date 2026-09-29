@@ -18,6 +18,12 @@ export interface CheckoutGuardFailure {
 }
 
 const SCRIPT_UNDER_WORKFLOWS = /\.github\/workflows\/scripts\/\S+/;
+
+/**
+ * Any `actions/checkout` step earlier in the job counts, whatever its
+ * `with:` — a `path:` outside the job's working directory, or a
+ * `sparse-checkout` that excludes the script, still passes the guard.
+ */
 const CHECKOUT_ACTION = /^actions\/checkout@/;
 
 interface WorkflowStep {
