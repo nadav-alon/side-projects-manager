@@ -84,7 +84,12 @@ describe("rebase.sh", () => {
       fakeGh({
         prCommand: "list",
         prResponse: JSON.stringify([
-          { number: 7, url: `https://github.com/${REPO}/pull/7`, body: "Closes #42" },
+          {
+            number: 7,
+            url: `https://github.com/${REPO}/pull/7`,
+            body: "Closes #42",
+            isDraft: false,
+          },
         ]),
         newIssueUrl: `https://github.com/${REPO}/issues/99`,
       }),
@@ -125,6 +130,7 @@ describe("rebase.sh", () => {
           state: "OPEN",
           body: "Closes #42",
           url: `https://github.com/${REPO}/pull/7`,
+          isDraft: false,
         }),
         newIssueUrl: `https://github.com/${REPO}/issues/100`,
       }),
