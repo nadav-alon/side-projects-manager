@@ -647,7 +647,7 @@ describe("invocationSelection", () => {
     function reviewOf(
       parent: Ticket,
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "uxReview" | "readyDiscovery"> {
       return {
         number: issueNumber(number),
         title: reviewTitle(parent),
@@ -658,7 +658,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for the review on `SOME_PULL_REQUEST` to be applied. */
     function applyReviewTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "uxReview" | "readyDiscovery"> {
       return {
         number: issueNumber(number),
         title: `Apply the review on ${SOME_PULL_REQUEST}`,
@@ -669,7 +669,7 @@ describe("invocationSelection", () => {
     /** A ticket asking for `SOME_PULL_REQUEST` to be rebased. */
     function rebaseTicket(
       number: number,
-    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"> {
+    ): Omit<Ticket, "repo" | "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "uxReview" | "readyDiscovery"> {
       return {
         number: issueNumber(number),
         title: `Rebase ${SOME_PULL_REQUEST}`,
@@ -896,6 +896,67 @@ describe("invocationSelection", () => {
 
       const chosen = await selection.next();
 
+      assert.equal(chosen?.ticket.number, 8);
+    });
+
+    it("selects a spec review ticket over an older ux review ticket in the same backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addUxReviewTicket(PILOT, {
+        number: issueNumber(8),
+        title: "Review how it feels",
+      });
+      tracker.addSpecReviewTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Review the loop spec",
+      });
+      const { selection } = await open(store, tracker);
+
+      assert.equal((await selection.next())?.ticket.number, 9);
+    });
+
+    it("selects a ux review ticket over an older implementation ticket in the same backlog", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addUxReviewTicket(PILOT, {
+        number: issueNumber(8),
+        title: "Review how it feels",
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.ticket.number, 8);
+    });
+
+    it("selects a project with a pending ux review before one with only an implementation ticket, regardless of registry order", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(MANAGER);
+      tracker.addEligibleTicket(MANAGER, {
+        number: issueNumber(3),
+        title: "Add another thing",
+      });
+      store.register(PILOT);
+      tracker.addUxReviewTicket(PILOT, {
+        number: issueNumber(8),
+        title: "Review how it feels",
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next();
+
+      assert.equal(chosen?.project.repo, PILOT);
       assert.equal(chosen?.ticket.number, 8);
     });
 

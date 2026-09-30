@@ -306,6 +306,10 @@ export interface PullRequestBinding {
  * kind always wins, per `ticketKind`. Absent, never `false`, where it carries
  * none.
  *
+ * `uxReview` is the fact `isUxReviewTicket` reads, as `specReview` is for a spec
+ * review: whether the ticket carries the ux-review label, read only where
+ * `pullRequest` is absent. Absent, never `false`, where it carries none.
+ *
  * `openBlockers` is the fact `isBlocked` reads: how many of the tickets
  * marked as blocking this one are still open, from that same listing. Absent
  * or zero means nothing open blocks it.
@@ -337,6 +341,7 @@ export interface Ticket {
   pullRequest?: PullRequestBinding;
   supertask?: true;
   specReview?: true;
+  uxReview?: true;
   openBlockers?: number;
   modelLabel?: ModelLabel;
   priority?: TicketPriority;
@@ -534,6 +539,20 @@ export const SPEC_REVIEW_LABEL = "spec-review";
  */
 export function carriesSpecReviewLabel(labels: Iterable<string>): boolean {
   return carriesLabel(labels, SPEC_REVIEW_LABEL);
+}
+
+/**
+ * The label that declares a ticket a ux review, per `CONTEXT.md`'s "UX review
+ * ticket". The one place the literal lives; every adapter reads it from here.
+ */
+export const UX_REVIEW_LABEL = "ux-review";
+
+/**
+ * Whether `labels` include the ux-review label. Beside the port so the real
+ * tracker and the fake read it alike.
+ */
+export function carriesUxReviewLabel(labels: Iterable<string>): boolean {
+  return carriesLabel(labels, UX_REVIEW_LABEL);
 }
 
 /**
@@ -753,6 +772,13 @@ export type SpecReviewTicket = Ticket & {
   specReview: true;
 };
 
+/** A ticket narrowed to the ux review kind, once `isUxReviewTicket` has said so. */
+export type UxReviewTicket = Ticket & {
+  pullRequest?: undefined;
+  specReview?: undefined;
+  uxReview: true;
+};
+
 /** Whether `ticket` is a review ticket. */
 export function isReviewTicket(ticket: Ticket): ticket is ReviewTicket {
   return ticket.pullRequest?.kind === "review";
@@ -789,6 +815,19 @@ export function isSpecReviewTicket(
 }
 
 /**
+ * Whether `ticket` is a ux review ticket: bound to no pull request, carrying
+ * the ux-review label and not the spec review one, which wins where a ticket
+ * carries both.
+ */
+export function isUxReviewTicket(ticket: Ticket): ticket is UxReviewTicket {
+  return (
+    ticket.pullRequest === undefined &&
+    ticket.specReview !== true &&
+    ticket.uxReview === true
+  );
+}
+
+/**
  * The size `ticket` itself declares, or `undefined` where it names none: an
  * unsized ticket, or any pull request ticket, which never inherits its
  * parent's size, per `CONTEXT.md`'s "Size label". Resolved once here so the
@@ -808,19 +847,20 @@ export const TICKET_KINDS = [
   "apply-review",
   "rebase",
   "spec-review",
+  "ux-review",
 ] as const;
 
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
-/** Whether `value` is one of the five ticket kinds. */
+/** Whether `value` is one of the six ticket kinds. */
 export function isTicketKind(value: string): value is TicketKind {
   return (TICKET_KINDS as readonly string[]).includes(value);
 }
 
 /**
  * Which kind `ticket` is, decided in order: its pull request binding's kind,
- * else a spec review where it carries the spec review label, else an
- * implementation.
+ * else a spec review where it carries the spec review label, else a ux review
+ * where it carries the ux-review label, else an implementation.
  */
 export function ticketKind<T extends Ticket>(
   ticket: T,
@@ -832,12 +872,17 @@ export function ticketKind<T extends Ticket>(
       ? "rebase"
       : T extends SpecReviewTicket
         ? "spec-review"
-        : TicketKind;
+        : T extends UxReviewTicket
+          ? "ux-review"
+          : TicketKind;
 export function ticketKind(ticket: Ticket): TicketKind {
   if (ticket.pullRequest !== undefined) {
     return ticket.pullRequest.kind;
   }
-  return ticket.specReview === true ? "spec-review" : "implementation";
+  if (ticket.specReview === true) {
+    return "spec-review";
+  }
+  return ticket.uxReview === true ? "ux-review" : "implementation";
 }
 
 /**

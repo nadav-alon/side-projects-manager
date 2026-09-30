@@ -523,7 +523,8 @@ const SELECTION_RANK: Readonly<Record<TicketKind, number>> = {
   "apply-review": 1,
   review: 2,
   "spec-review": 3,
-  implementation: 4,
+  "ux-review": 4,
+  implementation: 5,
 };
 
 /** Ascending by each kind's `SELECTION_RANK`. */

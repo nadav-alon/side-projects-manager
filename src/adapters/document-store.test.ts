@@ -668,6 +668,7 @@ describe("the model defaults document", () => {
           "apply-review": "sonnet",
           rebase: "opus",
           "spec-review": "fable",
+          "ux-review": "fable",
         }),
       }),
     );
@@ -678,7 +679,16 @@ describe("the model defaults document", () => {
       review: modelName("claude-opus-5"),
       rebase: modelName("opus"),
       "spec-review": modelName("fable"),
+      "ux-review": modelName("fable"),
     });
+  });
+
+  it("reads fable as the checked-in default for a ux review", async () => {
+    const store = documentStore(
+      await home({ models: await readFile(new URL("../../models.json", import.meta.url), "utf8") }),
+    );
+
+    assert.equal((await store.loadModelDefaults())["ux-review"], modelName("fable"));
   });
 
   /**
