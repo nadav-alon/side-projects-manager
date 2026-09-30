@@ -130,6 +130,7 @@ type GaveUpContext =
   | { ticketKind: "implementation"; output: string; checkout: Checkout; run: RunGaveUp }
   | { ticketKind: "review"; output: string; transcript?: TranscriptPath }
   | { ticketKind: "spec-review"; output: string; transcript?: TranscriptPath }
+  | { ticketKind: "ux-review"; output: string; transcript?: TranscriptPath }
   | {
       ticketKind: "apply-review";
       output: string;
@@ -175,15 +176,16 @@ type UniformFilesTouchedContext =
  * settled, a finished run's handover failed part way, or a run finished, with
  * or without a handover.
  *
- * Every kind but `"finished"` and `"spec-review-finished"` is exactly the
+ * Every kind but `"finished"`, `"spec-review-finished"` and `"ux-review-finished"` is exactly the
  * `RunFailure` its own iteration is built from, plus only what the comment
  * needs beyond `reason` — never a second description of the same failure a
  * caller has to keep in step with the one it builds for `Failed.failure`.
  *
- * `"spec-review-finished"` is its own case rather than a share of
- * `"finished"`: a spec review run never creates a branch, so it has no
- * `RunFinished` to carry, and its own report is what becomes the comment in
- * place of a handover — see `Sandbox.specReview`.
+ * `"spec-review-finished"` and `"ux-review-finished"` are each their own case
+ * rather than a share of `"finished"`: neither run ever creates a branch, so
+ * neither has a `RunFinished` to carry, and its own report is what becomes
+ * the comment in place of a handover — see `Sandbox.specReview` and
+ * `Sandbox.uxReview`.
  */
 export type HandBackEnding =
   | (GaveUp & GaveUpContext)
@@ -198,6 +200,7 @@ export type HandBackEnding =
   | (UniformFilesTouched & UniformFilesTouchedContext)
   | { kind: "finished"; run: RunFinished; handover?: Handover }
   | { kind: "spec-review-finished"; output: string; transcript?: TranscriptPath }
+  | { kind: "ux-review-finished"; output: string; transcript?: TranscriptPath }
   | {
       kind: "discovery-blocked";
       /** The correction and/or prerequisite discoveries that stopped this ticket's run from finishing normally, in the order the agent filed them. */
@@ -217,7 +220,7 @@ export type HandBackEnding =
        */
       worked?: WorkedBranch;
       /**
-       * The spec review run's own report, present only for a spec review
+       * The run's own report, present only for a spec review or ux review
        * ticket: it has nowhere else to post its findings, so the discovery
        * that blocked it would otherwise throw the rest of the report away.
        */
@@ -343,7 +346,9 @@ function commentFor(ticket: Ticket, ending: HandBackEnding, discard: Discard): s
         ? committedNothingComment(ending.run)
         : handoverComment(ending.handover.pullRequest, ending.handover.reviewTicket);
     case "spec-review-finished":
-      return specReviewFindingsComment(ending);
+      return findingsComment("spec review", ending);
+    case "ux-review-finished":
+      return findingsComment("ux review", ending);
     case "discovery-blocked":
       return discoveryBlockedComment(ticket, ending, discard);
   }
@@ -357,6 +362,7 @@ function gaveUpCommentFor(ending: GaveUp & GaveUpContext, discard: Discard): str
         return [branchNote(ending.run.branch, discard), ending.run.transcript];
       case "review":
       case "spec-review":
+      case "ux-review":
         return [[], ending.transcript];
       case "apply-review":
         // A pull request is marked ready for review only once every thread on
@@ -537,18 +543,18 @@ function handoverComment(pullRequest: PullRequestUrl, reviewTicket: Ticket): str
 }
 
 /**
- * What a spec review ticket is told once its run finished: its own report,
- * verbatim, since that report — not a pull request comment, which a spec
- * review has nowhere to post — is the whole of its findings, and the ticket
+ * What a spec review or ux review ticket is told once its run finished: its
+ * own report, verbatim, since that report — not a pull request comment, which
+ * neither has anywhere to post — is the whole of its findings, and the ticket
  * itself is how they reach the developer, per CONTEXT.md's "Spec review
- * ticket".
+ * ticket" and "UX review ticket".
  */
-function specReviewFindingsComment(ending: {
-  output: string;
-  transcript?: TranscriptPath;
-}): string {
+function findingsComment(
+  kind: "spec review" | "ux review",
+  ending: { output: string; transcript?: TranscriptPath },
+): string {
   return [
-    `The morning loop ran this spec review ticket. What it found:\n\n${quote(ending.output)}`,
+    `The morning loop ran this ${kind} ticket. What it found:\n\n${quote(ending.output)}`,
     ...truncationNote(ending.output, ending.transcript),
     notRetried(),
     ...transcriptNote(ending.transcript),
@@ -563,8 +569,8 @@ function specReviewFindingsComment(ending: {
  * ticket or the supertask the discoveries were separately filed against;
  * inlined here regardless, so the ticket being handed back carries the whole
  * of what was found even if that other write was itself refused. `output`,
- * present only for a spec review ticket, is its run's own report, inlined for
- * the same reason: a spec review has nowhere else to post it, so the
+ * present only for a spec review or ux review ticket, is its run's own report,
+ * inlined for the same reason: neither has anywhere else to post it, so the
  * discovery that blocked it would otherwise throw the rest of the report
  * away.
  */

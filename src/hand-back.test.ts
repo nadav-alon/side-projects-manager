@@ -64,6 +64,14 @@ function specReviewTicket() {
   };
 }
 
+function uxReviewTicket() {
+  return {
+    number: issueNumber(12),
+    title: "Review how the app feels",
+    uxReview: true as const,
+  };
+}
+
 /** Registers `ticket` as eligible on `tracker`, and returns it. */
 function eligible<T extends { number: ReturnType<typeof issueNumber>; title: string }>(
   tracker: FakeIssueTracker,
@@ -815,6 +823,47 @@ describe("handBack", () => {
       const comment = tracker.handbacks[0]?.comment ?? "";
       assert.ok(comment.includes(PULL_REQUEST));
       assert.match(comment, /#11/);
+    });
+  });
+
+  it("hands a ux review ticket back with no branch to discard, on the agent's own reason", async () => {
+    const { tracker, repoHost } = ports();
+    const ticket = eligible(tracker, uxReviewTicket());
+
+    const record = await handBack({ tracker, repoHost }, ticket, {
+      kind: "gave-up",
+      ticketKind: "ux-review",
+      reason: "the project has no ux script",
+      output: "nothing to drive",
+      transcript: TRANSCRIPT,
+    });
+
+    assert.deepEqual(record, { outcome: "handed-back" });
+    assert.deepEqual(repoHost.discarded, []);
+    const comment = tracker.handbacks[0]?.comment ?? "";
+    assert.match(comment, /the project has no ux script/);
+    assert.match(comment, /nothing to drive/);
+    assert.match(comment, endsWithTranscript(TRANSCRIPT));
+  });
+
+  describe("a ux review run that finished", () => {
+    it("carries its own report as the comment, naming the kind of ticket it ran", async () => {
+      const { tracker, repoHost } = ports();
+      const ticket = eligible(tracker, uxReviewTicket());
+
+      const record = await handBack({ tracker, repoHost }, ticket, {
+        kind: "ux-review-finished",
+        output: "the save button is below the fold on a phone",
+        transcript: TRANSCRIPT,
+      });
+
+      assert.deepEqual(record, { outcome: "handed-back" });
+      assert.deepEqual(repoHost.discarded, []);
+      const comment = tracker.handbacks[0]?.comment ?? "";
+      assert.match(comment, /ran this ux review ticket/);
+      assert.match(comment, /the save button is below the fold on a phone/);
+      assert.match(comment, /will not be retried/);
+      assert.match(comment, endsWithTranscript(TRANSCRIPT));
     });
   });
 

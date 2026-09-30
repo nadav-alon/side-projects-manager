@@ -39,7 +39,9 @@ import type {
   RunStarted,
   Salvaged,
   Sandbox,
+  SpecReviewOutcome,
   SpecReviewTicket,
+  UxReviewTicket,
   Store,
   Ticket,
   TokenCount,
@@ -61,6 +63,7 @@ import {
   isRebaseTicket,
   isReviewTicket,
   isSpecReviewTicket,
+  isUxReviewTicket,
   localDay,
   notify,
   parentTicketIn,
@@ -142,6 +145,7 @@ import {
   type Rebased,
   type Reviewed,
   type SpecReviewed,
+  type UxReviewed,
   type UniformFilesTouched,
   type UnsettledMergeability,
 } from "./iteration-outcome.ts";
@@ -687,6 +691,16 @@ async function work(
   }
   if (isSpecReviewTicket(selection.ticket)) {
     return await runSpecReview(
+      ports,
+      selection.project.repo,
+      selection.ticket,
+      invocation,
+      spendCeiling,
+      model,
+    );
+  }
+  if (isUxReviewTicket(selection.ticket)) {
+    return await runUxReview(
       ports,
       selection.project.repo,
       selection.ticket,
@@ -1932,7 +1946,7 @@ async function runReview(
  */
 async function handReviewBack(
   ports: MorningLoopPorts,
-  ticket: ReviewTicket | SpecReviewTicket,
+  ticket: ReviewTicket | SpecReviewTicket | UxReviewTicket,
   review: ReviewFinished | ReviewGaveUp,
   reason: string,
 ): Promise<Failed> {
@@ -1982,9 +1996,7 @@ async function runSpecReview(
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<
-  SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
-> {
+): Promise<ReportedReviewIteration> {
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
@@ -1995,6 +2007,59 @@ async function runSpecReview(
           onStarted,
         ),
   );
+  return endReportedReview(ports, ticket, result);
+}
+
+/**
+ * A ux review ticket's own run, ended as a spec review's is: the agent drives
+ * the project's app in a browser and reports what it found, and the loop
+ * hands the ticket back with that report as its comment — see
+ * `runSpecReview`, whose ending it shares, and CONTEXT.md's "UX review
+ * ticket". Its discoveries are routed against the ticket itself, as an
+ * implementation ticket's are: it names no supertask to file them on.
+ */
+async function runUxReview(
+  ports: MorningLoopPorts,
+  repo: RepoSlug,
+  ticket: UxReviewTicket,
+  invocation: RunRecording,
+  spendCeiling: Usd,
+  model: ResolvedModel | undefined,
+): Promise<ReportedReviewIteration> {
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
+    // As `attemptRun`: two distinct calls so each resolves the
+    // `Sandbox.uxReview` overload that actually matches.
+    model === undefined
+      ? ports.sandbox.uxReview({ ticket, checkout, spendCeiling, ...prior }, onStarted)
+      : ports.sandbox.uxReview(
+          { ticket, checkout, spendCeiling, model: model.name, ...prior },
+          onStarted,
+        ),
+  );
+  return endReportedReview(ports, ticket, result);
+}
+
+/** What a spec review or ux review iteration can end as. */
+type ReportedReviewIteration =
+  | SpecReviewed
+  | UxReviewed
+  | LimitRefused
+  | ProviderFailed
+  | BudgetExhausted
+  | Failed
+  | DiscoveryBlocked;
+
+/**
+ * Everything `runSpecReview` and `runUxReview` share once the sandbox has
+ * answered: refusals and cut-offs as a review's are, a blocking discovery
+ * replacing the ending, and otherwise the hand-back — always, finished or
+ * gave up — with the run's own report as the ticket's comment.
+ */
+async function endReportedReview(
+  ports: MorningLoopPorts,
+  ticket: SpecReviewTicket | UxReviewTicket,
+  result: SandboxResult<SpecReviewOutcome> | Failed,
+): Promise<ReportedReviewIteration> {
   if (result.kind === "failed") {
     return result;
   }
@@ -2027,17 +2092,21 @@ async function runSpecReview(
     return withDiscoveries(await handReviewBack(ports, ticket, review, review.reason), routed);
   }
 
-  const handedBack = await handBack(ports, ticket, {
-    kind: "spec-review-finished",
+  const finished = {
     output: review.output,
     ...transcriptField(review.transcript),
-  });
-  const specReviewed: SpecReviewed = {
-    kind: "spec-reviewed",
+  };
+  const reported = {
     review,
     tokensUsed: review.tokensUsed,
-    handedBack,
   };
+  if (isUxReviewTicket(ticket)) {
+    const handedBack = await handBack(ports, ticket, { kind: "ux-review-finished", ...finished });
+    const uxReviewed: UxReviewed = { kind: "ux-reviewed", ...reported, handedBack };
+    return withDiscoveries(uxReviewed, routed);
+  }
+  const handedBack = await handBack(ports, ticket, { kind: "spec-review-finished", ...finished });
+  const specReviewed: SpecReviewed = { kind: "spec-reviewed", ...reported, handedBack };
   return withDiscoveries(specReviewed, routed);
 }
 
