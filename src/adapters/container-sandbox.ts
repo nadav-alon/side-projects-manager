@@ -366,9 +366,10 @@ export class AgentNeverRan extends Error {
  * `"ro"` is half of what makes a reviewer's inability to push enforced rather
  * than merely asked for: a commit, or a push staged from *this* clone, fails
  * at the filesystem before it ever reaches a credential. The other half is
- * the credential itself — `envFor` forwards a separately scoped one for a
- * `"ro"` run, so a push staged from anywhere else in the container (a fresh
- * clone into `/tmp`, say) still cannot reach GitHub. Between the two, nothing
+ * the credential itself — see `Credential`: a `"ro"` run is always handed
+ * the separately scoped one, so a push staged from anywhere else in the
+ * container (a fresh clone into `/tmp`, say) still cannot reach GitHub.
+ * Between the two, nothing
  * in this adapter's own doc comments needs to repeat that story; they refer
  * back to this one instead.
  */
@@ -2734,7 +2735,7 @@ function exitStatus(error: unknown): number | undefined {
  * The environment `docker` itself runs in, which is what `--env GH_TOKEN`
  * (named, not valued) forwards into the container.
  *
- * A `"developer"` run gets the developer's own `gh` credential, same as ever. A
+ * A `"developer"` run gets the developer's own `gh` credential. A
  * `"review"` run — every `"ro"` one, and a ux review's writable one — gets a
  * distinct one, required rather than falling back: `Mount`
  * explains why a read-only mount alone does not stop a push staged from
