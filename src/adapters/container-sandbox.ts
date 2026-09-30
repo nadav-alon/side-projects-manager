@@ -11,8 +11,8 @@ import type {
   Branch,
   Checkout,
   CommitSha,
+  DiscoveredTicketSummary,
   Discovery,
-  DiscoveredIssue,
   DiscoveryDirectory,
   ModelName,
   ModelRefusal,
@@ -1527,7 +1527,7 @@ const DISCOVERY_INSTRUCTIONS = [
  * the same implementation ticket, so without the list each files what an
  * earlier one already did. A target with none gets the base unchanged.
  */
-function discoveryInstructionsFor(discovered: readonly DiscoveredIssue[] | undefined): string {
+function discoveryInstructionsFor(discovered: readonly DiscoveredTicketSummary[] | undefined): string {
   if (discovered === undefined || discovered.length === 0) {
     return DISCOVERY_INSTRUCTIONS;
   }
@@ -1563,7 +1563,7 @@ function discoveryInstructionsFor(discovered: readonly DiscoveredIssue[] | undef
  * `reviewPromptFor`'s does: a `--print` run gets no reply, so a reviewer
  * that stops to ask has answered nothing.
  */
-function specReviewPromptFor(ticket: SpecReviewTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
+function specReviewPromptFor(ticket: SpecReviewTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
   return [
     `Spec-review this repository. Read #${ticket.number} with`,
     `\`gh issue view ${ticket.number} --repo ${ticket.repo}\` first — name the repo explicitly`,
@@ -1694,9 +1694,9 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
     spendCeiling: Usd;
     model?: ModelName;
     manager?: true;
-    discovered?: readonly DiscoveredIssue[];
+    discovered?: readonly DiscoveredTicketSummary[];
   },
-  promptFor: (ticket: T, discovered: readonly DiscoveredIssue[] | undefined) => string,
+  promptFor: (ticket: T, discovered: readonly DiscoveredTicketSummary[] | undefined) => string,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
@@ -2028,7 +2028,7 @@ function pullRequestHeadFrom(
  * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
  * refused from one that finished.
  */
-function applyReviewPromptFor(ticket: ApplyReviewTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
+function applyReviewPromptFor(ticket: ApplyReviewTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
   const url = ticket.pullRequest.url;
   return [
     `/apply-pr-review ${url}`,
@@ -2064,7 +2064,7 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket, discovered: readonly Di
  * half-rebased branch has no state that pushes cleanly part way through, so
  * there is nothing for an earlier push to land.
  */
-function rebasePromptFor(ticket: RebaseTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
+function rebasePromptFor(ticket: RebaseTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
   const url = ticket.pullRequest.url;
   return [
     `/rebase-pr ${url}`,
@@ -2107,7 +2107,7 @@ export const TICKET_GIST_TAG = "TICKET GIST:";
 function promptFor(
   ticket: Ticket,
   salvageBranch: Branch | undefined,
-  discovered: readonly DiscoveredIssue[] | undefined,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
 ): string {
   return [
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
@@ -2227,7 +2227,7 @@ function nitsFrom(output: string): Nits | undefined {
  * change that: it is the manager posting on the developer's standing say-so,
  * given once in the registry rather than typed here.
  */
-function reviewPromptFor(ticket: ReviewTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
+function reviewPromptFor(ticket: ReviewTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
   return [
     `Review ${ticket.pullRequest.url}, a draft pull request in this repository. Find the ticket it`,
     `closes from its own body (\`gh pr view ${ticket.pullRequest.url} --json body,files\`) and read that`,

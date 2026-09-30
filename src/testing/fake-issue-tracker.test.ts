@@ -1114,7 +1114,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
   });
 });
 
-describe("FakeIssueTracker.listOpenDiscoveredIssues", () => {
+describe("FakeIssueTracker.listOpenDiscoveredTickets", () => {
   it("lists the open issues discovered against the ticket, newest first, and not closed ones or another ticket's", async () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
@@ -1125,10 +1125,10 @@ describe("FakeIssueTracker.listOpenDiscoveredIssues", () => {
     await tracker.createDiscoveredTicket(other, { title: "Elsewhere", body: "d" });
     tracker.closeOutOfBand(closed);
 
-    assert.deepEqual(await tracker.listOpenDiscoveredIssues(ticket), [
+    assert.deepEqual(await tracker.listOpenDiscoveredTickets(ticket), [
       { number: last.number, title: "Last" },
       { number: first.number, title: "First" },
     ]);
-    assert.deepEqual(await tracker.listOpenDiscoveredIssues({ ...ticket, number: issueNumber(99) }), []);
+    assert.deepEqual(await tracker.listOpenDiscoveredTickets({ ...ticket, number: issueNumber(99) }), []);
   });
 });

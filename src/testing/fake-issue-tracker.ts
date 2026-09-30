@@ -1,7 +1,7 @@
 import type {
   ApplyReviewTicket,
-  DiscoveredIssue,
   DiscoveredTicketRequest,
+  DiscoveredTicketSummary,
   HandBackOutcome,
   IssueNumber,
   IssueReference,
@@ -502,7 +502,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * the real tracker finds them by their body line: still-open ones only,
    * newest first, in `ticket`'s own repo.
    */
-  async listOpenDiscoveredIssues(ticket: Ticket): Promise<DiscoveredIssue[]> {
+  async listOpenDiscoveredTickets(ticket: Ticket): Promise<DiscoveredTicketSummary[]> {
     return this.discoveredTickets
       .filter(
         ({ discoveredWhile, ticket: opened }) =>

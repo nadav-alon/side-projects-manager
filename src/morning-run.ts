@@ -7,7 +7,7 @@ import type {
   ChecksStatus,
   Clock,
   Day,
-  DiscoveredIssue,
+  DiscoveredTicketSummary,
   Discovery,
   Harness,
   IssueTracker,
@@ -1400,7 +1400,7 @@ interface SandboxResult<Outcome> {
  * issues already discovered against the ticket its discoveries land on, to
  * spread into the request — absent, rather than empty, where there are none.
  */
-type PriorDiscoveries = { discovered?: readonly DiscoveredIssue[] };
+type PriorDiscoveries = { discovered?: readonly DiscoveredTicketSummary[] };
 
 /**
  * The one step an implementation run and a review share: make the throwaway
@@ -1445,7 +1445,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   sandboxCall: (
     checkout: Checkout,
     onStarted: OnRunStarted,
-    discovery: PriorDiscoveries,
+    prior: PriorDiscoveries,
   ) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
@@ -1590,7 +1590,7 @@ async function attemptRun(
   const { ticket } = selection;
   const repo = selection.project.repo;
 
-  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, discovery) =>
+  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1602,7 +1602,7 @@ async function attemptRun(
             ticket,
             checkout,
             spendCeiling,
-            ...discovery,
+            ...prior,
             ...(salvageBranch !== undefined && { salvageBranch }),
           },
           onStarted,
@@ -1613,7 +1613,7 @@ async function attemptRun(
             checkout,
             spendCeiling,
             model: model.name,
-            ...discovery,
+            ...prior,
             ...(salvageBranch !== undefined && { salvageBranch }),
           },
           onStarted,
@@ -1799,14 +1799,14 @@ async function runReview(
   const mergeGateContext = await mergeGateContextFor(ports, ticket, invocation, turbo);
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, discovery) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
     model === undefined
-      ? ports.sandbox.review({ ticket, checkout, spendCeiling, ...discovery }, onStarted)
+      ? ports.sandbox.review({ ticket, checkout, spendCeiling, ...prior }, onStarted)
       : ports.sandbox.review(
-          { ticket, checkout, spendCeiling, model: model.name, ...discovery },
+          { ticket, checkout, spendCeiling, model: model.name, ...prior },
           onStarted,
         ),
   );
@@ -1985,13 +1985,13 @@ async function runSpecReview(
 ): Promise<
   SpecReviewed | LimitRefused | ProviderFailed | BudgetExhausted | Failed | DiscoveryBlocked
 > {
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, discovery) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
     model === undefined
-      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling, ...discovery }, onStarted)
+      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling, ...prior }, onStarted)
       : ports.sandbox.specReview(
-          { ticket, checkout, spendCeiling, model: model.name, ...discovery },
+          { ticket, checkout, spendCeiling, model: model.name, ...prior },
           onStarted,
         ),
   );
@@ -2170,12 +2170,12 @@ async function runApplyReview(
     );
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, discovery) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
       ? ports.sandbox.applyReview(
-          { ticket, checkout, spendCeiling, ...discovery, ...(manager !== undefined && { manager }) },
+          { ticket, checkout, spendCeiling, ...prior, ...(manager !== undefined && { manager }) },
           onStarted,
         )
       : ports.sandbox.applyReview(
@@ -2184,7 +2184,7 @@ async function runApplyReview(
             checkout,
             spendCeiling,
             model: model.name,
-            ...discovery,
+            ...prior,
             ...(manager !== undefined && { manager }),
           },
           onStarted,
@@ -2588,12 +2588,12 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, discovery) =>
+  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
       ? ports.sandbox.rebase(
-          { ticket, checkout, spendCeiling, ...discovery, ...(manager !== undefined && { manager }) },
+          { ticket, checkout, spendCeiling, ...prior, ...(manager !== undefined && { manager }) },
           onStarted,
         )
       : ports.sandbox.rebase(
@@ -2602,7 +2602,7 @@ async function runRebase(
             checkout,
             spendCeiling,
             model: model.name,
-            ...discovery,
+            ...prior,
             ...(manager !== undefined && { manager }),
           },
           onStarted,

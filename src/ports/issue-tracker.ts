@@ -118,9 +118,9 @@ export function isDiscoveredWhileWorking(body: string, ticket: Ticket): boolean 
 /**
  * An open issue already filed as a discovery against a target ticket: the
  * number and title a later run is shown, so it does not file the same thing
- * again. See `IssueTracker.listOpenDiscoveredIssues`.
+ * again. See `IssueTracker.listOpenDiscoveredTickets`.
  */
-export interface DiscoveredIssue {
+export interface DiscoveredTicketSummary {
   number: IssueNumber;
   title: string;
 }
@@ -885,7 +885,7 @@ export interface IssueTracker {
    * closed discovery is settled, and listing it would only keep a run from
    * re-filing something that then needs doing again. None is a normal answer.
    */
-  listOpenDiscoveredIssues(ticket: Ticket): Promise<DiscoveredIssue[]>;
+  listOpenDiscoveredTickets(ticket: Ticket): Promise<DiscoveredTicketSummary[]>;
   /**
    * Whether `ticket` had turboable consent at `instant`, read from its label
    * timeline rather than its current labels, and checked against `spans` —

@@ -4,7 +4,7 @@ import type { CommitSha } from "./commit-sha.ts";
 import type { Discovery } from "./discovery.ts";
 import type {
   ApplyReviewTicket,
-  DiscoveredIssue,
+  DiscoveredTicketSummary,
   RebaseTicket,
   ReviewTicket,
   SpecReviewTicket,
@@ -67,7 +67,7 @@ export interface RunRequest {
    * the run does not file a suggestion one of them already covers. Passed
    * through unchanged — finding them is not this port's job.
    */
-  discovered?: readonly DiscoveredIssue[];
+  discovered?: readonly DiscoveredTicketSummary[];
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -84,7 +84,7 @@ export interface ReviewRequest {
    * the run does not file a suggestion one of them already covers. Passed
    * through unchanged — finding them is not this port's job.
    */
-  discovered?: readonly DiscoveredIssue[];
+  discovered?: readonly DiscoveredTicketSummary[];
 }
 
 /** One apply-review ticket, and the project checkout it is to be worked against. */
@@ -111,7 +111,7 @@ export interface ApplyReviewRequest {
    * the run does not file a suggestion one of them already covers. Passed
    * through unchanged — finding them is not this port's job.
    */
-  discovered?: readonly DiscoveredIssue[];
+  discovered?: readonly DiscoveredTicketSummary[];
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -128,7 +128,7 @@ export interface SpecReviewRequest {
    * the run does not file a suggestion one of them already covers. Passed
    * through unchanged — finding them is not this port's job.
    */
-  discovered?: readonly DiscoveredIssue[];
+  discovered?: readonly DiscoveredTicketSummary[];
 }
 
 /** One rebase ticket, and the project checkout it is to be worked against. */
@@ -152,7 +152,7 @@ export interface RebaseRequest {
    * the run does not file a suggestion one of them already covers. Passed
    * through unchanged — finding them is not this port's job.
    */
-  discovered?: readonly DiscoveredIssue[];
+  discovered?: readonly DiscoveredTicketSummary[];
 }
 
 /**

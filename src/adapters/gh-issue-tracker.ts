@@ -3,8 +3,8 @@ import { promisify } from "node:util";
 
 import type {
   ApplyReviewTicket,
-  DiscoveredIssue,
   DiscoveredTicketRequest,
+  DiscoveredTicketSummary,
   HandBackOutcome,
   IssueNumber,
   IssueReference,
@@ -311,7 +311,7 @@ export function ghIssueTracker(
       return subIssuesIn(stdout, ticket);
     },
 
-    async listOpenDiscoveredIssues(ticket: Ticket): Promise<DiscoveredIssue[]> {
+    async listOpenDiscoveredTickets(ticket: Ticket): Promise<DiscoveredTicketSummary[]> {
       // Searched by the body line, then checked against it exactly: the
       // search is a fuzzy text match, so it only narrows what `gh` returns,
       // and `isDiscoveredWhileWorking` is what decides.
@@ -329,7 +329,7 @@ export function ghIssueTracker(
         "--json",
         "number,title,body",
       ]);
-      return discoveredIssuesIn(stdout, ticket);
+      return discoveredTicketsIn(stdout, ticket);
     },
 
     async wasTurboableAt(
@@ -966,12 +966,12 @@ function isInRepo(url: string, repo: RepoSlug): boolean {
  * — whose body `isDiscoveredWhileWorking` for `ticket`, as the number and
  * title a run is shown.
  */
-function discoveredIssuesIn(stdout: string, ticket: Ticket): DiscoveredIssue[] {
+function discoveredTicketsIn(stdout: string, ticket: Ticket): DiscoveredTicketSummary[] {
   const listed: unknown = JSON.parse(stdout);
   if (!Array.isArray(listed)) {
     throw new Error("gh issue list did not answer with a JSON array");
   }
-  const found: DiscoveredIssue[] = [];
+  const found: DiscoveredTicketSummary[] = [];
   for (const [index, entry] of listed.entries()) {
     const { number, title, body } = (entry ?? {}) as Record<string, unknown>;
     if (typeof number !== "number" || !isIssueNumber(number) || typeof title !== "string" || typeof body !== "string") {

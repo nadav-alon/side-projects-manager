@@ -80,8 +80,8 @@ export {
 export type {
   ApplyReviewTicket,
   Backlog,
-  DiscoveredIssue,
   DiscoveredTicketRequest,
+  DiscoveredTicketSummary,
   HandBackOutcome,
   IssueReference,
   IssueTracker,

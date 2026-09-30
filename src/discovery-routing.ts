@@ -1,5 +1,5 @@
 import type {
-  DiscoveredIssue,
+  DiscoveredTicketSummary,
   Discovery,
   DiscoveryKind,
   IssueReference,
@@ -394,12 +394,12 @@ async function discoveryTargetFor(
  * per `routeRunDiscoveries`.
  */
 export async function priorDiscoveriesFor(
-  tracker: Pick<IssueTracker, "listOpenIssues" | "listOpenDiscoveredIssues">,
+  tracker: Pick<IssueTracker, "listOpenIssues" | "listOpenDiscoveredTickets">,
   ticket: Ticket,
-): Promise<DiscoveredIssue[]> {
+): Promise<DiscoveredTicketSummary[]> {
   try {
     const target = await discoveryTargetFor(tracker, ticket);
-    return "error" in target ? [] : await tracker.listOpenDiscoveredIssues(target.ticket);
+    return "error" in target ? [] : await tracker.listOpenDiscoveredTickets(target.ticket);
   } catch {
     return [];
   }
