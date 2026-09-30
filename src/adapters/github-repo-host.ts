@@ -225,6 +225,13 @@ export function githubRepoHost(
         // branch from a base that has since moved, or from before `switchTo`
         // rebuilt it — the remote is a still-open proposal to update, not
         // history to preserve.
+        // The lease is held against the remote-tracking ref, which nothing else
+        // refreshes, so it is refreshed here: a remote that moved since the last
+        // fetch would otherwise read as stale. A branch the remote has never
+        // had has nothing to fetch, and the push below reports any real failure.
+        await run("git", ["-C", directory, "fetch", "origin", branch]).catch(
+          () => undefined,
+        );
         await run("git", [
           "-C",
           directory,

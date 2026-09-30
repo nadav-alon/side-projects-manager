@@ -303,6 +303,41 @@ describe("proposing a scaffold to a project that predates the manager", () => {
     ]);
     assert.equal(current.trim(), "main");
   });
+
+  it("updates a proposal whose remote branch moved since the clone last fetched it", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v1\n");
+    await propose(directory, ["AGENTS.md"]);
+
+    const { stdout: origin } = await run("git", [
+      "-C",
+      directory,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
+    const other = path.join(path.dirname(directory), "other");
+    await run("git", ["clone", origin.trim(), other]);
+    await run("git", ["-C", other, "config", "user.email", "test@example.com"]);
+    await run("git", ["-C", other, "config", "user.name", "Test"]);
+    await run("git", ["-C", other, "switch", "harness"]);
+    await writeFile(path.join(other, "MOVED.md"), "moved\n");
+    await run("git", ["-C", other, "add", "MOVED.md"]);
+    await run("git", ["-C", other, "commit", "--message", "Move the branch"]);
+    await run("git", ["-C", other, "push", "origin", "harness"]);
+
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v2\n");
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "show",
+      "origin/harness:AGENTS.md",
+    ]);
+    assert.equal(stdout, "# pilot v2\n");
+  });
 });
 
 describe("publishing a scaffold", () => {
