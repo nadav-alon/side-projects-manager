@@ -1821,6 +1821,14 @@ describe("merging a pull request", () => {
     ]);
   });
 
+  it("pins the merge to the head it is given, so a later push makes the host refuse it", async (t) => {
+    const gh = await recordingGh(t, reportingState("OPEN"));
+
+    await githubRepoHost().mergePullRequest(PULL_REQUEST, "abc123");
+
+    assert.equal(valueOf(callWith(await gh.calls(), "pr", "merge"), "--match-head-commit"), "abc123");
+  });
+
   it("rejects naming the pull request when the host refuses to merge it", async (t) => {
     await recordingGh(
       t,
@@ -2279,6 +2287,106 @@ describe("listing a repo's open pull requests", () => {
       githubRepoHost().listOpenPullRequests(PILOT),
       /pull request 1.*"labels\.name" must be a string/,
     );
+  });
+});
+
+describe("finding the open pull request on a branch", () => {
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/7";
+
+  it("answers the open pull request whose head is the branch, asking gh for that branch alone", async (t) => {
+    const gh = await recordingGh(
+      t,
+      `echo '[{"url": "${OPENED}", "body": "", "labels": [{"name": "ready-for-human"}]}]'`,
+    );
+
+    const found = await githubRepoHost().openPullRequestOn(PILOT, toBranch("uniform-sync"));
+
+    assert.deepEqual(found, { url: OPENED, labels: ["ready-for-human"] });
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), ["pr", "list"]);
+    assert.equal(valueOf(call, "--repo"), PILOT);
+    assert.equal(valueOf(call, "--head"), "uniform-sync");
+    assert.equal(valueOf(call, "--state"), "open");
+  });
+
+  it("answers undefined when no pull request is open on the branch", async (t) => {
+    await recordingGh(t, "echo '[]'");
+
+    assert.equal(await githubRepoHost().openPullRequestOn(PILOT, toBranch("uniform-sync")), undefined);
+  });
+});
+
+describe("reading a pull request's files", () => {
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/7";
+
+  /** A gh that answers each verb the read makes from what the test hands it. */
+  function ghAnswering(
+    files: { filename: string; status: string; content: string; previous?: string }[],
+  ): string {
+    const listed = files
+      .map(({ filename, status, previous }) =>
+        JSON.stringify({ filename, status, previous_filename: previous }),
+      )
+      .join("\n");
+    const cases = files
+      .map(({ filename, content }) => `  *"/contents/${filename}?ref=abc123") printf '%s' '${content}' ;;`)
+      .join("\n");
+    return [
+      `case "$1 $2" in`,
+      `  "pr view") echo abc123 ;;`,
+      `  "api repos/nadav-alon/pilot/pulls/7/files") cat <<'JSON'`,
+      listed,
+      "JSON",
+      "  ;;",
+      `  *) case "$*" in`,
+      cases,
+      "  esac ;;",
+      "esac",
+    ].join("\n");
+  }
+
+  it("answers every changed file's path and its content at the head", async (t) => {
+    await recordingGh(
+      t,
+      ghAnswering([
+        { filename: "docs/agents/domain.md", status: "modified", content: "# domain" },
+        { filename: "a/b.md", status: "added", content: "b" },
+      ]),
+    );
+
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+
+    assert.deepEqual(files, [
+      { path: "docs/agents/domain.md", content: "# domain" },
+      { path: "a/b.md", content: "b" },
+    ]);
+  });
+
+  it("answers a deleted file with no content, without reading it", async (t) => {
+    await recordingGh(t, ghAnswering([{ filename: "gone.md", status: "removed", content: "" }]));
+
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+
+    assert.deepEqual(files, [{ path: "gone.md" }]);
+  });
+
+  it("answers a renamed file at its new path, and the path it left as deleted", async (t) => {
+    await recordingGh(
+      t,
+      ghAnswering([
+        { filename: "docs/agents/domain.md", status: "renamed", content: "# domain", previous: "notes.md" },
+      ]),
+    );
+
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+
+    assert.deepEqual(files, [{ path: "notes.md" }, { path: "docs/agents/domain.md", content: "# domain" }]);
+  });
+
+  it("answers the commit the pull request's branch points at", async (t) => {
+    await recordingGh(t, ghAnswering([]));
+
+    assert.equal(await githubRepoHost().readPullRequestHead(pullRequestUrl(OPENED)), "abc123");
   });
 });
 

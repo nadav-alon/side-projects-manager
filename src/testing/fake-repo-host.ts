@@ -9,6 +9,7 @@ import type {
   MergeStatus,
   Nits,
   OpenPullRequest,
+  PullRequestFile,
   Proposal,
   PullRequestLabel,
   PullRequestState,
@@ -180,6 +181,16 @@ export class FakeRepoHost implements RepoHost {
    */
   setOpenPullRequests(repo: RepoSlug, pullRequests: OpenPullRequest[]): void {
     this.#openPullRequests.set(repo, pullRequests);
+  }
+
+  readonly #pullRequestsOnBranch = new Map<string, OpenPullRequest>();
+
+  /**
+   * Sets the open pull request `openPullRequestOn` answers for `branch` in
+   * `repo`. None, unless a test says otherwise.
+   */
+  setOpenPullRequestOn(repo: RepoSlug, branch: Branch, pullRequest: OpenPullRequest): void {
+    this.#pullRequestsOnBranch.set(`${repo}#${branch}`, pullRequest);
   }
 
   /** Marks `repo` as already on the host, as a project predating the manager. */
@@ -466,6 +477,28 @@ export class FakeRepoHost implements RepoHost {
     return this.#openPullRequests.get(repo) ?? [];
   }
 
+  async openPullRequestOn(repo: RepoSlug, branch: Branch): Promise<OpenPullRequest | undefined> {
+    return this.#pullRequestsOnBranch.get(`${repo}#${branch}`);
+  }
+
+  readonly #pullRequestFiles = new Map<PullRequestUrl, PullRequestFile[]>();
+
+  /** Sets what `readPullRequestFiles` answers for `pullRequest`. None, unless a test says otherwise. */
+  setPullRequestFiles(pullRequest: PullRequestUrl, files: PullRequestFile[]): void {
+    this.#pullRequestFiles.set(pullRequest, files);
+  }
+
+  async readPullRequestFiles(pullRequest: PullRequestUrl, _head: string): Promise<PullRequestFile[]> {
+    return this.#pullRequestFiles.get(pullRequest) ?? [];
+  }
+
+  /** What `readPullRequestHead` answers. */
+  static readonly HEAD = "fake-head";
+
+  async readPullRequestHead(_pullRequest: PullRequestUrl): Promise<string> {
+    return FakeRepoHost.HEAD;
+  }
+
   readonly #closingPullRequests = new Map<RepoSlug, ClosingPullRequest[]>();
 
   /**
@@ -488,8 +521,12 @@ export class FakeRepoHost implements RepoHost {
   /** Every pull request `mergePullRequest` was called on, in order. */
   readonly merged: PullRequestUrl[] = [];
 
-  async mergePullRequest(pullRequest: PullRequestUrl): Promise<void> {
+  /** The `head` each `mergePullRequest` call was pinned to, in order; `undefined` for an unpinned one. */
+  readonly mergedHeads: (string | undefined)[] = [];
+
+  async mergePullRequest(pullRequest: PullRequestUrl, head?: string): Promise<void> {
     this.merged.push(pullRequest);
+    this.mergedHeads.push(head);
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {

@@ -39,6 +39,13 @@ export function uniformFilesAmong(changed: Iterable<string>): string[] {
   return UNIFORM_FILES.filter((file) => set.has(file));
 }
 
+/**
+ * How a project's copy of one uniform file reads against the harness's own:
+ * byte for byte the current one, byte for byte a version the harness held
+ * before it last changed, or neither.
+ */
+export type UniformComparison = "current" | "earlier" | "different";
+
 /** What one scaffolding put into a checkout. */
 export interface Scaffold {
   /** Every path written, relative to the checkout, in the order written. */
@@ -90,4 +97,17 @@ export interface Harness {
    * an entry that still exists, never removes one that doesn't.
    */
   sync(directory: Checkout): Promise<string[]>;
+
+  /**
+   * Compares `content` — a project's copy of the uniform file `file` — with
+   * the harness's own: `"current"` when it is byte for byte the harness's
+   * copy now, `"earlier"` when it is byte for byte a version the harness
+   * held before, and `"different"` otherwise, including for a `file` that is
+   * not in `UNIFORM_FILES` at all.
+   *
+   * What tells a sweep that merges its own sync pull request apart a copy
+   * the harness has since moved on from — worth proposing again — from one
+   * somebody edited, which is not the sweep's to merge.
+   */
+  compareUniform(file: string, content: string): Promise<UniformComparison>;
 }

@@ -1,4 +1,5 @@
-import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
+import type { Checkout, Harness, Scaffold, UniformComparison } from "../ports/index.ts";
+import { UNIFORM_FILES } from "../ports/index.ts";
 
 /** One scaffolding, as the command asked for it. */
 export interface FakeInstall {
@@ -38,6 +39,12 @@ export class FakeHarness implements Harness {
    */
   changed: string[] = [];
 
+  /**
+   * What `compareUniform` answers, by content. `"different"` for any content
+   * a test has not placed here.
+   */
+  readonly comparisons = new Map<string, UniformComparison>();
+
   async install(directory: Checkout, instructions: string): Promise<Scaffold> {
     this.installs.push({ directory, instructions });
     return {
@@ -49,5 +56,12 @@ export class FakeHarness implements Harness {
   async sync(directory: Checkout): Promise<string[]> {
     this.syncs.push(directory);
     return [...this.changed];
+  }
+
+  async compareUniform(file: string, content: string): Promise<UniformComparison> {
+    if (!(UNIFORM_FILES as readonly string[]).includes(file)) {
+      return "different";
+    }
+    return this.comparisons.get(content) ?? "different";
   }
 }

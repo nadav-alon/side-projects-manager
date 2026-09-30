@@ -19,6 +19,7 @@ import type {
   Nits,
   OpenPullRequest,
   Proposal,
+  PullRequestFile,
   PullRequestLabel,
   PullRequestState,
   PullRequestUrl,
@@ -617,6 +618,84 @@ export function githubRepoHost(
       return openPullRequestsFrom(stdout, repo);
     },
 
+    async openPullRequestOn(
+      repo: RepoSlug,
+      branch: Branch,
+    ): Promise<OpenPullRequest | undefined> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--head",
+        branch,
+        "--json",
+        "url,body,labels",
+        "--limit",
+        "1",
+      ]);
+      return openPullRequestsFrom(stdout, repo)[0];
+    },
+
+    async readPullRequestHead(pullRequest: PullRequestUrl): Promise<string> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "headRefOid",
+        "--jq",
+        ".headRefOid",
+      ]);
+      return stdout.trim();
+    },
+
+    async readPullRequestFiles(
+      pullRequest: PullRequestUrl,
+      head: string,
+    ): Promise<PullRequestFile[]> {
+      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const where = `repos/${owner}/${repo}`;
+      const listing = `${where}/pulls/${number}/files`;
+      const { stdout: listed } = await run("gh", [
+        "api",
+        listing,
+        "--paginate",
+        "--jq",
+        ".[] | {filename, status, previous_filename}",
+      ]);
+      const files: PullRequestFile[] = [];
+      for (const line of listed.split("\n").filter((entry) => entry.trim() !== "")) {
+        const at = `gh api ${listing}`;
+        const { filename, status, previous_filename } = objectAt(jsonIn(line, at), at);
+        const file = expectField(filename, "string", "filename", at);
+        const kind = expectField(status, "string", "status", at);
+        if (kind === "renamed") {
+          // The path it left is deleted by the pull request, whatever the
+          // bytes it arrives with.
+          files.push({ path: expectField(previous_filename, "string", "previous_filename", at) });
+        }
+        if (kind === "removed") {
+          files.push({ path: file });
+          continue;
+        }
+        const { stdout: content } = await run(
+          "gh",
+          [
+            "api",
+            "--header",
+            "Accept: application/vnd.github.raw+json",
+            `${where}/contents/${file}?ref=${head}`,
+          ],
+          { maxBuffer: 16 * 1024 * 1024 },
+        );
+        files.push({ path: file, content });
+      }
+      return files;
+    },
+
     async listPullRequestsClosingIssues(
       repo: RepoSlug,
     ): Promise<ClosingPullRequest[]> {
@@ -635,7 +714,7 @@ export function githubRepoHost(
       return closingPullRequestsFrom(stdout, repo);
     },
 
-    async mergePullRequest(pullRequest: PullRequestUrl): Promise<void> {
+    async mergePullRequest(pullRequest: PullRequestUrl, head?: string): Promise<void> {
       // Asked first: `gh pr merge --delete-branch` exits 0 on a pull request
       // that is already merged, deleting the branch without ever raising —
       // the one refusal the ticket names that would otherwise slip through
@@ -667,6 +746,7 @@ export function githubRepoHost(
           "--delete-branch",
           "--repo",
           `${owner}/${repo}`,
+          ...(head === undefined ? [] : ["--match-head-commit", head]),
         ]);
       } catch (error) {
         throw new Error(

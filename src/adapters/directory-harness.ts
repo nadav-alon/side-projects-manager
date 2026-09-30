@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
-import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
+import type { Checkout, Harness, Scaffold, UniformComparison } from "../ports/index.ts";
 import { UNIFORM_FILES } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
@@ -61,6 +63,23 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
 
       return changed;
     },
+
+    async compareUniform(file: string, content: string): Promise<UniformComparison> {
+      if (!(UNIFORM_FILES as readonly string[]).includes(file)) {
+        return "different";
+      }
+      const bytes = Buffer.from(content, "utf8");
+      const [current, ...earlier] = await mastersVersions(source, file);
+      if (current !== undefined && bytes.equals(current)) {
+        return "current";
+      }
+      for (const version of earlier) {
+        if (bytes.equals(version)) {
+          return "earlier";
+        }
+      }
+      return "different";
+    },
   };
 }
 
@@ -82,4 +101,45 @@ async function sameContent(to: string, from: string): Promise<boolean> {
     return false;
   }
   return existing.equals(await readFile(from));
+}
+
+const run = promisify(execFile);
+
+/** The branch of `source` whose uniform files are the manager's own. */
+const MASTER = "master";
+
+/**
+ * Every version of `file` on `source`'s `master`, newest first — what has
+ * reached master, not what `source`'s working tree or checked-out branch
+ * holds, since a sync that merges by itself must not trust bytes that never
+ * landed. A `source` that is not a git checkout at all keeps no history:
+ * its working-tree copy is then the only version. A `source` that is one but
+ * has no `master`, or none holding `file`, has none.
+ */
+async function mastersVersions(source: string, file: string): Promise<Buffer[]> {
+  try {
+    await run("git", ["-C", source, "rev-parse", "--git-dir"]);
+  } catch {
+    return [await readFile(path.join(source, file))];
+  }
+  let commits: string[];
+  try {
+    const { stdout } = await run("git", ["-C", source, "log", "--format=%H", MASTER, "--", file]);
+    commits = stdout.split("\n").filter((commit) => commit !== "");
+  } catch {
+    return [];
+  }
+  const versions: Buffer[] = [];
+  for (const commit of commits) {
+    try {
+      const { stdout } = await run("git", ["-C", source, "show", `${commit}:${file}`], {
+        encoding: "buffer",
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      versions.push(stdout);
+    } catch {
+      // The commit that deleted the file has no version of it to show.
+    }
+  }
+  return versions;
 }
