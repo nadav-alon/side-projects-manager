@@ -54,12 +54,15 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cac
 # PLAYWRIGHT_BROWSERS_PATH rather than the installer's per-user cache, since
 # the uid that launches it is the developer's and need not be the one that
 # installed it. The installer is the one the MCP package itself depends on, so
-# the browser revision downloaded is the one the server will ask for.
+# the browser revision downloaded is the one the server will ask for. The
+# server's default browser is Google Chrome, which this image does not carry,
+# so PLAYWRIGHT_MCP_BROWSER points it at the Chromium that is installed.
 ARG PLAYWRIGHT_MCP_VERSION=latest
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+ENV PLAYWRIGHT_MCP_BROWSER=chromium
 RUN npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
     && cd "$(npm root -g)/@playwright/mcp" \
-    && node "$(node -p "require.resolve('playwright/cli')")" install --with-deps chromium \
+    && ./node_modules/.bin/playwright install --with-deps chromium \
     && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH" \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
