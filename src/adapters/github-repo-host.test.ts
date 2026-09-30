@@ -1821,6 +1821,14 @@ describe("merging a pull request", () => {
     ]);
   });
 
+  it("pins the merge to the head it is given, so a later push makes the host refuse it", async (t) => {
+    const gh = await recordingGh(t, reportingState("OPEN"));
+
+    await githubRepoHost().mergePullRequest(PULL_REQUEST, "abc123");
+
+    assert.equal(valueOf(callWith(await gh.calls(), "pr", "merge"), "--match-head-commit"), "abc123");
+  });
+
   it("rejects naming the pull request when the host refuses to merge it", async (t) => {
     await recordingGh(
       t,
@@ -2312,8 +2320,14 @@ describe("reading a pull request's files", () => {
   const OPENED = "https://github.com/nadav-alon/pilot/pull/7";
 
   /** A gh that answers each verb the read makes from what the test hands it. */
-  function ghAnswering(files: { filename: string; status: string; content: string }[]): string {
-    const listed = files.map(({ filename, status }) => JSON.stringify({ filename, status })).join("\n");
+  function ghAnswering(
+    files: { filename: string; status: string; content: string; previous?: string }[],
+  ): string {
+    const listed = files
+      .map(({ filename, status, previous }) =>
+        JSON.stringify({ filename, status, previous_filename: previous }),
+      )
+      .join("\n");
     const cases = files
       .map(({ filename, content }) => `  *"/contents/${filename}?ref=abc123") printf '%s' '${content}' ;;`)
       .join("\n");
@@ -2340,7 +2354,7 @@ describe("reading a pull request's files", () => {
       ]),
     );
 
-    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED));
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
 
     assert.deepEqual(files, [
       { path: "docs/agents/domain.md", content: "# domain" },
@@ -2351,9 +2365,28 @@ describe("reading a pull request's files", () => {
   it("answers a deleted file with no content, without reading it", async (t) => {
     await recordingGh(t, ghAnswering([{ filename: "gone.md", status: "removed", content: "" }]));
 
-    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED));
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
 
     assert.deepEqual(files, [{ path: "gone.md" }]);
+  });
+
+  it("answers a renamed file at its new path, and the path it left as deleted", async (t) => {
+    await recordingGh(
+      t,
+      ghAnswering([
+        { filename: "docs/agents/domain.md", status: "renamed", content: "# domain", previous: "notes.md" },
+      ]),
+    );
+
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED), "abc123");
+
+    assert.deepEqual(files, [{ path: "notes.md" }, { path: "docs/agents/domain.md", content: "# domain" }]);
+  });
+
+  it("answers the commit the pull request's branch points at", async (t) => {
+    await recordingGh(t, ghAnswering([]));
+
+    assert.equal(await githubRepoHost().readPullRequestHead(pullRequestUrl(OPENED)), "abc123");
   });
 });
 

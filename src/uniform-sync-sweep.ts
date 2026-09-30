@@ -19,6 +19,7 @@ export interface UniformSyncSweepPorts {
     | "hasUncommittedChanges"
     | "commitAndPropose"
     | "openPullRequestOn"
+    | "readPullRequestHead"
     | "readPullRequestFiles"
     | "readChecksStatus"
     | "labelPullRequest"
@@ -207,7 +208,8 @@ async function mergeProposed(
   if (url === undefined) {
     return proposal;
   }
-  const verdict = await contentVerdict(ports, url);
+  const head = await ports.repoHost.readPullRequestHead(url);
+  const verdict = await contentVerdict(ports, url, head);
   if (verdict.kind !== "current") {
     return verdict.kind === "outdated"
       ? { kind: "outdated", url }
@@ -219,7 +221,7 @@ async function mergeProposed(
   }
   try {
     await ports.repoHost.markPullRequestReady(url);
-    await ports.repoHost.mergePullRequest(url);
+    await ports.repoHost.mergePullRequest(url, head);
   } catch (error) {
     return leftForHuman(ports, url, errorMessage(error));
   }
@@ -227,7 +229,7 @@ async function mergeProposed(
 }
 
 /**
- * Whether `url` changes nothing but uniform files, each now exactly the
+ * Whether `url`, as it stands at `head`, changes nothing but uniform files, each now exactly the
  * manager's own copy: `current`. One that is byte for byte an earlier
  * version of the manager's is `outdated` — the manager moved on since — and
  * anything else, a file outside `UNIFORM_FILES`, a deletion, or bytes the
@@ -236,8 +238,9 @@ async function mergeProposed(
 async function contentVerdict(
   ports: UniformSyncSweepPorts,
   url: PullRequestUrl,
+  head: string,
 ): Promise<{ kind: "current" | "outdated" } | { kind: "different"; reason: string }> {
-  const files = await ports.repoHost.readPullRequestFiles(url);
+  const files = await ports.repoHost.readPullRequestFiles(url, head);
   if (files.length === 0) {
     return { kind: "different", reason: "it changes no files" };
   }

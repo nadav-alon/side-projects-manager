@@ -798,14 +798,22 @@ export interface RepoHost {
    */
   openPullRequestOn(repo: RepoSlug, branch: Branch): Promise<OpenPullRequest | undefined>;
   /**
-   * Every file `pullRequest` changes, each as it stands at the pull
-   * request's head — see {@link PullRequestFile}.
+   * Every file `pullRequest` changes, each as it stands at `head`, a commit
+   * of the pull request's own branch as {@link readPullRequestHead} answered
+   * it — see {@link PullRequestFile}. A file the pull request renames is
+   * answered twice: at its new path, and with no content at the path it left.
    *
    * What a uniform sync sweep reads before merging its own pull request, so
    * that the merge is decided on the bytes about to land rather than on what
    * the sweep remembers pushing.
    */
-  readPullRequestFiles(pullRequest: PullRequestUrl): Promise<PullRequestFile[]>;
+  readPullRequestFiles(pullRequest: PullRequestUrl, head: string): Promise<PullRequestFile[]>;
+  /**
+   * The commit `pullRequest`'s branch points at now, to read files at and to
+   * pin a merge to with {@link mergePullRequest}, so that a commit pushed
+   * after the read cannot ride along unchecked.
+   */
+  readPullRequestHead(pullRequest: PullRequestUrl): Promise<string>;
   /**
    * Lists `repo`'s pull requests of any state — open, merged or closed
    * without merging — up to {@link CLOSING_PULL_REQUEST_LIMIT}, newest first:
@@ -828,6 +836,9 @@ export interface RepoHost {
    * could go wrong. A repo with no such branch protection merges a pull
    * request whatever its checks read as: see {@link ChecksStatus}, which the
    * merge gate reads first for that reason.
+   *
+   * Given `head`, merges only if the pull request's branch still points at
+   * that commit, and raises otherwise.
    */
-  mergePullRequest(pullRequest: PullRequestUrl): Promise<void>;
+  mergePullRequest(pullRequest: PullRequestUrl, head?: string): Promise<void>;
 }

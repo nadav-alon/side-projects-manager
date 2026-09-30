@@ -149,6 +149,14 @@ describe("uniformSyncSweep", () => {
       assert.deepEqual(repoHost.merged, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
     });
 
+    it("merges only the head it read the files at, so a later push cannot ride along", async () => {
+      const { repoHost, harness, merge } = turbo();
+
+      await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(repoHost.mergedHeads, [FakeRepoHost.HEAD]);
+    });
+
     it("merges nothing, and labels nothing, when the pull request holds an earlier version of the manager's file", async () => {
       const { repoHost, harness, merge } = turbo();
       repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [

@@ -488,8 +488,15 @@ export class FakeRepoHost implements RepoHost {
     this.#pullRequestFiles.set(pullRequest, files);
   }
 
-  async readPullRequestFiles(pullRequest: PullRequestUrl): Promise<PullRequestFile[]> {
+  async readPullRequestFiles(pullRequest: PullRequestUrl, _head: string): Promise<PullRequestFile[]> {
     return this.#pullRequestFiles.get(pullRequest) ?? [];
+  }
+
+  /** What `readPullRequestHead` answers. */
+  static readonly HEAD = "fake-head";
+
+  async readPullRequestHead(_pullRequest: PullRequestUrl): Promise<string> {
+    return FakeRepoHost.HEAD;
   }
 
   readonly #closingPullRequests = new Map<RepoSlug, ClosingPullRequest[]>();
@@ -514,8 +521,12 @@ export class FakeRepoHost implements RepoHost {
   /** Every pull request `mergePullRequest` was called on, in order. */
   readonly merged: PullRequestUrl[] = [];
 
-  async mergePullRequest(pullRequest: PullRequestUrl): Promise<void> {
+  /** The `head` each `mergePullRequest` call was pinned to, in order; `undefined` for an unpinned one. */
+  readonly mergedHeads: (string | undefined)[] = [];
+
+  async mergePullRequest(pullRequest: PullRequestUrl, head?: string): Promise<void> {
     this.merged.push(pullRequest);
+    this.mergedHeads.push(head);
   }
 
   #threadsOn(pullRequest: PullRequestUrl): ApplyReviewThread[] {
