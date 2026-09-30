@@ -231,7 +231,10 @@ async function mergeProposed(
 }
 
 /** {@link contentVerdict}'s answer: a {@link UniformComparison} of the whole pull request. */
-type ContentVerdict = { kind: Exclude<UniformComparison, "different"> } | { kind: "different"; reason: string };
+type ContentVerdict =
+  | { kind: "current" }
+  | { kind: "earlier" }
+  | { kind: "different"; reason: string };
 
 /**
  * Whether `url`, as it stands at `head`, changes nothing but uniform files, each now exactly the
@@ -268,7 +271,7 @@ async function contentVerdict(
       reason: `it differs from the manager's uniform files in ${different.join(", ")}`,
     };
   }
-  return { kind: outdated ? "earlier" : "current" };
+  return outdated ? { kind: "earlier" } : { kind: "current" };
 }
 
 /** `url` labelled `ready-for-human`, and the sweep's hands off it from here. */
