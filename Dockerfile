@@ -41,6 +41,29 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 ARG CLAUDE_CODE_VERSION=latest
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
 
+# A browser the agent can drive: Chromium with its system libraries, and the
+# Playwright MCP server that speaks to it. It lives in this one shared image
+# rather than a second one because every run happens in the same image (one to
+# build, verify and keep in step with the checkout), and only a run that
+# enables the server (`ux-review`) ever starts the browser — for every other
+# run it is dead weight on disk, never a process.
+#
+# Version is a build argument for the reason CLAUDE_CODE_VERSION's is: an
+# unversioned install never changes the layer's cache key. Installed as root
+# because `--with-deps` runs apt; the browser goes to a fixed, world-readable
+# PLAYWRIGHT_BROWSERS_PATH rather than the installer's per-user cache, since
+# the uid that launches it is the developer's and need not be the one that
+# installed it. The installer is the one the MCP package itself depends on, so
+# the browser revision downloaded is the one the server will ask for.
+ARG PLAYWRIGHT_MCP_VERSION=latest
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
+    && cd "$(npm root -g)/@playwright/mcp" \
+    && node "$(node -p "require.resolve('playwright/cli')")" install --with-deps chromium \
+    && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH" \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/*
+
 # Everything from here down belongs to a non-root user, and the harness with
 # it. Two reasons, and either alone would be enough:
 #

@@ -9,10 +9,11 @@
 // without a subscription credential. Prompting the built image would prove the
 // same thing and would need a real token, which CI has none of.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // `sandbox:verify` (package.json) mounts this one file from `src/` alongside
 // `scripts/` for exactly this import.
@@ -321,11 +322,137 @@ if (!usage.includes(PERMISSION_MODE)) {
   );
 }
 
+/**
+ * How long the browser check may take end to end. Starting Chromium cold in a
+ * container is slow, but a hang must still end as a failure naming this check.
+ */
+const BROWSER_TIMEOUT_MS = 90_000;
+
+/**
+ * Drives `@playwright/mcp` the way a run would — headless, over stdio — to
+ * open a local page and screenshot it, and returns the screenshot's MCP
+ * response. `--no-sandbox` because Chromium's own sandbox needs user
+ * namespaces that a container's default seccomp profile withholds; the
+ * container is the sandbox.
+ */
+function screenshotLocalPage(pagePath: string, outputDir: string): Promise<string> {
+  const server = spawn(
+    "playwright-mcp",
+    ["--headless", "--isolated", "--no-sandbox", "--output-dir", outputDir],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+
+  const requests = [
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "verify-harness", version: "0" },
+      },
+    },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "browser_navigate",
+        arguments: { url: pathToFileURL(pagePath).href },
+      },
+    },
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "browser_take_screenshot", arguments: { type: "png" } },
+    },
+  ];
+
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const evidence = () => `${stderr}\n${stdout}`.trim();
+    const timer = setTimeout(() => {
+      server.kill();
+      reject(new Error(`no screenshot within ${BROWSER_TIMEOUT_MS}ms\n${evidence()}`));
+    }, BROWSER_TIMEOUT_MS);
+
+    server.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    server.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    server.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+      const reply = stdout
+        .split("\n")
+        .filter((line) => line.startsWith("{"))
+        .map((line): { id?: number; error?: unknown } | undefined => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return undefined;
+          }
+        })
+        .find((message) => message?.id === 3);
+      if (reply) {
+        clearTimeout(timer);
+        server.kill();
+        if (reply.error) {
+          reject(new Error(evidence()));
+        } else {
+          resolve(JSON.stringify(reply));
+        }
+      }
+    });
+
+    for (const request of requests) {
+      server.stdin.write(`${JSON.stringify(request)}\n`);
+    }
+  });
+}
+
+// What a run gets when it enables the browser: the server starts headless as
+// this uid and produces a real image of a page. The screenshot is asserted by
+// its bytes — a PNG signature on disk or in the reply — rather than by the
+// server merely answering, since a server with no Chromium answers fine and
+// only fails at the screenshot.
+const browserDir = mkdtempSync(path.join(tmpdir(), "verify-browser-"));
+const browserPage = path.join(browserDir, "page.html");
+writeFileSync(browserPage, "<!doctype html><title>verify</title><h1>verify-harness</h1>");
+
+try {
+  const reply = await screenshotLocalPage(browserPage, browserDir);
+  const written = readdirSync(browserDir).filter((name) => name.endsWith(".png"));
+  const PNG_BASE64_PREFIX = "iVBORw0KGgo";
+  const inline = reply.includes(PNG_BASE64_PREFIX);
+  const onDisk = written.some((name) =>
+    readFileSync(path.join(browserDir, name))
+      .subarray(0, 4)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+  );
+  if (!inline && !onDisk) {
+    fail("`playwright-mcp` answered but produced no PNG screenshot", reply);
+  }
+} catch (error) {
+  fail(
+    `\`playwright-mcp\` could not screenshot a local page headless as uid ${UID}, so a run that enables the browser has none`,
+    describe(error),
+  );
+} finally {
+  rmSync(browserDir, { recursive: true, force: true });
+}
+
 const personalSkillsPresent = PERSONAL_SKILLS.map((skill) => `${skill} present`).join(", ");
 const pinnedEnvPresent = PINNED_ENV.map(({ variable, pinned }) => `${variable}=${pinned}`).join(
   " and ",
 );
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
 );
