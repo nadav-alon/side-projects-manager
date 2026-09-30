@@ -312,9 +312,10 @@ export function ghIssueTracker(
     },
 
     async listOpenDiscoveredTickets(ticket: Ticket): Promise<DiscoveredTicketSummary[]> {
-      // Searched by the body line, then checked against it exactly: the
-      // search is a fuzzy text match, so it only narrows what `gh` returns,
-      // and `isDiscoveredWhileWorking` is what decides.
+      // Listed without `--search`: GitHub's search index lags, and a discovery
+      // filed earlier in this same loop run is the one a run most needs to see.
+      // `isDiscoveredWhileWorking` picks the ticket's discoveries out of the
+      // newest `OPEN_ISSUE_READ_LIMIT` open issues.
       const { stdout } = await execFileAsync("gh", [
         "issue",
         "list",
@@ -322,8 +323,6 @@ export function ghIssueTracker(
         ticket.repo,
         "--state",
         "open",
-        "--search",
-        `"Discovered while working #${ticket.number}" in:body`,
         "--limit",
         String(OPEN_ISSUE_READ_LIMIT),
         "--json",
