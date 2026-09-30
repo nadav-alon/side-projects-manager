@@ -224,14 +224,23 @@ export function githubRepoHost(
         // The lease is held against the remote-tracking ref, which nothing else
         // refreshes, so it is refreshed here: a remote that moved since the last
         // fetch would otherwise read as stale. A branch the remote has never
-        // had has nothing to fetch; any other failure is thrown, so it is not
-        // misreported as a stale lease by the push.
+        // had, or has since deleted, has nothing to fetch, and the tracking ref
+        // left from when it existed is dropped so the lease does not compare
+        // against it; any other failure is thrown, so it is not misreported as
+        // a stale lease by the push.
         try {
           await run("git", ["-C", directory, "fetch", "origin", branch]);
         } catch (error) {
           if (!/couldn't find remote ref/i.test(commandFailureMessage(error))) {
             throw error;
           }
+          await run("git", [
+            "-C",
+            directory,
+            "update-ref",
+            "-d",
+            `refs/remotes/origin/${branch}`,
+          ]);
         }
 
         // `--force-with-lease`: a previous call may have already pushed this
