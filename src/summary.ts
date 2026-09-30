@@ -928,6 +928,7 @@ function conflictSweepRefusalLine(
     case "list":
       return `- ${repo}: could not list its open pull requests: ${error}`;
     case "read":
+    case "unsettled":
       return `- ${repo}: could not check ${refusal.pullRequest}'s mergeability: ${error}`;
     case "label":
       return `- ${repo}: could not label ${refusal.pullRequest} ${NEEDS_REBASE_LABEL}: ${error}`;

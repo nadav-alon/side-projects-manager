@@ -85,7 +85,7 @@ describe("conflictSweep", () => {
       changes: [],
       refusals: [
         {
-          action: "read",
+          action: "unsettled",
           pullRequest: PULL_REQUEST,
           error: "mergeability still unknown after 3 reads",
         },

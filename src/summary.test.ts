@@ -2651,7 +2651,7 @@ describe("conflict sweeps", () => {
         changes: [],
         refusals: [
           {
-            action: "read",
+            action: "unsettled",
             pullRequest: PULL_REQUEST,
             error: "mergeability still unknown after 3 reads",
           },
@@ -2664,6 +2664,28 @@ describe("conflict sweeps", () => {
 
     assert.match(summaryLine(factsWithSweeps(sweeps)), new RegExp(`Conflict sweep: ${REPO}`));
     assert.match(section, /still unknown after 3 reads/);
+  });
+
+  it("names a thrown read and an unsettled one of the same pull request apart", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [{ action: "read", pullRequest: PULL_REQUEST, error: "mergeability refused" }],
+      },
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          { action: "unsettled", pullRequest: PULL_REQUEST, error: "mergeability still unknown after 3 reads" },
+        ],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    assert.match(body, /mergeability refused/);
+    assert.match(body, /still unknown after 3 reads/);
   });
 });
 
