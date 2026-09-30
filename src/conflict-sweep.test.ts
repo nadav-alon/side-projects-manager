@@ -35,7 +35,7 @@ describe("conflictSweep", () => {
     assert.equal(readMergeStatus.mock.callCount(), 0);
     assert.deepEqual(host.labelled, []);
     assert.deepEqual(host.comments, []);
-    assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
+    assert.deepEqual(outcome, { repo: PILOT, changes: [], settled: [], refusals: [] });
   });
 
   it("labels a conflicting pull request that does not carry needs-rebase", async (t) => {
@@ -83,6 +83,7 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome, {
       repo: PILOT,
       changes: [],
+      settled: [],
       refusals: [
         {
           action: "unsettled",
@@ -209,7 +210,7 @@ describe("conflictSweep", () => {
     ]);
   });
 
-  it("does nothing to a clean pull request that does not carry needs-rebase", async () => {
+  it("does nothing to a clean pull request that does not carry needs-rebase, but records it settled", async () => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
@@ -218,7 +219,7 @@ describe("conflictSweep", () => {
 
     const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES);
 
-    assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
+    assert.deepEqual(outcome, { repo: PILOT, changes: [], settled: [PULL_REQUEST], refusals: [] });
   });
 
   it("records a refused unlabel and carries on to the next pull request", async (t) => {
@@ -450,6 +451,7 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome, {
       repo: PILOT,
       changes: [],
+      settled: [],
       refusals: [{ action: "list", error: "listing refused" }],
     });
   });

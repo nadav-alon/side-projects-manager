@@ -93,15 +93,18 @@ const CHANGED = {
 >;
 
 /**
- * What sweeping one project came to: every pull request it changed, and
- * every refusal it met along the way. A pull request left untouched —
- * naming no closed ticket, or already in the shape the sweep would have put
- * it — appears in neither list.
+ * What sweeping one project came to: every pull request it changed, every
+ * refusal it met along the way, and every pull request whose mergeability it
+ * read as settled (not `"unknown"`), whether or not that left anything to
+ * change. A pull request left untouched — naming no closed ticket, or already
+ * in the shape the sweep would have put it — appears in neither of the first
+ * two lists.
  */
 export interface ConflictSweepOutcome {
   repo: RepoSlug;
   changes: ConflictSweepChange[];
   refusals: ConflictSweepRefusal[];
+  settled: PullRequestUrl[];
 }
 
 /**
@@ -146,6 +149,7 @@ export async function conflictSweep(
 ): Promise<ConflictSweepOutcome> {
   const changes: ConflictSweepChange[] = [];
   const refusals: ConflictSweepRefusal[] = [];
+  const settled: PullRequestUrl[] = [];
 
   /**
    * Runs `run`, recording a change on `pullRequest` under `CHANGED[action]`
@@ -171,7 +175,7 @@ export async function conflictSweep(
     pullRequests = await repoHost.listOpenPullRequests(repo);
   } catch (error) {
     refusals.push({ action: "list", error: errorMessage(error) });
-    return { repo, changes, refusals };
+    return { repo, changes, refusals, settled };
   }
 
   for (const pullRequest of pullRequests) {
@@ -204,6 +208,8 @@ export async function conflictSweep(
       continue;
     }
 
+    settled.push(pullRequest.url);
+
     const labelled = pullRequest.labels.includes(NEEDS_REBASE);
 
     if (status === "clean") {
@@ -232,5 +238,5 @@ export async function conflictSweep(
     }
   }
 
-  return { repo, changes, refusals };
+  return { repo, changes, refusals, settled };
 }

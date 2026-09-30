@@ -2421,7 +2421,7 @@ describe("conflict sweeps", () => {
     const withEmptySweeps: SummaryFacts = {
       ...facts([]),
       projects,
-      conflictSweeps: [{ repo: REPO, changes: [], refusals: [] }],
+      conflictSweeps: [{ repo: REPO, changes: [], settled: [], refusals: [] }],
     };
 
     const line = summaryLine(withoutSweeps);
@@ -2442,11 +2442,13 @@ describe("conflict sweeps", () => {
           { pullRequest: PULL_REQUEST, action: "unlabelled" },
           { pullRequest: PULL_REQUEST, action: "commented" },
         ],
+        settled: [],
         refusals: [],
       },
       {
         repo: OTHER_REPO,
         changes: [{ pullRequest: OTHER_REPO_PULL_REQUEST, action: "labelled" }],
+        settled: [],
         refusals: [],
       },
     ];
@@ -2466,8 +2468,8 @@ describe("conflict sweeps", () => {
 
   it("reports the same pull request and action once, however many sweeps met it", () => {
     const sweeps: ConflictSweepOutcome[] = [
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], settled: [], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], settled: [], refusals: [] },
     ];
 
     const body = bodyOf(sweeps);
@@ -2481,6 +2483,7 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [
           { action: "label", pullRequest: PULL_REQUEST, error: "label does not exist" },
         ],
@@ -2488,6 +2491,7 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [
           { action: "label", pullRequest: PULL_REQUEST, error: "label does not exist" },
         ],
@@ -2509,6 +2513,7 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [
           { action: "comment", pullRequest: PULL_REQUEST, error: "502 Bad Gateway (request id: 1abc)" },
         ],
@@ -2516,6 +2521,7 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [
           { action: "comment", pullRequest: PULL_REQUEST, error: "502 Bad Gateway (request id: 2abc)" },
         ],
@@ -2530,7 +2536,7 @@ describe("conflict sweeps", () => {
 
   it("names the project, not a pull request, for a refused listing", () => {
     const sweeps: ConflictSweepOutcome[] = [
-      { repo: REPO, changes: [], refusals: [{ action: "list", error: "listing refused" }] },
+      { repo: REPO, changes: [], settled: [], refusals: [{ action: "list", error: "listing refused" }] },
     ];
 
     const body = bodyOf(sweeps);
@@ -2546,6 +2552,7 @@ describe("conflict sweeps", () => {
           { pullRequest: PULL_REQUEST, action: "labelled" },
           { pullRequest: OTHER_REPO_PULL_REQUEST, action: "unlabelled" },
         ],
+        settled: [],
         refusals: [],
       },
     ]);
@@ -2555,7 +2562,7 @@ describe("conflict sweeps", () => {
 
   it("mentions the sweep in the summary line when it posted /rebase", () => {
     const commented = factsWithSweeps([
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], settled: [], refusals: [] },
     ]);
 
     assert.match(
@@ -2572,6 +2579,7 @@ describe("conflict sweeps", () => {
           { pullRequest: PULL_REQUEST, action: "commented" },
           { pullRequest: OTHER_REPO_PULL_REQUEST, action: "commented" },
         ],
+        settled: [],
         refusals: [],
       },
     ]);
@@ -2583,8 +2591,8 @@ describe("conflict sweeps", () => {
 
   it("gives two distinct /rebase posts on the same pull request their own bullet each, rather than collapsing the second away", () => {
     const sweeps: ConflictSweepOutcome[] = [
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], settled: [], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], settled: [], refusals: [] },
     ];
 
     const body = bodyOf(sweeps);
@@ -2601,6 +2609,7 @@ describe("conflict sweeps", () => {
           { pullRequest: PULL_REQUEST, action: "labelled" },
           { pullRequest: PULL_REQUEST, action: "commented" },
         ],
+        settled: [],
         refusals: [],
       },
       {
@@ -2609,6 +2618,7 @@ describe("conflict sweeps", () => {
           { pullRequest: PULL_REQUEST, action: "labelled" },
           { pullRequest: PULL_REQUEST, action: "commented" },
         ],
+        settled: [],
         refusals: [],
       },
     ];
@@ -2622,8 +2632,8 @@ describe("conflict sweeps", () => {
 
   it("counts both posts, not one, in the summary line's aside when the same pull request is posted on twice", () => {
     const commented = factsWithSweeps([
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
-      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], settled: [], refusals: [] },
+      { repo: REPO, changes: [{ pullRequest: PULL_REQUEST, action: "commented" }], settled: [], refusals: [] },
     ]);
 
     assert.match(
@@ -2637,6 +2647,7 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [{ action: "read", pullRequest: PULL_REQUEST, error: "mergeability refused" }],
       },
     ]);
@@ -2649,6 +2660,7 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [
           {
             action: "unsettled",
@@ -2671,11 +2683,13 @@ describe("conflict sweeps", () => {
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [{ action: "read", pullRequest: PULL_REQUEST, error: "mergeability refused" }],
       },
       {
         repo: REPO,
         changes: [],
+        settled: [],
         refusals: [
           { action: "unsettled", pullRequest: PULL_REQUEST, error: "mergeability still unknown after 3 reads" },
         ],
