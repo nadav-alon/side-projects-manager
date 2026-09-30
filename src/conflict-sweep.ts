@@ -89,7 +89,7 @@ const CHANGED = {
 /**
  * What sweeping one project came to: every pull request it changed, and
  * every refusal it met along the way. A pull request left untouched —
- * naming no closed ticket, still `"unknown"`, or already in the shape the
+ * naming no closed ticket, or already in the shape the
  * sweep would have put it — appears in neither list.
  */
 export interface ConflictSweepOutcome {
@@ -111,7 +111,7 @@ export interface ConflictSweepOutcome {
  * already carries it. A clean one has the label taken off if it carries it,
  * whether or not a rebase ticket is still open for it — the label means not
  * mergeable now, and a ticket still open finds nothing to rebase and closes
- * itself. One still `"unknown"` after its re-reads is left exactly as it is, for the next sweep.
+ * itself. One still `"unknown"` after its re-reads is left exactly as it is, for the next sweep, and recorded as a refused `"read"` so the summary names it.
  *
  * In a turbo project, a conflicting pull request also gets {@link
  * REBASE_COMMENT} posted on it — even when labelling it was refused — unless
@@ -188,6 +188,11 @@ export async function conflictSweep(
     }
 
     if (status === "unknown") {
+      refusals.push({
+        action: "read",
+        pullRequest: pullRequest.url,
+        error: `mergeability still unknown after ${SWEEP_REREADS + 1} reads`,
+      });
       continue;
     }
 

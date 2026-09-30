@@ -68,7 +68,7 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome.changes, []);
   });
 
-  it("leaves an unknown pull request untouched, in a turbo project too", async () => {
+  it("leaves a pull request still unknown after its re-reads untouched but names it, in a turbo project too", async () => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
@@ -79,7 +79,17 @@ describe("conflictSweep", () => {
 
     assert.deepEqual(host.labelled, []);
     assert.deepEqual(host.comments, []);
-    assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
+    assert.deepEqual(outcome, {
+      repo: PILOT,
+      changes: [],
+      refusals: [
+        {
+          action: "read",
+          pullRequest: PULL_REQUEST,
+          error: "mergeability still unknown after 3 reads",
+        },
+      ],
+    });
   });
 
   it("re-reads an unknown pull request and acts on the settled answer", async (t) => {
