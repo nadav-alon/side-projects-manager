@@ -56,6 +56,18 @@ async function checkout(remote = "nadav-alon/pilot"): Promise<Checkout> {
   return toCheckout(working);
 }
 
+/** Where `directory`'s `origin` remote lives. */
+async function originOf(directory: string): Promise<string> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "remote",
+    "get-url",
+    "origin",
+  ]);
+  return stdout.trim();
+}
+
 /**
  * A commit landing on the remote from somewhere other than `directory` — a
  * pull request merged on GitHub, as far as the managed clone can tell. On
@@ -67,15 +79,8 @@ async function landedElsewhere(
   content = `${file}\n`,
   branch = "main",
 ): Promise<void> {
-  const { stdout: origin } = await run("git", [
-    "-C",
-    directory,
-    "remote",
-    "get-url",
-    "origin",
-  ]);
   const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-elsewhere-"));
-  await run("git", ["clone", origin.trim(), elsewhere]);
+  await run("git", ["clone", await originOf(directory), elsewhere]);
   await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
   await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
   await run("git", ["-C", elsewhere, "switch", branch]);
@@ -83,6 +88,18 @@ async function landedElsewhere(
   await run("git", ["-C", elsewhere, "add", file]);
   await run("git", ["-C", elsewhere, "commit", "--message", `Update ${file}`]);
   await run("git", ["-C", elsewhere, "push", "origin", branch]);
+}
+
+/**
+ * A branch removed from the remote from somewhere other than `directory` — a
+ * pull request merged on GitHub with its branch deleted, as far as the
+ * managed clone can tell.
+ */
+async function deletedElsewhere(
+  directory: string,
+  branch: string,
+): Promise<void> {
+  await run("git", ["-C", await originOf(directory), "branch", "-D", branch]);
 }
 
 /** The managed location a `checkout()` sits in. */
@@ -112,6 +129,21 @@ async function pushedFiles(
   branch = "origin/main",
 ): Promise<string[]> {
   return filesIn(directory, branch);
+}
+
+/** The contents of `file` on a remote-tracking `revision`. */
+async function pushedContent(
+  directory: string,
+  file: string,
+  revision = "origin/harness",
+): Promise<string> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "show",
+    `${revision}:${file}`,
+  ]);
+  return stdout;
 }
 
 describe("parsing what gh pr create answered", () => {
@@ -317,13 +349,10 @@ describe("proposing a scaffold to a project that predates the manager", () => {
       "AGENTS.md",
       "seed.md",
     ]);
-    const { stdout } = await run("git", [
-      "-C",
-      directory,
-      "show",
-      "origin/harness:AGENTS.md",
-    ]);
-    assert.equal(stdout, "# pilot v2\n");
+    assert.equal(
+      await pushedContent(directory, "AGENTS.md"),
+      "# pilot v2\n",
+    );
     const { stdout: current } = await run("git", [
       "-C",
       directory,
@@ -344,39 +373,26 @@ describe("proposing a scaffold to a project that predates the manager", () => {
     const proposal = await propose(directory, ["AGENTS.md"]);
 
     assert.equal(proposal.kind, "pushed");
-    const { stdout } = await run("git", [
-      "-C",
-      directory,
-      "show",
-      "origin/harness:AGENTS.md",
-    ]);
-    assert.equal(stdout, "# pilot v2\n");
+    assert.equal(
+      await pushedContent(directory, "AGENTS.md"),
+      "# pilot v2\n",
+    );
   });
 
   it("updates a proposal whose remote branch was deleted after the clone last fetched it", async () => {
     const directory = await existing();
     await writeFile(path.join(directory, "AGENTS.md"), "# pilot v1\n");
     await propose(directory, ["AGENTS.md"]);
-    const { stdout: origin } = await run("git", [
-      "-C",
-      directory,
-      "remote",
-      "get-url",
-      "origin",
-    ]);
-    await run("git", ["-C", origin.trim(), "branch", "-D", "harness"]);
+    await deletedElsewhere(directory, "harness");
 
     await writeFile(path.join(directory, "AGENTS.md"), "# pilot v2\n");
     const proposal = await propose(directory, ["AGENTS.md"]);
 
     assert.equal(proposal.kind, "pushed");
-    const { stdout } = await run("git", [
-      "-C",
-      directory,
-      "show",
-      "origin/harness:AGENTS.md",
-    ]);
-    assert.equal(stdout, "# pilot v2\n");
+    assert.equal(
+      await pushedContent(directory, "AGENTS.md"),
+      "# pilot v2\n",
+    );
   });
 });
 
