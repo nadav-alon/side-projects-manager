@@ -382,7 +382,9 @@ it, unless it named an already-ticketed, still-open issue, in which case it bloc
 instead, with a comment naming it, and opens no ticket; a suggestion becomes a discovered ticket with no
 edge, but at most the first one a run files is acted on — the rest are dropped and counted, since a
 run's own ticket already carries what it found and a pile of unread suggestions helps nobody.
-Clarifications carry no such cap.
+Clarifications carry no such cap. Every run's prompt also lists, by number and title, the open issues
+already discovered against its target — those whose body carries "Discovered while working #N" for it —
+and tells the agent not to file a suggestion one of them covers; closed ones are not listed.
 _Avoid_: finding, note, observation, feedback
 
 **Nit**:
