@@ -8,7 +8,7 @@ import type {
   RepoHost,
   RepoSlug,
 } from "./ports/index.ts";
-import { branch, UNIFORM_FILES } from "./ports/index.ts";
+import { branch, READY_FOR_HUMAN_PULL_REQUEST_LABEL, UNIFORM_FILES } from "./ports/index.ts";
 import { settledChecks } from "./settled-checks.ts";
 
 /** The {@link RepoHost} verbs and the one {@link Harness} verb a sweep calls. */
@@ -21,6 +21,7 @@ export interface UniformSyncSweepPorts {
     | "openPullRequestOn"
     | "readPullRequestFiles"
     | "readChecksStatus"
+    | "labelPullRequest"
     | "markPullRequestReady"
     | "mergePullRequest"
   >;
@@ -48,12 +49,23 @@ export interface UniformSyncSweepMerged {
 }
 
 /**
+ * The sweep labelled its own sync pull request `ready-for-human` and left
+ * it: `reason` says why the sweep would not merge it.
+ */
+export interface UniformSyncSweepLeftForHuman {
+  kind: "left-for-human";
+  url: PullRequestUrl;
+  reason: string;
+}
+
+/**
  * One project's own end of a sweep: a {@link Proposal}, a merge of what it
  * proposed, or a refusal met along the way.
  */
 export type UniformSyncSweepResult =
   | Proposal
   | UniformSyncSweepMerged
+  | UniformSyncSweepLeftForHuman
   | UniformSyncSweepRefusal;
 
 /** One uniform sync sweep of one registered project, and what it came to. */
@@ -172,10 +184,27 @@ async function mergeProposed(
   if (url === undefined) {
     return proposal;
   }
-  await settledChecks(ports.repoHost, merge.clock, url);
-  await ports.repoHost.markPullRequestReady(url);
-  await ports.repoHost.mergePullRequest(url);
+  const checks = await settledChecks(ports.repoHost, merge.clock, url);
+  if (checks !== "green") {
+    return leftForHuman(ports, url, checks === "pending" ? "checks still running" : "checks failing");
+  }
+  try {
+    await ports.repoHost.markPullRequestReady(url);
+    await ports.repoHost.mergePullRequest(url);
+  } catch (error) {
+    return leftForHuman(ports, url, errorMessage(error));
+  }
   return { kind: "merged", url };
+}
+
+/** `url` labelled `ready-for-human`, and the sweep's hands off it from here. */
+async function leftForHuman(
+  ports: UniformSyncSweepPorts,
+  url: PullRequestUrl,
+  reason: string,
+): Promise<UniformSyncSweepLeftForHuman> {
+  await ports.repoHost.labelPullRequest(url, READY_FOR_HUMAN_PULL_REQUEST_LABEL);
+  return { kind: "left-for-human", url, reason };
 }
 
 /** What the pull request says drifted, named rather than left to the diff. */

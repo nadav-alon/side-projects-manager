@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { branch, pullRequestUrl, repoSlug, UNIFORM_FILES } from "./ports/index.ts";
+import {
+  branch,
+  pullRequestUrl,
+  READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+  repoSlug,
+  UNIFORM_FILES,
+} from "./ports/index.ts";
 import { FakeClock } from "./testing/fake-clock.ts";
 import { FakeHarness } from "./testing/fake-harness.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
@@ -147,6 +153,56 @@ describe("uniformSyncSweep", () => {
 
       assert.equal(outcome.result.kind, "merged");
       assert.equal(reads, 3);
+    });
+
+    it("labels the pull request ready-for-human, and merges nothing, once its checks fail", async () => {
+      const { repoHost, harness, merge } = turbo();
+      repoHost.checksStatus = () => "red";
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome.result, {
+        kind: "left-for-human",
+        url: FakeRepoHost.PROPOSED_PULL_REQUEST,
+        reason: "checks failing",
+      });
+      assert.deepEqual(repoHost.labelled, [
+        {
+          pullRequest: FakeRepoHost.PROPOSED_PULL_REQUEST,
+          label: READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+        },
+      ]);
+      assert.deepEqual(repoHost.merged, []);
+    });
+
+    it("labels it ready-for-human when checks are still pending after the wait", async () => {
+      const { repoHost, harness, merge } = turbo();
+      repoHost.checksStatus = () => "pending";
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome.result, {
+        kind: "left-for-human",
+        url: FakeRepoHost.PROPOSED_PULL_REQUEST,
+        reason: "checks still running",
+      });
+      assert.deepEqual(repoHost.merged, []);
+    });
+
+    it("labels it ready-for-human, naming the refusal, when the host will not merge it", async (t) => {
+      const { repoHost, harness, merge } = turbo();
+      t.mock.method(repoHost, "mergePullRequest", async () => {
+        throw new Error("Pull request is not mergeable");
+      });
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome.result, {
+        kind: "left-for-human",
+        url: FakeRepoHost.PROPOSED_PULL_REQUEST,
+        reason: "Pull request is not mergeable",
+      });
+      assert.equal(repoHost.labelled.length, 1);
     });
 
     it("merges the pull request already open on the sync branch when the push found one", async (t) => {
