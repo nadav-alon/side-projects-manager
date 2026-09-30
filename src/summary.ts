@@ -160,7 +160,9 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
  * One project's conflict sweep activity, built across every sweep the
  * invocation ran before a selection. A label or unlabel met by several
  * sweeps for the same pull request appears once under its action in
- * `changes`, and the same refusal appears once in `refusals` — a repeat
+ * `changes`, and the same refusal appears once in `refusals` — except an
+ * `"unsettled"` one, which a later sweep reading that pull request as settled
+ * drops, as the pull request is no longer unchecked. A repeat
  * sweep finding the pull request already in the shape it would put it is
  * the same fact stated twice, not two events. A `/rebase` post is different:
  * a pull request whose rebase ticket has closed can be posted on again in
@@ -258,6 +260,15 @@ function conflictSweepProjects(
       const urls = project.changes.get(change.action) ?? [];
       urls.push(change.pullRequest);
       project.changes.set(change.action, urls);
+    }
+
+    for (const url of outcome.settled) {
+      const key = conflictSweepRefusalKey(outcome.repo, { action: "unsettled", pullRequest: url, error: "" });
+      if (seenRefusals.delete(key)) {
+        project.refusals = project.refusals.filter(
+          (refusal) => conflictSweepRefusalKey(outcome.repo, refusal) !== key,
+        );
+      }
     }
 
     for (const refusal of outcome.refusals) {

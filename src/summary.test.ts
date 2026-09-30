@@ -2678,6 +2678,58 @@ describe("conflict sweeps", () => {
     assert.match(section, /still unknown after 3 reads/);
   });
 
+  it("drops an unsettled refusal once a later sweep settles the pull request", () => {
+    const unsettled = {
+      action: "unsettled" as const,
+      pullRequest: PULL_REQUEST,
+      error: "mergeability still unknown after 3 reads",
+    };
+    const sweeps: ConflictSweepOutcome[] = [
+      { repo: REPO, changes: [], settled: [], refusals: [unsettled] },
+      {
+        repo: REPO,
+        changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }],
+        settled: [PULL_REQUEST],
+        refusals: [],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+
+    assert.doesNotMatch(body, /still unknown/);
+    assert.match(body, /labelled needs-rebase on/);
+    assert.doesNotMatch(summaryLine(factsWithSweeps(sweeps)), /refused/);
+  });
+
+  it("keeps an unsettled refusal a later sweep settled a different pull request than", () => {
+    const other = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/99");
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        settled: [],
+        refusals: [{ action: "unsettled", pullRequest: PULL_REQUEST, error: "mergeability still unknown after 3 reads" }],
+      },
+      { repo: REPO, changes: [], settled: [other], refusals: [] },
+    ];
+
+    assert.match(bodyOf(sweeps), /still unknown after 3 reads/);
+  });
+
+  it("keeps an unsettled refusal when the pull request settled in an earlier sweep", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      { repo: REPO, changes: [], settled: [PULL_REQUEST], refusals: [] },
+      {
+        repo: REPO,
+        changes: [],
+        settled: [],
+        refusals: [{ action: "unsettled", pullRequest: PULL_REQUEST, error: "mergeability still unknown after 3 reads" }],
+      },
+    ];
+
+    assert.match(bodyOf(sweeps), /still unknown after 3 reads/);
+  });
+
   it("names a thrown read and an unsettled one of the same pull request apart", () => {
     const sweeps: ConflictSweepOutcome[] = [
       {
