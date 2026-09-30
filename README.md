@@ -410,7 +410,8 @@ npm run sandbox:build
 ```
 
 That passes npm's current CLI release as `CLAUDE_CODE_VERSION`, so a rebuild picks up a new CLI
-instead of reusing the cached install layer. A bare `docker build -t side-projects-sandbox:latest .`
+instead of reusing the cached install layer, and npm's current `@playwright/mcp` release as
+`PLAYWRIGHT_MCP_VERSION` for the same reason. A bare `docker build -t side-projects-sandbox:latest .`
 installs `latest` once and then keeps whatever that was on every cached rebuild.
 
 Nothing rebuilds the image on its own, so a change to the Dockerfile — or to a skill it bakes in —
