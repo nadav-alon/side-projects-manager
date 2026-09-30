@@ -18,6 +18,7 @@ on:
       # what the image ships without touching the Dockerfile itself.
       - .claude/skills/apply-pr-review/SKILL.md
       - .claude/skills/rebase-pr/SKILL.md
+      - .claude/skills/ux-review/SKILL.md
   pull_request:
     paths:
       - Dockerfile
@@ -32,6 +33,7 @@ on:
       # what the image ships without touching the Dockerfile itself.
       - .claude/skills/apply-pr-review/SKILL.md
       - .claude/skills/rebase-pr/SKILL.md
+      - .claude/skills/ux-review/SKILL.md
   # The likeliest way the harness disappears changes no file here: the image
   # installs the CLI and the plugin unpinned, so a marketplace that drops the
   # plugin, or a CLI release that moves where plugins live, breaks a build the

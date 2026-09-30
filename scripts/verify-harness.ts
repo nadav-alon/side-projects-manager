@@ -79,8 +79,15 @@ const APPLY_REVIEW_SKILL = "apply-pr-review";
  */
 const REBASE_SKILL = "rebase-pr";
 
+/**
+ * The skill for a run that reviews how a project's app feels in a browser,
+ * copied into the same personal-skill directory for the same reason as
+ * APPLY_REVIEW_SKILL above (`/ux-review <ticket>`).
+ */
+const UX_REVIEW_SKILL = "ux-review";
+
 /** Every skill copied into the personal-skill directory rather than shipped by a plugin. */
-const PERSONAL_SKILLS = [APPLY_REVIEW_SKILL, REBASE_SKILL];
+const PERSONAL_SKILLS = [APPLY_REVIEW_SKILL, REBASE_SKILL, UX_REVIEW_SKILL];
 
 /**
  * Skill names as `claude plugin details` prints them: `Skills (25)  a, b, c`.

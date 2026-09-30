@@ -98,6 +98,10 @@ COPY --chown=node:node .claude/skills/apply-pr-review/SKILL.md $HOME/.claude/ski
 # reasoning as apply-pr-review just above.
 COPY --chown=node:node .claude/skills/rebase-pr/SKILL.md $HOME/.claude/skills/rebase-pr/SKILL.md
 
+# The skill for a run that reviews how a project's app feels in a browser. Same
+# reasoning as apply-pr-review above.
+COPY --chown=node:node .claude/skills/ux-review/SKILL.md $HOME/.claude/skills/ux-review/SKILL.md
+
 # A run's whole product is commits, and git refuses to make one without an
 # identity. Set in the image rather than per run, so every run's commits are
 # attributable to the manager rather than to whoever built the image.
