@@ -152,7 +152,6 @@ import {
 } from "./summary.ts";
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
-export { CHECKS_POLL_INTERVAL, CHECKS_WAIT } from "./settled-checks.ts";
 import { settledChecks } from "./settled-checks.ts";
 import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
 

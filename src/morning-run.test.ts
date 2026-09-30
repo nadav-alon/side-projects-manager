@@ -3,7 +3,8 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
-import { CHECKS_POLL_INTERVAL, CHECKS_WAIT, morningLoop } from "./morning-run.ts";
+import { morningLoop } from "./morning-run.ts";
+import { CHECKS_POLL_INTERVAL, CHECKS_WAIT } from "./settled-checks.ts";
 import type { InvocationReport } from "./summary.ts";
 import {
   APPLIED_REVIEW_LABEL,
@@ -8875,6 +8876,35 @@ describe("morningLoop", () => {
 
       assert.deepEqual(ports.repoHost.merged, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
       assert.match(report.message, /Uniform sync sweep:.*proposed and merged in/);
+    });
+
+    it("names a sync pull request already labelled ready-for-human in the summary on a later sweep", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { turbo: true });
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
+      ports.repoHost.setOpenPullRequestOn(PILOT, branch("uniform-sync"), {
+        url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/3"),
+        labels: [READY_FOR_HUMAN_PULL_REQUEST_LABEL],
+      });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.merged, []);
+      assert.match(report.message, /Uniform sync sweep:.*pilot\/pull\/3.*waiting on the developer/);
+    });
+
+    it("merges a turbo project's sync pull request whose repo has no checks, which read as green", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { turbo: true });
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
+      ports.repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: "docs/agents/coding-standards.md", content: "current\n" },
+      ]);
+      ports.harness.comparisons.set("current\n", "current");
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.merged, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
     });
 
     it("leaves the fix it proposed open in a project that is not turbo", async () => {
