@@ -78,12 +78,7 @@ export interface ReviewRequest {
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
   model?: ModelName;
-  /**
-   * The open issues already discovered against the ticket this run's
-   * discoveries land on, absent when there are none: listed in the prompt so
-   * the run does not file a suggestion one of them already covers. Passed
-   * through unchanged — finding them is not this port's job.
-   */
+  /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
@@ -105,12 +100,7 @@ export interface ApplyReviewRequest {
    * a push touching one here is never forced back.
    */
   manager?: true;
-  /**
-   * The open issues already discovered against the ticket this run's
-   * discoveries land on, absent when there are none: listed in the prompt so
-   * the run does not file a suggestion one of them already covers. Passed
-   * through unchanged — finding them is not this port's job.
-   */
+  /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
@@ -122,12 +112,7 @@ export interface SpecReviewRequest {
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
   model?: ModelName;
-  /**
-   * The open issues already discovered against the ticket this run's
-   * discoveries land on, absent when there are none: listed in the prompt so
-   * the run does not file a suggestion one of them already covers. Passed
-   * through unchanged — finding them is not this port's job.
-   */
+  /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
@@ -146,12 +131,7 @@ export interface RebaseRequest {
   model?: ModelName;
   /** As `ApplyReviewRequest.manager`. */
   manager?: true;
-  /**
-   * The open issues already discovered against the ticket this run's
-   * discoveries land on, absent when there are none: listed in the prompt so
-   * the run does not file a suggestion one of them already covers. Passed
-   * through unchanged — finding them is not this port's job.
-   */
+  /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
