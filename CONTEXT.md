@@ -563,10 +563,10 @@ _Avoid_: rebase task, merge ticket, conflict ticket, sync ticket, update-branch 
 
 **Conflict sweep**:
 A pass, before every selection, over the open pull requests of every project that is not paused,
-limited to those naming the ticket they close. Each is asked once whether it conflicts with its base
-branch. A conflicting one is labelled `needs-rebase`; a clean one has `needs-rebase` taken off,
-whether a rebase ticket is still open for it or not; one the repo host has not settled yet is left
-as it is, for the next sweep. For a turbo project, a conflicting pull request with no open rebase
+limited to those naming the ticket they close. Each is asked whether it conflicts with its base
+branch, and one the repo host has not settled is re-read twice. A conflicting one is labelled `needs-rebase`; a clean one has `needs-rebase` taken off,
+whether a rebase ticket is still open for it or not; one still unsettled after that is left
+as it is, for the next sweep, and reported as a refusal. For a turbo project, a conflicting pull request with no open rebase
 ticket — whatever that ticket's labels — also gets `/rebase` posted on it, which opens one; every
 conflicting pull request gets its own, with no cap. Catches whatever moved the base branch, most
 commonly a sibling pull request merging. Best effort: nothing it is refused blocks selection or

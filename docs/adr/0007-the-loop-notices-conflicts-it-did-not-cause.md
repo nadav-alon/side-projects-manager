@@ -28,11 +28,11 @@ What is given up is promptness: a merge is noticed at the next selection, not th
 The sweep runs before every selection, not once per invocation, because one invocation can run for
 hours, holding the lease that keeps every other firing out.
 
-**One read, never retried.** GitHub computes mergeability lazily. A rebase ticket retries its read
-until it settles, because acting on an unsettled answer there would close a ticket on a branch that
-still conflicts. The sweep does not: retrying every pull request before every selection would stall
-selection, and an unsettled pull request is simply left for the next sweep, whose read the first
-one set GitHub computing.
+**A bounded re-read.** GitHub computes mergeability lazily. A rebase ticket retries its read until
+it settles, because acting on an unsettled answer there would close a ticket on a branch that still
+conflicts. The sweep re-reads an unsettled pull request only twice, waiting between reads: retrying
+without limit before every selection would stall selection. One still unsettled is left for the next
+sweep and named in the summary as a refused read, rather than skipped in silence.
 
 **No cap on rebase tickets.** One merge can conflict five siblings, and rebase tickets are selected
 before every other kind, so five would preempt all other work. That is accepted: each sibling
