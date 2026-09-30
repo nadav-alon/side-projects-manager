@@ -7,7 +7,7 @@ disable-model-invocation: true
 Reviews how one project's app feels to use, and stops there. The ticket argument is the go-ahead
 for every step below. A run may be unattended, with nobody to answer a question, so each step
 carries straight into the next, ending only at a stop a step names or at the report. Nothing is
-committed, and no file in the project changes.
+committed or pushed, and no tracked file is edited.
 
 The argument is the ticket (number or URL). Name the repo explicitly (`--repo <owner>/<repo>`)
 whenever `origin` is not a GitHub remote.
@@ -34,7 +34,8 @@ Drive the app with Playwright MCP, walking every flow from step 1 in this order:
    attention; the app is used on a phone.
 2. One desktop pass at 1280×800.
 
-Each pass runs in the light theme and again in the dark one. Done when every flow has been walked
+Each pass runs in the light theme and again in the dark one: emulate `prefers-color-scheme` for
+each, and where the app has its own theme setting, set that to match too. Done when every flow has been walked
 in all four combinations.
 
 ## 4. Judge feel only
@@ -52,7 +53,8 @@ Judge against this rubric, and nothing else:
 - **Visual consistency**: colours, spacing and type that stray from the theme tokens.
 
 A functional bug — something that is broken rather than awkward — is not a finding. File it as a
-discovery instead.
+`suggestion` discovery instead: it is work the ticket doesn't cover, and it rides alongside the
+findings rather than stopping the run.
 
 ## 5. Report
 
