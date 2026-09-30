@@ -352,6 +352,32 @@ describe("proposing a scaffold to a project that predates the manager", () => {
     ]);
     assert.equal(stdout, "# pilot v2\n");
   });
+
+  it("updates a proposal whose remote branch was deleted after the clone last fetched it", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v1\n");
+    await propose(directory, ["AGENTS.md"]);
+    const { stdout: origin } = await run("git", [
+      "-C",
+      directory,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
+    await run("git", ["-C", origin.trim(), "branch", "-D", "harness"]);
+
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v2\n");
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "show",
+      "origin/harness:AGENTS.md",
+    ]);
+    assert.equal(stdout, "# pilot v2\n");
+  });
 });
 
 describe("publishing a scaffold", () => {
