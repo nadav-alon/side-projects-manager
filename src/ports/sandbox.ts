@@ -105,10 +105,17 @@ export interface ApplyReviewRequest {
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
-/** One spec review ticket, and the project checkout it is to be worked against. */
-export interface SpecReviewRequest {
-  ticket: SpecReviewTicket;
-  /** The project's managed clone, read from but never written to. */
+/**
+ * One ticket to be reviewed, and the project checkout the run is to be worked
+ * against. The kind of ticket is all that tells one review request from another.
+ */
+export interface ReviewRequestFor<T extends Ticket> {
+  ticket: T;
+  /**
+   * The project's managed clone. A run that gets a writable throwaway clone
+   * makes it from this; the checkout itself is never written to, nor fetched
+   * back into.
+   */
   checkout: Checkout;
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
@@ -117,17 +124,11 @@ export interface SpecReviewRequest {
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
+/** One spec review ticket, and the project checkout it is to be worked against. */
+export type SpecReviewRequest = ReviewRequestFor<SpecReviewTicket>;
+
 /** One ux review ticket, and the project checkout it is to be worked against. */
-export interface UxReviewRequest {
-  ticket: UxReviewTicket;
-  /** The project's managed clone, read from but never written to. */
-  checkout: Checkout;
-  spendCeiling: Usd;
-  /** As `RunRequest.model`. */
-  model?: ModelName;
-  /** As `RunRequest.discovered`. */
-  discovered?: readonly DiscoveredTicketSummary[];
-}
+export type UxReviewRequest = ReviewRequestFor<UxReviewTicket>;
 
 /** One rebase ticket, and the project checkout it is to be worked against. */
 export interface RebaseRequest {
