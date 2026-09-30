@@ -1,5 +1,6 @@
 import type {
   ApplyReviewTicket,
+  DiscoveredIssue,
   DiscoveredTicketRequest,
   HandBackOutcome,
   IssueNumber,
@@ -494,6 +495,23 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       },
     );
     return [...sameRepo, ...linked];
+  }
+
+  /**
+   * The open issues `createDiscoveredTicket` opened against `ticket`, as
+   * the real tracker finds them by their body line: still-open ones only,
+   * newest first, in `ticket`'s own repo.
+   */
+  async listOpenDiscoveredIssues(ticket: Ticket): Promise<DiscoveredIssue[]> {
+    return this.discoveredTickets
+      .filter(
+        ({ discoveredWhile, ticket: opened }) =>
+          discoveredWhile.repo === ticket.repo &&
+          discoveredWhile.number === ticket.number &&
+          this.#find(opened)?.closed !== true,
+      )
+      .map(({ ticket: opened }) => ({ number: opened.number, title: opened.title }))
+      .reverse();
   }
 
   readonly #turboableEvents = new Map<string, LabelTimelineEvent[]>();

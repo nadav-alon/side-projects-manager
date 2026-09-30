@@ -1113,3 +1113,22 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), { consented: true });
   });
 });
+
+describe("FakeIssueTracker.listOpenDiscoveredIssues", () => {
+  it("lists the open issues discovered against the ticket, newest first, and not closed ones or another ticket's", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+    const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Another" });
+    const first = await tracker.createDiscoveredTicket(ticket, { title: "First", body: "a" });
+    const closed = await tracker.createDiscoveredTicket(ticket, { title: "Closed", body: "b" });
+    const last = await tracker.createDiscoveredTicket(ticket, { title: "Last", body: "c" });
+    await tracker.createDiscoveredTicket(other, { title: "Elsewhere", body: "d" });
+    tracker.closeOutOfBand(closed);
+
+    assert.deepEqual(await tracker.listOpenDiscoveredIssues(ticket), [
+      { number: last.number, title: "Last" },
+      { number: first.number, title: "First" },
+    ]);
+    assert.deepEqual(await tracker.listOpenDiscoveredIssues({ ...ticket, number: issueNumber(99) }), []);
+  });
+});

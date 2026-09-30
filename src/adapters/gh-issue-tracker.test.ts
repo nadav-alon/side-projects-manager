@@ -2859,3 +2859,48 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
   });
 });
+
+describe("ghIssueTracker.listOpenDiscoveredIssues", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+
+  const TARGET: Ticket = {
+    repo: PILOT,
+    number: issueNumber(7),
+    title: "Add the thing",
+  };
+
+  it("lists, by number and title, the open issues whose body names the ticket as discovered while working", async (t) => {
+    const answer = JSON.stringify([
+      { number: 12, title: "Add the email check", body: "Missing.\n\nDiscovered while working #7." },
+      { number: 13, title: "Some other ticket", body: "Nope.\n\nDiscovered while working #70." },
+      { number: 14, title: "Mentions it", body: "Unlike #7, this needs more." },
+    ]);
+    await recordingGh(t, `printf '%s' '${answer}'`);
+
+    const listed = await ghIssueTracker().listOpenDiscoveredIssues(TARGET);
+
+    assert.deepEqual(listed, [{ number: 12, title: "Add the email check" }]);
+  });
+
+  it("lists none where no issue was discovered against the ticket", async (t) => {
+    await recordingGh(t, `echo '[]'`);
+
+    assert.deepEqual(await ghIssueTracker().listOpenDiscoveredIssues(TARGET), []);
+  });
+
+  it("asks for the open issues of the ticket's own repo", async (t) => {
+    const gh = await recordingGh(t, `echo '[]'`);
+
+    await ghIssueTracker().listOpenDiscoveredIssues(TARGET);
+
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 6), [
+      "issue",
+      "list",
+      "--repo",
+      "nadav-alon/pilot",
+      "--state",
+      "open",
+    ]);
+  });
+});

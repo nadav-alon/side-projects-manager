@@ -57,6 +57,7 @@ export {
   discoveredTicketLabels,
   isApplyReviewTicket,
   isBlocked,
+  isDiscoveredWhileWorking,
   isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
