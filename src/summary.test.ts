@@ -2701,7 +2701,22 @@ describe("conflict sweeps", () => {
     assert.doesNotMatch(summaryLine(factsWithSweeps(sweeps)), /refused/);
   });
 
-  it("keeps an unsettled refusal a later sweep settled a different pull request than", () => {
+  it("drops an unsettled refusal when a later sweep settles the pull request with no change", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        settled: [],
+        refusals: [{ action: "unsettled", pullRequest: PULL_REQUEST, error: "mergeability still unknown after 3 reads" }],
+      },
+      { repo: REPO, changes: [], settled: [PULL_REQUEST], refusals: [] },
+    ];
+
+    assert.doesNotMatch(bodyOf(sweeps), /still unknown/);
+    assert.doesNotMatch(summaryLine(factsWithSweeps(sweeps)), /refused/);
+  });
+
+  it("keeps an unsettled refusal when a later sweep settles only a different pull request", () => {
     const other = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/99");
     const sweeps: ConflictSweepOutcome[] = [
       {

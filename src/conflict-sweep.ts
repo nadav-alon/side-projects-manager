@@ -31,7 +31,9 @@ export const SWEEP_REREADS = 2;
  * `read`, `unlabel`, `label` and `comment` name the same four
  * {@link RepoHost} verbs the sweep calls, and `list` names
  * {@link RepoHost.listOpenPullRequests} itself, whose refusal ends the
- * project's sweep rather than being recorded per pull request. Per
+ * project's sweep rather than being recorded per pull request. `"unsettled"`
+ * is the one member that names no host call: it records a result the sweep
+ * writes itself, a mergeability still unknown after its re-reads. Per
  * `CONTEXT.md`'s "Conflict sweep".
  */
 export type ConflictSweepAction =
