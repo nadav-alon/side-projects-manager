@@ -59,6 +59,16 @@ export interface UniformSyncSweepLeftForHuman {
 }
 
 /**
+ * The manager's own copy of a uniform file moved on after the sweep's pull
+ * request was made: it holds an earlier version, so the sweep left it open
+ * for the next sweep to propose again.
+ */
+export interface UniformSyncSweepOutdated {
+  kind: "outdated";
+  url: PullRequestUrl;
+}
+
+/**
  * One project's own end of a sweep: a {@link Proposal}, a merge of what it
  * proposed, or a refusal met along the way.
  */
@@ -66,6 +76,7 @@ export type UniformSyncSweepResult =
   | Proposal
   | UniformSyncSweepMerged
   | UniformSyncSweepLeftForHuman
+  | UniformSyncSweepOutdated
   | UniformSyncSweepRefusal;
 
 /** One uniform sync sweep of one registered project, and what it came to. */
@@ -184,6 +195,12 @@ async function mergeProposed(
   if (url === undefined) {
     return proposal;
   }
+  const verdict = await contentVerdict(ports, url);
+  if (verdict.kind !== "current") {
+    return verdict.kind === "outdated"
+      ? { kind: "outdated", url }
+      : leftForHuman(ports, url, verdict.reason);
+  }
   const checks = await settledChecks(ports.repoHost, merge.clock, url);
   if (checks !== "green") {
     return leftForHuman(ports, url, checks === "pending" ? "checks still running" : "checks failing");
@@ -195,6 +212,43 @@ async function mergeProposed(
     return leftForHuman(ports, url, errorMessage(error));
   }
   return { kind: "merged", url };
+}
+
+/**
+ * Whether `url` changes nothing but uniform files, each now exactly the
+ * manager's own copy: `current`. One that is byte for byte an earlier
+ * version of the manager's is `outdated` — the manager moved on since — and
+ * anything else, a file outside `UNIFORM_FILES`, a deletion, or bytes the
+ * manager never held, is `different`, naming the paths.
+ */
+async function contentVerdict(
+  ports: UniformSyncSweepPorts,
+  url: PullRequestUrl,
+): Promise<{ kind: "current" | "outdated" } | { kind: "different"; reason: string }> {
+  const files = await ports.repoHost.readPullRequestFiles(url);
+  if (files.length === 0) {
+    return { kind: "different", reason: "it changes no files" };
+  }
+  const different: string[] = [];
+  let outdated = false;
+  for (const file of files) {
+    const comparison =
+      file.content === undefined
+        ? "different"
+        : await ports.harness.compareUniform(file.path, file.content);
+    if (comparison === "different") {
+      different.push(file.path);
+    } else if (comparison === "earlier") {
+      outdated = true;
+    }
+  }
+  if (different.length > 0) {
+    return {
+      kind: "different",
+      reason: `it differs from the manager's uniform files in ${different.join(", ")}`,
+    };
+  }
+  return { kind: outdated ? "outdated" : "current" };
 }
 
 /** `url` labelled `ready-for-human`, and the sweep's hands off it from here. */

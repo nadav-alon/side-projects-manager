@@ -1104,6 +1104,8 @@ function uniformSyncSweepPhrase(result: FlaggedUniformSyncSweepResult): string {
       return `proposed and merged in ${result.url}`;
     case "left-for-human":
       return `${result.url} left for the developer: ${withoutTrailingStop(result.reason)}`;
+    case "outdated":
+      return `${result.url} is behind the manager's uniform files, left for the next sweep to propose again`;
     case "pushed":
       return `pushed to ${result.branch}, but ${withoutTrailingStop(result.failure)}`;
     case "refused":

@@ -122,12 +122,17 @@ describe("uniformSyncSweep", () => {
   });
 
   describe("in a project standing turbo", () => {
+    const CURRENT = "the manager's copy\n";
     const STALE = ["docs/agents/coding-standards.md"];
 
     function turbo() {
       const repoHost = new FakeRepoHost();
       const harness = new FakeHarness();
       harness.changed = STALE;
+      repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: STALE[0] ?? "", content: CURRENT },
+      ]);
+      harness.comparisons.set(CURRENT, "current");
       return { repoHost, harness, merge: { clock: new FakeClock() } };
     }
 
@@ -142,6 +147,50 @@ describe("uniformSyncSweep", () => {
       });
       assert.deepEqual(repoHost.readyMarked, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
       assert.deepEqual(repoHost.merged, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
+    });
+
+    it("merges nothing, and labels nothing, when the pull request holds an earlier version of the manager's file", async () => {
+      const { repoHost, harness, merge } = turbo();
+      repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: STALE[0] ?? "", content: "an older version\n" },
+      ]);
+      harness.comparisons.set("an older version\n", "earlier");
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome.result, {
+        kind: "outdated",
+        url: FakeRepoHost.PROPOSED_PULL_REQUEST,
+      });
+      assert.deepEqual(repoHost.merged, []);
+      assert.deepEqual(repoHost.labelled, []);
+    });
+
+    it("labels it ready-for-human, naming the file, when the pull request holds bytes the manager never had", async () => {
+      const { repoHost, harness, merge } = turbo();
+      repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: STALE[0] ?? "", content: CURRENT },
+        { path: "docs/agents/domain.md", content: "somebody's edit\n" },
+      ]);
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.equal(outcome.result.kind, "left-for-human");
+      assert.match(
+        outcome.result.kind === "left-for-human" ? outcome.result.reason : "",
+        /docs\/agents\/domain\.md/,
+      );
+      assert.deepEqual(repoHost.merged, []);
+    });
+
+    it("labels it ready-for-human when the pull request deletes a file", async () => {
+      const { repoHost, harness, merge } = turbo();
+      repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [{ path: STALE[0] ?? "" }]);
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.equal(outcome.result.kind, "left-for-human");
+      assert.deepEqual(repoHost.merged, []);
     });
 
     it("waits out pending checks before it merges", async () => {
@@ -214,6 +263,7 @@ describe("uniformSyncSweep", () => {
         failure: "a pull request for uniform-sync already exists",
       }));
       repoHost.setOpenPullRequestOn(PILOT, branch("uniform-sync"), { url: open, labels: [] });
+      repoHost.setPullRequestFiles(open, [{ path: STALE[0] ?? "", content: CURRENT }]);
 
       const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
 
