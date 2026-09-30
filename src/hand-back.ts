@@ -176,10 +176,11 @@ type UniformFilesTouchedContext =
  * settled, a finished run's handover failed part way, or a run finished, with
  * or without a handover.
  *
- * Every kind but `"finished"`, `"spec-review-finished"` and `"ux-review-finished"` is exactly the
- * `RunFailure` its own iteration is built from, plus only what the comment
- * needs beyond `reason` — never a second description of the same failure a
- * caller has to keep in step with the one it builds for `Failed.failure`.
+ * Every kind but `"finished"`, `"spec-review-finished"` and `"ux-review-finished"` is
+ * exactly the `RunFailure` its own iteration is built from, plus only what
+ * the comment needs beyond `reason` — never a second description of the same
+ * failure a caller has to keep in step with the one it builds for
+ * `Failed.failure`.
  *
  * `"spec-review-finished"` and `"ux-review-finished"` are each their own case
  * rather than a share of `"finished"`: neither run ever creates a branch, so
