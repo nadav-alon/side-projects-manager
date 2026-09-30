@@ -887,13 +887,22 @@ export function ticketKind(ticket: Ticket): TicketKind {
 
 /**
  * What `ticket`'s discoveries land on, named for a developer-facing comment:
- * a spec review ticket's is its supertask, every other kind's is its
- * implementation ticket. The one place this two-way choice is made, so
- * `discoveryTargetFor` and a discovery-blocked hand-back's comment can never
- * disagree on the noun.
+ * a spec review ticket's is its supertask, a ux review ticket's is the ticket
+ * itself, every other kind's is its implementation ticket. The one place this
+ * choice is made, so `discoveryTargetFor` and a discovery-blocked hand-back's
+ * comment can never disagree on the noun.
  */
-export function targetNoun(ticket: Ticket): "supertask" | "implementation ticket" {
-  return ticketKind(ticket) === "spec-review" ? "supertask" : "implementation ticket";
+export function targetNoun(
+  ticket: Ticket,
+): "supertask" | "ux review ticket" | "implementation ticket" {
+  switch (ticketKind(ticket)) {
+    case "spec-review":
+      return "supertask";
+    case "ux-review":
+      return "ux review ticket";
+    default:
+      return "implementation ticket";
+  }
 }
 
 /**
