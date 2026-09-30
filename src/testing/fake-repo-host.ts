@@ -182,6 +182,16 @@ export class FakeRepoHost implements RepoHost {
     this.#openPullRequests.set(repo, pullRequests);
   }
 
+  readonly #pullRequestsOnBranch = new Map<string, OpenPullRequest>();
+
+  /**
+   * Sets the open pull request `openPullRequestOn` answers for `branch` in
+   * `repo`. None, unless a test says otherwise.
+   */
+  setOpenPullRequestOn(repo: RepoSlug, branch: Branch, pullRequest: OpenPullRequest): void {
+    this.#pullRequestsOnBranch.set(`${repo}#${branch}`, pullRequest);
+  }
+
   /** Marks `repo` as already on the host, as a project predating the manager. */
   alreadyExists(repo: RepoSlug): void {
     this.#existing.add(repo);
@@ -464,6 +474,10 @@ export class FakeRepoHost implements RepoHost {
 
   async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
     return this.#openPullRequests.get(repo) ?? [];
+  }
+
+  async openPullRequestOn(repo: RepoSlug, branch: Branch): Promise<OpenPullRequest | undefined> {
+    return this.#pullRequestsOnBranch.get(`${repo}#${branch}`);
   }
 
   readonly #closingPullRequests = new Map<RepoSlug, ClosingPullRequest[]>();

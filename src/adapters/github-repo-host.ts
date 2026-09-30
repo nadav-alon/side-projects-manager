@@ -617,6 +617,27 @@ export function githubRepoHost(
       return openPullRequestsFrom(stdout, repo);
     },
 
+    async openPullRequestOn(
+      repo: RepoSlug,
+      branch: Branch,
+    ): Promise<OpenPullRequest | undefined> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--state",
+        "open",
+        "--head",
+        branch,
+        "--json",
+        "url,body,labels",
+        "--limit",
+        "1",
+      ]);
+      return openPullRequestsFrom(stdout, repo)[0];
+    },
+
     async listPullRequestsClosingIssues(
       repo: RepoSlug,
     ): Promise<ClosingPullRequest[]> {

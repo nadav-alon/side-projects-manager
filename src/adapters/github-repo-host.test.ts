@@ -2282,6 +2282,32 @@ describe("listing a repo's open pull requests", () => {
   });
 });
 
+describe("finding the open pull request on a branch", () => {
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/7";
+
+  it("answers the open pull request whose head is the branch, asking gh for that branch alone", async (t) => {
+    const gh = await recordingGh(
+      t,
+      `echo '[{"url": "${OPENED}", "body": "", "labels": [{"name": "ready-for-human"}]}]'`,
+    );
+
+    const found = await githubRepoHost().openPullRequestOn(PILOT, toBranch("uniform-sync"));
+
+    assert.deepEqual(found, { url: OPENED, labels: ["ready-for-human"] });
+    const [call] = await gh.calls();
+    assert.deepEqual(call?.slice(0, 2), ["pr", "list"]);
+    assert.equal(valueOf(call, "--repo"), PILOT);
+    assert.equal(valueOf(call, "--head"), "uniform-sync");
+    assert.equal(valueOf(call, "--state"), "open");
+  });
+
+  it("answers undefined when no pull request is open on the branch", async (t) => {
+    await recordingGh(t, "echo '[]'");
+
+    assert.equal(await githubRepoHost().openPullRequestOn(PILOT, toBranch("uniform-sync")), undefined);
+  });
+});
+
 describe("listing a repo's pull requests closing issues", () => {
   interface RawClosingIssue {
     number: number;

@@ -778,6 +778,16 @@ export interface RepoHost {
    */
   listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]>;
   /**
+   * The open pull request — draft or ready — whose head is `branch` in
+   * `repo`, or `undefined` when none is open for it.
+   *
+   * What a uniform sync sweep asks with to find its own pull request again
+   * (CONTEXT.md's "Uniform sync sweep"): the branch it proposes on is the
+   * only thing that names it, and `commitAndPropose` answers no url once a
+   * pull request for that branch is already open.
+   */
+  openPullRequestOn(repo: RepoSlug, branch: Branch): Promise<OpenPullRequest | undefined>;
+  /**
    * Lists `repo`'s pull requests of any state — open, merged or closed
    * without merging — up to {@link CLOSING_PULL_REQUEST_LIMIT}, newest first:
    * each one's state, its own branch, and the issues its body closes.
