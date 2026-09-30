@@ -5854,3 +5854,68 @@ describe("pruneOldDiscoveries", () => {
     await assert.doesNotReject(pruneOldDiscoveries(NOW, home));
   });
 });
+
+describe("containerSandbox's prompts for the issues already discovered", () => {
+  const discovered = [
+    { number: issueNumber(165), title: "Add the missing email check" },
+    { number: issueNumber(170), title: "Validate emails" },
+  ];
+
+  const kinds: {
+    name: string;
+    hosted: boolean;
+    ask: (sandbox: Sandbox, directory: Checkout) => Promise<unknown>;
+  }[] = [
+    {
+      name: "review",
+      hosted: false,
+      ask: (sandbox, directory) =>
+        sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING, discovered }),
+    },
+    {
+      name: "spec review",
+      hosted: false,
+      ask: (sandbox, directory) =>
+        sandbox.specReview({
+          ticket: SPEC_REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          discovered,
+        }),
+    },
+    {
+      name: "apply-review",
+      hosted: true,
+      ask: (sandbox, directory) =>
+        sandbox.applyReview({
+          ticket: APPLY_REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          discovered,
+        }),
+    },
+    {
+      name: "rebase",
+      hosted: true,
+      ask: (sandbox, directory) =>
+        sandbox.rebase({ ticket: REBASE_TICKET, checkout: directory, spendCeiling: CEILING, discovered }),
+    },
+  ];
+
+  for (const { name, hosted, ask } of kinds) {
+    it(`lists them in a ${name} run's prompt, and says not to file a suggestion one covers`, async () => {
+      const directory = hosted ? (await hostedProject()).directory : await project();
+      let asked = "";
+      const sandbox = testSandbox(async ({ prompt }) => {
+        asked = prompt;
+        return { output: "", tokensUsed: tokenCount(0) };
+      }, headIsBranch);
+
+      await ask(sandbox, directory);
+
+      assertDiscoveryInstructions(asked);
+      assert.match(asked, /#165 Add the missing email check; #170 Validate emails\./);
+      assert.match(asked, /Do not file a suggestion one of them already covers/);
+    });
+  }
+});

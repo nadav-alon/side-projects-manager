@@ -7237,6 +7237,26 @@ describe("morningLoop", () => {
       ]);
     });
 
+    for (const [kind, requests] of [
+      ["apply-review", "applyReviews"],
+      ["rebase", "rebases"],
+    ] as const) {
+      it(`hands a ${kind} run the issues discovered against the implementation ticket its pull request closes`, async () => {
+        const ports = fakePorts();
+        const { implementation } = queuedWithImplementation(ports, kind);
+        const earlier = await ports.tracker.createDiscoveredTicket(implementation, {
+          title: "Add the missing email check",
+          body: "Missing.",
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.sandbox[requests][0]?.discovered, [
+          { number: earlier.number, title: "Add the missing email check" },
+        ]);
+      });
+    }
+
     it("leaves the run request's salvage branch absent when the ticket carries no salvage record", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
