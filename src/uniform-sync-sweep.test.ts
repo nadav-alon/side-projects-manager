@@ -193,6 +193,27 @@ describe("uniformSyncSweep", () => {
       assert.deepEqual(repoHost.merged, []);
     });
 
+    it("leaves a sync pull request already labelled ready-for-human alone, pushing and merging nothing", async () => {
+      const { repoHost, harness, merge } = turbo();
+      const waiting = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/3");
+      repoHost.setOpenPullRequestOn(PILOT, branch("uniform-sync"), {
+        url: waiting,
+        labels: [READY_FOR_HUMAN_PULL_REQUEST_LABEL],
+      });
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome.result, {
+        kind: "left-for-human",
+        url: waiting,
+        reason: "waiting on the developer",
+      });
+      assert.deepEqual(harness.syncs, []);
+      assert.deepEqual(repoHost.proposals, []);
+      assert.deepEqual(repoHost.merged, []);
+      assert.deepEqual(repoHost.labelled, []);
+    });
+
     it("waits out pending checks before it merges", async () => {
       const { repoHost, harness, merge } = turbo();
       let reads = 0;

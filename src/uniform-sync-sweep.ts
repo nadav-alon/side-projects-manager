@@ -132,7 +132,10 @@ function dirtyCheckoutError(checkout: Checkout): string {
  * A project standing turbo passes `merge`, and a pull request the sweep
  * proposed or pushed to is then merged right away — ADR 0011 — once its
  * checks read green, waiting out pending ones the way the merge gate does.
- * Without `merge` the pull request is left open for the developer.
+ * Without `merge` the pull request is left open for the developer. One
+ * already labelled `ready-for-human` is left alone entirely — nothing
+ * pushed, nothing merged — and answered as `left-for-human` each sweep, so
+ * the summary keeps naming it until the developer has dealt with it.
  *
  * Never throws: a clone or a push the repo host refuses, or a checkout found
  * dirty, is answered with `{ kind: "refused" }` rather than raised, the same
@@ -146,6 +149,15 @@ export async function uniformSyncSweep(
 ): Promise<UniformSyncSweepOutcome> {
   try {
     const checkout = await ports.repoHost.clone(repo);
+    if (merge !== undefined) {
+      const waiting = await ports.repoHost.openPullRequestOn(repo, SYNC_BRANCH);
+      if (waiting?.labels.includes(READY_FOR_HUMAN_PULL_REQUEST_LABEL)) {
+        return {
+          repo,
+          result: { kind: "left-for-human", url: waiting.url, reason: "waiting on the developer" },
+        };
+      }
+    }
     if (
       await ports.repoHost.hasUncommittedChanges(checkout, UNIFORM_FILES)
     ) {
