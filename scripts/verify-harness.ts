@@ -1,4 +1,7 @@
-// Asserts the harness survived the sandbox image build (CONTEXT.md: Sandbox, Harness).
+// Asserts the harness survived the sandbox image build (CONTEXT.md: Sandbox, Harness),
+// and that the image's browser still screenshots a page. The browser is not part
+// of the Harness; it is checked here because this is the one script that runs
+// inside the built image.
 //
 // Runs inside the built image, against that image's own `claude`. The command
 // is `npm run sandbox:verify` (package.json), which is what CI invokes too —
@@ -10,10 +13,10 @@
 // same thing and would need a real token, which CI has none of.
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 // `sandbox:verify` (package.json) mounts this one file from `src/` alongside
 // `scripts/` for exactly this import.
@@ -328,14 +331,36 @@ if (!usage.includes(PERMISSION_MODE)) {
  */
 const BROWSER_TIMEOUT_MS = 90_000;
 
+/** The first bytes of every PNG file. */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+/** The same signature as it begins a base64-encoded PNG, as an MCP reply inlines one. */
+const PNG_BASE64_PREFIX = "iVBORw0KGgo";
+
+/** The title of the page the check serves, which the navigation reply must name. */
+const BROWSER_PAGE_TITLE = "verify";
+
+/** What an MCP reply looks like to this check: either kind of failure, or a result. */
+interface McpReply {
+  id?: number;
+  error?: unknown;
+  result?: { isError?: boolean };
+}
+
+/** The reply's failure, if any: a JSON-RPC error, or a tool call that came back `isError`. */
+function replyFailure(reply: McpReply): string | undefined {
+  return reply.error || reply.result?.isError ? JSON.stringify(reply) : undefined;
+}
+
 /**
  * Drives `@playwright/mcp` the way a run would — headless, over stdio — to
- * open a local page and screenshot it, and returns the screenshot's MCP
- * response. `--no-sandbox` because Chromium's own sandbox needs user
+ * open a page and screenshot it, and returns the screenshot's MCP
+ * response. No `--browser`: the image's own default, PLAYWRIGHT_MCP_BROWSER, is
+ * what is under test. `--no-sandbox` because Chromium's own sandbox needs user
  * namespaces that a container's default seccomp profile withholds; the
  * container is the sandbox.
  */
-function screenshotLocalPage(pagePath: string, outputDir: string): Promise<string> {
+function screenshotPage(pageUrl: string, outputDir: string): Promise<string> {
   const server = spawn(
     "playwright-mcp",
     ["--headless", "--isolated", "--no-sandbox", "--output-dir", outputDir],
@@ -360,7 +385,7 @@ function screenshotLocalPage(pagePath: string, outputDir: string): Promise<strin
       method: "tools/call",
       params: {
         name: "browser_navigate",
-        arguments: { url: pathToFileURL(pagePath).href },
+        arguments: { url: pageUrl },
       },
     },
     {
@@ -389,24 +414,32 @@ function screenshotLocalPage(pagePath: string, outputDir: string): Promise<strin
     });
     server.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
-      const reply = stdout
+      const replies = stdout
         .split("\n")
         .filter((line) => line.startsWith("{"))
-        .map((line): { id?: number; error?: unknown } | undefined => {
+        .map((line): McpReply | undefined => {
           try {
             return JSON.parse(line);
           } catch {
             return undefined;
           }
         })
-        .find((message) => message?.id === 3);
-      if (reply) {
+        .filter((message): message is McpReply => message !== undefined);
+      const navigation = replies.find((message) => message.id === 2);
+      const screenshot = replies.find((message) => message.id === 3);
+      if (navigation && screenshot) {
         clearTimeout(timer);
         server.kill();
-        if (reply.error) {
-          reject(new Error(evidence()));
+        const navigationFailure = replyFailure(navigation);
+        const screenshotFailure = replyFailure(screenshot);
+        if (navigationFailure) {
+          reject(new Error(`could not open the page: ${navigationFailure}`));
+        } else if (!JSON.stringify(navigation).includes(BROWSER_PAGE_TITLE)) {
+          reject(new Error(`the page did not load, its title is not in: ${JSON.stringify(navigation)}`));
+        } else if (screenshotFailure) {
+          reject(new Error(`could not screenshot the page: ${screenshotFailure}`));
         } else {
-          resolve(JSON.stringify(reply));
+          resolve(JSON.stringify(screenshot));
         }
       }
     });
@@ -418,23 +451,30 @@ function screenshotLocalPage(pagePath: string, outputDir: string): Promise<strin
 }
 
 // What a run gets when it enables the browser: the server starts headless as
-// this uid and produces a real image of a page. The screenshot is asserted by
+// this uid and produces a real image of a page served over http, as `ux-review`
+// will point it at one (the server refuses `file://` by default). The screenshot is asserted by
 // its bytes — a PNG signature on disk or in the reply — rather than by the
 // server merely answering, since a server with no Chromium answers fine and
 // only fails at the screenshot.
 const browserDir = mkdtempSync(path.join(tmpdir(), "verify-browser-"));
-const browserPage = path.join(browserDir, "page.html");
-writeFileSync(browserPage, "<!doctype html><title>verify</title><h1>verify-harness</h1>");
+const pageServer = createServer((_request, response) => {
+  response.setHeader("content-type", "text/html");
+  response.end(`<!doctype html><title>${BROWSER_PAGE_TITLE}</title><h1>verify-harness</h1>`);
+});
+await new Promise<void>((listening) => pageServer.listen(0, "127.0.0.1", listening));
 
 try {
-  const reply = await screenshotLocalPage(browserPage, browserDir);
+  const address = pageServer.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("the page server has no port");
+  }
+  const reply = await screenshotPage(`http://127.0.0.1:${address.port}/`, browserDir);
   const written = readdirSync(browserDir).filter((name) => name.endsWith(".png"));
-  const PNG_BASE64_PREFIX = "iVBORw0KGgo";
   const inline = reply.includes(PNG_BASE64_PREFIX);
   const onDisk = written.some((name) =>
     readFileSync(path.join(browserDir, name))
-      .subarray(0, 4)
-      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+      .subarray(0, PNG_SIGNATURE.length)
+      .equals(PNG_SIGNATURE),
   );
   if (!inline && !onDisk) {
     fail("`playwright-mcp` answered but produced no PNG screenshot", reply);
@@ -445,6 +485,7 @@ try {
     describe(error),
   );
 } finally {
+  pageServer.close();
   rmSync(browserDir, { recursive: true, force: true });
 }
 
