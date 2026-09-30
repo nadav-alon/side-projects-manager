@@ -29,10 +29,10 @@ _Avoid_: job, session, execution, task
 
 **Selection**:
 Choosing which project and ticket an iteration works: rebase tickets first, then apply-review
-tickets, then review tickets, then spec review tickets, then implementations, then explicit
-priority, then least recently worked. Within the chosen project: rebase tickets first, then
-apply-review tickets, then review tickets, then spec review tickets, then ticket priority, then the
-oldest ticket.
+tickets, then review tickets, then spec review tickets, then UX review tickets, then
+implementations, then explicit priority, then least recently worked. Within the chosen project:
+rebase tickets first, then apply-review tickets, then review tickets, then spec review tickets,
+then UX review tickets, then ticket priority, then the oldest ticket.
 _Avoid_: picking, scheduling, prioritisation
 
 **Dry queue**:
@@ -639,6 +639,21 @@ suits the scope of a whole-repo review, and is what the sweep itself opens one c
 charges the unsized default where it carries none; its estimate is not a special case in the budget
 gate.
 _Avoid_: repo review, audit ticket, spec audit, drift check
+
+**UX review ticket**:
+A ticket carrying the ux-review label and bound to no pull request: asks for how a project's app
+feels to use to be reviewed in a browser. `ticketKind` reads the label only where a ticket carries no
+pull request binding and not the spec-review label, so a review, apply-review, rebase or spec review
+ticket's own kind always wins over it. Selected between a spec review ticket and an implementation
+ticket. Its run gets a writable throwaway clone — the app it drives is built from it — credentialled
+with `GH_REVIEW_TOKEN` rather than the developer's own push-capable credential, and never fetched
+back; it alone gets Playwright MCP, through `--mcp-config`, and is told to invoke the `ux-review`
+skill. It reports; it never commits, and a discovery is the one way it opens or comments on anything
+of its own — filed against the ticket itself, since it names no supertask. It ends in hand-back like
+a spec review ticket: its findings are the hand-back comment, and the ticket moves to
+ready-for-human. It takes its estimate from its own size label, charges the unsized default where it
+carries none, and is never turboable. Its default model in `models.json` is `fable`.
+_Avoid_: design review, usability ticket, UI audit
 
 **Spec review sweep**:
 A pass, before every selection, over one project's open issues, done alongside the conflict sweep
