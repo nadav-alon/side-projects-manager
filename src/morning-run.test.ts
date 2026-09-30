@@ -3694,6 +3694,24 @@ describe("morningLoop", () => {
       );
     });
 
+    it("works a project's ux review before another project's implementation, whatever order they were registered in", async () => {
+      const ports = fakePorts();
+      ports.store.register(MANAGER);
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(MANAGER, { number: issueNumber(7), title: "Add the thing" });
+      ports.tracker.addUxReviewTicket(PILOT, { number: issueNumber(8), title: "Review the feel" });
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(
+        report.iterations.map((iteration) => [iteration.repo, iteration.ticket.number, iteration.kind]),
+        [
+          [PILOT, 8, "ux-reviewed"],
+          [MANAGER, 7, "finished"],
+        ],
+      );
+    });
+
     it("hands the ticket back with its own findings as the comment, once it finishes", async () => {
       const ports = fakePorts();
       const ticket = queuedUxReview(ports);
