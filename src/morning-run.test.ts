@@ -8862,6 +8862,46 @@ describe("morningLoop", () => {
       );
     });
 
+    it("merges the fix it proposed in a turbo project, and says so in the summary", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { turbo: true });
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
+      ports.repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: "docs/agents/coding-standards.md", content: "current\n" },
+      ]);
+      ports.harness.comparisons.set("current\n", "current");
+
+      const report = await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.merged, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
+      assert.match(report.message, /Uniform sync sweep:.*proposed and merged in/);
+    });
+
+    it("leaves the fix it proposed open in a project that is not turbo", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.repoHost.merged, []);
+    });
+
+    it("names a sync pull request left for the developer in the summary", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT, { turbo: true });
+      ports.harness.changed = ["docs/agents/coding-standards.md"];
+      ports.repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: "docs/agents/coding-standards.md", content: "current\n" },
+      ]);
+      ports.harness.comparisons.set("current\n", "current");
+      ports.repoHost.checksStatus = () => "red";
+
+      const report = await morningLoop(ports);
+
+      assert.match(report.message, /Uniform sync sweep:.*left for the developer: checks failing/);
+    });
+
     it("sweeps once even though nothing is eligible", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);

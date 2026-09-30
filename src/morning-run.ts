@@ -1085,7 +1085,13 @@ async function uniformSyncSweepAll(
     if (project.paused || project.manager === true) {
       continue;
     }
-    outcomes.push(await uniformSyncSweep(ports, project.repo));
+    outcomes.push(
+      await uniformSyncSweep(
+        ports,
+        project.repo,
+        project.turbo ? { clock: ports.clock } : undefined,
+      ),
+    );
   }
   return outcomes;
 }
