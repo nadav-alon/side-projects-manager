@@ -302,6 +302,16 @@ export interface OpenPullRequest {
 }
 
 /**
+ * One file a pull request changes, as it stands at the pull request's head:
+ * its `path` in the repo, and its `content` — absent when the pull request
+ * deletes it.
+ */
+export interface PullRequestFile {
+  path: string;
+  content?: string;
+}
+
+/**
  * One issue a {@link ClosingPullRequest} closes, in whichever repo it lives:
  * a pull request can close an issue in another repo, and GitHub's own
  * `closingIssuesReferences` names that repo on every issue it lists, so
@@ -787,6 +797,15 @@ export interface RepoHost {
    * pull request for that branch is already open.
    */
   openPullRequestOn(repo: RepoSlug, branch: Branch): Promise<OpenPullRequest | undefined>;
+  /**
+   * Every file `pullRequest` changes, each as it stands at the pull
+   * request's head — see {@link PullRequestFile}.
+   *
+   * What a uniform sync sweep reads before merging its own pull request, so
+   * that the merge is decided on the bytes about to land rather than on what
+   * the sweep remembers pushing.
+   */
+  readPullRequestFiles(pullRequest: PullRequestUrl): Promise<PullRequestFile[]>;
   /**
    * Lists `repo`'s pull requests of any state — open, merged or closed
    * without merging — up to {@link CLOSING_PULL_REQUEST_LIMIT}, newest first:

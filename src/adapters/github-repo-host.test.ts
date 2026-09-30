@@ -2308,6 +2308,55 @@ describe("finding the open pull request on a branch", () => {
   });
 });
 
+describe("reading a pull request's files", () => {
+  const OPENED = "https://github.com/nadav-alon/pilot/pull/7";
+
+  /** A gh that answers each verb the read makes from what the test hands it. */
+  function ghAnswering(files: { filename: string; status: string; content: string }[]): string {
+    const listed = files.map(({ filename, status }) => JSON.stringify({ filename, status })).join("\n");
+    const cases = files
+      .map(({ filename, content }) => `  *"/contents/${filename}?ref=abc123") printf '%s' '${content}' ;;`)
+      .join("\n");
+    return [
+      `case "$1 $2" in`,
+      `  "pr view") echo abc123 ;;`,
+      `  "api repos/nadav-alon/pilot/pulls/7/files") cat <<'JSON'`,
+      listed,
+      "JSON",
+      "  ;;",
+      `  *) case "$*" in`,
+      cases,
+      "  esac ;;",
+      "esac",
+    ].join("\n");
+  }
+
+  it("answers every changed file's path and its content at the head", async (t) => {
+    await recordingGh(
+      t,
+      ghAnswering([
+        { filename: "docs/agents/domain.md", status: "modified", content: "# domain" },
+        { filename: "a/b.md", status: "added", content: "b" },
+      ]),
+    );
+
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED));
+
+    assert.deepEqual(files, [
+      { path: "docs/agents/domain.md", content: "# domain" },
+      { path: "a/b.md", content: "b" },
+    ]);
+  });
+
+  it("answers a deleted file with no content, without reading it", async (t) => {
+    await recordingGh(t, ghAnswering([{ filename: "gone.md", status: "removed", content: "" }]));
+
+    const files = await githubRepoHost().readPullRequestFiles(pullRequestUrl(OPENED));
+
+    assert.deepEqual(files, [{ path: "gone.md" }]);
+  });
+});
+
 describe("listing a repo's pull requests closing issues", () => {
   interface RawClosingIssue {
     number: number;

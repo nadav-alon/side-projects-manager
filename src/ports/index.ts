@@ -184,6 +184,7 @@ export type {
   DraftPullRequestOpening,
   MergeStatus,
   OpenPullRequest,
+  PullRequestFile,
   Proposal,
   PullRequestResolution,
   PullRequestState,

@@ -19,6 +19,7 @@ import type {
   Nits,
   OpenPullRequest,
   Proposal,
+  PullRequestFile,
   PullRequestLabel,
   PullRequestState,
   PullRequestUrl,
@@ -636,6 +637,49 @@ export function githubRepoHost(
         "1",
       ]);
       return openPullRequestsFrom(stdout, repo)[0];
+    },
+
+    async readPullRequestFiles(pullRequest: PullRequestUrl): Promise<PullRequestFile[]> {
+      const { repo, number } = pullRequestApiPath(pullRequest);
+      const where = `${repo}/pulls/${number}`;
+      const { stdout: head } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "headRefOid",
+        "--jq",
+        ".headRefOid",
+      ]);
+      const { stdout: listed } = await run("gh", [
+        "api",
+        `${where}/files`,
+        "--paginate",
+        "--jq",
+        ".[] | {filename, status}",
+      ]);
+      const files: PullRequestFile[] = [];
+      for (const line of listed.split("\n").filter((entry) => entry.trim() !== "")) {
+        const at = `gh api ${where}/files`;
+        const { filename, status } = objectAt(jsonIn(line, at), at);
+        const file = expectField(filename, "string", "filename", at);
+        if (expectField(status, "string", "status", at) === "removed") {
+          files.push({ path: file });
+          continue;
+        }
+        const { stdout: content } = await run(
+          "gh",
+          [
+            "api",
+            "--header",
+            "Accept: application/vnd.github.raw+json",
+            `${repo}/contents/${file}?ref=${head.trim()}`,
+          ],
+          { maxBuffer: 16 * 1024 * 1024 },
+        );
+        files.push({ path: file, content });
+      }
+      return files;
     },
 
     async listPullRequestsClosingIssues(
@@ -1310,6 +1354,15 @@ function reviewsPostedIn(stdout: string, pullRequest: PullRequestUrl): Date[] {
     postedAt.push(new Date(submitted_at));
   }
   return postedAt;
+}
+
+/** `repos/<owner>/<repo>` and the pull request number of `pullRequest`, for `gh api`. */
+function pullRequestApiPath(pullRequest: PullRequestUrl): { repo: string; number: string } {
+  const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)$/.exec(pullRequest);
+  if (match === null) {
+    throw new Error(`Not a github.com pull request url: ${pullRequest}`);
+  }
+  return { repo: `repos/${match[1]}`, number: match[2] as string };
 }
 
 /**

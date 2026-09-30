@@ -9,6 +9,7 @@ import type {
   MergeStatus,
   Nits,
   OpenPullRequest,
+  PullRequestFile,
   Proposal,
   PullRequestLabel,
   PullRequestState,
@@ -478,6 +479,17 @@ export class FakeRepoHost implements RepoHost {
 
   async openPullRequestOn(repo: RepoSlug, branch: Branch): Promise<OpenPullRequest | undefined> {
     return this.#pullRequestsOnBranch.get(`${repo}#${branch}`);
+  }
+
+  readonly #pullRequestFiles = new Map<PullRequestUrl, PullRequestFile[]>();
+
+  /** Sets what `readPullRequestFiles` answers for `pullRequest`. None, unless a test says otherwise. */
+  setPullRequestFiles(pullRequest: PullRequestUrl, files: PullRequestFile[]): void {
+    this.#pullRequestFiles.set(pullRequest, files);
+  }
+
+  async readPullRequestFiles(pullRequest: PullRequestUrl): Promise<PullRequestFile[]> {
+    return this.#pullRequestFiles.get(pullRequest) ?? [];
   }
 
   readonly #closingPullRequests = new Map<RepoSlug, ClosingPullRequest[]>();
