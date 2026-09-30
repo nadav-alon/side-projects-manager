@@ -1,4 +1,5 @@
 import type {
+  DiscoveredTicketSummary,
   Discovery,
   DiscoveryKind,
   IssueReference,
@@ -381,6 +382,30 @@ async function discoveryTargetFor(
   return {
     error: `could not find the ${targetNoun(ticket)} #${ticket.number} is a sub-issue of`,
   };
+}
+
+/**
+ * The open issues already discovered against the ticket `ticket`'s run will
+ * file its own discoveries on — its target, per `discoveryTargetFor` — for
+ * the run's prompt to list, so it does not file what an earlier run did.
+ * Empty where there are none, or where the target or the list cannot be read:
+ * the prompt then reads as it would for a target with none, and a target that
+ * genuinely cannot be resolved is refused later, when a discovery is routed,
+ * per `routeRunDiscoveries`.
+ */
+export async function priorDiscoveriesFor(
+  tracker: Pick<IssueTracker, "listOpenIssues" | "listOpenDiscoveredTickets">,
+  ticket: Ticket,
+): Promise<DiscoveredTicketSummary[]> {
+  try {
+    const target = await discoveryTargetFor(tracker, ticket);
+    return "error" in target ? [] : await tracker.listOpenDiscoveredTickets(target.ticket);
+  } catch (error: unknown) {
+    console.warn(
+      `Could not list the discoveries already filed against #${ticket.number} in ${ticket.repo}: ${errorMessage(error)}`,
+    );
+    return [];
+  }
 }
 
 /**

@@ -97,7 +97,32 @@ export interface DiscoveredTicketRequest {
  * tracker and the fake write the same body.
  */
 export function discoveredBody(ticket: Ticket, body: string): string {
-  return `${body}\n\nDiscovered while working #${ticket.number}.`;
+  return `${body}\n\n${discoveredLine(ticket)}`;
+}
+
+/** The line `discoveredBody` ends a discovery's body with, naming `ticket`. */
+function discoveredLine(ticket: Ticket): string {
+  return `Discovered while working #${ticket.number}.`;
+}
+
+/**
+ * Whether `body` is one `discoveredBody` wrote for `ticket`: carries its
+ * line, with the number ending there rather than running on into a longer
+ * one (#7 is not #70). The one place the line is read back, beside the one
+ * that writes it.
+ */
+export function isDiscoveredWhileWorking(body: string, ticket: Ticket): boolean {
+  return body.includes(discoveredLine(ticket));
+}
+
+/**
+ * An open issue already filed as a discovery against a target ticket: the
+ * number and title a later run is shown, so it does not file the same thing
+ * again. See `IssueTracker.listOpenDiscoveredTickets`.
+ */
+export interface DiscoveredTicketSummary {
+  number: IssueNumber;
+  title: string;
 }
 
 /**
@@ -853,6 +878,14 @@ export interface IssueTracker {
    * review ticket", nothing else in the loop needs to.
    */
   listSubIssues(ticket: Ticket): Promise<SubIssue[]>;
+  /**
+   * The open issues in `ticket`'s repo whose body carries the line
+   * `discoveredBody` writes for `ticket` — the discoveries already filed
+   * against it, by whichever run — newest first. Closed ones are left out: a
+   * closed discovery is settled, and listing it would only keep a run from
+   * re-filing something that then needs doing again. None is a normal answer.
+   */
+  listOpenDiscoveredTickets(ticket: Ticket): Promise<DiscoveredTicketSummary[]>;
   /**
    * Whether `ticket` had turboable consent at `instant`, read from its label
    * timeline rather than its current labels, and checked against `spans` —

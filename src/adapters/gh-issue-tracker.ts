@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type {
   ApplyReviewTicket,
   DiscoveredTicketRequest,
+  DiscoveredTicketSummary,
   HandBackOutcome,
   IssueNumber,
   IssueReference,
@@ -25,6 +26,7 @@ import type {
 } from "../ports/index.ts";
 import {
   ENHANCEMENT_LABEL,
+  isDiscoveredWhileWorking,
   NEEDS_TRIAGE_LABEL,
   READY_DISCOVERY_LABEL,
   READY_FOR_AGENT_LABEL,
@@ -307,6 +309,26 @@ export function ghIssueTracker(
         ".[] | {number, title, body, state, labels: [.labels[].name], repository_url}",
       ]);
       return subIssuesIn(stdout, ticket);
+    },
+
+    async listOpenDiscoveredTickets(ticket: Ticket): Promise<DiscoveredTicketSummary[]> {
+      // Listed without `--search`: GitHub's search index lags, and a discovery
+      // filed earlier in this same loop run is the one a run most needs to see.
+      // `isDiscoveredWhileWorking` picks the ticket's discoveries out of the
+      // newest `OPEN_ISSUE_READ_LIMIT` open issues.
+      const { stdout } = await execFileAsync("gh", [
+        "issue",
+        "list",
+        "--repo",
+        ticket.repo,
+        "--state",
+        "open",
+        "--limit",
+        String(OPEN_ISSUE_READ_LIMIT),
+        "--json",
+        "number,title,body",
+      ]);
+      return discoveredTicketsIn(stdout, ticket);
     },
 
     async wasTurboableAt(
@@ -936,6 +958,29 @@ function priorityLabelIn(labels: string[]): TicketPriority | undefined {
 function isInRepo(url: string, repo: RepoSlug): boolean {
   const [owner, name] = parseUrlPath(url) ?? [];
   return sameRepo(`${owner}/${name}`, repo);
+}
+
+/**
+ * The issues in `stdout` — `gh issue list --json number,title,body`'s answer
+ * — whose body `isDiscoveredWhileWorking` for `ticket`, as the number and
+ * title a run is shown.
+ */
+function discoveredTicketsIn(stdout: string, ticket: Ticket): DiscoveredTicketSummary[] {
+  const listed: unknown = JSON.parse(stdout);
+  if (!Array.isArray(listed)) {
+    throw new Error("gh issue list did not answer with a JSON array");
+  }
+  const found: DiscoveredTicketSummary[] = [];
+  for (const [index, entry] of listed.entries()) {
+    const { number, title, body } = (entry ?? {}) as Record<string, unknown>;
+    if (typeof number !== "number" || !isIssueNumber(number) || typeof title !== "string" || typeof body !== "string") {
+      throw new Error(`gh issue list: issue ${index + 1} lacks a number, title and body`);
+    }
+    if (isDiscoveredWhileWorking(body, ticket)) {
+      found.push({ number, title });
+    }
+  }
+  return found;
 }
 
 /**

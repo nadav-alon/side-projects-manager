@@ -7196,6 +7196,67 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs[0]?.salvageBranch, SALVAGED_BRANCH);
     });
 
+    it("hands a run the open issues already discovered against its ticket, and none where there are none", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      const ticket = ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const earlier = await ports.tracker.createDiscoveredTicket(ticket, {
+        title: "Add the missing email check",
+        body: "Missing.",
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.runs[0]?.discovered, [
+        { number: earlier.number, title: "Add the missing email check" },
+      ]);
+    });
+
+    it("leaves the run request's discovered issues absent when none was discovered against the ticket", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+
+      await morningLoop(ports);
+
+      assert.equal("discovered" in (ports.sandbox.runs[0] ?? {}), false);
+    });
+
+    it("hands a review run the issues discovered against the implementation ticket it reviews", async () => {
+      const ports = fakePorts();
+      const { implementation } = queuedWithImplementation(ports, "review");
+      const earlier = await ports.tracker.createDiscoveredTicket(implementation, {
+        title: "Add the missing email check",
+        body: "Missing.",
+      });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.reviews[0]?.discovered, [
+        { number: earlier.number, title: "Add the missing email check" },
+      ]);
+    });
+
+    for (const [kind, requests] of [
+      ["apply-review", "applyReviews"],
+      ["rebase", "rebases"],
+    ] as const) {
+      it(`hands a ${kind} run the issues discovered against the implementation ticket its pull request closes`, async () => {
+        const ports = fakePorts();
+        const { implementation } = queuedWithImplementation(ports, kind);
+        const earlier = await ports.tracker.createDiscoveredTicket(implementation, {
+          title: "Add the missing email check",
+          body: "Missing.",
+        });
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.sandbox[requests][0]?.discovered, [
+          { number: earlier.number, title: "Add the missing email check" },
+        ]);
+      });
+    }
+
     it("leaves the run request's salvage branch absent when the ticket carries no salvage record", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
