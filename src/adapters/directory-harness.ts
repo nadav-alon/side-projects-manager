@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
-import type { Checkout, Harness, Scaffold } from "../ports/index.ts";
+import type { Checkout, Harness, Scaffold, UniformComparison } from "../ports/index.ts";
 import { UNIFORM_FILES } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
@@ -61,6 +63,22 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
 
       return changed;
     },
+
+    async compareUniform(file: string, content: string): Promise<UniformComparison> {
+      if (!(UNIFORM_FILES as readonly string[]).includes(file)) {
+        return "different";
+      }
+      const bytes = Buffer.from(content, "utf8");
+      if (bytes.equals(await readFile(path.join(source, file)))) {
+        return "current";
+      }
+      for (const version of await earlierVersions(source, file)) {
+        if (bytes.equals(version)) {
+          return "earlier";
+        }
+      }
+      return "different";
+    },
   };
 }
 
@@ -82,4 +100,34 @@ async function sameContent(to: string, from: string): Promise<boolean> {
     return false;
   }
   return existing.equals(await readFile(from));
+}
+
+const run = promisify(execFile);
+
+/**
+ * Every version of `file` the `source` checkout's history holds, newest
+ * first — none when `source` keeps no history, as a copy without `.git`
+ * does not.
+ */
+async function earlierVersions(source: string, file: string): Promise<Buffer[]> {
+  let commits: string[];
+  try {
+    const { stdout } = await run("git", ["-C", source, "log", "--format=%H", "--", file]);
+    commits = stdout.split("\n").filter((commit) => commit !== "");
+  } catch {
+    return [];
+  }
+  const versions: Buffer[] = [];
+  for (const commit of commits) {
+    try {
+      const { stdout } = await run("git", ["-C", source, "show", `${commit}:${file}`], {
+        encoding: "buffer",
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      versions.push(stdout);
+    } catch {
+      // The commit that deleted the file has no version of it to show.
+    }
+  }
+  return versions;
 }

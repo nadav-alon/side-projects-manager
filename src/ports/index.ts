@@ -21,7 +21,7 @@ export type { Discovery, DiscoveryKind } from "./discovery.ts";
 export { exitCode, isExitCode } from "./exit-code.ts";
 export type { ExitCode } from "./exit-code.ts";
 export type { Grilling, GrillingSubject } from "./grilling.ts";
-export type { Harness, Scaffold } from "./harness.ts";
+export type { Harness, Scaffold, UniformComparison } from "./harness.ts";
 export { UNIFORM_FILES, uniformFilesAmong } from "./harness.ts";
 export { isIssueNumber, issueNumber } from "./issue-number.ts";
 export type { IssueNumber } from "./issue-number.ts";
