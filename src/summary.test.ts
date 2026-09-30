@@ -2643,6 +2643,28 @@ describe("conflict sweeps", () => {
 
     assert.match(summaryLine(refused), new RegExp(`Conflict sweep: ${REPO} \\(refused once\\)`));
   });
+
+  it("names a pull request whose mergeability never settled", () => {
+    const sweeps: ConflictSweepOutcome[] = [
+      {
+        repo: REPO,
+        changes: [],
+        refusals: [
+          {
+            action: "read",
+            pullRequest: PULL_REQUEST,
+            error: "mergeability still unknown after 3 reads",
+          },
+        ],
+      },
+    ];
+
+    const body = bodyOf(sweeps);
+    const section = body.slice(body.indexOf("## Conflict sweeps"));
+
+    assert.match(summaryLine(factsWithSweeps(sweeps)), new RegExp(`Conflict sweep: ${REPO}`));
+    assert.match(section, /still unknown after 3 reads/);
+  });
 });
 
 describe("spec review sweeps", () => {

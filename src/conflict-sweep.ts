@@ -1,13 +1,29 @@
 import { errorMessage } from "./error-message.ts";
 import type {
   MergeStatus,
+  Milliseconds,
   OpenIssues,
   OpenPullRequest,
   PullRequestUrl,
   RepoHost,
   RepoSlug,
 } from "./ports/index.ts";
-import { NEEDS_REBASE, openRebaseTicketFor, REBASE_COMMENT } from "./ports/index.ts";
+import {
+  NEEDS_REBASE,
+  openRebaseTicketFor,
+  REBASE_COMMENT,
+  REBASE_STATUS_RETRY_DELAY,
+  realDelay,
+} from "./ports/index.ts";
+
+/**
+ * How many times the sweep re-reads a pull request whose mergeability read
+ * `"unknown"` before it gives up on it for this sweep. Fewer tries than
+ * {@link RepoHost.needsRebase} makes: the sweep runs before every selection,
+ * across every open pull request, so one that never settles may only cost it
+ * so much.
+ */
+export const SWEEP_REREADS = 2;
 
 /**
  * The one thing each candidate pull request of a sweep does: reading its
@@ -32,7 +48,9 @@ export type ConflictSweepRepoHost = Pick<
 
 /**
  * One refusal a sweep met: which {@link ConflictSweepAction} it was trying,
- * and the error the repo host gave. `pullRequest` names none only for a
+ * and the error the repo host gave. A `"read"` refusal also covers a pull
+ * request whose mergeability never settled, whose error the sweep writes
+ * itself: the host refused nothing. `pullRequest` names none only for a
  * refused `"list"`, which names no pull request to refuse on — the listing
  * itself is what was refused.
  */
@@ -70,8 +88,8 @@ const CHANGED = {
 /**
  * What sweeping one project came to: every pull request it changed, and
  * every refusal it met along the way. A pull request left untouched —
- * naming no closed ticket, still `"unknown"`, or already in the shape the
- * sweep would have put it — appears in neither list.
+ * naming no closed ticket, or already in the shape the sweep would have put
+ * it — appears in neither list.
  */
 export interface ConflictSweepOutcome {
   repo: RepoSlug;
@@ -82,16 +100,19 @@ export interface ConflictSweepOutcome {
 /**
  * A conflict sweep of one project (`CONTEXT.md`'s "Conflict sweep", ADR
  * 0007): every open pull request whose body names the ticket it closes is
- * asked once, through {@link RepoHost.readMergeStatus}, whether it conflicts
- * with its base branch — never retried, unlike a rebase ticket's own
- * {@link RepoHost.needsRebase}. A pull request naming no closed ticket is
- * never read, labelled or commented on.
+ * asked, through {@link RepoHost.readMergeStatus}, whether it conflicts
+ * with its base branch; a read of `"unknown"` is re-read up to {@link
+ * SWEEP_REREADS} more times, waiting between them — fewer tries than a
+ * rebase ticket's own {@link RepoHost.needsRebase} makes. A pull request
+ * naming no closed ticket is never read, labelled or commented on.
  *
  * A conflicting pull request is labelled {@link NEEDS_REBASE} unless it
  * already carries it. A clean one has the label taken off if it carries it,
  * whether or not a rebase ticket is still open for it — the label means not
  * mergeable now, and a ticket still open finds nothing to rebase and closes
- * itself. An `"unknown"` one is left exactly as it is, for the next sweep.
+ * itself. One still `"unknown"` after its re-reads is left exactly as it is,
+ * for the next sweep, and recorded as a refused `"read"` so the summary names
+ * it.
  *
  * In a turbo project, a conflicting pull request also gets {@link
  * REBASE_COMMENT} posted on it — even when labelling it was refused — unless
@@ -114,6 +135,7 @@ export async function conflictSweep(
   turbo: boolean,
   openIssues: OpenIssues,
   pendingRebasePosts: ReadonlySet<PullRequestUrl> = new Set(),
+  wait: (delay: Milliseconds) => Promise<void> = realDelay,
 ): Promise<ConflictSweepOutcome> {
   const changes: ConflictSweepChange[] = [];
   const refusals: ConflictSweepRefusal[] = [];
@@ -153,6 +175,10 @@ export async function conflictSweep(
     let status: MergeStatus;
     try {
       status = await repoHost.readMergeStatus(pullRequest.url);
+      for (let reread = 0; status === "unknown" && reread < SWEEP_REREADS; reread++) {
+        await wait(REBASE_STATUS_RETRY_DELAY);
+        status = await repoHost.readMergeStatus(pullRequest.url);
+      }
     } catch (error) {
       refusals.push({
         action: "read",
@@ -163,6 +189,11 @@ export async function conflictSweep(
     }
 
     if (status === "unknown") {
+      refusals.push({
+        action: "read",
+        pullRequest: pullRequest.url,
+        error: `mergeability still unknown after ${SWEEP_REREADS + 1} reads`,
+      });
       continue;
     }
 
