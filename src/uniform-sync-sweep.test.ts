@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { branch, repoSlug, UNIFORM_FILES } from "./ports/index.ts";
+import { branch, pullRequestUrl, repoSlug, UNIFORM_FILES } from "./ports/index.ts";
+import { FakeClock } from "./testing/fake-clock.ts";
 import { FakeHarness } from "./testing/fake-harness.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 import { uniformSyncSweep } from "./uniform-sync-sweep.ts";
@@ -112,5 +113,66 @@ describe("uniformSyncSweep", () => {
       outcome.result.kind === "refused" ? outcome.result.error : "",
       /push rejected/,
     );
+  });
+
+  describe("in a project standing turbo", () => {
+    const STALE = ["docs/agents/coding-standards.md"];
+
+    function turbo() {
+      const repoHost = new FakeRepoHost();
+      const harness = new FakeHarness();
+      harness.changed = STALE;
+      return { repoHost, harness, merge: { clock: new FakeClock() } };
+    }
+
+    it("marks the proposed pull request ready and merges it once its checks are green", async () => {
+      const { repoHost, harness, merge } = turbo();
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome, {
+        repo: PILOT,
+        result: { kind: "merged", url: FakeRepoHost.PROPOSED_PULL_REQUEST },
+      });
+      assert.deepEqual(repoHost.readyMarked, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
+      assert.deepEqual(repoHost.merged, [FakeRepoHost.PROPOSED_PULL_REQUEST]);
+    });
+
+    it("waits out pending checks before it merges", async () => {
+      const { repoHost, harness, merge } = turbo();
+      let reads = 0;
+      repoHost.checksStatus = () => (++reads < 3 ? "pending" : "green");
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.equal(outcome.result.kind, "merged");
+      assert.equal(reads, 3);
+    });
+
+    it("merges the pull request already open on the sync branch when the push found one", async (t) => {
+      const { repoHost, harness, merge } = turbo();
+      const open = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/3");
+      t.mock.method(repoHost, "commitAndPropose", async () => ({
+        kind: "pushed",
+        branch: branch("uniform-sync"),
+        failure: "a pull request for uniform-sync already exists",
+      }));
+      repoHost.setOpenPullRequestOn(PILOT, branch("uniform-sync"), { url: open, labels: [] });
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.deepEqual(outcome.result, { kind: "merged", url: open });
+    });
+  });
+
+  it("leaves the proposed pull request open in a project that is not turbo", async () => {
+    const repoHost = new FakeRepoHost();
+    const harness = new FakeHarness();
+    harness.changed = ["docs/agents/coding-standards.md"];
+
+    const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT);
+
+    assert.equal(outcome.result.kind, "proposed");
+    assert.deepEqual(repoHost.merged, []);
   });
 });

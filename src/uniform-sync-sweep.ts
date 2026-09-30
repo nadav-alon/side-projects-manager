@@ -1,14 +1,38 @@
 import { errorMessage } from "./error-message.ts";
-import type { Checkout, Harness, Proposal, RepoHost, RepoSlug } from "./ports/index.ts";
+import type {
+  Checkout,
+  Clock,
+  Harness,
+  Proposal,
+  PullRequestUrl,
+  RepoHost,
+  RepoSlug,
+} from "./ports/index.ts";
 import { branch, UNIFORM_FILES } from "./ports/index.ts";
+import { settledChecks } from "./settled-checks.ts";
 
 /** The {@link RepoHost} verbs and the one {@link Harness} verb a sweep calls. */
 export interface UniformSyncSweepPorts {
   repoHost: Pick<
     RepoHost,
-    "clone" | "hasUncommittedChanges" | "commitAndPropose"
+    | "clone"
+    | "hasUncommittedChanges"
+    | "commitAndPropose"
+    | "openPullRequestOn"
+    | "readPullRequestFiles"
+    | "readChecksStatus"
+    | "markPullRequestReady"
+    | "mergePullRequest"
   >;
-  harness: Pick<Harness, "sync">;
+  harness: Pick<Harness, "sync" | "compareUniform">;
+}
+
+/**
+ * What a project standing turbo hands a sweep so it can merge its own sync
+ * pull request: the clock it waits out pending checks on.
+ */
+export interface UniformSyncMerge {
+  clock: Clock;
 }
 
 /** A clone or a push the repo host refused a sweep, or a checkout found dirty. */
@@ -17,8 +41,20 @@ export interface UniformSyncSweepRefusal {
   error: string;
 }
 
-/** One project's own end of a sweep: a {@link Proposal}, or a refusal met along the way. */
-export type UniformSyncSweepResult = Proposal | UniformSyncSweepRefusal;
+/** The sweep merged its own sync pull request. */
+export interface UniformSyncSweepMerged {
+  kind: "merged";
+  url: PullRequestUrl;
+}
+
+/**
+ * One project's own end of a sweep: a {@link Proposal}, a merge of what it
+ * proposed, or a refusal met along the way.
+ */
+export type UniformSyncSweepResult =
+  | Proposal
+  | UniformSyncSweepMerged
+  | UniformSyncSweepRefusal;
 
 /** One uniform sync sweep of one registered project, and what it came to. */
 export interface UniformSyncSweepOutcome {
@@ -70,6 +106,11 @@ function dirtyCheckoutError(checkout: Checkout): string {
  * `github-repo-host.test.ts`'s "refuses to catch up when an uncommitted edit
  * conflicts with what landed upstream on the same file".
  *
+ * A project standing turbo passes `merge`, and a pull request the sweep
+ * proposed or pushed to is then merged right away — ADR 0011 — once its
+ * checks read green, waiting out pending ones the way the merge gate does.
+ * Without `merge` the pull request is left open for the developer.
+ *
  * Never throws: a clone or a push the repo host refuses, or a checkout found
  * dirty, is answered with `{ kind: "refused" }` rather than raised, the same
  * best-effort policy a conflict sweep's own refusals follow, so one
@@ -78,6 +119,7 @@ function dirtyCheckoutError(checkout: Checkout): string {
 export async function uniformSyncSweep(
   ports: UniformSyncSweepPorts,
   repo: RepoSlug,
+  merge?: UniformSyncMerge,
 ): Promise<UniformSyncSweepOutcome> {
   try {
     const checkout = await ports.repoHost.clone(repo);
@@ -100,10 +142,40 @@ export async function uniformSyncSweep(
       changed,
       SYNC_BRANCH,
     );
-    return { repo, result };
+    if (merge === undefined) {
+      return { repo, result };
+    }
+    return { repo, result: await mergeProposed(ports, repo, result, merge) };
   } catch (error) {
     return { repo, result: { kind: "refused", error: errorMessage(error) } };
   }
+}
+
+/**
+ * Merges the sync pull request `proposal` left open, once its checks read
+ * green. A proposal with no pull request known to be open is answered as it
+ * was: there is nothing to merge.
+ */
+async function mergeProposed(
+  ports: UniformSyncSweepPorts,
+  repo: RepoSlug,
+  proposal: Proposal,
+  merge: UniformSyncMerge,
+): Promise<UniformSyncSweepResult> {
+  if (proposal.kind === "unchanged") {
+    return proposal;
+  }
+  const url =
+    proposal.kind === "proposed"
+      ? proposal.url
+      : (await ports.repoHost.openPullRequestOn(repo, SYNC_BRANCH))?.url;
+  if (url === undefined) {
+    return proposal;
+  }
+  await settledChecks(ports.repoHost, merge.clock, url);
+  await ports.repoHost.markPullRequestReady(url);
+  await ports.repoHost.mergePullRequest(url);
+  return { kind: "merged", url };
 }
 
 /** What the pull request says drifted, named rather than left to the diff. */

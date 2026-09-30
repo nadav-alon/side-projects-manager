@@ -1100,6 +1100,8 @@ function uniformSyncSweepPhrase(result: FlaggedUniformSyncSweepResult): string {
   switch (result.kind) {
     case "proposed":
       return `proposed in ${result.url}`;
+    case "merged":
+      return `proposed and merged in ${result.url}`;
     case "pushed":
       return `pushed to ${result.branch}, but ${withoutTrailingStop(result.failure)}`;
     case "refused":
