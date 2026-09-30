@@ -197,7 +197,9 @@ it reads as it always did. Says nothing about who reviews or
 what a review finds — only about when the developer's yes is given, per pull request or once. See
 ADR 0006. The same consent covers rebasing: for a turbo project, the conflict sweep posts `/rebase`
 on a conflicting pull request, in place of the developer typing it. See ADR 0007. Says nothing about
-merging: that needs a further, per-ticket consent — see Turboable.
+merging a ticket's pull request: that needs a further, per-ticket consent — see Turboable. The one
+pull request turbo does merge is the project's own uniform sync pull request: see **Uniform sync
+sweep**, ADR 0011.
 _Avoid_: auto mode, fast mode, autopilot, unattended
 
 **Priority**:
@@ -252,7 +254,12 @@ request, the same way scaffolding a project that predates the manager is — nev
 the project's own branch. A checkout already carrying an uncommitted edit to one of the **Uniform
 files** is refused rather than synced, so the developer's own edit is never overwritten. A clone or a
 push the repo host refuses, or a checkout refused this way, is carried into the summary rather than
-failing the invocation.
+failing the invocation. For a turbo project the sweep goes one step further and merges the pull
+request it proposed, in the same sweep, once its checks read green and its diff touches only
+**Uniform files**, each byte for byte the manager's own; otherwise it labels the pull request
+`ready-for-human`, or — when the manager's copy has moved on since — leaves it for the next sweep to
+propose again. A sync pull request labelled `ready-for-human` is left alone and named in the
+summary each run. See ADR 0011.
 _Avoid_: uniform sync, sync sweep
 
 **Agent instructions**:

@@ -18,6 +18,9 @@ an unconfirmed triage assumption, never actually asked for — ultra turbo was s
 branch afterwards", nothing more — and #1058 dropped it: the gate does not ask about declined
 threads at all.
 
+A project's own uniform sync pull request is merged on a different consent, its `turbo`: see ADR
+0011.
+
 ## Why it went this way
 
 **Per ticket, not per project.** Turbo (ADR 0006) already lets a project stand consent to apply a
