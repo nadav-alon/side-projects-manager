@@ -2,6 +2,7 @@ import type { StandDown } from "./budget-gate.ts";
 import { pullRequestResolutionPhrase } from "./close-comment.ts";
 import type {
   ConflictSweepChange,
+  ConflictSweepAction,
   ConflictSweepOutcome,
   ConflictSweepRefusal,
 } from "./conflict-sweep.ts";
@@ -160,7 +161,10 @@ function missingSupertaskLabelAside(projects: ProjectOutcome[]): string {
  * One project's conflict sweep activity, built across every sweep the
  * invocation ran before a selection. A label or unlabel met by several
  * sweeps for the same pull request appears once under its action in
- * `changes`, and the same refusal appears once in `refusals` — a repeat
+ * `changes`, and the same refusal appears once in `refusals` — except an
+ * `"unsettled"` one, which a later sweep reading that pull request as settled
+ * drops from `refusals` completely, as the pull request is no longer
+ * unsettled. A repeat
  * sweep finding the pull request already in the shape it would put it is
  * the same fact stated twice, not two events. A `/rebase` post is different:
  * a pull request whose rebase ticket has closed can be posted on again in
@@ -213,11 +217,10 @@ function conflictSweepChangeKey(
 /** The key a refusal is deduplicated by: what it names, since a `"list"` refusal names no pull request. */
 function conflictSweepRefusalKey(
   repo: RepoSlug,
-  refusal: ConflictSweepRefusal,
+  action: ConflictSweepAction,
+  pullRequest?: PullRequestUrl,
 ): string {
-  return refusal.action === "list"
-    ? `${repo}|list`
-    : `${repo}|${refusal.action}|${refusal.pullRequest}`;
+  return action === "list" ? `${repo}|list` : `${repo}|${action}|${pullRequest}`;
 }
 
 /**
@@ -236,14 +239,16 @@ function conflictSweepProjects(
 ): ConflictSweepProject[] {
   const projects = new Map<RepoSlug, ConflictSweepProject>();
   const seenChanges = new Set<string>();
-  const seenRefusals = new Set<string>();
+  const refusals = new Map<RepoSlug, Map<string, ConflictSweepRefusal>>();
 
   for (const outcome of conflictSweeps) {
     let project = projects.get(outcome.repo);
     if (project === undefined) {
       project = { repo: outcome.repo, changes: new Map(), commented: [], refusals: [] };
       projects.set(outcome.repo, project);
+      refusals.set(outcome.repo, new Map());
     }
+    const seenRefusals = refusals.get(outcome.repo)!;
 
     for (const change of outcome.changes) {
       if (change.action === "commented") {
@@ -260,14 +265,24 @@ function conflictSweepProjects(
       project.changes.set(change.action, urls);
     }
 
-    for (const refusal of outcome.refusals) {
-      const key = conflictSweepRefusalKey(outcome.repo, refusal);
-      if (seenRefusals.has(key)) {
-        continue;
-      }
-      seenRefusals.add(key);
-      project.refusals.push(refusal);
+    for (const url of outcome.settled) {
+      seenRefusals.delete(conflictSweepRefusalKey(outcome.repo, "unsettled", url));
     }
+
+    for (const refusal of outcome.refusals) {
+      const key = conflictSweepRefusalKey(
+        outcome.repo,
+        refusal.action,
+        refusal.action === "list" ? undefined : refusal.pullRequest,
+      );
+      if (!seenRefusals.has(key)) {
+        seenRefusals.set(key, refusal);
+      }
+    }
+  }
+
+  for (const project of projects.values()) {
+    project.refusals = [...refusals.get(project.repo)!.values()];
   }
 
   return [...projects.values()].filter(
@@ -928,6 +943,7 @@ function conflictSweepRefusalLine(
     case "list":
       return `- ${repo}: could not list its open pull requests: ${error}`;
     case "read":
+    case "unsettled":
       return `- ${repo}: could not check ${refusal.pullRequest}'s mergeability: ${error}`;
     case "label":
       return `- ${repo}: could not label ${refusal.pullRequest} ${NEEDS_REBASE_LABEL}: ${error}`;

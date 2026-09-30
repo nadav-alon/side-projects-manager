@@ -31,10 +31,18 @@ export const SWEEP_REREADS = 2;
  * `read`, `unlabel`, `label` and `comment` name the same four
  * {@link RepoHost} verbs the sweep calls, and `list` names
  * {@link RepoHost.listOpenPullRequests} itself, whose refusal ends the
- * project's sweep rather than being recorded per pull request. Per
+ * project's sweep rather than being recorded per pull request. `"unsettled"`
+ * is the one member that names no host call: it records a result the sweep
+ * writes itself, a mergeability still unknown after its re-reads. Per
  * `CONTEXT.md`'s "Conflict sweep".
  */
-export type ConflictSweepAction = "list" | "read" | "label" | "unlabel" | "comment";
+export type ConflictSweepAction =
+  | "list"
+  | "read"
+  | "unsettled"
+  | "label"
+  | "unlabel"
+  | "comment";
 
 /** The five {@link RepoHost} verbs a sweep calls, and nothing else. */
 export type ConflictSweepRepoHost = Pick<
@@ -48,9 +56,10 @@ export type ConflictSweepRepoHost = Pick<
 
 /**
  * One refusal a sweep met: which {@link ConflictSweepAction} it was trying,
- * and the error the repo host gave. A `"read"` refusal also covers a pull
- * request whose mergeability never settled, whose error the sweep writes
- * itself: the host refused nothing. `pullRequest` names none only for a
+ * and the error the repo host gave. An `"unsettled"` refusal is a pull
+ * request whose mergeability was still unknown after its re-reads, whose error
+ * the sweep writes itself: the host refused nothing, unlike a `"read"` that
+ * threw. `pullRequest` names none only for a
  * refused `"list"`, which names no pull request to refuse on — the listing
  * itself is what was refused.
  */
@@ -71,7 +80,7 @@ export interface ConflictSweepChange {
 /**
  * The past participle {@link ConflictSweepChange} names its action by, for
  * each {@link ConflictSweepAction} that ever succeeds into a change —
- * `"list"` and `"read"` never do. `satisfies` ties the two vocabularies
+ * `"list"`, `"read"` and `"unsettled"` never do. `satisfies` ties the two vocabularies
  * together, the way `REVIEW_FINDING_FIELDS` ties a field list to
  * `ReviewFinding`'s own names in `repo-host.ts`: renaming one here and not
  * there fails to compile, rather than drifting unnoticed.
@@ -81,20 +90,23 @@ const CHANGED = {
   label: "labelled",
   comment: "commented",
 } as const satisfies Record<
-  Exclude<ConflictSweepAction, "list" | "read">,
+  Exclude<ConflictSweepAction, "list" | "read" | "unsettled">,
   ConflictSweepChange["action"]
 >;
 
 /**
- * What sweeping one project came to: every pull request it changed, and
- * every refusal it met along the way. A pull request left untouched —
- * naming no closed ticket, or already in the shape the sweep would have put
- * it — appears in neither list.
+ * What sweeping one project came to: every pull request it changed, every
+ * refusal it met along the way, and every pull request whose mergeability it
+ * read as settled (not `"unknown"`), whether or not that left anything to
+ * change. A pull request left untouched — naming no closed ticket, or already
+ * in the shape the sweep would have put it — appears in neither of the first
+ * two lists.
  */
 export interface ConflictSweepOutcome {
   repo: RepoSlug;
   changes: ConflictSweepChange[];
   refusals: ConflictSweepRefusal[];
+  settled: PullRequestUrl[];
 }
 
 /**
@@ -139,6 +151,7 @@ export async function conflictSweep(
 ): Promise<ConflictSweepOutcome> {
   const changes: ConflictSweepChange[] = [];
   const refusals: ConflictSweepRefusal[] = [];
+  const settled: PullRequestUrl[] = [];
 
   /**
    * Runs `run`, recording a change on `pullRequest` under `CHANGED[action]`
@@ -164,7 +177,7 @@ export async function conflictSweep(
     pullRequests = await repoHost.listOpenPullRequests(repo);
   } catch (error) {
     refusals.push({ action: "list", error: errorMessage(error) });
-    return { repo, changes, refusals };
+    return { repo, changes, refusals, settled };
   }
 
   for (const pullRequest of pullRequests) {
@@ -190,12 +203,14 @@ export async function conflictSweep(
 
     if (status === "unknown") {
       refusals.push({
-        action: "read",
+        action: "unsettled",
         pullRequest: pullRequest.url,
         error: `mergeability still unknown after ${SWEEP_REREADS + 1} reads`,
       });
       continue;
     }
+
+    settled.push(pullRequest.url);
 
     const labelled = pullRequest.labels.includes(NEEDS_REBASE);
 
@@ -225,5 +240,5 @@ export async function conflictSweep(
     }
   }
 
-  return { repo, changes, refusals };
+  return { repo, changes, refusals, settled };
 }

@@ -1537,7 +1537,7 @@ describe("invocationSelection", () => {
         { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
       ]);
       assert.deepEqual(selection.sweeps(), [
-        { repo: PILOT, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], refusals: [] },
+        { repo: PILOT, changes: [{ pullRequest: PULL_REQUEST, action: "labelled" }], settled: [PULL_REQUEST], refusals: [] },
       ]);
     });
 
@@ -1698,8 +1698,8 @@ describe("invocationSelection", () => {
       await selection.next();
 
       assert.deepEqual(selection.sweeps(), [
-        { repo: PILOT, changes: [], refusals: [] },
-        { repo: PILOT, changes: [], refusals: [] },
+        { repo: PILOT, changes: [], settled: [], refusals: [] },
+        { repo: PILOT, changes: [], settled: [], refusals: [] },
       ]);
     });
 
@@ -1718,7 +1718,7 @@ describe("invocationSelection", () => {
 
       assert.equal(chosen?.ticket.number, 7);
       assert.deepEqual(selection.sweeps(), [
-        { repo: PILOT, changes: [], refusals: [{ action: "list", error: "host unreachable" }] },
+        { repo: PILOT, changes: [], settled: [], refusals: [{ action: "list", error: "host unreachable" }] },
       ]);
     });
   });
