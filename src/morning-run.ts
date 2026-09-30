@@ -28,6 +28,7 @@ import type {
   RepoSlug,
   ReviewFinished,
   ReviewGaveUp,
+  ReviewOutcome,
   ReviewTicket,
   RunBudgetExhausted,
   RunFinished,
@@ -39,7 +40,6 @@ import type {
   RunStarted,
   Salvaged,
   Sandbox,
-  SpecReviewOutcome,
   SpecReviewTicket,
   UxReviewTicket,
   Store,
@@ -1996,7 +1996,7 @@ async function runSpecReview(
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<ReportedReviewIteration> {
+): Promise<ReportedReviewEnding> {
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
@@ -2025,7 +2025,7 @@ async function runUxReview(
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
-): Promise<ReportedReviewIteration> {
+): Promise<ReportedReviewEnding> {
   const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, prior) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.uxReview` overload that actually matches.
@@ -2040,7 +2040,7 @@ async function runUxReview(
 }
 
 /** What a spec review or ux review iteration can end as. */
-type ReportedReviewIteration =
+type ReportedReviewEnding =
   | SpecReviewed
   | UxReviewed
   | LimitRefused
@@ -2058,8 +2058,8 @@ type ReportedReviewIteration =
 async function endReportedReview(
   ports: MorningLoopPorts,
   ticket: SpecReviewTicket | UxReviewTicket,
-  result: SandboxResult<SpecReviewOutcome> | Failed,
-): Promise<ReportedReviewIteration> {
+  result: SandboxResult<ReviewOutcome> | Failed,
+): Promise<ReportedReviewEnding> {
   if (result.kind === "failed") {
     return result;
   }
