@@ -1523,17 +1523,19 @@ const DISCOVERY_INSTRUCTIONS = [
  * `DISCOVERY_INSTRUCTIONS`, followed — when `discovered` is not empty —
  * by the open issues already filed as discoveries against the ticket this
  * run's own discoveries land on, by number and title, and the rule that a
- * suggestion one of them already covers is not filed. Every run kind targets
- * the same implementation ticket, so without the list each files what an
- * earlier one already did. A target with none gets the base unchanged.
+ * suggestion one of them already covers is not filed. Every run kind files
+ * against its target (`discoveryTargetFor`), and several run kinds share one
+ * target, so without the list each files what an earlier one already did. A target with none gets the base unchanged.
  */
-function discoveryInstructionsFor(discovered: readonly DiscoveredTicketSummary[] | undefined): string {
+function discoveryInstructionsFor(
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
   if (discovered === undefined || discovered.length === 0) {
     return DISCOVERY_INSTRUCTIONS;
   }
   return [
     DISCOVERY_INSTRUCTIONS,
-    "These open issues were already discovered against that ticket:",
+    "These open issues were already discovered against the ticket your discoveries are filed on:",
     discovered.map((issue) => `#${issue.number} ${issue.title}`).join("; ") + ".",
     "Do not file a suggestion one of them already covers.",
   ].join(" ");
@@ -1563,7 +1565,10 @@ function discoveryInstructionsFor(discovered: readonly DiscoveredTicketSummary[]
  * `reviewPromptFor`'s does: a `--print` run gets no reply, so a reviewer
  * that stops to ask has answered nothing.
  */
-function specReviewPromptFor(ticket: SpecReviewTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
+function specReviewPromptFor(
+  ticket: SpecReviewTicket,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
   return [
     `Spec-review this repository. Read #${ticket.number} with`,
     `\`gh issue view ${ticket.number} --repo ${ticket.repo}\` first — name the repo explicitly`,
@@ -1710,7 +1715,9 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt: promptFor(ticket, request.discovered),
+      {
+        directory: clone,
+        prompt: promptFor(ticket, request.discovered),
         spendCeiling,
         mount: "rw",
       },
@@ -2028,7 +2035,10 @@ function pullRequestHeadFrom(
  * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
  * refused from one that finished.
  */
-function applyReviewPromptFor(ticket: ApplyReviewTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
+function applyReviewPromptFor(
+  ticket: ApplyReviewTicket,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
   const url = ticket.pullRequest.url;
   return [
     `/apply-pr-review ${url}`,
@@ -2064,7 +2074,10 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket, discovered: readonly Di
  * half-rebased branch has no state that pushes cleanly part way through, so
  * there is nothing for an earlier push to land.
  */
-function rebasePromptFor(ticket: RebaseTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
+function rebasePromptFor(
+  ticket: RebaseTicket,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
   const url = ticket.pullRequest.url;
   return [
     `/rebase-pr ${url}`,
@@ -2227,7 +2240,10 @@ function nitsFrom(output: string): Nits | undefined {
  * change that: it is the manager posting on the developer's standing say-so,
  * given once in the registry rather than typed here.
  */
-function reviewPromptFor(ticket: ReviewTicket, discovered: readonly DiscoveredTicketSummary[] | undefined): string {
+function reviewPromptFor(
+  ticket: ReviewTicket,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
   return [
     `Review ${ticket.pullRequest.url}, a draft pull request in this repository. Find the ticket it`,
     `closes from its own body (\`gh pr view ${ticket.pullRequest.url} --json body,files\`) and read that`,
