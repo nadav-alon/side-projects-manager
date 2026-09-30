@@ -449,12 +449,12 @@ A container with no token set fails cleanly (`Not logged in`) rather than fallin
 CI makes the same check on every push touching the image, and needs no token to do it:
 [`.github/workflows/sandbox-image.yml`](.github/workflows/sandbox-image.yml) builds the image, then
 runs [`scripts/verify-harness.ts`](scripts/verify-harness.ts) inside it to assert the plugin is
-installed, enabled, and enumerating its skills, and that the `apply-pr-review` and `rebase-pr`
-skills the image carries — for applying a pull request's review, and for rebasing a pull request's
-branch onto its base — are on disk at the CLI's personal-skill path. Asking
-`claude` about an installed plugin reads it off disk with no Anthropic call in it, which is what
-lets the check run unauthenticated where the prompt above cannot. CI runs it through the same two
-npm scripts a local check does:
+installed, enabled, and enumerating its skills, and that the `apply-pr-review`, `rebase-pr` and
+`ux-review` skills the image carries — for applying a pull request's review, for rebasing a pull
+request's branch onto its base, and for reviewing how an app feels in a browser — are on disk at
+the CLI's personal-skill path. Asking `claude` about an installed plugin reads it off disk with no
+Anthropic call in it, which is what lets the check run unauthenticated where the prompt above
+cannot. CI runs it through the same two npm scripts a local check does:
 
 ```sh
 npm run sandbox:build && npm run sandbox:verify
