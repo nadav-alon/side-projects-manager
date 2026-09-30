@@ -69,10 +69,11 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
         return "different";
       }
       const bytes = Buffer.from(content, "utf8");
-      if (bytes.equals(await readFile(path.join(source, file)))) {
+      const [current, ...earlier] = await mastersVersions(source, file);
+      if (current !== undefined && bytes.equals(current)) {
         return "current";
       }
-      for (const version of await earlierVersions(source, file)) {
+      for (const version of earlier) {
         if (bytes.equals(version)) {
           return "earlier";
         }
@@ -104,15 +105,26 @@ async function sameContent(to: string, from: string): Promise<boolean> {
 
 const run = promisify(execFile);
 
+/** The branch of `source` whose uniform files are the manager's own. */
+const MASTER = "master";
+
 /**
- * Every version of `file` the `source` checkout's history holds, newest
- * first — none when `source` keeps no history, as a copy without `.git`
- * does not.
+ * Every version of `file` on `source`'s `master`, newest first — what has
+ * reached master, not what `source`'s working tree or checked-out branch
+ * holds, since a sync that merges by itself must not trust bytes that never
+ * landed. A `source` that is not a git checkout at all keeps no history:
+ * its working-tree copy is then the only version. A `source` that is one but
+ * has no `master`, or none holding `file`, has none.
  */
-async function earlierVersions(source: string, file: string): Promise<Buffer[]> {
+async function mastersVersions(source: string, file: string): Promise<Buffer[]> {
+  try {
+    await run("git", ["-C", source, "rev-parse", "--git-dir"]);
+  } catch {
+    return [await readFile(path.join(source, file))];
+  }
   let commits: string[];
   try {
-    const { stdout } = await run("git", ["-C", source, "log", "--format=%H", "--", file]);
+    const { stdout } = await run("git", ["-C", source, "log", "--format=%H", MASTER, "--", file]);
     commits = stdout.split("\n").filter((commit) => commit !== "");
   } catch {
     return [];

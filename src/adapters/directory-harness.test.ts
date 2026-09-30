@@ -171,7 +171,7 @@ describe("comparing a project's copy of a uniform file with the manager's", () =
     const source = await mkdtemp(path.join(tmpdir(), "harness-source-"));
     const git = (...args: string[]) =>
       execFileSync("git", ["-C", source, "-c", "user.name=t", "-c", "user.email=t@t", ...args]);
-    git("init", "--quiet");
+    git("init", "--quiet", "--initial-branch", "master");
     await mkdir(path.join(source, path.dirname(FILE)), { recursive: true });
     await writeFile(path.join(source, FILE), first);
     git("add", "--all");
@@ -191,6 +191,25 @@ describe("comparing a project's copy of a uniform file with the manager's", () =
     const harness = directoryHarness(await sourceWithHistory("old\n", "new\n"));
 
     assert.equal(await harness.compareUniform(FILE, "old\n"), "earlier");
+  });
+
+  it("reads a copy only the working tree holds as different, not current", async () => {
+    const source = await sourceWithHistory("old\n", "new\n");
+    await writeFile(path.join(source, FILE), "uncommitted\n");
+    const harness = directoryHarness(source);
+
+    assert.equal(await harness.compareUniform(FILE, "uncommitted\n"), "different");
+  });
+
+  it("reads a copy only another branch holds as different, not current", async () => {
+    const source = await sourceWithHistory("old\n", "new\n");
+    execFileSync("git", ["-C", source, "checkout", "--quiet", "-b", "feature"]);
+    await writeFile(path.join(source, FILE), "on a branch\n");
+    execFileSync("git", ["-C", source, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--all", "--message", "third"]);
+    const harness = directoryHarness(source);
+
+    assert.equal(await harness.compareUniform(FILE, "on a branch\n"), "different");
+    assert.equal(await harness.compareUniform(FILE, "new\n"), "current");
   });
 
   it("reads anything else as different", async () => {
