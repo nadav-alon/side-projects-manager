@@ -162,9 +162,9 @@ different authors and different change rates.
 label. Selection is: rebase tickets, then apply-review tickets, then review tickets, then spec
 review tickets, then UX review tickets, then implementation tickets; then explicit priority; then
 least recently worked. One project per iteration. Within that project: rebase, apply-review, review,
-spec review and UX review tickets first, in that same order; then ticket priority, read from `priority:1`–`priority:3` labels (smallest
-wins when several are present, anything else is ignored); then lowest issue number. Ticket priority
-never influences which project is chosen.
+spec review and UX review tickets first, in that same order; then ticket priority, read from
+`priority:1`–`priority:3` labels (smallest wins when several are present, anything else is ignored);
+then lowest issue number. Ticket priority never influences which project is chosen.
 A backlog is read up to 300 tickets, the newest ones — a newly prioritised ticket costs more to miss
 than an old one — and a truncated backlog is named in the summary's waiting section.
 
@@ -250,14 +250,14 @@ decision, is the target.
 **Primary seam: the morning loop entry point.** The loop is exercised end to end with all six ports
 faked. This is the highest available seam and carries the bulk of the suite. Behaviours covered:
 
-- spec reviews are selected before implementations, reviews before spec reviews, apply-reviews
-  before reviews, and rebases before apply-reviews
+- UX reviews are selected before implementations, spec reviews before UX reviews, reviews before
+  spec reviews, apply-reviews before reviews, and rebases before apply-reviews
 - a rebase ticket whose PR needs no rebase closes with no run; one whose run finished closes only
   once the PR no longer conflicts, and is handed back otherwise, the PR left a draft either way
 - a review, apply-review or rebase ticket whose own PR is already merged or closed closes with a
   comment naming which, and no run starts
 - least-recently-worked ordering, and explicit priority overriding it
-- within a project, ticket priority ordering, oldest-first ties, and reviews and spec reviews
+- within a project, ticket priority ordering, oldest-first ties, and reviews, spec reviews and UX reviews
   still first
 - a truncated backlog appears in the summary's waiting section
 - paused projects are skipped
