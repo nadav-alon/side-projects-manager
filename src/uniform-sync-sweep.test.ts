@@ -222,6 +222,23 @@ describe("uniformSyncSweep", () => {
       assert.deepEqual(repoHost.labelled, []);
     });
 
+    it("labels it ready-for-human when the pull request also touches a file outside the uniform files, whatever its bytes", async () => {
+      const { repoHost, harness, merge } = turbo();
+      repoHost.setPullRequestFiles(FakeRepoHost.PROPOSED_PULL_REQUEST, [
+        { path: STALE[0] ?? "", content: CURRENT },
+        { path: "README.md", content: CURRENT },
+      ]);
+
+      const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT, merge);
+
+      assert.equal(outcome.result.kind, "left-for-human");
+      assert.match(
+        outcome.result.kind === "left-for-human" ? outcome.result.reason : "",
+        /README\.md/,
+      );
+      assert.deepEqual(repoHost.merged, []);
+    });
+
     it("waits out pending checks before it merges", async () => {
       const { repoHost, harness, merge } = turbo();
       let reads = 0;
@@ -298,6 +315,27 @@ describe("uniformSyncSweep", () => {
 
       assert.deepEqual(outcome.result, { kind: "merged", url: open });
     });
+  });
+
+  it("leaves a sync pull request labelled ready-for-human alone in a project that is not turbo, too", async () => {
+    const repoHost = new FakeRepoHost();
+    const harness = new FakeHarness();
+    harness.changed = ["docs/agents/coding-standards.md"];
+    const waiting = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/3");
+    repoHost.setOpenPullRequestOn(PILOT, branch("uniform-sync"), {
+      url: waiting,
+      labels: [READY_FOR_HUMAN_PULL_REQUEST_LABEL],
+    });
+
+    const outcome = await uniformSyncSweep({ repoHost, harness }, PILOT);
+
+    assert.deepEqual(outcome.result, {
+      kind: "left-for-human",
+      url: waiting,
+      reason: "waiting on the developer",
+    });
+    assert.deepEqual(harness.syncs, []);
+    assert.deepEqual(repoHost.proposals, []);
   });
 
   it("leaves the proposed pull request open in a project that is not turbo", async () => {

@@ -7,6 +7,7 @@ import type {
   PullRequestUrl,
   RepoHost,
   RepoSlug,
+  UniformComparison,
 } from "./ports/index.ts";
 import { branch, READY_FOR_HUMAN_PULL_REQUEST_LABEL, UNIFORM_FILES } from "./ports/index.ts";
 import { settledChecks } from "./settled-checks.ts";
@@ -37,7 +38,10 @@ export interface UniformSyncMerge {
   clock: Clock;
 }
 
-/** A clone or a push the repo host refused a sweep, or a checkout found dirty. */
+/**
+ * A clone, a push or a read the repo host refused a sweep — including the
+ * reads and label of the merge path — or a checkout found dirty.
+ */
 export interface UniformSyncSweepRefusal {
   kind: "refused";
   error: string;
@@ -134,12 +138,12 @@ function dirtyCheckoutError(checkout: Checkout): string {
  * proposed or pushed to is then merged right away — ADR 0011 — once its
  * checks read green, waiting out pending ones the way the merge gate does.
  * Without `merge` the pull request is left open for the developer. One
- * already labelled `ready-for-human` is left alone entirely — nothing
- * pushed, nothing merged — and answered as `left-for-human` each sweep, so
- * the summary keeps naming it until the developer has dealt with it.
+ * already labelled `ready-for-human` is left alone entirely, turbo or not
+ * — nothing pushed, nothing merged — and answered as `left-for-human` each
+ * sweep, so the summary keeps naming it until the developer has dealt with it.
  *
- * Never throws: a clone or a push the repo host refuses, or a checkout found
- * dirty, is answered with `{ kind: "refused" }` rather than raised, the same
+ * Never throws: a clone, a push or a merge-path read the repo host refuses, or
+ * a checkout found dirty, is answered with `{ kind: "refused" }` rather than raised, the same
  * best-effort policy a conflict sweep's own refusals follow, so one
  * project's trouble never stops the sweep of the next.
  */
@@ -150,14 +154,12 @@ export async function uniformSyncSweep(
 ): Promise<UniformSyncSweepOutcome> {
   try {
     const checkout = await ports.repoHost.clone(repo);
-    if (merge !== undefined) {
-      const waiting = await ports.repoHost.openPullRequestOn(repo, SYNC_BRANCH);
-      if (waiting?.labels.includes(READY_FOR_HUMAN_PULL_REQUEST_LABEL)) {
-        return {
-          repo,
-          result: { kind: "left-for-human", url: waiting.url, reason: "waiting on the developer" },
-        };
-      }
+    const waiting = await ports.repoHost.openPullRequestOn(repo, SYNC_BRANCH);
+    if (waiting?.labels.includes(READY_FOR_HUMAN_PULL_REQUEST_LABEL)) {
+      return {
+        repo,
+        result: { kind: "left-for-human", url: waiting.url, reason: "waiting on the developer" },
+      };
     }
     if (
       await ports.repoHost.hasUncommittedChanges(checkout, UNIFORM_FILES)
@@ -211,7 +213,7 @@ async function mergeProposed(
   const head = await ports.repoHost.readPullRequestHead(url);
   const verdict = await contentVerdict(ports, url, head);
   if (verdict.kind !== "current") {
-    return verdict.kind === "outdated"
+    return verdict.kind === "earlier"
       ? { kind: "outdated", url }
       : leftForHuman(ports, url, verdict.reason);
   }
@@ -228,10 +230,13 @@ async function mergeProposed(
   return { kind: "merged", url };
 }
 
+/** {@link contentVerdict}'s answer: a {@link UniformComparison} of the whole pull request. */
+type ContentVerdict = { kind: Exclude<UniformComparison, "different"> } | { kind: "different"; reason: string };
+
 /**
  * Whether `url`, as it stands at `head`, changes nothing but uniform files, each now exactly the
  * manager's own copy: `current`. One that is byte for byte an earlier
- * version of the manager's is `outdated` — the manager moved on since — and
+ * version of the manager's is `earlier` — the manager moved on since — and
  * anything else, a file outside `UNIFORM_FILES`, a deletion, or bytes the
  * manager never held, is `different`, naming the paths.
  */
@@ -239,7 +244,7 @@ async function contentVerdict(
   ports: UniformSyncSweepPorts,
   url: PullRequestUrl,
   head: string,
-): Promise<{ kind: "current" | "outdated" } | { kind: "different"; reason: string }> {
+): Promise<ContentVerdict> {
   const files = await ports.repoHost.readPullRequestFiles(url, head);
   if (files.length === 0) {
     return { kind: "different", reason: "it changes no files" };
@@ -263,7 +268,7 @@ async function contentVerdict(
       reason: `it differs from the manager's uniform files in ${different.join(", ")}`,
     };
   }
-  return { kind: outdated ? "outdated" : "current" };
+  return { kind: outdated ? "earlier" : "current" };
 }
 
 /** `url` labelled `ready-for-human`, and the sweep's hands off it from here. */
