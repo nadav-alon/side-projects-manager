@@ -667,6 +667,44 @@ describe("containerSandbox", () => {
     assertDiscoveryInstructions(asked);
   });
 
+  it("lists the open issues already discovered against the ticket, and says not to file a suggestion one covers", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      discovered: [
+        { number: issueNumber(165), title: "Add the missing email check" },
+        { number: issueNumber(170), title: "Validate emails" },
+      ],
+    });
+
+    assertDiscoveryInstructions(asked);
+    assert.match(asked, /#165 Add the missing email check; #170 Validate emails\./);
+    assert.match(asked, /Do not file a suggestion one of them already covers/);
+  });
+
+  it("gives the discovery prompt unchanged when no issue was discovered against the ticket", async () => {
+    const directory = await project();
+    const asks: string[] = [];
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asks.push(prompt);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING, discovered: [] });
+
+    assert.equal(asks[1], asks[0]);
+    assert.doesNotMatch(asks[0] ?? "", /already discovered/);
+  });
+
   it("asks docker for no model when the request names none", async () => {
     const directory = await project();
     let seen: string | undefined = "unset";

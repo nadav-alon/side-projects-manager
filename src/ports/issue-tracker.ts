@@ -101,6 +101,16 @@ export function discoveredBody(ticket: Ticket, body: string): string {
 }
 
 /**
+ * An open issue already filed as a discovery against a target ticket: the
+ * number and title a later run is shown, so it does not file the same thing
+ * again. See `IssueTracker.listOpenDiscoveredIssues`.
+ */
+export interface DiscoveredIssue {
+  number: IssueNumber;
+  title: string;
+}
+
+/**
  * What a label starts with when it is a model label, per `CONTEXT.md`: the
  * rest of the label is the model's name. The one place the literal lives.
  */

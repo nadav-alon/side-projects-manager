@@ -79,6 +79,7 @@ export {
 export type {
   ApplyReviewTicket,
   Backlog,
+  DiscoveredIssue,
   DiscoveredTicketRequest,
   HandBackOutcome,
   IssueReference,

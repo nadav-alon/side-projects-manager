@@ -4,6 +4,7 @@ import type { CommitSha } from "./commit-sha.ts";
 import type { Discovery } from "./discovery.ts";
 import type {
   ApplyReviewTicket,
+  DiscoveredIssue,
   RebaseTicket,
   ReviewTicket,
   SpecReviewTicket,
@@ -60,6 +61,13 @@ export interface RunRequest {
    * run on it, rather than a fresh branch, is not this port's job.
    */
   salvageBranch?: Branch;
+  /**
+   * The open issues already discovered against the ticket this run's
+   * discoveries land on, absent when there are none: listed in the prompt so
+   * the run does not file a suggestion one of them already covers. Passed
+   * through unchanged — finding them is not this port's job.
+   */
+  discovered?: readonly DiscoveredIssue[];
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -70,6 +78,13 @@ export interface ReviewRequest {
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
   model?: ModelName;
+  /**
+   * The open issues already discovered against the ticket this run's
+   * discoveries land on, absent when there are none: listed in the prompt so
+   * the run does not file a suggestion one of them already covers. Passed
+   * through unchanged — finding them is not this port's job.
+   */
+  discovered?: readonly DiscoveredIssue[];
 }
 
 /** One apply-review ticket, and the project checkout it is to be worked against. */
@@ -90,6 +105,13 @@ export interface ApplyReviewRequest {
    * a push touching one here is never forced back.
    */
   manager?: true;
+  /**
+   * The open issues already discovered against the ticket this run's
+   * discoveries land on, absent when there are none: listed in the prompt so
+   * the run does not file a suggestion one of them already covers. Passed
+   * through unchanged — finding them is not this port's job.
+   */
+  discovered?: readonly DiscoveredIssue[];
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -100,6 +122,13 @@ export interface SpecReviewRequest {
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
   model?: ModelName;
+  /**
+   * The open issues already discovered against the ticket this run's
+   * discoveries land on, absent when there are none: listed in the prompt so
+   * the run does not file a suggestion one of them already covers. Passed
+   * through unchanged — finding them is not this port's job.
+   */
+  discovered?: readonly DiscoveredIssue[];
 }
 
 /** One rebase ticket, and the project checkout it is to be worked against. */
@@ -117,6 +146,13 @@ export interface RebaseRequest {
   model?: ModelName;
   /** As `ApplyReviewRequest.manager`. */
   manager?: true;
+  /**
+   * The open issues already discovered against the ticket this run's
+   * discoveries land on, absent when there are none: listed in the prompt so
+   * the run does not file a suggestion one of them already covers. Passed
+   * through unchanged — finding them is not this port's job.
+   */
+  discovered?: readonly DiscoveredIssue[];
 }
 
 /**

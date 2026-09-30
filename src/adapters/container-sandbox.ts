@@ -12,6 +12,7 @@ import type {
   Checkout,
   CommitSha,
   Discovery,
+  DiscoveredIssue,
   DiscoveryDirectory,
   ModelName,
   ModelRefusal,
@@ -680,7 +681,7 @@ async function runOnClone(
         "run",
         {
           directory: clone,
-          prompt: promptFor(ticket, chosen.resuming ? onto : undefined),
+          prompt: promptFor(ticket, chosen.resuming ? onto : undefined, request.discovered),
           spendCeiling,
           mount: "rw",
         },
@@ -1463,7 +1464,7 @@ async function reviewOnClone(
     container,
     "review",
     request,
-    reviewPromptFor(request.ticket),
+    reviewPromptFor(request.ticket, request.discovered),
     roots,
     onStarted,
   );
@@ -1479,7 +1480,7 @@ async function specReviewOnClone(
     container,
     "spec-review",
     request,
-    specReviewPromptFor(request.ticket),
+    specReviewPromptFor(request.ticket, request.discovered),
     roots,
     onStarted,
   );
@@ -1519,6 +1520,26 @@ const DISCOVERY_INSTRUCTIONS = [
 ].join(" ");
 
 /**
+ * `DISCOVERY_INSTRUCTIONS`, followed — when `discovered` is not empty —
+ * by the open issues already filed as discoveries against the ticket this
+ * run's own discoveries land on, by number and title, and the rule that a
+ * suggestion one of them already covers is not filed. Every run kind targets
+ * the same implementation ticket, so without the list each files what an
+ * earlier one already did. A target with none gets the base unchanged.
+ */
+function discoveryInstructionsFor(discovered: readonly DiscoveredIssue[] | undefined): string {
+  if (discovered === undefined || discovered.length === 0) {
+    return DISCOVERY_INSTRUCTIONS;
+  }
+  return [
+    DISCOVERY_INSTRUCTIONS,
+    "These open issues were already discovered against that ticket:",
+    discovered.map((issue) => `#${issue.number} ${issue.title}`).join("; ") + ".",
+    "Do not file a suggestion one of them already covers.",
+  ].join(" ");
+}
+
+/**
  * What the spec-reviewing agent is asked to do.
  *
  * The ticket is named explicitly for the same reason `promptFor` names the
@@ -1542,7 +1563,7 @@ const DISCOVERY_INSTRUCTIONS = [
  * `reviewPromptFor`'s does: a `--print` run gets no reply, so a reviewer
  * that stops to ask has answered nothing.
  */
-function specReviewPromptFor(ticket: SpecReviewTicket): string {
+function specReviewPromptFor(ticket: SpecReviewTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
   return [
     `Spec-review this repository. Read #${ticket.number} with`,
     `\`gh issue view ${ticket.number} --repo ${ticket.repo}\` first — name the repo explicitly`,
@@ -1558,7 +1579,7 @@ function specReviewPromptFor(ticket: SpecReviewTicket): string {
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "finish and report without asking for confirmation.",
     "A discovery you file below is about that supertask, not about this ticket.",
-    DISCOVERY_INSTRUCTIONS,
+    discoveryInstructionsFor(discovered),
   ].join(" ");
 }
 
@@ -1673,8 +1694,9 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
     spendCeiling: Usd;
     model?: ModelName;
     manager?: true;
+    discovered?: readonly DiscoveredIssue[];
   },
-  promptFor: (ticket: T) => string,
+  promptFor: (ticket: T, discovered: readonly DiscoveredIssue[] | undefined) => string,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
@@ -1688,7 +1710,10 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt: promptFor(ticket), spendCeiling, mount: "rw" },
+      { directory: clone, prompt: promptFor(ticket, request.discovered),
+        spendCeiling,
+        mount: "rw",
+      },
       model,
       roots,
       onStarted,
@@ -2003,7 +2028,7 @@ function pullRequestHeadFrom(
  * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
  * refused from one that finished.
  */
-function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
+function applyReviewPromptFor(ticket: ApplyReviewTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
   const url = ticket.pullRequest.url;
   return [
     `/apply-pr-review ${url}`,
@@ -2018,7 +2043,7 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
-    DISCOVERY_INSTRUCTIONS,
+    discoveryInstructionsFor(discovered),
   ].join("\n");
 }
 
@@ -2039,7 +2064,7 @@ function applyReviewPromptFor(ticket: ApplyReviewTicket): string {
  * half-rebased branch has no state that pushes cleanly part way through, so
  * there is nothing for an earlier push to land.
  */
-function rebasePromptFor(ticket: RebaseTicket): string {
+function rebasePromptFor(ticket: RebaseTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
   const url = ticket.pullRequest.url;
   return [
     `/rebase-pr ${url}`,
@@ -2053,7 +2078,7 @@ function rebasePromptFor(ticket: RebaseTicket): string {
     "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
-    DISCOVERY_INSTRUCTIONS,
+    discoveryInstructionsFor(discovered),
   ].join("\n");
 }
 
@@ -2079,7 +2104,11 @@ export const TICKET_GIST_TAG = "TICKET GIST:";
  * possibly-broken one, not the prior agent's, for it to check and fix or
  * rework.
  */
-function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
+function promptFor(
+  ticket: Ticket,
+  salvageBranch: Branch | undefined,
+  discovered: readonly DiscoveredIssue[] | undefined,
+): string {
   return [
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
     `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
@@ -2105,7 +2134,7 @@ function promptFor(ticket: Ticket, salvageBranch: Branch | undefined): string {
     `output with a section headed exactly \`${NIT_SECTION_HEADING}\`, listing`,
     "each one, so the pull request opened from your output carries it for",
     "the reviewer. Omit the section entirely if you have no such nit.",
-    DISCOVERY_INSTRUCTIONS,
+    discoveryInstructionsFor(discovered),
     `Finally, after that section if you gave one, end your output with a line`,
     `reading exactly \`${TICKET_GIST_TAG}\` followed by one sentence saying`,
     "what the ticket asked for — not what your diff did; the run is complete",
@@ -2198,7 +2227,7 @@ function nitsFrom(output: string): Nits | undefined {
  * change that: it is the manager posting on the developer's standing say-so,
  * given once in the registry rather than typed here.
  */
-function reviewPromptFor(ticket: ReviewTicket): string {
+function reviewPromptFor(ticket: ReviewTicket, discovered: readonly DiscoveredIssue[] | undefined): string {
   return [
     `Review ${ticket.pullRequest.url}, a draft pull request in this repository. Find the ticket it`,
     `closes from its own body (\`gh pr view ${ticket.pullRequest.url} --json body,files\`) and read that`,
@@ -2225,7 +2254,7 @@ function reviewPromptFor(ticket: ReviewTicket): string {
     "You post with the developer's own GitHub credential, so nothing marks a comment of yours",
     "apart from one the developer wrote. Never post a comment whose whole body is",
     "`/apply-review` — acting on this review is the developer's call, not yours.",
-    DISCOVERY_INSTRUCTIONS,
+    discoveryInstructionsFor(discovered),
   ].join(" ");
 }
 
