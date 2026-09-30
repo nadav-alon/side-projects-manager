@@ -7,7 +7,26 @@ import type {
   RepoHost,
   RepoSlug,
 } from "./ports/index.ts";
-import { NEEDS_REBASE, openRebaseTicketFor, REBASE_COMMENT } from "./ports/index.ts";
+import type { Milliseconds } from "./ports/index.ts";
+import {
+  NEEDS_REBASE,
+  openRebaseTicketFor,
+  REBASE_COMMENT,
+  REBASE_STATUS_RETRY_DELAY,
+} from "./ports/index.ts";
+
+/**
+ * How many times the sweep re-reads a pull request whose mergeability read
+ * `"unknown"` before it gives up on it for this sweep. Fewer tries than
+ * {@link RepoHost.needsRebase} makes: the sweep runs before every selection,
+ * across every open pull request, so one that never settles may only cost it
+ * so much.
+ */
+export const SWEEP_REREADS = 2;
+
+function realDelay(delay: Milliseconds): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
 
 /**
  * The one thing each candidate pull request of a sweep does: reading its
@@ -82,16 +101,17 @@ export interface ConflictSweepOutcome {
 /**
  * A conflict sweep of one project (`CONTEXT.md`'s "Conflict sweep", ADR
  * 0007): every open pull request whose body names the ticket it closes is
- * asked once, through {@link RepoHost.readMergeStatus}, whether it conflicts
- * with its base branch — never retried, unlike a rebase ticket's own
- * {@link RepoHost.needsRebase}. A pull request naming no closed ticket is
+ * asked, through {@link RepoHost.readMergeStatus}, whether it conflicts
+ * with its base branch; a read of `"unknown"` is re-read up to {@link
+ * SWEEP_REREADS} more times, waiting between them — fewer tries than a
+ * rebase ticket's own {@link RepoHost.needsRebase} makes. A pull request naming no closed ticket is
  * never read, labelled or commented on.
  *
  * A conflicting pull request is labelled {@link NEEDS_REBASE} unless it
  * already carries it. A clean one has the label taken off if it carries it,
  * whether or not a rebase ticket is still open for it — the label means not
  * mergeable now, and a ticket still open finds nothing to rebase and closes
- * itself. An `"unknown"` one is left exactly as it is, for the next sweep.
+ * itself. One still `"unknown"` after its re-reads is left exactly as it is, for the next sweep.
  *
  * In a turbo project, a conflicting pull request also gets {@link
  * REBASE_COMMENT} posted on it — even when labelling it was refused — unless
@@ -114,6 +134,7 @@ export async function conflictSweep(
   turbo: boolean,
   openIssues: OpenIssues,
   pendingRebasePosts: ReadonlySet<PullRequestUrl> = new Set(),
+  wait: (delay: Milliseconds) => Promise<void> = realDelay,
 ): Promise<ConflictSweepOutcome> {
   const changes: ConflictSweepChange[] = [];
   const refusals: ConflictSweepRefusal[] = [];
@@ -153,6 +174,10 @@ export async function conflictSweep(
     let status: MergeStatus;
     try {
       status = await repoHost.readMergeStatus(pullRequest.url);
+      for (let reread = 0; status === "unknown" && reread < SWEEP_REREADS; reread++) {
+        await wait(REBASE_STATUS_RETRY_DELAY);
+        status = await repoHost.readMergeStatus(pullRequest.url);
+      }
     } catch (error) {
       refusals.push({
         action: "read",

@@ -9,14 +9,16 @@ import {
   REBASE_COMMENT,
   repoSlug,
 } from "./ports/index.ts";
-import type { PullRequestUrl } from "./ports/index.ts";
+import type { MergeStatus, PullRequestUrl } from "./ports/index.ts";
 import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const NO_OPEN_ISSUES = { issues: [], truncated: false };
 
-const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
+const NO_WAIT = async () => {};
+
+const PULL_REQUEST =pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
 const OTHER_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/8");
 const THIRD_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
 
@@ -73,11 +75,25 @@ describe("conflictSweep", () => {
     ]);
     host.mergeStatus = () => "unknown";
 
-    const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES);
+    const outcome = await conflictSweep(host, PILOT, true, NO_OPEN_ISSUES, new Set(), NO_WAIT);
 
     assert.deepEqual(host.labelled, []);
     assert.deepEqual(host.comments, []);
     assert.deepEqual(outcome, { repo: PILOT, changes: [], refusals: [] });
+  });
+
+  it("re-reads an unknown pull request and acts on the settled answer", async (t) => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+    ]);
+    const answers: MergeStatus[] = ["unknown", "conflicting"];
+    t.mock.method(host, "readMergeStatus", async () => answers.shift() ?? "unknown");
+
+    const outcome = await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES, new Set(), NO_WAIT);
+
+    assert.deepEqual(host.labelled, [{ pullRequest: PULL_REQUEST, label: NEEDS_REBASE }]);
+    assert.deepEqual(outcome.changes, [{ pullRequest: PULL_REQUEST, action: "labelled" }]);
   });
 
   it("records a refused mergeability read and carries on to the next pull request", async (t) => {
