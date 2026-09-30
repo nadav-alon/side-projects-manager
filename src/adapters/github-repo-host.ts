@@ -221,10 +221,25 @@ export function githubRepoHost(
           "--",
           ...paths,
         ]);
+        // The lease is held against the remote-tracking ref, which nothing else
+        // refreshes, so it is refreshed here: a remote that moved since the last
+        // fetch would otherwise read as stale. A branch the remote has never
+        // had has nothing to fetch; any other failure is thrown, so it is not
+        // misreported as a stale lease by the push.
+        try {
+          await run("git", ["-C", directory, "fetch", "origin", branch]);
+        } catch (error) {
+          if (!/couldn't find remote ref/i.test(commandFailureMessage(error))) {
+            throw error;
+          }
+        }
+
         // `--force-with-lease`: a previous call may have already pushed this
         // branch from a base that has since moved, or from before `switchTo`
         // rebuilt it — the remote is a still-open proposal to update, not
-        // history to preserve.
+        // history to preserve. Having just fetched, the lease only guards the
+        // gap between fetch and push: commits others added to the branch are
+        // overwritten, not protected.
         await run("git", [
           "-C",
           directory,

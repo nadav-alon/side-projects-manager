@@ -56,6 +56,35 @@ async function checkout(remote = "nadav-alon/pilot"): Promise<Checkout> {
   return toCheckout(working);
 }
 
+/**
+ * A commit landing on the remote from somewhere other than `directory` — a
+ * pull request merged on GitHub, as far as the managed clone can tell. On
+ * `branch`, which must already exist on the remote.
+ */
+async function landedElsewhere(
+  directory: string,
+  file: string,
+  content = `${file}\n`,
+  branch = "main",
+): Promise<void> {
+  const { stdout: origin } = await run("git", [
+    "-C",
+    directory,
+    "remote",
+    "get-url",
+    "origin",
+  ]);
+  const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-elsewhere-"));
+  await run("git", ["clone", origin.trim(), elsewhere]);
+  await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
+  await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
+  await run("git", ["-C", elsewhere, "switch", branch]);
+  await writeFile(path.join(elsewhere, file), content);
+  await run("git", ["-C", elsewhere, "add", file]);
+  await run("git", ["-C", elsewhere, "commit", "--message", `Update ${file}`]);
+  await run("git", ["-C", elsewhere, "push", "origin", branch]);
+}
+
 /** The managed location a `checkout()` sits in. */
 function locationOf(directory: string): string {
   return path.resolve(directory, "..", "..");
@@ -303,6 +332,26 @@ describe("proposing a scaffold to a project that predates the manager", () => {
     ]);
     assert.equal(current.trim(), "main");
   });
+
+  it("updates a proposal whose remote branch moved since the clone last fetched it", async () => {
+    const directory = await existing();
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v1\n");
+    await propose(directory, ["AGENTS.md"]);
+
+    await landedElsewhere(directory, "MOVED.md", "moved\n", "harness");
+
+    await writeFile(path.join(directory, "AGENTS.md"), "# pilot v2\n");
+    const proposal = await propose(directory, ["AGENTS.md"]);
+
+    assert.equal(proposal.kind, "pushed");
+    const { stdout } = await run("git", [
+      "-C",
+      directory,
+      "show",
+      "origin/harness:AGENTS.md",
+    ]);
+    assert.equal(stdout, "# pilot v2\n");
+  });
 });
 
 describe("publishing a scaffold", () => {
@@ -499,32 +548,6 @@ describe("finding the checkout", () => {
     assert.equal(found, directory);
     assert.equal(await readFile(path.join(found, "mine.txt"), "utf8"), "kept\n");
   });
-
-  /**
-   * A commit landing on the remote from somewhere other than `directory` — a
-   * pull request merged on GitHub, as far as the managed clone can tell.
-   */
-  async function landedElsewhere(
-    directory: string,
-    file: string,
-    content = `${file}\n`,
-  ): Promise<void> {
-    const { stdout: origin } = await run("git", [
-      "-C",
-      directory,
-      "remote",
-      "get-url",
-      "origin",
-    ]);
-    const elsewhere = await mkdtemp(path.join(tmpdir(), "repo-host-elsewhere-"));
-    await run("git", ["clone", origin.trim(), elsewhere]);
-    await run("git", ["-C", elsewhere, "config", "user.email", "test@example.com"]);
-    await run("git", ["-C", elsewhere, "config", "user.name", "Test"]);
-    await writeFile(path.join(elsewhere, file), content);
-    await run("git", ["-C", elsewhere, "add", file]);
-    await run("git", ["-C", elsewhere, "commit", "--message", `Update ${file}`]);
-    await run("git", ["-C", elsewhere, "push", "origin", "main"]);
-  }
 
   /** A clone with history, tracking `origin/main`, as the loop's own clone is. */
   async function seeded(): Promise<Checkout> {
