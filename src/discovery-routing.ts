@@ -400,7 +400,10 @@ export async function priorDiscoveriesFor(
   try {
     const target = await discoveryTargetFor(tracker, ticket);
     return "error" in target ? [] : await tracker.listOpenDiscoveredTickets(target.ticket);
-  } catch {
+  } catch (error: unknown) {
+    console.warn(
+      `Could not list the discoveries already filed against #${ticket.number} in ${ticket.repo}: ${errorMessage(error)}`,
+    );
     return [];
   }
 }
