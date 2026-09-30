@@ -238,6 +238,8 @@ export type {
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
+  UxReviewOutcome,
+  UxReviewRequest,
   UniformFilesReverted,
 } from "./sandbox.ts";
 export { isTicketGist, ticketGist } from "./ticket-gist.ts";

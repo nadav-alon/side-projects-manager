@@ -20,6 +20,9 @@ import type {
   SpecReviewOutcome,
   SpecReviewRequest,
   SpecReviewTicket,
+  UxReviewOutcome,
+  UxReviewRequest,
+  UxReviewTicket,
   Ticket,
 } from "../ports/index.ts";
 import { branch, ticketKey, tokenCount, transcriptDirectory } from "../ports/index.ts";
@@ -90,6 +93,16 @@ export class FakeSandbox implements Sandbox {
 
   /** What the next spec review run comes to. A costless, finished one unless set. */
   specReviewResult: (ticket: SpecReviewTicket) => SpecReviewOutcome = () => ({
+    kind: "finished",
+    output: "",
+    tokensUsed: tokenCount(0),
+  });
+
+  /** Every ux review run asked for, in order. */
+  readonly uxReviews: UxReviewRequest[] = [];
+
+  /** What the next ux review run comes to. A costless, finished one unless set. */
+  uxReviewResult: (ticket: UxReviewTicket) => UxReviewOutcome = () => ({
     kind: "finished",
     output: "",
     tokensUsed: tokenCount(0),
@@ -227,6 +240,24 @@ export class FakeSandbox implements Sandbox {
     this.specReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.specReviewResult(request.ticket),
+    );
+  }
+
+  uxReview(
+    request: UxReviewRequest & { model: ModelName },
+    onStarted?: OnRunStarted,
+  ): Promise<UxReviewOutcome>;
+  uxReview(
+    request: UxReviewRequest & { model?: undefined },
+    onStarted?: OnRunStarted,
+  ): Promise<Exclude<UxReviewOutcome, ReviewModelRefused>>;
+  async uxReview(
+    request: UxReviewRequest,
+    onStarted?: OnRunStarted,
+  ): Promise<UxReviewOutcome> {
+    this.uxReviews.push(request);
+    return this.#inProgress(request.ticket, onStarted, () =>
+      this.uxReviewResult(request.ticket),
     );
   }
 
