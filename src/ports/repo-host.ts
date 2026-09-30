@@ -362,7 +362,8 @@ export const OPEN_PULL_REQUEST_LIMIT = 100;
 export const REBASE_STATUS_ATTEMPTS = 5;
 
 /**
- * How long {@link resolveNeedsRebase} waits before a retry. GitHub computes
+ * How long {@link resolveNeedsRebase}, and the conflict sweep's re-reads, wait
+ * before a retry. GitHub computes
  * mergeability lazily (see the module comment on {@link MergeStatus}), so a
  * retry issued in the same instant as the read before it gets back the same
  * unsettled answer; the wait is what gives GitHub's computation time to
@@ -370,8 +371,11 @@ export const REBASE_STATUS_ATTEMPTS = 5;
  */
 export const REBASE_STATUS_RETRY_DELAY: Milliseconds = milliseconds(2000);
 
-/** The real-time wait {@link resolveNeedsRebase} uses unless handed another. */
-function realDelay(delay: Milliseconds): Promise<void> {
+/**
+ * The real-time wait {@link resolveNeedsRebase} and the conflict sweep use
+ * unless handed another.
+ */
+export function realDelay(delay: Milliseconds): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 

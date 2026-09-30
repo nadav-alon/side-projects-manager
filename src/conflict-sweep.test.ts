@@ -7,9 +7,10 @@ import {
   NEEDS_REBASE,
   pullRequestUrl,
   REBASE_COMMENT,
+  REBASE_STATUS_RETRY_DELAY,
   repoSlug,
 } from "./ports/index.ts";
-import type { MergeStatus, PullRequestUrl } from "./ports/index.ts";
+import type { MergeStatus, Milliseconds, PullRequestUrl } from "./ports/index.ts";
 import { FakeIssueTracker } from "./testing/fake-issue-tracker.ts";
 import { FakeRepoHost } from "./testing/fake-repo-host.ts";
 
@@ -18,7 +19,7 @@ const NO_OPEN_ISSUES = { issues: [], truncated: false };
 
 const NO_WAIT = async () => {};
 
-const PULL_REQUEST =pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
+const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/7");
 const OTHER_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/8");
 const THIRD_PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
 
@@ -68,7 +69,7 @@ describe("conflictSweep", () => {
     assert.deepEqual(outcome.changes, []);
   });
 
-  it("leaves a pull request still unknown after its re-reads untouched but names it, in a turbo project too", async () => {
+  it("leaves a pull request still unknown after re-reads untouched but names it", async () => {
     const host = new FakeRepoHost();
     host.setOpenPullRequests(PILOT, [
       { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
@@ -104,6 +105,21 @@ describe("conflictSweep", () => {
 
     assert.deepEqual(host.labelled, [{ pullRequest: PULL_REQUEST, label: NEEDS_REBASE }]);
     assert.deepEqual(outcome.changes, [{ pullRequest: PULL_REQUEST, action: "labelled" }]);
+  });
+
+  it("waits REBASE_STATUS_RETRY_DELAY before each re-read of an unknown pull request", async () => {
+    const host = new FakeRepoHost();
+    host.setOpenPullRequests(PILOT, [
+      { url: PULL_REQUEST, labels: [], closes: issueNumber(1) },
+    ]);
+    host.mergeStatus = () => "unknown";
+    const waits: Milliseconds[] = [];
+
+    await conflictSweep(host, PILOT, false, NO_OPEN_ISSUES, new Set(), async (delay) => {
+      waits.push(delay);
+    });
+
+    assert.deepEqual(waits, [REBASE_STATUS_RETRY_DELAY, REBASE_STATUS_RETRY_DELAY]);
   });
 
   it("records a refused mergeability read and carries on to the next pull request", async (t) => {

@@ -170,6 +170,7 @@ export {
   OPEN_PULL_REQUEST_LIMIT,
   REBASE_COMMENT,
   REBASE_STATUS_RETRY_DELAY,
+  realDelay,
   resolveNeedsRebase,
   REVIEW_FINDING_FIELDS,
   reviewFindingTemplate,
