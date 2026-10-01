@@ -6794,6 +6794,55 @@ describe("morningLoop", () => {
       assert.deepEqual(numbersOf(ports.sandbox.runs), [1]);
     });
 
+    it("starts no ticket bound to the pull request of one in progress, and runs it once that one finishes", HANGS, async (t) => {
+      const ports = backlogOf(0, 2);
+      const url = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1");
+      ports.repoHost.openApplyReviewThread(url);
+      ports.repoHost.mergeStatus = () => "conflicting";
+      ports.sandbox.rebaseResult = () => {
+        ports.repoHost.mergeStatus = () => "clean";
+        return { kind: "finished", output: "rebased", tokensUsed: tokenCount(0) };
+      };
+      ports.sandbox.applyReviewResult = () => ({
+        kind: "finished",
+        output: "answered",
+        tokensUsed: tokenCount(0),
+      });
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(1),
+        title: "Apply the review",
+        pullRequest: { kind: "apply-review", url },
+      });
+      ports.tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(2),
+        title: "Rebase it",
+        pullRequest: { kind: "rebase", url },
+      });
+      ports.sandbox.hold();
+      const list = ports.tracker.listOpenIssues.bind(ports.tracker);
+      const rescanned = gate();
+      let scans = 0;
+      t.mock.method(ports.tracker, "listOpenIssues", async (repo: typeof PILOT) => {
+        const backlog = await list(repo);
+        if (++scans === 2) {
+          rescanned.open();
+        }
+        return backlog;
+      });
+
+      const invocation = morningLoop(ports);
+      await ports.sandbox.whenHeld(1);
+      await rescanned.opened;
+      assert.deepEqual(numbersOf(ports.sandbox.held()), [2]);
+      ports.sandbox.release(ticketOf(2));
+      await ports.sandbox.whenHeld(1);
+      assert.deepEqual(numbersOf(ports.sandbox.held()), [1]);
+      ports.sandbox.release(ticketOf(1));
+      const report = await invocation;
+
+      assert.deepEqual(numbersOf(report.iterations), [2, 1]);
+    });
+
     it("stands down on the gate with two in progress, starting nothing further and reporting both", HANGS, async (t) => {
       const ports = backlogOf(3, 3);
       ports.sandbox.hold();
