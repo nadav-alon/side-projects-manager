@@ -38,6 +38,20 @@ Each pass runs in the light theme and again in the dark one: emulate `prefers-co
 each, and where the app has its own theme setting, set that to match too. Done when every flow has been walked
 in all four combinations.
 
+### Signing in through a popup
+
+When the app signs in through an Auth emulator's Google popup, drive it as a person would, one
+step at a time:
+
+1. Click the app's own sign-in control.
+2. Switch to the popup's tab with `browser_tabs`.
+3. Pick the scenario's account in the emulator's chooser.
+4. Switch back to the app's tab with `browser_tabs`.
+
+Never call `signInWithPopup`, or await anything else that waits on user interaction, inside
+`browser_run_code`: nobody completes the popup there, so the call never returns and the run
+stalls until it is stood down.
+
 ## 4. Judge feel only
 
 Judge against this rubric, and nothing else:
