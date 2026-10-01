@@ -1,1 +1,1 @@
-{"apply-review": "sonnet", "implementation": "sonnet", "rebase": "claude-opus-5-5", "review": "claude-opus-5-5", "spec-review": "fable"}
+{"apply-review": "sonnet", "implementation": "sonnet", "rebase": "claude-opus-5-5", "review": "claude-opus-5-5", "spec-review": "fable", "ux-review": "fable"}

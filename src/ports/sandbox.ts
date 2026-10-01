@@ -8,6 +8,7 @@ import type {
   RebaseTicket,
   ReviewTicket,
   SpecReviewTicket,
+  UxReviewTicket,
   Ticket,
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
@@ -104,10 +105,17 @@ export interface ApplyReviewRequest {
   discovered?: readonly DiscoveredTicketSummary[];
 }
 
-/** One spec review ticket, and the project checkout it is to be worked against. */
-export interface SpecReviewRequest {
-  ticket: SpecReviewTicket;
-  /** The project's managed clone, read from but never written to. */
+/**
+ * One ticket to be reviewed, and the project checkout the run is to be worked
+ * against. The kind of ticket is all that tells one review request from another.
+ */
+export interface ReviewRequestFor<T extends Ticket> {
+  ticket: T;
+  /**
+   * The project's managed clone. A run that gets a writable throwaway clone
+   * makes it from this; the checkout itself is never written to, nor fetched
+   * back into.
+   */
   checkout: Checkout;
   spendCeiling: Usd;
   /** As `RunRequest.model`. */
@@ -115,6 +123,12 @@ export interface SpecReviewRequest {
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
 }
+
+/** One spec review ticket, and the project checkout it is to be worked against. */
+export type SpecReviewRequest = ReviewRequestFor<SpecReviewTicket>;
+
+/** One ux review ticket, and the project checkout it is to be worked against. */
+export type UxReviewRequest = ReviewRequestFor<UxReviewTicket>;
 
 /** One rebase ticket, and the project checkout it is to be worked against. */
 export interface RebaseRequest {
@@ -423,6 +437,13 @@ export type ApplyReviewOutcome =
  */
 export type SpecReviewOutcome = ReviewOutcome;
 
+/**
+ * As `SpecReviewOutcome`, for a ux review run: no branch, commits or pull
+ * request, and `ReviewFinished.output` is the report that becomes the
+ * ticket's own hand-back comment.
+ */
+export type UxReviewOutcome = ReviewOutcome;
+
 /** A rebase run that ran to completion: a review's shape, named for what ran. */
 export type RebaseFinished = ReviewFinished;
 
@@ -528,6 +549,27 @@ export interface Sandbox {
     request: SpecReviewRequest & { model?: undefined },
     onStarted?: OnRunStarted,
   ): Promise<Exclude<SpecReviewOutcome, ReviewModelRefused>>;
+
+  /**
+   * Runs the `ux-review` skill against `request.ticket`, in a container on a
+   * throwaway clone of its own that is mounted writable — the app it drives is
+   * built and served from it — but credentialled as a review is, with the
+   * separately scoped review token, and never fetched back into the checkout.
+   * Alone among the kinds, the run is given a browser through Playwright MCP.
+   * Like `specReview`, there is nowhere to post findings, so they travel back
+   * in the outcome's own output, for the caller to hand back as the ticket's
+   * comment.
+   *
+   * As `run`, a ux review naming no model can never come back refused for one.
+   */
+  uxReview(
+    request: UxReviewRequest & { model: ModelName },
+    onStarted?: OnRunStarted,
+  ): Promise<UxReviewOutcome>;
+  uxReview(
+    request: UxReviewRequest & { model?: undefined },
+    onStarted?: OnRunStarted,
+  ): Promise<Exclude<UxReviewOutcome, ReviewModelRefused>>;
 
   /**
    * Runs the `apply-pr-review` skill against `request.ticket.pullRequest`, on

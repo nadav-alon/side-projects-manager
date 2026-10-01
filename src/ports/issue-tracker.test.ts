@@ -8,11 +8,13 @@ import {
   READY_FOR_AGENT_LABEL,
   SIZE_LABEL_PREFIX,
   SPEC_REVIEW_LABEL,
+  UX_REVIEW_LABEL,
   SUPERTASK_LABEL,
   TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
+  carriesUxReviewLabel,
   carriesSupertaskLabel,
   declaredSize,
   isApplyReviewTicket,
@@ -20,6 +22,7 @@ import {
   isRebaseTicket,
   isReviewTicket,
   isSpecReviewTicket,
+  isUxReviewTicket,
   isSupertask,
   labelWasPresentAt,
   modelLabelOf,
@@ -280,6 +283,43 @@ describe("ticketKind", () => {
     );
   });
 
+  it("reads a ticket naming no pull request but carrying the ux-review label as a ux review", () => {
+    assert.equal(
+      ticketKind({
+        repo: PILOT,
+        number: issueNumber(17),
+        title: "Review how it feels",
+        uxReview: true,
+      }),
+      "ux-review",
+    );
+  });
+
+  it("prefers the pull request binding's kind over the ux-review label", () => {
+    const ticket = {
+      repo: PILOT,
+      number: issueNumber(13),
+      title: "Review #12",
+      pullRequest: { kind: "review" as const, url: PULL_REQUEST },
+      uxReview: true as const,
+    };
+
+    assert.equal(ticketKind(ticket), "review");
+  });
+
+  it("prefers the spec review label over the ux-review label", () => {
+    assert.equal(
+      ticketKind({
+        repo: PILOT,
+        number: issueNumber(18),
+        title: "Review both",
+        specReview: true,
+        uxReview: true,
+      }),
+      "spec-review",
+    );
+  });
+
   it("prefers the pull request binding's kind over the spec review label", () => {
     const ticket = {
       repo: PILOT,
@@ -290,6 +330,37 @@ describe("ticketKind", () => {
     };
 
     assert.equal(ticketKind(ticket), "review");
+  });
+});
+
+describe("carriesUxReviewLabel", () => {
+  it("finds the ux-review label among other labels, whatever its case", () => {
+    assert.equal(carriesUxReviewLabel(["bug", UX_REVIEW_LABEL]), true);
+    assert.equal(carriesUxReviewLabel(["UX-Review"]), true);
+  });
+
+  it("reads false without it", () => {
+    assert.equal(carriesUxReviewLabel(["ready-for-agent", "spec-review"]), false);
+  });
+});
+
+describe("isUxReviewTicket", () => {
+  it("reads true only for a ticket with no pull request, no spec review fact and the ux review fact", () => {
+    const base = { repo: PILOT, number: issueNumber(16), title: "Review how it feels" };
+    assert.equal(isUxReviewTicket({ ...base, uxReview: true }), true);
+    assert.equal(isUxReviewTicket(base), false);
+    assert.equal(
+      isUxReviewTicket({ ...base, uxReview: true, specReview: true }),
+      false,
+    );
+    assert.equal(
+      isUxReviewTicket({
+        ...base,
+        uxReview: true,
+        pullRequest: { kind: "review", url: PULL_REQUEST },
+      }),
+      false,
+    );
   });
 });
 

@@ -44,6 +44,7 @@ import {
   type Reviewed,
   type SpecReviewed,
   type UniformFilesTouched,
+  type UxReviewed,
 } from "./iteration-outcome.ts";
 import { modelProblem } from "./model-resolution.ts";
 import { sizeProblem } from "./size-resolution.ts";
@@ -63,6 +64,7 @@ import type {
   Salvaged,
   Size,
   SpecReviewTicket,
+  UxReviewTicket,
   Ticket,
   TokenCount,
   TranscriptPath,
@@ -775,6 +777,7 @@ function discoveryReportOf(iteration: IterationOutcome): DiscoveryReport | undef
     case "applied-review":
     case "rebased":
     case "spec-reviewed":
+    case "ux-reviewed":
     case "limit-refused":
     case "provider-failed":
       return iteration.discoveryReport;
@@ -1345,7 +1348,8 @@ function waitingSection(
       case "rebased":
         return [rebasedWaitingLine(iteration)];
       case "spec-reviewed":
-        return specReviewWaitingLine(iteration);
+      case "ux-reviewed":
+        return reportedReviewWaitingLine(iteration);
       // Closed outright, so nothing here waits on the developer — unless the
       // close itself failed, which leaves the ticket eligible and waiting the
       // same way a review or a rebase left open does.
@@ -1689,7 +1693,8 @@ function describeIteration(iteration: IterationOutcome): string {
     case "rebased":
       return `${rebasedSummary(iteration)}${transcriptNote(iteration.rebase?.transcript)}`;
     case "spec-reviewed":
-      return `${specReviewSummary(iteration)}${transcriptNote(iteration.review.transcript)}`;
+    case "ux-reviewed":
+      return `${reportedReviewSummary(iteration)}${transcriptNote(iteration.review.transcript)}`;
     case "pull-request-resolved":
       return pullRequestResolvedSummary(iteration);
     case "finished":
@@ -2109,33 +2114,36 @@ function rebasedWaitingLine(iteration: RebasedIteration): string {
   }
 }
 
-/** A spec review iteration, with the ticket it worked. */
-type SpecReviewedIteration = Attempt<SpecReviewTicket> & SpecReviewed;
+/** A spec review or ux review iteration, with the ticket it worked. */
+type ReportedReviewIteration =
+  | (Attempt<SpecReviewTicket> & SpecReviewed)
+  | (Attempt<UxReviewTicket> & UxReviewed);
 
 /**
- * How a spec review ticket's iteration reads to the developer: that it ran
- * and reported. Unlike a review, apply-review or rebase ticket's own
- * success, a spec review never closes its ticket — its findings are the
- * hand-back comment itself, per CONTEXT.md's "Spec review ticket" — so this
- * names only that it ran, plus whatever `handedBackNow` says when the
- * hand-back itself was refused.
+ * How a spec review or ux review ticket's iteration reads to the developer:
+ * that it ran and reported. Unlike a review, apply-review or rebase ticket's
+ * own success, neither closes its ticket — its findings are the hand-back
+ * comment itself, per CONTEXT.md's "Spec review ticket" and "UX review
+ * ticket" — so this names only that it ran, plus whatever `handedBackNow` says
+ * when the hand-back itself was refused.
  */
-function specReviewSummary(iteration: SpecReviewedIteration): string {
+function reportedReviewSummary(iteration: ReportedReviewIteration): string {
   const { repo, ticket, handedBack } = iteration;
   const now =
     handedBack.outcome === "refused"
       ? ` ${handedBackNow(ticketReference(ticket), handedBack)}`
       : "";
-  return `Spec-reviewed ${repo}#${ticket.number}: its findings are on the ticket.${now}`;
+  const verb = iteration.kind === "spec-reviewed" ? "Spec-reviewed" : "UX-reviewed";
+  return `${verb} ${repo}#${ticket.number}: its findings are on the ticket.${now}`;
 }
 
 /**
- * The Waiting-on-you line for a spec review iteration: relabelled for a
+ * The Waiting-on-you line for a spec review or ux review iteration: relabelled for a
  * human with its findings on the ticket, or still eligible when the
  * hand-back itself failed. Nothing when an overlapping run had already
  * closed the ticket — left exactly as it found it.
  */
-function specReviewWaitingLine(iteration: SpecReviewedIteration): string[] {
+function reportedReviewWaitingLine(iteration: ReportedReviewIteration): string[] {
   const { repo, ticket, handedBack } = iteration;
   if (handedBack.outcome === "refused") {
     return [stillEligibleLine(iteration)];

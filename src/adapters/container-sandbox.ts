@@ -33,6 +33,9 @@ import type {
   SpecReviewOutcome,
   SpecReviewRequest,
   SpecReviewTicket,
+  UxReviewOutcome,
+  UxReviewRequest,
+  UxReviewTicket,
   Ticket,
   TicketKind,
   TranscriptDirectory,
@@ -363,13 +366,24 @@ export class AgentNeverRan extends Error {
  * `"ro"` is half of what makes a reviewer's inability to push enforced rather
  * than merely asked for: a commit, or a push staged from *this* clone, fails
  * at the filesystem before it ever reaches a credential. The other half is
- * the credential itself — `envFor` forwards a separately scoped one for a
- * `"ro"` run, so a push staged from anywhere else in the container (a fresh
- * clone into `/tmp`, say) still cannot reach GitHub. Between the two, nothing
+ * the credential itself — see `Credential`: a `"ro"` run is always handed
+ * the separately scoped one, so a push staged from anywhere else in the
+ * container (a fresh clone into `/tmp`, say) still cannot reach GitHub.
+ * Between the two, nothing
  * in this adapter's own doc comments needs to repeat that story; they refer
  * back to this one instead.
  */
 export type Mount = "rw" | "ro";
+
+/**
+ * Which GitHub credential the container is handed as `GH_TOKEN`: the
+ * developer's own push-capable one, or the separately scoped
+ * `GH_REVIEW_TOKEN`. A `"ro"` mount always takes the review one, but the
+ * two are not the same choice — a ux review's clone is writable, because the
+ * app it drives builds into it, and still never gets a credential that could
+ * push what it wrote.
+ */
+export type Credential = "developer" | "review";
 
 /**
  * What one container invocation needs: the clone to mount, the prompt to run,
@@ -385,6 +399,12 @@ export interface RunOptions {
   prompt: string;
   spendCeiling: Usd;
   mount: Mount;
+  credential: Credential;
+  /**
+   * Set only for a ux review: starts the Playwright MCP server the image
+   * carries, via `--mcp-config`. Absent, the agent has no browser.
+   */
+  playwrightMcp?: true;
   /** As `RunRequest.model`, absent to leave the image's own pin in force. */
   model?: ModelName;
   /**
@@ -513,7 +533,7 @@ export function containerSandbox(
     request: ReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
-    return reviewOnClone(container, request, roots, onStarted);
+    return pullRequestReviewOnClone(container, request, roots, onStarted);
   }
 
   function applyReview(
@@ -561,11 +581,42 @@ export function containerSandbox(
     return specReviewOnClone(container, request, roots, onStarted);
   }
 
-  return { run, review, applyReview, rebase, specReview };
+  function uxReview(
+    request: UxReviewRequest & { model: ModelName },
+    onStarted?: OnRunStarted,
+  ): Promise<UxReviewOutcome>;
+  function uxReview(
+    request: UxReviewRequest & { model?: undefined },
+    onStarted?: OnRunStarted,
+  ): Promise<Exclude<UxReviewOutcome, ReviewModelRefused>>;
+  function uxReview(
+    request: UxReviewRequest,
+    onStarted?: OnRunStarted,
+  ): Promise<UxReviewOutcome> {
+    return uxReviewOnClone(container, request, roots, onStarted);
+  }
+
+  return { run, review, applyReview, rebase, specReview, uxReview };
 }
 
 /**
- * The five shapes a sandboxed run comes in — named for `withThrowawayClone`
+ * The Playwright MCP server the image carries (see the Dockerfile), as the
+ * agent CLI is told to start it: headless over stdio, isolated so no browser
+ * profile outlives the run, and `--no-sandbox` because Chromium's own sandbox
+ * needs user namespaces a container's default seccomp profile withholds — the
+ * container is the sandbox, as `scripts/verify-harness.ts` drives it too.
+ */
+const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
+  mcpServers: {
+    playwright: {
+      command: "playwright-mcp",
+      args: ["--headless", "--isolated", "--no-sandbox", "--output-dir", "/tmp/playwright-mcp"],
+    },
+  },
+});
+
+/**
+ * The six shapes a sandboxed run comes in — named for `withThrowawayClone`
  * and `attempt` alike. `TicketKind` with `"implementation"` spelled `"run"`:
  * derived, rather than spelled out again, so a kind added to `TicketKind`
  * forces the issue here too, as it already does at `SELECTION_RANK`.
@@ -684,6 +735,7 @@ async function runOnClone(
           prompt: promptFor(ticket, chosen.resuming ? onto : undefined, request.discovered),
           spendCeiling,
           mount: "rw",
+          credential: "developer",
         },
         model,
         roots,
@@ -1418,20 +1470,23 @@ function reviewOutcomeOf(
 }
 
 /**
- * A reviewer's run, of either kind: a throwaway clone of its own, exactly
- * like an implementation run, but mounted read-only and never fetched back —
- * a review leaves nothing on the checkout, because what it produces is a
- * comment on GitHub or, for a spec review, its own report, never a branch.
+ * A reviewer's run, of any kind: a throwaway clone of its own, exactly like
+ * an implementation run, and never fetched back — a review leaves nothing on
+ * the checkout, because what it produces is a comment on GitHub or, for a
+ * spec or ux review, its own report, never a branch.
  *
  * No branch is created either: a reviewer has nothing to commit, and asking
- * for one would suggest it might. The read-only mount is what routes
- * `envFor` onto `GH_REVIEW_TOKEN`, stated here once for both kinds.
+ * for one would suggest it might. Every reviewer is credentialled with
+ * `GH_REVIEW_TOKEN` (see `Credential`). `access` is the one way the kinds
+ * differ: a review and a spec review read the clone `"ro"`, where a ux
+ * review's is writable and starts the browser.
  */
-async function reviewOnReadOnlyClone(
+async function reviewOnClone(
   container: Container,
-  kind: "review" | "spec-review",
-  request: ReviewRequest | SpecReviewRequest,
+  kind: "review" | "spec-review" | "ux-review",
+  request: ReviewRequest | SpecReviewRequest | UxReviewRequest,
   prompt: string,
+  access: Pick<RunOptions, "mount" | "playwrightMcp">,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<ReviewOutcome> {
@@ -1444,7 +1499,7 @@ async function reviewOnReadOnlyClone(
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt, spendCeiling, mount: "ro" },
+      { directory: clone, prompt, spendCeiling, credential: "review", ...access },
       model,
       roots,
       onStarted,
@@ -1454,17 +1509,18 @@ async function reviewOnReadOnlyClone(
   });
 }
 
-async function reviewOnClone(
+async function pullRequestReviewOnClone(
   container: Container,
   request: ReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<ReviewOutcome> {
-  return reviewOnReadOnlyClone(
+  return reviewOnClone(
     container,
     "review",
     request,
     reviewPromptFor(request.ticket, request.discovered),
+    { mount: "ro" },
     roots,
     onStarted,
   );
@@ -1476,11 +1532,29 @@ async function specReviewOnClone(
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
 ): Promise<SpecReviewOutcome> {
-  return reviewOnReadOnlyClone(
+  return reviewOnClone(
     container,
     "spec-review",
     request,
     specReviewPromptFor(request.ticket, request.discovered),
+    { mount: "ro" },
+    roots,
+    onStarted,
+  );
+}
+
+async function uxReviewOnClone(
+  container: Container,
+  request: UxReviewRequest,
+  roots: SandboxRoots,
+  onStarted?: OnRunStarted,
+): Promise<UxReviewOutcome> {
+  return reviewOnClone(
+    container,
+    "ux-review",
+    request,
+    uxReviewPromptFor(request.ticket, request.discovered),
+    { mount: "rw", playwrightMcp: true },
     roots,
     onStarted,
   );
@@ -1586,6 +1660,35 @@ function specReviewPromptFor(
     "A discovery you file below is about that supertask, not about this ticket.",
     discoveryInstructionsFor(discovered),
   ].join(" ");
+}
+
+/**
+ * What the ux-reviewing agent is asked to do: invoke the `ux-review` skill on
+ * the ticket, named by its address since the clone's origin is a local path
+ * and nothing GitHub-shaped can be inferred from it. The skill says how; its
+ * report is the run's own output, which the caller hands back as the
+ * ticket's comment, as for a spec review (see `Sandbox.uxReview`).
+ *
+ * The clone is writable because the app it builds and serves lives in it, but
+ * the run is a review: nothing is committed or pushed, and nothing written
+ * comes back. The run is unattended, for the reason `specReviewPromptFor`'s
+ * is.
+ */
+function uxReviewPromptFor(
+  ticket: UxReviewTicket,
+  discovered: readonly DiscoveredTicketSummary[] | undefined,
+): string {
+  return [
+    `/ux-review https://github.com/${ticket.repo}/issues/${ticket.number}`,
+    "",
+    "Name the repo explicitly wherever gh needs one, since this clone's origin is a local path and",
+    "gh cannot infer it. This is a review, not an implementation: do not commit or push",
+    "anything, and whatever you write into this clone is thrown away with it. Report what you find.",
+    "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
+    "finish and report without asking for confirmation.",
+    "",
+    discoveryInstructionsFor(discovered),
+  ].join("\n");
 }
 
 /**
@@ -1720,6 +1823,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         prompt: promptFor(ticket, request.discovered),
         spendCeiling,
         mount: "rw",
+        credential: "developer",
       },
       model,
       roots,
@@ -2488,7 +2592,7 @@ const dockerContainer: Container = async (options) => {
     );
   }
 
-  const env = envFor(options.mount);
+  const env = envFor(options.credential);
   const cidFile = path.join(options.transcriptDirectory, "container-id");
   const command = dockerCommand(options, cidFile);
 
@@ -2631,8 +2735,9 @@ function exitStatus(error: unknown): number | undefined {
  * The environment `docker` itself runs in, which is what `--env GH_TOKEN`
  * (named, not valued) forwards into the container.
  *
- * An `"rw"` run gets the developer's own `gh` credential, same as ever. A
- * `"ro"` run gets a distinct one, required rather than falling back: `Mount`
+ * A `"developer"` run gets the developer's own `gh` credential. A
+ * `"review"` run — every `"ro"` one, and a ux review's writable one — gets a
+ * distinct one, required rather than falling back: `Mount`
  * explains why a read-only mount alone does not stop a push staged from
  * somewhere else in the container, and forwarding the same push-capable
  * credential there regardless would leave that gap wide open. `GH_REVIEW_TOKEN`
@@ -2641,8 +2746,8 @@ function exitStatus(error: unknown): number | undefined {
  * and a push or a merge attempted with it is refused by GitHub itself,
  * wherever in the container it was staged from.
  */
-function envFor(mount: Mount): NodeJS.ProcessEnv {
-  if (mount !== "ro") {
+function envFor(credential: Credential): NodeJS.ProcessEnv {
+  if (credential !== "review") {
     return process.env;
   }
 
@@ -2684,8 +2789,8 @@ function dockerNeverRan(error: unknown): boolean {
  * declining the work. A test sees them the way any caller does: in the
  * argument list a recorded `docker` on `PATH` was actually invoked with.
  *
- * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `mount` —
- * see `Mount` and `envFor` for which credential answers to that name.
+ * `GH_TOKEN` and `GITHUB_TOKEN` are named the same regardless of `credential` —
+ * see `Credential` and `envFor` for which credential answers to that name.
  *
  * `transcriptDirectory` is mounted too — see `TRANSCRIPT_MOUNT` — so the
  * agent CLI's own session transcript lands on the host the same way the
@@ -2706,6 +2811,7 @@ function dockerCommand(
     prompt,
     spendCeiling,
     mount,
+    playwrightMcp,
     model,
     transcriptDirectory,
     discoveriesDirectory,
@@ -2761,6 +2867,10 @@ function dockerCommand(
     // a shell, so whatever the name contains reaches the CLI as one argument
     // rather than being interpreted.
     ...(model === undefined ? [] : ["--model", model]),
+    // Only a run that asked for a browser gets one: the server is a process
+    // per run, and every other kind has no use for it. Inline JSON rather than
+    // a file, so there is nothing to mount or keep in step with the image.
+    ...(playwrightMcp === true ? ["--mcp-config", PLAYWRIGHT_MCP_CONFIG] : []),
     // Without this the agent cannot act on the ticket at all. `--print`
     // defaults to `--permission-prompts host`, and there is no host here:
     // `execFile` is not one, and no `--permission-prompt-tool` is passed. So

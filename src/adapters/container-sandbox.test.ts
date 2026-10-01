@@ -36,6 +36,7 @@ import {
   TRANSCRIPTS_DIRECTORY,
   type AgentRun,
   type Container,
+  type Credential,
   type Mount,
   type PullRequestHead,
 } from "./container-sandbox.ts";
@@ -67,6 +68,7 @@ import {
   type SpecReviewOutcome,
   type SpecReviewTicket,
   type Ticket,
+  type UxReviewTicket,
 } from "../ports/index.ts";
 import {
   AGENT_BRIEF_BODY,
@@ -135,6 +137,13 @@ const SPEC_REVIEW_TICKET: SpecReviewTicket = {
   number: issueNumber(50),
   title: "Review the loop spec",
   specReview: true,
+};
+
+const UX_REVIEW_TICKET: UxReviewTicket = {
+  repo: repoSlug("nadav-alon/pilot"),
+  number: issueNumber(51),
+  title: "Review how the app feels",
+  uxReview: true,
 };
 
 const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
@@ -3424,6 +3433,168 @@ function applyReviewOn(sandbox: Sandbox, directory: Checkout) {
   });
 }
 
+describe("containerSandbox.uxReview", () => {
+  it("mounts a clone of its own writable, credentialled as a review, with a browser", async () => {
+    const directory = await project();
+    const seen: string[] = [];
+    const options: {
+      mount?: Mount;
+      credential?: Credential;
+      playwrightMcp?: true;
+    }[] = [];
+    const sandbox = testSandbox(async ({ directory: mounted, mount, credential, playwrightMcp }) => {
+      seen.push(mounted);
+      options.push({ mount, credential, ...(playwrightMcp && { playwrightMcp }) });
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.uxReview({
+      ticket: UX_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(seen.length, 1);
+    assert.notEqual(seen[0], directory);
+    assert.deepEqual(options, [{ mount: "rw", credential: "review", playwrightMcp: true }]);
+  });
+
+  it("asks for no browser, and a developer credential only where a run needs one, for every other kind", async () => {
+    const directory = await project();
+    const seen: { credential: Credential; playwrightMcp?: true }[] = [];
+    const sandbox = testSandbox(async ({ credential, playwrightMcp }) => {
+      seen.push({ credential, ...(playwrightMcp && { playwrightMcp }) });
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.specReview({
+      ticket: SPEC_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.deepEqual(seen, [
+      { credential: "developer" },
+      { credential: "review" },
+      { credential: "review" },
+    ]);
+  });
+
+  it("passes the ux review's model to the agent CLI the same way a run does", async () => {
+    const directory = await project();
+    let seenModel: string | undefined;
+    const sandbox = testSandbox(async ({ model }) => {
+      seenModel = model;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.uxReview({
+      ticket: UX_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      model: modelName("fable"),
+    });
+
+    assert.equal(seenModel, "fable");
+  });
+
+  it("invokes the ux-review skill on the ticket, forbids committing, and gives the discovery instructions", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.uxReview({
+      ticket: UX_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.ok(
+      asked.startsWith(
+        `/ux-review https://github.com/nadav-alon/pilot/issues/${UX_REVIEW_TICKET.number}`,
+      ),
+    );
+    assert.match(asked, /do not commit or push/);
+    assert.match(asked, /unattended/);
+    assertDiscoveryInstructions(asked);
+  });
+
+  it("hands the agent's own output back as the outcome, and leaves the checkout and its branches as they were", async () => {
+    const directory = await project();
+    const before = (await run("git", ["-C", directory, "branch", "--list"])).stdout;
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      await writeFile(path.join(mounted, "scratch.txt"), "built here\n");
+      await run("git", ["-C", mounted, "add", "."]);
+      await run("git", ["-C", mounted, "commit", "--quiet", "-m", "scratch"]);
+      return { output: "The layout jumps on load.", tokensUsed: tokenCount(3) };
+    });
+
+    const result = await sandbox.uxReview({
+      ticket: UX_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(result.kind, "finished");
+    assert.equal(variant(result, "finished")?.output, "The layout jumps on load.");
+    assert.equal(
+      (await run("git", ["-C", directory, "branch", "--list"])).stdout,
+      before,
+    );
+    assert.equal(await exists(path.join(directory, "scratch.txt")), false);
+  });
+
+  it("takes the clone away once the run finishes", async () => {
+    const directory = await project();
+    let clone = "";
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      clone = mounted;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.uxReview({
+      ticket: UX_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.equal(await exists(clone), false);
+  });
+
+  it("refuses to start with no separately scoped credential, though its clone is writable", async (t) => {
+    const directory = await project();
+    const oauth = process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+    const reviewToken = process.env["GH_REVIEW_TOKEN"];
+    process.env["CLAUDE_CODE_OAUTH_TOKEN"] = "test-oauth-token";
+    delete process.env["GH_REVIEW_TOKEN"];
+    t.after(() => {
+      if (oauth === undefined) {
+        delete process.env["CLAUDE_CODE_OAUTH_TOKEN"];
+      } else {
+        process.env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth;
+      }
+      if (reviewToken !== undefined) {
+        process.env["GH_REVIEW_TOKEN"] = reviewToken;
+      }
+    });
+
+    await assert.rejects(
+      testSandbox().uxReview({
+        ticket: UX_REVIEW_TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+      }),
+      (error: Error) =>
+        error instanceof AgentNeverRan && /GH_REVIEW_TOKEN/.test(error.message),
+    );
+  });
+});
+
 describe("containerSandbox.applyReview", () => {
   it("mounts a clone of its own, read-write, on the pull request's head branch as the repo host has it", async () => {
     const { directory, headCommit } = await hostedProject();
@@ -4789,6 +4960,81 @@ fi`;
       call?.includes("--permission-mode"),
       "no --permission-mode: a review denied Bash cannot even run gh to post its findings",
     );
+  });
+
+  it("gives a ux review Playwright MCP over --mcp-config, and no other kind", async (t) => {
+    const answer = dockerAnswering(JSON.stringify({ result: "" }));
+    const { docker } = await runWithDocker(
+      t,
+      answer,
+      async (sandbox, directory) => {
+        await sandbox.uxReview({
+          ticket: UX_REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        });
+        await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+        await sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+        await sandbox.specReview({
+          ticket: SPEC_REVIEW_TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        });
+      },
+      "ro",
+    );
+
+    const [uxReview, ...others] = await docker.calls();
+    const config = JSON.parse(valueOf(uxReview, "--mcp-config") ?? "null");
+    assert.equal(config.mcpServers.playwright.command, "playwright-mcp");
+    assert.ok(config.mcpServers.playwright.args.includes("--headless"));
+    assert.ok(
+      (uxReview?.indexOf("--mcp-config") ?? -1) > (uxReview?.indexOf("--print") ?? Infinity),
+      "--mcp-config must reach the CLI, not docker",
+    );
+    assert.equal(others.length, 3);
+    for (const call of others) {
+      assert.equal(call.includes("--mcp-config"), false);
+    }
+  });
+
+  it("mounts a ux review's clone writable, yet hands the container the review token as GH_TOKEN", async (t) => {
+    const seenTokens = path.join(await mkdtemp(path.join(tmpdir(), "tokens-")), "seen");
+    const saved = {
+      GH_TOKEN: process.env["GH_TOKEN"],
+      GITHUB_TOKEN: process.env["GITHUB_TOKEN"],
+    };
+    t.after(() => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      }
+    });
+    process.env["GH_TOKEN"] = "developer-token";
+    process.env["GITHUB_TOKEN"] = "developer-token";
+    withCredential(t, "ro");
+    process.env["GH_REVIEW_TOKEN"] = "review-token";
+    const directory = await project();
+    const docker = await recordingDocker(
+      t,
+      [
+        `printf '%s %s\\n' "$GH_TOKEN" "$GITHUB_TOKEN" >> ${shQuote(seenTokens)}`,
+        dockerAnswering(JSON.stringify({ result: "" })),
+      ].join("\n"),
+    );
+
+    await testSandbox().uxReview({
+      ticket: UX_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    const [call] = await docker.calls();
+    assert.ok(volumesOf(call)[0]?.endsWith(":/repo"), "a ux review mounts read-write");
+    assert.equal(await readFile(seenTokens, "utf8"), "review-token review-token\n");
   });
 
   it("forwards the same credential names to the container regardless of mount", async (t) => {

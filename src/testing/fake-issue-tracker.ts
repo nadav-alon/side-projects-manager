@@ -24,12 +24,14 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   SPEC_REVIEW_LABEL,
+  UX_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
   TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
+  carriesUxReviewLabel,
   carriesSupertaskLabel,
   discoveredBody,
   discoveredTicketLabels,
@@ -108,20 +110,25 @@ export interface FakeDiscoveredTicket {
 /**
  * An open issue as the fake holds it: its ticket facts and its links, flat,
  * without what the fake works out on each listing — no `eligible`,
- * `modelLabel`, `sizeLabel`, `supertask`, `specReview` or `readyDiscovery`,
- * which come from the labels it carries — and `openBlockerNumbers` optional,
+ * `modelLabel`, `sizeLabel`, `supertask`, `specReview`, `uxReview` or
+ * `readyDiscovery`, which come from the labels it carries — and `openBlockerNumbers` optional,
  * since most tests give none.
  */
 type StoredIssue = Omit<
   Ticket,
-  "modelLabel" | "sizeLabel" | "supertask" | "specReview" | "readyDiscovery"
+  | "modelLabel"
+  | "sizeLabel"
+  | "supertask"
+  | "specReview"
+  | "uxReview"
+  | "readyDiscovery"
 > &
   Partial<Pick<OpenIssue, "parent" | "openBlockerNumbers">>;
 
 /**
  * A ticket as a test hands it to the fake. No `modelLabel`, `sizeLabel`,
- * `supertask`, `specReview` or `readyDiscovery`, not even on a wider
- * `Ticket`: the fake reads all five from the labels a ticket holds, the way
+ * `supertask`, `specReview`, `uxReview` or `readyDiscovery`, not even on a
+ * wider `Ticket`: the fake reads all six from the labels a ticket holds, the way
  * the real tracker does.
  */
 type TicketInput = Omit<StoredIssue, "repo"> & {
@@ -129,6 +136,7 @@ type TicketInput = Omit<StoredIssue, "repo"> & {
   sizeLabel?: never;
   supertask?: never;
   specReview?: never;
+  uxReview?: never;
   readyDiscovery?: never;
 };
 
@@ -251,6 +259,16 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const supertask = this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
     this.addLabel(supertask, SUPERTASK_LABEL);
     return supertask;
+  }
+
+  /**
+   * Puts a ux review ticket — carrying `READY_FOR_AGENT_LABEL` and the ux-review
+   * label — in `repo`'s backlog and returns it.
+   */
+  addUxReviewTicket(repo: RepoSlug, ticket: TicketInput): Ticket {
+    const uxReview = this.#add(repo, ticket, READY_FOR_AGENT_LABEL);
+    this.addLabel(uxReview, UX_REVIEW_LABEL);
+    return uxReview;
   }
 
   /**
@@ -400,6 +418,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     const sizeLabel = sizeLabelOf(entry.labels);
     const supertask = carriesSupertaskLabel(entry.labels);
     const specReview = carriesSpecReviewLabel(entry.labels);
+    const uxReview = carriesUxReviewLabel(entry.labels);
     const readyDiscovery = carriesReadyDiscoveryLabel(entry.labels);
     return {
       ...ticket,
@@ -407,6 +426,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
       ...(sizeLabel !== undefined && { sizeLabel }),
       ...(supertask && { supertask }),
       ...(specReview && { specReview }),
+      ...(uxReview && { uxReview }),
       ...(readyDiscovery && { readyDiscovery }),
     };
   }
