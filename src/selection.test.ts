@@ -17,6 +17,7 @@ import {
   reviewTitle,
   ticketPriority,
   type Day,
+  type PullRequestUrl,
   type Ticket,
   type WorkedTicket,
 } from "./ports/index.ts";
@@ -34,6 +35,8 @@ import {
 } from "./testing/index.ts";
 
 const TODAY = localDay(FROZEN_NOW);
+
+const NO_PULL_REQUESTS: ReadonlySet<PullRequestUrl> = new Set();
 
 /**
  * One invocation's selection, built the way `morningLoop` builds it: from the
@@ -77,7 +80,7 @@ async function drain(
 ): Promise<Selection[]> {
   const selections: Selection[] = [];
   for (;;) {
-    const chosen = await selection.next();
+    const chosen = await selection.next(NO_PULL_REQUESTS);
     if (chosen === undefined) {
       return selections;
     }
@@ -92,7 +95,7 @@ describe("invocationSelection", () => {
     const tracker = new FakeIssueTracker();
     const { selection } = await open(store, tracker);
 
-    assert.equal(await selection.next(), undefined);
+    assert.equal(await selection.next(NO_PULL_REQUESTS), undefined);
     assert.deepEqual(selection.verdicts(), []);
   });
 
@@ -103,7 +106,7 @@ describe("invocationSelection", () => {
     store.register(PILOT);
     const { selection } = await open(store, tracker);
 
-    assert.equal(await selection.next(), undefined);
+    assert.equal(await selection.next(NO_PULL_REQUESTS), undefined);
     assert.deepEqual(verdicts(selection.verdicts()), [
       [MANAGER, "no-eligible-tickets"],
       [PILOT, "no-eligible-tickets"],
@@ -118,7 +121,7 @@ describe("invocationSelection", () => {
     const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
     const { selection } = await open(store, tracker);
 
-    await selection.next();
+    await selection.next(NO_PULL_REQUESTS);
 
     assert.equal(listOpenIssues.mock.callCount(), 2);
     assert.deepEqual(
@@ -134,7 +137,7 @@ describe("invocationSelection", () => {
     tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const { selection } = await open(store, tracker);
 
-    const chosen = await selection.next();
+    const chosen = await selection.next(NO_PULL_REQUESTS);
 
     assert.equal(chosen?.project.repo, PILOT);
     assert.equal(chosen?.ticket.number, 7);
@@ -150,9 +153,9 @@ describe("invocationSelection", () => {
     const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
     const { selection, recordWorked } = await open(store, tracker);
 
-    const first = await selection.next();
+    const first = await selection.next(NO_PULL_REQUESTS);
     recordWorked(first!.ticket, TODAY);
-    await selection.next();
+    await selection.next(NO_PULL_REQUESTS);
 
     // Twice each: once to select PILOT's one ticket, and again once it is
     // worked, to confirm nothing else — MANAGER included — was left waiting.
@@ -169,12 +172,12 @@ describe("invocationSelection", () => {
     tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const { selection, recordWorked } = await open(store, tracker);
 
-    const first = await selection.next();
+    const first = await selection.next(NO_PULL_REQUESTS);
     recordWorked(first!.ticket, TODAY);
     // Registered only after the first scan, as the developer hand-editing
     // the registry mid-morning would leave it.
     store.register(MANAGER);
-    await selection.next();
+    await selection.next(NO_PULL_REQUESTS);
 
     assert.deepEqual(verdicts(selection.verdicts()), [
       [PILOT, "selected"],
@@ -211,11 +214,11 @@ describe("invocationSelection", () => {
     tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     const { selection, recordWorked } = await open(store, tracker);
 
-    const first = await selection.next();
+    const first = await selection.next(NO_PULL_REQUESTS);
     recordWorked(first!.ticket, TODAY);
     // A second scan of the same backlog finds nothing left to select — the
     // sticky verdict from the first scan is what must survive it.
-    const second = await selection.next();
+    const second = await selection.next(NO_PULL_REQUESTS);
 
     assert.equal(second, undefined);
     assert.deepEqual(verdicts(selection.verdicts()), [[PILOT, "selected"]]);
@@ -230,7 +233,7 @@ describe("invocationSelection", () => {
       const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(listOpenIssues.mock.callCount(), 0);
       assert.equal(chosen, undefined);
@@ -269,7 +272,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -290,7 +293,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -310,7 +313,7 @@ describe("invocationSelection", () => {
       await tracker.handBack(ticket, "gave up");
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -330,7 +333,7 @@ describe("invocationSelection", () => {
       );
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -354,7 +357,7 @@ describe("invocationSelection", () => {
       tracker.closeOutOfBand(subIssue);
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       // Never the supertask itself, per issue #516's own spec review sweep:
       // what closing the last sub-issue makes selectable is the spec review
@@ -378,7 +381,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 67);
       // Selected for #67, yet the verdict still names #66 as passed over.
@@ -399,7 +402,7 @@ describe("invocationSelection", () => {
       );
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -428,7 +431,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 7);
     });
@@ -453,7 +456,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 7);
     });
@@ -468,7 +471,7 @@ describe("invocationSelection", () => {
       );
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(
         selection.verdicts()[0]?.supertasks?.map((ticket) => ticket.number),
@@ -493,7 +496,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 7);
       assert.deepEqual(
@@ -517,7 +520,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 9);
       assert.deepEqual(
@@ -541,7 +544,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
     });
@@ -565,7 +568,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
     });
@@ -589,7 +592,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(selection.verdicts()[0]?.missingSupertaskLabel, undefined);
     });
@@ -603,7 +606,7 @@ describe("invocationSelection", () => {
       tracker.addBlockedTicket(PILOT, { number: issueNumber(56), title: "Waits on #55" }, 1);
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -622,7 +625,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 55);
       assert.deepEqual(
@@ -685,7 +688,77 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, rebaseTicket(9));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
+
+      assert.equal(chosen?.ticket.number, 9);
+    });
+
+    it("skips a ticket bound to the pull request of one in progress, and selects the next eligible ticket", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, rebaseTicket(9));
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(10), title: "Add the thing" });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next(new Set([SOME_PULL_REQUEST]));
+
+      assert.equal(chosen?.ticket.number, 10);
+    });
+
+    it("skips a review ticket bound to the pull request of one in progress", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const implementation = tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(7),
+        title: "Add the thing",
+      });
+      tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
+      const { selection } = await open(store, tracker);
+
+      const whileRunning = await selection.next(new Set([SOME_PULL_REQUEST]));
+
+      assert.equal(whileRunning?.ticket.number, 7);
+      const afterwards = await selection.next(NO_PULL_REQUESTS);
+      assert.equal(afterwards?.ticket.number, 8);
+    });
+
+    it("selects the skipped ticket once the one in progress has finished, and never reports it passed over", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, rebaseTicket(9));
+      const { selection } = await open(store, tracker);
+
+      const whileRunning = await selection.next(new Set([SOME_PULL_REQUEST]));
+      const afterwards = await selection.next(NO_PULL_REQUESTS);
+
+      assert.equal(whileRunning, undefined);
+      assert.equal(afterwards?.ticket.number, 9);
+      const [verdict] = selection.verdicts();
+      assert.equal(verdict?.supertasks, undefined);
+      assert.equal(verdict?.blocked, undefined);
+    });
+
+    it("still selects a ticket bound to a different pull request while one is in progress", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Rebase the other",
+        pullRequest: {
+          kind: "rebase",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/2"),
+        },
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next(new Set([SOME_PULL_REQUEST]));
 
       assert.equal(chosen?.ticket.number, 9);
     });
@@ -699,7 +772,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, rebaseTicket(8));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -716,7 +789,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, applyReviewTicket(9));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 9);
     });
@@ -735,7 +808,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 8);
     });
@@ -752,7 +825,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -770,7 +843,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -793,7 +866,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, applyReviewTicket(9));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
       assert.equal(chosen?.ticket.number, 9);
@@ -811,7 +884,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, applyReviewTicket(9));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 9);
     });
@@ -829,7 +902,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 8);
     });
@@ -850,7 +923,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, reviewOf(implementation, 8));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       // PILOT's review goes first, however MANAGER — registered first, no
       // priority set for either — would otherwise have sorted.
@@ -873,7 +946,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, reviewOf(implementation, 9));
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 9);
     });
@@ -894,7 +967,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 8);
     });
@@ -917,7 +990,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      assert.equal((await selection.next())?.ticket.number, 9);
+      assert.equal((await selection.next(NO_PULL_REQUESTS))?.ticket.number, 9);
     });
 
     it("selects a ux review ticket over an older implementation ticket in the same backlog", async () => {
@@ -934,7 +1007,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 8);
     });
@@ -954,7 +1027,7 @@ describe("invocationSelection", () => {
       });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
       assert.equal(chosen?.ticket.number, 8);
@@ -972,7 +1045,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -989,7 +1062,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -1008,7 +1081,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -1027,7 +1100,7 @@ describe("invocationSelection", () => {
       tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, PILOT);
     });
@@ -1049,7 +1122,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 8);
       });
@@ -1070,7 +1143,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 8);
       });
@@ -1091,7 +1164,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 7);
       });
@@ -1117,7 +1190,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 9);
       });
@@ -1144,7 +1217,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 9);
         assert.deepEqual(
@@ -1198,7 +1271,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.project.repo, MANAGER);
       });
@@ -1229,7 +1302,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 10);
       });
@@ -1280,7 +1353,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 8);
       });
@@ -1314,7 +1387,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 8);
       });
@@ -1349,7 +1422,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.ticket.number, 8);
       });
@@ -1370,7 +1443,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.project.repo, MANAGER);
       });
@@ -1394,7 +1467,7 @@ describe("invocationSelection", () => {
         });
         const { selection } = await open(store, tracker);
 
-        const chosen = await selection.next();
+        const chosen = await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(chosen?.project.repo, MANAGER);
       });
@@ -1409,7 +1482,7 @@ describe("invocationSelection", () => {
         tracker.truncateBacklog(PILOT);
         const { selection } = await open(store, tracker);
 
-        await selection.next();
+        await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(selection.verdicts()[0]?.backlogTruncated, true);
       });
@@ -1429,7 +1502,7 @@ describe("invocationSelection", () => {
 
         // One scan only: PILOT's verdict from this first scan is the one
         // being checked, before a later scan could give it another turn.
-        await selection.next();
+        await selection.next(NO_PULL_REQUESTS);
 
         const pilot = selection
           .verdicts()
@@ -1449,7 +1522,7 @@ describe("invocationSelection", () => {
         tracker.truncateBacklog(PILOT);
         const { selection } = await open(store, tracker);
 
-        await selection.next();
+        await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(selection.verdicts()[0]?.verdict, "no-eligible-tickets");
         assert.equal(selection.verdicts()[0]?.backlogTruncated, true);
@@ -1462,7 +1535,7 @@ describe("invocationSelection", () => {
         tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
         const { selection } = await open(store, tracker);
 
-        await selection.next();
+        await selection.next(NO_PULL_REQUESTS);
 
         assert.equal(selection.verdicts()[0]?.backlogTruncated, undefined);
       });
@@ -1476,7 +1549,7 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(selection.verdicts()[0]?.lastWorkedAt, undefined);
     });
@@ -1488,7 +1561,7 @@ describe("invocationSelection", () => {
       store.markWorked(PILOT, YESTERDAY);
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(selection.verdicts()[0]?.lastWorkedAt, YESTERDAY);
     });
@@ -1507,7 +1580,7 @@ describe("invocationSelection", () => {
       store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 8);
     });
@@ -1525,7 +1598,7 @@ describe("invocationSelection", () => {
       store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.project.repo, MANAGER);
       assert.equal(chosen?.ticket.number, 7);
@@ -1539,7 +1612,7 @@ describe("invocationSelection", () => {
       store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -1556,7 +1629,7 @@ describe("invocationSelection", () => {
       store.markWorkedOn(TODAY, { repo: PILOT, number: issueNumber(55) });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [
@@ -1572,7 +1645,7 @@ describe("invocationSelection", () => {
       store.markWorkedOn(localDay(YESTERDAY), { repo: PILOT, number: issueNumber(7) });
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 7);
     });
@@ -1592,7 +1665,7 @@ describe("invocationSelection", () => {
       repoHost.mergeStatus = () => "conflicting";
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(repoHost.labelled, [
         { pullRequest: PULL_REQUEST, label: NEEDS_REBASE },
@@ -1610,7 +1683,7 @@ describe("invocationSelection", () => {
       const listOpenPullRequests = t.mock.method(repoHost, "listOpenPullRequests");
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(listOpenPullRequests.mock.callCount(), 0);
       assert.deepEqual(selection.sweeps(), []);
@@ -1627,7 +1700,7 @@ describe("invocationSelection", () => {
       repoHost.mergeStatus = () => "conflicting";
       const { selection } = await open(store, tracker, { repoHost });
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen, undefined);
       assert.deepEqual(verdicts(selection.verdicts()), [[PILOT, "no-eligible-tickets"]]);
@@ -1652,7 +1725,7 @@ describe("invocationSelection", () => {
       repoHost.mergeStatus = () => "conflicting";
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(repoHost.comments, [
         { pullRequest: TURBO_PULL_REQUEST, body: REBASE_COMMENT },
@@ -1673,8 +1746,8 @@ describe("invocationSelection", () => {
       repoHost.mergeStatus = () => "conflicting";
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(repoHost.comments, [
         { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
@@ -1703,17 +1776,17 @@ describe("invocationSelection", () => {
       repoHost.mergeStatus = () => "conflicting";
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       const rebaseTicket = tracker.addEligibleTicket(PILOT, {
         number: issueNumber(2),
         title: "Rebase #1",
         pullRequest: { kind: "rebase", url: PULL_REQUEST },
       });
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       tracker.closeOutOfBand(rebaseTicket);
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(repoHost.comments, [
         { pullRequest: PULL_REQUEST, body: REBASE_COMMENT },
@@ -1740,7 +1813,7 @@ describe("invocationSelection", () => {
       const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(listOpenIssues.mock.callCount(), 2);
       assert.deepEqual(repoHost.labelled, [
@@ -1755,8 +1828,8 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       const { selection } = await open(store, tracker, { repoHost });
 
-      await selection.next();
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(selection.sweeps(), [
         { repo: PILOT, changes: [], settled: [], refusals: [] },
@@ -1775,7 +1848,7 @@ describe("invocationSelection", () => {
       };
       const { selection } = await open(store, tracker, { repoHost });
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 7);
       assert.deepEqual(selection.sweeps(), [
@@ -1801,7 +1874,7 @@ describe("invocationSelection", () => {
       tracker.closeOutOfBand(child);
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(tracker.specReviewTickets.length, 1);
       assert.equal(tracker.specReviewTickets[0]?.parent.number, 40);
@@ -1815,7 +1888,7 @@ describe("invocationSelection", () => {
       const listSubIssues = t.mock.method(tracker, "listSubIssues");
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(listSubIssues.mock.callCount(), 0);
       assert.deepEqual(selection.specReviewSweeps(), []);
@@ -1837,7 +1910,7 @@ describe("invocationSelection", () => {
       tracker.closeOutOfBand(child);
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 42);
     });
@@ -1850,7 +1923,7 @@ describe("invocationSelection", () => {
       const listOpenIssues = t.mock.method(tracker, "listOpenIssues");
       const { selection } = await open(store, tracker);
 
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(listOpenIssues.mock.callCount(), 1);
     });
@@ -1872,8 +1945,8 @@ describe("invocationSelection", () => {
       tracker.closeOutOfBand(child);
       const { selection } = await open(store, tracker);
 
-      await selection.next();
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(tracker.specReviewTickets.length, 1);
     });
@@ -1884,8 +1957,8 @@ describe("invocationSelection", () => {
       store.register(PILOT);
       const { selection } = await open(store, tracker);
 
-      await selection.next();
-      await selection.next();
+      await selection.next(NO_PULL_REQUESTS);
+      await selection.next(NO_PULL_REQUESTS);
 
       assert.deepEqual(selection.specReviewSweeps(), [
         { repo: PILOT, opened: [], linked: [], refusals: [] },
@@ -1913,7 +1986,7 @@ describe("invocationSelection", () => {
       };
       const { selection } = await open(store, tracker);
 
-      const chosen = await selection.next();
+      const chosen = await selection.next(NO_PULL_REQUESTS);
 
       assert.equal(chosen?.ticket.number, 7);
       const [swept] = selection.specReviewSweeps();

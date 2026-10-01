@@ -151,14 +151,23 @@ export interface SelectionPorts {
 export interface InvocationSelection {
   /**
    * The project and ticket the next iteration should work, or `undefined`
-   * once no non-paused project has an eligible, not-yet-worked ticket.
+   * when nothing is selectable on this call: no non-paused project has an
+   * eligible, not-yet-worked ticket, or each one that does is bound to a
+   * pull request still in progress.
    *
    * Every non-paused project is scanned, never just enough to find one:
    * priority can make a project registered last outrank one registered
    * first, so the only way to know which project wins is to have looked at
    * all of them.
+   *
+   * A ticket bound to one of the pull requests in `pullRequestsInProgress` is
+   * not selectable on this call: two runs on one pull request would race to push
+   * its branch. It is neither passed over nor handed back, so a later call,
+   * once that ticket finishes, can select it.
    */
-  next(): Promise<Selection | undefined>;
+  next(
+    pullRequestsInProgress: ReadonlySet<PullRequestUrl>,
+  ): Promise<Selection | undefined>;
   /**
    * Every registered project seen by any call to `next` so far, in the order
    * each was first seen, with why it was skipped — or, once it has been,
@@ -222,9 +231,10 @@ export function invocationSelection(
   const pendingRebasePosts = new Set<PullRequestUrl>();
 
   return {
-    next: () =>
+    next: (pullRequestsInProgress) =>
       scan(
         ports,
+        pullRequestsInProgress,
         projectStates,
         passingOver,
         outcomesByRepo,
@@ -280,11 +290,13 @@ interface ScanFindings {
  * A project left with no selectable ticket reads as already worked today
  * when `passingOver` already passes over at least one eligible ticket, and
  * reads the same as an empty backlog otherwise — including when every
- * ticket left is merely blocked or a supertask. Either way it was still
+ * ticket left is merely blocked or a supertask, or is held back because its
+ * pull request is in progress. Either way it was still
  * swept: both sweeps run whether or not anything turns out eligible.
  */
 async function scan(
   ports: SelectionPorts,
+  pullRequestsInProgress: ReadonlySet<PullRequestUrl>,
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
   passingOver: PassesOverTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
@@ -371,11 +383,17 @@ async function scan(
     // can be exercised against the fake, which reads the same label, and the
     // summary can still name what it passed over. A ticket an open ticket
     // blocks is set aside the same way: its work builds on work not yet
-    // done.
+    // done. A ticket bound to a pull request in progress is a third reason,
+    // and deliberately recorded nowhere: that is what keeps it from counting
+    // as passed over or handed back, so it must not be pushed into a list the
+    // summary reports.
     const supertasks: Ticket[] = [];
     const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
     for (const ticket of backlog) {
+      if (isBoundToPullRequestInProgress(ticket, pullRequestsInProgress)) {
+        continue;
+      }
       if (isSupertask(ticket)) {
         supertasks.push(ticket);
       } else if (isBlocked(ticket)) {
@@ -468,6 +486,18 @@ async function scan(
   return winner === undefined
     ? undefined
     : { project: winner.project, ticket: winner.ticket };
+}
+
+/**
+ * Whether `ticket` is bound to one of `pullRequestsInProgress`. A ticket with
+ * no pull request binding never is.
+ */
+function isBoundToPullRequestInProgress(
+  ticket: Ticket,
+  pullRequestsInProgress: ReadonlySet<PullRequestUrl>,
+): boolean {
+  const bound = ticket.pullRequest?.url;
+  return bound !== undefined && pullRequestsInProgress.has(bound);
 }
 
 /**

@@ -392,10 +392,18 @@ export async function morningLoop(
           break;
         }
 
-        const chosen = await selecting.next();
+        const chosen = await selecting.next(
+          new Set(
+            [...inProgress.values()].flatMap((running) =>
+              running.pullRequest === undefined ? [] : [running.pullRequest.url],
+            ),
+          ),
+        );
         if (chosen === undefined) {
           // An iteration in progress can still queue work — a finished run's
-          // review ticket — so nothing left means nothing left once none is.
+          // review ticket — or release a ticket held back because it shares
+          // that run's pull request, so nothing left means nothing left once
+          // none is.
           if (inProgress.size === 0) {
             break;
           }
