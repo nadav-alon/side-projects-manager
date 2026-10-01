@@ -35,8 +35,26 @@ Drive the app with Playwright MCP, walking every flow from step 1 in this order:
 2. One desktop pass at 1280×800.
 
 Each pass runs in the light theme and again in the dark one: emulate `prefers-color-scheme` for
-each, and where the app has its own theme setting, set that to match too. Done when every flow has been walked
-in all four combinations.
+each, and where the app has its own theme setting, set that to match too.
+
+### Signing in through a popup
+
+When the app signs in through the Firebase Auth emulator's Google popup, drive it as a person would,
+one step at a time:
+
+1. Click the app's own sign-in control.
+2. List the tabs with `browser_tabs`, then switch to the popup's.
+3. Pick the scenario's account in the emulator's chooser: the one the `ux` script's output names for
+   the scenario. If it names none, take the chooser's only account; if there are several, say so in
+   the report rather than guess.
+4. The popup usually closes itself once an account is picked. List the tabs again and select the
+   app's if it is not already the current one.
+
+Never call `signInWithPopup`, or await anything else that waits on user interaction, inside
+`browser_run_code_unsafe` or `browser_evaluate`: nobody completes the popup there, so the call never
+returns and the run stalls until the sandbox kills it.
+
+Done when every flow has been walked in all four combinations.
 
 ## 4. Judge feel only
 
