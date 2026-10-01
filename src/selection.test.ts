@@ -690,6 +690,58 @@ describe("invocationSelection", () => {
       assert.equal(chosen?.ticket.number, 9);
     });
 
+    it("skips a ticket bound to the pull request of one in progress, and selects the next eligible ticket", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const running = tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, rebaseTicket(9));
+      tracker.addEligibleTicket(PILOT, { number: issueNumber(10), title: "Add the thing" });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next([running]);
+
+      assert.equal(chosen?.ticket.number, 10);
+    });
+
+    it("selects the skipped ticket once the one in progress has finished, and never reports it passed over", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const running = tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, rebaseTicket(9));
+      const { selection } = await open(store, tracker);
+
+      const whileRunning = await selection.next([running]);
+      const afterwards = await selection.next();
+
+      assert.equal(whileRunning, undefined);
+      assert.equal(afterwards?.ticket.number, 9);
+      const [verdict] = selection.verdicts();
+      assert.equal(verdict?.supertasks, undefined);
+      assert.equal(verdict?.blocked, undefined);
+    });
+
+    it("still selects a ticket bound to a different pull request while one is in progress", async () => {
+      const store = new FakeStore();
+      const tracker = new FakeIssueTracker();
+      store.register(PILOT);
+      const running = tracker.addEligibleTicket(PILOT, applyReviewTicket(8));
+      tracker.addEligibleTicket(PILOT, {
+        number: issueNumber(9),
+        title: "Rebase the other",
+        pullRequest: {
+          kind: "rebase",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/2"),
+        },
+      });
+      const { selection } = await open(store, tracker);
+
+      const chosen = await selection.next([running]);
+
+      assert.equal(chosen?.ticket.number, 9);
+    });
+
     it("selects a project with a rebase ticket before one with an apply-review ticket, even with explicit registry priority", async () => {
       const store = new FakeStore();
       const tracker = new FakeIssueTracker();

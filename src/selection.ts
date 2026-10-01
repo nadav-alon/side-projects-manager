@@ -157,8 +157,13 @@ export interface InvocationSelection {
    * priority can make a project registered last outrank one registered
    * first, so the only way to know which project wins is to have looked at
    * all of them.
+   *
+   * A ticket bound to the same pull request as one of `inProgress` is not
+   * selectable on this call: two runs on one pull request would race to push
+   * its branch. It is neither passed over nor handed back, so a later call,
+   * once that ticket finishes, can select it.
    */
-  next(): Promise<Selection | undefined>;
+  next(inProgress?: readonly Ticket[]): Promise<Selection | undefined>;
   /**
    * Every registered project seen by any call to `next` so far, in the order
    * each was first seen, with why it was skipped — or, once it has been,
@@ -222,9 +227,10 @@ export function invocationSelection(
   const pendingRebasePosts = new Set<PullRequestUrl>();
 
   return {
-    next: () =>
+    next: (inProgress = []) =>
       scan(
         ports,
+        inProgress,
         projectStates,
         passingOver,
         outcomesByRepo,
@@ -285,6 +291,7 @@ interface ScanFindings {
  */
 async function scan(
   ports: SelectionPorts,
+  inProgress: readonly Ticket[],
   projectStates: ReadonlyMap<RepoSlug, ProjectState>,
   passingOver: PassesOverTickets,
   outcomesByRepo: Map<RepoSlug, ProjectOutcome>,
@@ -376,6 +383,9 @@ async function scan(
     const blocked: Ticket[] = [];
     const selectable: Ticket[] = [];
     for (const ticket of backlog) {
+      if (isBoundToPullRequestInProgress(ticket, inProgress)) {
+        continue;
+      }
       if (isSupertask(ticket)) {
         supertasks.push(ticket);
       } else if (isBlocked(ticket)) {
@@ -468,6 +478,21 @@ async function scan(
   return winner === undefined
     ? undefined
     : { project: winner.project, ticket: winner.ticket };
+}
+
+/**
+ * Whether `ticket` is bound to a pull request some ticket in `inProgress` is
+ * bound to as well. A ticket with no pull request binding never is.
+ */
+function isBoundToPullRequestInProgress(
+  ticket: Ticket,
+  inProgress: readonly Ticket[],
+): boolean {
+  const bound = ticket.pullRequest?.url;
+  return (
+    bound !== undefined &&
+    inProgress.some((running) => running.pullRequest?.url === bound)
+  );
 }
 
 /**

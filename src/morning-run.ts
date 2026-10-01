@@ -392,7 +392,7 @@ export async function morningLoop(
           break;
         }
 
-        const chosen = await selecting.next();
+        const chosen = await selecting.next([...inProgress.values()]);
         if (chosen === undefined) {
           // An iteration in progress can still queue work — a finished run's
           // review ticket — so nothing left means nothing left once none is.
