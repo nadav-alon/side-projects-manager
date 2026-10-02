@@ -757,8 +757,11 @@ export type MergeGate =
    * gate rejected — worth naming to the developer — or to there being no
    * grant to report at all: the implementation ticket unresolvable, missing
    * a run span, or never labelled `turboable` in the first place.
+   * `declinedInRunSpan` is set only for a grant declined because it fell
+   * inside a run span: the implementation ticket to re-grant with
+   * `npm run grant`, which the summary names under Waiting on you.
    */
-  | { kind: "not-turboable"; reason: string; declinedGrant: boolean }
+  | { kind: "not-turboable"; reason: string; declinedGrant: boolean; declinedInRunSpan?: Ticket }
   /**
    * The gate never settled eligibility: reading the implementation ticket's
    * turboable timeline itself failed, so whether it carried `turboable` in

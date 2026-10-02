@@ -2482,11 +2482,19 @@ async function mergeGate(
     if (consent.reason === "never-labeled") {
       return { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false };
     }
-    const reason =
-      consent.reason === "not-labeled-in-time"
-        ? "not turboable before its own run started"
-        : "turboable granted inside a run span";
-    return { kind: "not-turboable", reason, declinedGrant: true };
+    if (consent.reason === "inside-run-span") {
+      return {
+        kind: "not-turboable",
+        reason: "turboable granted inside a run span",
+        declinedGrant: true,
+        declinedInRunSpan: implementation,
+      };
+    }
+    return {
+      kind: "not-turboable",
+      reason: "not turboable before its own run started",
+      declinedGrant: true,
+    };
   }
 
   const pullRequest = ticket.pullRequest.url;
