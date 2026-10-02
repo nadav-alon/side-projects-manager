@@ -48,6 +48,11 @@ runs it automatically — it's a command the developer runs once, and it's safe 
 after a checkout moves: re-running replaces a stale registration — a leftover daily cron line, a
 logon-guard rc snippet, or a cron line pointing at the old checkout path — with the current one.
 
+`npm run grant -- owner/repo#n` labels a ticket `turboable` as the developer and writes the grant
+record that lets the merge gate count it even if it lands inside an unrelated run's span — see
+[ADR 0012](docs/adr/0012-a-host-only-grant-record-vouches-for-a-grant-inside-a-run-span.md). It refuses a
+project whose `turbo` is off.
+
 `npm run halt` stops every trigger from doing anything, scheduled or manual, until `npm run resume`
 clears it — both commands are idempotent, and say what they did. Distinct from pausing every project
 in `registry.json`: a halt is a file of its own under the manager home

@@ -47,7 +47,8 @@ write failed leaves no span for this check to see; a ticket run more than once k
 latest run's span, so an earlier run's own grant is no longer covered once that ticket runs again;
 and a span a crash left open reads as ended at its own start rather than covering everything after
 it, so a grant that crashed run itself made between its own start and its death now falls outside
-its own span too, and counts as consent.
+its own span too, and counts as consent. ADR 0012 amends this third check: a grant inside a span
+still counts when a host-only grant record, written by `npm run grant`, matches it.
 
 **One pass, bounded the same way apply-review and rebase already are.** "Merge once finished" could
 otherwise cycle indefinitely through rebase and apply-review chasing a moving mergeable state. Only
@@ -83,7 +84,8 @@ it is, turboable assumes every pull request stands alone.
   same repo — closes the gap a run labeling a *different*, not-yet-run ticket leaves in the other two.
   Known gaps: a failed span write leaves no span to check; a ticket's later run replaces its
   earlier run's span; and a span a crash left open reads as ended at its own start, so a grant that
-  crashed run itself made before its death now falls outside its own span too.
+  crashed run itself made before its death now falls outside its own span too. Amended by ADR 0012:
+  a matching grant record lets a grant inside a span count.
 - **Fires once**, with a bounded wait on pending checks, right after the one apply-review run a
   turboable ticket's pull request already gets, or, when its review comes back clean, right after
   that review's own run instead: merge — mergeable and green — or `ready-for-human` on the pull
