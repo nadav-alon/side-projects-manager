@@ -21,7 +21,7 @@ says the loop itself should not run right now, on this machine, whatever the reg
 it into `registry.json` would make "pause every project" and "halt" the same edit again, which is
 the confusion #765 was opened to resolve.
 
-**Nor the state document's.** `state.json` is committed, machine-written, and rewritten wholesale
+**Nor the state document's.** `state.json` is machine-written and rewritten wholesale
 each invocation — it is what the loop has done, not what a developer is asking it not to do. A halt
 belongs beside the invocation lease instead: a file under the manager home that answers one question
 by its own presence, gitignored like `invocation.lease` and `trigger.log`, so engaging or clearing it
