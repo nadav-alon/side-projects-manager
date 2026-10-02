@@ -13,6 +13,8 @@ import {
 
 const OLD_CRON_MARKER =
   "# side-projects-manager: daily schedule (see scripts/install-triggers.sh)";
+const OLD_HOURLY_CRON_MARKER =
+  "# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)";
 
 /**
  * `guarded-morning-run.ts` by default: what every installer that ever wrote
@@ -64,13 +66,22 @@ describe("the schedule registration", () => {
     });
   });
 
-  it("reports armed with the minute and the manager home it points at", async (t) => {
+  it("reports not registered for an old hourly-marker line, so the installer replaces it", async (t) => {
+    const home = await tempHome("trigger-registrations");
+    withPath(t, await crontabStubBin([cronLine(home, OLD_HOURLY_CRON_MARKER)]));
+
+    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+      registered: false,
+    });
+  });
+
+  it("reports armed with the step and the manager home it points at", async (t) => {
     const home = await tempHome("trigger-registrations");
     withPath(t, await crontabStubBin([cronLine(home)]));
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: true,
-      minute: "0",
+      step: "15",
       managerHome: home,
     });
   });
@@ -82,7 +93,7 @@ describe("the schedule registration", () => {
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
       registered: true,
-      minute: "0",
+      step: "15",
       managerHome: moved,
     });
     assert.notEqual(moved, home);
@@ -91,7 +102,7 @@ describe("the schedule registration", () => {
   it("reports not registered for a marked line whose trigger-script path cannot be parsed", async (t) => {
     withPath(
       t,
-      await crontabStubBin([`0 * * * * /usr/bin/node /no/quotes/here ${CRON_MARKER}`]),
+      await crontabStubBin([`*/15 * * * * /usr/bin/node /no/quotes/here ${CRON_MARKER}`]),
     );
 
     assert.deepEqual(await systemTriggerRegistrations().schedule(), {
@@ -99,19 +110,21 @@ describe("the schedule registration", () => {
     });
   });
 
-  it("reports not registered for a marked line whose minute field is not a single whole number", async (t) => {
-    const home = await tempHome("trigger-registrations");
-    withPath(
-      t,
-      await crontabStubBin([
-        `*/15 * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${CRON_MARKER}`,
-      ]),
-    );
+  for (const field of ["0", "*", "0,30", "*/25"]) {
+    it(`reports not registered for a marked line whose minute field, ${field}, is not an even step`, async (t) => {
+      const home = await tempHome("trigger-registrations");
+      withPath(
+        t,
+        await crontabStubBin([
+          `${field} * * * * /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${CRON_MARKER}`,
+        ]),
+      );
 
-    assert.deepEqual(await systemTriggerRegistrations().schedule(), {
-      registered: false,
+      assert.deepEqual(await systemTriggerRegistrations().schedule(), {
+        registered: false,
+      });
     });
-  });
+  }
 
   it("finds the marked line among other crontab entries", async (t) => {
     const home = await tempHome("trigger-registrations");

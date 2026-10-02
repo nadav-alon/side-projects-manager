@@ -289,7 +289,7 @@ describe("the status command", () => {
 
     const { stdout } = await run(home, [cronLine(CHECKOUT_ROOT)]);
 
-    assert.match(stdout, /Schedule: armed, firing every hour at :00\./);
+    assert.match(stdout, /Schedule: armed, firing every 15 minutes\./);
   });
 
   it("reports the schedule as a problem when the crontab points at a different manager home", async () => {

@@ -90,8 +90,8 @@ The single issue an invocation writes in the manager repo, covering every attemp
 what now needs the developer. An invocation that worked something always publishes one; a quiet or
 broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none
 has been published yet that local calendar day, recorded in the state document with that day once
-the publish succeeds, so a loop firing every hour still reports one quiet or broken morning rather
-than up to twenty-four. "Worked something" excludes a run the provider limit refused, alongside a
+the publish succeeds, so a loop firing every 15 minutes still reports one quiet or broken morning rather
+than up to ninety-six. "Worked something" excludes a run the provider limit refused, alongside a
 ticket handed back ahead of the gate: neither ran, so an invocation whose iterations were only
 those, however many, is a stand-down like any other — unless one of those limit refusals left a
 branch in the project checkout, kept because git refused to delete it or salvaged on purpose, or
@@ -127,13 +127,13 @@ _Avoid_: broken, alert
 ### Triggers
 
 **Trigger**:
-Whatever calls `morningLoop`: the hourly schedule, a manual `npm run morning-run`, or any future
+Whatever calls `morningLoop`: the schedule, a manual `npm run morning-run`, or any future
 cloud trigger. Carries no logic of its own beyond deciding whether to call — the loop itself never
 knows which one called it.
 _Avoid_: caller (when trigger is meant), cron job, entry point
 
 **Logon guard**:
-A trigger that once fired on every new interactive shell, dropped once the hourly schedule made it
+A trigger that once fired on every new interactive shell, dropped once the cron schedule made it
 redundant: cron starts with the machine, so nothing a shell launch would catch is missed anymore.
 `scripts/install-triggers.sh` no longer installs one, only strips one left behind by an older
 install, and the status command still checks for it — an rc block an upgrade hasn't cleared yet is

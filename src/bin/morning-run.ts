@@ -48,7 +48,7 @@ const INTERRUPTED = 130;
 
 /**
  * The trigger side of the loop: the composition root, and nothing else. Every
- * trigger — the hourly schedule and a developer running `npm run morning-run`
+ * trigger — the schedule and a developer running `npm run morning-run`
  * by hand — calls this file directly, and the invocation lease here
  * (`../trigger-guard.ts`) is what stops two of them overlapping: whichever
  * acquires it runs the loop, and every other firing, however long that one

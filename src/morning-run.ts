@@ -286,8 +286,8 @@ async function currentInvocation(
  *
  * The summary always publishes when the invocation worked something; a quiet
  * or broken invocation publishes only if none has been announced yet today,
- * so a loop firing every hour reports one quiet or broken morning rather than
- * up to twenty-four.
+ * so a loop firing every 15 minutes reports one quiet or broken morning rather than
+ * up to ninety-six.
  *
  * A developer's stop is a stand-down like the other two: noticed wherever the
  * loop would otherwise start something, never by cutting short what is already

@@ -1,9 +1,9 @@
-import type { CronMinute } from "./ports/index.ts";
+import type { CronStep } from "./ports/index.ts";
 
 /**
  * What one trigger's registration looks like on this machine, read from
  * whatever `scripts/install-triggers.sh` leaves behind: the crontab marker
- * for the hourly schedule, the delimited rc block a logon guard from an
+ * for the schedule, the delimited rc block a logon guard from an
  * older install may still leave behind.
  *
  * Not one of the loop's six ports (CONTEXT.md: Port) — the loop never sees
@@ -17,10 +17,10 @@ export type TriggerRegistration =
   | { readonly registered: false }
   | { readonly registered: true; readonly managerHome: string };
 
-/** The schedule's registration, additionally carrying the minute it fires each hour when registered. */
+/** The schedule's registration, additionally carrying the minutes between its firings when registered. */
 export type ScheduleRegistration =
   | { readonly registered: false }
-  | { readonly registered: true; readonly managerHome: string; readonly minute: CronMinute };
+  | { readonly registered: true; readonly managerHome: string; readonly step: CronStep };
 
 /** Where the status command reads whether the schedule and a logon guard are registered. */
 export interface TriggerRegistrations {

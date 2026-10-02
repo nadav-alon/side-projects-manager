@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Registers the trigger docs/specs/morning-loop.md calls for: an hourly
-# schedule (cron), which fast-forwards this checkout and then calls
-# morning-run.ts (src/bin/morning-run.ts).
+# Registers the trigger docs/specs/morning-loop.md calls for: a schedule
+# (cron) firing every 15 minutes, which fast-forwards this checkout and then
+# calls morning-run.ts (src/bin/morning-run.ts).
 # The invocation lease inside it is what stops two firings overlapping — with
 # a manual `npm run morning-run` too.
 #
 # Idempotent: re-running leaves an up-to-date registration alone, and
-# replaces a stale one — whether that's a leftover daily cron line, a cron
-# line pointing at a checkout that has since moved, or a logon-guard rc
+# replaces a stale one — whether that's a leftover daily or hourly cron line,
+# a cron line pointing at a checkout that has since moved, or a logon-guard rc
 # block — with the current registration.
 #
 # Not run automatically by anything in this repo — it edits the developer's
@@ -57,14 +57,21 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-CRON_MARKER_OLD="# side-projects-manager: daily schedule (see scripts/install-triggers.sh)"
-CRON_MARKER="# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)"
+# Markers older installers wrote, each on a line this one replaces.
+CRON_MARKER_DAILY="# side-projects-manager: daily schedule (see scripts/install-triggers.sh)"
+CRON_MARKER_HOURLY="# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)"
+CRON_MARKER="# side-projects-manager: schedule (see scripts/install-triggers.sh)"
 # A firing runs the loop from this checkout's own source, so it pulls first —
 # otherwise every merged fix to the loop waits on a developer's manual pull.
 # Fast-forward only, and `;` rather than `&&`: a pull that can't apply (the
 # network is down, the checkout has diverged) is logged, and the loop still
 # runs on the code it has.
-CRON_LINE="0 * * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"$CRON_PATH\"; git -C \"$REPO_DIR\" pull --ff-only -q >> \"$LOG_FILE\" 2>&1; $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
+#
+# Every 15 minutes: a firing while an invocation is still in flight is a
+# no-op (the invocation lease), and a quiet invocation publishes at most one
+# summary a day, so firing often costs only a pull and a few reads — and a
+# ticket labelled ready waits minutes, not up to an hour.
+CRON_LINE="*/15 * * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"$CRON_PATH\"; git -C \"$REPO_DIR\" pull --ff-only -q >> \"$LOG_FILE\" 2>&1; $NODE_BIN \"$TRIGGER_SCRIPT\" >> \"$LOG_FILE\" 2>&1 $CRON_MARKER"
 
 RC_BEGIN="# >>> side-projects-manager: logon guard >>>"
 RC_END="# <<< side-projects-manager: logon guard <<<"
@@ -72,20 +79,27 @@ RC_END="# <<< side-projects-manager: logon guard <<<"
 install_cron() {
   local existing status
   existing="$(crontab -l 2>/dev/null || true)"
-  if grep -qxF "$CRON_LINE" <<<"$existing" && ! grep -qF "$CRON_MARKER_OLD" <<<"$existing"; then
+  if grep -qxF "$CRON_LINE" <<<"$existing" \
+    && ! grep -qF "$CRON_MARKER_DAILY" <<<"$existing" \
+    && ! grep -qF "$CRON_MARKER_HOURLY" <<<"$existing"; then
     echo "cron: already installed, leaving it alone."
     return
   fi
-  if grep -qF "$CRON_MARKER_OLD" <<<"$existing"; then
-    status="cron: replaced the daily line with the hourly one."
+  if grep -qF "$CRON_MARKER_DAILY" <<<"$existing"; then
+    status="cron: replaced the daily line with one firing every 15 minutes."
+  elif grep -qF "$CRON_MARKER_HOURLY" <<<"$existing"; then
+    status="cron: replaced the hourly line with one firing every 15 minutes."
   elif grep -qF "$CRON_MARKER" <<<"$existing"; then
-    status="cron: updated the hourly line."
+    status="cron: updated the schedule line."
   else
-    status="cron: installed, firing hourly."
+    status="cron: installed, firing every 15 minutes."
   fi
   {
     if [ -n "$existing" ]; then
-      printf '%s\n' "$existing" | grep -vF "$CRON_MARKER_OLD" | grep -vF "$CRON_MARKER" || true
+      printf '%s\n' "$existing" \
+        | grep -vF "$CRON_MARKER_DAILY" \
+        | grep -vF "$CRON_MARKER_HOURLY" \
+        | grep -vF "$CRON_MARKER" || true
     fi
     echo "$CRON_LINE"
   } | crontab -

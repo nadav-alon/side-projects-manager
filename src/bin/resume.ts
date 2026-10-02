@@ -6,7 +6,7 @@ import { MANAGER_HOME } from "../adapters/manager-home.ts";
 import { errorMessage } from "../error-message.ts";
 
 /**
- * Clears the halt (CONTEXT.md: Halt): the next firing, hourly or manual, runs
+ * Clears the halt (CONTEXT.md: Halt): the next firing, scheduled or manual, runs
  * normally again. Idempotent — clearing a halt that was never engaged says so
  * rather than pretending it just happened.
  *

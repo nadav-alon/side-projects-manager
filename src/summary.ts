@@ -530,7 +530,7 @@ function whyStoodDown(
 
 /**
  * The summary issue's title: dated to the local day, with the local time to
- * the minute beside it, so a firing every hour still reads in order rather
+ * the minute beside it, so a firing every 15 minutes still reads in order rather
  * than several summaries sharing one indistinguishable title.
  */
 export function summaryTitle(startedAt: Date): string {
@@ -713,8 +713,8 @@ function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
  * left in the checkout, or a discovery filed, must reach the developer today
  * rather than wait a day. A quiet or broken one publishes only when today has
  * not already been announced, per CONTEXT.md's "Summary" — a loop firing
- * every hour still reports one quiet or broken morning rather than up to
- * twenty-four.
+ * every 15 minutes still reports one quiet or broken morning rather than up to
+ * ninety-six.
  */
 export async function composeInvocationReport(
   tracker: SummaryTracker,

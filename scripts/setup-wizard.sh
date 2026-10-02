@@ -209,7 +209,7 @@ _install_rc_env() {
 # _crontab_upsert_var NAME VALUE: sets NAME=VALUE as a crontab-level
 # environment line (applies to every job below it), replacing any existing
 # line for NAME. Cron reads neither .bashrc nor .zshrc, so this is the only
-# way the hourly schedule sees these credentials.
+# way the schedule sees these credentials.
 _crontab_upsert_var() {
   local name="$1" value="$2" existing
   existing="$(crontab -l 2>/dev/null || true)"
@@ -346,10 +346,10 @@ else
   SKIPPED+=("git hooks — run 'npm run hooks:install' from $REPO_DIR to be warned when a merge outdates the sandbox image")
 fi
 
-# ── Stage 5: the hourly schedule ────────────────────────────────────────────
+# ── Stage 5: the schedule ───────────────────────────────────────────────────
 stage "Triggers"
-say "An hourly cron schedule, installed by the repo's own idempotent"
-say "installer, safe to run again later."
+say "A cron schedule firing every 15 minutes, installed by the repo's own"
+say "idempotent installer, safe to run again later."
 if confirm "Run 'npm run triggers:install' now?"; then
   if (cd "$REPO_DIR" && npm run triggers:install); then
     note "installed."
