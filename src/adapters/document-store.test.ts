@@ -305,6 +305,7 @@ describe("the budget document", () => {
       spendCeiling: 2.5,
       maxConcurrentIterations: 2,
       sizes: { S: 100_000, M: 400_000, L: 1_000_000, XL: 2_000_000 },
+      kinds: {},
       unsizedCountsAs: "L",
     });
   });
@@ -557,6 +558,46 @@ describe("the budget document", () => {
     );
 
     await assert.rejects(store.loadBudget(), /unsizedCountsAs/);
+  });
+
+  it("reads a figure per pull request kind, spelling apply-review as applyReview", async () => {
+    const store = documentStore(
+      await home({
+        budget: JSON.stringify({
+          kinds: { review: 250_000, applyReview: 450_000, rebase: 100_000 },
+        }),
+      }),
+    );
+
+    assert.deepEqual((await store.loadBudget()).kinds, {
+      review: 250_000,
+      applyReview: 450_000,
+      rebase: 100_000,
+    });
+  });
+
+  it("leaves a kind the document omits without a figure", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ kinds: { rebase: 100_000 } }) }),
+    );
+
+    assert.deepEqual((await store.loadBudget()).kinds, { rebase: 100_000 });
+  });
+
+  it("refuses a kind figure that is not a whole number of tokens", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ kinds: { rebase: -1 } }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /kinds\.rebase/);
+  });
+
+  it("refuses a kind the three pull request kinds do not name", async () => {
+    const store = documentStore(
+      await home({ budget: JSON.stringify({ kinds: { "apply-review": 1 } }) }),
+    );
+
+    await assert.rejects(store.loadBudget(), /no such kind: apply-review/);
   });
 
   it("reads an observed reset as an instant", async () => {

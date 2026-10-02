@@ -20,6 +20,14 @@ import { usd, type Usd } from "./usd.ts";
  */
 export type SpendCeiling = Usd | Record<Size, Usd>;
 
+/**
+ * The pull request ticket kinds `Budget.kinds` keys, spelled as a document
+ * key: `applyReview` for the `apply-review` kind.
+ */
+export const BUDGET_KINDS = ["review", "applyReview", "rebase"] as const;
+
+export type BudgetKind = (typeof BUDGET_KINDS)[number];
+
 export interface Budget {
   /** Tokens the 5-hour window is assumed to hold. */
   fiveHourAllowance: TokenCount;
@@ -49,8 +57,16 @@ export interface Budget {
    */
   sizes: Record<Size, TokenCount>;
   /**
-   * The size an unsized ticket counts as, and the size every review ticket
-   * counts as, since a review never inherits its parent's size.
+   * The tokens a pull request ticket's run is worth, keyed by its kind, in
+   * place of any size. A kind it omits is charged `sizes[unsizedCountsAs]`
+   * instead, as is every pull request ticket when it is empty.
+   */
+  kinds: Partial<Record<BudgetKind, TokenCount>>;
+  /**
+   * The size an unsized ticket counts as, and the size a pull request
+   * ticket's spend ceiling is read at, since it never inherits its parent's
+   * size. Also the size its run estimate is read at where `kinds` omits its
+   * kind.
    */
   unsizedCountsAs: Size;
   /**
@@ -107,6 +123,7 @@ export const DEFAULT_BUDGET: Budget = {
     L: tokenCount(1_500_000),
     XL: tokenCount(3_000_000),
   },
+  kinds: {},
   unsizedCountsAs: "M",
 };
 

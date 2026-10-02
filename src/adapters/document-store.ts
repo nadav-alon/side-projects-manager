@@ -10,6 +10,7 @@ import path from "node:path";
 
 import type {
   Budget,
+  BudgetKind,
   Day,
   ExitCode,
   InvocationClosing,
@@ -43,6 +44,7 @@ import type {
   WorkedToday,
 } from "../ports/index.ts";
 import {
+  BUDGET_KINDS,
   DEFAULT_BUDGET,
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
@@ -71,6 +73,7 @@ import {
   keptSummaryPath,
   isReserveFraction,
   isTokenCount,
+  tokenCount,
   isUsd,
   spendCeilingFor,
 } from "../ports/index.ts";
@@ -352,7 +355,8 @@ function parseRegistry(
 /**
  * `{ "fiveHourAllowance": 15000000, "weeklyAllowance": 150000000,
  *    "reserveFraction": 0.5, "fiveHourReserveFraction": 0, "spendCeiling": 10,
- *    "sizes": { "S": 150000 }, "unsizedCountsAs": "M" }`
+ *    "sizes": { "S": 150000 }, "kinds": { "rebase": 100000 },
+ *    "unsizedCountsAs": "M" }`
  *
  * Every field is optional and falls back to `DEFAULT_BUDGET` — bar
  * `observedResetAt`, which has no default because a boundary nobody has seen
@@ -405,6 +409,7 @@ function parseBudget(document: unknown, file: string): Budget {
       DEFAULT_BUDGET.maxConcurrentIterations,
     ),
     sizes: sizesField(fieldOf(document, "sizes", file), file),
+    kinds: kindsField(fieldOf(document, "kinds", file), file),
     unsizedCountsAs: stringField(
       fieldOf(document, "unsizedCountsAs", file),
       isSize,
@@ -463,6 +468,35 @@ function sizesField(value: unknown, file: string): Record<Size, TokenCount> {
     (size) => `${file}: "sizes.${size}" must be a whole number of tokens, 0 or more`,
     (size) => DEFAULT_BUDGET.sizes[size],
   );
+}
+
+/**
+ * `{ "review": 250000, "applyReview": 450000, "rebase": 100000 }`
+ *
+ * Every kind is optional, and one the document omits has no figure of its
+ * own: its tickets are charged by size instead, as `Budget.kinds` says.
+ */
+function kindsField(
+  value: unknown,
+  file: string,
+): Partial<Record<BudgetKind, TokenCount>> {
+  if (value === undefined) {
+    return DEFAULT_BUDGET.kinds;
+  }
+  rejectUnknownFields(value, BUDGET_KINDS, "kind", `${file}: "kinds"`);
+  const tokensByKind: Partial<Record<BudgetKind, TokenCount>> = {};
+  for (const kind of BUDGET_KINDS) {
+    const tokens = (value as Record<string, unknown>)[kind];
+    if (tokens !== undefined) {
+      tokensByKind[kind] = numberField(
+        tokens,
+        isTokenCount,
+        `${file}: "kinds.${kind}" must be a whole number of tokens, 0 or more`,
+        tokenCount(0),
+      );
+    }
+  }
+  return tokensByKind;
 }
 
 /**
@@ -549,6 +583,7 @@ const BUDGET_FIELDS = [
   "spendCeiling",
   "maxConcurrentIterations",
   "sizes",
+  "kinds",
   "unsizedCountsAs",
   "observedResetAt",
 ] as const;
