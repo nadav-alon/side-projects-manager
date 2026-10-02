@@ -773,8 +773,7 @@ _Avoid_: buffer, headroom
 **Budget document**:
 The hand-edited document of what the mornings may spend: the two allowances, the two reserve
 fractions, the tokens each size is worth, the tokens each pull request kind is worth and the size an
-unsized ticket counts as, the spend
-ceiling, the concurrency limit, and any observed reset. `budget.json` in the manager home. Separate
+unsized ticket counts as, the spend ceiling, the concurrency limit, and any observed reset. `budget.json` in the manager home. Separate
 from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
@@ -863,9 +862,8 @@ _Avoid_: interrupted, killed, aborted
 
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate. One
-dollar figure for every ticket, or one per size label, resolved the same way `sizes` resolves the
-run estimate for a ticket with no kind figure — an unsized ticket, and every review, apply-review or
-rebase ticket, takes `unsizedCountsAs`'s, whatever its kind's run estimate.
+dollar figure for every ticket, or one per size label. The spend ceiling never reads `kinds`, so a
+pull request ticket takes `unsizedCountsAs`'s ceiling whatever its kind's run estimate.
 _Avoid_: budget, limit, cap
 
 **Budget exhaustion**:
