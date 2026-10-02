@@ -1,13 +1,13 @@
 import { errorMessage } from "./error-message.ts";
 import type { InvocationState } from "./invocation-state.ts";
-import type { IssueTracker, RepoSlug } from "./ports/index.ts";
+import type { GrantRecord, IssueNumber, IssueTracker, RepoSlug } from "./ports/index.ts";
 import { ticketKey } from "./ports/index.ts";
 
 /**
  * Prunes the grant records whose ticket has closed (ADR 0012): the merge gate
  * uses a record up when it fires, but a ticket closed without ever reaching
- * the gate would otherwise keep its record for good. Returns the tickets
- * pruned, as `repo#number`.
+ * the gate would otherwise keep its record for good. Returns the records
+ * pruned.
  *
  * A ticket is closed when its repo's open issues no longer list it. A repo
  * whose open issues cannot be read, or were read truncated — so an absence
@@ -18,8 +18,8 @@ import { ticketKey } from "./ports/index.ts";
 export async function grantSweep(
   tracker: Pick<IssueTracker, "listOpenIssues">,
   state: Pick<InvocationState, "grants" | "consumeGrant">,
-): Promise<string[]> {
-  const pruned: string[] = [];
+): Promise<GrantRecord[]> {
+  const pruned: GrantRecord[] = [];
   const grants = await state.grants().catch(() => []);
   const repos = [...new Set(grants.map((grant) => grant.repo))];
   for (const repo of repos) {
@@ -33,7 +33,7 @@ export async function grantSweep(
       }
       try {
         await state.consumeGrant(grant);
-        pruned.push(ticketKey(grant));
+        pruned.push(grant);
       } catch (error: unknown) {
         console.warn(`Could not prune the grant record for ${ticketKey(grant)}: ${errorMessage(error)}`);
       }
@@ -45,7 +45,7 @@ export async function grantSweep(
 async function openNumbers(
   tracker: Pick<IssueTracker, "listOpenIssues">,
   repo: RepoSlug,
-): Promise<Set<number> | undefined> {
+): Promise<Set<IssueNumber> | undefined> {
   try {
     const open = await tracker.listOpenIssues(repo);
     return open.truncated ? undefined : new Set(open.issues.map((issue) => issue.ticket.number));

@@ -501,7 +501,7 @@ export type TurboableConsent =
  *    repo. `spans` for another repo never count, whatever they cover.
  *
  * A grant inside a run span still counts when `grants` carries a record for
- * `ticket` within `GRANT_MATCH_WINDOW_MS` of that granting event (ADR 0012):
+ * `ticket` within `GRANT_MATCH_WINDOW` of that granting event (ADR 0012):
  * the record is host-only, so no run could have written it. A grant outside
  * every span needs none, and `grants` is consulted for no other check.
  *

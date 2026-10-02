@@ -22,6 +22,7 @@ import {
   recordWorked,
   runSpanFor,
   runSpanInProgress,
+  sameGrant,
   sameInvocation,
   ticketKey,
   unrecordWorked,
@@ -288,14 +289,7 @@ export function invocationState(
     } catch {
       // Falls back to the records this invocation loaded.
     }
-    return (present ?? []).filter(
-      (grant) =>
-        !usedUp.some(
-          (spent) =>
-            ticketKey(spent) === ticketKey(grant) &&
-            spent.grantedAt.getTime() === grant.grantedAt.getTime(),
-        ),
-    );
+    return (present ?? []).filter((grant) => !usedUp.some((spent) => sameGrant(spent, grant)));
   };
   const buildState = (): State => ({
     projects,

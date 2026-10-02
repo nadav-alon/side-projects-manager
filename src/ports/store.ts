@@ -11,6 +11,7 @@ import {
   type RunInProgress,
 } from "./journal.ts";
 import type { KeptSummaryPath } from "./kept-summary-path.ts";
+import { type Milliseconds, milliseconds } from "./milliseconds.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { RepoSlug } from "./repo-slug.ts";
@@ -338,20 +339,18 @@ export function runSpanInProgress(
  * The developer's own grant of `turboable` on a ticket, as the `grant`
  * command wrote it: host-only, since no sandbox run mounts the manager home
  * to write the state document. How far from the label's own `labeled` event
- * `grantedAt` may lie and still match it is `GRANT_MATCH_WINDOW_MS`.
+ * `grantedAt` may lie and still match it is `GRANT_MATCH_WINDOW`.
  */
-export interface GrantRecord {
-  repo: RepoSlug;
-  number: IssueNumber;
+export interface GrantRecord extends WorkedTicket {
   grantedAt: Date;
 }
 
 /** How far a `GrantRecord`'s `grantedAt` may lie from the `labeled` event it vouches for. */
-export const GRANT_MATCH_WINDOW_MS = 2 * 60 * 1000;
+export const GRANT_MATCH_WINDOW: Milliseconds = milliseconds(2 * 60 * 1000);
 
 /**
  * Whether `grants` carries a record for `ticket` whose `grantedAt` lies
- * within `GRANT_MATCH_WINDOW_MS` of `labeledAt`, inclusive. A record for
+ * within `GRANT_MATCH_WINDOW` of `labeledAt`, inclusive. A record for
  * another ticket never matches, nor does one outside the window, however
  * near.
  */
@@ -363,7 +362,7 @@ export function grantMatches(
   return (grants ?? []).some(
     (grant) =>
       ticketKey(grant) === ticketKey(ticket) &&
-      Math.abs(grant.grantedAt.getTime() - labeledAt.getTime()) <= GRANT_MATCH_WINDOW_MS,
+      Math.abs(grant.grantedAt.getTime() - labeledAt.getTime()) <= GRANT_MATCH_WINDOW,
   );
 }
 
@@ -377,9 +376,17 @@ export function recordGrant(
   grantedAt: Date,
 ): GrantRecord[] {
   return [
-    ...(previous ?? []).filter((grant) => ticketKey(grant) !== ticketKey(ticket)),
+    ...(withoutGrant(previous, ticket) ?? []),
     { repo: ticket.repo, number: ticket.number, grantedAt },
   ];
+}
+
+/**
+ * Whether `a` and `b` are the same record: the same ticket, granted at the
+ * same instant. A re-grant of a ticket is a different record.
+ */
+export function sameGrant(a: GrantRecord, b: GrantRecord): boolean {
+  return ticketKey(a) === ticketKey(b) && a.grantedAt.getTime() === b.grantedAt.getTime();
 }
 
 /** `previous` without `ticket`'s grant record; undefined once none is left. */

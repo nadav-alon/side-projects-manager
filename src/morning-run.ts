@@ -70,6 +70,7 @@ import {
   parentTicketIn,
   runSpanFor,
   ticketKind,
+  ticketReference,
   tokenCount,
   uniformFilesAmong,
 } from "./ports/index.ts";
@@ -2467,7 +2468,7 @@ async function mergeGate(
   if (implementation !== undefined) {
     await context.invocation.consumeGrant(implementation).catch((error: unknown) => {
       console.warn(
-        `Could not use up the grant record for ${implementation.repo} #${implementation.number}: ${errorMessage(error)}`,
+        `Could not use up the grant record for ${ticketReference(implementation)}: ${errorMessage(error)}`,
       );
     });
   }

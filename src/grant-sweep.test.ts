@@ -26,7 +26,7 @@ describe("grantSweep", () => {
 
     const pruned = await grantSweep(tracker, invocation);
 
-    assert.deepEqual(pruned, ["nadav-alon/pilot#8"]);
+    assert.deepEqual(pruned.map((grant) => grant.number), [closed.number]);
     assert.deepEqual(store.grants(), [{ repo: open.repo, number: open.number, grantedAt: GRANTED_AT }]);
   });
 

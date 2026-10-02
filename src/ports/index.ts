@@ -278,7 +278,7 @@ export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";
 export {
-  GRANT_MATCH_WINDOW_MS,
+  GRANT_MATCH_WINDOW,
   clearSalvage,
   grantMatches,
   hasAnnouncedOn,
@@ -295,6 +295,7 @@ export {
   salvageFor,
   ticketKey,
   unrecordWorked,
+  sameGrant,
   withoutGrant,
   workedTicket,
 } from "./store.ts";
