@@ -160,6 +160,7 @@ import {
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import { settledChecks } from "./settled-checks.ts";
+import { grantSweep } from "./grant-sweep.ts";
 import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
 
 /**
@@ -360,6 +361,9 @@ export async function morningLoop(
     // files are either stale or they are not, regardless of which ticket, if
     // any, this invocation goes on to select.
     uniformSyncSweepOutcomes = await uniformSyncSweepAll(ports);
+    // Pruned on the same once-per-invocation footing: a closed ticket's grant
+    // record says nothing about which ticket is selected next.
+    await grantSweep(ports.tracker, state);
     // Keyed by each iteration's own completion, so the tickets an in-progress
     // consultation names are exactly the ones still running when it asks —
     // never the one it is asking on behalf of, which is passed separately.

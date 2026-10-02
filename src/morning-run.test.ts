@@ -2884,16 +2884,30 @@ describe("morningLoop", () => {
             assert.deepEqual(ports.store.grants(), []);
           });
 
+          it("prunes a closed ticket's record on the sweep", async () => {
+            const ports = fakePorts();
+            ports.store.register(PILOT);
+            const closed = ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Done" });
+            ports.store.markGranted(closed, GRANTED_IN_TIME);
+            ports.tracker.closeOutOfBand(closed);
+
+            await morningLoop(ports);
+
+            assert.deepEqual(ports.store.grants(), []);
+          });
+
           it("leaves another ticket's record standing", async () => {
             const ports = fakePorts();
             grantInsideAnotherRunSpan(ports);
-            const elsewhere = { repo: PILOT, number: issueNumber(500) };
+            const elsewhere = ports.tracker.addIneligibleTicket(PILOT, { number: issueNumber(500), title: "Not yet" });
             ports.store.markGranted(elsewhere, GRANTED_IN_TIME);
             postedACleanReview(ports);
 
             await morningLoop(ports);
 
-            assert.deepEqual(ports.store.grants(), [{ ...elsewhere, grantedAt: GRANTED_IN_TIME }]);
+            assert.deepEqual(ports.store.grants(), [
+              { repo: elsewhere.repo, number: elsewhere.number, grantedAt: GRANTED_IN_TIME },
+            ]);
           });
         });
 
