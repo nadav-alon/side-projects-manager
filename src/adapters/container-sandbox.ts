@@ -722,10 +722,15 @@ async function runOnClone(
       // that commits nothing more still has the salvage's own commits, and
       // still gets a handover. `head` may not be the salvage branch's own
       // parent any more if the checkout moved on since it was left, so the
-      // merge-base, not `head` itself, is what commits are counted from.
+      // merge-base, not `head` itself, is what commits are counted from. The
+      // commits already there are named too, so the loop can tell what this
+      // run itself added.
       const base = chosen.resuming
         ? commitSha(await mergeBase(clone, head, onto))
         : head;
+      const resumedCommits = chosen.resuming
+        ? await commitsSince(clone, base)
+        : undefined;
 
       const agent = await attempt(
         container,
@@ -789,7 +794,7 @@ async function runOnClone(
           fetchedBack = { branch, commits };
         }
 
-        return runOutcomeOf(ending, agent, onto, commits);
+        return runOutcomeOf(ending, agent, onto, commits, resumedCommits);
       } catch (error: unknown) {
         // The agent already ran and spent, whatever became of its commits
         // afterwards — reported rather than thrown, so that spend is not lost
@@ -1440,6 +1445,7 @@ function runOutcomeOf(
   agent: FinishedAgentRun,
   branch: Branch,
   commits: CommitSha[],
+  resumedCommits: CommitSha[] | undefined,
 ): RunOutcome {
   const gist =
     ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
@@ -1453,6 +1459,7 @@ function runOutcomeOf(
       tokensUsed: agent.tokensUsed,
       branch,
       commits,
+      ...(resumedCommits !== undefined && { resumedCommits }),
     },
     agent,
   );
