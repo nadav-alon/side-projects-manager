@@ -316,7 +316,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * Puts `label` on `ticket`, the way the developer labels a ticket by hand —
    * a model label, say. Read on the next `listOpenIssues`, not before.
    */
-  addLabel(ticket: Ticket, label: string): void {
+  addLabel(ticket: IssueReference, label: string): void {
     this.#find(ticket)?.labels.add(label);
   }
 
