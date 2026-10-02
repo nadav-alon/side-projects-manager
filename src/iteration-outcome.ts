@@ -2,6 +2,7 @@ import type { DiscoveryReport } from "./discovery-routing.ts";
 import type { Discard, HandBackRecord } from "./hand-back.ts";
 import type {
   ApplyReviewTicket,
+  EstimateBasis,
   Branch,
   Checkout,
   ModelName,
@@ -562,6 +563,8 @@ export interface Attempt<T extends Ticket = Ticket> {
    * charge one. Read by the summary, to set a finished run's cost beside it.
    */
   estimateCharged?: TokenCount;
+  /** What `estimateCharged` was read from; absent exactly when it is. */
+  estimateBasis?: EstimateBasis;
 }
 
 /** One iteration's outcome, and the project and ticket that earned it. */

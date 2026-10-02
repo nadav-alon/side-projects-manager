@@ -1,7 +1,17 @@
 export { branch, isBranch } from "./branch.ts";
 export type { Branch } from "./branch.ts";
-export { DEFAULT_BUDGET, spendCeilingFor } from "./budget.ts";
-export type { Budget, SpendCeiling } from "./budget.ts";
+export {
+  DEFAULT_BUDGET,
+  PULL_REQUEST_KIND_KEYS,
+  pullRequestKindKey,
+  spendCeilingFor,
+} from "./budget.ts";
+export type {
+  Budget,
+  EstimateBasis,
+  PullRequestKindKey,
+  SpendCeiling,
+} from "./budget.ts";
 export { checkout, isCheckout } from "./checkout.ts";
 export type { Checkout } from "./checkout.ts";
 export type { Clock } from "./clock.ts";

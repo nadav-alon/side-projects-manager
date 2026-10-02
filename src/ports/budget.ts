@@ -1,5 +1,6 @@
 import { iterationLimit, type IterationLimit } from "./iteration-limit.ts";
 import { reserveFraction, type ReserveFraction } from "./reserve-fraction.ts";
+import type { PullRequestBinding } from "./issue-tracker.ts";
 import type { Size } from "./size.ts";
 import { tokenCount, type TokenCount } from "./token-count.ts";
 import { usd, type Usd } from "./usd.ts";
@@ -19,6 +20,14 @@ import { usd, type Usd } from "./usd.ts";
  * concept this is.
  */
 export type SpendCeiling = Usd | Record<Size, Usd>;
+
+/**
+ * The pull request ticket kinds `Budget.kinds` keys, spelled as a document
+ * key: `applyReview` for the `apply-review` kind.
+ */
+export const PULL_REQUEST_KIND_KEYS = ["review", "applyReview", "rebase"] as const;
+
+export type PullRequestKindKey = (typeof PULL_REQUEST_KIND_KEYS)[number];
 
 export interface Budget {
   /** Tokens the 5-hour window is assumed to hold. */
@@ -49,8 +58,17 @@ export interface Budget {
    */
   sizes: Record<Size, TokenCount>;
   /**
-   * The size an unsized ticket counts as, and the size every review ticket
-   * counts as, since a review never inherits its parent's size.
+   * The tokens a pull request ticket's run is worth, keyed by its kind, in
+   * place of any size. A kind it omits is charged `sizes[unsizedCountsAs]`
+   * instead, so a document that names only some kinds leaves the rest on
+   * the size.
+   */
+  kinds: Partial<Record<PullRequestKindKey, TokenCount>>;
+  /**
+   * The size an unsized ticket counts as, and the size a pull request
+   * ticket's spend ceiling is read at, since it never inherits its parent's
+   * size. Also the size its run estimate is read at where `kinds` omits its
+   * kind.
    */
   unsizedCountsAs: Size;
   /**
@@ -107,6 +125,11 @@ export const DEFAULT_BUDGET: Budget = {
     L: tokenCount(1_500_000),
     XL: tokenCount(3_000_000),
   },
+  kinds: {
+    review: tokenCount(250_000),
+    applyReview: tokenCount(450_000),
+    rebase: tokenCount(100_000),
+  },
   unsizedCountsAs: "M",
 };
 
@@ -118,3 +141,18 @@ export const DEFAULT_BUDGET: Budget = {
 export function spendCeilingFor(size: Size, spendCeiling: SpendCeiling): Usd {
   return typeof spendCeiling === "number" ? spendCeiling : spendCeiling[size];
 }
+
+/** `kind`, a pull request ticket's kind, as `Budget.kinds` spells it. */
+export function pullRequestKindKey(
+  kind: PullRequestBinding["kind"],
+): PullRequestKindKey {
+  return kind === "apply-review" ? "applyReview" : kind;
+}
+
+/**
+ * What a run's estimate was read from, as the summary's overrun flag names it
+ * for the developer to raise: the document key of a kind's figure in
+ * `Budget.kinds`, a size key of `Budget.sizes` the ticket declares, or
+ * "unsized" where the estimate is `sizes[unsizedCountsAs]`'s.
+ */
+export type EstimateBasis = PullRequestKindKey | Size | "unsized";

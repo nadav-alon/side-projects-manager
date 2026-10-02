@@ -1,6 +1,7 @@
 import type {
   Budget,
   Clock,
+  EstimateBasis,
   ProjectState,
   RepoSlug,
   ReserveFraction,
@@ -15,8 +16,13 @@ import type {
   UsageWindows,
   Usd,
 } from "./ports/index.ts";
-import { declaredSize, spendCeilingFor, tokenCount } from "./ports/index.ts";
-
+import {
+  declaredSize,
+  isPullRequestTicket,
+  pullRequestKindKey,
+  spendCeilingFor,
+  tokenCount,
+} from "./ports/index.ts";
 
 /** Why the loop stood down, and everything the developer needs to see why. */
 export interface StandDown {
@@ -52,6 +58,8 @@ export interface Consultation {
    * beside what the run went on to spend.
    */
   estimateCharged: TokenCount;
+  /** What `estimateCharged` was read from, which the summary names when a run overruns it. */
+  estimateBasis: EstimateBasis;
 }
 
 /** The two ports the gate reads afresh on every consultation. */
@@ -116,6 +124,7 @@ export function invocationBudgetGate(
         ),
         budget,
         estimateCharged: runEstimate(ticket, budget),
+        estimateBasis: estimateBasis(ticket, budget),
       };
     },
   };
@@ -317,14 +326,31 @@ function sizeFor(ticket: Ticket, budget: Budget): Size {
 }
 
 /**
- * The run estimate `ticket` charges, in the tokens `budget.sizes` gives its
- * size. Never derived from what past runs cost.
+ * The run estimate `ticket` charges, in tokens: its kind's figure in
+ * `budget.kinds` where it is a pull request ticket and that kind has one,
+ * otherwise the tokens `budget.sizes` gives its size. Never derived from what
+ * past runs cost.
  *
  * A ticket whose size label names no size the budget document knows never
  * reaches here: the loop hands it back ahead of the gate instead.
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
-  return budget.sizes[sizeFor(ticket, budget)];
+  const kindEstimate = isPullRequestTicket(ticket)
+    ? budget.kinds[pullRequestKindKey(ticket.pullRequest.kind)]
+    : undefined;
+  return kindEstimate ?? budget.sizes[sizeFor(ticket, budget)];
+}
+
+
+/** What `runEstimate` reads `ticket`'s estimate from. */
+function estimateBasis(ticket: Ticket, budget: Budget): EstimateBasis {
+  if (isPullRequestTicket(ticket)) {
+    const key = pullRequestKindKey(ticket.pullRequest.kind);
+    if (budget.kinds[key] !== undefined) {
+      return key;
+    }
+  }
+  return declaredSize(ticket) ?? "unsized";
 }
 
 /**
