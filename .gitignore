@@ -6,3 +6,6 @@ dist/
 /trigger.log
 /summary-*.txt
 /transcripts/
+/state.json
+/journal.json
+/budget.json
