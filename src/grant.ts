@@ -1,4 +1,4 @@
-import type { Clock, IssueReference, Store } from "./ports/index.ts";
+import type { Clock, IssueReference, IssueTracker, Store } from "./ports/index.ts";
 import { TURBOABLE_LABEL, isIssueNumber, isRepoSlug, recordGrant, ticketReference } from "./ports/index.ts";
 
 /**
@@ -17,7 +17,7 @@ export function parseTicketReference(text: string): IssueReference {
 
 /**
  * The developer's own grant of `turboable` on `ticket` (ADR 0012): adds the
- * label through `addLabel`, then writes a grant record to the state document,
+ * label through `tracker`, then writes a grant record to the state document,
  * which no sandbox run can reach. Refuses, writing and labelling nothing,
  * when `ticket`'s project is unregistered or its `turbo` is off.
  *
@@ -26,7 +26,7 @@ export function parseTicketReference(text: string): IssueReference {
  */
 export async function grantTurboable(
   ports: { store: Pick<Store, "loadRegistry" | "loadState" | "saveState">; clock: Clock },
-  addLabel: (ticket: IssueReference, label: string) => Promise<void>,
+  tracker: Pick<IssueTracker, "labelTurboable">,
   ticket: IssueReference,
 ): Promise<string> {
   const project = (await ports.store.loadRegistry()).find((entry) => entry.repo === ticket.repo);
@@ -36,7 +36,7 @@ export async function grantTurboable(
   if (!project.turbo) {
     throw new Error(`${ticket.repo} is not a turbo project: turn turbo on in registry.json first.`);
   }
-  await addLabel(ticket, TURBOABLE_LABEL);
+  await tracker.labelTurboable(ticket);
   const state = await ports.store.loadState();
   const grants = recordGrant(state.grants, ticket, ports.clock.now());
   await ports.store.saveState({ ...state, grants });

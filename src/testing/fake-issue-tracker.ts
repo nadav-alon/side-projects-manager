@@ -561,7 +561,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     instant: Date,
     spans: readonly RunSpan[],
-    grants: readonly GrantRecord[] = [],
+    grants: readonly GrantRecord[],
   ): Promise<TurboableConsent> {
     return turboableConsentAt(
       ticket,
@@ -687,6 +687,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** Records the comment. Touches no label, the way the real tracker's plain comment does. */
   async comment(ticket: Ticket, comment: string): Promise<void> {
     this.comments.push({ ticket, comment });
+  }
+
+  /** Puts `TURBOABLE_LABEL` on `ticket`, as the real tracker does once it has made sure the label exists. */
+  async labelTurboable(ticket: IssueReference): Promise<void> {
+    this.addLabel(ticket, TURBOABLE_LABEL);
   }
 
   /**

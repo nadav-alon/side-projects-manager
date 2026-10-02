@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { grantTurboable, parseTicketReference } from "./grant.ts";
-import { issueNumber, repoSlug, TURBOABLE_LABEL } from "./ports/index.ts";
-import { FakeClock, FakeStore, FROZEN_NOW } from "./testing/index.ts";
+import { day, issueNumber, repoSlug, TURBOABLE_LABEL } from "./ports/index.ts";
+import { FakeClock, FakeIssueTracker, FakeStore, FROZEN_NOW } from "./testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const TICKET = { repo: PILOT, number: issueNumber(7) };
@@ -26,47 +26,47 @@ describe("grantTurboable", () => {
     if (registration !== undefined) {
       store.register(PILOT, registration);
     }
-    const labelled: string[] = [];
-    const addLabel = async (ticket: { repo: string; number: number }, label: string) => {
-      labelled.push(`${ticket.repo}#${ticket.number} ${label}`);
-    };
-    return { store, labelled, addLabel, ports: { store, clock: new FakeClock() } };
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addIneligibleTicket(PILOT, { number: TICKET.number, title: "Grant me" });
+    const labelled = () => tracker.carriesLabel(ticket, TURBOABLE_LABEL);
+    return { store, tracker, labelled, ports: { store, clock: new FakeClock() } };
   }
 
   it("adds the label and writes a grant record stamped now", async () => {
-    const { store, labelled, addLabel, ports } = arranged({ turbo: true });
+    const { store, tracker, labelled, ports } = arranged({ turbo: true });
 
-    await grantTurboable(ports, addLabel, TICKET);
+    await grantTurboable(ports, tracker, TICKET);
 
-    assert.deepEqual(labelled, [`nadav-alon/pilot#7 ${TURBOABLE_LABEL}`]);
+    assert.equal(labelled(), true);
     assert.deepEqual(store.grants(), [{ ...TICKET, grantedAt: FROZEN_NOW }]);
   });
 
   it("refuses a project whose turbo is off, labelling and writing nothing", async () => {
-    const { store, labelled, addLabel, ports } = arranged({ turbo: false });
+    const { store, tracker, labelled, ports } = arranged({ turbo: false });
 
-    await assert.rejects(grantTurboable(ports, addLabel, TICKET), /not a turbo project/);
+    await assert.rejects(grantTurboable(ports, tracker, TICKET), /not a turbo project/);
 
-    assert.deepEqual(labelled, []);
+    assert.equal(labelled(), false);
     assert.deepEqual(store.grants(), []);
   });
 
   it("refuses an unregistered project", async () => {
-    const { store, labelled, addLabel, ports } = arranged();
+    const { store, tracker, labelled, ports } = arranged();
 
-    await assert.rejects(grantTurboable(ports, addLabel, TICKET), /not a registered project/);
+    await assert.rejects(grantTurboable(ports, tracker, TICKET), /not a registered project/);
 
-    assert.deepEqual(labelled, []);
+    assert.equal(labelled(), false);
     assert.deepEqual(store.grants(), []);
   });
 
   it("writes no record when the label cannot be added", async () => {
-    const { store, ports } = arranged({ turbo: true });
+    const { store, tracker, ports } = arranged({ turbo: true });
+    tracker.labelTurboable = async () => {
+      throw new Error("offline");
+    };
 
     await assert.rejects(
-      grantTurboable(ports, async () => {
-        throw new Error("offline");
-      }, TICKET),
+      grantTurboable(ports, tracker, TICKET),
       /offline/,
     );
 
@@ -74,10 +74,10 @@ describe("grantTurboable", () => {
   });
 
   it("keeps the state it found", async () => {
-    const { store, addLabel, ports } = arranged({ turbo: true });
-    store.markAnnouncedOn("2026-01-01" as never);
+    const { store, tracker, ports } = arranged({ turbo: true });
+    store.markAnnouncedOn(day("2026-01-01"));
 
-    await grantTurboable(ports, addLabel, TICKET);
+    await grantTurboable(ports, tracker, TICKET);
 
     assert.equal((await store.loadState()).announcedOn, "2026-01-01");
   });

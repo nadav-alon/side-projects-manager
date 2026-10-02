@@ -971,7 +971,7 @@ export interface IssueTracker {
     ticket: Ticket,
     instant: Date,
     spans: readonly RunSpan[],
-    grants?: readonly GrantRecord[],
+    grants: readonly GrantRecord[],
   ): Promise<TurboableConsent>;
   /**
    * Opens a spec review ticket against `ticket`, a supertask — a sub-issue
@@ -1058,6 +1058,13 @@ export interface IssueTracker {
    * a hand-back: nothing about it is specific to a run ending.
    */
   comment(ticket: Ticket, comment: string): Promise<void>;
+
+  /**
+   * Adds `TURBOABLE_LABEL` to `ticket`, creating the label first where the
+   * repo has never had it: `gh issue edit --add-label` refuses a label that
+   * does not exist. The label half of the developer's own grant (ADR 0012).
+   */
+  labelTurboable(ticket: IssueReference): Promise<void>;
 
   /**
    * Opens an issue in the same repo as `ticket` — a ticket discovered while

@@ -2696,7 +2696,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     await recordingGh(t, timeline([]));
 
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []),
       { consented: false, reason: "never-labeled" },
     );
   });
@@ -2710,11 +2710,11 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-01T00:00:00Z"), [], []),
       { consented: true },
     );
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []),
       { consented: true },
     );
   });
@@ -2730,7 +2730,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), [], []),
       { consented: true },
     );
   });
@@ -2744,7 +2744,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []),
       { consented: false, reason: "not-labeled-in-time" },
     );
   });
@@ -2759,7 +2759,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-03T00:00:00Z"), [], []),
       { consented: false, reason: "not-labeled-in-time" },
     );
   });
@@ -2773,7 +2773,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []),
       { consented: false, reason: "never-labeled" },
     );
   });
@@ -2781,7 +2781,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
   it("asks the paginated timeline endpoint of the ticket it was given", async (t) => {
     const gh = await recordingGh(t, timeline([]));
 
-    await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []);
+    await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []);
 
     const [call] = await gh.calls();
     assert.deepEqual(call?.slice(0, 2), [
@@ -2798,7 +2798,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     await assert.rejects(
-      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
+      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []),
       /event 1.*"event" must be a string/,
     );
   });
@@ -2810,7 +2810,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
     );
 
     await assert.rejects(
-      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), []),
+      ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-02T00:00:00Z"), [], []),
       /"created_at" was not a valid timestamp: "not-a-date"/,
     );
   });
@@ -2832,7 +2832,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       },
     ];
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans, []),
       { consented: false, reason: "inside-run-span" },
     );
   });
@@ -2854,7 +2854,7 @@ describe("ghIssueTracker.wasTurboableAt", () => {
       },
     ];
     assert.deepEqual(
-      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans),
+      await ghIssueTracker().wasTurboableAt(TICKET, new Date("2026-01-04T00:00:00Z"), spans, []),
       { consented: true },
     );
   });
@@ -2902,5 +2902,36 @@ describe("ghIssueTracker.listOpenDiscoveredTickets", () => {
       "--state",
       "open",
     ]);
+  });
+});
+
+describe("ghIssueTracker.labelTurboable", () => {
+  const PILOT = repoSlug("nadav-alon/pilot");
+  const TICKET = { repo: PILOT, number: issueNumber(7) };
+
+  it("creates the label first, since a project may never have had it, then adds it", async (t) => {
+    const gh = await recordingGh(t, ":");
+
+    await ghIssueTracker().labelTurboable(TICKET);
+
+    const calls = await gh.calls();
+    const create = callWith(calls, "label", "create");
+    assert.ok(create, "the label should be created");
+    assert.ok(create.includes(TURBOABLE_LABEL));
+    assert.equal(valueOf(create, "--repo"), PILOT);
+    const edit = callWith(calls, "issue", "edit");
+    assert.ok(edit, "the label should be added with `gh issue edit`");
+    assert.equal(valueOf(edit, "--add-label"), TURBOABLE_LABEL);
+    assert.equal(valueOf(edit, "--repo"), PILOT);
+    assert.ok(edit.includes("7"));
+    assert.ok(calls.indexOf(create) < calls.indexOf(edit), "the label should exist before it is added");
+  });
+
+  it("adds the label even where creating it fails because it already exists", async (t) => {
+    const gh = await recordingGh(t, `[ "$1 $2" = "label create" ] && exit 1 || :`);
+
+    await ghIssueTracker().labelTurboable(TICKET);
+
+    assert.ok(callWith(await gh.calls(), "issue", "edit"));
   });
 });
