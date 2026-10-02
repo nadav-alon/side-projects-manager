@@ -397,6 +397,59 @@ describe("invocationBudgetGate", () => {
       });
     }
 
+    for (const [kind, key] of [
+      ["review", "review"],
+      ["apply-review", "applyReview"],
+      ["rebase", "rebase"],
+    ] as const) {
+      it(`names the ${key} key as the basis of a ${kind} ticket's charge`, async () => {
+        const gate = await openGate(new FakeStore(), new FakeUsageLedger());
+
+        const { estimateBasis } = await gate.consult(
+          {
+            ...TICKET,
+            pullRequest: {
+              kind,
+              url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+            },
+          },
+          [],
+        );
+
+        assert.equal(estimateBasis, key);
+      });
+    }
+
+    it("names a pull request ticket unsized where its kind has no figure", async () => {
+      const store = new FakeStore();
+      store.budget = { ...DEFAULT_BUDGET, kinds: { rebase: tokenCount(1) } };
+      const gate = await openGate(store, new FakeUsageLedger());
+
+      const { estimateBasis } = await gate.consult(
+        {
+          ...TICKET,
+          pullRequest: {
+            kind: "review",
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
+        },
+        [],
+      );
+
+      assert.equal(estimateBasis, "unsized");
+    });
+
+    it("names a ticket's declared size as the basis of its charge", async () => {
+      const gate = await openGate(new FakeStore(), new FakeUsageLedger());
+
+      const { estimateBasis } = await gate.consult(
+        { ...TICKET, sizeLabel: { kind: "declared", size: "XL" } },
+        [],
+      );
+
+      assert.equal(estimateBasis, "XL");
+    });
+
     it("charges a pull request ticket unsizedCountsAs where its kind has no figure", async () => {
       const store = new FakeStore();
       store.budget = { ...DEFAULT_BUDGET, kinds: { rebase: tokenCount(1) } };

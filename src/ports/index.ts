@@ -6,7 +6,12 @@ export {
   pullRequestKindKey,
   spendCeilingFor,
 } from "./budget.ts";
-export type { Budget, PullRequestKindKey, SpendCeiling } from "./budget.ts";
+export type {
+  Budget,
+  EstimateBasis,
+  PullRequestKindKey,
+  SpendCeiling,
+} from "./budget.ts";
 export { checkout, isCheckout } from "./checkout.ts";
 export type { Checkout } from "./checkout.ts";
 export type { Clock } from "./clock.ts";

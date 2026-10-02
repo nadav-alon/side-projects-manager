@@ -148,3 +148,11 @@ export function pullRequestKindKey(
 ): PullRequestKindKey {
   return kind === "apply-review" ? "applyReview" : kind;
 }
+
+/**
+ * What a run's estimate was read from, as the summary's overrun flag names it
+ * for the developer to raise: the document key of a kind's figure in
+ * `Budget.kinds`, a size key of `Budget.sizes` the ticket declares, or
+ * "unsized" where the estimate is `sizes[unsizedCountsAs]`'s.
+ */
+export type EstimateBasis = PullRequestKindKey | Size | "unsized";

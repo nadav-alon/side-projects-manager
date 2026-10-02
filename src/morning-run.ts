@@ -444,10 +444,12 @@ export async function morningLoop(
         // Asked immediately before this run and never earlier, so the
         // windows it reads are the ones in force when the run would start,
         // not the state the invocation opened with.
-        const { standDown: refusal, budget, estimateCharged } = await gate.consult(
-          ticket,
-          [...inProgress.values()],
-        );
+        const {
+          standDown: refusal,
+          budget,
+          estimateCharged,
+          estimateBasis,
+        } = await gate.consult(ticket, [...inProgress.values()]);
         concurrencyLimit = budget.maxConcurrentIterations;
         if (refusal !== undefined) {
           // The first refusal is the stand-down, whichever of the two it was.
@@ -490,6 +492,7 @@ export async function morningLoop(
                 ticket,
                 ...(model !== undefined && { model: model.name }),
                 estimateCharged,
+                estimateBasis,
                 ...iteration,
               } as IterationOutcome;
 

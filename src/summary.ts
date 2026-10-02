@@ -62,11 +62,9 @@ import type {
   ReviewTicket,
   RunFinished,
   Salvaged,
-  Size,
   SpecReviewTicket,
   UxReviewTicket,
   Ticket,
-  TicketKind,
   TokenCount,
   TranscriptPath,
 } from "./ports/index.ts";
@@ -79,8 +77,6 @@ import {
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
   REBASE_COMMENT,
   REVIEWED_LABEL,
-  declaredSize,
-  isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -1178,9 +1174,10 @@ function attemptsSection(iterations: IterationOutcome[]): string {
 /**
  * What a worked iteration's cost reads as: unknown when nothing recorded it,
  * beside the run estimate the gate charged, or — when it spent past that
- * estimate — the same, flagged with what the estimate came from (`sizeFlag`),
- * so the developer knows whether to raise that size or kind in the budget
- * document or, for "unsized", the size `unsizedCountsAs` names there. Per
+ * estimate — the same, flagged with what the gate read the estimate from
+ * (`estimateBasis`), so the developer knows whether to raise that size or
+ * kind in the budget document or, for "unsized", the size `unsizedCountsAs`
+ * names there. Per
  * `CONTEXT.md`'s "Run estimate": nothing here revises the estimate itself.
  *
  * The estimate is itself absent only for a ticket handed back ahead of the
@@ -1199,21 +1196,10 @@ function costClause(iteration: IterationOutcome): string {
     return ` — ${tokens(spent)} tokens, estimate unknown`;
   }
   const beside = `${tokens(spent)} / ${tokens(estimate)} tokens`;
+  const basis = iteration.estimateBasis === undefined ? "" : ` ${iteration.estimateBasis}`;
   return spent > estimate
-    ? ` — ${beside}, over its ${sizeFlag(iteration.ticket)} estimate`
+    ? ` — ${beside}, over its${basis} estimate`
     : ` — ${beside}`;
-}
-
-/**
- * What the flag on an over-estimate run names: a pull request ticket's kind
- * (`review`, `apply-review` or `rebase`), which is what its estimate comes
- * from and what `Budget.kinds` keys, else its own declared size, or "unsized"
- * where it names none.
- */
-function sizeFlag(ticket: Ticket): Size | TicketKind | "unsized" {
-  return isPullRequestTicket(ticket)
-    ? ticket.pullRequest.kind
-    : (declaredSize(ticket) ?? "unsized");
 }
 
 /**

@@ -35,6 +35,7 @@ import {
   type ApplyReviewTicket,
   type Branch,
   type Discovery,
+  type EstimateBasis,
   type OpenInvocation,
   type ReviewTicket,
   type Size,
@@ -160,11 +161,13 @@ function finishedSpending(
   ticket: Ticket,
   tokensUsed: number,
   estimateCharged: number,
+  estimateBasis?: EstimateBasis,
 ): IterationOutcome {
   return {
     repo: REPO,
     ticket,
     estimateCharged: tokenCount(estimateCharged),
+    ...(estimateBasis !== undefined && { estimateBasis }),
     ...finishedRun(tokensUsed, "agent/900"),
   };
 }
@@ -1346,34 +1349,50 @@ describe("attemptsSection", () => {
   });
 
   it("flags a run that spent past its estimate, naming its declared size", () => {
-    const lines = attemptsLines([finishedSpending(sizedTicket(302, "S"), 600_000, 500_000)]);
+    const lines = attemptsLines([finishedSpending(sizedTicket(302, "S"), 600_000, 500_000, "S")]);
 
     assert.match(lines[0] ?? "", /600,000 \/ 500,000 tokens, over its S estimate/);
   });
 
   it("names the flag unsized when the over-estimate ticket carries no size label", () => {
-    const lines = attemptsLines([finishedSpending(implementationTicket(303), 2_500_000, 2_000_000)]);
+    const lines = attemptsLines([finishedSpending(implementationTicket(303), 2_500_000, 2_000_000, "unsized")]);
 
     assert.match(lines[0] ?? "", /2,500,000 \/ 2,000,000 tokens, over its unsized estimate/);
   });
 
-  it("flags a pull request ticket by its kind even when it carries its own size label, since that is never counted", () => {
-    const ticket: ReviewTicket = { ...reviewTicket(304), sizeLabel: { kind: "declared", size: "XL" } };
-    const reviewed: Reviewed = {
-      kind: "reviewed",
-      review: { kind: "finished", tokensUsed: tokenCount(3_000_000), output: "posted" },
-      tokensUsed: tokenCount(3_000_000),
-    };
-    const iteration: IterationOutcome = {
-      repo: REPO,
-      ticket,
-      estimateCharged: tokenCount(2_000_000),
-      ...reviewed,
-    };
+  for (const [basis, spelling] of [
+    ["review", "review"],
+    ["applyReview", "applyReview"],
+    ["rebase", "rebase"],
+  ] as const) {
+    it(`names a pull request ticket's ${spelling} key, as the budget document spells it, when its kind's figure was charged`, () => {
+      const ticket: ReviewTicket = { ...reviewTicket(304), sizeLabel: { kind: "declared", size: "XL" } };
+      const reviewed: Reviewed = {
+        kind: "reviewed",
+        review: { kind: "finished", tokensUsed: tokenCount(3_000_000), output: "posted" },
+        tokensUsed: tokenCount(3_000_000),
+      };
+      const iteration: IterationOutcome = {
+        repo: REPO,
+        ticket,
+        estimateCharged: tokenCount(2_000_000),
+        estimateBasis: basis,
+        ...reviewed,
+      };
 
-    const lines = attemptsLines([iteration]);
+      const lines = attemptsLines([iteration]);
 
-    assert.match(lines[0] ?? "", /over its review estimate/);
+      assert.match(lines[0] ?? "", new RegExp(`over its ${spelling} estimate`));
+    });
+  }
+
+  it("names a pull request ticket unsized when its kind had no figure and the size was charged", () => {
+    const lines = attemptsLines([
+      finishedSpending(reviewTicket(307), 3_000_000, 600_000, "unsized"),
+    ]);
+
+    assert.match(lines[0] ?? "", /over its unsized estimate/);
+    assert.doesNotMatch(lines[0] ?? "", /over its review estimate/);
   });
 
   it("says cost unknown when nothing recorded what a failed run spent", () => {

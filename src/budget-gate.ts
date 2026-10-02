@@ -1,6 +1,7 @@
 import type {
   Budget,
   Clock,
+  EstimateBasis,
   ProjectState,
   RepoSlug,
   ReserveFraction,
@@ -57,6 +58,8 @@ export interface Consultation {
    * beside what the run went on to spend.
    */
   estimateCharged: TokenCount;
+  /** What `estimateCharged` was read from, which the summary names when a run overruns it. */
+  estimateBasis: EstimateBasis;
 }
 
 /** The two ports the gate reads afresh on every consultation. */
@@ -121,6 +124,7 @@ export function invocationBudgetGate(
         ),
         budget,
         estimateCharged: runEstimate(ticket, budget),
+        estimateBasis: estimateBasis(ticket, budget),
       };
     },
   };
@@ -337,6 +341,17 @@ function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
   return kindEstimate ?? budget.sizes[sizeFor(ticket, budget)];
 }
 
+
+/** What `runEstimate` reads `ticket`'s estimate from. */
+function estimateBasis(ticket: Ticket, budget: Budget): EstimateBasis {
+  if (isPullRequestTicket(ticket)) {
+    const key = pullRequestKindKey(ticket.pullRequest.kind);
+    if (budget.kinds[key] !== undefined) {
+      return key;
+    }
+  }
+  return declaredSize(ticket) ?? "unsized";
+}
 
 /**
  * The dollar ceiling `ticket`'s run may spend, per `budget.spendCeiling` for
