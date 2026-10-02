@@ -73,7 +73,6 @@ import {
   keptSummaryPath,
   isReserveFraction,
   isTokenCount,
-  tokenCount,
   isUsd,
   spendCeilingFor,
 } from "../ports/index.ts";
@@ -487,14 +486,15 @@ function kindsField(
   const tokensByKind: Partial<Record<PullRequestKindKey, TokenCount>> = {};
   for (const kind of PULL_REQUEST_KIND_KEYS) {
     const tokens = (value as Record<string, unknown>)[kind];
-    if (tokens !== undefined) {
-      tokensByKind[kind] = numberField(
-        tokens,
-        isTokenCount,
-        `${file}: "kinds.${kind}" must be a whole number of tokens, 0 or more`,
-        tokenCount(0),
+    if (tokens === undefined) {
+      continue;
+    }
+    if (typeof tokens !== "number" || !isTokenCount(tokens)) {
+      throw new Error(
+        `${file}: "kinds.${kind}" must be a whole number of tokens, 0 or more: ${JSON.stringify(tokens)}`,
       );
     }
+    tokensByKind[kind] = tokens;
   }
   return tokensByKind;
 }
