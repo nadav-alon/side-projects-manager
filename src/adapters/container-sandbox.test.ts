@@ -3528,6 +3528,7 @@ describe("containerSandbox.uxReview", () => {
     const directory = await project();
     const before = (await run("git", ["-C", directory, "branch", "--list"])).stdout;
     const sandbox = testSandbox(async ({ directory: mounted }) => {
+      await identify(mounted);
       await writeFile(path.join(mounted, "scratch.txt"), "built here\n");
       await run("git", ["-C", mounted, "add", "."]);
       await run("git", ["-C", mounted, "commit", "--quiet", "-m", "scratch"]);
