@@ -7381,6 +7381,52 @@ describe("morningLoop", () => {
       });
     });
 
+    it("leaves a ticket's stop-short count unchanged when a resumed limit refusal adds no commit past the salvage", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const SALVAGED_BRANCH = branch("issue-1");
+      ports.store.markSalvaged({ repo: PILOT, number: issueNumber(1) }, SALVAGED_BRANCH, 1);
+      ports.sandbox.result = () => ({
+        kind: "limit-refused",
+        branch: SALVAGED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+        resumedCommits: [commitSha("c0ffee1")],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 1 },
+      ]);
+    });
+
+    it("still counts a resumed limit refusal that adds a commit past the salvage", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const SALVAGED_BRANCH = branch("issue-1");
+      ports.store.markSalvaged({ repo: PILOT, number: issueNumber(1) }, SALVAGED_BRANCH, 1);
+      ports.sandbox.result = () => ({
+        kind: "limit-refused",
+        branch: SALVAGED_BRANCH,
+        commits: [commitSha("c0ffee1"), commitSha("c0ffee2")],
+        resumedCommits: [commitSha("c0ffee1")],
+        words: LIMIT_REFUSAL,
+        tokensUsed: tokenCount(0),
+      });
+
+      await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 2 },
+      ]);
+    });
+
     it("discards a ticket's earlier salvage branch when a second limit refusal salvages a different one", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);

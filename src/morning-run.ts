@@ -934,7 +934,10 @@ async function blockedOnExistingOutcome(
  * against `ticket`'s salvage record, so its next run can continue on it (see
  * CONTEXT.md's "Salvage") — or discarded as any other cut-off run's branch
  * otherwise, since a run that committed nothing left nothing to salvage and
- * says nothing new about an existing record. Shared by both: a budget
+ * says nothing new about an existing record. A resumed run that added no
+ * commit past the salvage it resumed is no different: the salvage's own
+ * commits are not this run's work, so it is no further stop-short either.
+ * Shared by both: a budget
  * exhaustion is kept exactly as a limit refusal's branch is, even though it
  * never stands the invocation down the way a limit refusal does.
  */
@@ -945,7 +948,8 @@ async function salvageableBranchOutcome(
   ticket: Ticket,
   run: RunLimitRefused | RunBudgetExhausted,
 ): Promise<Discard> {
-  if (run.commits.length === 0) {
+  const resumed = new Set(run.resumedCommits);
+  if (run.commits.every((commit) => resumed.has(commit))) {
     return { kind: "none" };
   }
   await discardStaleSalvage(ports, checkout, salvages, ticket, run.branch);
