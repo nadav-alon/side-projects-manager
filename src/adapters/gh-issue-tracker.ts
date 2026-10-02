@@ -18,6 +18,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  GrantRecord,
   RunSpan,
   SubIssue,
   Ticket,
@@ -34,6 +35,7 @@ import {
   SIZE_S_LABEL,
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
+  TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -336,6 +338,7 @@ export function ghIssueTracker(
       ticket: Ticket,
       instant: Date,
       spans: readonly RunSpan[],
+      grants: readonly GrantRecord[],
     ): Promise<TurboableConsent> {
       // `--paginate`, so an issue with a longer timeline than fits one page
       // is read whole — the same reason `listSubIssues` paginates. Filtered
@@ -350,7 +353,7 @@ export function ghIssueTracker(
         '.[] | select(.event == "labeled" or .event == "unlabeled") | {event, label: .label.name, created_at}',
       ]);
       const events = labelTimelineEventsIn(stdout, ticket);
-      return turboableConsentAt(ticket, events, instant, spans);
+      return turboableConsentAt(ticket, events, instant, spans, grants);
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
@@ -411,6 +414,11 @@ export function ghIssueTracker(
 
     async comment(ticket: Ticket, comment: string): Promise<void> {
       await postComment(ticket, comment);
+    },
+
+    async labelTurboable(ticket: IssueReference): Promise<void> {
+      await ensureLabel(ticket.repo, TURBOABLE_LABEL);
+      await execFileAsync("gh", ["issue", "edit", ...issueArgs(ticket), "--add-label", TURBOABLE_LABEL]);
     },
 
     async createDiscoveredTicket(
@@ -542,6 +550,7 @@ const LABEL_DESCRIPTIONS = {
   [SPEC_REVIEW_SIZE_LABEL]: "Larger than M, smaller than XL",
   [SIZE_S_LABEL]: "Smallest",
   [READY_DISCOVERY_LABEL]: "Born from a discovery its filer declared ready",
+  [TURBOABLE_LABEL]: "Consents to the manager merging this ticket's pull request",
 } as const;
 
 /**

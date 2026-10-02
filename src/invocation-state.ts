@@ -1,5 +1,6 @@
 import type {
   Day,
+  GrantRecord,
   IssueNumber,
   Journal,
   OpenInvocation,
@@ -21,6 +22,7 @@ import {
   recordWorked,
   runSpanFor,
   runSpanInProgress,
+  sameGrant,
   sameInvocation,
   ticketKey,
   unrecordWorked,
@@ -55,7 +57,7 @@ export interface FreedWorkedTicket {
  * back, and recording its own runs in progress on the journal.
  */
 export interface InvocationStatePorts {
-  store: Pick<Store, "saveState" | "recordRunStarted" | "recordRunEnded">;
+  store: Pick<Store, "loadState" | "saveState" | "recordRunStarted" | "recordRunEnded">;
 }
 
 /**
@@ -192,6 +194,23 @@ export interface InvocationState {
   runSpans(): readonly RunSpan[];
 
   /**
+   * The grant records standing now — ADR 0012. Read from the state document
+   * afresh, not from what this invocation loaded: the `grant` command writes
+   * it from outside, possibly mid-invocation, and a record this invocation
+   * has used up is left out. Falls back to what was loaded when the document
+   * cannot be read.
+   */
+  grants(): Promise<readonly GrantRecord[]>;
+
+  /**
+   * Uses up `ticket`'s grant record, as the merge gate does once it fires,
+   * and saves. Not an error when none stands. Every later save re-reads the
+   * document's records and folds in only those this invocation has not used
+   * up, so a record the `grant` command wrote since the load survives.
+   */
+  consumeGrant(ticket: WorkedTicket): Promise<void>;
+
+  /**
    * Every ticket freed on construction because a dead in-flight invocation
    * had recorded it — CONTEXT.md's "Worked today". Fixed for the life of this
    * invocation's state: nothing recorded or unrecorded during the invocation
@@ -260,6 +279,18 @@ export function invocationState(
       record = unrecordWorked(record, ticket);
     }
   };
+  // Grant records this invocation's merge gate has used up, by the exact
+  // record, so a later re-grant of the same ticket is not swallowed with it.
+  const usedUp: GrantRecord[] = [];
+  const standingGrants = async (): Promise<GrantRecord[]> => {
+    let present = stored.grants;
+    try {
+      present = (await ports.store.loadState()).grants;
+    } catch {
+      // Falls back to the records this invocation loaded.
+    }
+    return (present ?? []).filter((grant) => !usedUp.some((spent) => sameGrant(spent, grant)));
+  };
   const buildState = (): State => ({
     projects,
     ...(record !== undefined && { workedToday: record }),
@@ -273,10 +304,14 @@ export function invocationState(
   // so each save's own snapshot is exactly what its caller saw.
   let queued: Promise<unknown> = Promise.resolve();
   const doSave = (state: State): Promise<void> => {
-    const saved = queued.then(
-      () => ports.store.saveState(state),
-      () => ports.store.saveState(state),
-    );
+    const write = async (): Promise<void> => {
+      const standing = await standingGrants();
+      await ports.store.saveState({
+        ...state,
+        ...(standing.length > 0 && { grants: standing }),
+      });
+    };
+    const saved = queued.then(write, write);
     queued = saved.catch(() => {});
     return saved;
   };
@@ -342,6 +377,17 @@ export function invocationState(
     },
     projectStates: () => projects,
     runSpans: () => effectiveRunSpans(runSpans, current),
+    grants: standingGrants,
+    consumeGrant: async (ticket) => {
+      const standing = (await standingGrants()).filter(
+        (grant) => ticketKey(grant) === ticketKey(ticket),
+      );
+      if (standing.length === 0) {
+        return;
+      }
+      usedUp.push(...standing);
+      await doSave(buildState());
+    },
     freed: () => freed,
     save: () => doSave(buildState()),
   };

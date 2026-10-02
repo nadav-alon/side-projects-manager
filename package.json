@@ -26,6 +26,7 @@
     "morning-run": "node src/bin/morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
     "status": "node src/bin/status.ts",
+    "grant": "node src/bin/grant.ts",
     "halt": "node src/bin/halt.ts",
     "resume": "node src/bin/resume.ts",
     "stop": "node src/bin/stop.ts",

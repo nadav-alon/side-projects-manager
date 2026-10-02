@@ -32,6 +32,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  GrantRecord,
   RunSpan,
   Salvage,
   Size,
@@ -693,6 +694,7 @@ function parseState(document: unknown, file: string): State {
   const announcedOn = fieldOf(document, "announcedOn", file);
   const salvages = fieldOf(document, "salvages", file);
   const runSpans = fieldOf(document, "runSpans", file);
+  const grants = fieldOf(document, "grants", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
@@ -707,7 +709,22 @@ function parseState(document: unknown, file: string): State {
     ...(runSpans !== undefined && {
       runSpans: parseRunSpans(runSpans, `${file}: "runSpans"`),
     }),
+    ...(grants !== undefined && {
+      grants: parseGrants(grants, `${file}: "grants"`),
+    }),
   };
+}
+
+/** `[{ "repo": "owner/repo", "number": 7, "grantedAt": "…" }]` */
+function parseGrants(value: unknown, where: string): GrantRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where} must be a list of grant records.`);
+  }
+  return value.map((grant, index) => {
+    const at = `${where}: grant ${index + 1}`;
+    const { repo, number } = parseWorkedTicket(grant, at);
+    return { repo, number, grantedAt: parseInstant(fieldOf(grant, "grantedAt", at), `${at}: "grantedAt"`) };
+  });
 }
 
 /**
@@ -979,8 +996,14 @@ function formatState(state: State): string {
     ...(span.openedBy !== undefined && { openedBy: formatOpenInvocation(span.openedBy) }),
   }));
 
+  const grants = state.grants?.map((grant) => ({
+    repo: grant.repo,
+    number: grant.number,
+    grantedAt: grant.grantedAt.toISOString(),
+  }));
+
   return `${JSON.stringify(
-    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans },
+    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans, grants },
     undefined,
     2,
   )}\n`;

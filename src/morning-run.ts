@@ -17,6 +17,7 @@ import type {
   OpenInvocation,
   Progress,
   PullRequestLabel,
+  GrantRecord,
   PullRequestState,
   PullRequestTicket,
   PullRequestUrl,
@@ -69,6 +70,7 @@ import {
   parentTicketIn,
   runSpanFor,
   ticketKind,
+  ticketReference,
   tokenCount,
   uniformFilesAmong,
 } from "./ports/index.ts";
@@ -159,6 +161,7 @@ import {
 import type { ConflictSweepOutcome } from "./conflict-sweep.ts";
 import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import { settledChecks } from "./settled-checks.ts";
+import { grantSweep } from "./grant-sweep.ts";
 import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
 
 /**
@@ -192,6 +195,8 @@ type RunRecording = Pick<
   | "recordRunSpanStarted"
   | "recordRunSpanEnded"
   | "runSpans"
+  | "grants"
+  | "consumeGrant"
 >;
 
 /**
@@ -357,6 +362,9 @@ export async function morningLoop(
     // files are either stale or they are not, regardless of which ticket, if
     // any, this invocation goes on to select.
     uniformSyncSweepOutcomes = await uniformSyncSweepAll(ports);
+    // Pruned on the same once-per-invocation footing: a closed ticket's grant
+    // record says nothing about which ticket is selected next.
+    await grantSweep(ports.tracker, state);
     // Keyed by each iteration's own completion, so the tickets an in-progress
     // consultation names are exactly the ones still running when it asks —
     // never the one it is asking on behalf of, which is passed separately.
@@ -2452,6 +2460,27 @@ async function mergeGate(
   ticket: PullRequestTicket,
   context: MergeGateContext,
 ): Promise<MergeGate> {
+  // Read before the verdict and used up after it, whatever it is: a record
+  // vouches for one firing of the gate (ADR 0012).
+  const grants = await context.invocation.grants().catch(() => []);
+  const verdict = await decideMerge(ports, ticket, context, grants);
+  const { implementation } = context;
+  if (implementation !== undefined) {
+    await context.invocation.consumeGrant(implementation).catch((error: unknown) => {
+      console.warn(
+        `Could not use up the grant record for ${ticketReference(implementation)}: ${errorMessage(error)}`,
+      );
+    });
+  }
+  return verdict;
+}
+
+async function decideMerge(
+  ports: MorningLoopPorts,
+  ticket: PullRequestTicket,
+  context: MergeGateContext,
+  grants: readonly GrantRecord[],
+): Promise<MergeGate> {
   const { implementation } = context;
   if (implementation === undefined) {
     return {
@@ -2474,6 +2503,7 @@ async function mergeGate(
       implementation,
       span.startedAt,
       context.invocation.runSpans(),
+      grants,
     );
   } catch (error: unknown) {
     return { kind: "timeline-unreadable", error: errorMessage(error) };
