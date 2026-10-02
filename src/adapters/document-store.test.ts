@@ -1115,6 +1115,36 @@ describe("the state document", () => {
     await assert.rejects(store.loadState(), /"stopShorts" must be a whole number/);
   });
 
+  it("survives a round trip with a grant record", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      grants: [
+        { repo: PILOT, number: issueNumber(7), grantedAt: new Date("2026-01-01T09:00:00.000Z") },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("reads a document with no grants as none standing", async () => {
+    const store = documentStore(await home({ state: JSON.stringify({ projects: {} }) }));
+
+    assert.equal((await store.loadState()).grants, undefined);
+  });
+
+  it("rejects a grant record with no grantedAt", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {}, grants: [{ repo: PILOT, number: 7 }] }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /grantedAt/);
+  });
+
   it("reads a document with no run spans as nothing ever run", async () => {
     const store = documentStore(
       await home({
