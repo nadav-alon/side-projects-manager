@@ -2812,14 +2812,14 @@ describe("morningLoop", () => {
             {
               kind: "not-turboable",
               reason: "not turboable before its own run started",
-              declinedGrant: true,
+              declinedGrant: "too-late",
             },
           );
         });
 
         it("never merges, naming the run span rather than the timeline, when the grant falls inside another ticket's run span in the same repo", async () => {
           const ports = fakePorts();
-          const implementation = queuedTurboableReview(ports);
+          queuedTurboableReview(ports);
           ports.store.markRunSpan(
             { repo: PILOT, number: issueNumber(99) },
             new Date(GRANTED_IN_TIME.getTime() - 60_000),
@@ -2836,10 +2836,12 @@ describe("morningLoop", () => {
             {
               kind: "not-turboable",
               reason: "turboable granted inside a run span",
-              declinedGrant: true,
-              declinedInRunSpan: implementation,
+              declinedGrant: "inside-run-span",
             },
           );
+          const body = ports.tracker.summaries[0]?.body ?? "";
+          assert.match(body, /ready for review; its turboable grant didn't count, since it was clicked on GitHub while a run was going/);
+          assert.match(body, /npm run grant -- O\/R#n/);
         });
 
         describe("with a grant record", () => {
@@ -2884,7 +2886,7 @@ describe("morningLoop", () => {
             const outcome = report.iterations[0];
             assert.deepEqual(
               outcome?.kind === "reviewed" ? outcome.merge : undefined,
-              { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
+              { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: "inside-run-span" },
             );
             assert.deepEqual(ports.store.grants(), []);
           });
@@ -2965,7 +2967,7 @@ describe("morningLoop", () => {
         it("still rejects a grant landing exactly at a crash-left-open span's own start — inclusive bounds", async () => {
           const ports = fakePorts();
           const deadStarted = new Date(RUN_STARTED.getTime() - 120_000);
-          const implementation = queuedTurboableReview(ports, { grantedAt: deadStarted });
+          queuedTurboableReview(ports, { grantedAt: deadStarted });
           const DEAD: OpenInvocation = {
             openedAt: new Date(deadStarted.getTime() - 3_600_000),
             process: processId(4242),
@@ -2990,8 +2992,7 @@ describe("morningLoop", () => {
             {
               kind: "not-turboable",
               reason: "turboable granted inside a run span",
-              declinedGrant: true,
-              declinedInRunSpan: implementation,
+              declinedGrant: "inside-run-span",
             },
           );
         });
@@ -3059,7 +3060,6 @@ describe("morningLoop", () => {
             {
               kind: "not-turboable",
               reason: "could not find its implementation ticket",
-              declinedGrant: false,
             },
           );
         });
@@ -4916,7 +4916,7 @@ describe("morningLoop", () => {
           {
             kind: "not-turboable",
             reason: "not turboable before its own run started",
-            declinedGrant: true,
+            declinedGrant: "too-late",
           },
         );
       });
@@ -4985,7 +4985,6 @@ describe("morningLoop", () => {
           {
             kind: "not-turboable",
             reason: "could not find its implementation ticket",
-            declinedGrant: false,
           },
         );
       });
