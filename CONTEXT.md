@@ -214,8 +214,8 @@ indistinguishable from a project registered this morning.
 _Avoid_: unworked, new, cold
 
 **Manager home**:
-The manager's own checkout, holding the registry and the state document, both committed, and a
-gitignored `transcripts/` directory of session transcripts. Distinct from the managed location,
+The manager's own checkout, holding the committed registry, the gitignored state document, journal and budget
+document, and a gitignored `transcripts/` directory of session transcripts. Distinct from the managed location,
 which is where projects are cloned to.
 _Avoid_: config directory, data directory, root
 
@@ -890,7 +890,7 @@ The machine-written account of every invocation: when it started, when it ended,
 to. A document in the manager home alongside the state document — but a separate one: the state
 document is keyed by project and rewritten wholesale, while the journal is append-only and keyed by
 time, one record per invocation. Distinct from `trigger.log` too: that file is the raw output of
-whatever a trigger ran, gitignored and local to this machine, where the journal is committed and
+whatever a trigger ran, gitignored and local to this machine, as the journal is too, though the journal
 records outcomes rather than capturing output.
 _Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
 

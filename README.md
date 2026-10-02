@@ -215,15 +215,18 @@ with `GH_TOKEN` — so that token needs Contents write access. The head branch i
 what the run pushed and answered is read back from GitHub.
 
 `state.json` beside it is the machine's half: when each project was last worked, and what its runs
-cost. The loop writes it after every invocation and you never have to edit it; it is committed for
-the audit trail. It does not exist until the loop has run, and no state for a project means the
+cost. The loop writes it after every invocation and you never have to edit it; it is gitignored and
+local to this machine, not committed. It does not exist until the loop has run, and no state for a project means the
 project has never been worked.
 
 `journal.json` records every invocation, whether or not it published a summary: when it started, when
 it ended, what it came to, and which projects it worked at what cost. `morning-run` opens a record
 before the loop runs and closes it with the report, so an invocation that dies partway leaves an
 in-flight record — one with no `closedAt` — rather than no trace at all. It keeps only the 50 most
-recent records, oldest dropped first, and is committed alongside `state.json`.
+recent records, oldest dropped first, and is gitignored alongside `state.json`.
+
+Losing either costs little: the loop restarts cleanly from no state, and what past runs did survives
+in the loop summaries. `budget.json` is gitignored too.
 
 `npm run status` answers "is the loop alive?" without reading source: whether the triggers are armed,
 whether today has been claimed and what came of it, what the most recent invocation came to, and a
