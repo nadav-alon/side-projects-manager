@@ -722,7 +722,9 @@ async function runOnClone(
       // that commits nothing more still has the salvage's own commits, and
       // still gets a handover. `head` may not be the salvage branch's own
       // parent any more if the checkout moved on since it was left, so the
-      // merge-base, not `head` itself, is what commits are counted from.
+      // merge-base, not `head` itself, is what commits are counted from. The
+      // commits already there are named too, so the loop can tell what this
+      // run itself added.
       const base = chosen.resuming
         ? commitSha(await mergeBase(clone, head, onto))
         : head;

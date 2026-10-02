@@ -7396,12 +7396,39 @@ describe("morningLoop", () => {
         tokensUsed: tokenCount(0),
       });
 
-      await morningLoop(ports);
+      const result = await morningLoop(ports);
 
       const state = await ports.store.loadState();
       assert.deepEqual(state.salvages, [
         { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 1 },
       ]);
+      assert.deepEqual(limitRefused(result.iterations[0])?.discard, { kind: "none" });
+      assert.deepEqual(ports.repoHost.discarded, []);
+    });
+
+    it("leaves a ticket's stop-short count unchanged when a resumed budget exhaustion adds no commit past the salvage", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(1), title: "Ticket 1" });
+      const SALVAGED_BRANCH = branch("issue-1");
+      ports.store.markSalvaged({ repo: PILOT, number: issueNumber(1) }, SALVAGED_BRANCH, 1);
+      ports.sandbox.result = () => ({
+        kind: "budget-exhausted",
+        branch: SALVAGED_BRANCH,
+        commits: [commitSha("c0ffee1")],
+        resumedCommits: [commitSha("c0ffee1")],
+        words: BUDGET_EXHAUSTED_JSON_RESULT,
+        tokensUsed: tokenCount(0),
+      });
+
+      const result = await morningLoop(ports);
+
+      const state = await ports.store.loadState();
+      assert.deepEqual(state.salvages, [
+        { repo: PILOT, number: issueNumber(1), branch: SALVAGED_BRANCH, stopShorts: 1 },
+      ]);
+      assert.deepEqual(budgetExhausted(result.iterations[0])?.discard, { kind: "none" });
+      assert.deepEqual(ports.repoHost.discarded, []);
     });
 
     it("still counts a resumed limit refusal that adds a commit past the salvage", async () => {

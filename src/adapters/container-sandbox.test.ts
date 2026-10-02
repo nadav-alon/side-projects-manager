@@ -2047,7 +2047,7 @@ describe("containerSandbox.run salvage", () => {
     assert.equal(await subjectOf(directory, SALVAGE_BRANCH), "Add one.txt");
   });
 
-  it("names the salvage's own commits as already on a resumed run's branch, and none on a fresh run", async () => {
+  it("names the salvage's own commits as already on a resumed run's branch", async () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
@@ -2058,14 +2058,40 @@ describe("containerSandbox.run salvage", () => {
       spendCeiling: CEILING,
       salvageBranch: SALVAGE_BRANCH,
     });
+
+    assert.deepEqual(variant(resumed, "finished")?.resumedCommits, [salvageCommit]);
+  });
+
+  it("names none as already on a fresh run's branch", async () => {
     const fresh = await testSandbox(agentCommitting(["two.txt"])).run({
       ticket: TICKET,
       checkout: await project(),
       spendCeiling: CEILING,
     });
 
-    assert.deepEqual(variant(resumed, "finished")?.resumedCommits, [salvageCommit]);
     assert.equal(variant(fresh, "finished")?.resumedCommits, undefined);
+  });
+
+  it("names the salvage's own commits as already on a resumed limit-refused run's branch", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
+    const sandbox = testSandbox(async () => ({
+      output: LIMIT_REFUSAL,
+      tokensUsed: tokenCount(0),
+      failure: "Command failed: docker run",
+    }));
+
+    const result = await sandbox.run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+
+    const refused = variant(result, "limit-refused");
+    assert.deepEqual(refused?.commits, [salvageCommit]);
+    assert.deepEqual(refused?.resumedCommits, [salvageCommit]);
   });
 
   it("still yields a handover for a resumed run that adds no commits of its own", async () => {

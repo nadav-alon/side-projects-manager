@@ -193,7 +193,7 @@ interface Ended {
 }
 
 /**
- * The branch an implementation run worked on, and what it committed there.
+ * The branch an implementation run worked on, and the commits on it.
  * True of every variant but `RunSandboxFailed`: the branch is created before
  * the agent starts, so even a run refused before the agent did anything
  * still leaves one, empty of commits. `RunSandboxFailed` carries both, or
@@ -203,12 +203,15 @@ interface Ended {
 interface Worked {
   /** Branch the agent worked on. */
   branch: Branch;
+  /**
+   * Everything on `branch` since it left the checkout: for a resumed run that
+   * includes the salvage's own commits, not only what this run added.
+   */
   commits: CommitSha[];
   /**
    * The commits already on `branch` when the run started, absent for a run
-   * that began on a fresh branch. A resumed run's `commits` include these —
-   * they are everything on the branch since it left the checkout — so a run
-   * added work only if `commits` holds something not listed here.
+   * that began on a fresh branch. A run added work only if `commits` holds
+   * something not listed here.
    */
   resumedCommits?: CommitSha[];
 }
