@@ -372,6 +372,47 @@ describe("invocationBudgetGate", () => {
       });
     }
 
+    for (const [kind, key] of [
+      ["review", "review"],
+      ["apply-review", "applyReview"],
+      ["rebase", "rebase"],
+    ] as const) {
+      it(`charges a ${kind} ticket its kind's figure, whatever size it declares`, async () => {
+        const store = new FakeStore();
+        store.budget = { ...DEFAULT_BUDGET, kinds: { [key]: tokenCount(123_456) } };
+        const gate = await openGate(store, new FakeUsageLedger());
+        const pullRequestTicket: Ticket = {
+          ...TICKET,
+          pullRequest: {
+            kind,
+            url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+          },
+          sizeLabel: { kind: "declared", size: "XL" },
+        };
+
+        const { estimateCharged } = await gate.consult(pullRequestTicket, []);
+
+        assert.equal(estimateCharged, 123_456);
+      });
+    }
+
+    it("charges a pull request ticket unsizedCountsAs where its kind has no figure", async () => {
+      const store = new FakeStore();
+      store.budget = { ...DEFAULT_BUDGET, kinds: { rebase: tokenCount(1) } };
+      const gate = await openGate(store, new FakeUsageLedger());
+      const review: Ticket = {
+        ...TICKET,
+        pullRequest: {
+          kind: "review",
+          url: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/1"),
+        },
+      };
+
+      const { estimateCharged } = await gate.consult(review, []);
+
+      assert.equal(estimateCharged, TICKET_ESTIMATE);
+    });
+
     it("charges the consultation only the selected ticket's own estimate, not the tickets in progress", async () => {
       const store = new FakeStore();
       const ledger = new FakeUsageLedger();

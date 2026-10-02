@@ -1,7 +1,9 @@
 import type {
   Budget,
+  BudgetKind,
   Clock,
   ProjectState,
+  PullRequestBinding,
   RepoSlug,
   ReserveFraction,
   RunCost,
@@ -15,7 +17,12 @@ import type {
   UsageWindows,
   Usd,
 } from "./ports/index.ts";
-import { declaredSize, spendCeilingFor, tokenCount } from "./ports/index.ts";
+import {
+  declaredSize,
+  isPullRequestTicket,
+  spendCeilingFor,
+  tokenCount,
+} from "./ports/index.ts";
 
 
 /** Why the loop stood down, and everything the developer needs to see why. */
@@ -317,14 +324,24 @@ function sizeFor(ticket: Ticket, budget: Budget): Size {
 }
 
 /**
- * The run estimate `ticket` charges, in the tokens `budget.sizes` gives its
- * size. Never derived from what past runs cost.
+ * The run estimate `ticket` charges, in tokens: its kind's figure in
+ * `budget.kinds` where it is a pull request ticket and that kind has one,
+ * otherwise the tokens `budget.sizes` gives its size. Never derived from what
+ * past runs cost.
  *
  * A ticket whose size label names no size the budget document knows never
  * reaches here: the loop hands it back ahead of the gate instead.
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
-  return budget.sizes[sizeFor(ticket, budget)];
+  const kindEstimate = isPullRequestTicket(ticket)
+    ? budget.kinds[budgetKind(ticket.pullRequest.kind)]
+    : undefined;
+  return kindEstimate ?? budget.sizes[sizeFor(ticket, budget)];
+}
+
+/** `kind` as `Budget.kinds` spells it. */
+function budgetKind(kind: PullRequestBinding["kind"]): BudgetKind {
+  return kind === "apply-review" ? "applyReview" : kind;
 }
 
 /**
