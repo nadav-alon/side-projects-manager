@@ -1357,7 +1357,7 @@ describe("attemptsSection", () => {
     assert.match(lines[0] ?? "", /2,500,000 \/ 2,000,000 tokens, over its unsized estimate/);
   });
 
-  it("flags a pull request ticket unsized even when it carries its own size label, since that is never counted", () => {
+  it("flags a pull request ticket by its kind even when it carries its own size label, since that is never counted", () => {
     const ticket: ReviewTicket = { ...reviewTicket(304), sizeLabel: { kind: "declared", size: "XL" } };
     const reviewed: Reviewed = {
       kind: "reviewed",
@@ -1373,7 +1373,7 @@ describe("attemptsSection", () => {
 
     const lines = attemptsLines([iteration]);
 
-    assert.match(lines[0] ?? "", /over its unsized estimate/);
+    assert.match(lines[0] ?? "", /over its review estimate/);
   });
 
   it("says cost unknown when nothing recorded what a failed run spent", () => {

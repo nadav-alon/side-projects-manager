@@ -66,6 +66,7 @@ import type {
   SpecReviewTicket,
   UxReviewTicket,
   Ticket,
+  TicketKind,
   TokenCount,
   TranscriptPath,
 } from "./ports/index.ts";
@@ -79,6 +80,7 @@ import {
   REBASE_COMMENT,
   REVIEWED_LABEL,
   declaredSize,
+  isPullRequestTicket,
   isRebaseTicket,
   isReviewTicket,
   localDay,
@@ -1176,11 +1178,10 @@ function attemptsSection(iterations: IterationOutcome[]): string {
 /**
  * What a worked iteration's cost reads as: unknown when nothing recorded it,
  * beside the run estimate the gate charged, or — when it spent past that
- * estimate — the same, flagged with the ticket's own size label, or
- * "unsized" where it names none, so the developer knows whether to raise the
- * ticket's own size in the budget document or, for "unsized", the size
- * `unsizedCountsAs` names there. Per `CONTEXT.md`'s "Run estimate": nothing
- * here revises the estimate itself.
+ * estimate — the same, flagged with what the estimate came from (`sizeFlag`),
+ * so the developer knows whether to raise that size or kind in the budget
+ * document or, for "unsized", the size `unsizedCountsAs` names there. Per
+ * `CONTEXT.md`'s "Run estimate": nothing here revises the estimate itself.
  *
  * The estimate is itself absent only for a ticket handed back ahead of the
  * gate (`iteration-outcome.ts`'s `Attempt.estimateCharged`), which never
@@ -1204,12 +1205,15 @@ function costClause(iteration: IterationOutcome): string {
 }
 
 /**
- * The size `ticket` reads as to the developer: its own declared size, or
- * "unsized" — never a pull request ticket's own size label, which is read
- * but never counted, per `CONTEXT.md`'s "Size label".
+ * What the flag on an over-estimate run names: a pull request ticket's kind
+ * (`review`, `apply-review` or `rebase`), which is what its estimate comes
+ * from and what `Budget.kinds` keys, else its own declared size, or "unsized"
+ * where it names none.
  */
-function sizeFlag(ticket: Ticket): Size | "unsized" {
-  return declaredSize(ticket) ?? "unsized";
+function sizeFlag(ticket: Ticket): Size | TicketKind | "unsized" {
+  return isPullRequestTicket(ticket)
+    ? ticket.pullRequest.kind
+    : (declaredSize(ticket) ?? "unsized");
 }
 
 /**
