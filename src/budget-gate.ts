@@ -1,9 +1,7 @@
 import type {
   Budget,
-  BudgetKind,
   Clock,
   ProjectState,
-  PullRequestBinding,
   RepoSlug,
   ReserveFraction,
   RunCost,
@@ -20,10 +18,10 @@ import type {
 import {
   declaredSize,
   isPullRequestTicket,
+  pullRequestKindKey,
   spendCeilingFor,
   tokenCount,
 } from "./ports/index.ts";
-
 
 /** Why the loop stood down, and everything the developer needs to see why. */
 export interface StandDown {
@@ -334,15 +332,11 @@ function sizeFor(ticket: Ticket, budget: Budget): Size {
  */
 function runEstimate(ticket: Ticket, budget: Budget): TokenCount {
   const kindEstimate = isPullRequestTicket(ticket)
-    ? budget.kinds[budgetKind(ticket.pullRequest.kind)]
+    ? budget.kinds[pullRequestKindKey(ticket.pullRequest.kind)]
     : undefined;
   return kindEstimate ?? budget.sizes[sizeFor(ticket, budget)];
 }
 
-/** `kind` as `Budget.kinds` spells it. */
-function budgetKind(kind: PullRequestBinding["kind"]): BudgetKind {
-  return kind === "apply-review" ? "applyReview" : kind;
-}
 
 /**
  * The dollar ceiling `ticket`'s run may spend, per `budget.spendCeiling` for

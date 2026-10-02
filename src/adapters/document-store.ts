@@ -10,7 +10,7 @@ import path from "node:path";
 
 import type {
   Budget,
-  BudgetKind,
+  PullRequestKindKey,
   Day,
   ExitCode,
   InvocationClosing,
@@ -44,7 +44,7 @@ import type {
   WorkedToday,
 } from "../ports/index.ts";
 import {
-  BUDGET_KINDS,
+  PULL_REQUEST_KIND_KEYS,
   DEFAULT_BUDGET,
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
@@ -479,13 +479,13 @@ function sizesField(value: unknown, file: string): Record<Size, TokenCount> {
 function kindsField(
   value: unknown,
   file: string,
-): Partial<Record<BudgetKind, TokenCount>> {
+): Partial<Record<PullRequestKindKey, TokenCount>> {
   if (value === undefined) {
     return DEFAULT_BUDGET.kinds;
   }
-  rejectUnknownFields(value, BUDGET_KINDS, "kind", `${file}: "kinds"`);
-  const tokensByKind: Partial<Record<BudgetKind, TokenCount>> = {};
-  for (const kind of BUDGET_KINDS) {
+  rejectUnknownFields(value, PULL_REQUEST_KIND_KEYS, "kind", `${file}: "kinds"`);
+  const tokensByKind: Partial<Record<PullRequestKindKey, TokenCount>> = {};
+  for (const kind of PULL_REQUEST_KIND_KEYS) {
     const tokens = (value as Record<string, unknown>)[kind];
     if (tokens !== undefined) {
       tokensByKind[kind] = numberField(
