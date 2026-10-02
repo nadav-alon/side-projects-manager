@@ -580,4 +580,33 @@ describe("invocationState", () => {
       });
     });
   });
+
+  describe("grant records", () => {
+    const GRANTED_AT = new Date("2026-01-01T09:00:00.000Z");
+
+    it("keeps a record written after the load through every later save", async () => {
+      const store = new FakeStore();
+      const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      store.markGranted(TICKET_7, GRANTED_AT);
+
+      await state.ticketSelected(TICKET_8, TODAY);
+
+      assert.deepEqual((await store.loadState()).grants, [{ ...TICKET_7, grantedAt: GRANTED_AT }]);
+      assert.deepEqual(await state.grants(), [{ ...TICKET_7, grantedAt: GRANTED_AT }]);
+    });
+
+    it("drops a record once consumed, and keeps a later re-grant of the same ticket", async () => {
+      const store = new FakeStore();
+      store.markGranted(TICKET_7, GRANTED_AT);
+      const state = invocationState({ store }, await store.loadState(), TODAY, noForeignFields);
+
+      await state.consumeGrant(TICKET_7);
+      assert.equal((await store.loadState()).grants, undefined);
+
+      const regranted = new Date(GRANTED_AT.getTime() + 600_000);
+      store.markGranted(TICKET_7, regranted);
+      await state.save();
+      assert.deepEqual((await store.loadState()).grants, [{ ...TICKET_7, grantedAt: regranted }]);
+    });
+  });
 });

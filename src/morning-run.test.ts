@@ -1413,6 +1413,9 @@ describe("morningLoop", () => {
 
       const invocation = morningLoop(ports);
       await ports.sandbox.whenHeld(1);
+      // The span's save is not awaited by the run, and re-reads the grant
+      // records before it writes: let it land.
+      await new Promise((resolve) => setImmediate(resolve));
 
       const inProgress = await ports.store.loadState();
       assert.deepEqual(inProgress.runSpans, [
@@ -2832,6 +2835,66 @@ describe("morningLoop", () => {
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
             { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
           );
+        });
+
+        describe("with a grant record", () => {
+          const GRANT_RECORDED = { repo: PILOT, number: IMPLEMENTATION };
+
+          function grantInsideAnotherRunSpan(ports: FakePorts): Ticket {
+            const implementation = queuedTurboableReview(ports);
+            ports.store.markRunSpan(
+              { repo: PILOT, number: issueNumber(99) },
+              new Date(GRANTED_IN_TIME.getTime() - 60_000),
+              new Date(GRANTED_IN_TIME.getTime() + 60_000),
+            );
+            return implementation;
+          }
+
+          it("merges a grant inside another ticket's run span, then uses the record up", async () => {
+            const ports = fakePorts();
+            const implementation = grantInsideAnotherRunSpan(ports);
+            ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
+            postedACleanReview(ports);
+
+            const report = await morningLoop(ports);
+
+            assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+            const outcome = report.iterations[0];
+            assert.deepEqual(
+              outcome?.kind === "reviewed" ? outcome.merge : undefined,
+              { kind: "merged", implementationTicket: implementation },
+            );
+            assert.deepEqual(ports.store.grants(), []);
+          });
+
+          it("declines a grant more than 2 minutes from the record, and still uses the record up", async () => {
+            const ports = fakePorts();
+            grantInsideAnotherRunSpan(ports);
+            ports.store.markGranted(GRANT_RECORDED, new Date(GRANTED_IN_TIME.getTime() - 150_000));
+            postedACleanReview(ports);
+
+            const report = await morningLoop(ports);
+
+            assert.deepEqual(ports.repoHost.merged, []);
+            const outcome = report.iterations[0];
+            assert.deepEqual(
+              outcome?.kind === "reviewed" ? outcome.merge : undefined,
+              { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
+            );
+            assert.deepEqual(ports.store.grants(), []);
+          });
+
+          it("leaves another ticket's record standing", async () => {
+            const ports = fakePorts();
+            grantInsideAnotherRunSpan(ports);
+            const elsewhere = { repo: PILOT, number: issueNumber(500) };
+            ports.store.markGranted(elsewhere, GRANTED_IN_TIME);
+            postedACleanReview(ports);
+
+            await morningLoop(ports);
+
+            assert.deepEqual(ports.store.grants(), [{ ...elsewhere, grantedAt: GRANTED_IN_TIME }]);
+          });
         });
 
         it("merges once the only span covering the grant was left open by a dead invocation, now read as ended at its own start", async () => {

@@ -17,6 +17,7 @@ import type {
   OpenInvocation,
   Progress,
   PullRequestLabel,
+  GrantRecord,
   PullRequestState,
   PullRequestTicket,
   PullRequestUrl,
@@ -192,6 +193,8 @@ type RunRecording = Pick<
   | "recordRunSpanStarted"
   | "recordRunSpanEnded"
   | "runSpans"
+  | "grants"
+  | "consumeGrant"
 >;
 
 /**
@@ -2452,6 +2455,27 @@ async function mergeGate(
   ticket: PullRequestTicket,
   context: MergeGateContext,
 ): Promise<MergeGate> {
+  // Read before the verdict and used up after it, whatever it is: a record
+  // vouches for one firing of the gate (ADR 0012).
+  const grants = await context.invocation.grants().catch(() => []);
+  const verdict = await decideMerge(ports, ticket, context, grants);
+  const { implementation } = context;
+  if (implementation !== undefined) {
+    await context.invocation.consumeGrant(implementation).catch((error: unknown) => {
+      console.warn(
+        `Could not use up the grant record for ${implementation.repo} #${implementation.number}: ${errorMessage(error)}`,
+      );
+    });
+  }
+  return verdict;
+}
+
+async function decideMerge(
+  ports: MorningLoopPorts,
+  ticket: PullRequestTicket,
+  context: MergeGateContext,
+  grants: readonly GrantRecord[],
+): Promise<MergeGate> {
   const { implementation } = context;
   if (implementation === undefined) {
     return {
@@ -2474,6 +2498,7 @@ async function mergeGate(
       implementation,
       span.startedAt,
       context.invocation.runSpans(),
+      grants,
     );
   } catch (error: unknown) {
     return { kind: "timeline-unreadable", error: errorMessage(error) };
