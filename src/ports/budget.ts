@@ -59,7 +59,8 @@ export interface Budget {
   /**
    * The tokens a pull request ticket's run is worth, keyed by its kind, in
    * place of any size. A kind it omits is charged `sizes[unsizedCountsAs]`
-   * instead, as is every pull request ticket when it is empty.
+   * instead, so a document that names only some kinds leaves the rest on
+   * the size.
    */
   kinds: Partial<Record<BudgetKind, TokenCount>>;
   /**
@@ -123,7 +124,11 @@ export const DEFAULT_BUDGET: Budget = {
     L: tokenCount(1_500_000),
     XL: tokenCount(3_000_000),
   },
-  kinds: {},
+  kinds: {
+    review: tokenCount(250_000),
+    applyReview: tokenCount(450_000),
+    rebase: tokenCount(100_000),
+  },
   unsizedCountsAs: "M",
 };
 

@@ -307,8 +307,8 @@ of the four sizes is refused the same way an unrecognised top-level setting is.
 
 `kinds` is what a pull request ticket's run is worth, by kind — `review`, `applyReview` or `rebase` — in
 weighted tokens, in place of any size: a pull request ticket never inherits its parent's size. Any
-kind may be left out, and a ticket of a kind left out is charged `sizes[unsizedCountsAs]`, as every
-pull request ticket is when `kinds` is absent altogether. Values are validated like `sizes`, and a key
+kind may be left out, and a ticket of a kind left out is charged `sizes[unsizedCountsAs]`; a `kinds`
+that is absent altogether takes the three figures shown above. Values are validated like `sizes`, and a key
 that is not one of the three kinds is refused.
 
 `unsizedCountsAs` is the size a ticket with no size label counts as, and the size a pull request ticket

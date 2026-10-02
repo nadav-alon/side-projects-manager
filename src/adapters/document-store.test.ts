@@ -305,7 +305,7 @@ describe("the budget document", () => {
       spendCeiling: 2.5,
       maxConcurrentIterations: 2,
       sizes: { S: 100_000, M: 400_000, L: 1_000_000, XL: 2_000_000 },
-      kinds: {},
+      kinds: DEFAULT_BUDGET.kinds,
       unsizedCountsAs: "L",
     });
   });

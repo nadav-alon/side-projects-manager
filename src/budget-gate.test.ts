@@ -350,8 +350,9 @@ describe("invocationBudgetGate", () => {
     });
 
     for (const kind of ["review", "apply-review", "rebase"] as const) {
-      it(`charges a ${kind} ticket unsizedCountsAs, even carrying its own declared size`, async () => {
+      it(`charges a ${kind} ticket unsizedCountsAs where no kind figure is set, even carrying its own declared size`, async () => {
         const store = new FakeStore();
+        store.budget = { ...DEFAULT_BUDGET, kinds: {} };
         const ledger = new FakeUsageLedger();
         const gate = await openGate(store, ledger);
         const pullRequestTicket: Ticket = {
