@@ -18,6 +18,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  GrantRecord,
   RunSpan,
   SubIssue,
   Ticket,
@@ -336,6 +337,7 @@ export function ghIssueTracker(
       ticket: Ticket,
       instant: Date,
       spans: readonly RunSpan[],
+      grants: readonly GrantRecord[] = [],
     ): Promise<TurboableConsent> {
       // `--paginate`, so an issue with a longer timeline than fits one page
       // is read whole — the same reason `listSubIssues` paginates. Filtered
@@ -350,7 +352,7 @@ export function ghIssueTracker(
         '.[] | select(.event == "labeled" or .event == "unlabeled") | {event, label: .label.name, created_at}',
       ]);
       const events = labelTimelineEventsIn(stdout, ticket);
-      return turboableConsentAt(ticket, events, instant, spans);
+      return turboableConsentAt(ticket, events, instant, spans, grants);
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {

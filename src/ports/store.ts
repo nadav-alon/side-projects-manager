@@ -335,6 +335,63 @@ export function runSpanInProgress(
 }
 
 /**
+ * The developer's own grant of `turboable` on a ticket, as the `grant`
+ * command wrote it: host-only, since no sandbox run mounts the manager home
+ * to write the state document. How far from the label's own `labeled` event
+ * `grantedAt` may lie and still match it is `GRANT_MATCH_WINDOW_MS`.
+ */
+export interface GrantRecord {
+  repo: RepoSlug;
+  number: IssueNumber;
+  grantedAt: Date;
+}
+
+/** How far a `GrantRecord`'s `grantedAt` may lie from the `labeled` event it vouches for. */
+export const GRANT_MATCH_WINDOW_MS = 2 * 60 * 1000;
+
+/**
+ * Whether `grants` carries a record for `ticket` whose `grantedAt` lies
+ * within `GRANT_MATCH_WINDOW_MS` of `labeledAt`, inclusive. A record for
+ * another ticket never matches, nor does one outside the window, however
+ * near.
+ */
+export function grantMatches(
+  grants: readonly GrantRecord[] | undefined,
+  ticket: WorkedTicket,
+  labeledAt: Date,
+): boolean {
+  return (grants ?? []).some(
+    (grant) =>
+      ticketKey(grant) === ticketKey(ticket) &&
+      Math.abs(grant.grantedAt.getTime() - labeledAt.getTime()) <= GRANT_MATCH_WINDOW_MS,
+  );
+}
+
+/**
+ * `previous` with `ticket`'s grant recorded at `grantedAt`, in place of any
+ * record it already carried.
+ */
+export function recordGrant(
+  previous: readonly GrantRecord[] | undefined,
+  ticket: WorkedTicket,
+  grantedAt: Date,
+): GrantRecord[] {
+  return [
+    ...(previous ?? []).filter((grant) => ticketKey(grant) !== ticketKey(ticket)),
+    { repo: ticket.repo, number: ticket.number, grantedAt },
+  ];
+}
+
+/** `previous` without `ticket`'s grant record; undefined once none is left. */
+export function withoutGrant(
+  previous: readonly GrantRecord[] | undefined,
+  ticket: WorkedTicket,
+): GrantRecord[] | undefined {
+  const kept = (previous ?? []).filter((grant) => ticketKey(grant) !== ticketKey(ticket));
+  return kept.length === 0 ? undefined : kept;
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.
@@ -370,6 +427,11 @@ export interface State {
    * span".
    */
   runSpans?: RunSpan[];
+  /**
+   * Every grant record the `grant` command wrote and the merge gate has not
+   * yet used up. Absent when none stands. See ADR 0012.
+   */
+  grants?: GrantRecord[];
 }
 
 /**

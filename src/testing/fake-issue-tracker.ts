@@ -15,6 +15,7 @@ import type {
   RebaseTicket,
   RepoSlug,
   ReviewTicket,
+  GrantRecord,
   RunSpan,
   SubIssue,
   Ticket,
@@ -560,12 +561,14 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     ticket: Ticket,
     instant: Date,
     spans: readonly RunSpan[],
+    grants: readonly GrantRecord[] = [],
   ): Promise<TurboableConsent> {
     return turboableConsentAt(
       ticket,
       this.#turboableEvents.get(ticketReference(ticket)) ?? [],
       instant,
       spans,
+      grants,
     );
   }
 

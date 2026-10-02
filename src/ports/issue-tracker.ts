@@ -3,7 +3,7 @@ import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
-import { type RunSpan, runSpanCovers } from "./store.ts";
+import { type GrantRecord, type RunSpan, grantMatches, runSpanCovers } from "./store.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
 
 /**
@@ -500,6 +500,11 @@ export type TurboableConsent =
  *    the grant — falls inside no run span of any ticket in `ticket`'s own
  *    repo. `spans` for another repo never count, whatever they cover.
  *
+ * A grant inside a run span still counts when `grants` carries a record for
+ * `ticket` within `GRANT_MATCH_WINDOW_MS` of that granting event (ADR 0012):
+ * the record is host-only, so no run could have written it. A grant outside
+ * every span needs none, and `grants` is consulted for no other check.
+ *
  * Whether a span falls inside `instant` is `runSpanCovers`'s call, bounds and
  * all — including `ticket`'s own span: a grant at exactly its own
  * `startedAt` is rejected.
@@ -512,6 +517,7 @@ export function turboableConsentAt(
   events: readonly LabelTimelineEvent[],
   instant: Date,
   spans: readonly RunSpan[],
+  grants: readonly GrantRecord[] = [],
 ): TurboableConsent {
   const grant = mostRecentLabelEvent(events, TURBOABLE_LABEL, instant);
   if (grant?.action !== "labeled") {
@@ -523,7 +529,9 @@ export function turboableConsentAt(
   const insideSpan = spans.some(
     (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),
   );
-  return insideSpan ? { consented: false, reason: "inside-run-span" } : { consented: true };
+  return insideSpan && !grantMatches(grants, ticket, grant.at)
+    ? { consented: false, reason: "inside-run-span" }
+    : { consented: true };
 }
 
 /**
@@ -954,13 +962,16 @@ export interface IssueTracker {
    * removed again before it, or added by a run on a different ticket before
    * this one's own run started, must not count as consent given in time —
    * and only a read of history, rather than the present, can tell any of
-   * those from a human's grant. Answers with a {@link TurboableConsent} so
+   * those from a human's grant. `grants` is the state's grant records, which
+   * let a grant inside a run span count — see {@link turboableConsentAt}.
+   * Answers with a {@link TurboableConsent} so
    * the caller's own "not turboable" reason can name which check said no.
    */
   wasTurboableAt(
     ticket: Ticket,
     instant: Date,
     spans: readonly RunSpan[],
+    grants?: readonly GrantRecord[],
   ): Promise<TurboableConsent>;
   /**
    * Opens a spec review ticket against `ticket`, a supertask — a sub-issue

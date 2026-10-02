@@ -720,6 +720,72 @@ describe("turboableConsentAt", () => {
     assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, spans), { consented: true });
   });
 
+  describe("with grant records", () => {
+    const MINUTE = 60 * 1000;
+    const labeledAt = new Date("2026-01-02T12:00:00Z");
+    const inside = [span(OTHER_TICKET, DAY_1, DAY_3)];
+    const grantAt = (ticket: WorkedTicket, at: Date) => [
+      { repo: ticket.repo, number: ticket.number, grantedAt: at },
+    ];
+
+    it("counts a grant inside a run span when a record for the ticket matches the labeled event", () => {
+      const events = [event("labeled", labeledAt)];
+      assert.deepEqual(
+        turboableConsentAt(TICKET, events, DAY_4, inside, grantAt(TICKET, labeledAt)),
+        { consented: true },
+      );
+    });
+
+    it("declines the same grant without a record", () => {
+      assert.deepEqual(
+        turboableConsentAt(TICKET, [event("labeled", labeledAt)], DAY_4, inside, []),
+        { consented: false, reason: "inside-run-span" },
+      );
+    });
+
+    it("matches a record exactly 2 minutes from the event, either side, and no further", () => {
+      const events = [event("labeled", labeledAt)];
+      for (const offset of [-2 * MINUTE, 2 * MINUTE]) {
+        const near = grantAt(TICKET, new Date(labeledAt.getTime() + offset));
+        assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, inside, near), { consented: true });
+      }
+      for (const offset of [-2 * MINUTE - 1, 2 * MINUTE + 1]) {
+        const far = grantAt(TICKET, new Date(labeledAt.getTime() + offset));
+        assert.deepEqual(turboableConsentAt(TICKET, events, DAY_4, inside, far), {
+          consented: false,
+          reason: "inside-run-span",
+        });
+      }
+    });
+
+    it("does not cover a label removed and re-added later than the record's window", () => {
+      const readded = new Date(labeledAt.getTime() + 10 * MINUTE);
+      const events = [
+        event("labeled", labeledAt),
+        event("unlabeled", new Date(labeledAt.getTime() + MINUTE)),
+        event("labeled", readded),
+      ];
+      assert.deepEqual(
+        turboableConsentAt(TICKET, events, DAY_4, inside, grantAt(TICKET, labeledAt)),
+        { consented: false, reason: "inside-run-span" },
+      );
+    });
+
+    it("ignores a record for another ticket", () => {
+      assert.deepEqual(
+        turboableConsentAt(TICKET, [event("labeled", labeledAt)], DAY_4, inside, grantAt(OTHER_TICKET, labeledAt)),
+        { consented: false, reason: "inside-run-span" },
+      );
+    });
+
+    it("lets a record rescue nothing but the run-span check", () => {
+      assert.deepEqual(turboableConsentAt(TICKET, [], DAY_4, inside, grantAt(TICKET, labeledAt)), {
+        consented: false,
+        reason: "never-labeled",
+      });
+    });
+  });
+
   it("rejects a ticket's own span covering its own grant", () => {
     const events = [event("labeled", DAY_1)];
     const spans = [span(TICKET, DAY_1, DAY_3)];
