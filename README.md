@@ -48,6 +48,11 @@ runs it automatically — it's a command the developer runs once, and it's safe 
 after a checkout moves: re-running replaces a stale registration — a leftover daily cron line, a
 logon-guard rc snippet, or a cron line pointing at the old checkout path — with the current one.
 
+`npm run grant -- owner/repo#n` labels a ticket `turboable` as the developer and writes the grant
+record that lets the merge gate count it even if it lands inside an unrelated run's span — see
+[ADR 0012](docs/adr/0012-a-host-only-grant-record-vouches-for-a-grant-inside-a-run-span.md). It refuses a
+project whose `turbo` is off.
+
 `npm run halt` stops every trigger from doing anything, scheduled or manual, until `npm run resume`
 clears it — both commands are idempotent, and say what they did. Distinct from pausing every project
 in `registry.json`: a halt is a file of its own under the manager home
@@ -424,6 +429,9 @@ That passes npm's current CLI release as `CLAUDE_CODE_VERSION`, so a rebuild pic
 instead of reusing the cached install layer, and npm's current `@playwright/mcp` release as
 `PLAYWRIGHT_MCP_VERSION` for the same reason. A bare `docker build -t side-projects-sandbox:latest .`
 installs `latest` once and then keeps whatever that was on every cached rebuild.
+
+It also builds on the host's network (`--network host`): on WSL, docker's default bridge network
+timed out downloading Playwright's Chrome while the host itself fetched it at full speed.
 
 Nothing rebuilds the image on its own, so a change to the Dockerfile — or to a skill it bakes in —
 leaves the built image behind the checkout, and a run against it reports a missing skill as `Unknown

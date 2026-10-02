@@ -1015,7 +1015,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const tracker = new FakeIssueTracker();
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
 
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, []), {
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, [], []), {
       consented: false,
       reason: "never-labeled",
     });
@@ -1026,8 +1026,8 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
 
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_1, []), { consented: true });
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, []), { consented: true });
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_1, [], []), { consented: true });
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_2, [], []), { consented: true });
   });
 
   it("refuses, not labeled in time, for a turboable label added after the instant", async () => {
@@ -1035,7 +1035,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const ticket = tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
     tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
 
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_1, []), {
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_1, [], []), {
       consented: false,
       reason: "not-labeled-in-time",
     });
@@ -1047,7 +1047,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     tracker.recordTurboableEvent(ticket, "labeled", DAY_1);
     tracker.recordTurboableEvent(ticket, "unlabeled", DAY_2);
 
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, []), {
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, [], []), {
       consented: false,
       reason: "not-labeled-in-time",
     });
@@ -1059,7 +1059,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const other = tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add another thing" });
     tracker.recordTurboableEvent(turboable, "labeled", DAY_1);
 
-    assert.deepEqual(await tracker.wasTurboableAt(other, DAY_2, []), {
+    assert.deepEqual(await tracker.wasTurboableAt(other, DAY_2, [], []), {
       consented: false,
       reason: "never-labeled",
     });
@@ -1082,7 +1082,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const spans: RunSpan[] = [
       { repo: other.repo, number: other.number, startedAt: DAY_1, endedAt: DAY_3 },
     ];
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), {
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans, []), {
       consented: false,
       reason: "inside-run-span",
     });
@@ -1095,7 +1095,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     tracker.recordTurboableEvent(ticket, "labeled", DAY_2);
 
     const spans: RunSpan[] = [{ repo: other.repo, number: other.number, startedAt: DAY_1 }];
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), {
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans, []), {
       consented: false,
       reason: "inside-run-span",
     });
@@ -1110,7 +1110,7 @@ describe("FakeIssueTracker.wasTurboableAt", () => {
     const spans: RunSpan[] = [
       { repo: otherRepo, number: ticket.number, startedAt: DAY_1, endedAt: DAY_3 },
     ];
-    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans), { consented: true });
+    assert.deepEqual(await tracker.wasTurboableAt(ticket, DAY_3, spans, []), { consented: true });
   });
 });
 

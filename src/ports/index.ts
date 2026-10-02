@@ -278,10 +278,13 @@ export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";
 export { isUsd, usd } from "./usd.ts";
 export type { Usd } from "./usd.ts";
 export {
+  GRANT_MATCH_WINDOW,
   clearSalvage,
+  grantMatches,
   hasAnnouncedOn,
   recordInfrastructureFailureSalvage,
   recordRunSpanEnded,
+  recordGrant,
   recordRunSpanStarted,
   recordStopShortSalvage,
   recordRun,
@@ -292,9 +295,12 @@ export {
   salvageFor,
   ticketKey,
   unrecordWorked,
+  sameGrant,
+  withoutGrant,
   workedTicket,
 } from "./store.ts";
 export type {
+  GrantRecord,
   ProjectState,
   RegisteredProject,
   RunCost,

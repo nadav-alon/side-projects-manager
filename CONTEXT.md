@@ -722,7 +722,13 @@ best-effort, so a run whose write failed leaves no span for this third check to 
 ticket run more than once keeps only its latest run's span (see **Run span**), an earlier run's own
 grant is no longer covered once that ticket runs again; and a span a crash left open reads as ended
 at its own `startedAt` (see **Run span**), so a `turboable` grant that crashed run itself made
-between its own start and its death now falls outside its own span too, and counts as consent. Once
+between its own start and its death now falls outside its own span too, and counts as consent. A
+grant inside a span still counts when a **grant record** matches it (ADR 0012): `{repo, number,
+grantedAt}` in `state.json`, written by `npm run grant -- owner/repo#n` alongside the label — which
+refuses a project whose `turbo` is off — and out of any run's reach, since the manager home is not
+mounted. It matches when `grantedAt` lies within 2 minutes of the `labeled` event the gate found,
+is used up once the gate fires, and is pruned on the sweep once its ticket closes; a label clicked
+on GitHub inside a span has none, and still declines. Once
 a turboable ticket's apply-review ticket finishes, or its review comes back clean (see **Clean
 review**) — whichever happens, and only the one that does — one pass: the manager merges the pull
 request, with a merge commit, and deletes its branch, but only if it is mergeable and green;
