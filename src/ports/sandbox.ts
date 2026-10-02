@@ -204,6 +204,13 @@ interface Worked {
   /** Branch the agent worked on. */
   branch: Branch;
   commits: CommitSha[];
+  /**
+   * The commits already on `branch` when the run started, absent for a run
+   * that began on a fresh branch. A resumed run's `commits` include these —
+   * they are everything on the branch since it left the checkout — so a run
+   * added work only if `commits` holds something not listed here.
+   */
+  resumedCommits?: CommitSha[];
 }
 
 /** The agent ran to completion. */

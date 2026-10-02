@@ -2047,6 +2047,27 @@ describe("containerSandbox.run salvage", () => {
     assert.equal(await subjectOf(directory, SALVAGE_BRANCH), "Add one.txt");
   });
 
+  it("names the salvage's own commits as already on a resumed run's branch, and none on a fresh run", async () => {
+    const directory = await project();
+    await leaveSalvageBranch(directory, SALVAGE_BRANCH);
+    const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
+
+    const resumed = await testSandbox(agentCommitting(["one.txt"])).run({
+      ticket: TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      salvageBranch: SALVAGE_BRANCH,
+    });
+    const fresh = await testSandbox(agentCommitting(["two.txt"])).run({
+      ticket: TICKET,
+      checkout: await project(),
+      spendCeiling: CEILING,
+    });
+
+    assert.deepEqual(variant(resumed, "finished")?.resumedCommits, [salvageCommit]);
+    assert.equal(variant(fresh, "finished")?.resumedCommits, undefined);
+  });
+
   it("still yields a handover for a resumed run that adds no commits of its own", async () => {
     const directory = await project();
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
