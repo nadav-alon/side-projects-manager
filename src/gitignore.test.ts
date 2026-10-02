@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = new URL("..", import.meta.url).pathname;
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function isIgnored(path: string): boolean {
   try {
@@ -13,10 +14,14 @@ function isIgnored(path: string): boolean {
   }
 }
 
-test("the machine-written documents are not committed", () => {
-  for (const document of ["state.json", "journal.json", "budget.json"]) {
+test("the state document and the journal are not committed", () => {
+  for (const document of ["state.json", "journal.json"]) {
     assert.equal(isIgnored(document), true, `${document} is not gitignored`);
   }
+});
+
+test("the budget document is not committed", () => {
+  assert.equal(isIgnored("budget.json"), true);
 });
 
 test("the registry stays committed", () => {
