@@ -214,9 +214,10 @@ indistinguishable from a project registered this morning.
 _Avoid_: unworked, new, cold
 
 **Manager home**:
-The manager's own checkout, holding the committed registry, the gitignored state document, journal and budget
-document, and a gitignored `transcripts/` directory of session transcripts. Distinct from the managed location,
-which is where projects are cloned to.
+The manager's own checkout, holding the committed registry; the gitignored state document and
+journal, which the loop writes; the gitignored budget document; and a gitignored `transcripts/`
+directory of session transcripts. Distinct from the managed location, which is where projects are
+cloned to.
 _Avoid_: config directory, data directory, root
 
 **Managed location**:
@@ -773,8 +774,9 @@ _Avoid_: buffer, headroom
 **Budget document**:
 The hand-edited document of what the mornings may spend: the two allowances, the two reserve
 fractions, the tokens each size is worth, the tokens each pull request kind is worth and the size an
-unsized ticket counts as, the spend ceiling, the concurrency limit, and any observed reset. `budget.json` in the manager home. Separate
-from the registry because the new-project command rewrites that one.
+unsized ticket counts as, the spend ceiling, the concurrency limit, and any observed reset.
+`budget.json` in the manager home, gitignored. Separate from the registry because the new-project
+command rewrites that one.
 _Avoid_: budget file, limits, quota config
 
 **Allowance**:
@@ -890,8 +892,8 @@ The machine-written account of every invocation: when it started, when it ended,
 to. A document in the manager home alongside the state document — but a separate one: the state
 document is keyed by project and rewritten wholesale, while the journal is append-only and keyed by
 time, one record per invocation. Distinct from `trigger.log` too: that file is the raw output of
-whatever a trigger ran, gitignored and local to this machine, as the journal is too, though the journal
-records outcomes rather than capturing output.
+whatever a trigger ran, gitignored and local to this machine. So is the journal, but it records
+outcomes rather than capturing output.
 _Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
 
 **Invocation record**:

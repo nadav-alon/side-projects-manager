@@ -14,8 +14,8 @@ export const HALT_FILE = "halt";
  * needs to be told apart from anybody else here, only halted told apart from
  * not.
  *
- * Gitignored like `invocation.lease` and `trigger.log`: the registry and the
- * budget document are committed, per-project intent, but a halt is
+ * Gitignored like `invocation.lease` and `trigger.log`: the registry is
+ * committed, per-project intent, but a halt is
  * machine-local and says nothing about any one project — a checkout on
  * another machine, or another clone of this one, is unaffected either way.
  */

@@ -216,8 +216,8 @@ what the run pushed and answered is read back from GitHub.
 
 `state.json` beside it is the machine's half: when each project was last worked, and what its runs
 cost. The loop writes it after every invocation and you never have to edit it; it is gitignored and
-local to this machine, not committed. It does not exist until the loop has run, and no state for a project means the
-project has never been worked.
+local to this machine, not committed. It does not exist until the loop has run, and no state for a
+project means the project has never been worked.
 
 `journal.json` records every invocation, whether or not it published a summary: when it started, when
 it ended, what it came to, and which projects it worked at what cost. `morning-run` opens a record
@@ -226,7 +226,7 @@ in-flight record — one with no `closedAt` — rather than no trace at all. It 
 recent records, oldest dropped first, and is gitignored alongside `state.json`.
 
 Losing either costs little: the loop restarts cleanly from no state, and what past runs did survives
-in the loop summaries. `budget.json` is gitignored too.
+in the summaries.
 
 `npm run status` answers "is the loop alive?" without reading source: whether the triggers are armed,
 whether today has been claimed and what came of it, what the most recent invocation came to, and a
@@ -264,7 +264,8 @@ scripts/budget-wizard.sh
 ```
 
 `budget.json` is the other document that is yours, and it is what the loop asks before it starts
-anything:
+anything. It is gitignored and local to this machine, so losing it loses your ceiling, allowances
+and size weights: keep your own copy.
 
 ```json
 {
