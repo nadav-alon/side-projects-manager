@@ -271,6 +271,7 @@ anything:
   "fiveHourReserveFraction": 0,
   "spendCeiling": 10,
   "sizes": { "S": 150000, "M": 600000, "L": 1500000, "XL": 3000000 },
+  "kinds": { "review": 250000, "applyReview": 450000, "rebase": 100000 },
   "unsizedCountsAs": "M"
 }
 ```
@@ -304,8 +305,14 @@ back to its own default shown above; a `sizes` document naming only `L` leaves `
 where they were. Every value must be a whole number of tokens, 0 or more, and a key that is not one
 of the four sizes is refused the same way an unrecognised top-level setting is.
 
-`unsizedCountsAs` is the size a ticket with no size label counts as, and the size every review ticket
-counts as — a review never inherits its parent's size. It must name one of the four sizes, and
+`kinds` is what a pull request ticket's run is worth, by kind — `review`, `applyReview` or `rebase` — in
+weighted tokens, in place of any size: a pull request ticket never inherits its parent's size. Any
+kind may be left out, and a ticket of a kind left out is charged `sizes[unsizedCountsAs]`, as every
+pull request ticket is when `kinds` is absent altogether. Values are validated like `sizes`, and a key
+that is not one of the three kinds is refused.
+
+`unsizedCountsAs` is the size a ticket with no size label counts as, and the size a pull request ticket
+counts as where `kinds` gives its kind no figure. It must name one of the four sizes, and
 defaults to `M`.
 
 `spendCeiling` is the one ceiling the manager does not enforce itself: it is passed to the agent CLI

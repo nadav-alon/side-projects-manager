@@ -312,9 +312,11 @@ _Avoid_: model config, model settings, tiers
 The label a ticket may carry, as `size:<size>`, saying how much of the budget its run is expected to
 spend: one of S, M, L or XL, each worth the tokens the budget document gives it. What sets the
 ticket's run estimate; a ticket without one counts as the size the budget document names for unsized
-tickets, and so does every pull request ticket, which never inherits its parent's size. Recommended
-by triage when a ticket is made ready-for-agent. A ticket carrying two sizes counts as the larger.
-Says nothing about the ticket's model: a ticket expected to run on a costlier model is sized larger.
+tickets. A pull request ticket never inherits its parent's size, and its run estimate comes from its
+kind instead, or from the unsized size where the budget document gives its kind no figure.
+Recommended by triage when a ticket is made ready-for-agent. A ticket carrying two sizes counts as
+the larger. Says nothing about the ticket's model: a ticket expected to run on a costlier model is
+sized larger.
 _Avoid_: estimate label, cost label, points, effort
 
 **ready-for-human**:
@@ -756,7 +758,8 @@ _Avoid_: raw token, token (unqualified, inside this section)
 
 **Run estimate**:
 The weighted tokens the gate charges a run before it starts, in place of the cost nobody can know
-until it ends. Comes from the ticket's size label, and is the same whatever model the run uses. Never
+until it ends. Comes from the ticket's size label, or from its kind where it is a pull request ticket
+and the budget document gives that kind a figure, and is the same whatever model the run uses. Never
 revised by what earlier runs cost: the summary sets each run's cost beside its estimate and flags a
 run that spent more, and correcting the figure is the developer's.
 _Avoid_: projection, forecast, reservation, hold, assumed cost
@@ -769,7 +772,8 @@ _Avoid_: buffer, headroom
 
 **Budget document**:
 The hand-edited document of what the mornings may spend: the two allowances, the two reserve
-fractions, the tokens each size is worth and the size an unsized ticket counts as, the spend
+fractions, the tokens each size is worth, the tokens each pull request kind is worth and the size an
+unsized ticket counts as, the spend
 ceiling, the concurrency limit, and any observed reset. `budget.json` in the manager home. Separate
 from the registry because the new-project command rewrites that one.
 _Avoid_: budget file, limits, quota config
@@ -860,8 +864,8 @@ _Avoid_: interrupted, killed, aborted
 **Spend ceiling**:
 The most a single run may spend, enforced by the agent CLI itself rather than by the gate. One
 dollar figure for every ticket, or one per size label, resolved the same way `sizes` resolves the
-run estimate — an unsized ticket, and every review, apply-review or rebase ticket, takes
-`unsizedCountsAs`'s.
+run estimate for a ticket with no kind figure — an unsized ticket, and every review, apply-review or
+rebase ticket, takes `unsizedCountsAs`'s, whatever its kind's run estimate.
 _Avoid_: budget, limit, cap
 
 **Budget exhaustion**:
