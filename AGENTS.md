@@ -24,6 +24,13 @@ Issues live as GitHub issues, driven via the `gh` CLI. See `docs/agents/issue-tr
 One seam per ticket: acceptance criteria describe behaviors of one seam, never a list of them. See
 `docs/agents/ticket-scope.md`.
 
+### Sizing tickets here
+
+Size a ticket in this repo one step larger than the same change would be in a project: `size:M`
+where a project's would be `size:S`. Its runs cost about twice a project's at the same label,
+because a change here usually spans the loop, the summary and the uniform files at once. The size
+labels themselves are `docs/agents/triage-labels.md`'s.
+
 ### Triage labels
 
 The five canonical triage roles, used verbatim as label strings. See `docs/agents/triage-labels.md`.
