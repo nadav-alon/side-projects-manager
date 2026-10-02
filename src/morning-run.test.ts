@@ -2884,6 +2884,24 @@ describe("morningLoop", () => {
             assert.deepEqual(ports.store.grants(), []);
           });
 
+          it("uses the record up when the gate leaves the pull request for a human, its checks failing", async () => {
+            const ports = fakePorts();
+            grantInsideAnotherRunSpan(ports);
+            ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
+            postedACleanReview(ports);
+            ports.repoHost.checksStatus = () => "failing";
+
+            const report = await morningLoop(ports);
+
+            assert.deepEqual(ports.repoHost.merged, []);
+            const outcome = report.iterations[0];
+            assert.deepEqual(
+              outcome?.kind === "reviewed" ? outcome.merge : undefined,
+              { kind: "left-for-human", reason: "checks failing" },
+            );
+            assert.deepEqual(ports.store.grants(), []);
+          });
+
           it("prunes a closed ticket's record on the sweep", async () => {
             const ports = fakePorts();
             ports.store.register(PILOT);
