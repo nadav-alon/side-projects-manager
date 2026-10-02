@@ -321,7 +321,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   }
 
   /** Takes `label` off `ticket`, the way the developer unlabels one by hand. */
-  removeLabel(ticket: Ticket, label: string): void {
+  removeLabel(ticket: IssueReference, label: string): void {
     this.#find(ticket)?.labels.delete(label);
   }
 
@@ -341,7 +341,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
    * label query against the real tracker would find it, even once
    * `listOpenIssues` has stopped listing the ticket at all.
    */
-  carriesLabel(ticket: Ticket, label: string): boolean {
+  carriesLabel(ticket: IssueReference, label: string): boolean {
     return this.#find(ticket)?.labels.has(label) ?? false;
   }
 
