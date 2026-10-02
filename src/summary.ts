@@ -1973,8 +1973,9 @@ function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
 /**
  * The Waiting-on-you line for what the merge gate left the developer to do
  * themselves: merge a pull request it left for human review, or check
- * turboable itself for one whose timeline it could not read. Undefined for
- * every other verdict — merged or not-turboable leave nothing to add, and
+ * turboable itself for one whose timeline it could not read, or re-grant it
+ * where a grant fell inside a run span. Undefined for every other verdict —
+ * merged or any other not-turboable leave nothing to add, and
  * a caller with no merge gate at all has nothing to ask this about. Shared
  * by `waitingSection`'s `reviewed` case and `appliedReviewWaitingLine`, so
  * a verdict kind added later needs one edit instead of two.
@@ -1989,6 +1990,10 @@ function mergeGateWaitingLine(
       return `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
     case "timeline-unreadable":
       return timelineUnreadableWaitingLine(repo, pullRequest, merge.error);
+    case "not-turboable":
+      return merge.declinedInRunSpan === undefined
+        ? undefined
+        : `- ${repo}: ${pullRequest} — ${withoutTrailingStop(merge.reason)}, so not merged; re-grant ${ticketReference(merge.declinedInRunSpan)} with \`npm run grant -- ${ticketReference(merge.declinedInRunSpan)}\``;
     default:
       return undefined;
   }

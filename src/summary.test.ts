@@ -270,6 +270,7 @@ function cleanReviewNotTurboableInsideSpan(number: number): IterationOutcome {
       kind: "not-turboable",
       reason: "turboable granted inside a run span",
       declinedGrant: true,
+      declinedInRunSpan: implementationTicket(7),
     },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
@@ -426,6 +427,7 @@ function appliedReviewNotTurboableInsideSpan(number: number): IterationOutcome {
       kind: "not-turboable",
       reason: "turboable granted inside a run span",
       declinedGrant: true,
+      declinedInRunSpan: implementationTicket(7),
     },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
@@ -882,6 +884,28 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — left for you to merge: Pull Request is not mergeable`,
+    ]);
+  });
+
+  it("lists a grant the merge gate declined inside a run span with its re-grant command", () => {
+    const lines = waitingLines([appliedReviewNotTurboableInsideSpan(230)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — turboable granted inside a run span, so not merged; re-grant ${REPO}#7 with \`npm run grant -- ${REPO}#7\``,
+    ]);
+  });
+
+  it("lists a clean review's declined in-span grant the same way", () => {
+    const lines = waitingLines([cleanReviewNotTurboableInsideSpan(231)]);
+
+    assert.deepEqual(lines, [
+      `- ${REPO}: ${PULL_REQUEST} — turboable granted inside a run span, so not merged; re-grant ${REPO}#7 with \`npm run grant -- ${REPO}#7\``,
+    ]);
+  });
+
+  it("keeps a declined grant that was not inside a run span out of its own re-grant line", () => {
+    assert.deepEqual(waitingLines([appliedReviewNotTurboable(232)]), [
+      `- ${REPO}: ${PULL_REQUEST} — ready for review`,
     ]);
   });
 
