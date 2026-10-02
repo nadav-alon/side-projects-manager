@@ -425,6 +425,9 @@ instead of reusing the cached install layer, and npm's current `@playwright/mcp`
 `PLAYWRIGHT_MCP_VERSION` for the same reason. A bare `docker build -t side-projects-sandbox:latest .`
 installs `latest` once and then keeps whatever that was on every cached rebuild.
 
+It also builds on the host's network (`--network host`): on WSL, docker's default bridge network
+timed out downloading Playwright's Chrome while the host itself fetched it at full speed.
+
 Nothing rebuilds the image on its own, so a change to the Dockerfile — or to a skill it bakes in —
 leaves the built image behind the checkout, and a run against it reports a missing skill as `Unknown
 command` rather than as anything that looks like a build problem. Two things watch for that gap: a
