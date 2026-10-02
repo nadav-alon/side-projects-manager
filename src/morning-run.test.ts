@@ -2889,7 +2889,7 @@ describe("morningLoop", () => {
             grantInsideAnotherRunSpan(ports);
             ports.store.markGranted(GRANT_RECORDED, GRANTED_IN_TIME);
             postedACleanReview(ports);
-            ports.repoHost.checksStatus = () => "failing";
+            ports.repoHost.checksStatus = () => "red";
 
             const report = await morningLoop(ports);
 

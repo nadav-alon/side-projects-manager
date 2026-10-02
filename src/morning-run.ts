@@ -2166,12 +2166,13 @@ async function endReportedReview(
 /**
  * What `finishApplyReview` and `runReview` need to run the merge gate, built
  * once by their own callers before the ticket closes: `implementation`,
- * resolved while it was still open, and `invocation`, read for its run spans.
+ * resolved while it was still open, and `invocation`, read for its run spans
+ * and grant records, and used to consume the ticket's grant.
  * Absent on a project that is not turbo — the merge gate never asks there.
  */
 interface MergeGateContext {
   implementation: Ticket | undefined;
-  invocation: Pick<RunRecording, "runSpans">;
+  invocation: Pick<RunRecording, "runSpans" | "grants" | "consumeGrant">;
 }
 
 /**
