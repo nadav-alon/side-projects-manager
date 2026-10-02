@@ -52,6 +52,6 @@ After each round, before the next:
 
 - An answer that contradicts an ADR splits off as its own `needs-grilling` ticket, naming the ADR; the rest proceeds.
 - Duplicates close as `not planned`, pointing at the survivor.
-- Asked to put a chain on turbo: grant every ticket in it `turboable` now, before any of their runs start (a later grant reads as no consent), and only on a project `registry.json` marks turbo. Grant each with `npm run grant -- O/R#n`, never a bare `gh issue edit --add-label`, so the grant counts even inside a run span.
+- Asked to put a chain on turbo: grant every ticket in it `turboable` now, before any of their runs start (a later grant reads as no consent), and only on a project `registry.json` marks turbo. Grant each with `npm run grant -- owner/repo#n`, never a bare `gh issue edit --add-label`, so a grant made inside a run span can still count. A ticket already carrying `turboable` gets no new `labeled` event from a grant, so flag it to the developer rather than assuming the grant counts.
 
 Finish once every item in **Waiting on you** has been asked, applied, or deliberately left with the developer. Re-list the labels across all repos to confirm (`gh issue list` lags an edit by seconds; `gh issue view` per issue does not), then report what moved and what still needs the developer.
