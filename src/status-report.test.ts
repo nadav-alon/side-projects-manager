@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import type { BudgetStatus, WindowStatus } from "./budget-gate.ts";
 import {
-  cronMinute,
+  cronStep,
   exitCode,
   issueNumber,
   localDay,
@@ -30,7 +30,7 @@ const PILOT = repoSlug("nadav-alon/pilot");
 const MANAGER_HOME = "/home/dev/side-projects-manager";
 
 const ARMED_TRIGGERS: StatusTriggers = {
-  schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+  schedule: { registered: true, managerHome: MANAGER_HOME, step: cronStep("15") },
   logonGuard: { registered: false },
   managerHome: MANAGER_HOME,
 };
@@ -428,14 +428,24 @@ describe("statusReport's run-in-progress lines", () => {
 });
 
 describe("statusReport's trigger lines", () => {
-  it("reports the schedule armed, with the minute it fires", () => {
+  it("reports the schedule armed, with the minutes between its firings", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      schedule: { registered: true, managerHome: MANAGER_HOME, step: cronStep("15") },
       logonGuard: { registered: false },
       managerHome: MANAGER_HOME,
     });
 
-    assert.match(lines[0]!, /^Schedule: armed, firing every hour at :00\.$/);
+    assert.match(lines[0]!, /^Schedule: armed, firing every 15 minutes\.$/);
+  });
+
+  it("reports a one-minute step as firing every minute", () => {
+    const lines = report(journal(), false, NOW, {
+      schedule: { registered: true, managerHome: MANAGER_HOME, step: cronStep("1") },
+      logonGuard: { registered: false },
+      managerHome: MANAGER_HOME,
+    });
+
+    assert.match(lines[0]!, /^Schedule: armed, firing every minute\.$/);
   });
 
   it("reports the schedule not registered as a problem naming the installer", () => {
@@ -451,7 +461,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a schedule registered but pointing elsewhere, distinctly from not registered at all", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: "/old/checkout", minute: cronMinute("0") },
+      schedule: { registered: true, managerHome: "/old/checkout", step: cronStep("15") },
       logonGuard: { registered: false },
       managerHome: MANAGER_HOME,
     });
@@ -464,7 +474,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a logon guard not registered as expected, not as a problem", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      schedule: { registered: true, managerHome: MANAGER_HOME, step: cronStep("15") },
       logonGuard: { registered: false },
       managerHome: MANAGER_HOME,
     });
@@ -474,7 +484,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a logon guard still armed as leftover from an older install", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      schedule: { registered: true, managerHome: MANAGER_HOME, step: cronStep("15") },
       logonGuard: { registered: true, managerHome: MANAGER_HOME },
       managerHome: MANAGER_HOME,
     });
@@ -485,7 +495,7 @@ describe("statusReport's trigger lines", () => {
 
   it("reports a logon guard registered but pointing elsewhere, distinctly from one still pointing here", () => {
     const lines = report(journal(), false, NOW, {
-      schedule: { registered: true, managerHome: MANAGER_HOME, minute: cronMinute("0") },
+      schedule: { registered: true, managerHome: MANAGER_HOME, step: cronStep("15") },
       logonGuard: { registered: true, managerHome: "/old/checkout" },
       managerHome: MANAGER_HOME,
     });

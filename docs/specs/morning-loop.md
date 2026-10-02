@@ -15,7 +15,7 @@ without the machine quietly eating the Claude quota I need for the thinking half
 
 ## Solution
 
-A manager repo that owns a **morning loop**: one job, run every hour, that picks a single side
+A manager repo that owns a **morning loop**: one job, run every 15 minutes, that picks a single side
 project with available work, implements one ticket inside a sandboxed agent, opens a draft PR, and
 queues a separate review of that PR to run in a fresh context.
 
@@ -98,8 +98,8 @@ the manager leaves every project working.
 
 **Running the loop**
 
-42. As a developer, I want the loop to fire on an hourly schedule, so that I don't start it.
-43. As a developer, I want it to keep coming back every hour, so that a budget reset mid-day or a ticket I label ready-for-agent at lunch is picked up within the hour rather than tomorrow.
+42. As a developer, I want the loop to fire on a schedule, so that I don't start it.
+43. As a developer, I want it to keep coming back every 15 minutes, so that a budget reset mid-day or a ticket I label ready-for-agent at lunch is picked up within minutes rather than tomorrow.
 44. As a developer, I want an invocation lease to stop a later firing overlapping one still running, however long it takes, so that runs stay sequential and budget accounting stays exact.
 45. As a developer, I want the trigger swappable without touching the loop, so that I can move it to a cloud schedule later if my machine stays off.
 
@@ -226,7 +226,7 @@ the work, and the comment names where it is. The invocation carries on to the ne
 attempted, what each cost, what is now waiting on the developer, and an explicit notice when the
 queue was dry or the gate declined to start.
 
-**Scheduling.** The loop is triggered by an hourly cron schedule. Cron starts with the machine, so no
+**Scheduling.** The loop is triggered by a cron schedule firing every 15 minutes. Cron starts with the machine, so no
 separate logon guard is needed to cover a machine left off overnight. An invocation lease, held for the
 duration of a run, stops a later firing overlapping it however long the run takes; a firing refused by
 a live lease is a no-op that says so.

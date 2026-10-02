@@ -15,7 +15,7 @@ scripts/setup-wizard.sh
 
 ## The morning loop
 
-One job, run every hour, that picks a side project with available work and moves it forward.
+One job, run every 15 minutes, that picks a side project with available work and moves it forward.
 The full spec is [`docs/specs/morning-loop.md`](docs/specs/morning-loop.md), and
 [`CONTEXT.md`](CONTEXT.md) is the glossary the code and the tickets are both written in — an
 invocation, an iteration and a run are three different things.
@@ -23,14 +23,14 @@ invocation, an iteration and a run are three different things.
 `morningLoop` ([`src/morning-run.ts`](src/morning-run.ts)) is the loop's single entry point. It reaches
 the outside world only through six injected ports — issue tracker, repo host, sandbox, usage ledger,
 clock and store ([`src/ports/`](src/ports)) — so the whole loop is exercised end to end against fakes
-([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the hourly
+([`src/testing/`](src/testing)). `src/bin/morning-run.ts` is the composition root: the cron
 schedule, a manual `npm run morning-run` and any future cloud trigger are callers of `morningLoop`
 exactly like it is.
 
 ## Triggers
 
-Two triggers fire the loop: an hourly schedule, which starts with the machine rather than waiting on
-a login, and a manual `npm run morning-run`. The hourly schedule first fast-forwards the checkout
+Two triggers fire the loop: a schedule firing every 15 minutes, which starts with the machine rather than waiting on
+a login, and a manual `npm run morning-run`. The schedule first fast-forwards the checkout
 (`git pull --ff-only`), so it runs the latest merged loop; a pull that can't apply is logged and the
 loop runs on the code it has. Both call
 [`src/bin/morning-run.ts`](src/bin/morning-run.ts), which wraps the loop in an invocation lease
@@ -48,7 +48,7 @@ runs it automatically — it's a command the developer runs once, and it's safe 
 after a checkout moves: re-running replaces a stale registration — a leftover daily cron line, a
 logon-guard rc snippet, or a cron line pointing at the old checkout path — with the current one.
 
-`npm run halt` stops every trigger from doing anything, hourly or manual, until `npm run resume`
+`npm run halt` stops every trigger from doing anything, scheduled or manual, until `npm run resume`
 clears it — both commands are idempotent, and say what they did. Distinct from pausing every project
 in `registry.json`: a halt is a file of its own under the manager home
 ([`src/adapters/file-halt.ts`](src/adapters/file-halt.ts)), so it survives
@@ -242,7 +242,7 @@ npm run status
 `status --watch` redraws the same report every 30 seconds, or every `N` given as `--watch N`, clearing
 the screen and stamping the current time on top each time. Ctrl+C exits it cleanly. Watching an
 invocation that is still in flight prints its close once more and then exits by itself; watching with
-nothing in flight just keeps going, since an invocation may start on the next hourly firing.
+nothing in flight just keeps going, since an invocation may start on the next scheduled firing.
 
 ```sh
 npm run status -- --watch

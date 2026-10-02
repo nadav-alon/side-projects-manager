@@ -2,7 +2,7 @@
 import { errorMessage } from "../error-message.ts";
 import { engageHalt } from "../halt.ts";
 
-/** Engages the halt (CONTEXT.md: Halt): every firing, hourly or manual, does nothing until `resume` clears it. */
+/** Engages the halt (CONTEXT.md: Halt): every firing, scheduled or manual, does nothing until `resume` clears it. */
 async function main(): Promise<void> {
   console.log(await engageHalt());
 }

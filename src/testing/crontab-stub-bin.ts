@@ -27,12 +27,12 @@ export async function crontabStubBin(lines?: readonly string[]): Promise<string>
 }
 
 /**
- * A registered hourly-schedule cron line pointing at `home`, quoting
+ * A registered schedule cron line pointing at `home`, quoting
  * `morning-run.ts` exactly as `scripts/install-triggers.sh` does — down to
  * the marker, `CRON_MARKER`, imported rather than copied so this cannot
  * drift from what the adapter actually reads by. `marker` is overridable to
  * build a line carrying a stale one instead.
  */
 export function cronLine(home: string, marker: string = CRON_MARKER): string {
-  return `0 * * * * set -a; . "/home/dev/.side-projects-manager.env"; set +a; export PATH="/usr/local/bin:/usr/bin:/bin"; git -C "${home}" pull --ff-only -q >> "${home}/trigger.log" 2>&1; /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
+  return `*/15 * * * * set -a; . "/home/dev/.side-projects-manager.env"; set +a; export PATH="/usr/local/bin:/usr/bin:/bin"; git -C "${home}" pull --ff-only -q >> "${home}/trigger.log" 2>&1; /usr/bin/node "${home}/src/bin/morning-run.ts" >> "${home}/trigger.log" 2>&1 ${marker}`;
 }

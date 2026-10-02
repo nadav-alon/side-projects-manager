@@ -7,8 +7,8 @@ export type { Checkout } from "./checkout.ts";
 export type { Clock } from "./clock.ts";
 export { commitSha, isCommitSha } from "./commit-sha.ts";
 export type { CommitSha } from "./commit-sha.ts";
-export { cronMinute, isCronMinute } from "./cron-minute.ts";
-export type { CronMinute } from "./cron-minute.ts";
+export { cronStep, isCronStep } from "./cron-step.ts";
+export type { CronStep } from "./cron-step.ts";
 export { day, isDay, localDay, localTimeOfMinute, localTimeOfSecond } from "./day.ts";
 export type { Day } from "./day.ts";
 export {

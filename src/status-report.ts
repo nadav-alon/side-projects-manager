@@ -52,7 +52,7 @@ export interface StatusJournal {
 }
 
 /**
- * What the status command found registered for the hourly schedule and a
+ * What the status command found registered for the schedule and a
  * logon guard, and this checkout's own root to compare them against.
  *
  * `managerHome` must be the checkout root the installer itself resolves
@@ -201,17 +201,17 @@ function scheduleLine(schedule: ScheduleRegistration, managerHome: string): stri
   if (!isArmed(schedule, managerHome)) {
     return `Schedule: registered, but pointing at ${schedule.managerHome} rather than this manager home (${managerHome}). Run \`${INSTALLER_COMMAND}\` to re-arm it.`;
   }
-  return `Schedule: armed, firing every hour at :${schedule.minute.padStart(2, "0")}.`;
+  return `Schedule: armed, firing every ${schedule.step === "1" ? "minute" : `${schedule.step} minutes`}.`;
 }
 
 function logonGuardLine(guard: TriggerRegistration, managerHome: string): string {
   if (!guard.registered) {
-    return "Logon guard: not registered — the hourly schedule alone already covers a machine left off overnight.";
+    return "Logon guard: not registered — the schedule alone already covers a machine left off overnight.";
   }
   if (!isArmed(guard, managerHome)) {
     return `Logon guard: still registered from an older install, and pointing at ${guard.managerHome} rather than this manager home (${managerHome}). Run \`${INSTALLER_COMMAND}\` to remove it.`;
   }
-  return `Logon guard: still registered from an older install, though the hourly schedule already covers what it was for. Run \`${INSTALLER_COMMAND}\` to remove it.`;
+  return `Logon guard: still registered from an older install, though the schedule already covers what it was for. Run \`${INSTALLER_COMMAND}\` to remove it.`;
 }
 
 /** The most recent record, if any, opened on `day`. */

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { isCronMinute } from "../ports/index.ts";
+import { isCronStep } from "../ports/index.ts";
 import type {
   ScheduleRegistration,
   TriggerRegistration,
@@ -20,7 +20,7 @@ const execFileAsync = promisify(execFile);
  * value this reads by, rather than a copy that can drift from it unnoticed.
  */
 export const CRON_MARKER =
-  "# side-projects-manager: hourly schedule (see scripts/install-triggers.sh)";
+  "# side-projects-manager: schedule (see scripts/install-triggers.sh)";
 
 /**
  * Exactly what `scripts/install-triggers.sh` delimits a logon-guard block
@@ -38,6 +38,9 @@ export const RC_END = "# <<< side-projects-manager: logon guard <<<";
  * from one of those installs is still on disk until the installer is re-run.
  */
 const TRIGGER_SCRIPT_SUFFIX = /\/src\/bin\/(?:guarded-)?morning-run\.ts$/;
+
+/** A cron minute field naming a step — star, slash, then the step itself, captured. */
+const STEP_FIELD = /^\*\/(\d+)$/;
 
 const DEFAULT_RC_FILES = [
   path.join(os.homedir(), ".bashrc"),
@@ -66,11 +69,11 @@ export function systemTriggerRegistrations(
         return { registered: false };
       }
       const managerHome = managerHomeIn(line);
-      const minute = line.trim().split(/\s+/)[0]!;
-      if (managerHome === undefined || !isCronMinute(minute)) {
+      const step = STEP_FIELD.exec(line.trim().split(/\s+/)[0]!)?.[1];
+      if (managerHome === undefined || step === undefined || !isCronStep(step)) {
         return { registered: false };
       }
-      return { registered: true, managerHome, minute };
+      return { registered: true, managerHome, step };
     },
 
     async logonGuard(): Promise<TriggerRegistration> {
