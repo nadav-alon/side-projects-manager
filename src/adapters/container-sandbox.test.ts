@@ -2420,6 +2420,25 @@ describe("transcript", () => {
     assert.notEqual(firstTranscript, secondTranscript);
   });
 
+  it("hands a reviewer a clone with each submodule's files at the pinned commit, and refuses the review when one cannot be populated", async () => {
+    const directory = await project();
+    const remote = await addSubmodule(directory);
+    let seen: string | undefined;
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      seen = await readFile(path.join(mounted, "latex", "main.tex"), "utf8").catch(() => undefined);
+      return { output: "posted", tokensUsed: tokenCount(0) };
+    });
+    const request = { ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING };
+
+    await sandbox.review(request);
+    assert.equal(seen, "paper\n");
+
+    await rm(remote, { recursive: true });
+    seen = undefined;
+    await assert.rejects(sandbox.review(request), /latex/);
+    assert.equal(seen, undefined);
+  });
+
   it("still gives a reviewer, mounted read-only, a writable transcript location", async () => {
     const directory = await project();
     let mount: Mount | undefined;

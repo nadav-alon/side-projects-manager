@@ -1544,6 +1544,7 @@ async function reviewOnClone(
     await withCheckoutLock(project, () =>
       run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
     );
+    await populateSubmodules(project, clone);
     const agent = await attempt(
       container,
       kind,
