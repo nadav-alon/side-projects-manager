@@ -32,9 +32,8 @@ export function agentInstructions(project: ProjectDescription): string {
       " conventions this repo is written to; read the one that covers what" +
       " you are about to do.",
     "## Coding standards",
-    "Branded primitives over bare ones, and comments that outlive the review" +
-      " (`TODO[#n]`, never ticket narration). See" +
-      " `docs/agents/coding-standards.md`.",
+    "The rules every project shares are in `docs/agents/coding-standards.md`;" +
+      " this project's own are in `docs/project-standards.md`.",
     "## Issue tracker",
     "Where this repo's issues live and how to drive them. See" +
       " `docs/agents/issue-tracker.md`.",

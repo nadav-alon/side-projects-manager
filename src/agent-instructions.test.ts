@@ -27,6 +27,17 @@ describe("the agent instructions a new project gets", () => {
     }
   });
 
+  it("names both standards files, the shared rules and the project's own", () => {
+    const instructions = pilot();
+
+    assert.match(instructions, /shares? .*`docs\/agents\/coding-standards\.md`/s);
+    assert.match(instructions, /own .*`docs\/project-standards\.md`/s);
+  });
+
+  it("does not summarise the standards as branded primitives, which not every project has", () => {
+    assert.doesNotMatch(pilot(), /Branded primitives over bare ones/);
+  });
+
   it("carries no reference back to the manager, so the project stands alone", () => {
     const instructions = pilot("A manager for flight logs.").toLowerCase();
 
