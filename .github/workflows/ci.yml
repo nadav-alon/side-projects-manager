@@ -35,6 +35,11 @@ jobs:
 
       - run: npm run typecheck
 
+      # The checkout of a pull request is its merge result, so an ADR number
+      # claimed by another branch that merged first shows up here.
+      - name: ADR numbers are unique
+        run: node scripts/check-adr-numbers.ts
+
       - run: npm run build
 
       # Twice, once in UTC and once in a zone offset from it, so a test that
