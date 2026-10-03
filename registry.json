@@ -12,6 +12,10 @@
     {
       "repo": "nadav-alon/home-catalogue",
       "turbo": true
+    },
+    {
+      "repo": "nadav-alon/ltlf-external-knowledge",
+      "paused": true
     }
   ]
 }
