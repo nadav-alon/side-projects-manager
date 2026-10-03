@@ -673,7 +673,9 @@ async function submodulePaths(directory: Checkout): Promise<string[]> {
  * host's own git credentials — so the container is given none and needs no
  * network. A directory pinning none makes no further git call. `project` is
  * the manager's checkout the run is for, named when a submodule cannot be
- * populated.
+ * populated. Called with the checkout as `directory` too, to bring its own
+ * submodules level with what it pins: never initialised, or a pointer moved
+ * since.
  */
 async function populateSubmodules(project: Checkout, directory: Checkout): Promise<void> {
   for (const submodule of await submodulePaths(directory)) {
@@ -731,6 +733,7 @@ async function runOnClone(
         // developer's own checkout is still using. The container runs as the
         // developer's own uid (`dockerCommand`), so the filesystem would not
         // stop it — the copy is what does.
+        await populateSubmodules(project, project);
         await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
         reserveBranch(project, branchName);
         return { branchName, resuming };
@@ -1542,7 +1545,9 @@ async function reviewOnClone(
 
   return withThrowawayClone(kind, async (clone) => {
     await withCheckoutLock(project, () =>
-      run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
+      populateSubmodules(project, project).then(() =>
+        run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
+      ),
     );
     await populateSubmodules(project, clone);
     const agent = await attempt(
@@ -1766,6 +1771,7 @@ async function cloneOntoPullRequestHead(
   head: Branch,
 ): Promise<Branch> {
   const remote = await withCheckoutLock(project, async () => {
+    await populateSubmodules(project, project);
     await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
     const { stdout } = await run("git", [
       "-C",
@@ -1823,6 +1829,8 @@ async function cloneOntoPullRequestHead(
     head,
     `origin/${head}`,
   ]);
+  // The head pins what it pins, which the checkout's commit may not.
+  await populateSubmodules(project, clone);
   return base;
 }
 
