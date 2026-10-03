@@ -53,6 +53,7 @@ function fakeDocker(options: { failBuild?: string } = {}) {
   const labels = new Map<string, string>();
   const built: { tag: ImageTag; dockerfile: string }[] = [];
   let sharedId = "sha256:one";
+  let attempts = 0;
   const docker: ProjectImageDocker = {
     async imageId() {
       return sharedId;
@@ -61,7 +62,8 @@ function fakeDocker(options: { failBuild?: string } = {}) {
       assert.equal(label, PROJECT_INPUTS_LABEL);
       return labels.get(tag);
     },
-    async build(tag, directory, _label, digest) {
+    async build(tag, directory, digest) {
+      attempts += 1;
       if (options.failBuild !== undefined) {
         throw new Error(options.failBuild);
       }
@@ -75,6 +77,7 @@ function fakeDocker(options: { failBuild?: string } = {}) {
   return {
     docker,
     built,
+    attempts: () => attempts,
     rebuildShared: () => {
       sharedId = "sha256:two";
     },
@@ -158,7 +161,7 @@ describe("projectImages", () => {
 
   it("refuses with the project and the failure, never falling back to the shared image", async () => {
     const dir = await project(DECLARED);
-    const { docker } = fakeDocker({ failBuild: "apt exploded" });
+    const { docker, attempts } = fakeDocker({ failBuild: "apt exploded" });
     const images = projectImages(docker);
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await assert.rejects(images(dir), (error: unknown) => {
@@ -168,6 +171,7 @@ describe("projectImages", () => {
         return true;
       });
     }
+    assert.equal(attempts(), 1);
   });
 
   it("names the project when its checkout cannot even be read", async () => {

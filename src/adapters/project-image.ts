@@ -32,13 +32,8 @@ export interface ProjectImageDocker {
   imageId(tag: ImageTag): Promise<string>;
   /** The value of `label` on the image at `tag`, absent when it has none. */
   label(tag: ImageTag, label: string): Promise<string | undefined>;
-  /** Builds `directory` as `tag`, stamping `label` with `digest`. */
-  build(
-    tag: ImageTag,
-    directory: string,
-    label: string,
-    digest: string,
-  ): Promise<void>;
+  /** Builds `directory` as `tag`, stamping `PROJECT_INPUTS_LABEL` with `digest`. */
+  build(tag: ImageTag, directory: string, digest: string): Promise<void>;
 }
 
 /** A project's `.sandbox/Dockerfile` that could not be built into an image. */
@@ -181,7 +176,7 @@ export function projectImages(
         build = (async () => {
           const { directory, context } = await exportContext(checkout, ref);
           try {
-            await docker.build(tag, context, PROJECT_INPUTS_LABEL, digest);
+            await docker.build(tag, context, digest);
           } finally {
             await rm(directory, { recursive: true, force: true });
           }
@@ -223,7 +218,7 @@ export const dockerCli: ProjectImageDocker = {
       return undefined;
     }
   },
-  async build(tag, directory, label, digest) {
+  async build(tag, directory, digest) {
     try {
       // `--network host` as `npm run sandbox:build` has it: on WSL the default
       // bridge times out on downloads. BuildKit streams every `RUN` step to
@@ -238,7 +233,7 @@ export const dockerCli: ProjectImageDocker = {
           "--tag",
           tag,
           "--label",
-          `${label}=${digest}`,
+          `${PROJECT_INPUTS_LABEL}=${digest}`,
           directory,
         ],
         { maxBuffer: 16 * 1024 * 1024 },
