@@ -83,6 +83,15 @@ function fakeDocker(options: { failBuild?: string } = {}) {
 
 const DECLARED = { ".sandbox/Dockerfile": "FROM side-projects-sandbox:latest\nRUN a\n" };
 
+describe("projectImageTag", () => {
+  it("tells apart projects whose names differ only where owner meets repo", () => {
+    assert.notEqual(
+      projectImageTag(checkout("/projects/a-b/c")),
+      projectImageTag(checkout("/projects/a/b-c")),
+    );
+  });
+});
+
 describe("projectImages", () => {
   it("runs a project without .sandbox/Dockerfile in the shared image, touching no docker", async () => {
     const dir = await project({ "README.md": "x" });

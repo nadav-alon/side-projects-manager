@@ -59,9 +59,13 @@ function projectOf(checkout: Checkout): string {
   return checkout.split(path.sep).slice(-2).join("/");
 }
 
-/** The image tag a project's own image is built as. */
+/**
+ * The image tag a project's own image is built as. The owner and repo are
+ * joined by `__`, which a GitHub owner cannot contain, so `a-b/c` and `a/b-c`
+ * never share an image.
+ */
 export function projectImageTag(checkout: Checkout): ImageTag {
-  return imageTag(`side-projects-sandbox:${projectOf(checkout).replace("/", "-")}`);
+  return imageTag(`side-projects-sandbox:${projectOf(checkout).replace("/", "__")}`);
 }
 
 /**

@@ -21,7 +21,7 @@ runs in the shared image, as before.
   effect once merged.
 - **Built by the manager, when stale.** Before a run starts, a digest of the Dockerfile, the files
   in its build context and the shared image's id is compared with a label on
-  `side-projects-sandbox:<owner>-<repo>`, and the image is rebuilt when they differ. A merged
+  `side-projects-sandbox:<owner>__<repo>`, and the image is rebuilt when they differ. A merged
   toolchain change and a rebuilt shared image both reach the next run unattended. The shared image
   itself stays built by hand.
 - **Every kind of run uses it**: implementation, review, spec review, ux review, apply-review and
