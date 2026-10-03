@@ -738,7 +738,8 @@ from the first pending read, so green merges, and failing or still pending after
 for the developer. A declined thread, open or not, is never asked about. Stacked pull requests are
 out of scope until that is specced. When the gate declines a grant — the label came too late, or fell inside a run
 span — the summary names its own reason in the review sentence, so the developer knows their grant
-did not count; an implementation ticket that never carried `turboable` at all, that the gate could
+did not count, and a grant that fell inside a run span also gets a Waiting-on-you line saying so
+and naming `npm run grant` for future tickets; an implementation ticket that never carried `turboable` at all, that the gate could
 not find, or that carried no run span reads as ordinary, silent, ready for review, the same as on a
 project that isn't turbo, since there is no grant to report. See ADR 0009.
 _Avoid_: auto-merge, merge flag, greenlight

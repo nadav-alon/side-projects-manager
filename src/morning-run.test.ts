@@ -2812,7 +2812,7 @@ describe("morningLoop", () => {
             {
               kind: "not-turboable",
               reason: "not turboable before its own run started",
-              declinedGrant: true,
+              declinedGrant: "too-late",
             },
           );
         });
@@ -2833,8 +2833,15 @@ describe("morningLoop", () => {
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
+            {
+              kind: "not-turboable",
+              reason: "turboable granted inside a run span",
+              declinedGrant: "inside-run-span",
+            },
           );
+          const body = ports.tracker.summaries[0]?.body ?? "";
+          assert.match(body, /ready for review; its turboable grant didn't count, since it was clicked on GitHub while a run was going/);
+          assert.match(body, /npm run grant -- O\/R#n/);
         });
 
         describe("with a grant record", () => {
@@ -2879,7 +2886,7 @@ describe("morningLoop", () => {
             const outcome = report.iterations[0];
             assert.deepEqual(
               outcome?.kind === "reviewed" ? outcome.merge : undefined,
-              { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
+              { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: "inside-run-span" },
             );
             assert.deepEqual(ports.store.grants(), []);
           });
@@ -2982,7 +2989,11 @@ describe("morningLoop", () => {
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "not-turboable", reason: "turboable granted inside a run span", declinedGrant: true },
+            {
+              kind: "not-turboable",
+              reason: "turboable granted inside a run span",
+              declinedGrant: "inside-run-span",
+            },
           );
         });
 
@@ -3049,7 +3060,6 @@ describe("morningLoop", () => {
             {
               kind: "not-turboable",
               reason: "could not find its implementation ticket",
-              declinedGrant: false,
             },
           );
         });
@@ -4906,7 +4916,7 @@ describe("morningLoop", () => {
           {
             kind: "not-turboable",
             reason: "not turboable before its own run started",
-            declinedGrant: true,
+            declinedGrant: "too-late",
           },
         );
       });
@@ -4975,7 +4985,6 @@ describe("morningLoop", () => {
           {
             kind: "not-turboable",
             reason: "could not find its implementation ticket",
-            declinedGrant: false,
           },
         );
       });

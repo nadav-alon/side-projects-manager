@@ -752,13 +752,15 @@ export type MergeGate =
    * did not carry `turboable` before its own run started, never ran at all
    * per the timeline this reads, could not be found, or carried no run span.
    * Settled: proof the pull request was not eligible, unlike
-   * `timeline-unreadable`. `declinedGrant` tells the summary
-   * (`mergeGateNote`) whether `reason` traces to a `turboable` grant the
-   * gate rejected — worth naming to the developer — or to there being no
-   * grant to report at all: the implementation ticket unresolvable, missing
-   * a run span, or never labelled `turboable` in the first place.
+   * `timeline-unreadable`. `declinedGrant` is present where `reason` traces
+   * to a `turboable` grant the gate rejected — worth naming to the developer
+   * — and says why: `too-late`, labelled after its own run started, or
+   * `inside-run-span`, clicked on GitHub while a run was going, which the
+   * summary also names under Waiting on you. Absent where there is no grant
+   * to report at all: the implementation ticket unresolvable, missing a run
+   * span, or never labelled `turboable` in the first place.
    */
-  | { kind: "not-turboable"; reason: string; declinedGrant: boolean }
+  | { kind: "not-turboable"; reason: string; declinedGrant?: "too-late" | "inside-run-span" }
   /**
    * The gate never settled eligibility: reading the implementation ticket's
    * turboable timeline itself failed, so whether it carried `turboable` in

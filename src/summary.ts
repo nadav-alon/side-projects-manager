@@ -1912,25 +1912,25 @@ function demotedNote(pullRequest: PullRequestUrl, demoted: Ticket | undefined): 
  * `appliedReviewSummary` and `reviewSummary`'s own clean-outcome sentence:
  * empty on a project that is not turbo, since it never asks at all. A
  * `not-turboable` verdict names the gate's own reason — CONTEXT.md's
- * "Turboable", ADR 0009 — only where `declinedGrant` is true: the
+ * "Turboable", ADR 0009 — only where `declinedGrant` is present: the
  * implementation ticket carried `turboable`, and the gate declined it
  * anyway, so the sentence doesn't read exactly like a ticket never labelled
- * at all. Where `declinedGrant` is false — no grant to report, whether
+ * at all. Where `declinedGrant` is absent — no grant to report, whether
  * because the implementation ticket was never found, carried no run span,
  * or never carried `turboable` in the first place — the sentence stays the
  * ordinary `now ready for review`, the same as on a project that isn't
- * turbo. Either way it carries no Waiting-on-you line of its own
- * (`mergeGateWaitingLine`), since a settled `not-turboable` leaves nothing
- * for the developer to do beyond the ordinary review. A `timeline-unreadable`
- * gate gets its own note too, since a read failure is not proof the pull
- * request was ineligible, unlike `not-turboable`.
+ * turbo. Either way the sentence is all it says of a decline: only a grant
+ * declined `inside-run-span` also gets a Waiting-on-you line
+ * (`mergeGateWaitingLine`), saying why the grant did not count. A
+ * `timeline-unreadable` gate gets its own note too, since a read failure is
+ * not proof the pull request was ineligible, unlike `not-turboable`.
  */
 function mergeGateNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined): string {
   if (merge?.kind === "timeline-unreadable") {
     const phrase = timelineUnreadablePhrase(merge.error);
     return ` ${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}.`;
   }
-  if (merge?.kind === "not-turboable" && merge.declinedGrant) {
+  if (merge?.kind === "not-turboable" && merge.declinedGrant !== undefined) {
     return ` Not merged: ${withoutTrailingStop(merge.reason)}.`;
   }
   if (merge?.kind !== "left-for-human") {
@@ -1970,14 +1970,19 @@ function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
   return `its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`;
 }
 
+/** How the developer grants a ticket turboable so the merge gate counts it. */
+const GRANT_COMMAND = "npm run grant -- O/R#n";
+
 /**
  * The Waiting-on-you line for what the merge gate left the developer to do
  * themselves: merge a pull request it left for human review, or check
- * turboable itself for one whose timeline it could not read. Undefined for
- * every other verdict — merged or not-turboable leave nothing to add, and
- * a caller with no merge gate at all has nothing to ask this about. Shared
- * by `waitingSection`'s `reviewed` case and `appliedReviewWaitingLine`, so
- * a verdict kind added later needs one edit instead of two.
+ * turboable itself for one whose timeline it could not read, or review one
+ * whose `turboable` grant fell inside a run span and so did not count.
+ * Undefined for every other verdict — merged or any other not-turboable
+ * leave nothing to add, and a caller with no merge gate at all has nothing
+ * to ask this about. Shared by `waitingSection`'s `reviewed` case and
+ * `appliedReviewWaitingLine`, so a verdict kind added later needs one edit
+ * instead of two.
  */
 function mergeGateWaitingLine(
   repo: RepoSlug,
@@ -1989,6 +1994,10 @@ function mergeGateWaitingLine(
       return `- ${repo}: ${pullRequest} — left for you to merge: ${withoutTrailingStop(merge.reason)}`;
     case "timeline-unreadable":
       return timelineUnreadableWaitingLine(repo, pullRequest, merge.error);
+    case "not-turboable":
+      return merge.declinedGrant === "inside-run-span"
+        ? `- ${repo}: ${pullRequest} — ready for review; its turboable grant didn't count, since it was clicked on GitHub while a run was going — grant future tickets with \`${GRANT_COMMAND}\``
+        : undefined;
     default:
       return undefined;
   }

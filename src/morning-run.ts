@@ -2452,7 +2452,7 @@ async function finishApplyReview(
  *
  * `context.implementation` absent, or carrying no run span, reads the same
  * as never labelled `turboable`: none of the three is a grant the gate
- * rejected, so the verdict's own `declinedGrant` reads `false` for all
+ * rejected, so the verdict carries no `declinedGrant` for any of the
  * three, and `CONTEXT.md`'s "Turboable" already documents the first two as
  * known gaps.
  */
@@ -2487,7 +2487,6 @@ async function decideMerge(
     return {
       kind: "not-turboable",
       reason: "could not find its implementation ticket",
-      declinedGrant: false,
     };
   }
   const span = runSpanFor(context.invocation.runSpans(), implementation);
@@ -2495,7 +2494,6 @@ async function decideMerge(
     return {
       kind: "not-turboable",
       reason: "its implementation ticket carries no run span",
-      declinedGrant: false,
     };
   }
   let consent: TurboableConsent;
@@ -2510,14 +2508,26 @@ async function decideMerge(
     return { kind: "timeline-unreadable", error: errorMessage(error) };
   }
   if (!consent.consented) {
-    if (consent.reason === "never-labeled") {
-      return { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false };
+    switch (consent.reason) {
+      case "never-labeled":
+        return { kind: "not-turboable", reason: "never labelled turboable" };
+      case "inside-run-span":
+        return {
+          kind: "not-turboable",
+          reason: "turboable granted inside a run span",
+          declinedGrant: "inside-run-span",
+        };
+      case "not-labeled-in-time":
+        return {
+          kind: "not-turboable",
+          reason: "not turboable before its own run started",
+          declinedGrant: "too-late",
+        };
+      default: {
+        const unhandled: never = consent.reason;
+        return { kind: "timeline-unreadable", error: `unrecognised turboable consent reason: ${String(unhandled)}` };
+      }
     }
-    const reason =
-      consent.reason === "not-labeled-in-time"
-        ? "not turboable before its own run started"
-        : "turboable granted inside a run span";
-    return { kind: "not-turboable", reason, declinedGrant: true };
   }
 
   const pullRequest = ticket.pullRequest.url;

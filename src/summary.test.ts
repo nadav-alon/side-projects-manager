@@ -253,7 +253,7 @@ function cleanReviewNotTurboable(number: number): IterationOutcome {
     merge: {
       kind: "not-turboable",
       reason: "not turboable before its own run started",
-      declinedGrant: true,
+      declinedGrant: "too-late",
     },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
@@ -269,7 +269,7 @@ function cleanReviewNotTurboableInsideSpan(number: number): IterationOutcome {
     merge: {
       kind: "not-turboable",
       reason: "turboable granted inside a run span",
-      declinedGrant: true,
+      declinedGrant: "inside-run-span",
     },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
@@ -286,7 +286,7 @@ function cleanReviewNeverLabelledTurboable(number: number): IterationOutcome {
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "posted" },
     tokensUsed: tokenCount(500),
     clean: true,
-    merge: { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false },
+    merge: { kind: "not-turboable", reason: "never labelled turboable" },
   };
   return { repo: REPO, ticket: reviewTicket(number), ...reviewed };
 }
@@ -409,7 +409,7 @@ function appliedReviewNotTurboable(number: number): IterationOutcome {
     merge: {
       kind: "not-turboable",
       reason: "not turboable before its own run started",
-      declinedGrant: true,
+      declinedGrant: "too-late",
     },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
@@ -425,7 +425,7 @@ function appliedReviewNotTurboableInsideSpan(number: number): IterationOutcome {
     merge: {
       kind: "not-turboable",
       reason: "turboable granted inside a run span",
-      declinedGrant: true,
+      declinedGrant: "inside-run-span",
     },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
@@ -442,7 +442,7 @@ function appliedReviewNeverLabelledTurboable(number: number): IterationOutcome {
     review: { kind: "finished", tokensUsed: tokenCount(500), output: "answered" },
     tokensUsed: tokenCount(500),
     answers: { applied: 2, declined: 1 },
-    merge: { kind: "not-turboable", reason: "never labelled turboable", declinedGrant: false },
+    merge: { kind: "not-turboable", reason: "never labelled turboable" },
   };
   return { repo: REPO, ticket: applyReviewTicket(number), ...appliedReview };
 }
@@ -882,6 +882,22 @@ describe("waitingSection", () => {
 
     assert.deepEqual(lines, [
       `- ${REPO}: ${PULL_REQUEST} — left for you to merge: Pull Request is not mergeable`,
+    ]);
+  });
+
+  const IN_SPAN_LINE = `- ${REPO}: ${PULL_REQUEST} — ready for review; its turboable grant didn't count, since it was clicked on GitHub while a run was going — grant future tickets with \`npm run grant -- O/R#n\``;
+
+  it("lists a grant the merge gate declined inside a run span as ready for review, saying why it did not count and naming the grant command", () => {
+    assert.deepEqual(waitingLines([appliedReviewNotTurboableInsideSpan(230)]), [IN_SPAN_LINE]);
+  });
+
+  it("lists a clean review's declined in-span grant the same way", () => {
+    assert.deepEqual(waitingLines([cleanReviewNotTurboableInsideSpan(231)]), [IN_SPAN_LINE]);
+  });
+
+  it("gives a grant declined as too late no line beyond the ordinary ready for review", () => {
+    assert.deepEqual(waitingLines([appliedReviewNotTurboable(232)]), [
+      `- ${REPO}: ${PULL_REQUEST} — ready for review`,
     ]);
   });
 
