@@ -965,7 +965,9 @@ The container an unattended agent runs in, on a throwaway clone of one project. 
 run's branch is fetched back into the project's checkout; a review leaves no branch, and an
 apply-review run pushes to its pull request's branch from inside the container, so nothing comes
 back from either. A rebase run brings no branch back either, as an apply-review run does not — it
-force-pushes to the pull request's branch from inside the container. The clone is not kept.
+force-pushes to the pull request's branch from inside the container. The clone carries the
+project's submodules, checked out at the commits it pins and populated on the host before the
+container starts; a run whose submodule cannot be populated is refused. The clone is not kept.
 _Avoid_: box, VM, runner, environment
 
 **Throwaway clone**:
