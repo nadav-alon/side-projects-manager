@@ -209,14 +209,24 @@ export const dockerCli: ProjectImageDocker = {
   },
   async build(tag, directory, label, digest) {
     try {
-      await run("docker", [
-        "build",
-        "--tag",
-        tag,
-        "--label",
-        `${label}=${digest}`,
-        directory,
-      ]);
+      // `--network host` as `npm run sandbox:build` has it: on WSL the default
+      // bridge times out on downloads. BuildKit streams every `RUN` step to
+      // stderr, so the buffer is as large as the other adapters' rather than
+      // execFile's 1 MiB, which would kill a toolchain build part way.
+      await run(
+        "docker",
+        [
+          "build",
+          "--network",
+          "host",
+          "--tag",
+          tag,
+          "--label",
+          `${label}=${digest}`,
+          directory,
+        ],
+        { maxBuffer: 16 * 1024 * 1024 },
+      );
     } catch (error: unknown) {
       const stderr = (error as { stderr?: unknown }).stderr;
       throw new Error(
