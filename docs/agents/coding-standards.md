@@ -123,8 +123,7 @@ asks for replaces, is not covered by this rule: that is the work, not a way arou
 A suite is the only thing a reviewer can trust without rereading every line. Agents run unattended,
 and a run that cannot make a test pass has a way out that looks like success: green, with the check
 that would have caught the problem gone. Nobody reads a deleted test, so the loss is invisible at
-review and permanent afterwards. Whether a test's expectation is right is a question about what the
-ticket meant, and that belongs to the developer, not to the agent the test is blocking.
+review and permanent afterwards.
 
 ## Vocabulary
 
