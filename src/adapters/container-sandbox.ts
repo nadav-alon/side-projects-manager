@@ -456,6 +456,15 @@ export interface RunOptions {
 export type Container = (options: RunOptions) => Promise<AgentRun>;
 
 /**
+ * A `Container` whose image is already chosen: what `containerSandbox` hands
+ * every run once it has resolved the project's image, so nothing past that
+ * point names one.
+ */
+type ContainerInImage = (
+  options: Omit<RunOptions, "image">,
+) => Promise<AgentRun>;
+
+/**
  * Where `attempt` makes a run's transcript and discoveries directories
  * fresh, both under one manager home — see `TRANSCRIPTS_DIRECTORY` and
  * `DISCOVERIES_DIRECTORY`. The two always travel together, derived from the
@@ -523,7 +532,7 @@ export function containerSandbox(
    */
   async function inProjectImage<T>(
     project: Checkout,
-    body: (container: Container) => Promise<T>,
+    body: (container: ContainerInImage) => Promise<T>,
   ): Promise<T> {
     const image = await imageFor(project);
     return body((options) => container({ ...options, image }));
@@ -811,7 +820,7 @@ async function cloneWithSubmodules(project: Checkout, clone: Checkout): Promise<
 }
 
 async function runOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: RunRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1054,7 +1063,7 @@ async function runOnClone(
  * agent is still going rather than only once this function resolves.
  */
 async function attempt(
-  container: Container,
+  container: ContainerInImage,
   kind: RunKind,
   options: Omit<
     RunOptions,
@@ -1652,7 +1661,7 @@ function reviewOutcomeOf(
  * review's is writable and starts the browser.
  */
 async function reviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   kind: "review" | "spec-review" | "ux-review",
   request: ReviewRequest | SpecReviewRequest | UxReviewRequest,
   prompt: string,
@@ -1679,7 +1688,7 @@ async function reviewOnClone(
 }
 
 async function pullRequestReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: ReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1696,7 +1705,7 @@ async function pullRequestReviewOnClone(
 }
 
 async function specReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: SpecReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1713,7 +1722,7 @@ async function specReviewOnClone(
 }
 
 async function uxReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: UxReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1965,7 +1974,7 @@ async function cloneOntoPullRequestHead(
  */
 async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   kind: "apply-review" | "rebase",
-  container: Container,
+  container: ContainerInImage,
   pullRequestHead: PullRequestHead,
   request: {
     ticket: T;
@@ -2015,7 +2024,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
 }
 
 async function applyReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
   roots: SandboxRoots,
@@ -2033,7 +2042,7 @@ async function applyReviewOnClone(
 }
 
 async function rebaseOnClone(
-  container: Container,
+  container: ContainerInImage,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
   roots: SandboxRoots,
