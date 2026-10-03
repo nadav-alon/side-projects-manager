@@ -19,6 +19,7 @@ import { promisify } from "node:util";
 
 import { routeRunDiscoveries } from "../discovery-routing.ts";
 import { REASON_QUOTED } from "../hand-back.ts";
+import { imageTag } from "../ports/image-tag.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import {
@@ -6407,6 +6408,66 @@ describe("containerSandbox's prompts for the issues already discovered", () => {
       assertDiscoveryInstructions(asked);
       assert.match(asked, /#165 Add the missing email check; #170 Validate emails\./);
       assert.match(asked, /Do not file a suggestion one of them already covers/);
+    });
+  }
+});
+
+describe("containerSandbox's project image", () => {
+  const PROJECT_IMAGE = imageTag("side-projects-sandbox:nadav-alon-pilot");
+
+  /** The six kinds, each as a call that needs only a checkout. */
+  const KINDS: [string, (sandbox: Sandbox, directory: Checkout) => Promise<unknown>][] = [
+    ["run", (sandbox, checkout) => sandbox.run({ ticket: TICKET, checkout, spendCeiling: CEILING })],
+    ["review", (sandbox, checkout) => sandbox.review({ ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING })],
+    ["spec-review", (sandbox, checkout) => sandbox.specReview({ ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING })],
+    ["ux-review", (sandbox, checkout) => sandbox.uxReview({ ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING })],
+    ["apply-review", applyReviewOn],
+    ["rebase", rebaseOn],
+  ];
+
+  for (const [kind, call] of KINDS) {
+    it(`starts a ${kind} in the image the project resolves to`, async () => {
+      const { directory } = await hostedProject();
+      const asked: Checkout[] = [];
+      const started: string[] = [];
+      const sandbox = containerSandbox(
+        async ({ image }) => {
+          started.push(image);
+          return { output: "", tokensUsed: tokenCount(0) };
+        },
+        headIsBranch,
+        TEST_HOME,
+        undefined,
+        async (project) => {
+          asked.push(project);
+          return PROJECT_IMAGE;
+        },
+      );
+
+      await call(sandbox, directory);
+
+      assert.deepEqual(asked, [directory]);
+      assert.deepEqual(started, [PROJECT_IMAGE]);
+    });
+
+    it(`refuses a ${kind} before its container starts when the image cannot be built`, async () => {
+      const { directory } = await hostedProject();
+      let started = false;
+      const sandbox = containerSandbox(
+        async () => {
+          started = true;
+          return { output: "", tokensUsed: tokenCount(0) };
+        },
+        headIsBranch,
+        TEST_HOME,
+        undefined,
+        async () => {
+          throw new Error("the sandbox image for nadav-alon/pilot could not be built: apt exploded");
+        },
+      );
+
+      await assert.rejects(call(sandbox, directory), /nadav-alon\/pilot.*apt exploded/);
+      assert.equal(started, false);
     });
   }
 });
