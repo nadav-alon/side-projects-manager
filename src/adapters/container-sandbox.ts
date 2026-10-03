@@ -84,7 +84,8 @@ import {
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { isErrorWithCode } from "./error-code.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
-import { IMAGE } from "./sandbox-image.ts";
+import type { ImageTag } from "../ports/image-tag.ts";
+import { dockerCli, projectImages } from "./project-image.ts";
 
 const run = promisify(execFile);
 
@@ -398,6 +399,11 @@ export type Credential = "developer" | "review";
 export interface RunOptions {
   /** The clone mounted into the container. */
   directory: Checkout;
+  /**
+   * The image the container starts from: the shared one, or the project's own
+   * layered on it. Set by `containerSandbox`, never by a request.
+   */
+  image: ImageTag;
   prompt: string;
   spendCeiling: Usd;
   mount: Mount;
@@ -448,6 +454,15 @@ export interface RunOptions {
  * docker, a credential, or a network.
  */
 export type Container = (options: RunOptions) => Promise<AgentRun>;
+
+/**
+ * A `Container` whose image is already chosen: what `containerSandbox` hands
+ * every run once it has resolved the project's image, so nothing past that
+ * point names one.
+ */
+type ContainerInImage = (
+  options: Omit<RunOptions, "image">,
+) => Promise<AgentRun>;
 
 /**
  * Where `attempt` makes a run's transcript and discoveries directories
@@ -502,11 +517,26 @@ export function containerSandbox(
   pullRequestHead: PullRequestHead = ghPullRequestHead,
   home: string = MANAGER_HOME,
   onPoll?: () => void,
+  imageFor: (project: Checkout) => Promise<ImageTag> = projectImages(dockerCli),
 ): Sandbox {
   const roots: SandboxRoots = {
     transcriptsRoot: path.join(home, TRANSCRIPTS_DIRECTORY),
     discoveriesRoot: path.join(home, DISCOVERIES_DIRECTORY),
   };
+
+  /**
+   * Hands `body` a `container` that starts every run in the image `project`
+   * declares, resolved before anything else of the run is set up — so a build
+   * that fails refuses the run before a clone or a branch exists to leave
+   * behind.
+   */
+  async function inProjectImage<T>(
+    project: Checkout,
+    body: (container: ContainerInImage) => Promise<T>,
+  ): Promise<T> {
+    const image = await imageFor(project);
+    return body((options) => container({ ...options, image }));
+  }
 
   function run(
     request: RunRequest & { model: ModelName },
@@ -520,7 +550,9 @@ export function containerSandbox(
     request: RunRequest,
     onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
-    return runOnClone(container, request, roots, onStarted, onPoll);
+    return inProjectImage(request.checkout, (inImage) =>
+      runOnClone(inImage, request, roots, onStarted, onPoll),
+    );
   }
 
   function review(
@@ -535,7 +567,9 @@ export function containerSandbox(
     request: ReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
-    return pullRequestReviewOnClone(container, request, roots, onStarted);
+    return inProjectImage(request.checkout, (inImage) =>
+      pullRequestReviewOnClone(inImage, request, roots, onStarted),
+    );
   }
 
   function applyReview(
@@ -550,7 +584,9 @@ export function containerSandbox(
     request: ApplyReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome> {
-    return applyReviewOnClone(container, pullRequestHead, request, roots, onStarted);
+    return inProjectImage(request.checkout, (inImage) =>
+      applyReviewOnClone(inImage, pullRequestHead, request, roots, onStarted),
+    );
   }
 
   function rebase(
@@ -565,7 +601,9 @@ export function containerSandbox(
     request: RebaseRequest,
     onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome> {
-    return rebaseOnClone(container, pullRequestHead, request, roots, onStarted);
+    return inProjectImage(request.checkout, (inImage) =>
+      rebaseOnClone(inImage, pullRequestHead, request, roots, onStarted),
+    );
   }
 
   function specReview(
@@ -580,7 +618,9 @@ export function containerSandbox(
     request: SpecReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome> {
-    return specReviewOnClone(container, request, roots, onStarted);
+    return inProjectImage(request.checkout, (inImage) =>
+      specReviewOnClone(inImage, request, roots, onStarted),
+    );
   }
 
   function uxReview(
@@ -595,7 +635,9 @@ export function containerSandbox(
     request: UxReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<UxReviewOutcome> {
-    return uxReviewOnClone(container, request, roots, onStarted);
+    return inProjectImage(request.checkout, (inImage) =>
+      uxReviewOnClone(inImage, request, roots, onStarted),
+    );
   }
 
   return { run, review, applyReview, rebase, specReview, uxReview };
@@ -778,7 +820,7 @@ async function cloneWithSubmodules(project: Checkout, clone: Checkout): Promise<
 }
 
 async function runOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: RunRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1021,11 +1063,11 @@ async function runOnClone(
  * agent is still going rather than only once this function resolves.
  */
 async function attempt(
-  container: Container,
+  container: ContainerInImage,
   kind: RunKind,
   options: Omit<
     RunOptions,
-    "model" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
+    "model" | "image" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
   >,
   model: ModelName | undefined,
   { transcriptsRoot, discoveriesRoot }: SandboxRoots,
@@ -1619,7 +1661,7 @@ function reviewOutcomeOf(
  * review's is writable and starts the browser.
  */
 async function reviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   kind: "review" | "spec-review" | "ux-review",
   request: ReviewRequest | SpecReviewRequest | UxReviewRequest,
   prompt: string,
@@ -1646,7 +1688,7 @@ async function reviewOnClone(
 }
 
 async function pullRequestReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: ReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1663,7 +1705,7 @@ async function pullRequestReviewOnClone(
 }
 
 async function specReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: SpecReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1680,7 +1722,7 @@ async function specReviewOnClone(
 }
 
 async function uxReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   request: UxReviewRequest,
   roots: SandboxRoots,
   onStarted?: OnRunStarted,
@@ -1932,7 +1974,7 @@ async function cloneOntoPullRequestHead(
  */
 async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   kind: "apply-review" | "rebase",
-  container: Container,
+  container: ContainerInImage,
   pullRequestHead: PullRequestHead,
   request: {
     ticket: T;
@@ -1982,7 +2024,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
 }
 
 async function applyReviewOnClone(
-  container: Container,
+  container: ContainerInImage,
   pullRequestHead: PullRequestHead,
   request: ApplyReviewRequest,
   roots: SandboxRoots,
@@ -2000,7 +2042,7 @@ async function applyReviewOnClone(
 }
 
 async function rebaseOnClone(
-  container: Container,
+  container: ContainerInImage,
   pullRequestHead: PullRequestHead,
   request: RebaseRequest,
   roots: SandboxRoots,
@@ -2948,6 +2990,7 @@ function dockerCommand(
     directory,
     prompt,
     spendCeiling,
+    image,
     mount,
     playwrightMcp,
     model,
@@ -2995,7 +3038,7 @@ function dockerCommand(
     "GH_TOKEN",
     "--env",
     "GITHUB_TOKEN",
-    IMAGE,
+    image,
     "--print",
     prompt,
     "--output-format",

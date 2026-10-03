@@ -4,10 +4,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { imageTag } from "../ports/image-tag.ts";
+
 const run = promisify(execFile);
 
 /** The image the harness is baked into, as `npm run sandbox:build` tags it. */
-export const IMAGE = "side-projects-sandbox:latest";
+export const IMAGE = imageTag("side-projects-sandbox:latest");
 
 /**
  * The image label `npm run sandbox:build` stamps with `imageInputsDigest`, so
