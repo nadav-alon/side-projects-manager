@@ -226,8 +226,8 @@ never touched.
 _Avoid_: workspace, checkout directory
 
 **Scaffold**:
-Installing the harness into a project checkout: the uniform files copied verbatim, and the project's
-agent instructions generated fresh for it.
+Installing the harness into a project checkout: the uniform files copied verbatim, the project's
+agent instructions generated fresh for it, and its **Project standards** seeded once.
 _Avoid_: bootstrap, template, generate (only half of it is generated)
 
 **Proposal**:
@@ -263,9 +263,17 @@ propose again. A sync pull request labelled `ready-for-human` is left alone and 
 summary each run. See ADR 0011.
 _Avoid_: uniform sync, sync sweep
 
+**Project standards**:
+One file per project at `docs/project-standards.md`, required. Written once by the **Scaffold** — a
+stub, or a named preset — and the project's from then on, never synced. Binds implementation and
+review runs alike. Adds to the uniform rules, and may contradict one only by naming it and giving the
+reason; an unmarked contradiction loses to the uniform rule. A run edits it only when its ticket
+asks. See ADR 0013.
+_Avoid_: house rules, style guide
+
 **Agent instructions**:
 The other half: one file per project, generated for that project, saying what the project is and
-pointing at its own uniform files. Never copied from another repo.
+pointing at its own uniform files and at its own **Project standards**. Never copied from another repo.
 _Avoid_: prompt, system prompt, rules file
 
 **Grilling**:
