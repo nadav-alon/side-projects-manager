@@ -44,9 +44,9 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cac
 # A browser the agent can drive: Chromium with its system libraries, and the
 # Playwright MCP server that speaks to it. It lives in this one shared image
 # rather than a second one because this image is the base every run's image is
-# layered on (one to build, verify and keep in step with the checkout), and only a run that
-# enables the server (`ux-review`) ever starts the browser — for every other
-# run it is dead weight on disk, never a process.
+# layered on (one to build, verify and keep in step with the checkout), and
+# only a run that enables the server (`ux-review`) ever starts the browser —
+# for every other run it is dead weight on disk, never a process.
 #
 # Version is a build argument for the reason CLAUDE_CODE_VERSION's is: an
 # unversioned install never changes the layer's cache key. Installed as root
