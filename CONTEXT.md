@@ -969,7 +969,7 @@ force-pushes to the pull request's branch from inside the container. The clone c
 project's submodules, checked out at the commits it pins and populated on the host before the
 container starts; a run whose submodule cannot be populated is refused. The clone is not kept.
 The image it starts from is the shared one, or — for a project whose default branch carries
-`.sandbox/Dockerfile` — a project image layered on it, built by the manager when stale (ADR 0013). A
+`.sandbox/Dockerfile` — a project image layered on it, built by the manager when stale (ADR 0014). A
 project whose image fails to build has none of its runs started.
 _Avoid_: box, VM, runner, environment
 
