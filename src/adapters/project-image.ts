@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import type { Checkout } from "../ports/checkout.ts";
 import { type ImageTag, imageTag } from "../ports/image-tag.ts";
+import { type RepoSlug, repoSlug } from "../ports/repo-slug.ts";
 import { errorMessage } from "../error-message.ts";
 import { IMAGE } from "./sandbox-image.ts";
 
@@ -42,7 +43,7 @@ export interface ProjectImageDocker {
 
 /** A project's `.sandbox/Dockerfile` that could not be built into an image. */
 export class ProjectImageBuildFailed extends Error {
-  constructor(project: string, cause: unknown) {
+  constructor(project: RepoSlug | Checkout, cause: unknown) {
     super(
       `The sandbox image for ${project} could not be built from its ${DOCKERFILE}, so no run on it starts: ${errorMessage(cause)}`,
     );
@@ -55,8 +56,17 @@ export class ProjectImageBuildFailed extends Error {
  * — enough to name the project in a tag and in a failure, without the loop
  * having to hand the sandbox a second value alongside the checkout.
  */
-function projectOf(checkout: Checkout): string {
-  return checkout.split(path.sep).slice(-2).join("/");
+function projectOf(checkout: Checkout): RepoSlug {
+  return repoSlug(checkout.split(path.sep).slice(-2).join("/"));
+}
+
+/** `projectOf` where the path has the shape, else the path itself. */
+function nameOf(checkout: Checkout): RepoSlug | Checkout {
+  try {
+    return projectOf(checkout);
+  } catch {
+    return checkout;
+  }
 }
 
 /**
@@ -152,7 +162,6 @@ export function projectImages(
   const builds = new Map<string, Promise<void>>();
 
   return async (checkout) => {
-    const project = projectOf(checkout);
     try {
       const ref = await defaultRef(checkout);
       const entries = await sandboxEntries(checkout, ref);
@@ -182,7 +191,7 @@ export function projectImages(
       await build;
       return tag;
     } catch (error: unknown) {
-      throw new ProjectImageBuildFailed(project, error);
+      throw new ProjectImageBuildFailed(nameOf(checkout), error);
     }
   };
 }
