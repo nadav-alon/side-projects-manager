@@ -199,6 +199,16 @@ async function project(
   await writeFile(path.join(directory, "README.md"), "pilot\n");
   await run("git", ["-C", directory, "add", "."]);
   await run("git", ["-C", directory, "commit", "--message", "First"]);
+  // What `gh repo clone` leaves, and the project image resolves a default from.
+  // Written as refs, so a test may still add its own `origin` remote.
+  await run("git", ["-C", directory, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+  await run("git", [
+    "-C",
+    directory,
+    "symbolic-ref",
+    "refs/remotes/origin/HEAD",
+    "refs/remotes/origin/main",
+  ]);
   return directory;
 }
 
