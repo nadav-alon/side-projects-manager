@@ -105,6 +105,26 @@ Agents write code into this repo unattended, from a ticket. An agent narrating i
 doc comment leaves that narration behind permanently, in a file nobody will revisit. The convention
 is part of the harness the agents run under.
 
+## A test is never weakened to go green
+
+**A test that stands between a run and a passing suite is never weakened, skipped, disabled or
+deleted to get past it.** Loosening an expectation, marking the test skipped, switching it off or
+removing it all make the suite pass without making the code right.
+
+A test whose expectation is itself wrong is not the run's to correct by editing the expectation.
+If the test is wrong, the ticket is wrong or incomplete, and that is raised to the developer rather
+than decided by the agent.
+
+A test the ticket itself asks to change or remove, or whose old expectation the behavior the ticket
+asks for replaces, is not covered by this rule: that is the work, not a way around it.
+
+### Why a green suite is only worth what its tests check
+
+A suite is the only thing a reviewer can trust without rereading every line. Agents run unattended,
+and a run that cannot make a test pass has a way out that looks like success: green, with the check
+that would have caught the problem gone. Nobody reads a deleted test, so the loss is invisible at
+review and permanent afterwards.
+
 ## Vocabulary
 
 Names in source use the glossary in [`CONTEXT.md`](../../CONTEXT.md), including the synonyms it
