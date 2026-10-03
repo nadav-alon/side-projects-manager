@@ -118,7 +118,7 @@ than decided by the agent.
 A test the ticket itself asks to change or remove, or whose old expectation the behavior the ticket
 asks for replaces, is not covered by this rule: that is the work, not a way around it.
 
-### Why
+### Why a green suite is only worth what its tests check
 
 A suite is the only thing a reviewer can trust without rereading every line. Agents run unattended,
 and a run that cannot make a test pass has a way out that looks like success: green, with the check
