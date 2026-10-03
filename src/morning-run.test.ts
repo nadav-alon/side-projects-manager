@@ -1400,6 +1400,29 @@ describe("morningLoop", () => {
       assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
       assert.match(report.message, /docker is not running/);
     });
+
+    it("goes ahead with another project's run when one project's sandbox refuses over a submodule it cannot populate", async (t) => {
+      const ports = fakePorts();
+      ports.store.register(MANAGER);
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(MANAGER, { number: issueNumber(7), title: "Add the thing" });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(8), title: "Add the other thing" });
+      const run = ports.sandbox.run.bind(ports.sandbox);
+      t.mock.method(ports.sandbox, "run", async (...args: Parameters<typeof run>) => {
+        if (args[0].ticket.number === issueNumber(8)) {
+          throw new Error("/work/pilot: submodule latex could not be populated: repository does not exist");
+        }
+        return run(...args);
+      });
+
+      const report = await morningLoop(ports);
+
+      const byTicket = new Map(
+        report.iterations.map((iteration) => [iteration.ticket.number, iteration]),
+      );
+      assert.equal(failureOf(byTicket.get(issueNumber(8)))?.kind, "infrastructure");
+      assert.equal(byTicket.get(issueNumber(7))?.kind, "finished");
+    });
   });
 
   describe("run span", () => {
