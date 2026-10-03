@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -10,18 +10,34 @@ import { MANAGER_HOME } from "./manager-home.ts";
 /** Where the generated, project-specific instructions go. */
 const INSTRUCTIONS_FILE = "AGENTS.md";
 
+/** Where the project's own rules go. Written once, never synced. */
+const STANDARDS_FILE = "docs/project-standards.md";
+
+/** The manager's presets, one markdown file per name. Never copied as a directory. */
+const PRESETS_DIRECTORY = "docs/project-standards-presets";
+
+/** What a project with no preset starts with. */
+const STANDARDS_STUB = `# Project standards
+
+This project has no rules beyond the uniform ones in \`docs/agents/coding-standards.md\`.
+`;
+
 /**
  * The harness as files copied out of `source`, which is the manager's own
  * checkout unless a test says otherwise.
  *
  * Uniform files are overwritten, because a project whose copy has drifted is a
- * project reading conventions nobody maintains. The instructions file is not:
- * once a project has said something about itself, that is the project's, and
- * re-scaffolding must not talk over it.
+ * project reading conventions nobody maintains. The instructions file and the
+ * standards file are not: once a project has said something about itself, that
+ * is the project's, and re-scaffolding must not talk over it.
  */
 export function directoryHarness(source: string = MANAGER_HOME): Harness {
   return {
-    async install(directory: Checkout, instructions: string): Promise<Scaffold> {
+    async install(
+      directory: Checkout,
+      instructions: string,
+      standards: string,
+    ): Promise<Scaffold> {
       const paths: string[] = [];
       const overwritten: string[] = [];
 
@@ -42,7 +58,31 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
         paths.push(INSTRUCTIONS_FILE);
       }
 
+      const standardsFile = path.join(directory, STANDARDS_FILE);
+      if (!(await exists(standardsFile))) {
+        await mkdir(path.dirname(standardsFile), { recursive: true });
+        await writeFile(standardsFile, standards, "utf8");
+        paths.push(STANDARDS_FILE);
+      }
+
       return { paths, overwritten };
+    },
+
+    async standards(preset?: string): Promise<string> {
+      if (preset === undefined) {
+        return STANDARDS_STUB;
+      }
+      const presets = path.join(source, PRESETS_DIRECTORY);
+      const names = (await readdir(presets))
+        .filter((file) => file.endsWith(".md"))
+        .map((file) => file.slice(0, -".md".length))
+        .sort();
+      if (!names.includes(preset)) {
+        throw new Error(
+          `No standards preset named ${JSON.stringify(preset)}; the presets are: ${names.join(", ")}.`,
+        );
+      }
+      return readFile(path.join(presets, `${preset}.md`), "utf8");
     },
 
     async sync(directory: Checkout): Promise<string[]> {

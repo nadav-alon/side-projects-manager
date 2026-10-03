@@ -75,9 +75,19 @@ export interface Scaffold {
 export interface Harness {
   /**
    * Installs the uniform files into the checkout at `directory` and writes
-   * `instructions` as the project's own agent instructions.
+   * `instructions` as the project's own agent instructions and `standards` as
+   * its own standards file. Neither of those two is a uniform file: each is
+   * written only when the checkout has none, and is the project's from then on.
    */
-  install(directory: Checkout, instructions: string): Promise<Scaffold>;
+  install(directory: Checkout, instructions: string, standards: string): Promise<Scaffold>;
+
+  /**
+   * The text a new project's `docs/project-standards.md` starts as: the stub
+   * when `preset` is undefined, otherwise the named preset's file. Throws,
+   * naming the presets that exist, for a `preset` that has no file — asked
+   * before anything is created, so a mistyped name costs nothing.
+   */
+  standards(preset?: string): Promise<string>;
 
   /**
    * Copies into `directory` every uniform file that does not already match

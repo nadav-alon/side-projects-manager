@@ -20,6 +20,16 @@ describe("parsing a new-project request", () => {
     assert.equal(request.public, false);
   });
 
+  it("carries --standards through as the preset's name", () => {
+    const request = parseRequest(["nadav-alon/pilot", "--standards", "typescript"]);
+
+    assert.equal(request.standards, "typescript");
+  });
+
+  it("leaves standards unset without --standards", () => {
+    assert.equal(parseRequest(["nadav-alon/pilot"]).standards, undefined);
+  });
+
   it("refuses --public together with --existing", () => {
     assert.throws(
       () => parseRequest(["nadav-alon/pilot", "--existing", "--public"]),

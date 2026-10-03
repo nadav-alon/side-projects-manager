@@ -44,7 +44,38 @@ describe("starting a new project", () => {
     assert.deepEqual(report.scaffolded, [
       "docs/agents/issue-tracker.md",
       "AGENTS.md",
+      "docs/project-standards.md",
     ]);
+  });
+
+  it("scaffolds the stub standards when no preset is asked for", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(ports.harness.standardsAsked, [undefined]);
+    assert.equal(ports.harness.installs[0]?.standards, "stub standards");
+  });
+
+  it("scaffolds the preset it is asked for as the standards", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, { ...IDEA, standards: "typescript" });
+
+    assert.equal(ports.harness.installs[0]?.standards, "typescript standards");
+  });
+
+  it("fails before creating anything when the preset does not exist", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await assert.rejects(
+      newProject(ports, { ...IDEA, standards: "cobol" }),
+      /"cobol".*typescript/,
+    );
+
+    assert.deepEqual(ports.host.created, []);
+    assert.deepEqual(ports.host.clones, []);
+    assert.deepEqual(ports.harness.installs, []);
   });
 
   it("scaffolds agent instructions written for this project", async () => {

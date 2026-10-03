@@ -5,6 +5,7 @@ import { UNIFORM_FILES } from "../ports/index.ts";
 export interface FakeInstall {
   directory: Checkout;
   instructions: string;
+  standards: string;
 }
 
 /**
@@ -18,6 +19,7 @@ export interface FakeInstall {
 export class FakeHarness implements Harness {
   static readonly UNIFORM_FILES = ["docs/agents/issue-tracker.md"];
   static readonly INSTRUCTIONS_FILE = "AGENTS.md";
+  static readonly STANDARDS_FILE = "docs/project-standards.md";
 
   /** Every install asked for, in order. */
   readonly installs: FakeInstall[] = [];
@@ -45,10 +47,37 @@ export class FakeHarness implements Harness {
    */
   readonly comparisons = new Map<string, UniformComparison>();
 
-  async install(directory: Checkout, instructions: string): Promise<Scaffold> {
-    this.installs.push({ directory, instructions });
+  /** The presets the fake knows, by name; the text is a stand-in for the file. */
+  static readonly PRESETS = ["typescript"];
+
+  /** Every preset name `standards` was asked for, in order; undefined for the stub. */
+  readonly standardsAsked: (string | undefined)[] = [];
+
+  async standards(preset?: string): Promise<string> {
+    this.standardsAsked.push(preset);
+    if (preset === undefined) {
+      return "stub standards";
+    }
+    if (!FakeHarness.PRESETS.includes(preset)) {
+      throw new Error(
+        `No standards preset named ${JSON.stringify(preset)}; the presets are: ${FakeHarness.PRESETS.join(", ")}.`,
+      );
+    }
+    return `${preset} standards`;
+  }
+
+  async install(
+    directory: Checkout,
+    instructions: string,
+    standards: string,
+  ): Promise<Scaffold> {
+    this.installs.push({ directory, instructions, standards });
     return {
-      paths: [...FakeHarness.UNIFORM_FILES, FakeHarness.INSTRUCTIONS_FILE],
+      paths: [
+        ...FakeHarness.UNIFORM_FILES,
+        FakeHarness.INSTRUCTIONS_FILE,
+        FakeHarness.STANDARDS_FILE,
+      ],
       overwritten: [...this.overwrites],
     };
   }
