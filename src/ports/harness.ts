@@ -1,4 +1,20 @@
 import type { Checkout } from "./checkout.ts";
+import type { StandardsPreset } from "./standards-preset.ts";
+
+/** Where a project's own rules go. Not uniform: written once, never synced. */
+export const STANDARDS_FILE = "docs/project-standards.md";
+
+/** A `--standards` name that has no preset file, naming the ones that do. */
+export class UnknownPreset extends Error {
+  constructor(preset: string, names: readonly string[]) {
+    super(
+      `No standards preset named ${JSON.stringify(preset)}; ${
+        names.length === 0 ? "there are no presets." : `the presets are: ${names.join(", ")}.`
+      }`,
+    );
+    this.name = "UnknownPreset";
+  }
+}
 
 /**
  * The files every project gets, byte for byte, at the paths the agent
@@ -75,9 +91,19 @@ export interface Scaffold {
 export interface Harness {
   /**
    * Installs the uniform files into the checkout at `directory` and writes
-   * `instructions` as the project's own agent instructions.
+   * `instructions` as the project's own agent instructions and `standards` as
+   * its own standards file. Neither of those two is a uniform file: each is
+   * written only when the checkout has none, and is the project's from then on.
    */
-  install(directory: Checkout, instructions: string): Promise<Scaffold>;
+  install(directory: Checkout, instructions: string, standards: string): Promise<Scaffold>;
+
+  /**
+   * The text a new project's `docs/project-standards.md` starts as: the stub
+   * when `preset` is undefined, otherwise the named preset's file. Throws,
+   * naming the presets that exist, for a `preset` that has no file — asked
+   * before anything is created, so a mistyped name costs nothing.
+   */
+  standards(preset?: StandardsPreset): Promise<string>;
 
   /**
    * Copies into `directory` every uniform file that does not already match

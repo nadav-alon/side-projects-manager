@@ -8,6 +8,7 @@ import { newProject, type NewProjectRequest } from "../new-project.ts";
 import { parseRequest } from "./new-project-request.ts";
 
 const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--public]
+                   [--standards <preset>]
 
   Creates the repo, clones it to the managed location, scaffolds the harness
   into it, registers it, and hands you an interactive session that turns the
@@ -21,7 +22,11 @@ const USAGE = `Usage: new-project <owner/repo> [description] [--existing] [--pub
 
   --public    Create the repo public rather than private. Rejected together
               with --existing, which takes the repo as it already stands —
-              change its visibility on GitHub instead.`;
+              change its visibility on GitHub instead.
+
+  --standards Start the project's docs/project-standards.md as the named
+              preset from the manager (typescript, for one) rather than as a
+              stub. Written once, only when the checkout has no such file.`;
 
 /** The composition root of the new-project command, and nothing else. */
 async function main(): Promise<void> {

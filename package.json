@@ -17,7 +17,8 @@
   },
   "files": [
     "dist",
-    "docs/agents"
+    "docs/agents",
+    "docs/project-standards-presets"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

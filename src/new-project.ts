@@ -10,6 +10,7 @@ import type {
   RepoHost,
   RepoSlug,
   Scaffold,
+  StandardsPreset,
   Store,
   Visibility,
 } from "./ports/index.ts";
@@ -41,6 +42,11 @@ export interface NewProjectRequest {
   existing?: boolean;
   /** Create the repo public rather than private. Ignored with `existing`. */
   public?: boolean;
+  /**
+   * The name of the manager's standards preset the project's own
+   * `docs/project-standards.md` starts as. Undefined writes the stub.
+   */
+  standards?: StandardsPreset;
 }
 
 export type NewProjectOutcome =
@@ -97,6 +103,8 @@ export async function newProject(
   const { repo, description } = request;
   const existing = request.existing ?? false;
   const visibility: Visibility = request.public ?? false ? "public" : "private";
+  // Before the host is touched: a preset that does not exist must cost nothing.
+  const standards = await ports.harness.standards(request.standards);
   const onHost = await ports.host.exists(repo);
 
   if (existing && !onHost) {
@@ -120,6 +128,7 @@ export async function newProject(
   const scaffold = await ports.harness.install(
     directory,
     agentInstructions({ repo, description }),
+    standards,
   );
 
   // A repo created moments ago has nothing to disturb, so its harness lands

@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 
 import type { NewProjectRequest } from "../new-project.ts";
-import { repoSlug } from "../ports/index.ts";
+import { repoSlug, standardsPreset } from "../ports/index.ts";
 
 /**
  * The developer's words, as `argv` past the command name, turned into a
@@ -18,6 +18,7 @@ export function parseRequest(argv: string[]): NewProjectRequest {
     options: {
       existing: { type: "boolean", default: false },
       public: { type: "boolean", default: false },
+      standards: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -42,5 +43,6 @@ export function parseRequest(argv: string[]): NewProjectRequest {
     description,
     existing: values.existing,
     public: values.public,
+    ...(values.standards !== undefined && { standards: standardsPreset(values.standards) }),
   };
 }

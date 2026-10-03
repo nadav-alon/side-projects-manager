@@ -138,11 +138,21 @@ The repo is created private unless you pass `--public`, which a project needs wh
 has to serve on the free plan, or when a `github:<owner>/<repo>#tag` dependency has to install
 without a token.
 
-Scaffolding puts two kinds of file into the new repo. The uniform files
+Pass `--standards typescript` to start the project's own rules from a preset:
+
+```sh
+npm run new-project -- nadav-alon/pilot "A flight log that files itself." --standards typescript
+```
+
+Scaffolding puts three kinds of file into the new repo. The uniform files
 ([`docs/agents/`](docs/agents)) are copied byte for byte, so improving a convention here improves it
 in every project. `AGENTS.md` is generated for that project, naming it and its purpose — never
 copied, since a project that inherited another repo's instructions would describe a codebase it is
-not in. Neither half refers back to this repo: a project carries no reference to the manager and no
+not in. `docs/project-standards.md` is the project's own rules: a stub saying it has none beyond the
+uniform ones, or the named preset from [`docs/project-standards-presets/`](docs/project-standards-presets)
+(only `typescript` so far; an unknown name fails before anything is created, naming the presets there
+are). It is written once and is the project's from then on — never overwritten, never synced. None of
+them refers back to this repo: a project carries no reference to the manager and no
 live coupling to it, so you can walk away with just the project.
 
 A repo that predates the manager joins with `--existing`, which registers and scaffolds it without
@@ -163,7 +173,7 @@ pull request cannot be opened — pull requests disabled, no base branch to open
 is still pushed and the command says so rather than losing it.
 
 Re-running the command on a project already registered leaves your registry entry — paused flag,
-priority and all — exactly as you wrote it, and leaves an `AGENTS.md` the project already has alone.
+priority and all — exactly as you wrote it, and leaves an `AGENTS.md` or `docs/project-standards.md` the project already has alone.
 A re-run while a `harness` request is still open adds to that same branch.
 
 Projects are cloned to `~/side-projects/<owner>/<repo>`, unless `SIDE_PROJECTS_MANAGED_LOCATION`

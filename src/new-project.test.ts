@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { newProject } from "./new-project.ts";
-import { priority, repoSlug } from "./ports/index.ts";
+import { priority, repoSlug, standardsPreset } from "./ports/index.ts";
 import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
@@ -44,7 +44,38 @@ describe("starting a new project", () => {
     assert.deepEqual(report.scaffolded, [
       "docs/agents/issue-tracker.md",
       "AGENTS.md",
+      "docs/project-standards.md",
     ]);
+  });
+
+  it("scaffolds the stub standards when no preset is asked for", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, IDEA);
+
+    assert.deepEqual(ports.harness.standardsAsked, [undefined]);
+    assert.equal(ports.harness.installs[0]?.standards, "stub standards");
+  });
+
+  it("scaffolds the preset it is asked for as the standards", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await newProject(ports, { ...IDEA, standards: standardsPreset("typescript") });
+
+    assert.equal(ports.harness.installs[0]?.standards, "typescript standards");
+  });
+
+  it("fails before creating anything when the preset does not exist", async () => {
+    const ports = fakeNewProjectPorts();
+
+    await assert.rejects(
+      newProject(ports, { ...IDEA, standards: standardsPreset("cobol") }),
+      /"cobol".*typescript/,
+    );
+
+    assert.deepEqual(ports.host.created, []);
+    assert.deepEqual(ports.host.clones, []);
+    assert.deepEqual(ports.harness.installs, []);
   });
 
   it("scaffolds agent instructions written for this project", async () => {
