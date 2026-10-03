@@ -157,6 +157,19 @@ describe("projectImages", () => {
     }
   });
 
+  it("names the project when its checkout cannot even be read", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "project-image-test-"));
+    const directory = path.join(root, "owner", "repo");
+    await mkdir(directory, { recursive: true });
+    const { docker } = fakeDocker();
+    await assert.rejects(
+      projectImages(docker)(checkout(directory)),
+      (error: unknown) =>
+        error instanceof ProjectImageBuildFailed &&
+        /owner\/repo/.test(error.message),
+    );
+  });
+
   it("builds once for runs that arrive while it is building", async () => {
     const dir = await project(DECLARED);
     const { docker, built } = fakeDocker();

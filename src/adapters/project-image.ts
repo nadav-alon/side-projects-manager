@@ -145,14 +145,14 @@ export function projectImages(
   const builds = new Map<string, Promise<void>>();
 
   return async (checkout) => {
-    const ref = await defaultRef(checkout);
-    const entries = await sandboxEntries(checkout, ref);
-    if (entries === "") {
-      return IMAGE;
-    }
-    const tag = projectImageTag(checkout);
     const project = projectOf(checkout);
     try {
+      const ref = await defaultRef(checkout);
+      const entries = await sandboxEntries(checkout, ref);
+      if (entries === "") {
+        return IMAGE;
+      }
+      const tag = projectImageTag(checkout);
       const digest = createHash("sha256")
         .update(`${await docker.imageId(IMAGE)}\0${entries}`)
         .digest("hex");
@@ -173,10 +173,10 @@ export function projectImages(
         builds.set(key, build);
       }
       await build;
+      return tag;
     } catch (error: unknown) {
       throw new ProjectImageBuildFailed(project, error);
     }
-    return tag;
   };
 }
 
