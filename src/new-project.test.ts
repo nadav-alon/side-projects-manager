@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { newProject } from "./new-project.ts";
-import { priority, repoSlug } from "./ports/index.ts";
+import { priority, repoSlug, standardsPreset } from "./ports/index.ts";
 import { FakeRepoHost, fakeNewProjectPorts } from "./testing/index.ts";
 
 const MANAGER = repoSlug("nadav-alon/side-projects-manager");
@@ -60,7 +60,7 @@ describe("starting a new project", () => {
   it("scaffolds the preset it is asked for as the standards", async () => {
     const ports = fakeNewProjectPorts();
 
-    await newProject(ports, { ...IDEA, standards: "typescript" });
+    await newProject(ports, { ...IDEA, standards: standardsPreset("typescript") });
 
     assert.equal(ports.harness.installs[0]?.standards, "typescript standards");
   });
@@ -69,7 +69,7 @@ describe("starting a new project", () => {
     const ports = fakeNewProjectPorts();
 
     await assert.rejects(
-      newProject(ports, { ...IDEA, standards: "cobol" }),
+      newProject(ports, { ...IDEA, standards: standardsPreset("cobol") }),
       /"cobol".*typescript/,
     );
 

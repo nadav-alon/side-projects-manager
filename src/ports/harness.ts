@@ -1,4 +1,20 @@
 import type { Checkout } from "./checkout.ts";
+import type { StandardsPreset } from "./standards-preset.ts";
+
+/** Where a project's own rules go. Not uniform: written once, never synced. */
+export const STANDARDS_FILE = "docs/project-standards.md";
+
+/** A `--standards` name that has no preset file, naming the ones that do. */
+export class UnknownPreset extends Error {
+  constructor(preset: string, names: readonly string[]) {
+    super(
+      `No standards preset named ${JSON.stringify(preset)}; ${
+        names.length === 0 ? "there are no presets." : `the presets are: ${names.join(", ")}.`
+      }`,
+    );
+    this.name = "UnknownPreset";
+  }
+}
 
 /**
  * The files every project gets, byte for byte, at the paths the agent
@@ -87,7 +103,7 @@ export interface Harness {
    * naming the presets that exist, for a `preset` that has no file — asked
    * before anything is created, so a mistyped name costs nothing.
    */
-  standards(preset?: string): Promise<string>;
+  standards(preset?: StandardsPreset): Promise<string>;
 
   /**
    * Copies into `directory` every uniform file that does not already match

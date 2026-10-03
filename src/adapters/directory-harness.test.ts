@@ -6,7 +6,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import type { Checkout } from "../ports/index.ts";
-import { UNIFORM_FILES, checkout } from "../ports/index.ts";
+import { STANDARDS_FILE, UNIFORM_FILES, checkout, standardsPreset } from "../ports/index.ts";
+import { NAMES_THE_MANAGER } from "../testing/names-the-manager.ts";
 import { directoryHarness } from "./directory-harness.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
@@ -53,7 +54,7 @@ describe("scaffolding the harness into a project", () => {
     assert.deepEqual(scaffold.paths, [
       ...UNIFORM_FILES,
       "AGENTS.md",
-      "docs/project-standards.md",
+      STANDARDS_FILE,
     ]);
   });
 
@@ -83,7 +84,7 @@ describe("scaffolding the harness into a project", () => {
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
 
     assert.equal(await contentsOf(directory, "AGENTS.md"), "# mine\n");
-    assert.deepEqual(scaffold.paths, [...UNIFORM_FILES, "docs/project-standards.md"]);
+    assert.deepEqual(scaffold.paths, [...UNIFORM_FILES, STANDARDS_FILE]);
     assert.ok(!scaffold.overwritten.includes("AGENTS.md"));
   });
 
@@ -92,28 +93,31 @@ describe("scaffolding the harness into a project", () => {
 
     await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
 
-    assert.equal(await contentsOf(directory, "docs/project-standards.md"), STANDARDS);
+    assert.equal(await contentsOf(directory, STANDARDS_FILE), STANDARDS);
   });
 
   it("leaves a standards file the project already has alone", async () => {
     const directory = await emptyCheckout();
     await mkdir(path.join(directory, "docs"), { recursive: true });
-    await writeFile(path.join(directory, "docs/project-standards.md"), "# mine\n");
+    await writeFile(path.join(directory, STANDARDS_FILE), "# mine\n");
 
     const scaffold = await directoryHarness().install(directory, INSTRUCTIONS, STANDARDS);
 
-    assert.equal(await contentsOf(directory, "docs/project-standards.md"), "# mine\n");
-    assert.ok(!scaffold.paths.includes("docs/project-standards.md"));
-    assert.ok(!scaffold.overwritten.includes("docs/project-standards.md"));
+    assert.equal(await contentsOf(directory, STANDARDS_FILE), "# mine\n");
+    assert.ok(!scaffold.paths.includes(STANDARDS_FILE));
+    assert.ok(!scaffold.overwritten.includes(STANDARDS_FILE));
   });
 
   it("does not sync the standards file, nor count it uniform", async () => {
     const directory = await emptyCheckout();
+    await mkdir(path.join(directory, "docs"), { recursive: true });
+    await writeFile(path.join(directory, STANDARDS_FILE), "# mine\n");
 
     const changed = await directoryHarness().sync(directory);
 
-    assert.ok(!changed.includes("docs/project-standards.md"));
-    assert.ok(!(UNIFORM_FILES as readonly string[]).includes("docs/project-standards.md"));
+    assert.equal(await contentsOf(directory, STANDARDS_FILE), "# mine\n");
+    assert.ok(!changed.includes(STANDARDS_FILE));
+    assert.ok(!(UNIFORM_FILES as readonly string[]).includes(STANDARDS_FILE));
   });
 
   it("replaces uniform files that have drifted, since uniform is the point", async () => {
@@ -134,7 +138,7 @@ describe("scaffolding the harness into a project", () => {
     for (const file of paths) {
       assert.doesNotMatch(
         await contentsOf(directory, file),
-        /side-projects-manager|morning loop|registry\.json|managed location/i,
+        NAMES_THE_MANAGER,
         `${file} refers back to the manager`,
       );
     }
@@ -269,14 +273,15 @@ describe("the standards a new project starts with", () => {
   });
 
   it("is the typescript preset's text when asked for it", async () => {
-    const text = await directoryHarness().standards("typescript");
+    const text = await directoryHarness().standards(standardsPreset("typescript"));
 
     assert.equal(text, await contentsOf(MANAGER_HOME, "docs/project-standards-presets/typescript.md"));
     assert.match(text, /^# Project standards\n\n## Brand your primitives\n/);
   });
 
+  // TODO[#1235]: delete this test when the section leaves the uniform file.
   it("carries the brand section exactly as the uniform file has it", async () => {
-    const text = await directoryHarness().standards("typescript");
+    const text = await directoryHarness().standards(standardsPreset("typescript"));
     const uniform = await contentsOf(MANAGER_HOME, "docs/agents/coding-standards.md");
 
     const section = text.slice(text.indexOf("## Brand your primitives"));
@@ -284,7 +289,14 @@ describe("the standards a new project starts with", () => {
   });
 
   it("fails naming the presets that exist for a name with no file", async () => {
-    await assert.rejects(directoryHarness().standards("cobol"), /"cobol".*typescript/);
+    await assert.rejects(directoryHarness().standards(standardsPreset("cobol")), /"cobol".*typescript/);
+  });
+
+  it("fails naming that there are none when the manager has no presets directory", async () => {
+    await assert.rejects(
+      directoryHarness(await emptyCheckout()).standards(standardsPreset("typescript")),
+      /no presets/,
+    );
   });
 
   it("names no manager in any preset", async () => {
@@ -292,7 +304,7 @@ describe("the standards a new project starts with", () => {
     for (const file of await readdir(presets)) {
       assert.doesNotMatch(
         await readFile(path.join(presets, file), "utf8"),
-        /side-projects-manager|morning loop|registry\.json|managed location/i,
+        NAMES_THE_MANAGER,
         `${file} refers back to the manager`,
       );
     }

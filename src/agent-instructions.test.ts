@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { agentInstructions } from "./agent-instructions.ts";
 import { UNIFORM_FILES, repoSlug } from "./ports/index.ts";
+import { NAMES_THE_MANAGER } from "./testing/names-the-manager.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 
@@ -44,7 +45,7 @@ describe("the agent instructions a new project gets", () => {
     // The description is the developer's and may say anything; every other
     // line is generated, and none of it may point home.
     const generated = instructions.replaceAll("a manager for flight logs.", "");
-    assert.doesNotMatch(generated, /side-projects-manager|morning loop|manager home|registry\.json/);
+    assert.doesNotMatch(generated, NAMES_THE_MANAGER);
   });
 
   it("describes a project with no description without an empty line where it would be", () => {

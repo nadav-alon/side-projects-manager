@@ -26,6 +26,10 @@ describe("parsing a new-project request", () => {
     assert.equal(request.standards, "typescript");
   });
 
+  it("refuses a --standards that is not a preset's name", () => {
+    assert.throws(() => parseRequest(["nadav-alon/pilot", "--standards", "../typescript"]), TypeError);
+  });
+
   it("leaves standards unset without --standards", () => {
     assert.equal(parseRequest(["nadav-alon/pilot"]).standards, undefined);
   });

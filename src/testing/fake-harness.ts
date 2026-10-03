@@ -1,5 +1,11 @@
-import type { Checkout, Harness, Scaffold, UniformComparison } from "../ports/index.ts";
-import { UNIFORM_FILES } from "../ports/index.ts";
+import type {
+  Checkout,
+  Harness,
+  Scaffold,
+  StandardsPreset,
+  UniformComparison,
+} from "../ports/index.ts";
+import { STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
 
 /** One scaffolding, as the command asked for it. */
 export interface FakeInstall {
@@ -19,7 +25,7 @@ export interface FakeInstall {
 export class FakeHarness implements Harness {
   static readonly UNIFORM_FILES = ["docs/agents/issue-tracker.md"];
   static readonly INSTRUCTIONS_FILE = "AGENTS.md";
-  static readonly STANDARDS_FILE = "docs/project-standards.md";
+  static readonly STANDARDS_FILE = STANDARDS_FILE;
 
   /** Every install asked for, in order. */
   readonly installs: FakeInstall[] = [];
@@ -53,15 +59,13 @@ export class FakeHarness implements Harness {
   /** Every preset name `standards` was asked for, in order; undefined for the stub. */
   readonly standardsAsked: (string | undefined)[] = [];
 
-  async standards(preset?: string): Promise<string> {
+  async standards(preset?: StandardsPreset): Promise<string> {
     this.standardsAsked.push(preset);
     if (preset === undefined) {
       return "stub standards";
     }
     if (!FakeHarness.PRESETS.includes(preset)) {
-      throw new Error(
-        `No standards preset named ${JSON.stringify(preset)}; the presets are: ${FakeHarness.PRESETS.join(", ")}.`,
-      );
+      throw new UnknownPreset(preset, FakeHarness.PRESETS);
     }
     return `${preset} standards`;
   }

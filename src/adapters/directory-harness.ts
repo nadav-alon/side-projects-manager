@@ -3,15 +3,18 @@ import { access, copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/p
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { Checkout, Harness, Scaffold, UniformComparison } from "../ports/index.ts";
-import { UNIFORM_FILES } from "../ports/index.ts";
+import type {
+  Checkout,
+  Harness,
+  Scaffold,
+  StandardsPreset,
+  UniformComparison,
+} from "../ports/index.ts";
+import { STANDARDS_FILE, UNIFORM_FILES, UnknownPreset } from "../ports/index.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 
 /** Where the generated, project-specific instructions go. */
 const INSTRUCTIONS_FILE = "AGENTS.md";
-
-/** Where the project's own rules go. Written once, never synced. */
-const STANDARDS_FILE = "docs/project-standards.md";
 
 /** The manager's presets, one markdown file per name. Never copied as a directory. */
 const PRESETS_DIRECTORY = "docs/project-standards-presets";
@@ -68,19 +71,17 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
       return { paths, overwritten };
     },
 
-    async standards(preset?: string): Promise<string> {
+    async standards(preset?: StandardsPreset): Promise<string> {
       if (preset === undefined) {
         return STANDARDS_STUB;
       }
       const presets = path.join(source, PRESETS_DIRECTORY);
-      const names = (await readdir(presets))
+      const names = (await presetFiles(presets))
         .filter((file) => file.endsWith(".md"))
         .map((file) => file.slice(0, -".md".length))
         .sort();
       if (!names.includes(preset)) {
-        throw new Error(
-          `No standards preset named ${JSON.stringify(preset)}; the presets are: ${names.join(", ")}.`,
-        );
+        throw new UnknownPreset(preset, names);
       }
       return readFile(path.join(presets, `${preset}.md`), "utf8");
     },
@@ -121,6 +122,18 @@ export function directoryHarness(source: string = MANAGER_HOME): Harness {
       return "different";
     },
   };
+}
+
+/** The files in the presets directory; none when the manager has no such directory yet. */
+async function presetFiles(presets: string): Promise<string[]> {
+  try {
+    return await readdir(presets);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function exists(file: string): Promise<boolean> {

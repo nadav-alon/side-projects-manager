@@ -10,6 +10,7 @@ import type {
   RepoHost,
   RepoSlug,
   Scaffold,
+  StandardsPreset,
   Store,
   Visibility,
 } from "./ports/index.ts";
@@ -45,7 +46,7 @@ export interface NewProjectRequest {
    * The name of the manager's standards preset the project's own
    * `docs/project-standards.md` starts as. Undefined writes the stub.
    */
-  standards?: string;
+  standards?: StandardsPreset;
 }
 
 export type NewProjectOutcome =
