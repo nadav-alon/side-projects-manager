@@ -69,3 +69,14 @@ If any of these show up, the ticket was too big — say so, and split what remai
 The rule sets a ceiling, not a target. A ticket that delivers half a port — the type without the
 implementation, the happy path without the errors — cannot be reviewed on its own, because nothing
 about it is true yet. Split where the system already has a joint. Do not cut new ones.
+
+## A tool the sandbox lacks is a prerequisite
+
+A run's sandbox is not the agent's to change: it runs as a user that cannot install anything, and its
+own branch cannot alter the image it runs in. When the work needs a tool the sandbox does not have —
+a compiler, a runtime, a CLI — the run does not work around it. It does not vendor a binary into the
+repo, download one at run time, or rewrite the work to avoid the tool.
+
+It files a blocking discovery (a prerequisite) asking for a toolchain ticket: the project's sandbox
+image gaining that tool. The work ticket is then blocked by it, and the run stops without committing
+further. A workaround would ship unreviewed code that only passes because the tool was bypassed.
