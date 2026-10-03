@@ -14,7 +14,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, it, type TestContext } from "node:test";
+import { after, before, describe, it, type TestContext } from "node:test";
 import { promisify } from "node:util";
 
 import { routeRunDiscoveries } from "../discovery-routing.ts";
@@ -89,6 +89,34 @@ import {
 } from "../testing/index.ts";
 
 const run = promisify(execFile);
+
+/**
+ * Lets git use the file transport for a submodule while the calling suite
+ * runs: git refuses it by default, and the fixtures' submodules are local
+ * repositories. Appended after any `GIT_CONFIG_*` the environment already
+ * sets and put back afterwards, so no other test sees it.
+ */
+function allowFileSubmodules(): void {
+  const names = ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"];
+  let saved: Record<string, string | undefined> = {};
+  before(() => {
+    const index = Number(process.env["GIT_CONFIG_COUNT"] ?? "0");
+    const keys = [names[0]!, `${names[1]}${index}`, `${names[2]}${index}`];
+    saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+    process.env["GIT_CONFIG_COUNT"] = String(index + 1);
+    process.env[keys[1]!] = "protocol.file.allow";
+    process.env[keys[2]!] = "always";
+  });
+  after(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+}
 
 /**
  * Where this file's own tests keep their transcripts — never the checkout's
@@ -171,6 +199,45 @@ async function project(
   await run("git", ["-C", directory, "add", "."]);
   await run("git", ["-C", directory, "commit", "--message", "First"]);
   return directory;
+}
+
+/**
+ * Adds a submodule at `latex` to `directory`, pinned at a commit holding
+ * `main.tex`, and commits it. Answers the submodule's own repository.
+ */
+async function addSubmodule(directory: Checkout): Promise<Checkout> {
+  const remote = checkout(await mkdtemp(path.join(tmpdir(), "submodule-")));
+  await run("git", ["init", "--initial-branch=main", remote]);
+  await identify(remote);
+  await writeFile(path.join(remote, "main.tex"), "paper\n");
+  await run("git", ["-C", remote, "add", "."]);
+  await run("git", ["-C", remote, "commit", "--message", "Paper"]);
+  await run("git", ["-C", directory, "submodule", "add", remote, "latex"]);
+  await run("git", ["-C", directory, "commit", "--message", "Add the paper"]);
+  return remote;
+}
+
+/**
+ * Forgets everything `directory` holds of its submodule at `latex`, its
+ * clone of the remote included, so nothing it still has can stand in for the
+ * remote.
+ */
+async function forgetSubmodule(directory: Checkout): Promise<void> {
+  await run("git", ["-C", directory, "submodule", "deinit", "--force", "latex"]);
+  await rm(path.join(directory, ".git", "modules"), { recursive: true, force: true });
+}
+
+/**
+ * Pushes a commit adding a submodule to the branch `hosted` carries, which
+ * the project checkout's own commit does not pin. Answers the submodule's remote.
+ */
+async function pullRequestPinningSubmodule(hosted: string): Promise<Checkout> {
+  const elsewhere = checkout(await mkdtemp(path.join(tmpdir(), "sandbox-elsewhere-")));
+  await run("git", ["clone", "--quiet", "--branch", BRANCH, hosted, elsewhere]);
+  await identify(elsewhere);
+  const remote = await addSubmodule(elsewhere);
+  await run("git", ["-C", elsewhere, "push", "--quiet", "origin", BRANCH]);
+  return remote;
 }
 
 /** What the sandbox image does for a real run, done here for a fake one. */
@@ -531,6 +598,8 @@ function providerFailureStdoutWithStatus(status: number | null): string {
 }
 
 describe("containerSandbox", () => {
+  allowFileSubmodules();
+
   it("runs the agent on a clone of its own, never on the checkout", async () => {
     const directory = await project();
     const seen: string[] = [];
@@ -543,6 +612,72 @@ describe("containerSandbox", () => {
 
     assert.equal(seen.length, 1);
     assert.notEqual(seen[0], directory);
+  });
+
+  it("hands the agent a clone with each submodule's files at the pinned commit", async () => {
+    const directory = await project();
+    await addSubmodule(directory);
+    let seen: string | undefined;
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      seen = await readFile(path.join(mounted, "latex", "main.tex"), "utf8").catch(() => undefined);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(seen, "paper\n");
+  });
+
+  it("brings the project checkout's submodule level before the run when it was never initialised", async () => {
+    const directory = await project();
+    await addSubmodule(directory);
+    await run("git", ["-C", directory, "submodule", "deinit", "--force", "latex"]);
+    const sandbox = testSandbox(async () => ({ output: "", tokensUsed: tokenCount(0) }));
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(await readFile(path.join(directory, "latex", "main.tex"), "utf8"), "paper\n");
+  });
+
+  it("brings the project checkout's submodule level before the run when its pointer moved", async () => {
+    const directory = await project();
+    const remote = await addSubmodule(directory);
+    const sandbox = testSandbox(async () => ({ output: "", tokensUsed: tokenCount(0) }));
+    const request = { ticket: TICKET, checkout: directory, spendCeiling: CEILING };
+
+    await writeFile(path.join(remote, "main.tex"), "revised\n");
+    await run("git", ["-C", remote, "commit", "--all", "--message", "Revise"]);
+    await run("git", ["-C", path.join(directory, "latex"), "pull", "--quiet", "origin", "main"]);
+    await run("git", ["-C", directory, "commit", "--all", "--message", "Move the pointer"]);
+    await run("git", ["-C", path.join(directory, "latex"), "checkout", "--quiet", "HEAD~1"]);
+
+    await sandbox.run(request);
+
+    assert.equal(await readFile(path.join(directory, "latex", "main.tex"), "utf8"), "revised\n");
+  });
+
+  it("refuses the run, naming the project, the path and the reason, when a submodule cannot be populated", async () => {
+    const directory = await project();
+    const remote = await addSubmodule(directory);
+    await forgetSubmodule(directory);
+    await rm(remote, { recursive: true });
+    let started = false;
+    const sandbox = testSandbox(async () => {
+      started = true;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await assert.rejects(
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      (error: Error) =>
+        error.name === "SubmoduleRefused" &&
+        error.message.includes(directory) &&
+        error.message.includes("latex") &&
+        // What git says of a remote that is gone, not the command it ran.
+        /does not exist|not a git repository|Could not read/.test(error.message) &&
+        !error.message.includes("Command failed"),
+    );
+    assert.equal(started, false);
   });
 
   it("calls onStarted with the run's own transcript directory, before the container is even asked to run", async () => {
@@ -2265,6 +2400,8 @@ describe("containerSandbox.run salvage", () => {
 });
 
 describe("transcript", () => {
+  allowFileSubmodules();
+
   it("hands the container a fresh, empty directory to write its session transcript into", async () => {
     const directory = await project();
     const seen: string[] = [];
@@ -2363,6 +2500,38 @@ describe("transcript", () => {
     assert.notEqual(firstTranscript, secondTranscript);
   });
 
+  it("hands a reviewer a clone with each submodule's files at the pinned commit", async () => {
+    const directory = await project();
+    await addSubmodule(directory);
+    let seen: string | undefined;
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      seen = await readFile(path.join(mounted, "latex", "main.tex"), "utf8").catch(() => undefined);
+      return { output: "posted", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(seen, "paper\n");
+  });
+
+  it("refuses a review when a submodule cannot be populated", async () => {
+    const directory = await project();
+    const remote = await addSubmodule(directory);
+    await forgetSubmodule(directory);
+    await rm(remote, { recursive: true });
+    let started = false;
+    const sandbox = testSandbox(async () => {
+      started = true;
+      return { output: "posted", tokensUsed: tokenCount(0) };
+    });
+
+    await assert.rejects(
+      sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
+      /latex/,
+    );
+    assert.equal(started, false);
+  });
+
   it("still gives a reviewer, mounted read-only, a writable transcript location", async () => {
     const directory = await project();
     let mount: Mount | undefined;
@@ -2382,6 +2551,34 @@ describe("transcript", () => {
 
     assert.equal(mount, "ro");
     assert.notEqual(variant(result, "finished")?.transcript, undefined);
+  });
+
+  it("populates the submodules the pull request's head pins, which the checkout's own commit does not", async () => {
+    const { directory, hosted } = await hostedProject();
+    await pullRequestPinningSubmodule(hosted);
+    let seen: string | undefined;
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      seen = await readFile(path.join(mounted, "latex", "main.tex"), "utf8").catch(() => undefined);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+
+    assert.equal(seen, "paper\n");
+  });
+
+  it("refuses a pull-request run when a submodule its head pins cannot be populated", async () => {
+    const { directory, hosted } = await hostedProject();
+    const remote = await pullRequestPinningSubmodule(hosted);
+    await rm(remote, { recursive: true });
+    let started = false;
+    const sandbox = testSandbox(async () => {
+      started = true;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await assert.rejects(rebaseOn(sandbox, directory), /latex/);
+    assert.equal(started, false);
   });
 
   it("reports the transcript an apply-review run's container wrote", async () => {
