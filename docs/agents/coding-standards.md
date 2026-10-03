@@ -115,8 +115,8 @@ A test whose expectation is itself wrong is not the run's to correct by editing 
 If the test is wrong, the ticket is wrong or incomplete, and that is raised to the developer rather
 than decided by the agent.
 
-A test the ticket itself asks to change or remove is not covered by this rule: that is the work, not
-a way around it.
+A test the ticket itself asks to change or remove, or whose old expectation the behavior the ticket
+asks for replaces, is not covered by this rule: that is the work, not a way around it.
 
 ### Why
 
