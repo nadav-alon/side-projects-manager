@@ -12,8 +12,9 @@ them may name this one.
 
 ### Coding standards
 
-Branded primitives over bare ones, and comments that outlive the review (`TODO[#n]`, never ticket
-narration). See `docs/agents/coding-standards.md`.
+Two files: `docs/agents/coding-standards.md` holds the rules every project shares — comments that
+outlive the review (`TODO[#n]`, never ticket narration), a test never weakened to go green — and
+`docs/project-standards.md` holds this project's own, branded primitives over bare ones.
 
 ### Issue tracker
 

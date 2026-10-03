@@ -411,8 +411,11 @@ all, and your reviews would quietly run on the image's model.
 All five documents, your three and the loop's `state.json` and `journal.json`, live in the manager
 home: this checkout, unless `SIDE_PROJECTS_MANAGER_HOME` says otherwise.
 
-House rules for source — branded primitives, and what a comment is allowed to say — are in
-[`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
+Coding standards for source are in two files:
+[`docs/agents/coding-standards.md`](docs/agents/coding-standards.md)
+holds the rules every project shares (what a comment is allowed to say, a test never weakened),
+and [`docs/project-standards.md`](docs/project-standards.md) holds this project's own (branded
+primitives).
 
 ## The sandbox image
 
