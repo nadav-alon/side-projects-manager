@@ -649,6 +649,45 @@ async function withThrowawayClone<T>(
   }
 }
 
+/**
+ * A submodule the host could not check out, so the run that needed it does
+ * not start. Thrown rather than skipped: a run without the submodule's files
+ * would read an empty directory and pass whatever it was asked to check by
+ * not looking.
+ */
+export class SubmoduleRefused extends Error {
+  override name = "SubmoduleRefused";
+}
+
+/** The paths `directory`'s checked-out commit pins a submodule at. */
+async function submodulePaths(directory: Checkout): Promise<string[]> {
+  const { stdout } = await run("git", ["-C", directory, "ls-files", "--stage", "-z"]);
+  return stdout
+    .split("\0")
+    .filter((entry) => entry.startsWith("160000 "))
+    .map((entry) => entry.slice(entry.indexOf("\t") + 1));
+}
+
+/**
+ * Checks out each submodule `directory` pins, at the pinned commit, with the
+ * host's own git credentials — so the container is given none and needs no
+ * network. A directory pinning none makes no further git call. `project` is
+ * the manager's checkout the run is for, named when a submodule cannot be
+ * populated.
+ */
+async function populateSubmodules(project: Checkout, directory: Checkout): Promise<void> {
+  for (const submodule of await submodulePaths(directory)) {
+    try {
+      await run("git", ["-C", directory, "submodule", "update", "--init", "--", submodule]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new SubmoduleRefused(
+        `${project}: submodule ${submodule} could not be populated: ${reason}`,
+      );
+    }
+  }
+}
+
 async function runOnClone(
   container: Container,
   request: RunRequest,
@@ -717,6 +756,8 @@ async function runOnClone(
       } else {
         await run("git", ["-C", clone, "switch", "--create", onto]);
       }
+      // After the switch, not the clone: a resumed branch pins what it pins.
+      await populateSubmodules(project, clone);
       // A resumed run's commits are everything on the branch since it left
       // the checkout's HEAD, not only what this run adds — so a resumed run
       // that commits nothing more still has the salvage's own commits, and

@@ -90,6 +90,12 @@ import {
 
 const run = promisify(execFile);
 
+// Git refuses a submodule over the file transport unless told otherwise; the
+// fixtures' submodules are local repositories.
+process.env["GIT_CONFIG_COUNT"] = "1";
+process.env["GIT_CONFIG_KEY_0"] = "protocol.file.allow";
+process.env["GIT_CONFIG_VALUE_0"] = "always";
+
 /**
  * Where this file's own tests keep their transcripts — never the checkout's
  * real `transcripts/` (`container-sandbox.ts`), so running this file never
@@ -171,6 +177,22 @@ async function project(
   await run("git", ["-C", directory, "add", "."]);
   await run("git", ["-C", directory, "commit", "--message", "First"]);
   return directory;
+}
+
+/**
+ * Adds a submodule at `latex` to `directory`, pinned at a commit holding
+ * `main.tex`, and commits it. Answers the submodule's own repository.
+ */
+async function addSubmodule(directory: Checkout): Promise<Checkout> {
+  const remote = checkout(await mkdtemp(path.join(tmpdir(), "submodule-")));
+  await run("git", ["init", "--initial-branch=main", remote]);
+  await identify(remote);
+  await writeFile(path.join(remote, "main.tex"), "paper\n");
+  await run("git", ["-C", remote, "add", "."]);
+  await run("git", ["-C", remote, "commit", "--message", "Paper"]);
+  await run("git", ["-C", directory, "submodule", "add", remote, "latex"]);
+  await run("git", ["-C", directory, "commit", "--message", "Add the paper"]);
+  return remote;
 }
 
 /** What the sandbox image does for a real run, done here for a fake one. */
@@ -543,6 +565,41 @@ describe("containerSandbox", () => {
 
     assert.equal(seen.length, 1);
     assert.notEqual(seen[0], directory);
+  });
+
+  it("hands the agent a clone with each submodule's files at the pinned commit", async () => {
+    const directory = await project();
+    await addSubmodule(directory);
+    let seen: string | undefined;
+    const sandbox = testSandbox(async ({ directory: mounted }) => {
+      seen = await readFile(path.join(mounted, "latex", "main.tex"), "utf8").catch(() => undefined);
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.equal(seen, "paper\n");
+  });
+
+  it("refuses the run, naming the project, the path and the reason, when a submodule cannot be populated", async () => {
+    const directory = await project();
+    const remote = await addSubmodule(directory);
+    await rm(remote, { recursive: true });
+    let started = false;
+    const sandbox = testSandbox(async () => {
+      started = true;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await assert.rejects(
+      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      (error: Error) =>
+        error.name === "SubmoduleRefused" &&
+        error.message.includes(directory) &&
+        error.message.includes("latex") &&
+        error.message.length > directory.length + 40,
+    );
+    assert.equal(started, false);
   });
 
   it("calls onStarted with the run's own transcript directory, before the container is even asked to run", async () => {
