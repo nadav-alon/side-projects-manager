@@ -272,6 +272,8 @@ export {
   transcriptDirectory,
 } from "./transcript-directory.ts";
 export type { TranscriptDirectory } from "./transcript-directory.ts";
+export { isSubmodulePath, submodulePath } from "./submodule-path.ts";
+export type { SubmodulePath } from "./submodule-path.ts";
 export { isTranscriptPath, transcriptPath } from "./transcript-path.ts";
 export type { TranscriptPath } from "./transcript-path.ts";
 export type { UsageLedger, UsageWindow, UsageWindows } from "./usage-ledger.ts";

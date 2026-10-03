@@ -59,6 +59,7 @@ import {
   numberField,
   remoteUrl,
   reviewFindingTemplate,
+  submodulePath,
   tokenCount,
   transcriptDirectory,
   transcriptPath,
@@ -66,6 +67,7 @@ import {
   weightedTokenCount,
   type Milliseconds,
   type Nits,
+  type SubmodulePath,
   type TicketGist,
   type TokenCount,
   type TranscriptPath,
@@ -660,34 +662,119 @@ export class SubmoduleRefused extends Error {
 }
 
 /** The paths `directory`'s checked-out commit pins a submodule at. */
-async function submodulePaths(directory: Checkout): Promise<string[]> {
+async function submodulePaths(directory: Checkout): Promise<SubmodulePath[]> {
   const { stdout } = await run("git", ["-C", directory, "ls-files", "--stage", "-z"]);
   return stdout
     .split("\0")
     .filter((entry) => entry.startsWith("160000 "))
-    .map((entry) => entry.slice(entry.indexOf("\t") + 1));
+    .map((entry) => submodulePath(entry.slice(entry.indexOf("\t") + 1)));
+}
+
+/** The name `.gitmodules` gives the submodule at `at`, which its config keys are under. */
+async function submoduleName(directory: Checkout, at: SubmodulePath): Promise<string> {
+  const { stdout } = await run("git", [
+    "-C",
+    directory,
+    "config",
+    "--file",
+    ".gitmodules",
+    "--get-regexp",
+    "^submodule\\..*\\.path$",
+  ]);
+  for (const line of stdout.split("\n")) {
+    const space = line.indexOf(" ");
+    if (line.slice(space + 1) === at) {
+      return line.slice("submodule.".length, space - ".path".length);
+    }
+  }
+  throw new Error(`.gitmodules names no submodule at ${at}`);
+}
+
+/**
+ * The first line of git's own complaint, which says why where the later ones
+ * only say what failed — without the command, the temporary paths and the
+ * rest of what `execFile` folds into its message.
+ */
+function gitsReason(error: unknown): string {
+  const stderr =
+    typeof error === "object" && error !== null && "stderr" in error
+      ? String(error.stderr)
+      : "";
+  const lines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const reason = lines.find((line) => line.startsWith("fatal:")) ?? lines.at(-1);
+  return (reason ?? errorMessage(error).split("\n")[0] ?? "").replace(/^fatal:\s*/, "");
+}
+
+/**
+ * Checks out `at` in `clone` from the copy `project` already holds, so the
+ * remote is only asked for a commit `project` lacks. The submodule's URL is
+ * put back to `.gitmodules`' own afterwards: the copy is a path the container
+ * never sees. Answers whether it worked.
+ */
+async function borrowSubmodule(
+  project: Checkout,
+  clone: Checkout,
+  at: SubmodulePath,
+): Promise<boolean> {
+  try {
+    const name = await submoduleName(clone, at);
+    await run("git", ["-C", clone, "submodule", "init", "--", at]);
+    await run("git", ["-C", clone, "config", `submodule.${name}.url`, path.join(project, at)]);
+    // Git refuses the file transport for a submodule by default; here it is
+    // the host's own copy.
+    await run("git", [
+      "-C",
+      clone,
+      "-c",
+      "protocol.file.allow=always",
+      "submodule",
+      "update",
+      "--",
+      at,
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await run("git", ["-C", clone, "submodule", "sync", "--", at]).catch(() => undefined);
+  }
 }
 
 /**
  * Checks out each submodule `directory` pins, at the pinned commit, with the
  * host's own git credentials — so the container is given none and needs no
  * network. A directory pinning none makes no further git call. `project` is
- * the manager's checkout the run is for, named when a submodule cannot be
+ * the project checkout the run is for, named when a submodule cannot be
  * populated. Called with the checkout as `directory` too, to bring its own
  * submodules level with what it pins: never initialised, or a pointer moved
- * since.
+ * since. A clone takes each from the checkout's copy, and from the remote
+ * only what the checkout does not have.
  */
 async function populateSubmodules(project: Checkout, directory: Checkout): Promise<void> {
   for (const submodule of await submodulePaths(directory)) {
     try {
-      await run("git", ["-C", directory, "submodule", "update", "--init", "--", submodule]);
+      if (directory === project || !(await borrowSubmodule(project, directory, submodule))) {
+        await run("git", ["-C", directory, "submodule", "update", "--init", "--", submodule]);
+      }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
       throw new SubmoduleRefused(
-        `${project}: submodule ${submodule} could not be populated: ${reason}`,
+        `${project}: submodule ${submodule} could not be populated: ${gitsReason(error)}`,
       );
     }
   }
+}
+
+/**
+ * Clones `project` into `clone`, its submodules brought level first so the
+ * clone has something to take them from. The caller populates the clone's own
+ * once it is on the commit the run works on. Called under `project`'s lock.
+ */
+async function cloneWithSubmodules(project: Checkout, clone: Checkout): Promise<void> {
+  await populateSubmodules(project, project);
+  await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
 }
 
 async function runOnClone(
@@ -733,8 +820,7 @@ async function runOnClone(
         // developer's own checkout is still using. The container runs as the
         // developer's own uid (`dockerCommand`), so the filesystem would not
         // stop it — the copy is what does.
-        await populateSubmodules(project, project);
-        await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+        await cloneWithSubmodules(project, clone);
         reserveBranch(project, branchName);
         return { branchName, resuming };
       });
@@ -1544,11 +1630,7 @@ async function reviewOnClone(
   const { checkout: project, spendCeiling, model } = request;
 
   return withThrowawayClone(kind, async (clone) => {
-    await withCheckoutLock(project, () =>
-      populateSubmodules(project, project).then(() =>
-        run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]),
-      ),
-    );
+    await withCheckoutLock(project, () => cloneWithSubmodules(project, clone));
     await populateSubmodules(project, clone);
     const agent = await attempt(
       container,
@@ -1771,8 +1853,7 @@ async function cloneOntoPullRequestHead(
   head: Branch,
 ): Promise<Branch> {
   const remote = await withCheckoutLock(project, async () => {
-    await populateSubmodules(project, project);
-    await run("git", ["clone", "--no-hardlinks", "--quiet", project, clone]);
+    await cloneWithSubmodules(project, clone);
     const { stdout } = await run("git", [
       "-C",
       project,
