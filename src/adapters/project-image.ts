@@ -66,9 +66,10 @@ export function projectImageTag(checkout: Checkout): ImageTag {
 
 /**
  * The ref the project image is built from: the checkout's default branch as
- * its remote names it, falling back to `HEAD` where it has no remote default.
- * Never the working tree, and never a run's own branch — a run cannot alter
- * the sandbox it runs in.
+ * its remote names it. Never the working tree, and never a run's own branch —
+ * a run cannot alter the sandbox it runs in. A checkout whose remote names no
+ * default (one not made by `git clone`) is refused rather than guessed at,
+ * since its own `HEAD` may sit on any branch.
  */
 async function defaultRef(checkout: Checkout): Promise<string> {
   try {
@@ -81,7 +82,9 @@ async function defaultRef(checkout: Checkout): Promise<string> {
     ]);
     return stdout.trim();
   } catch {
-    return "HEAD";
+    throw new Error(
+      "its checkout has no origin/HEAD, so its default branch is unknown",
+    );
   }
 }
 

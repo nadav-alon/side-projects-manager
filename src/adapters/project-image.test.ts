@@ -29,6 +29,9 @@ async function project(files: Record<string, string>): Promise<Checkout> {
   git(directory, "config", "user.email", "t@example.com");
   git(directory, "config", "user.name", "t");
   await commit(checkout(directory), files);
+  git(directory, "remote", "add", "origin", directory);
+  git(directory, "fetch", "--quiet", "origin");
+  git(directory, "remote", "set-head", "origin", "main");
   return checkout(directory);
 }
 
@@ -39,6 +42,10 @@ async function commit(directory: Checkout, files: Record<string, string>) {
   }
   git(directory, "add", "-A");
   git(directory, "commit", "--quiet", "--allow-empty", "-m", "change");
+  // The remote's view of main follows main, as a fetch after a merge would.
+  if (git(directory, "branch", "--show-current").trim() === "main") {
+    git(directory, "update-ref", "refs/remotes/origin/main", "HEAD");
+  }
 }
 
 /** A docker that remembers what it built and what each build carried. */
@@ -134,9 +141,6 @@ describe("projectImages", () => {
     const dir = await project(DECLARED);
     git(dir, "checkout", "--quiet", "-b", "issue-1-run");
     await commit(dir, { ".sandbox/Dockerfile": "FROM side-projects-sandbox:latest\nRUN branch\n" });
-    git(dir, "remote", "add", "origin", dir);
-    git(dir, "fetch", "--quiet", "origin");
-    git(dir, "remote", "set-head", "origin", "main");
     await writeFile(path.join(dir, ".sandbox", "Dockerfile"), "dirty");
     const { docker, built } = fakeDocker();
     await projectImages(docker)(dir);
@@ -168,6 +172,19 @@ describe("projectImages", () => {
         error instanceof ProjectImageBuildFailed &&
         /owner\/repo/.test(error.message),
     );
+  });
+
+  it("refuses a checkout whose remote names no default branch rather than guessing its HEAD", async () => {
+    const dir = await project(DECLARED);
+    git(dir, "remote", "set-head", "origin", "--delete");
+    const { docker, built } = fakeDocker();
+    await assert.rejects(projectImages(docker)(dir), (error: unknown) => {
+      assert.ok(error instanceof ProjectImageBuildFailed);
+      assert.match(error.message, /owner\/repo/);
+      assert.match(error.message, /origin\/HEAD/);
+      return true;
+    });
+    assert.deepEqual(built, []);
   });
 
   it("builds once for runs that arrive while it is building", async () => {
