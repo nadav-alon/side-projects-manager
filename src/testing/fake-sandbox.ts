@@ -26,9 +26,8 @@ import type {
   UxReviewTicket,
   Ticket,
 } from "../ports/index.ts";
-import type { ImageTag } from "../ports/image-tag.ts";
 import { branch, ticketKey, tokenCount, transcriptDirectory } from "../ports/index.ts";
-import { imageTag } from "../ports/image-tag.ts";
+import { imageTag, type ImageTag } from "../ports/image-tag.ts";
 import { gate } from "./gate.ts";
 
 /** The image the fake's `prepare` hands back unless a test says otherwise. */

@@ -9609,6 +9609,42 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.runs[0]?.image, prepared);
     });
 
+    it("starts the review in the image prepare returned", async () => {
+      const ports = fakePorts();
+      queued(ports);
+      const prepared = imageTag("side-projects-sandbox:nadav-alon-pilot");
+      ports.sandbox.prepareResult = async () => prepared;
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.reviews.length, 1);
+      assert.equal(ports.sandbox.reviews[0]?.image, prepared);
+    });
+
+    it("starts the spec review in the image prepare returned", async () => {
+      const ports = fakePorts();
+      queuedSpecReview(ports);
+      const prepared = imageTag("side-projects-sandbox:nadav-alon-pilot");
+      ports.sandbox.prepareResult = async () => prepared;
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.specReviews.length, 1);
+      assert.equal(ports.sandbox.specReviews[0]?.image, prepared);
+    });
+
+    it("starts the ux review in the image prepare returned", async () => {
+      const ports = fakePorts();
+      queuedUxReview(ports);
+      const prepared = imageTag("side-projects-sandbox:nadav-alon-pilot");
+      ports.sandbox.prepareResult = async () => prepared;
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.uxReviews.length, 1);
+      assert.equal(ports.sandbox.uxReviews[0]?.image, prepared);
+    });
+
     it("announces no container, and runs nothing, when the project's image is refused", async () => {
       const ports = fakePorts();
       readyToWork(ports);

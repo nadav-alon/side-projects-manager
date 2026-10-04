@@ -179,6 +179,7 @@ const BRANCH = "issue-7-run-a-ticket-in-the-sandbox";
 
 /** What the loop would have taken off the budget for one run. */
 const CEILING = usd(5);
+const TEST_IMAGE = imageTag("side-projects-sandbox:test");
 
 /**
  * A project checkout with one commit on `main`, which is what the repo host
@@ -619,7 +620,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(seen.length, 1);
     assert.notEqual(seen[0], directory);
@@ -634,7 +635,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(seen, "paper\n");
   });
@@ -645,7 +646,7 @@ describe("containerSandbox", () => {
     await run("git", ["-C", directory, "submodule", "deinit", "--force", "latex"]);
     const sandbox = testSandbox(async () => ({ output: "", tokensUsed: tokenCount(0) }));
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await readFile(path.join(directory, "latex", "main.tex"), "utf8"), "paper\n");
   });
@@ -654,7 +655,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const remote = await addSubmodule(directory);
     const sandbox = testSandbox(async () => ({ output: "", tokensUsed: tokenCount(0) }));
-    const request = { ticket: TICKET, checkout: directory, spendCeiling: CEILING };
+    const request = { ticket: TICKET, checkout: directory, spendCeiling: CEILING, image: TEST_IMAGE };
 
     await writeFile(path.join(remote, "main.tex"), "revised\n");
     await run("git", ["-C", remote, "commit", "--all", "--message", "Revise"]);
@@ -679,7 +680,7 @@ describe("containerSandbox", () => {
     });
 
     await assert.rejects(
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       (error: Error) =>
         error.name === "SubmoduleRefused" &&
         error.message.includes(directory) &&
@@ -701,7 +702,7 @@ describe("containerSandbox", () => {
     let seenByCaller: string | undefined;
 
     await sandbox.run(
-      { ticket: TICKET, checkout: directory, spendCeiling: CEILING },
+      { image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING },
       (started) => {
         seenByCaller = started.transcriptDirectory;
       },
@@ -726,7 +727,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.ok(checked);
   });
@@ -744,7 +745,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /gh issue view 7 --repo nadav-alon\/pilot/);
   });
@@ -757,7 +758,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /docs\/agents\/coding-standards\.md/);
     assert.match(asked, /docs\/project-standards\.md/);
@@ -771,7 +772,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /Commit each behavior as its own commit.*as\s+soon as that behavior's test passes/);
     assert.match(asked, /do not push, and do\s+not open a pull request/);
@@ -785,7 +786,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.match(asked, /nit your own change causes.*is fixed in that same commit/);
     assert.match(asked, /Any other nit you notice is not a discovery/);
@@ -816,7 +817,7 @@ describe("containerSandbox", () => {
       return { output, tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.ok(asked.indexOf(NIT_SECTION_HEADING) < asked.indexOf(TICKET_GIST_TAG));
     assert.equal(variant(result, "finished")?.nits, "- one nit");
@@ -831,7 +832,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assertDiscoveryInstructions(asked);
   });
@@ -844,7 +845,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({
+    await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -867,8 +868,8 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING, discovered: [] });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING, discovered: [] });
 
     assert.equal(asks[1], asks[0]);
     assert.doesNotMatch(asks[0] ?? "", /already discovered/);
@@ -882,7 +883,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(seen, undefined);
   });
@@ -895,7 +896,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({
+    await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -909,7 +910,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
 
     assert.equal(finished?.branch, BRANCH);
@@ -922,7 +923,7 @@ describe("containerSandbox", () => {
     const before = await headOf(directory);
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await headOf(directory), before);
     assert.equal(await headOf(directory, "main"), before);
@@ -932,7 +933,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting(["one.txt", "two.txt"]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
 
     const { stdout } = await run("git", [
@@ -956,7 +957,7 @@ describe("containerSandbox", () => {
     const directory = await project("sha256");
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
 
     assert.equal(finished?.commits.length, 1);
@@ -968,7 +969,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.deepEqual(variant(result, "finished")?.commits, []);
     assert.deepEqual(await branchesIn(directory), ["main"]);
@@ -980,7 +981,7 @@ describe("containerSandbox", () => {
       agentCommitting([], 42_000, "implemented the thing"),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
     assert.equal(variant(result, "finished")?.output, "implemented the thing");
@@ -995,7 +996,7 @@ describe("containerSandbox", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.ok(asked.includes(TICKET_GIST_TAG));
   });
@@ -1010,7 +1011,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(
       variant(result, "finished")?.gist,
@@ -1028,7 +1029,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(
       variant(result, "finished")?.gist,
@@ -1040,7 +1041,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([], 0, "implemented the thing"));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.gist, undefined);
   });
@@ -1051,7 +1052,7 @@ describe("containerSandbox", () => {
       agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.gist, undefined);
   });
@@ -1066,7 +1067,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.gist, undefined);
   });
@@ -1083,7 +1084,7 @@ describe("containerSandbox", () => {
       throw new Error("the agent gave up");
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
@@ -1106,7 +1107,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(
       variant(result, "finished")?.nits,
@@ -1118,7 +1119,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([], 0, "implemented the thing"));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.nits, undefined);
   });
@@ -1133,7 +1134,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.nits, undefined);
   });
@@ -1152,7 +1153,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(
       variant(result, "finished")?.nits,
@@ -1174,7 +1175,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.nits, "- one nit");
     assert.equal(variant(result, "finished")?.gist, "Add the thing.");
@@ -1190,7 +1191,7 @@ describe("containerSandbox", () => {
       ),
     );
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.nits, "- one nit");
     assert.equal(variant(result, "finished")?.gist, undefined);
@@ -1208,7 +1209,7 @@ describe("containerSandbox", () => {
       throw new Error("the agent gave up");
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
@@ -1223,7 +1224,7 @@ describe("containerSandbox", () => {
       return commit(options);
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(clone), false);
     assert.ok(
@@ -1239,7 +1240,7 @@ describe("containerSandbox", () => {
       throw new Error("the agent gave up");
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(clone), false);
   });
@@ -1257,7 +1258,7 @@ describe("containerSandbox", () => {
       throw new Error("the agent gave up");
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
     assert.match(variant(result, "gave-up")?.reason ?? "", /gave up/);
@@ -1278,7 +1279,7 @@ describe("containerSandbox", () => {
       failure: "Command failed: docker run",
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "limit-refused");
     assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
@@ -1291,7 +1292,7 @@ describe("containerSandbox", () => {
       tokensUsed: tokenCount(0),
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
   });
@@ -1309,7 +1310,7 @@ describe("containerSandbox", () => {
         failure: "Command failed: docker run",
       }));
 
-      const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
       assert.equal(variant(result, "limit-refused")?.words, refusal);
     });
@@ -1327,7 +1328,7 @@ describe("containerSandbox", () => {
       return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "limit-refused");
     const limitRefused = variant(result, "limit-refused");
@@ -1350,7 +1351,7 @@ describe("containerSandbox", () => {
       return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     const files = await filesOn(directory, variant(result, "limit-refused")?.branch ?? "");
     assert.ok(files.includes("leftover.txt"));
@@ -1365,7 +1366,7 @@ describe("containerSandbox", () => {
       tokensUsed: tokenCount(0),
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "limit-refused");
     assert.equal(variant(result, "limit-refused")?.commits.length, 0);
@@ -1405,7 +1406,7 @@ describe("containerSandbox", () => {
           : agent;
       });
 
-      const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
       assert.equal(result.kind, expectedKind);
       assert.equal(variant(result, expectedKind)?.commits.length, expectedCommits);
@@ -1429,7 +1430,7 @@ describe("containerSandbox", () => {
       throw new Error("the container crashed");
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
     const gaveUp = variant(result, "gave-up");
@@ -1487,7 +1488,7 @@ describe("containerSandbox", () => {
       const { container, started } = starts(body);
       const sandbox = testSandbox(container, undefined, onPoll);
 
-      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const run = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
       await started;
       return { run };
     }
@@ -1661,8 +1662,8 @@ describe("containerSandbox", () => {
       };
       const sandbox = testSandbox(container);
 
-      const stallingRun = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-      const healthyRun = sandbox.run({
+      const stallingRun = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const healthyRun = sandbox.run({ image: TEST_IMAGE,
         ticket: HEALTHY_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -1693,7 +1694,7 @@ describe("containerSandbox", () => {
       const { container, started } = starts(async () => ({ output: "", tokensUsed: tokenCount(0) }));
       const sandbox = testSandbox(container);
 
-      const run = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      const run = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
       await started;
       const result = await boundedByRealTime(run, RUN_DEADLINE);
 
@@ -1713,7 +1714,7 @@ describe("containerSandbox", () => {
       return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(7_000) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "sandbox-failed");
     assert.equal(variant(result, "sandbox-failed")?.tokensUsed, tokenCount(7_000));
@@ -1728,7 +1729,7 @@ describe("containerSandbox", () => {
       failure: "Command failed: docker run",
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
     assert.equal(variant(result, "gave-up")?.reason, "Command failed: docker run");
@@ -1741,7 +1742,7 @@ describe("containerSandbox", () => {
       tokensUsed: tokenCount(1_000),
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
   });
@@ -1750,7 +1751,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(async () => PROVIDER_FAILED_RUN);
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "provider-failed");
     assert.equal(
@@ -1766,7 +1767,7 @@ describe("containerSandbox", () => {
       tokensUsed: tokenCount(1_000),
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
   });
@@ -1784,7 +1785,7 @@ describe("containerSandbox", () => {
       providerFailure: PROVIDER_FAILURE_PROSE,
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
   });
@@ -1798,7 +1799,7 @@ describe("containerSandbox", () => {
       budgetExhausted: BUDGET_EXHAUSTED_JSON_RESULT,
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "budget-exhausted");
     assert.equal(
@@ -1818,7 +1819,7 @@ describe("containerSandbox", () => {
       budgetExhausted: BUDGET_EXHAUSTED_JSON_RESULT,
     }));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
   });
@@ -1840,7 +1841,7 @@ describe("containerSandbox", () => {
       };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "budget-exhausted");
     const budgetExhausted = variant(result, "budget-exhausted");
@@ -1863,7 +1864,7 @@ describe("containerSandbox", () => {
       modelRefused: MODEL_REFUSAL_WORDS,
     }));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -1886,7 +1887,7 @@ describe("containerSandbox", () => {
       modelRefused: MODEL_REFUSAL_WORDS,
     }));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -1909,7 +1910,7 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -1937,7 +1938,7 @@ describe("containerSandbox", () => {
     });
 
     await assert.rejects(
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       /docker is not running/,
     );
     assert.equal(await exists(clone), false);
@@ -1961,7 +1962,7 @@ describe("containerSandbox", () => {
     // The real container, which asks before it ever reaches docker — so this
     // needs no docker to run, and would pass the same with it.
     await assert.rejects(
-      testSandbox().run({
+      testSandbox().run({ image: TEST_IMAGE,
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -1976,8 +1977,8 @@ describe("containerSandbox", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const first = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    const second = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const first = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const second = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(first, "finished")?.branch, BRANCH);
     assert.equal(variant(second, "finished")?.branch, `${BRANCH}-2`);
@@ -2004,7 +2005,7 @@ describe("containerSandbox", () => {
       return agent;
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "sandbox-failed");
     assert.equal(variant(result, "sandbox-failed")?.tokensUsed, tokenCount(42_000));
@@ -2017,8 +2018,8 @@ describe("containerSandbox", () => {
     const sandbox = testSandbox(held.container);
 
     const runs = Promise.all([
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
-      sandbox.run({
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ image: TEST_IMAGE,
         ticket: { ...TICKET, number: issueNumber(8), title: "Another" },
         checkout: directory,
         spendCeiling: CEILING,
@@ -2041,8 +2042,8 @@ describe("containerSandbox", () => {
     const sandbox = testSandbox(held.container);
 
     const runs = Promise.all([
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     ]);
     await held.allInProgress;
     held.release();
@@ -2073,8 +2074,8 @@ describe("containerSandbox", () => {
     const lock = gate();
     const holding = withCheckoutLock(directory, () => lock.opened);
 
-    const waiting = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    await sandbox.run({ ticket: TICKET, checkout: elsewhere, spendCeiling: CEILING });
+    const waiting = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: elsewhere, spendCeiling: CEILING });
 
     assert.equal(cloned.length, 1, "the run on the locked checkout cloned it anyway");
     lock.open();
@@ -2104,11 +2105,11 @@ describe("containerSandbox", () => {
     let settled = false;
 
     const running = sandbox
-      .run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING })
+      .run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING })
       .finally(() => {
         settled = true;
       });
-    const other = await testSandbox(agentCommitting(["two.txt"])).run({
+    const other = await testSandbox(agentCommitting(["two.txt"])).run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: elsewhere,
       spendCeiling: CEILING,
@@ -2136,12 +2137,12 @@ describe("containerSandbox", () => {
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
     await assert.rejects(
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       /already has 10 branches/,
     );
     await run("git", ["-C", directory, "branch", "--delete", ...names]);
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2177,7 +2178,7 @@ describe("containerSandbox.run salvage", () => {
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2194,7 +2195,7 @@ describe("containerSandbox.run salvage", () => {
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2212,7 +2213,7 @@ describe("containerSandbox.run salvage", () => {
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
 
-    const resumed = await testSandbox(agentCommitting(["one.txt"])).run({
+    const resumed = await testSandbox(agentCommitting(["one.txt"])).run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2223,7 +2224,7 @@ describe("containerSandbox.run salvage", () => {
   });
 
   it("names none as already on a fresh run's branch", async () => {
-    const fresh = await testSandbox(agentCommitting(["two.txt"])).run({
+    const fresh = await testSandbox(agentCommitting(["two.txt"])).run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: await project(),
       spendCeiling: CEILING,
@@ -2242,7 +2243,7 @@ describe("containerSandbox.run salvage", () => {
       failure: "Command failed: docker run",
     }));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2260,7 +2261,7 @@ describe("containerSandbox.run salvage", () => {
     const salvageCommit = await headOf(directory, SALVAGE_BRANCH);
     const sandbox = testSandbox(agentCommitting([]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2277,7 +2278,7 @@ describe("containerSandbox.run salvage", () => {
     await leaveSalvageBranch(directory, SALVAGE_BRANCH);
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2312,7 +2313,7 @@ describe("containerSandbox.run salvage", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2331,7 +2332,7 @@ describe("containerSandbox.run salvage", () => {
     await run("git", ["-C", directory, "checkout", SALVAGE_BRANCH]);
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2346,7 +2347,7 @@ describe("containerSandbox.run salvage", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting(["one.txt"]));
 
-    const result = await sandbox.run({
+    const result = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2366,7 +2367,7 @@ describe("containerSandbox.run salvage", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({
+    await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2386,7 +2387,7 @@ describe("containerSandbox.run salvage", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.doesNotMatch(asked, /earlier run on this ticket stopped before its own agent ended it/);
     assert.doesNotMatch(asked, /Continue that work rather than starting over/);
@@ -2400,13 +2401,13 @@ describe("containerSandbox.run salvage", () => {
     const sandbox = testSandbox(held.container);
 
     const runs = Promise.all([
-      sandbox.run({
+      sandbox.run({ image: TEST_IMAGE,
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
         salvageBranch: SALVAGE_BRANCH,
       }),
-      sandbox.run({
+      sandbox.run({ image: TEST_IMAGE,
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -2440,7 +2441,7 @@ describe("transcript", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.ok(path.isAbsolute(seen[0] ?? ""));
     assert.deepEqual(foundInside[0], []);
@@ -2455,7 +2456,7 @@ describe("transcript", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, undefined, home);
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(path.dirname(seen[0] ?? ""), path.join(home, TRANSCRIPTS_DIRECTORY));
   });
@@ -2469,7 +2470,7 @@ describe("transcript", () => {
     });
 
     try {
-      await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
       assert.equal(
         path.dirname(seen[0] ?? ""),
@@ -2494,7 +2495,7 @@ describe("transcript", () => {
     // `attempt` finds the file itself, off disk, rather than trusting
     // whatever `AgentRun` a container hands back — exactly as it must for
     // the real container, which has no way to name the file it wrote either.
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.transcript, written);
     assert.ok(await exists(written));
@@ -2508,8 +2509,8 @@ describe("transcript", () => {
     });
     const sandbox = testSandbox(held.container);
 
-    const first = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    const second = sandbox.run({
+    const first = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const second = sandbox.run({ image: TEST_IMAGE,
       ticket: { ...TICKET, number: issueNumber(8) },
       checkout: directory,
       spendCeiling: CEILING,
@@ -2534,7 +2535,7 @@ describe("transcript", () => {
       return { output: "posted", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(seen, "paper\n");
   });
@@ -2551,7 +2552,7 @@ describe("transcript", () => {
     });
 
     await assert.rejects(
-      sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
       /latex/,
     );
     assert.equal(started, false);
@@ -2568,7 +2569,7 @@ describe("transcript", () => {
       return { output: "posted", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2644,7 +2645,7 @@ describe("discoveries", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.ok(path.isAbsolute(seen[0] ?? ""));
     assert.deepEqual(foundInside[0], []);
@@ -2659,7 +2660,7 @@ describe("discoveries", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, undefined, home);
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(path.dirname(seen[0] ?? ""), path.join(home, DISCOVERIES_DIRECTORY));
   });
@@ -2682,7 +2683,7 @@ describe("discoveries", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.deepEqual(variant(result, "finished")?.discoveries, [
       { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
@@ -2707,7 +2708,7 @@ describe("discoveries", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(variant(result, "finished")?.discoveries?.[0]?.ready, true);
   });
@@ -2728,7 +2729,7 @@ describe("discoveries", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.deepEqual(variant(result, "finished")?.discoveries, [
       { kind: "clarification", title: "Read as opt-in", body: "The ticket never says default on." },
@@ -2756,7 +2757,7 @@ describe("discoveries", () => {
       return { output: "implemented the thing", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: target, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: target, checkout: directory, spendCeiling: CEILING });
     const finished = variant(result, "finished");
     assert.equal(finished?.discoveriesDropped, 0);
 
@@ -2787,7 +2788,7 @@ describe("discoveries", () => {
       return { output: "could not proceed", tokensUsed: tokenCount(0), failure: "no permission" };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
     assert.deepEqual(variant(result, "gave-up")?.discoveries, [
@@ -2799,7 +2800,7 @@ describe("discoveries", () => {
     const directory = await project();
     const sandbox = testSandbox(agentCommitting([]));
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.deepEqual(variant(result, "finished")?.discoveries, []);
     assert.equal(variant(result, "finished")?.discoveriesDropped, 0);
@@ -2822,7 +2823,7 @@ describe("discoveries", () => {
       return { output: "implemented the thing", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "finished");
     assert.deepEqual(variant(result, "finished")?.discoveries, [
@@ -2843,7 +2844,7 @@ describe("discoveries", () => {
       return { output: "implemented the thing", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.deepEqual(variant(result, "finished")?.discoveries, [
       { kind: "correction", title: "Wrong ticket", body: "This is already built." },
@@ -2862,7 +2863,7 @@ describe("discoveries", () => {
       return { output: "could not proceed", tokensUsed: tokenCount(0), failure: "no permission" };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "gave-up");
     assert.deepEqual(variant(result, "gave-up")?.discoveries, [
@@ -2881,7 +2882,7 @@ describe("discoveries", () => {
       return { output: LIMIT_REFUSAL, tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(result.kind, "limit-refused");
     assert.deepEqual(variant(result, "limit-refused")?.discoveries, [
@@ -2901,8 +2902,8 @@ describe("discoveries", () => {
     });
     const sandbox = testSandbox(held.container);
 
-    const first = sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    const second = sandbox.run({
+    const first = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    const second = sandbox.run({ image: TEST_IMAGE,
       ticket: { ...TICKET, number: issueNumber(8) },
       checkout: directory,
       spendCeiling: CEILING,
@@ -2933,7 +2934,7 @@ describe("discoveries", () => {
       return { output: "posted", tokensUsed: tokenCount(0) };
     });
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2951,7 +2952,7 @@ describe("discoveries", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
     assert.equal(await exists(seen), false);
   });
@@ -2968,7 +2969,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -2989,7 +2990,7 @@ describe("containerSandbox.review", () => {
     let seenByCaller: string | undefined;
 
     await sandbox.review(
-      { ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING },
+      { image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING },
       (started) => {
         seenByCaller = started.transcriptDirectory;
       },
@@ -3008,7 +3009,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3027,7 +3028,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3048,7 +3049,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3066,7 +3067,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3083,7 +3084,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3110,7 +3111,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3134,7 +3135,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3156,7 +3157,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3181,7 +3182,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3204,7 +3205,7 @@ describe("containerSandbox.review", () => {
       tokensUsed: tokenCount(0),
     }));
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3221,7 +3222,7 @@ describe("containerSandbox.review", () => {
       tokensUsed: tokenCount(9_000),
     }));
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3238,7 +3239,7 @@ describe("containerSandbox.review", () => {
       throw new Error("the agent gave up");
     });
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3257,7 +3258,7 @@ describe("containerSandbox.review", () => {
       failure: "Command failed: docker run",
     }));
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3271,7 +3272,7 @@ describe("containerSandbox.review", () => {
     const directory = await project();
     const sandbox = testSandbox(async () => PROVIDER_FAILED_RUN);
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3293,7 +3294,7 @@ describe("containerSandbox.review", () => {
       modelRefused: MODEL_REFUSAL_WORDS,
     }));
 
-    const result = await sandbox.review({
+    const result = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3315,7 +3316,7 @@ describe("containerSandbox.review", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3351,7 +3352,7 @@ describe("containerSandbox.review", () => {
     // The real container, which asks before it ever reaches docker — so this
     // needs no docker to run, and would pass the same with it.
     await assert.rejects(
-      testSandbox().review({
+      testSandbox().review({ image: TEST_IMAGE,
         ticket: REVIEW_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -3371,8 +3372,8 @@ describe("containerSandbox.review", () => {
     const sandbox = testSandbox(held.container);
 
     const both = Promise.all([
-      sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
-      sandbox.review({
+      sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      sandbox.review({ image: TEST_IMAGE,
         ticket: REVIEW_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -3396,7 +3397,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3417,7 +3418,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3436,7 +3437,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3455,7 +3456,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3472,7 +3473,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3490,7 +3491,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3508,7 +3509,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3528,7 +3529,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3546,7 +3547,7 @@ describe("containerSandbox.specReview", () => {
       tokensUsed: tokenCount(0),
     }));
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3563,7 +3564,7 @@ describe("containerSandbox.specReview", () => {
       tokensUsed: tokenCount(9_000),
     }));
 
-    const result: SpecReviewOutcome = await sandbox.specReview({
+    const result: SpecReviewOutcome = await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3580,7 +3581,7 @@ describe("containerSandbox.specReview", () => {
       throw new Error("the agent gave up");
     });
 
-    const result = await sandbox.specReview({
+    const result = await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3613,7 +3614,7 @@ describe("containerSandbox.specReview", () => {
     });
 
     await assert.rejects(
-      testSandbox().specReview({
+      testSandbox().specReview({ image: TEST_IMAGE,
         ticket: SPEC_REVIEW_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -3632,7 +3633,7 @@ describe("containerSandbox.specReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.specReview({
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3712,12 +3713,12 @@ async function withInsteadOf(
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
 /** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
-function applyReviewOn(sandbox: Sandbox, directory: Checkout, image?: ImageTag) {
+function applyReviewOn(sandbox: Sandbox, directory: Checkout, image: ImageTag = TEST_IMAGE) {
   return sandbox.applyReview({
     ticket: APPLY_REVIEW_TICKET,
     checkout: directory,
     spendCeiling: CEILING,
-    ...(image !== undefined && { image }),
+    image,
   });
 }
 
@@ -3736,7 +3737,7 @@ describe("containerSandbox.uxReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.uxReview({
+    await sandbox.uxReview({ image: TEST_IMAGE,
       ticket: UX_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3755,9 +3756,9 @@ describe("containerSandbox.uxReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-    await sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
-    await sandbox.specReview({
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+    await sandbox.specReview({ image: TEST_IMAGE,
       ticket: SPEC_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3778,7 +3779,7 @@ describe("containerSandbox.uxReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.uxReview({
+    await sandbox.uxReview({ image: TEST_IMAGE,
       ticket: UX_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3796,7 +3797,7 @@ describe("containerSandbox.uxReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.uxReview({
+    await sandbox.uxReview({ image: TEST_IMAGE,
       ticket: UX_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3823,7 +3824,7 @@ describe("containerSandbox.uxReview", () => {
       return { output: "The layout jumps on load.", tokensUsed: tokenCount(3) };
     });
 
-    const result = await sandbox.uxReview({
+    const result = await sandbox.uxReview({ image: TEST_IMAGE,
       ticket: UX_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3846,7 +3847,7 @@ describe("containerSandbox.uxReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     });
 
-    await sandbox.uxReview({
+    await sandbox.uxReview({ image: TEST_IMAGE,
       ticket: UX_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -3873,7 +3874,7 @@ describe("containerSandbox.uxReview", () => {
     });
 
     await assert.rejects(
-      testSandbox().uxReview({
+      testSandbox().uxReview({ image: TEST_IMAGE,
         ticket: UX_REVIEW_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -3917,7 +3918,7 @@ describe("containerSandbox.applyReview", () => {
     let seenByCaller: string | undefined;
 
     await sandbox.applyReview(
-      { ticket: APPLY_REVIEW_TICKET, checkout: directory, spendCeiling: CEILING },
+      { image: TEST_IMAGE, ticket: APPLY_REVIEW_TICKET, checkout: directory, spendCeiling: CEILING },
       (started) => {
         seenByCaller = started.transcriptDirectory;
       },
@@ -4057,7 +4058,7 @@ describe("containerSandbox.applyReview", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.applyReview({
+    await sandbox.applyReview({ image: TEST_IMAGE,
       ticket: APPLY_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -4217,7 +4218,7 @@ describe("containerSandbox.applyReview", () => {
       headIsBranch,
     );
 
-    const result = await sandbox.applyReview({
+    const result = await sandbox.applyReview({ image: TEST_IMAGE,
       ticket: APPLY_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -4372,7 +4373,7 @@ describe("containerSandbox.applyReview", () => {
         return outcome;
       }, headIsBranch);
 
-      const result = await sandbox.applyReview({
+      const result = await sandbox.applyReview({ image: TEST_IMAGE,
         ticket: APPLY_REVIEW_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -4504,12 +4505,12 @@ const REBASE_TICKET: RebaseTicket = {
 };
 
 /** Asks `sandbox` to rebase `REBASE_TICKET`, against `directory`. */
-function rebaseOn(sandbox: Sandbox, directory: Checkout, image?: ImageTag) {
+function rebaseOn(sandbox: Sandbox, directory: Checkout, image: ImageTag = TEST_IMAGE) {
   return sandbox.rebase({
     ticket: REBASE_TICKET,
     checkout: directory,
     spendCeiling: CEILING,
-    ...(image !== undefined && { image }),
+    image,
   });
 }
 
@@ -4633,7 +4634,7 @@ describe("containerSandbox.rebase", () => {
       return { output: "", tokensUsed: tokenCount(0) };
     }, headIsBranch);
 
-    await sandbox.rebase({
+    await sandbox.rebase({ image: TEST_IMAGE,
       ticket: REBASE_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -4767,7 +4768,7 @@ describe("containerSandbox.rebase", () => {
       headIsBranch,
     );
 
-    const result = await sandbox.rebase({
+    const result = await sandbox.rebase({ image: TEST_IMAGE,
       ticket: REBASE_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -4863,7 +4864,7 @@ describe("containerSandbox.rebase", () => {
         return outcome;
       }, headIsBranch);
 
-      const result = await sandbox.rebase({
+      const result = await sandbox.rebase({ image: TEST_IMAGE,
         ticket: REBASE_TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -5052,7 +5053,7 @@ describe("containerSandbox with the real docker container", () => {
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, checkoutDirectory) =>
-        sandbox.run({
+        sandbox.run({ image: TEST_IMAGE,
           ticket: TICKET,
           checkout: checkoutDirectory,
           spendCeiling: usd(2.5),
@@ -5085,7 +5086,7 @@ describe("containerSandbox with the real docker container", () => {
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5148,7 +5149,7 @@ fi`;
     const docker = await recordingDocker(t, KILL_RELAY_DOCKER);
 
     t.mock.timers.enable({ apis: ["setInterval", "Date"] });
-    const run = testSandbox().run({
+    const run = testSandbox().run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -5191,7 +5192,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5204,7 +5205,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({
+        sandbox.run({ image: TEST_IMAGE,
           ticket: TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -5234,7 +5235,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.review({
+        sandbox.review({ image: TEST_IMAGE,
           ticket: REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -5258,14 +5259,14 @@ fi`;
       t,
       answer,
       async (sandbox, directory) => {
-        await sandbox.uxReview({
+        await sandbox.uxReview({ image: TEST_IMAGE,
           ticket: UX_REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
         });
-        await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-        await sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
-        await sandbox.specReview({
+        await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+        await sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING });
+        await sandbox.specReview({ image: TEST_IMAGE,
           ticket: SPEC_REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -5316,7 +5317,7 @@ fi`;
       ].join("\n"),
     );
 
-    await testSandbox().uxReview({
+    await testSandbox().uxReview({ image: TEST_IMAGE,
       ticket: UX_REVIEW_TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -5332,7 +5333,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
       "ro",
     );
 
@@ -5352,7 +5353,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5377,7 +5378,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5414,7 +5415,7 @@ fi`;
     });
 
     await assert.rejects(
-      testSandbox().run({
+      testSandbox().run({ image: TEST_IMAGE,
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
@@ -5428,7 +5429,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5440,7 +5441,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.review({
+        sandbox.review({ image: TEST_IMAGE,
           ticket: REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -5458,7 +5459,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5470,7 +5471,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.review({
+        sandbox.review({ image: TEST_IMAGE,
           ticket: REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -5497,7 +5498,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5516,7 +5517,7 @@ fi`;
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
       (sandbox, directory) =>
-        sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
     );
 
     const [call] = await docker.calls();
@@ -5552,7 +5553,7 @@ fi`;
       }
     });
 
-    await testSandbox().run({
+    await testSandbox().run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: directory,
       spendCeiling: CEILING,
@@ -5580,7 +5581,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "finished");
@@ -5601,7 +5602,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       // 3 input + 4*5 output, with no cache fields to weigh
@@ -5621,7 +5622,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.tokensUsed, tokenCount(15));
@@ -5633,7 +5634,7 @@ fi`;
         t,
         dockerAnswering(stdout),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(variant(result, "finished")?.output, stdout);
@@ -5648,7 +5649,7 @@ fi`;
         t,
         dockerAnswering(stdout),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(variant(result, "finished")?.output, stdout);
@@ -5660,7 +5661,7 @@ fi`;
         t,
         dockerAnswering(JSON.stringify({ result: "done" })),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.tokensUsed, tokenCount(0));
@@ -5681,7 +5682,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       // 1 input + 2*5 output + 4*1.25 cache-creation + 8*0.1 cache-read = 16.8
@@ -5698,7 +5699,7 @@ fi`;
           1,
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       const output = variant(result, "gave-up")?.output ?? "";
@@ -5711,7 +5712,7 @@ fi`;
         t,
         dockerAnswering("", "docker: command not found\n"),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(
@@ -5742,7 +5743,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       const output = variant(result, "finished")?.output ?? "";
@@ -5768,7 +5769,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       const denials = (variant(result, "finished")?.output ?? "").match(/Bash/g) ?? [];
@@ -5786,7 +5787,7 @@ fi`;
           JSON.stringify({ result: "done", permission_denials: [] }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(variant(result, "finished")?.output, "done");
@@ -5807,7 +5808,7 @@ fi`;
           "npm warn deprecated foo@1.0.0\n",
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       const finished = variant(result, "finished");
@@ -5826,7 +5827,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       const finished = variant(result, "finished");
@@ -5849,7 +5850,7 @@ fi`;
           1,
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
@@ -5860,7 +5861,7 @@ fi`;
         t,
         dockerAnswering(`${LIMIT_REFUSAL}\n`, "", 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(variant(result, "limit-refused")?.words, LIMIT_REFUSAL);
@@ -5871,7 +5872,7 @@ fi`;
         t,
         dockerAnswering(PROVIDER_FAILURE_STDOUT, "", 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "provider-failed");
@@ -5886,7 +5887,7 @@ fi`;
         t,
         dockerAnswering(PROVIDER_FAILURE_PROSE, "", 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "provider-failed");
@@ -5901,7 +5902,7 @@ fi`;
         t,
         dockerAnswering(BUDGET_EXHAUSTED_STDOUT, "", 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "budget-exhausted");
@@ -5919,7 +5920,7 @@ fi`;
         t,
         dockerAnswering(PROVIDER_FAILURE_STDOUT, "", 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "provider-failed");
@@ -5931,7 +5932,7 @@ fi`;
           t,
           dockerAnswering(providerFailureStdoutWithStatus(status), "", 1),
           (sandbox, directory) =>
-            sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+            sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
         );
 
         assert.equal(result.kind, "provider-failed");
@@ -5943,7 +5944,7 @@ fi`;
         t,
         dockerAnswering(providerFailureStdoutWithStatus(401), "", 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "gave-up");
@@ -5954,7 +5955,7 @@ fi`;
         t,
         dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "gave-up");
@@ -5974,7 +5975,7 @@ fi`;
           1,
         ),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "gave-up");
@@ -5985,7 +5986,7 @@ fi`;
         t,
         dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
         (sandbox, directory) =>
-          sandbox.run({
+          sandbox.run({ image: TEST_IMAGE,
             ticket: TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -6011,7 +6012,7 @@ fi`;
         t,
         dockerAnswering("", MODEL_REFUSAL_STDERR, 1),
         (sandbox, directory) =>
-          sandbox.run({
+          sandbox.run({ image: TEST_IMAGE,
             ticket: TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -6035,7 +6036,7 @@ fi`;
           }),
         ),
         (sandbox, directory) =>
-          sandbox.run({
+          sandbox.run({ image: TEST_IMAGE,
             ticket: TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -6057,7 +6058,7 @@ fi`;
           1,
         ),
         (sandbox, directory) =>
-          sandbox.run({
+          sandbox.run({ image: TEST_IMAGE,
             ticket: TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -6073,7 +6074,7 @@ fi`;
         t,
         dockerAnswering(MODEL_REFUSAL_STDOUT, MODEL_REFUSAL_STDERR, 1),
         (sandbox, directory) =>
-          sandbox.review({
+          sandbox.review({ image: TEST_IMAGE,
             ticket: REVIEW_TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -6107,7 +6108,7 @@ fi`;
         t,
         dockerAnswering("", stderr, code),
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.equal(result.kind, "gave-up");
@@ -6148,7 +6149,7 @@ fi`;
         t,
         "kill -KILL $$",
         (sandbox, directory) =>
-          sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
       assert.match(variant(result, "gave-up")?.reason ?? "", /killed by SIGKILL/);
@@ -6184,7 +6185,7 @@ fi`;
         await recordingDocker(t, dockerAnswering("", "", code));
 
         await assert.rejects(
-          testSandbox().run({
+          testSandbox().run({ image: TEST_IMAGE,
             ticket: TICKET,
             checkout: directory,
             spendCeiling: CEILING,
@@ -6209,7 +6210,7 @@ fi`;
       });
 
       await assert.rejects(
-        testSandbox().run({
+        testSandbox().run({ image: TEST_IMAGE,
           ticket: TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -6226,7 +6227,7 @@ fi`;
         const directory = await project();
         await recordingDocker(t, dockerAnswering("", "", code));
 
-        const result = await testSandbox().run({
+        const result = await testSandbox().run({ image: TEST_IMAGE,
           ticket: TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -6406,13 +6407,13 @@ describe("containerSandbox's prompts for the issues already discovered", () => {
       name: "review",
       hosted: false,
       ask: (sandbox, directory) =>
-        sandbox.review({ ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING, discovered }),
+        sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING, discovered }),
     },
     {
       name: "spec review",
       hosted: false,
       ask: (sandbox, directory) =>
-        sandbox.specReview({
+        sandbox.specReview({ image: TEST_IMAGE,
           ticket: SPEC_REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -6423,7 +6424,7 @@ describe("containerSandbox's prompts for the issues already discovered", () => {
       name: "apply-review",
       hosted: true,
       ask: (sandbox, directory) =>
-        sandbox.applyReview({
+        sandbox.applyReview({ image: TEST_IMAGE,
           ticket: APPLY_REVIEW_TICKET,
           checkout: directory,
           spendCeiling: CEILING,
@@ -6434,7 +6435,7 @@ describe("containerSandbox's prompts for the issues already discovered", () => {
       name: "rebase",
       hosted: true,
       ask: (sandbox, directory) =>
-        sandbox.rebase({ ticket: REBASE_TICKET, checkout: directory, spendCeiling: CEILING, discovered }),
+        sandbox.rebase({ image: TEST_IMAGE, ticket: REBASE_TICKET, checkout: directory, spendCeiling: CEILING, discovered }),
     },
   ];
 
@@ -6460,40 +6461,16 @@ describe("containerSandbox's project image", () => {
   const PROJECT_IMAGE = imageTag("side-projects-sandbox:nadav-alon-pilot");
 
   /** The six kinds, each as a call that needs only a checkout. */
-  const KINDS: [string, (sandbox: Sandbox, directory: Checkout, image?: ImageTag) => Promise<unknown>][] = [
-    ["run", (sandbox, checkout, image) => sandbox.run({ ticket: TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
-    ["review", (sandbox, checkout, image) => sandbox.review({ ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
-    ["spec-review", (sandbox, checkout, image) => sandbox.specReview({ ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
-    ["ux-review", (sandbox, checkout, image) => sandbox.uxReview({ ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
+  const KINDS: [string, (sandbox: Sandbox, directory: Checkout, image: ImageTag) => Promise<unknown>][] = [
+    ["run", (sandbox, checkout, image) => sandbox.run({ ticket: TICKET, checkout, spendCeiling: CEILING, image })],
+    ["review", (sandbox, checkout, image) => sandbox.review({ ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
+    ["spec-review", (sandbox, checkout, image) => sandbox.specReview({ ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
+    ["ux-review", (sandbox, checkout, image) => sandbox.uxReview({ ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING, image })],
     ["apply-review", applyReviewOn],
     ["rebase", rebaseOn],
   ];
 
   for (const [kind, call] of KINDS) {
-    it(`starts a ${kind} in the image the project resolves to`, async () => {
-      const { directory } = await hostedProject();
-      const asked: Checkout[] = [];
-      const started: string[] = [];
-      const sandbox = containerSandbox(
-        async ({ image }) => {
-          started.push(image);
-          return { output: "", tokensUsed: tokenCount(0) };
-        },
-        headIsBranch,
-        TEST_HOME,
-        undefined,
-        async (project) => {
-          asked.push(project);
-          return PROJECT_IMAGE;
-        },
-      );
-
-      await call(sandbox, directory);
-
-      assert.deepEqual(asked, [directory]);
-      assert.deepEqual(started, [PROJECT_IMAGE]);
-    });
-
     it(`starts a ${kind} in the image prepare returned, without resolving again`, async () => {
       const { directory } = await hostedProject();
       const started: string[] = [];
@@ -6520,25 +6497,6 @@ describe("containerSandbox's project image", () => {
       assert.deepEqual(started, [PROJECT_IMAGE]);
     });
 
-    it(`refuses a ${kind} before its container starts when the image cannot be built`, async () => {
-      const { directory } = await hostedProject();
-      let started = false;
-      const sandbox = containerSandbox(
-        async () => {
-          started = true;
-          return { output: "", tokensUsed: tokenCount(0) };
-        },
-        headIsBranch,
-        TEST_HOME,
-        undefined,
-        async () => {
-          throw new Error("the sandbox image for nadav-alon/pilot could not be built: apt exploded");
-        },
-      );
-
-      await assert.rejects(call(sandbox, directory), /nadav-alon\/pilot.*apt exploded/);
-      assert.equal(started, false);
-    });
   }
 
   describe("prepare", () => {

@@ -22,6 +22,7 @@ import type {
   ReviewTicket,
   Ticket,
 } from "../ports/index.ts";
+import { imageTag } from "../ports/image-tag.ts";
 import { FakeSandbox } from "./fake-sandbox.ts";
 import { HANGS } from "./gate.ts";
 
@@ -60,19 +61,20 @@ const REBASE_TICKET: RebaseTicket = {
 
 const CHECKOUT = checkout("/tmp/pilot");
 const CEILING = usd(5);
+const TEST_IMAGE = imageTag("side-projects-sandbox:test");
 
 describe("FakeSandbox", () => {
   it("records the model each run and review was asked for", async () => {
     const sandbox = new FakeSandbox();
 
-    await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
-    await sandbox.run({
+    await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
       model: modelName("opus"),
     });
-    await sandbox.review({
+    await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -101,7 +103,7 @@ describe("FakeSandbox", () => {
       commits: [],
     });
 
-    const run = await sandbox.run({
+    const run = await sandbox.run({ image: TEST_IMAGE,
       ticket: TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -130,7 +132,7 @@ describe("FakeSandbox", () => {
       gist,
     });
 
-    const withGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    const withGist = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
 
     assert.deepEqual(withGist, {
       kind: "finished",
@@ -153,7 +155,7 @@ describe("FakeSandbox", () => {
       tokensUsed: tokenCount(0),
     });
 
-    const withoutGist = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    const withoutGist = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
 
     assert.deepEqual(withoutGist, {
       kind: "finished",
@@ -180,7 +182,7 @@ describe("FakeSandbox", () => {
       discoveriesDropped: 2,
     });
 
-    const run = await sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    const run = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
 
     assert.deepEqual(run, {
       kind: "finished",
@@ -202,7 +204,7 @@ describe("FakeSandbox", () => {
       tokensUsed: tokenCount(0),
     });
 
-    const review = await sandbox.review({
+    const review = await sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -219,7 +221,7 @@ describe("FakeSandbox", () => {
   it("finishes an apply-review run costlessly unless told otherwise, recording what was asked", async () => {
     const sandbox = new FakeSandbox();
 
-    const outcome = await sandbox.applyReview({
+    const outcome = await sandbox.applyReview({ image: TEST_IMAGE,
       ticket: APPLY_REVIEW_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -268,7 +270,7 @@ describe("FakeSandbox", () => {
       const sandbox = new FakeSandbox();
       sandbox.applyReviewResult = () => configured;
 
-      const outcome = await sandbox.applyReview({
+      const outcome = await sandbox.applyReview({ image: TEST_IMAGE,
         ticket: APPLY_REVIEW_TICKET,
         checkout: CHECKOUT,
         spendCeiling: CEILING,
@@ -282,7 +284,7 @@ describe("FakeSandbox", () => {
   it("finishes a rebase run costlessly unless told otherwise, recording what was asked", async () => {
     const sandbox = new FakeSandbox();
 
-    const outcome = await sandbox.rebase({
+    const outcome = await sandbox.rebase({ image: TEST_IMAGE,
       ticket: REBASE_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -332,7 +334,7 @@ describe("FakeSandbox", () => {
       const sandbox = new FakeSandbox();
       sandbox.rebaseResult = () => configured;
 
-      const outcome = await sandbox.rebase({
+      const outcome = await sandbox.rebase({ image: TEST_IMAGE,
         ticket: REBASE_TICKET,
         checkout: CHECKOUT,
         spendCeiling: CEILING,
@@ -347,7 +349,7 @@ describe("FakeSandbox", () => {
     const sandbox = new FakeSandbox();
     sandbox.hold();
 
-    const rebasing = sandbox.rebase({
+    const rebasing = sandbox.rebase({ image: TEST_IMAGE,
       ticket: REBASE_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -362,7 +364,7 @@ describe("FakeSandbox", () => {
     const sandbox = new FakeSandbox();
     sandbox.hold();
 
-    const applying = sandbox.applyReview({
+    const applying = sandbox.applyReview({ image: TEST_IMAGE,
       ticket: APPLY_REVIEW_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,
@@ -377,8 +379,8 @@ describe("FakeSandbox", () => {
     const sandbox = new FakeSandbox();
     sandbox.hold();
 
-    const run = sandbox.run({ ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
-    const review = sandbox.review({
+    const run = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    const review = sandbox.review({ image: TEST_IMAGE,
       ticket: REVIEW_TICKET,
       checkout: CHECKOUT,
       spendCeiling: CEILING,

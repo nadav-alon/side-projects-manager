@@ -73,9 +73,10 @@ export interface RunRequest {
   /**
    * The image the run starts in: the tag `Sandbox.prepare` returned for
    * `checkout`, used as given so the run never resolves, or builds, a second
-   * time. Absent, the sandbox resolves the project's image itself.
+   * time. Required, so a caller that forgot it fails to compile rather than
+   * quietly resolving after `container-started`.
    */
-  image?: ImageTag;
+  image: ImageTag;
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -89,7 +90,7 @@ export interface ReviewRequest {
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
-  image?: ImageTag;
+  image: ImageTag;
 }
 
 /** One apply-review ticket, and the project checkout it is to be worked against. */
@@ -113,7 +114,7 @@ export interface ApplyReviewRequest {
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
-  image?: ImageTag;
+  image: ImageTag;
 }
 
 /**
@@ -134,7 +135,7 @@ export interface ReviewRequestFor<T extends Ticket> {
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
-  image?: ImageTag;
+  image: ImageTag;
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -161,7 +162,7 @@ export interface RebaseRequest {
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
-  image?: ImageTag;
+  image: ImageTag;
 }
 
 /**
