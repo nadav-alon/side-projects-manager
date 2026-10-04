@@ -676,32 +676,25 @@ export function githubRepoHost(
       return stdout.trim();
     },
 
+    async readPullRequestPaths(pullRequest: PullRequestUrl): Promise<string[]> {
+      const listed = await listPullRequestFiles(pullRequest);
+      return listed.flatMap(({ path, previous }) => (previous === undefined ? [path] : [previous, path]));
+    },
+
     async readPullRequestFiles(
       pullRequest: PullRequestUrl,
       head: string,
     ): Promise<PullRequestFile[]> {
-      const { owner, repo, number } = pullRequestParts(pullRequest);
+      const { owner, repo } = pullRequestParts(pullRequest);
       const where = `repos/${owner}/${repo}`;
-      const listing = `${where}/pulls/${number}/files`;
-      const { stdout: listed } = await run("gh", [
-        "api",
-        listing,
-        "--paginate",
-        "--jq",
-        ".[] | {filename, status, previous_filename}",
-      ]);
       const files: PullRequestFile[] = [];
-      for (const line of listed.split("\n").filter((entry) => entry.trim() !== "")) {
-        const at = `gh api ${listing}`;
-        const { filename, status, previous_filename } = objectAt(jsonIn(line, at), at);
-        const file = expectField(filename, "string", "filename", at);
-        const kind = expectField(status, "string", "status", at);
-        if (kind === "renamed") {
+      for (const { path: file, status, previous } of await listPullRequestFiles(pullRequest)) {
+        if (previous !== undefined) {
           // The path it left is deleted by the pull request, whatever the
           // bytes it arrives with.
-          files.push({ path: expectField(previous_filename, "string", "previous_filename", at) });
+          files.push({ path: previous });
         }
-        if (kind === "removed") {
+        if (status === "removed") {
           files.push({ path: file });
           continue;
         }
@@ -1570,6 +1563,34 @@ function labelsIn(value: unknown, at: string): PullRequestLabel[] {
     );
     return isPullRequestLabel(name) ? [name] : [];
   });
+}
+
+/** Every file `pullRequest` changes, from the listing alone: no contents are read. */
+async function listPullRequestFiles(
+  pullRequest: PullRequestUrl,
+): Promise<{ path: string; status: string; previous?: string }[]> {
+  const { owner, repo, number } = pullRequestParts(pullRequest);
+  const listing = `repos/${owner}/${repo}/pulls/${number}/files`;
+  const { stdout: listed } = await run("gh", [
+    "api",
+    listing,
+    "--paginate",
+    "--jq",
+    ".[] | {filename, status, previous_filename}",
+  ]);
+  const files: { path: string; status: string; previous?: string }[] = [];
+  for (const line of listed.split("\n").filter((entry) => entry.trim() !== "")) {
+    const at = `gh api ${listing}`;
+    const { filename, status, previous_filename } = objectAt(jsonIn(line, at), at);
+    const path = expectField(filename, "string", "filename", at);
+    const kind = expectField(status, "string", "status", at);
+    files.push(
+      kind === "renamed"
+        ? { path, status: kind, previous: expectField(previous_filename, "string", "previous_filename", at) }
+        : { path, status: kind },
+    );
+  }
+  return files;
 }
 
 /** The owner, repo and number a pull request's own URL names. */

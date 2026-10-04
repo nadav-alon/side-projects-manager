@@ -2448,6 +2448,22 @@ describe("reading a pull request's files", () => {
     assert.deepEqual(files, [{ path: "notes.md" }, { path: "docs/agents/domain.md", content: "# domain" }]);
   });
 
+  it("answers every changed path, and a renamed file's old path too, without reading any content", async (t) => {
+    const gh = await recordingGh(
+      t,
+      ghAnswering([
+        { filename: "a.md", status: "modified", content: "a" },
+        { filename: "gone.md", status: "removed", content: "" },
+        { filename: "new.md", status: "renamed", content: "n", previous: "old.md" },
+      ]),
+    );
+
+    const paths = await githubRepoHost().readPullRequestPaths(pullRequestUrl(OPENED));
+
+    assert.deepEqual(paths, ["a.md", "gone.md", "old.md", "new.md"]);
+    assert.equal(JSON.stringify(await gh.calls()).includes("/contents/"), false);
+  });
+
   it("answers the commit the pull request's branch points at", async (t) => {
     await recordingGh(t, ghAnswering([]));
 

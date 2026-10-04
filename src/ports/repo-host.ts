@@ -812,6 +812,16 @@ export interface RepoHost {
    */
   readPullRequestFiles(pullRequest: PullRequestUrl, head: string): Promise<PullRequestFile[]>;
   /**
+   * Every path `pullRequest` changes, from the listing alone — no file is
+   * read. A file the pull request renames is answered twice: at its new
+   * path, and at the path it left.
+   *
+   * What the merge gate reads to keep a diff touching `.sandbox/` from being
+   * merged: it needs paths only, so a file that cannot be fetched is no
+   * reason to decline.
+   */
+  readPullRequestPaths(pullRequest: PullRequestUrl): Promise<string[]>;
+  /**
    * The commit `pullRequest`'s branch points at now, to read files at and to
    * pin a merge to with {@link mergePullRequest}, so that a commit pushed
    * after the read cannot ride along unchecked.

@@ -492,6 +492,11 @@ export class FakeRepoHost implements RepoHost {
     return this.#pullRequestFiles.get(pullRequest) ?? [];
   }
 
+  /** What `readPullRequestPaths` answers: the paths `setPullRequestFiles` set. */
+  async readPullRequestPaths(pullRequest: PullRequestUrl): Promise<string[]> {
+    return (this.#pullRequestFiles.get(pullRequest) ?? []).map((file) => file.path);
+  }
+
   /** What `readPullRequestHead` answers. */
   static readonly HEAD = "fake-head";
 

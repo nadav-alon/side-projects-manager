@@ -10,6 +10,7 @@ import { type ImageTag, imageTag } from "../ports/image-tag.ts";
 import { type RepoSlug, repoSlug } from "../ports/repo-slug.ts";
 import { errorMessage } from "../error-message.ts";
 import { IMAGE } from "./sandbox-image.ts";
+import { SANDBOX_DIRECTORY } from "../sandbox-directory.ts";
 
 const run = promisify(execFile);
 
@@ -19,9 +20,6 @@ const run = promisify(execFile);
  * declares and the shared image it is layered on.
  */
 export const PROJECT_INPUTS_LABEL = "side-projects-sandbox.project-inputs";
-
-/** The directory in a project's repo that declares its own toolchain. */
-const SANDBOX_DIRECTORY = ".sandbox";
 
 /** The file in `SANDBOX_DIRECTORY` that makes a project's image its own. */
 const DOCKERFILE = `${SANDBOX_DIRECTORY}/Dockerfile`;

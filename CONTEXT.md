@@ -740,10 +740,10 @@ is used up once the gate fires, and is pruned on the sweep once its ticket close
 on GitHub inside a span has none, and still declines. Once
 a turboable ticket's apply-review ticket finishes, or its review comes back clean (see **Clean
 review**) — whichever happens, and only the one that does — one pass: the manager merges the pull
-request, with a merge commit, and deletes its branch, but only if its diff touches nothing under
-`.sandbox/` — one that does is never merged by the manager, whoever consented, and is labelled
-`ready-for-human` like the rest — and it is mergeable and green;
-otherwise it labels the pull request `ready-for-human` and stops — no re-rebase, and no retry beyond
+request, with a merge commit, and deletes its branch, but only if it is mergeable and green. It never
+merges a pull request whose diff touches anything under `.sandbox/`, whoever consented; that one,
+and any other that is not mergeable and green, it labels `ready-for-human` and stops — no
+re-rebase, and no retry beyond
 one bounded wait: checks that read `pending` are read again, inside the gate, for at most 3 minutes
 from the first pending read, so green merges, and failing or still pending after 3 minutes leaves it
 for the developer. A declined thread, open or not, is never asked about. Stacked pull requests are

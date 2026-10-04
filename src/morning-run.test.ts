@@ -5076,10 +5076,48 @@ describe("morningLoop", () => {
         );
       });
 
+      it("leaves the pull request ready-for-human, naming .sandbox/, when its diff changes a file under it", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+        ports.repoHost.setPullRequestFiles(PULL_REQUEST, [{ path: ".sandbox/Dockerfile", content: "FROM x" }]);
+
+        const report = await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.merged, []);
+        const outcome = report.iterations[0];
+        assert.deepEqual(
+          outcome?.kind === "applied-review" ? outcome.merge : undefined,
+          { kind: "left-for-human", reason: "its diff touches .sandbox/" },
+        );
+      });
+
+      for (const path of [".sandboxed/x", "src/.sandbox/x", ".sandbox"]) {
+        it(`still merges when its diff only touches ${path}`, async () => {
+          const ports = fakePorts();
+          queuedTurboable(ports);
+          ports.repoHost.setPullRequestFiles(PULL_REQUEST, [{ path, content: "x" }]);
+
+          const report = await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+          const outcome = report.iterations[0];
+          assert.equal(outcome?.kind === "applied-review" ? outcome.merge.kind : undefined, "merged");
+        });
+      }
+
+      it("pins the merge to the head whose paths it read", async () => {
+        const ports = fakePorts();
+        queuedTurboable(ports);
+
+        await morningLoop(ports);
+
+        assert.deepEqual(ports.repoHost.mergedHeads, [FakeRepoHost.HEAD]);
+      });
+
       it("leaves the pull request ready-for-human when its files cannot be read", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
-        ports.repoHost.readPullRequestFiles = async () => {
+        ports.repoHost.readPullRequestPaths = async () => {
           throw new Error("files unavailable");
         };
 
