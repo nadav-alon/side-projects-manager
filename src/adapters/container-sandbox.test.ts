@@ -3040,6 +3040,24 @@ describe("containerSandbox.review", () => {
     assert.match(asked, /mattpocock-skills:code-review/);
   });
 
+  it("names both standards files as the documented standards the review checks against", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(asked, /docs\/agents\/coding-standards\.md/);
+    assert.match(asked, /docs\/project-standards\.md/);
+  });
+
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
     const directory = await project();
     let asked = "";
