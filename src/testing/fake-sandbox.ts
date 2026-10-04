@@ -26,8 +26,13 @@ import type {
   UxReviewTicket,
   Ticket,
 } from "../ports/index.ts";
+import type { ImageTag } from "../ports/image-tag.ts";
 import { branch, ticketKey, tokenCount, transcriptDirectory } from "../ports/index.ts";
+import { imageTag } from "../ports/image-tag.ts";
 import { gate } from "./gate.ts";
+
+/** The image the fake's `prepare` hands back unless a test says otherwise. */
+export const FAKE_IMAGE = imageTag("side-projects-sandbox:fake");
 
 /** A `TranscriptDirectory` deterministic in `ticket`, for a fake run's own `onStarted` to report. */
 function fakeTranscriptDirectory(ticket: Ticket) {
@@ -50,8 +55,8 @@ export class FakeSandbox implements Sandbox {
   /** Every checkout whose image was asked to be prepared, in order. */
   readonly prepared: Checkout[] = [];
 
-  /** What preparing a project's image comes to: a rejection arranges a refused build. Resolves unless set. */
-  prepareResult: (checkout: Checkout) => Promise<void> = () => Promise.resolve();
+  /** What preparing a project's image comes to: a rejection arranges a refused build. Resolves to `FAKE_IMAGE` unless set. */
+  prepareResult: (checkout: Checkout) => Promise<ImageTag> = () => Promise.resolve(FAKE_IMAGE);
 
   /** Every run asked for, in order. */
   readonly runs: RunRequest[] = [];
@@ -162,7 +167,7 @@ export class FakeSandbox implements Sandbox {
     });
   }
 
-  prepare(checkout: Checkout): Promise<void> {
+  prepare(checkout: Checkout): Promise<ImageTag> {
     this.prepared.push(checkout);
     return this.prepareResult(checkout);
   }

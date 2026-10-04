@@ -526,16 +526,18 @@ export function containerSandbox(
   };
 
   /**
-   * Hands `body` a `container` that starts every run in the image `project`
-   * declares, resolved before anything else of the run is set up — so a build
-   * that fails refuses the run before a clone or a branch exists to leave
-   * behind.
+   * Hands `body` a `container` that starts every run in `prepared` — the tag
+   * `prepare` resolved, when the request carries one — or else the image
+   * `project` declares, resolved before anything else of the run is set up,
+   * so a build that fails refuses the run before a clone or a branch exists
+   * to leave behind.
    */
   async function inProjectImage<T>(
     project: Checkout,
+    prepared: ImageTag | undefined,
     body: (container: ContainerInImage) => Promise<T>,
   ): Promise<T> {
-    const image = await imageFor(project);
+    const image = prepared ?? (await imageFor(project));
     return body((options) => container({ ...options, image }));
   }
 
@@ -551,7 +553,7 @@ export function containerSandbox(
     request: RunRequest,
     onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
-    return inProjectImage(request.checkout, (inImage) =>
+    return inProjectImage(request.checkout, request.image, (inImage) =>
       runOnClone(inImage, request, roots, onStarted, onPoll),
     );
   }
@@ -568,7 +570,7 @@ export function containerSandbox(
     request: ReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
-    return inProjectImage(request.checkout, (inImage) =>
+    return inProjectImage(request.checkout, request.image, (inImage) =>
       pullRequestReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -585,7 +587,7 @@ export function containerSandbox(
     request: ApplyReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome> {
-    return inProjectImage(request.checkout, (inImage) =>
+    return inProjectImage(request.checkout, request.image, (inImage) =>
       applyReviewOnClone(inImage, pullRequestHead, request, roots, onStarted),
     );
   }
@@ -602,7 +604,7 @@ export function containerSandbox(
     request: RebaseRequest,
     onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome> {
-    return inProjectImage(request.checkout, (inImage) =>
+    return inProjectImage(request.checkout, request.image, (inImage) =>
       rebaseOnClone(inImage, pullRequestHead, request, roots, onStarted),
     );
   }
@@ -619,7 +621,7 @@ export function containerSandbox(
     request: SpecReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome> {
-    return inProjectImage(request.checkout, (inImage) =>
+    return inProjectImage(request.checkout, request.image, (inImage) =>
       specReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -636,13 +638,13 @@ export function containerSandbox(
     request: UxReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<UxReviewOutcome> {
-    return inProjectImage(request.checkout, (inImage) =>
+    return inProjectImage(request.checkout, request.image, (inImage) =>
       uxReviewOnClone(inImage, request, roots, onStarted),
     );
   }
 
-  async function prepare(checkout: Checkout): Promise<void> {
-    await imageFor(checkout);
+  async function prepare(checkout: Checkout): Promise<ImageTag> {
+    return imageFor(checkout);
   }
 
   return { prepare, run, review, applyReview, rebase, specReview, uxReview };

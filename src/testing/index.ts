@@ -15,7 +15,7 @@ export {
   type FakePullRequest,
   type FakePush,
 } from "./fake-repo-host.ts";
-export { FakeSandbox } from "./fake-sandbox.ts";
+export { FAKE_IMAGE, FakeSandbox } from "./fake-sandbox.ts";
 export {
   BUDGET_EXHAUSTED_JSON_RESULT,
   BUDGET_EXHAUSTED_STDOUT,

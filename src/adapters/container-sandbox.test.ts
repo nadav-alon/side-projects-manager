@@ -19,7 +19,7 @@ import { promisify } from "node:util";
 
 import { routeRunDiscoveries } from "../discovery-routing.ts";
 import { REASON_QUOTED } from "../hand-back.ts";
-import { imageTag } from "../ports/image-tag.ts";
+import { imageTag, type ImageTag } from "../ports/image-tag.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import {
@@ -3712,11 +3712,12 @@ async function withInsteadOf(
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
 /** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
-function applyReviewOn(sandbox: Sandbox, directory: Checkout) {
+function applyReviewOn(sandbox: Sandbox, directory: Checkout, image?: ImageTag) {
   return sandbox.applyReview({
     ticket: APPLY_REVIEW_TICKET,
     checkout: directory,
     spendCeiling: CEILING,
+    ...(image !== undefined && { image }),
   });
 }
 
@@ -4503,11 +4504,12 @@ const REBASE_TICKET: RebaseTicket = {
 };
 
 /** Asks `sandbox` to rebase `REBASE_TICKET`, against `directory`. */
-function rebaseOn(sandbox: Sandbox, directory: Checkout) {
+function rebaseOn(sandbox: Sandbox, directory: Checkout, image?: ImageTag) {
   return sandbox.rebase({
     ticket: REBASE_TICKET,
     checkout: directory,
     spendCeiling: CEILING,
+    ...(image !== undefined && { image }),
   });
 }
 
@@ -6458,11 +6460,11 @@ describe("containerSandbox's project image", () => {
   const PROJECT_IMAGE = imageTag("side-projects-sandbox:nadav-alon-pilot");
 
   /** The six kinds, each as a call that needs only a checkout. */
-  const KINDS: [string, (sandbox: Sandbox, directory: Checkout) => Promise<unknown>][] = [
-    ["run", (sandbox, checkout) => sandbox.run({ ticket: TICKET, checkout, spendCeiling: CEILING })],
-    ["review", (sandbox, checkout) => sandbox.review({ ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING })],
-    ["spec-review", (sandbox, checkout) => sandbox.specReview({ ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING })],
-    ["ux-review", (sandbox, checkout) => sandbox.uxReview({ ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING })],
+  const KINDS: [string, (sandbox: Sandbox, directory: Checkout, image?: ImageTag) => Promise<unknown>][] = [
+    ["run", (sandbox, checkout, image) => sandbox.run({ ticket: TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
+    ["review", (sandbox, checkout, image) => sandbox.review({ ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
+    ["spec-review", (sandbox, checkout, image) => sandbox.specReview({ ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
+    ["ux-review", (sandbox, checkout, image) => sandbox.uxReview({ ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING, ...(image !== undefined && { image }) })],
     ["apply-review", applyReviewOn],
     ["rebase", rebaseOn],
   ];
@@ -6489,6 +6491,32 @@ describe("containerSandbox's project image", () => {
       await call(sandbox, directory);
 
       assert.deepEqual(asked, [directory]);
+      assert.deepEqual(started, [PROJECT_IMAGE]);
+    });
+
+    it(`starts a ${kind} in the image prepare returned, without resolving again`, async () => {
+      const { directory } = await hostedProject();
+      const started: string[] = [];
+      let asked = 0;
+      const sandbox = containerSandbox(
+        async ({ image }) => {
+          started.push(image);
+          return { output: "", tokensUsed: tokenCount(0) };
+        },
+        headIsBranch,
+        TEST_HOME,
+        undefined,
+        async () => {
+          asked += 1;
+          return asked === 1 ? PROJECT_IMAGE : imageTag("side-projects-sandbox:changed");
+        },
+      );
+
+      const prepared = await sandbox.prepare(directory);
+      await call(sandbox, directory, prepared);
+
+      assert.equal(prepared, PROJECT_IMAGE);
+      assert.equal(asked, 1);
       assert.deepEqual(started, [PROJECT_IMAGE]);
     });
 

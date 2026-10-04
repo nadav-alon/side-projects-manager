@@ -58,6 +58,7 @@ import {
   SPENDABLE_THIS_WEEK,
   YESTERDAY,
   BUDGET_EXHAUSTED_JSON_RESULT,
+  FAKE_IMAGE,
   FakeClock,
   FakeProgress,
   FakeRepoHost,
@@ -9580,6 +9581,7 @@ describe("morningLoop", () => {
       let seenWhilePreparing: string[] | undefined;
       ports.sandbox.prepareResult = async () => {
         seenWhilePreparing = progress.events.map((event) => event.kind);
+        return FAKE_IMAGE;
       };
 
       await morningLoop(ports);
