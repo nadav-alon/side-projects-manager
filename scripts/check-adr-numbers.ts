@@ -3,10 +3,13 @@
 // merge result, so a number merged since the branch was cut goes red.
 
 import { readdirSync } from "node:fs";
+import path from "node:path";
 
+import { CHECKOUT_ROOT } from "../src/adapters/sandbox-image.ts";
 import { adrCollisions, describeAdrCollisions } from "../src/adr-numbers.ts";
 
-const lines = describeAdrCollisions(adrCollisions(readdirSync("docs/adr")));
+const adrDir = process.argv[2] ?? path.join(CHECKOUT_ROOT, "docs", "adr");
+const lines = describeAdrCollisions(adrCollisions(readdirSync(adrDir)));
 for (const line of lines) {
   console.error(line);
 }
