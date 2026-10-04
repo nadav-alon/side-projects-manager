@@ -2,6 +2,7 @@ import type { Branch } from "./branch.ts";
 import type { Checkout } from "./checkout.ts";
 import type { CommitSha } from "./commit-sha.ts";
 import type { Discovery } from "./discovery.ts";
+import type { ImageTag } from "./image-tag.ts";
 import type {
   ApplyReviewTicket,
   DiscoveredTicketSummary,
@@ -69,6 +70,13 @@ export interface RunRequest {
    * through unchanged — finding them is not this port's job.
    */
   discovered?: readonly DiscoveredTicketSummary[];
+  /**
+   * The image the run starts in: the tag `Sandbox.prepare` returned for
+   * `checkout`, used as given so the run never resolves, or builds, a second
+   * time. Required, so a caller that forgot it fails to compile rather than
+   * quietly resolving after `container-started`.
+   */
+  image: ImageTag;
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -81,6 +89,8 @@ export interface ReviewRequest {
   model?: ModelName;
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
+  /** As `RunRequest.image`. */
+  image: ImageTag;
 }
 
 /** One apply-review ticket, and the project checkout it is to be worked against. */
@@ -103,6 +113,8 @@ export interface ApplyReviewRequest {
   manager?: true;
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
+  /** As `RunRequest.image`. */
+  image: ImageTag;
 }
 
 /**
@@ -122,6 +134,8 @@ export interface ReviewRequestFor<T extends Ticket> {
   model?: ModelName;
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
+  /** As `RunRequest.image`. */
+  image: ImageTag;
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -147,6 +161,8 @@ export interface RebaseRequest {
   manager?: true;
   /** As `RunRequest.discovered`. */
   discovered?: readonly DiscoveredTicketSummary[];
+  /** As `RunRequest.image`. */
+  image: ImageTag;
 }
 
 /**
@@ -493,11 +509,13 @@ export interface Sandbox {
    * container. The same project's next run of any kind finds the image
    * already at hand rather than building it again.
    *
+   * Returns the tag, for a run of `checkout` to start in as `image`.
+   *
    * Rejects when the image cannot be had — a build that failed — so a caller
    * can refuse a run before it announces a container or sets anything else
    * of the run up.
    */
-  prepare(checkout: Checkout): Promise<void>;
+  prepare(checkout: Checkout): Promise<ImageTag>;
 
   /**
    * Runs `request.ticket` against the project's managed clone at
