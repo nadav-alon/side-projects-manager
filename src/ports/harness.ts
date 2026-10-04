@@ -18,9 +18,8 @@ export class UnknownPreset extends Error {
 
 /**
  * The files every project gets, byte for byte, at the paths the agent
- * instructions point at. They are not all the agent instructions point at: the
- * project's own `docs/project-standards.md` is named too, written once and
- * never synced.
+ * instructions point at. The instructions also name {@link STANDARDS_FILE},
+ * which is not among them: written once, never synced.
  *
  * These are the manager's own copies: the manager is a registered project like
  * any other, so improving the conventions it works under improves the ones
