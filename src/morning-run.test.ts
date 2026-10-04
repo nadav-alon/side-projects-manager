@@ -5101,7 +5101,7 @@ describe("morningLoop", () => {
 
           assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           const outcome = report.iterations[0];
-          assert.equal(outcome?.kind === "applied-review" ? outcome.merge.kind : undefined, "merged");
+          assert.equal(outcome?.kind === "applied-review" ? outcome.merge?.kind : undefined, "merged");
         });
       }
 
