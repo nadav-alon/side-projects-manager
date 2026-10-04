@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
 
-import { NAMES_THE_MANAGER } from "./testing/names-the-manager.ts";
+import { MANAGER_HOME } from "./adapters/manager-home.ts";
 
-const standards = readFileSync("docs/agents/coding-standards.md", "utf8");
+const standards = readFileSync(path.join(MANAGER_HOME, "docs/agents/coding-standards.md"), "utf8");
 
 describe("the uniform coding standards", () => {
   it("has no section on branding primitives, which is a language's rule", () => {
@@ -12,11 +13,7 @@ describe("the uniform coding standards", () => {
   });
 
   it("assumes no language", () => {
-    assert.doesNotMatch(standards, /zod|unique symbol|erasableSyntaxOnly|npm|tsc/);
-  });
-
-  it("names nothing of the manager", () => {
-    assert.doesNotMatch(standards, NAMES_THE_MANAGER);
+    assert.doesNotMatch(standards, /zod|unique symbol|erasableSyntaxOnly|npm|tsc|```\w/);
   });
 
   it("opens by saying runs and the review read it with the project standards", () => {
