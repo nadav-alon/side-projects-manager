@@ -279,15 +279,6 @@ describe("the standards a new project starts with", () => {
     assert.match(text, /^# Project standards\n\n## Brand your primitives\n/);
   });
 
-  // TODO[#1235]: delete this test when the section leaves the uniform file.
-  it("carries the brand section exactly as the uniform file has it", async () => {
-    const text = await directoryHarness().standards(standardsPreset("typescript"));
-    const uniform = await contentsOf(MANAGER_HOME, "docs/agents/coding-standards.md");
-
-    const section = text.slice(text.indexOf("## Brand your primitives"));
-    assert.ok(uniform.includes(section.trimEnd()));
-  });
-
   it("fails naming the presets that exist for a name with no file", async () => {
     await assert.rejects(directoryHarness().standards(standardsPreset("cobol")), /"cobol".*typescript/);
   });
