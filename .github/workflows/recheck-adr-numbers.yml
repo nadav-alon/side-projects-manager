@@ -1,0 +1,38 @@
+# The ADR number check in ci.yml sees only numbers merged before a pull
+# request's last run. When master moves, this re-runs it against each open
+# pull request's merge result and reports it as a commit status on the pull
+# request's head, so the later of two pull requests claiming one number goes
+# red without a push. The first to merge keeps the number.
+name: Recheck ADR numbers
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+# A run in progress is never cancelled; of several waiting, GitHub keeps the
+# newest, which checks against the latest master anyway.
+concurrency:
+  group: recheck-adr-numbers
+  cancel-in-progress: false
+
+jobs:
+  recheck:
+    name: Recheck open pull requests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - run: bash .github/workflows/scripts/recheck-adr-numbers.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
