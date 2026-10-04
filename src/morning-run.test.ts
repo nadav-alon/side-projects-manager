@@ -9520,8 +9520,9 @@ describe("morningLoop", () => {
       const report = await morningLoop(ports);
 
       const kinds = progress.events.map((event) => event.kind);
-      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
-      assert.match(failureOf(report.iterations[0])?.reason ?? "", /nadav-alon\/pilot/);
+      const failure = failureOf(report.iterations[0]);
+      assert.equal(failure?.kind, "infrastructure");
+      assert.match(failure?.kind === "infrastructure" ? failure.reason : "", /nadav-alon\/pilot/);
       assert.equal(kinds.includes("container-started"), false);
       assert.equal(kinds.includes("run-ended"), false);
       assert.equal(ports.sandbox.runs.length, 0);
