@@ -186,9 +186,10 @@ exception to the rule that only a human applies the ready-for-agent label; it is
 sub-issue's scope is bounded by a PR that already exists.
 
 **Review is advisory.** The reviewing agent comments findings on the PR and cannot push. It reviews
-on two axes: conformance to the repo's documented standards, and fidelity to what the originating
-ticket asked for. A reviewer that could push would become a second implementer and reintroduce
-exactly the context bias the separation exists to remove.
+on two axes: conformance to the repo's documented standards — `docs/agents/coding-standards.md` and
+`docs/project-standards.md` — and fidelity to what the originating ticket asked for. A reviewer that
+could push would become a second implementer and reintroduce exactly the context bias the
+separation exists to remove.
 
 **Rebase is a separate job too.** Commenting `/rebase` on an open PR, draft or ready, opens a rebase
 ticket, worked like an apply-review ticket but with a different verb. Before any run, the repo host is asked whether
