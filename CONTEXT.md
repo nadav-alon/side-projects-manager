@@ -272,10 +272,12 @@ _Avoid_: prompt, system prompt, rules file
 **Project standards**:
 One file per project at `docs/project-standards.md`, required. Written once by the **Scaffold** — a
 stub, or a named preset — and the project's from then on, never synced. Binds implementation and
-review runs alike. Adds to the uniform rules, and may contradict one only by naming it and giving the
-reason; an unmarked contradiction loses to the uniform rule, and the review reports it as a finding
-against the project file. A run edits it only when its ticket asks; one that needs a rule changed
-stops and hands the ticket back with a correction discovery, and an unasked edit is a review finding.
+review runs alike. Adds to the uniform rules, and may contradict one only by naming its heading and
+giving the reason, inline; an unmarked contradiction loses to the uniform rule, and the review
+reports it as a finding against the project file. It may also say what a reviewer does with a class
+of finding, such as filing it as a discovery. A run edits it, any part of it, only when its ticket
+asks; one that needs a rule changed stops and hands the ticket back with a correction discovery, and
+an unasked edit is a review finding. That covers the one file, not the documents it links to.
 See ADR 0013.
 _Avoid_: house rules, style guide
 
