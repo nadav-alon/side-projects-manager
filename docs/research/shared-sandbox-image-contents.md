@@ -84,20 +84,20 @@ Per tool not needed by every run:
   that the manager starts in any project. They cannot sensibly move to a project (a project's clone
   must not carry a skill about the manager's workflow, per the Dockerfile's comment).
 
-## Are Playwright and Chromium the harness's or a project's?
+## Are Playwright and Chromium the manager's or a project's?
 
 Split, by the two things the word could mean:
 
-- **The mechanism is the harness's.** The manager decides when a browser exists (`playwrightMcp`
-  only for `uxReview`), writes the MCP config, ships the `ux-review` skill, and verifies the browser
-  at build time. None of that is in any project's repo, and `scripts/verify-harness.ts` says the
+- **The mechanism is the manager's.** The manager decides when a browser exists (`playwrightMcp`
+  only for `uxReview`), writes the MCP config, ships the `ux-review` skill (arguably the
+  Harness's), and `npm run sandbox:verify` checks the browser in the built image. None of that is in any project's repo, and `scripts/verify-harness.ts` says the
   browser "is not part of the Harness" in the glossary sense but is checked there because it is the
   one script that runs in the built image.
 - **The need is a project's.** A ux review only does anything on a project with a `ux` script, and
   only `home-catalogue` has one. `data-platform` and the manager never start the browser; for them
   it is dead weight on disk, as the Dockerfile's own comment says.
 
-So the browser is a project's *need* served by the harness's *mechanism*. Which side the binary lives
+So the browser is a project's *need* served by the manager's *mechanism*. Which side the binary lives
 on is the trade-off in the cost section: it is shared today because the wiring is, and moving it
 means the wiring has to learn that the browser may be absent.
 
@@ -112,11 +112,10 @@ The developer decides; these are one reader's recommendations.
 | `jq` | **Keep** | The uniform `issue-tracker.md` has an agent pipe issue comments into it in any run kind, so every project would need it declared, for a small saving and a new failure path. |
 | `curl` | **Trim in place** (purge after the key fetch) | Not a move; no project declares it, and no run uses it. |
 | Temurin 21 JRE | **Move** to `home-catalogue` and `data-platform` `.sandbox/Dockerfile`s | The clearest per-project need: exactly two projects, both with the same `test:rules`, and a JRE on disk for every other run. Accept the duplicate declaration; keep the version in step by hand, or have the second project copy the first. Do it only after both projects' `.sandbox/` exist and one has built, since a missing JRE fails `test:rules` mid-run. |
-| Playwright + Chromium | **Keep for now** | One project uses it, but moving it takes changes in the manager (config, verify step), which is a separate ticket's worth of work. Revisit if a second ux-less project makes the disk cost matter, or if the browser's version needs to differ per project. |
+| Playwright + Chromium | **Keep for now** | One project uses it, but moving it takes changes in the manager (config, verify step), which is a separate ticket's worth of work. Revisit if a second project with a `ux` script appears (two declarations to keep in step), or if more ux-less projects make the dead weight on disk matter, or if the browser's version needs to differ per project. |
 
 ## What this does not cover
 
 - `nadav-alon/ltlf-external-knowledge` (paused C++ project) was only checked for a Java or browser
   need through its `AGENTS.md`; nothing suggests either.
-- Image size was not measured, so no saving above is quantified;
-  the sandbox has no docker.
+- Image size was not measured (the sandbox has no docker), so no saving above is quantified.
