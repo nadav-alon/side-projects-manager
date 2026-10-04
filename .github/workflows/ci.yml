@@ -37,7 +37,8 @@ jobs:
 
       # The checkout of a pull request is its merge result, so an ADR number
       # claimed by a branch that merged before this run shows up here. One that
-      # merges after this run does not; the push to master catches it then.
+      # merges after this run does not; recheck-adr-numbers.yml re-runs it on
+      # each open pull request when master moves.
       - name: ADR numbers are unique
         run: node scripts/check-adr-numbers.ts
 
