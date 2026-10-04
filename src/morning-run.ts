@@ -2476,6 +2476,12 @@ async function mergeGate(
   return verdict;
 }
 
+/**
+ * Where a project declares its sandbox image: a diff touching it is never
+ * merged by the manager, since its `RUN` steps execute on the host.
+ */
+const SANDBOX_DIRECTORY = ".sandbox/";
+
 async function decideMerge(
   ports: MorningLoopPorts,
   ticket: PullRequestTicket,
@@ -2531,6 +2537,15 @@ async function decideMerge(
   }
 
   const pullRequest = ticket.pullRequest.url;
+  try {
+    const head = await ports.repoHost.readPullRequestHead(pullRequest);
+    const files = await ports.repoHost.readPullRequestFiles(pullRequest, head);
+    if (files.some((file) => file.path.startsWith(SANDBOX_DIRECTORY))) {
+      return leftForHuman(ports, pullRequest, `its diff touches ${SANDBOX_DIRECTORY}`);
+    }
+  } catch (error: unknown) {
+    return leftForHuman(ports, pullRequest, errorMessage(error));
+  }
   let checks: ChecksStatus;
   try {
     checks = await settledChecks(ports.repoHost, ports.clock, pullRequest);
