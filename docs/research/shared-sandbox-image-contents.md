@@ -40,7 +40,7 @@ apply to every move below.
   not reduce how often that happens. It does make the shared rebuild itself smaller and faster, and
   it moves the cost of the moved layer onto each project's rebuild instead. Layers added on top of
   an unchanged base are cached, so a project rebuild after a shared rebuild re-runs all of the
-  project's layers, including a moved JRE or Chromium (~hundreds of MB download for Chromium).
+  project's layers, including a moved JRE or Chromium.
 - **Declared twice.** A tool two projects need is written in two `.sandbox/Dockerfile`s, which can
   drift (JRE version, Playwright version). Nothing shares a fragment between them.
 - **Failure mode.** A project with no `.sandbox/` that needs the moved tool fails mid-run (a
@@ -53,7 +53,7 @@ Per tool not needed by every run:
   would declare it. The manager has no `.sandbox/` today (and its `rebase.sh` test runs wherever its
   CI runs, not only in the sandbox). The manager's own sandbox runs would rebuild its project image
   whenever the shared one does. Cost: a manager `.sandbox/Dockerfile` of one `apt-get install jq`
-  and a project image where there was none. The saving is small (a few hundred KB).
+  and a project image where there was none. The saving is small.
 - **`curl`** — Used only at build time. Removing it from the final layers, or purging it after the
   `gh` key fetch, is a change inside the shared image, not a move: no project would declare it.
 - **JRE** — Declared by `home-catalogue` and `data-platform` (2 projects, twice). Both rebuild when
@@ -61,7 +61,7 @@ Per tool not needed by every run:
   Dockerfile's comment names the Firebase emulators as its sole reason. The base image's Debian
   packages only Java 17, so each project's Dockerfile would repeat the `COPY --from=eclipse-temurin:21-jre`
   step or an equivalent. A project the JRE leaves (the manager, `ltlf-external-knowledge`, any
-  future project) stops carrying ~190 MB it never runs. The risk is a Firebase project that adds
+  future project) stops carrying a JRE it never runs. The risk is a Firebase project that adds
   `test:rules` without a `.sandbox/` and discovers the gap only mid-run.
 - **Playwright + Chromium** — Declared by `home-catalogue` alone today (1 project); `data-platform`
   would not, having no `ux` script. A project image carrying it means ux-review runs for
@@ -100,14 +100,14 @@ The developer decides; these are one reader's recommendations.
 | --- | --- | --- |
 | `node:22-slim`, `git`, `gh`, `ca-certificates`, Claude CLI, harness plugin, settings, git identity, non-root user, watchdog env | **Keep** in the shared image | Every run needs them; no project could supply them without the manager's wiring. |
 | Personal skills `apply-pr-review`, `rebase-pr`, `ux-review` | **Keep** | They exist because a project's clone cannot carry them. |
-| `jq` | **Keep for now; revisit** | Only the manager's own tests use it, but moving it creates a `.sandbox/` for the manager to save under a megabyte. Not worth a new failure path. |
+| `jq` | **Keep for now; revisit** | Only the manager's own tests use it, but moving it creates a `.sandbox/` for the manager. Not worth a new failure path. |
 | `curl` | **Trim in place** (purge after the key fetch) | Not a move; no project declares it, and no run uses it. |
-| Temurin 21 JRE | **Move** to `home-catalogue` and `data-platform` `.sandbox/Dockerfile`s | The clearest per-project need: exactly two projects, both with the same `test:rules`, and ~190 MB for every other run. Accept the duplicate declaration; keep the version in step by hand, or have the second project copy the first. Do it only after both projects' `.sandbox/` exist and one has built, since a missing JRE fails `test:rules` mid-run. |
+| Temurin 21 JRE | **Move** to `home-catalogue` and `data-platform` `.sandbox/Dockerfile`s | The clearest per-project need: exactly two projects, both with the same `test:rules`, and a JRE on disk for every other run. Accept the duplicate declaration; keep the version in step by hand, or have the second project copy the first. Do it only after both projects' `.sandbox/` exist and one has built, since a missing JRE fails `test:rules` mid-run. |
 | Playwright + Chromium | **Keep for now** | One project uses it, but moving it takes changes in the manager (config, verify step), which is a separate ticket's worth of work. Revisit if a second ux-less project makes the disk cost matter, or if the browser's version needs to differ per project. |
 
 ## What this does not cover
 
 - `nadav-alon/ltlf-external-knowledge` (paused C++ project) was only checked for a Java or browser
   need through its `AGENTS.md`; nothing suggests either.
-- Image size was not measured; the sizes above are from the packages' known footprints, not from a
-  build. The sandbox has no docker.
+- Image size was not measured, so no saving above is quantified;
+  the sandbox has no docker.
