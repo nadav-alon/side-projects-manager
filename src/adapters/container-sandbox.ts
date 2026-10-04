@@ -59,6 +59,7 @@ import {
   numberField,
   remoteUrl,
   reviewFindingTemplate,
+  STANDARDS_FILE,
   submodulePath,
   tokenCount,
   transcriptDirectory,
@@ -2411,7 +2412,7 @@ function promptFor(
     `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
     "first — this clone's origin is a local path, so gh cannot infer the repo",
     "— and follow this repo's own agent instructions and its coding standards,",
-    "`docs/agents/coding-standards.md` and `docs/project-standards.md`.",
+    `\`docs/agents/coding-standards.md\` and \`${STANDARDS_FILE}\`.`,
     ...(salvageBranch !== undefined
       ? [
           "An earlier run on this ticket stopped before its own agent ended it,",
@@ -2537,7 +2538,7 @@ function reviewPromptFor(
     "mattpocock-skills plugin explicitly as `/mattpocock-skills:code-review` — never the built-in",
     "`/code-review`, which is a different, single-axis review that does not check fidelity to the",
     "ticket — covering both conformance to this repo's documented coding standards, which are",
-    "`docs/agents/coding-standards.md` and `docs/project-standards.md`, and whether",
+    `\`docs/agents/coding-standards.md\` and \`${STANDARDS_FILE}\`, and whether`,
     "the pull request does what the ticket asked for. The skill's own last step only aggregates the",
     "two reports; posting is yours to do, and not as that aggregate dropped in one comment. Post each",
     "finding inline, on the file and line it is actually about, by submitting a single review —",
