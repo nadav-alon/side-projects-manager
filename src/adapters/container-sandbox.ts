@@ -2410,7 +2410,8 @@ function promptFor(
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
     `Read the issue with \`gh issue view ${ticket.number} --repo ${ticket.repo}\``,
     "first — this clone's origin is a local path, so gh cannot infer the repo",
-    "— and follow this repo's own agent instructions and coding standards.",
+    "— and follow this repo's own agent instructions and its coding standards,",
+    "`docs/agents/coding-standards.md` and `docs/project-standards.md`.",
     ...(salvageBranch !== undefined
       ? [
           "An earlier run on this ticket stopped before its own agent ended it,",

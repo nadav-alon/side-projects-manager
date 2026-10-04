@@ -749,6 +749,20 @@ describe("containerSandbox", () => {
     assert.match(asked, /gh issue view 7 --repo nadav-alon\/pilot/);
   });
 
+  it("names both standards files as the standards the run follows", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.run({ ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+
+    assert.match(asked, /docs\/agents\/coding-standards\.md/);
+    assert.match(asked, /docs\/project-standards\.md/);
+  });
+
   it("asks for one commit per behavior, made as soon as that behavior's test passes, and still forbids pushing and opening a pull request", async () => {
     const directory = await project();
     let asked = "";
