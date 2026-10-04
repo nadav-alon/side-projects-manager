@@ -9493,6 +9493,38 @@ describe("morningLoop", () => {
       ]);
     });
 
+    it("resolves the project's image before announcing the container", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+      let seenWhilePreparing: string[] | undefined;
+      ports.sandbox.prepareResult = async () => {
+        seenWhilePreparing = progress.events.map((event) => event.kind);
+      };
+
+      await morningLoop(ports);
+
+      assert.deepEqual(seenWhilePreparing, ["iteration-selected"]);
+      assert.equal(ports.sandbox.prepared.length, 1);
+    });
+
+    it("announces no container, and runs nothing, when the project's image is refused", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+      ports.sandbox.prepareResult = () =>
+        Promise.reject(new Error("the sandbox image for nadav-alon/pilot could not be built"));
+
+      await morningLoop(ports);
+
+      const kinds = progress.events.map((event) => event.kind);
+      assert.equal(kinds.includes("container-started"), false);
+      assert.equal(kinds.includes("run-ended"), false);
+      assert.equal(ports.sandbox.runs.length, 0);
+    });
+
     it("names the spend ceiling the container was given", async () => {
       const ports = fakePorts();
       readyToWork(ports);

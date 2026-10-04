@@ -1491,8 +1491,16 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     // — there is nothing for `run-ended` to close out.
     return infrastructureFailure(error);
   }
-  // Announced once the checkout is ready and the container is genuinely
-  // about to start — before `sandboxCall`, never after.
+  try {
+    await ports.sandbox.prepare(checkout);
+  } catch (error: unknown) {
+    // A refused image build is a run that never reached a container, so
+    // nothing was announced started and `run-ended` has nothing to close.
+    return infrastructureFailure(error);
+  }
+  // Announced once the checkout is ready and the project's image is
+  // resolved, so the container is genuinely about to start — before
+  // `sandboxCall`, never after.
   notify(ports.progress, {
     kind: "container-started",
     ticket,
