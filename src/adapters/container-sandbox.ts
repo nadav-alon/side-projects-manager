@@ -641,7 +641,11 @@ export function containerSandbox(
     );
   }
 
-  return { run, review, applyReview, rebase, specReview, uxReview };
+  async function prepare(checkout: Checkout): Promise<void> {
+    await imageFor(checkout);
+  }
+
+  return { prepare, run, review, applyReview, rebase, specReview, uxReview };
 }
 
 /**

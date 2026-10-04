@@ -6512,4 +6512,50 @@ describe("containerSandbox's project image", () => {
       assert.equal(started, false);
     });
   }
+
+  describe("prepare", () => {
+    it("resolves the project's image without starting a container", async () => {
+      const { directory } = await hostedProject();
+      const asked: Checkout[] = [];
+      let started = false;
+      const sandbox = containerSandbox(
+        async () => {
+          started = true;
+          return { output: "", tokensUsed: tokenCount(0) };
+        },
+        headIsBranch,
+        TEST_HOME,
+        undefined,
+        async (project) => {
+          asked.push(project);
+          return PROJECT_IMAGE;
+        },
+      );
+
+      await sandbox.prepare(directory);
+
+      assert.deepEqual(asked, [directory]);
+      assert.equal(started, false);
+    });
+
+    it("rejects, and starts nothing, when the image cannot be built", async () => {
+      const { directory } = await hostedProject();
+      let started = false;
+      const sandbox = containerSandbox(
+        async () => {
+          started = true;
+          return { output: "", tokensUsed: tokenCount(0) };
+        },
+        headIsBranch,
+        TEST_HOME,
+        undefined,
+        async () => {
+          throw new Error("the sandbox image for nadav-alon/pilot could not be built: apt exploded");
+        },
+      );
+
+      await assert.rejects(sandbox.prepare(directory), /nadav-alon\/pilot.*apt exploded/);
+      assert.equal(started, false);
+    });
+  });
 });

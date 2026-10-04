@@ -488,6 +488,18 @@ export type RebaseOutcome =
  */
 export interface Sandbox {
   /**
+   * Resolves the image `checkout`'s project runs in, which can be a
+   * multi-minute build, so a caller can have it before it announces a
+   * container. The same project's next run of any kind finds the image
+   * already at hand rather than building it again.
+   *
+   * Rejects when the image cannot be had — a build that failed — so a caller
+   * can refuse a run before it announces a container or sets anything else
+   * of the run up.
+   */
+  prepare(checkout: Checkout): Promise<void>;
+
+  /**
    * Runs `request.ticket` against the project's managed clone at
    * `request.checkout`. The agent works somewhere of its own, on a branch of
    * its own, so the branch the checkout is on is never committed to; the
