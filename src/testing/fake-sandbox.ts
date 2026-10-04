@@ -4,6 +4,7 @@ import type {
   ApplyReviewOutcome,
   ApplyReviewRequest,
   ApplyReviewTicket,
+  Checkout,
   ModelName,
   OnRunStarted,
   RebaseOutcome,
@@ -46,6 +47,12 @@ function fakeTranscriptDirectory(ticket: Ticket) {
  * writes the exact variant it wants.
  */
 export class FakeSandbox implements Sandbox {
+  /** Every checkout whose image was asked to be prepared, in order. */
+  readonly prepared: Checkout[] = [];
+
+  /** What preparing a project's image comes to: a rejection arranges a refused build. Resolves unless set. */
+  prepareResult: (checkout: Checkout) => Promise<void> = () => Promise.resolve();
+
   /** Every run asked for, in order. */
   readonly runs: RunRequest[] = [];
 
@@ -153,6 +160,11 @@ export class FakeSandbox implements Sandbox {
       this.#waiter = { count, resolve };
       this.#wakeWaiter();
     });
+  }
+
+  prepare(checkout: Checkout): Promise<void> {
+    this.prepared.push(checkout);
+    return this.prepareResult(checkout);
   }
 
   run(
