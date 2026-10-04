@@ -6,9 +6,10 @@ had to carry everything any project's runs might need. This audits what it carri
 piece, and what moving a piece into a project's image would cost. It decides nothing: the
 recommendations at the end are recommendations, and what moves stays the developer's call.
 
-Evidence is read from this repo at the commit this was written, and from `nadav-alon/home-catalogue`
-and `nadav-alon/data-platform` through `gh api` (default branch, read only; nothing changed in
-either). Neither project has a `.sandbox/` today (`gh api …/contents/.sandbox` is a 404 for both), so
+Evidence is read from this repo at `7a863f23454c0a6079b58b8cbda6462b6434ff7f`, and from
+`nadav-alon/home-catalogue` at `41519209aad1e720957829b029c76abcc2f2f373` and
+`nadav-alon/data-platform` at `ecde5b0a4ce7d0f44a8a0e762c3f5c3ec9c65c9c` through `gh api` (read
+only; nothing changed in either), so a line reference stays correct. Neither project has a `.sandbox/` today (`gh api …/contents/.sandbox` is a 404 for both), so
 both run in the shared image as it stands. Nothing here was built or run.
 
 ## What the shared image carries
@@ -17,7 +18,7 @@ Everything below is in the [`Dockerfile`](../../Dockerfile).
 
 | Tool | Who uses it | Evidence |
 | --- | --- | --- |
-| `node:22-slim` base | Every run | The CLI and the Playwright MCP are npm packages; every project's `engines` is `node >=22.18` (`package.json` of both). |
+| `node:22-slim` base, with the `npm`, `npx` and `corepack` it ships | Every run | The CLI and the Playwright MCP are npm packages, and every `npm ci` or `npm test` a run makes needs `npm`; every project's `engines` is `node >=22.18` (`package.json` of both). |
 | `git` | Every run | Every run ends in commits; the plugin install clones the marketplace with it; the skills shell out to it (`docs/agents/issue-tracker.md`). |
 | `gh` | Every run | The issue tracker is driven only through `gh` (`docs/agents/issue-tracker.md`); apply-review and rebase runs push and comment through it. |
 | `curl`, `ca-certificates` | The image build (and HTTPS for git/gh/npm at run time) | `curl` fetches the `gh` apt key at build; `ca-certificates` is what lets `git`, `gh` and `npm` verify TLS in a run. No run kind or skill calls `curl` (grep of `.claude/`, `docs/agents/`, `src/`, `scripts/`). |
@@ -26,7 +27,7 @@ Everything below is in the [`Dockerfile`](../../Dockerfile).
 | `@anthropic-ai/claude-code` | Every run | It is the `ENTRYPOINT`; the manager parses its JSON output. |
 | Harness plugin `mattpocock-skills@claude-plugins-official`, `settings.json` model pin | Every run | The skills a run is told to follow; installed as `node` so any uid can read it (Dockerfile comments; `scripts/verify-harness.ts`). |
 | Personal skills `apply-pr-review`, `rebase-pr`, `ux-review` | One run kind each | Copied in so they are found whichever project is mounted. `apply-pr-review` and `rebase-pr` serve apply-review and rebase runs; `ux-review` serves ux-review runs. |
-| `@playwright/mcp` + Chromium + its system libraries, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_MCP_BROWSER` | One run kind: ux review; one project today: `home-catalogue` | `container-sandbox.ts` starts `playwright-mcp` (`PLAYWRIGHT_MCP_CONFIG`) only for `uxReview`. `.claude/skills/ux-review/SKILL.md` stops at step 2 for a project with no `ux` script. `home-catalogue` has `"ux": "node scripts/ux.ts"`; `data-platform` has none, so a ux review there hands back having done nothing. |
+| `@playwright/mcp` + Chromium + its system libraries, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_MCP_BROWSER` | One run kind: ux review; one project today: `home-catalogue` | `src/adapters/container-sandbox.ts` starts `playwright-mcp` (`PLAYWRIGHT_MCP_CONFIG`) only for `uxReview`. `.claude/skills/ux-review/SKILL.md` stops at step 2 for a project with no `ux` script. `home-catalogue` has `"ux": "node scripts/ux.ts"`; `data-platform` has none, so a ux review there hands back having done nothing. |
 | Git identity, `safe.directory`, `HOME`, non-root `node`, byte-watchdog env | Every run | Needed for commits, for the bind-mounted clone, and for the CLI to run unattended. |
 
 ## What a move would cost
