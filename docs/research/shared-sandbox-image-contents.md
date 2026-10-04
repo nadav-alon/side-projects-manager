@@ -33,15 +33,20 @@ Everything below is in the [`Dockerfile`](../../Dockerfile).
 ## What a move would cost
 
 ADR 0014: a project image is `FROM side-projects-sandbox:latest`, built by the manager when its
-digest of the Dockerfile, its build context and the shared image's id changes. Two consequences
+digest of the Dockerfile, its build context and the shared image's id changes. Three consequences
 apply to every move below.
 
 - **Rebuilds.** A project image rebuilds when the project's `.sandbox/` changes and whenever the
   shared image is rebuilt (the shared image's id is in the digest). Shrinking the shared image does
-  not reduce how often that happens. It does make the shared rebuild itself smaller and faster, and
-  it moves the cost of the moved layer onto each project's rebuild instead. Layers added on top of
-  an unchanged base are cached, so a project rebuild after a shared rebuild re-runs all of the
-  project's layers, including a moved JRE or Chromium.
+  not reduce how often that happens. `sandbox:build` (`package.json:36`) passes
+  `CLAUDE_CODE_VERSION=$(npm view @anthropic-ai/claude-code version)` and
+  `PLAYWRIGHT_MCP_VERSION=$(npm view @playwright/mcp version)`, so every Claude CLI release and
+  every `@playwright/mcp` release yields a new shared image id. Each one re-runs a moved JRE or
+  Chromium layer in every project that declares it: that cadence is the recurring cost of a move.
+  Shrinking the shared image makes the shared rebuild itself smaller and faster, and moves the
+  cost of the moved layer onto each project's rebuild instead. A changed base invalidates every
+  layer above it, so a project rebuild after a shared rebuild re-runs all of the project's layers,
+  including a moved JRE or Chromium.
 - **Declared twice.** A tool two projects need is written in two `.sandbox/Dockerfile`s, which can
   drift (JRE version, Playwright version). Nothing shares a fragment between them.
 - **Failure mode.** A project with no `.sandbox/` that needs the moved tool fails mid-run (a
@@ -59,8 +64,10 @@ Per tool not needed by every run:
 - **`curl`** — Used only at build time. Removing it from the final layers, or purging it after the
   `gh` key fetch, is a change inside the shared image, not a move: no project would declare it.
 - **JRE** — Declared by `home-catalogue` and `data-platform` (2 projects, twice). Both rebuild when
-  the shared image does. The ADR's own example of why a project needs its own toolchain; the
-  Dockerfile's comment names the Firebase emulators as its sole reason. The base image's Debian
+  the shared image does, and so each re-runs the JRE layer on every Claude CLI or `@playwright/mcp`
+  release. The Dockerfile's comment names the Firebase emulators as its sole reason, which makes
+  it a per-project toolchain in the sense ADR 0014 gives (its own examples are a compiler and an
+  interpreter; it names the JRE only as something the shared image carries). The base image's Debian
   packages only Java 17, so each project's Dockerfile would repeat the `COPY --from=eclipse-temurin:21-jre`
   step or an equivalent. A project the JRE leaves (the manager, `ltlf-external-knowledge`, any
   future project) stops carrying a JRE it never runs. The risk is a Firebase project that adds
