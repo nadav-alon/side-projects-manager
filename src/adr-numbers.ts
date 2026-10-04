@@ -7,11 +7,13 @@ declare const adrNumberBrand: unique symbol;
 /** The four-digit prefix of an ADR's file name, e.g. `0013`. */
 export type AdrNumber = string & { readonly [adrNumberBrand]: true };
 
-const ADR_FILE = /^(\d{4})-.+\.md$/;
+const ADR_DIGITS = "\\d{4}";
+const ADR_FILE = new RegExp(`^(${ADR_DIGITS})-.+\\.md$`);
+const ADR_NUMBER = new RegExp(`^${ADR_DIGITS}$`);
 
 /** The guard. */
 export function isAdrNumber(value: string): value is AdrNumber {
-  return /^\d{4}$/.test(value);
+  return ADR_NUMBER.test(value);
 }
 
 /** The constructor: narrows, or throws naming the offending value. */
