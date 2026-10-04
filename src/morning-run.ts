@@ -163,6 +163,7 @@ import type { SpecReviewSweepOutcome } from "./spec-review-sweep.ts";
 import { settledChecks } from "./settled-checks.ts";
 import { grantSweep } from "./grant-sweep.ts";
 import { uniformSyncSweep, type UniformSyncSweepOutcome } from "./uniform-sync-sweep.ts";
+import { SANDBOX_DIRECTORY } from "./sandbox-directory.ts";
 
 /**
  * The eight outside-world dependencies of the loop. Everything it knows about
@@ -2476,6 +2477,13 @@ async function mergeGate(
   return verdict;
 }
 
+/**
+ * What a path under {@link SANDBOX_DIRECTORY} starts with: a diff touching one
+ * is never merged by the manager, since the image's `RUN` steps execute on
+ * the host.
+ */
+const SANDBOX_PREFIX = `${SANDBOX_DIRECTORY}/`;
+
 async function decideMerge(
   ports: MorningLoopPorts,
   ticket: PullRequestTicket,
@@ -2531,6 +2539,16 @@ async function decideMerge(
   }
 
   const pullRequest = ticket.pullRequest.url;
+  let head: string;
+  try {
+    head = await ports.repoHost.readPullRequestHead(pullRequest);
+    const paths = await ports.repoHost.readPullRequestPaths(pullRequest);
+    if (paths.some((path) => path.startsWith(SANDBOX_PREFIX))) {
+      return leftForHuman(ports, pullRequest, `its diff touches ${SANDBOX_PREFIX}`);
+    }
+  } catch (error: unknown) {
+    return leftForHuman(ports, pullRequest, errorMessage(error));
+  }
   let checks: ChecksStatus;
   try {
     checks = await settledChecks(ports.repoHost, ports.clock, pullRequest);
@@ -2545,7 +2563,7 @@ async function decideMerge(
     );
   }
   try {
-    await ports.repoHost.mergePullRequest(pullRequest);
+    await ports.repoHost.mergePullRequest(pullRequest, head);
     return { kind: "merged", implementationTicket: implementation };
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
