@@ -9517,9 +9517,11 @@ describe("morningLoop", () => {
       ports.sandbox.prepareResult = () =>
         Promise.reject(new Error("the sandbox image for nadav-alon/pilot could not be built"));
 
-      await morningLoop(ports);
+      const report = await morningLoop(ports);
 
       const kinds = progress.events.map((event) => event.kind);
+      assert.equal(failureOf(report.iterations[0])?.kind, "infrastructure");
+      assert.match(failureOf(report.iterations[0])?.reason ?? "", /nadav-alon\/pilot/);
       assert.equal(kinds.includes("container-started"), false);
       assert.equal(kinds.includes("run-ended"), false);
       assert.equal(ports.sandbox.runs.length, 0);
