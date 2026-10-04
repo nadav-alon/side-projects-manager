@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
+import { imageTag } from "./ports/image-tag.ts";
 import { morningLoop } from "./morning-run.ts";
 import { CHECKS_POLL_INTERVAL, CHECKS_WAIT } from "./settled-checks.ts";
 import type { InvocationReport } from "./summary.ts";
@@ -1117,6 +1118,7 @@ describe("morningLoop", () => {
           ticket,
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
         },
       ]);
     });
@@ -2482,6 +2484,7 @@ describe("morningLoop", () => {
           ticket,
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
         },
       ]);
     });
@@ -3799,6 +3802,7 @@ describe("morningLoop", () => {
           ticket: { ...ticket, uxReview: true },
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
           model: modelName("fable"),
         },
       ]);
@@ -3963,6 +3967,7 @@ describe("morningLoop", () => {
           ticket: { ...ticket, specReview: true },
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
         },
       ]);
     });
@@ -4322,6 +4327,7 @@ describe("morningLoop", () => {
           ticket,
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
         },
       ]);
       assert.equal(ports.sandbox.runs.length, 0);
@@ -5546,6 +5552,7 @@ describe("morningLoop", () => {
           ticket,
           checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
           spendCeiling: DEFAULT_BUDGET.spendCeiling,
+          image: FAKE_IMAGE,
         },
       ]);
       assert.equal(ports.sandbox.runs.length, 0);
@@ -9588,6 +9595,18 @@ describe("morningLoop", () => {
 
       assert.deepEqual(seenWhilePreparing, ["iteration-selected"]);
       assert.equal(ports.sandbox.prepared.length, 1);
+    });
+
+    it("starts the run in the image prepare returned", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const prepared = imageTag("side-projects-sandbox:nadav-alon-pilot");
+      ports.sandbox.prepareResult = async () => prepared;
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs.length, 1);
+      assert.equal(ports.sandbox.runs[0]?.image, prepared);
     });
 
     it("announces no container, and runs nothing, when the project's image is refused", async () => {

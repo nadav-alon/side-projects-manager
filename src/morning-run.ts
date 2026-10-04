@@ -74,6 +74,7 @@ import {
   tokenCount,
   uniformFilesAmong,
 } from "./ports/index.ts";
+import type { ImageTag } from "./ports/image-tag.ts";
 import {
   invocationBudgetGate,
   spendCeilingForTicket,
@@ -1432,11 +1433,16 @@ interface SandboxResult<Outcome> {
 }
 
 /**
- * What `runInSandbox` hands a run's request beside the checkout: the open
- * issues already discovered against the ticket its discoveries land on, to
- * spread into the request — absent, rather than empty, where there are none.
+ * What `runInSandbox` hands a run's request beside the checkout, to spread
+ * into it: the image `Sandbox.prepare` resolved, so the run starts in that tag
+ * rather than resolving again; and the open issues already discovered against
+ * the ticket its discoveries land on — absent, rather than empty, where there
+ * are none.
  */
-type PriorDiscoveries = { discovered?: readonly DiscoveredTicketSummary[] };
+type RequestParts = {
+  image: ImageTag;
+  discovered?: readonly DiscoveredTicketSummary[];
+};
 
 /**
  * The one step an implementation run and a review share: make the throwaway
@@ -1481,7 +1487,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   sandboxCall: (
     checkout: Checkout,
     onStarted: OnRunStarted,
-    prior: PriorDiscoveries,
+    prior: RequestParts,
   ) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   let checkout: Checkout;
@@ -1492,8 +1498,9 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     // — there is nothing for `run-ended` to close out.
     return infrastructureFailure(error);
   }
+  let image: ImageTag;
   try {
-    await ports.sandbox.prepare(checkout);
+    image = await ports.sandbox.prepare(checkout);
   } catch (error: unknown) {
     // A refused image build is a run that never reached a container, so
     // nothing was announced started and `run-ended` has nothing to close.
@@ -1546,7 +1553,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
       outcome = await sandboxCall(
         checkout,
         onStarted,
-        discovered.length > 0 ? { discovered } : {},
+        discovered.length > 0 ? { image, discovered } : { image },
       );
     } catch (error: unknown) {
       // Nothing comes back from a rejected run — no branch, no output, and no
