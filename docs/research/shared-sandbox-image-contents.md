@@ -22,7 +22,7 @@ Everything below is in the [`Dockerfile`](../../Dockerfile).
 | `git` | Every run | Every run ends in commits; the plugin install clones the marketplace with it; the skills shell out to it (`docs/agents/issue-tracker.md`). |
 | `gh` | Every run | The issue tracker is driven only through `gh` (`docs/agents/issue-tracker.md`); apply-review and rebase runs push and comment through it. |
 | `curl`, `ca-certificates` | The image build (and HTTPS for git/gh/npm at run time) | `curl` fetches the `gh` apt key at build; `ca-certificates` is what lets `git`, `gh` and `npm` verify TLS in a run. No run kind or skill calls `curl` (grep of `.claude/`, `docs/agents/`, `src/`, `scripts/`). |
-| `jq` | The manager's own `npm test`; nothing else found | `.github/workflows/scripts/rebase.sh` calls `jq` (12 uses), and `src/workflows/rebase.test.ts` runs it — here, in the sandbox, as the Dockerfile says. `rebase.sh` is a uniform file, so both projects have a copy, but neither project has a test that runs it (no `*.test` over `.github/workflows/scripts` in either tree), and in a project it runs on a GitHub Actions runner, which has its own `jq`. `docs/agents/issue-tracker.md` mentions filtering with `jq`, but the `gh --jq` flag it also uses is built into `gh` and needs no binary. |
+| `jq` | Plausibly every run: the issue-reading line in `docs/agents/issue-tracker.md`; also the manager's own `npm test` | `docs/agents/issue-tracker.md` (a uniform file, so in every project) tells an agent to read an issue with `gh issue view <number> --comments`, "filtering comments by `jq`". `--comments` without `--json` takes no `--jq`, so an agent following that line pipes into the `jq` binary, in any run kind on any project. (The *List issues* line uses `gh --jq`, built into `gh`, and needs no binary.) Separately, `.github/workflows/scripts/rebase.sh` calls `jq` (12 uses) and `src/workflows/rebase.test.ts` runs it — here, in the sandbox, as the Dockerfile says. `rebase.sh` is a uniform file, so both projects have a copy, but neither project has a test that runs it (no `*.test` over `.github/workflows/scripts` in either tree), and in a project it runs on a GitHub Actions runner, which has its own `jq`. |
 | Temurin 21 JRE (`JAVA_HOME`, `PATH`) | `nadav-alon/home-catalogue` and `nadav-alon/data-platform` | Both `package.json`s have `test:rules`, which runs `firebase emulators:exec` (firebase-tools is a devDependency of both); both CI workflows add `actions/setup-java` 21 for that job. `home-catalogue` also needs it for `npm run ux`, whose `AGENTS.md` says "Java must be on the PATH" (it starts the emulators from `data-platform/local`). `data-platform/docs/local-kit.md` says the same of `data-platform/local`. The manager and `ltlf-external-knowledge` (C++) do not use it. |
 | `@anthropic-ai/claude-code` | Every run | It is the `ENTRYPOINT`; the manager parses its JSON output. |
 | Harness plugin `mattpocock-skills@claude-plugins-official`, `settings.json` model pin | Every run | The skills a run is told to follow; installed as `node` so any uid can read it (Dockerfile comments; `scripts/verify-harness.ts`). |
@@ -50,11 +50,12 @@ apply to every move below.
 
 Per tool not needed by every run:
 
-- **`jq`** — Used only by the manager's own `npm test`, so the manager is the only project that
-  would declare it. The manager has no `.sandbox/` today (and its `rebase.sh` test runs wherever its
-  CI runs, not only in the sandbox). The manager's own sandbox runs would rebuild its project image
-  whenever the shared one does. Cost: a manager `.sandbox/Dockerfile` of one `apt-get install jq`
-  and a project image where there was none. The saving is small.
+- **`jq`** — Not manager-only: the issue-reading line in `docs/agents/issue-tracker.md` is in every
+  project and pipes into the binary, so any run on any project may need it. Moving it would mean
+  every project declaring it (plus the manager's own `npm test`), and a project without it fails
+  mid-run on an instruction the harness itself gives. Cost: a `.sandbox/Dockerfile` with one
+  `apt-get install jq` in every project and a project image where there was none. The saving is
+  small.
 - **`curl`** — Used only at build time. Removing it from the final layers, or purging it after the
   `gh` key fetch, is a change inside the shared image, not a move: no project would declare it.
 - **JRE** — Declared by `home-catalogue` and `data-platform` (2 projects, twice). Both rebuild when
@@ -101,7 +102,7 @@ The developer decides; these are one reader's recommendations.
 | --- | --- | --- |
 | `node:22-slim`, `git`, `gh`, `ca-certificates`, Claude CLI, harness plugin, settings, git identity, non-root user, watchdog env | **Keep** in the shared image | Every run needs them; no project could supply them without the manager's wiring. |
 | Personal skills `apply-pr-review`, `rebase-pr`, `ux-review` | **Keep** | They exist because a project's clone cannot carry them. |
-| `jq` | **Keep for now; revisit** | Only the manager's own tests use it, but moving it creates a `.sandbox/` for the manager. Not worth a new failure path. |
+| `jq` | **Keep** | The uniform `issue-tracker.md` has an agent pipe issue comments into it in any run kind, so every project would need it declared, for a small saving and a new failure path. |
 | `curl` | **Trim in place** (purge after the key fetch) | Not a move; no project declares it, and no run uses it. |
 | Temurin 21 JRE | **Move** to `home-catalogue` and `data-platform` `.sandbox/Dockerfile`s | The clearest per-project need: exactly two projects, both with the same `test:rules`, and a JRE on disk for every other run. Accept the duplicate declaration; keep the version in step by hand, or have the second project copy the first. Do it only after both projects' `.sandbox/` exist and one has built, since a missing JRE fails `test:rules` mid-run. |
 | Playwright + Chromium | **Keep for now** | One project uses it, but moving it takes changes in the manager (config, verify step), which is a separate ticket's worth of work. Revisit if a second ux-less project makes the disk cost matter, or if the browser's version needs to differ per project. |
