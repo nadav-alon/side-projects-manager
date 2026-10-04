@@ -1,6 +1,6 @@
 # Coding Standards
 
-House rules for source in this repo. Implementation runs and the `/code-review` standards axis read
+House rules for source in this repo. Implementation runs and the review's standards axis read
 this file and [`docs/project-standards.md`](../project-standards.md).
 
 ## Comments outlive the review
@@ -25,7 +25,7 @@ Anything that only makes sense while the PR is open does not belong in the sourc
 
 The one sanctioned way to name unfinished work in source:
 
-```ts
+```
 // TODO[#7]: run the selected ticket in the sandbox.
 ```
 
