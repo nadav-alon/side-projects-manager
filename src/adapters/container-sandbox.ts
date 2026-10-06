@@ -3075,6 +3075,15 @@ function dockerCommand(
     // read-only with a credential that cannot push (see `Mount`).
     "--permission-mode",
     "bypassPermissions",
+    // The CLI's own sandbox is switched off for the run, whatever the
+    // project's `.claude/settings.json` says. That setting serves the
+    // developer's interactive sessions; here the container is the boundary,
+    // and the image has neither bubblewrap nor socat, so a project demanding
+    // the sandbox (`failIfUnavailable`) would have every run exit before its
+    // first tool call. `--settings` outranks the project's file without
+    // editing it, and a project with no `sandbox` block is unaffected.
+    "--settings",
+    '{"sandbox":{"enabled":false}}',
     // The spend ceiling, enforced by the agent CLI rather than by the manager:
     // nothing out here can stop a run that is already going, and a run that
     // overspends is exactly the one the gate cannot catch until the morning

@@ -5367,6 +5367,24 @@ fi`;
   });
 
   /**
+   * A project's settings.json may demand the CLI's own sandbox, which the
+   * image cannot provide: the CLI would exit 1 before its first tool call.
+   */
+  it("overrides the project's demand for the CLI's own sandbox", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), {
+      sandbox: { enabled: false },
+    });
+  });
+
+  /**
    * Unpinned, the container runs as the image's own user, and everything the
    * agent writes through the bind mount is owned by that uid rather than by
    * whoever started the run — invisible on a host whose developer happens to
