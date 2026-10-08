@@ -29,6 +29,10 @@ own uid. There is no network restriction and no resource ceiling. The spec's cla
 radius of an unattended run is one throwaway clone of one project is backed by this adapter's own
 choices, not by a sandbox someone else maintains — which means it is ours to keep true.
 
+The agent CLI's own sandbox is switched off for every run (`--settings`), whatever a project's
+`.claude/settings.json` demands: the container is the boundary, and the image carries no bubblewrap
+to give the CLI one.
+
 The user pin is not a privilege boundary and was never chosen as one: the agent runs as the
 developer, which is whose files the bind mount exposes anyway. What it buys is that the clone comes
 back owned by the developer, and that the CLI will run unattended at all — it refuses
