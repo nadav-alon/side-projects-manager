@@ -662,6 +662,18 @@ const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
 });
 
 /**
+ * The settings the agent CLI is handed for every run, whatever the project's
+ * `.claude/settings.json` says: its own sandbox is off. That setting serves
+ * the developer's interactive sessions; here the container is the boundary,
+ * and the image has neither bubblewrap nor socat, so a project demanding the
+ * sandbox would have every run exit before its first tool call.
+ * `failIfUnavailable` is overridden too, so the run does not lean on it being
+ * inert while `enabled` is false. `--settings` outranks the project's file
+ * without editing it, and a project with no `sandbox` block is unaffected.
+ */
+const CLI_SETTINGS = JSON.stringify({ sandbox: { enabled: false, failIfUnavailable: false } });
+
+/**
  * The six shapes a sandboxed run comes in — named for `withThrowawayClone`
  * and `attempt` alike. `TicketKind` with `"implementation"` spelled `"run"`:
  * derived, rather than spelled out again, so a kind added to `TicketKind`
@@ -3075,15 +3087,8 @@ function dockerCommand(
     // read-only with a credential that cannot push (see `Mount`).
     "--permission-mode",
     "bypassPermissions",
-    // The CLI's own sandbox is switched off for the run, whatever the
-    // project's `.claude/settings.json` says. That setting serves the
-    // developer's interactive sessions; here the container is the boundary,
-    // and the image has neither bubblewrap nor socat, so a project demanding
-    // the sandbox (`failIfUnavailable`) would have every run exit before its
-    // first tool call. `--settings` outranks the project's file without
-    // editing it, and a project with no `sandbox` block is unaffected.
     "--settings",
-    '{"sandbox":{"enabled":false}}',
+    CLI_SETTINGS,
     // The spend ceiling, enforced by the agent CLI rather than by the manager:
     // nothing out here can stop a run that is already going, and a run that
     // overspends is exactly the one the gate cannot catch until the morning
