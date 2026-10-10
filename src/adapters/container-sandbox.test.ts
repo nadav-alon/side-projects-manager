@@ -5862,6 +5862,57 @@ fi`;
       assert.equal(reported[0]?.lastTool, undefined);
     });
 
+    it("counts an event split across two chunks once, as a tool call", async (t) => {
+      const event = JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", name: "Read" }] },
+      });
+      const cut = Math.floor(event.length / 2);
+      const script = [
+        `printf '%s' ${shQuote(event.slice(0, cut))}`,
+        "sleep 0.3",
+        `printf '%s\\n' ${shQuote(event.slice(cut))}`,
+        `printf '%s' ${shQuote(JSON.stringify({ type: "result", result: "Done." }))}`,
+        "exit 0",
+      ].join("\n");
+      const reported: RunProgress[] = [];
+      await runWithDocker(t, script, (sandbox, directory) =>
+        sandbox.run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          onProgress: (progress) => reported.push(progress),
+        }),
+      );
+
+      assert.deepEqual(
+        reported.map((progress) => progress.toolCalls),
+        [1, 1],
+      );
+      assert.equal(reported[0]?.lastTool?.name, "Read");
+    });
+
+    it("reads a provider failure and a spent budget off the result event of a stream", async (t) => {
+      const init = JSON.stringify({ type: "system", subtype: "init" });
+      const failed = await runWithDocker(
+        t,
+        dockerAnswering(`${init}\n${PROVIDER_FAILURE_STDOUT}`, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+      assert.equal(failed.result.kind, "provider-failed");
+      assert.equal(variant(failed.result, "provider-failed")?.words, PROVIDER_FAILURE_JSON_RESULT);
+
+      const spent = await runWithDocker(
+        t,
+        dockerAnswering(`${init}\n${BUDGET_EXHAUSTED_STDOUT}`, "", 1),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+      assert.equal(spent.result.kind, "budget-exhausted");
+    });
+
     it("goes on with the run when the progress callback throws", async (t) => {
       t.mock.method(console, "warn", () => undefined);
       const { result } = await runWithDocker(
