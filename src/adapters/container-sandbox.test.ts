@@ -33,6 +33,7 @@ import {
   STALL_POLL_INTERVAL,
   STALL_TIMEOUT,
   TICKET_GIST_TAG,
+  STREAM_TAIL,
   TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
   type AgentRun,
@@ -5921,6 +5922,47 @@ fi`;
       assert.equal(reported[0]?.lastTool, undefined);
     });
 
+    it("reads a result line longer than the stream tail", async (t) => {
+      const result = JSON.stringify({
+        type: "result",
+        result: "z".repeat(STREAM_TAIL + 1000),
+        usage: { input_tokens: 7, output_tokens: 5 },
+      });
+      const script = [`printf '%s\\n' ${shQuote(result)}`, "exit 0"].join("\n");
+      const { result: outcome } = await runWithDocker(t, script, (sandbox, directory) =>
+        sandbox.run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+      );
+
+      assert.equal(Number(variant(outcome, "finished")?.tokensUsed), 32);
+    });
+
+    it("reports progress through a stream larger than the output limit", async (t) => {
+      const result = JSON.stringify({ type: "result", result: "Done." });
+      const script = [
+        `yes ${shQuote("x".repeat(99))} | head -c 70000000`,
+        `printf '%s\\n' ${shQuote(result)}`,
+        "exit 0",
+      ].join("\n");
+      const reported: RunProgress[] = [];
+      await runWithDocker(t, script, (sandbox, directory) =>
+        sandbox.run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          onProgress: (progress) => reported.push(progress),
+        }),
+      );
+
+      // One report per line, the final `result` line included.
+      assert.equal(reported.length, 70000000 / 100 + 1);
+    });
+
     it("reads the result of a stream larger than the output limit", async (t) => {
       const result = JSON.stringify({
         type: "result",
@@ -5962,7 +6004,8 @@ fi`;
 
       const output = variant(result, "finished")?.output ?? "";
       assert.ok(output.length > 0);
-      assert.ok(output.length < 4 * 1024 * 1024);
+      // The tail, plus the notes and stderr `withDiagnostics` may add.
+      assert.ok(output.length <= STREAM_TAIL + 1024);
     });
 
     it("counts an event split across two chunks once, as a tool call", async (t) => {
