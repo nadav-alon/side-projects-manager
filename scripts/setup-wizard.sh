@@ -397,4 +397,19 @@ else
   note "skipped — run 'npm run new-project -- owner/repo \"idea\"' (or --existing) when ready."
 fi
 
+# ── Stage 7: the status line ────────────────────────────────────────────────
+stage "Status line"
+say "A status line for interactive sessions: the session's mode in colour, the"
+say "repo and branch, the model and spend, and whether the loop is halted or in"
+say "flight. Written to ~/.claude/settings.json; safe to run again."
+if confirm "Set the status line now?"; then
+  if node "$REPO_DIR/scripts/install-status-line.ts"; then
+    printf '  %s✓%s statusLine set in ~/.claude/settings.json.\n' "$GREEN" "$RESET"
+  else
+    SKIPPED+=("status line — re-run 'node scripts/install-status-line.ts' from $REPO_DIR")
+  fi
+else
+  SKIPPED+=("status line — run 'node scripts/install-status-line.ts' from $REPO_DIR to see the mode and the loop's state")
+fi
+
 finish
