@@ -3121,9 +3121,10 @@ function dockerCommand(
     "--print",
     prompt,
     // One NDJSON event per message as it happens; the final `result` line
-    // carries what the `json` envelope did. Per-message events are enough, so
-    // `--include-partial-messages` is not asked for. `--verbose` is what the
-    // CLI requires of `stream-json` in print mode.
+    // carries the result text, usage, cost, session and tool denials.
+    // Per-message events are enough, so `--include-partial-messages` is not
+    // asked for. `--verbose` is what the CLI requires of `stream-json` in print
+    // mode.
     "--output-format",
     "stream-json",
     "--verbose",
@@ -3210,8 +3211,8 @@ function captured(error: unknown): { stdout: string; stderr: string } {
 
 /**
  * What `claude --output-format stream-json` said. The run's envelope is the
- * stream's final `result` event; a single JSON document (what `json` printed)
- * is read the same way. Output the manager cannot parse is still output
+ * stream's final `result` event; a single JSON document
+ * is read the same way, since a CLI that ignores the format flag prints one. Output the manager cannot parse is still output
  * worth keeping, so a stream with no readable `result` event reports the raw
  * text and no spend rather than failing the run — and events that do not
  * parse mid-stream are skipped, not fatal.
@@ -3324,9 +3325,9 @@ function withDiagnostics(
 /**
  * Turns the chunks of a stream-json stdout into calls to `onProgress`, one
  * per complete line. A chunk may end mid-line, so the unfinished tail is held
- * until the rest of it arrives, or the stream ends. Every non-empty line is an event for
- * `lastEventAt`, parseable or not; only an `assistant` event's `tool_use`
- * blocks count as tool calls.
+ * until the rest of it arrives, or the stream ends. Every non-empty line is
+ * an event for `lastEventAt`, parseable or not; only an `assistant` event's
+ * `tool_use` blocks count as tool calls.
  *
  * A callback that throws is warned about rather than let escape: this runs
  * inside a stream listener, where a throw would take down the whole process,
