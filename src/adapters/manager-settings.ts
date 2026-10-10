@@ -1,8 +1,8 @@
-// Dependency-free beyond its two sibling imports, because `scripts/verify-harness.ts` runs
+// Dependency-free beyond its two imports from `src/ports/`, because `scripts/verify-harness.ts` runs
 // it inside the built image, where nothing else of `src/` is mounted.
 
 import type { Branch } from "../ports/branch.ts";
-import { FORCE_PUSH_RUN_KINDS } from "../ports/sandbox.ts";
+import { FORCE_PUSH_RUN_KINDS, type RunKind } from "../ports/sandbox.ts";
 
 /**
  * The settings the agent CLI is handed for every run, whatever the project's
@@ -19,18 +19,21 @@ const CLI_SETTINGS_SANDBOX = { enabled: false, failIfUnavailable: false };
 /**
  * The deny rules the manager hands every run, whatever the project's own
  * `.claude/settings.json` denies — or does not: a project with an empty one
- * is protected the same. They replace the project's for merging and pushing:
- * a project's rules can pull against a run's contract (a rebase must
- * force-push), and a manager that outranks them has to carry its own.
+ * is protected the same. They are added to whatever the project denies, not
+ * in place of it: Claude Code merges `permissions.deny` across settings
+ * sources, so a project's own force-push rule still applies on top until the
+ * override in #1310 lands. That override is what lets a rebase (which must
+ * force-push) past the project's rule, and it needs the manager to carry its
+ * own first.
  * Carried in `--settings` rather than baked into the image, so they travel
  * with the manager and need no image rebuild to change.
  *
  * Refused to every run: `gh pr merge`, a push to `base`, and a force-push.
  * A kind in `FORCE_PUSH_RUN_KINDS` is refused `--force` alone, leaving it
  * `--force-with-lease`. Each rule is a fixed string, so a denial's rule can
- * be named in the hand-back (`ruleDenying`).
+ * be named in the hand-back (`managerRulesRefusing`).
  */
-export function managerDenyRules(kind: string, base: Branch): string[] {
+export function managerDenyRules(kind: RunKind, base: Branch): string[] {
   const forcePush = FORCE_PUSH_RUN_KINDS.includes(kind)
     ? ["Bash(git push --force)", "Bash(git push --force *)"]
     : ["Bash(git push --force*)"];
@@ -43,7 +46,7 @@ export function managerDenyRules(kind: string, base: Branch): string[] {
 }
 
 /** The settings the agent CLI is handed for a run of `kind` against `base`. */
-export function cliSettings(kind: string, base: Branch): string {
+export function cliSettings(kind: RunKind, base: Branch): string {
   return JSON.stringify({
     sandbox: CLI_SETTINGS_SANDBOX,
     permissions: { deny: managerDenyRules(kind, base) },
