@@ -90,6 +90,7 @@ import {
   PROVIDER_FAILURE_STDOUT,
   recordingGh,
   recordingDocker,
+  structuredStdout,
   tempHome,
   valueOf,
   type RecordedDocker,
@@ -6011,13 +6012,12 @@ fi`;
         t,
         dockerAnswering(
           JSON.stringify({
-            is_error: false,
-            result: "Implemented the thing.",
-            structured_output: {
-              gist: "Add retries to the flaky upload step.",
-              nits: "- one nit",
-              gaveUp: false,
-            },
+            ...JSON.parse(
+              structuredStdout("Implemented the thing.", {
+                gist: "Add retries to the flaky upload step.",
+                nits: "- one nit",
+              }),
+            ),
             permission_denials: [{ tool_name: "Bash" }],
           }),
           "npm warn deprecated foo@1.0.0\n",
@@ -6038,10 +6038,7 @@ fi`;
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
-          JSON.stringify({
-            result: "done",
-            structured_output: { gist: "One.\nTwo.", nits: "  - padded  ", gaveUp: false },
-          }),
+          structuredStdout("done", { gist: "One.\nTwo.", nits: "  - padded  " }),
         ),
         (sandbox, directory) =>
           sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
@@ -6055,10 +6052,7 @@ fi`;
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
-          JSON.stringify({
-            result: "could not finish",
-            structured_output: { gaveUp: true, reason: "the tests stay red" },
-          }),
+          structuredStdout("could not finish", { gaveUp: true, reason: "the tests stay red" }),
         ),
         (sandbox, directory) =>
           sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
