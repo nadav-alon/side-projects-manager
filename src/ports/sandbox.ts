@@ -34,6 +34,23 @@ export interface RunStarted {
 /** The callback every `Sandbox` method takes `onStarted` as. */
 export type OnRunStarted = (started: RunStarted) => void;
 
+/**
+ * Where a run in flight has got to, as of the last event its agent streamed.
+ * Counted and stamped by the sandbox as events arrive, so a caller can tell a
+ * run that is working from one that has gone quiet.
+ */
+export interface RunProgress {
+  /** How many tool calls the agent has made so far. */
+  toolCalls: number;
+  /** The most recent tool call, absent until the agent has made one. */
+  lastTool?: { name: string; at: Date };
+  /** When the last event of any kind arrived. */
+  lastEventAt: Date;
+}
+
+/** The callback a run request takes `onProgress` as. */
+export type OnRunProgress = (progress: RunProgress) => void;
+
 /** One ticket, and the project checkout it is to be worked against. */
 export interface RunRequest {
   ticket: Ticket;
@@ -84,6 +101,12 @@ export interface RunRequest {
    * for a project that declares none.
    */
   mounts?: readonly ReadOnlyMount[];
+  /**
+   * Called as the run's events arrive, with where it has got to. Absent, the
+   * sandbox does no progress work at all. A callback that throws is warned
+   * about and the run goes on.
+   */
+  onProgress?: OnRunProgress;
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
