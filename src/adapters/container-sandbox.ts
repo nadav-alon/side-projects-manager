@@ -40,7 +40,7 @@ import type {
   UxReviewRequest,
   UxReviewTicket,
   Ticket,
-  TicketKind,
+  RunKind,
   TranscriptDirectory,
   UniformFilesReverted,
   Usd,
@@ -701,14 +701,6 @@ const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
  * the real CLI).
  */
 const IGNORE_PROJECT_SETTINGS_ARGS = ["--setting-sources", "user"];
-
-/**
- * The six shapes a sandboxed run comes in — named for `withThrowawayClone`
- * and `attempt` alike. `TicketKind` with `"implementation"` spelled `"run"`:
- * derived, rather than spelled out again, so a kind added to `TicketKind`
- * forces the issue here too, as it already does at `SELECTION_RANK`.
- */
-type RunKind = Exclude<TicketKind, "implementation"> | "run";
 
 /**
  * Runs `body` on a throwaway clone's directory, named for the `kind` of run
@@ -1972,13 +1964,7 @@ async function cloneOntoPullRequestHead(
     }
     return origin;
   });
-  const { stdout: onto } = await run("git", ["-C", clone, "branch", "--show-current"]);
-  const base = onto.trim();
-  if (!isBranch(base)) {
-    throw new Error(
-      `${clone} is not on a usable branch, so there is no base to check ${head}'s push against.`,
-    );
-  }
+  const base = await baseBranchOf(clone);
   await run("git", [
     "-C",
     clone,
@@ -3330,21 +3316,29 @@ function readAgentRun(stdout: string, stderr = "", rules: readonly string[] = []
  * discarding the one field that says why a run came to nothing.
  */
 function deniedTools(envelope: object): string[] {
-  const { permission_denials: denials } = envelope as {
-    permission_denials?: unknown;
-  };
+  return [...new Set(refusals(envelope).map(({ tool }) => tool))];
+}
+
+/**
+ * The calls the CLI refused the agent, as the envelope's `permission_denials`
+ * list them: the tool, and the command when it was a Bash call.
+ */
+function refusals(envelope: object): { tool: string; command?: string }[] {
+  const { permission_denials: denials } = envelope as { permission_denials?: unknown };
   if (!Array.isArray(denials)) {
     return [];
   }
-
-  const names = denials
-    .map((denial: unknown) =>
-      typeof denial === "object" && denial !== null
-        ? (denial as { tool_name?: unknown }).tool_name
-        : undefined,
-    )
-    .filter((name): name is string => typeof name === "string");
-  return [...new Set(names)];
+  return denials.flatMap((denial: unknown) => {
+    const { tool_name: tool, tool_input: input } = (denial ?? {}) as {
+      tool_name?: unknown;
+      tool_input?: { command?: unknown };
+    };
+    if (typeof tool !== "string") {
+      return [];
+    }
+    const command = input?.command;
+    return [typeof command === "string" ? { tool, command: command.trim() } : { tool }];
+  });
 }
 
 /**
@@ -3358,23 +3352,14 @@ function ruleMatches(rule: string, command: string): boolean {
 
 /**
  * The manager's own deny rules the CLI refused the agent a command under, once
- * each in the order first hit. A refusal by the project's rules is told apart
- * from one by these because a developer reading "the agent could not push"
- * has to know whose rule it was.
+ * each in the order first hit, so a developer reading "the agent could not
+ * push" can see a manager rule that matched. The project may deny the same
+ * command too, and a compound command the CLI splits matches none by name.
  */
 function managerRulesRefusing(envelope: object, rules: readonly string[]): string[] {
-  const { permission_denials: denials } = envelope as { permission_denials?: unknown };
-  if (!Array.isArray(denials)) {
-    return [];
-  }
-  const commands = denials.flatMap((denial: unknown) => {
-    const { tool_name: tool, tool_input: input } = (denial ?? {}) as {
-      tool_name?: unknown;
-      tool_input?: { command?: unknown };
-    };
-    const command = input?.command;
-    return tool === "Bash" && typeof command === "string" ? [command.trim()] : [];
-  });
+  const commands = refusals(envelope).flatMap(({ tool, command }) =>
+    tool === "Bash" && command !== undefined ? [command] : [],
+  );
   return rules.filter((rule) => commands.some((command) => ruleMatches(rule, command)));
 }
 
@@ -3396,7 +3381,7 @@ function withDiagnostics(
       : `The agent was refused these tools and could not use them: ${denied.join(", ")}.`,
     managerRules.length === 0
       ? ""
-      : `The manager's own rules, not the project's, refused it: ${managerRules.join(", ")}.`,
+      : `The refused command matches the manager's own rules: ${managerRules.join(", ")}.`,
   ].filter((note) => note !== "");
   return notes.join("\n");
 }

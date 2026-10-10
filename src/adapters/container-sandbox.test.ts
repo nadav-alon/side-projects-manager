@@ -21,7 +21,6 @@ import { routeRunDiscoveries } from "../discovery-routing.ts";
 import { REASON_QUOTED } from "../hand-back.ts";
 import { imageTag, type ImageTag } from "../ports/image-tag.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
-import { cliSettings } from "./manager-settings.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import {
   AgentNeverRan,
@@ -41,7 +40,6 @@ import {
   type Credential,
   type Mount,
   type PullRequestHead,
-  type RunOptions,
 } from "./container-sandbox.ts";
 import {
   branch,
@@ -5447,7 +5445,8 @@ fi`;
 
     const [call] = await docker.calls();
     assert.equal(valueOf(call, "--setting-sources"), "user");
-    assert.ok(JSON.parse(valueOf(call, "--settings") ?? "null").permissions.deny.includes("Bash(gh pr merge*)"));
+    const { deny } = JSON.parse(valueOf(call, "--settings") ?? "null").permissions;
+    assert.ok(deny.includes("Bash(gh pr merge*)"));
   });
 
   it("still reads the project's settings for an apply-review run, which pushes plain", async (t) => {
@@ -5518,23 +5517,20 @@ fi`;
   });
 
   for (const kind of ["rebase", "apply-review"] as const) {
-    it(`lifts only the force-with-lease rule for a ${kind} run`, async () => {
+    it(`narrows the force-push rule to allow --force-with-lease for a ${kind} run`, async (t) => {
+      withCredential(t);
       const { directory } = await hostedProject();
-      let seen: RunOptions | undefined;
-      const sandbox = testSandbox(async (options) => {
-        seen = options;
-        return { output: "", tokensUsed: tokenCount(0) };
-      }, headIsBranch);
+      const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+      const sandbox = testSandbox(undefined, headIsBranch);
 
       await (kind === "rebase" ? rebaseOn(sandbox, directory) : applyReviewOn(sandbox, directory));
 
-      assert.ok(seen);
-      const { deny } = JSON.parse(cliSettings(seen.kind, seen.base)).permissions;
-      assert.equal(seen.kind, kind);
-      assert.deepEqual(deny, [
+      const [call] = await docker.calls();
+      const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+      assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions.deny, [
         "Bash(gh pr merge*)",
-        `Bash(git push origin ${seen.base})`,
-        `Bash(git push origin HEAD:${seen.base})`,
+        `Bash(git push origin ${base})`,
+        `Bash(git push origin HEAD:${base})`,
         "Bash(git push --force)",
         "Bash(git push --force *)",
       ]);
@@ -6191,7 +6187,7 @@ fi`;
       );
 
       const output = variant(result, "finished")?.output ?? "";
-      assert.match(output, /manager's own rules, not the project's, refused it: Bash\(gh pr merge\*\), Bash\(git push --force\*\)\./);
+      assert.match(output, /refused command matches the manager's own rules: Bash\(gh pr merge\*\), Bash\(git push --force\*\)\./);
       assert.doesNotMatch(output, /git status/);
     });
 

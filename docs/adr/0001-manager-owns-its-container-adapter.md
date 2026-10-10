@@ -41,14 +41,15 @@ outranks the project here too, the second setting it does: a rebase run is start
 the project's settings as before, force-push denies included.
 
 The same `--settings` carries the manager's own deny rules for `gh pr merge`, a push to the base
-branch and a force-push, on every run. They are what protects those operations, in place of whatever
-the project's own `.claude/settings.json` happens to deny: a project that wrote none is protected
-the same, and a rebase run can be let past the project's force-push rule only because the manager
-carries its own, lifted to `--force-with-lease` for the kinds whose contract is to force-push
-(apply-review, rebase). They live in `--settings` rather than the image because the settings travel
-with the manager's code, differ by run kind and base branch, and change with a commit rather than
-an image rebuild. A run refused by one says so in its hand-back, so a developer can tell the manager's
-rule from the project's.
+branch and a force-push, on every run. They protect those operations whatever the project's own
+`.claude/settings.json` denies: a project that wrote none is protected the same. Deny rules merge
+across settings sources, so a project's own rules still apply on top of these in every run that
+reads them; a rebase run, which does not, can be let past the project's force-push rule only because
+the manager carries its own, lifted to `--force-with-lease` for the kinds whose contract is to
+force-push (apply-review, rebase). They live in `--settings` rather than the image because the
+settings travel with the manager's code, differ by run kind and base branch, and change with a
+commit rather than an image rebuild. A run refused a command matching one says so in its output, so
+a developer can see the manager's rule among whatever else denied it.
 
 What a rebase run gives up by not reading project settings is everything else the project's file
 carries: its other `permissions.deny` rules, its hooks and its `env`, and possibly its `CLAUDE.md`

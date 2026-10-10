@@ -18,8 +18,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
-// `sandbox:verify` (package.json) mounts this one file from `src/` alongside
-// `scripts/` for exactly this import.
+// `sandbox:verify` (package.json) mounts these files from `src/` alongside
+// `scripts/` for exactly these imports.
 import { errorMessage } from "../src/error-message.ts";
 import { cliSettings } from "../src/adapters/manager-settings.ts";
 import { branch } from "../src/ports/branch.ts";
@@ -339,7 +339,9 @@ if (!usage.includes(PERMISSION_MODE)) {
  * with them: a CLI that stopped honouring `permissions.deny` from `--settings`
  * would leave every run free to merge, and nothing would say so. So a real
  * call is made with the settings a plain run gets, and `gh pr merge` must come
- * back among the envelope's `permission_denials`. Needs a model to ask for the
+ * back among the envelope's `permission_denials` (a command that merely
+ * contains it counts, as `cd x && gh pr merge 1` would). A model that declines to
+ * make the call fails the check as such, not as a CLI that ignored the rule. Needs a model to ask for the
  * call, hence a credential: without `CLAUDE_CODE_OAUTH_TOKEN` the check says it
  * was skipped rather than passing.
  */
@@ -362,7 +364,10 @@ function assertMergeDenied(): void {
     "0.25",
   );
 
-  let envelope: { permission_denials?: { tool_name?: string; tool_input?: { command?: string } }[] };
+  let envelope: {
+    num_turns?: number;
+    permission_denials?: { tool_name?: string; tool_input?: { command?: string } }[];
+  };
   try {
     envelope = JSON.parse(output);
   } catch (error) {
@@ -370,8 +375,13 @@ function assertMergeDenied(): void {
   }
 
   const denied = (envelope.permission_denials ?? []).some(
-    (denial) => denial.tool_name === "Bash" && denial.tool_input?.command?.startsWith("gh pr merge"),
+    (denial) => denial.tool_name === "Bash" && denial.tool_input?.command?.includes("gh pr merge"),
   );
+  if (!denied && (envelope.num_turns ?? 0) < 2) {
+    // A call that is made and refused costs a turn to answer; a run of one turn
+    // is a model that declined to make it, which says nothing of the CLI.
+    fail("the model never attempted `gh pr merge`, so the deny rule was not exercised", output);
+  }
   if (!denied) {
     fail(
       "a `gh pr merge` call was not denied by the manager's own settings, so a run in this image could merge a pull request",

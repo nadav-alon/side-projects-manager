@@ -249,6 +249,7 @@ export type {
   RunRequest,
   RunSandboxFailed,
   RunStarted,
+  RunKind,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
