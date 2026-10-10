@@ -2944,7 +2944,7 @@ const dockerContainer: Container = async (options) => {
       running.child.stdout?.on("end", () => progress.onEnd());
     }
     const { stdout, stderr } = await running;
-    return readAgentRun(stdout, stderr);
+    return readAgentRun(stdout, stderr, managerDenyRules(options.kind, options.base));
   } catch (error: unknown) {
     // `options.signal.aborted` means this exit is ours: `onAbort` already
     // `docker kill`ed the container, `execFile`'s own `signal` already ended
@@ -2960,7 +2960,7 @@ const dockerContainer: Container = async (options) => {
     if (dockerNeverRan(error)) {
       throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
-    return readExitedRun(error);
+    return readExitedRun(error, managerDenyRules(options.kind, options.base));
   } finally {
     options.signal.removeEventListener("abort", onAbort);
     await killed;
@@ -3009,9 +3009,9 @@ export function dockerNeverRanMessage(error: unknown): string {
  * hangs the output it did capture off the error, so the run still comes back
  * with what it said and what it spent.
  */
-function readExitedRun(error: unknown): AgentRun {
+function readExitedRun(error: unknown, rules: readonly string[]): AgentRun {
   const { stdout, stderr } = captured(error);
-  return { ...readAgentRun(stdout, stderr), failure: commandFailure(error, stderr) };
+  return { ...readAgentRun(stdout, stderr, rules), failure: commandFailure(error, stderr) };
 }
 
 /**
@@ -3315,7 +3315,7 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * nothing — and `nitsFrom`, which trims the gist's own line off first, would
  * read the appended text as more nits.
  */
-function readAgentRun(stdout: string, stderr = ""): AgentRun {
+function readAgentRun(stdout: string, stderr = "", rules: readonly string[] = []): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = resultEvent(stdout) ?? parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
@@ -3343,7 +3343,12 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const providerFailure = providerFailureFromEnvelope(envelope);
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
-    output: withDiagnostics(output, stderr, deniedTools(envelope)),
+    output: withDiagnostics(
+      output,
+      stderr,
+      deniedTools(envelope),
+      managerRulesRefusing(envelope, rules),
+    ),
     tokensUsed: totalTokens(modelUsage, usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
@@ -3389,13 +3394,45 @@ function deniedTools(envelope: object): string[] {
 }
 
 /**
+ * Whether a Bash `command` falls under a `managerDenyRules` rule: a rule
+ * ending in `*` matches by prefix, any other exactly.
+ */
+function ruleMatches(rule: string, command: string): boolean {
+  const pattern = rule.slice("Bash(".length, -1);
+  return pattern.endsWith("*") ? command.startsWith(pattern.slice(0, -1)) : command === pattern;
+}
+
+/**
+ * The manager's own deny rules the CLI refused the agent a command under, once
+ * each in the order first hit. A refusal by the project's rules is told apart
+ * from one by these because a developer reading "the agent could not push"
+ * has to know whose rule it was.
+ */
+function managerRulesRefusing(envelope: object, rules: readonly string[]): string[] {
+  const { permission_denials: denials } = envelope as { permission_denials?: unknown };
+  if (!Array.isArray(denials)) {
+    return [];
+  }
+  const commands = denials.flatMap((denial: unknown) => {
+    const { tool_name: tool, tool_input: input } = (denial ?? {}) as {
+      tool_name?: unknown;
+      tool_input?: { command?: unknown };
+    };
+    const command = input?.command;
+    return tool === "Bash" && typeof command === "string" ? [command.trim()] : [];
+  });
+  return rules.filter((rule) => commands.some((command) => ruleMatches(rule, command)));
+}
+
+/**
  * Everything worth keeping alongside what the agent said: what it wrote to
- * stderr, and what it was refused.
+ * stderr, what it was refused, and which of the manager's own rules refused it.
  */
 function withDiagnostics(
   output: string,
   stderr: string,
   denied: readonly string[] = [],
+  managerRules: readonly string[] = [],
 ): string {
   const notes = [
     output,
@@ -3403,6 +3440,9 @@ function withDiagnostics(
     denied.length === 0
       ? ""
       : `The agent was refused these tools and could not use them: ${denied.join(", ")}.`,
+    managerRules.length === 0
+      ? ""
+      : `The manager's own rules, not the project's, refused it: ${managerRules.join(", ")}.`,
   ].filter((note) => note !== "");
   return notes.join("\n");
 }

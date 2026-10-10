@@ -6172,6 +6172,46 @@ fi`;
       assert.match(output, /write permission was denied/);
     });
 
+    it("says it was the manager's own rule when a merge or a force-push was refused", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            result: "I could not push.",
+            permission_denials: [
+              { tool_name: "Bash", tool_input: { command: "gh pr merge 12 --squash" } },
+              { tool_name: "Bash", tool_input: { command: "git push --force origin feature" } },
+              { tool_name: "Bash", tool_input: { command: "git status" } },
+            ],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const output = variant(result, "finished")?.output ?? "";
+      assert.match(output, /manager's own rules, not the project's, refused it: Bash\(gh pr merge\*\), Bash\(git push --force\*\)\./);
+      assert.doesNotMatch(output, /git status/);
+    });
+
+    it("does not blame the manager when a refusal matches none of its rules", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            result: "x",
+            permission_denials: [{ tool_name: "Bash", tool_input: { command: "git commit -m x" } }],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.doesNotMatch(variant(result, "finished")?.output ?? "", /manager's own rules/);
+    });
+
     it("names each refused tool once, however often it was refused", async (t) => {
       const { result } = await runWithDocker(
         t,
