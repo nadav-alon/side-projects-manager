@@ -29,6 +29,7 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunRequest,
+  ReadOnlyMount,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
@@ -414,6 +415,11 @@ export interface RunOptions {
    * carries, via `--mcp-config`. Absent, the agent has no browser.
    */
   playwrightMcp?: true;
+  /**
+   * Host directories `dockerCommand` mounts read-only at their container
+   * paths, whatever `mount` is. Set by `containerSandbox` from the request.
+   */
+  mounts?: readonly ReadOnlyMount[];
   /** As `RunRequest.model`, absent to leave the image's own pin in force. */
   model?: ModelName;
   /**
@@ -526,14 +532,17 @@ export function containerSandbox(
   };
 
   /**
-   * Hands `body` a `container` that starts every run in `image` — the tag
-   * `prepare` resolved, so nothing of the run resolves or builds again.
+   * Hands `body` a `container` that starts every run in the request's
+   * `image` — the tag `prepare` resolved, so nothing of the run resolves or
+   * builds again — with its `mounts` bound read-only.
    */
   function inProjectImage<T>(
-    image: ImageTag,
+    { image, mounts }: { image: ImageTag; mounts?: readonly ReadOnlyMount[] },
     body: (container: ContainerInImage) => Promise<T>,
   ): Promise<T> {
-    return body((options) => container({ ...options, image }));
+    return body((options) =>
+      container({ ...options, image, ...(mounts !== undefined && { mounts }) }),
+    );
   }
 
   function run(
@@ -548,7 +557,7 @@ export function containerSandbox(
     request: RunRequest,
     onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       runOnClone(inImage, request, roots, onStarted, onPoll),
     );
   }
@@ -565,7 +574,7 @@ export function containerSandbox(
     request: ReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       pullRequestReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -582,7 +591,7 @@ export function containerSandbox(
     request: ApplyReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       applyReviewOnClone(inImage, pullRequestHead, request, roots, onStarted),
     );
   }
@@ -599,7 +608,7 @@ export function containerSandbox(
     request: RebaseRequest,
     onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       rebaseOnClone(inImage, pullRequestHead, request, roots, onStarted),
     );
   }
@@ -616,7 +625,7 @@ export function containerSandbox(
     request: SpecReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       specReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -633,7 +642,7 @@ export function containerSandbox(
     request: UxReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<UxReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       uxReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -3008,6 +3017,7 @@ function dockerCommand(
     spendCeiling,
     image,
     mount,
+    mounts,
     playwrightMcp,
     model,
     transcriptDirectory,
@@ -3048,6 +3058,12 @@ function dockerCommand(
     // exactly as a run does, even though its clone is read-only.
     "--volume",
     `${discoveriesDirectory}:${DISCOVERIES_MOUNT}`,
+    // Read-only whatever `mount` is: a project's declared directories are
+    // somewhere a run reads from, never somewhere it leaves work.
+    ...(mounts ?? []).flatMap(({ host, container }) => [
+      "--volume",
+      `${host}:${container}:ro`,
+    ]),
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "--env",

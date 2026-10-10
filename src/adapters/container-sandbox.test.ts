@@ -44,7 +44,9 @@ import {
 import {
   branch,
   checkout,
+  containerPath,
   commitSha,
+  hostDirectory,
   issueNumber,
   milliseconds,
   modelName,
@@ -5489,6 +5491,45 @@ fi`;
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+  });
+
+  it("mounts each declared host directory read-only at its container path, for a run and for a review", async (t) => {
+    const mounts = [
+      { host: hostDirectory("/srv/pilot/config"), container: containerPath("/mnt/config") },
+      { host: hostDirectory("/srv/pilot/logs"), container: containerPath("/mnt/logs") },
+    ];
+    const { docker: run } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING, mounts }),
+    );
+    const { docker: review } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING, mounts }),
+      "ro",
+    );
+
+    for (const docker of [run, review]) {
+      const [call] = await docker.calls();
+      const volumes = volumesOf(call);
+      assert.ok(volumes.includes("/srv/pilot/config:/mnt/config:ro"));
+      assert.ok(volumes.includes("/srv/pilot/logs:/mnt/logs:ro"));
+    }
+  });
+
+  it("mounts nothing beyond the clone, transcripts and discoveries for a project that declares no mounts", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.equal(volumesOf(call).length, 3);
   });
 
   it("mounts a fresh, writable directory at the agent's discoveries location", async (t) => {
