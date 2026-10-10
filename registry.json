@@ -14,7 +14,8 @@
       "turbo": true
     },
     {
-      "repo": "nadav-alon/ltlf-external-knowledge"
+      "repo": "nadav-alon/ltlf-external-knowledge",
+      "turbo": true
     },
     {
       "repo": "nadav-alon/self-hosted-media"
