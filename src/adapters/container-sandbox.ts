@@ -2439,15 +2439,6 @@ function rebasePromptFor(
 }
 
 /**
- * The tag `promptFor` asks the agent to close its output with, and `gistFrom`
- * reads back off the last line — the one place in source its wording is
- * spelled out, so the prompt and the parser cannot drift apart from each
- * other. Exported so a test can assert against the tag that ships rather
- * than a copy of the literal.
- */
-export const TICKET_GIST_TAG = "TICKET GIST:";
-
-/**
  * What the agent is asked to do. The repo's own instructions say how.
  *
  * `--repo` is spelled out because the clone's `origin` is a path on the host
@@ -2487,15 +2478,15 @@ function promptFor(
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
     "A nit your own change causes is fixed in that same commit, as part of",
-    "the change. Any other nit you notice is not a discovery: end your own",
-    `output with a section headed exactly \`${NIT_SECTION_HEADING}\`, listing`,
-    "each one, so the pull request opened from your output carries it for",
-    "the reviewer. Omit the section entirely if you have no such nit.",
+    "the change. Any other nit you notice is not a discovery: list each one in",
+    "the `nits` field of your final structured answer, so the pull request",
+    "opened from your output carries it for the reviewer. Omit the field if",
+    "you have no such nit.",
     discoveryInstructionsFor(discovered),
-    `Finally, after that section if you gave one, end your output with a line`,
-    `reading exactly \`${TICKET_GIST_TAG}\` followed by one sentence saying`,
-    "what the ticket asked for — not what your diff did; the run is complete",
-    "either way. This must be the true last line of your output.",
+    "Finally, give your final answer as the structured output: `gist` is one",
+    "sentence saying what the ticket asked for — not what your diff did; the",
+    "run is complete either way. Set `gaveUp` to true, with the `reason`, if",
+    "you stopped short of finishing the ticket, and to false otherwise.",
   ].join(" ");
 }
 
@@ -3102,6 +3093,11 @@ function dockerCommand(
     "--output-format",
     "stream-json",
     "--verbose",
+    // The final answer is validated against this and handed back as the
+    // envelope's `structured_output`, so the manager reads fields instead of
+    // pattern-matching prose.
+    "--json-schema",
+    JSON.stringify(RUN_ANSWER_SCHEMA),
     // Absent when the request named no model, leaving the image's own pin in
     // force. `model` is its own array element — `execFile` never runs through
     // a shell, so whatever the name contains reaches the CLI as one argument

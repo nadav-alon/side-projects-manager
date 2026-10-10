@@ -29,10 +29,10 @@ import {
   dockerNeverRanMessage,
   pruneOldDiscoveries,
   pruneOldTranscripts,
+  RUN_ANSWER_SCHEMA,
   SALVAGE_COMMIT_MESSAGE,
   STALL_POLL_INTERVAL,
   STALL_TIMEOUT,
-  TICKET_GIST_TAG,
   TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
   type AgentRun,
@@ -801,15 +801,8 @@ describe("containerSandbox", () => {
 
     assert.match(asked, /nit your own change causes.*is fixed in that same commit/);
     assert.match(asked, /Any other nit you notice is not a discovery/);
-    assert.match(
-      asked,
-      new RegExp(`end your own\\s+output with a section headed exactly \`${NIT_SECTION_HEADING}\``),
-    );
-    assert.match(asked, /true last line of your output/);
-    assert.ok(
-      asked.indexOf(NIT_SECTION_HEADING) < asked.indexOf(TICKET_GIST_TAG),
-      "the nits section is asked for before the closing ticket-gist line",
-    );
+    assert.match(asked, /`nits` field of your final structured answer/);
+    assert.doesNotMatch(asked, /TICKET GIST/);
   });
 
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
@@ -976,7 +969,7 @@ describe("containerSandbox", () => {
     assert.equal(result.tokensUsed, tokenCount(42_000));
   });
 
-  it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
+  it("asks for the gist, and whether it gave up, as fields of its structured answer", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
@@ -986,7 +979,8 @@ describe("containerSandbox", () => {
 
     await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.ok(asked.includes(TICKET_GIST_TAG));
+    assert.match(asked, /`gist` is one\s+sentence/);
+    assert.match(asked, /`gaveUp` to true, with the `reason`/);
   });
 
   it("carries the gist and nits a container read off the agent's answer", async () => {
@@ -1013,12 +1007,12 @@ describe("containerSandbox", () => {
     assert.equal(variant(result, "finished")?.gist, undefined);
   });
 
-  it("carries no gist on a run that gave up, even one tagged like a finished run's", async () => {
+  it("carries no gist on a run that gave up", async () => {
     const directory = await project();
     const commit = agentCommitting(
       ["one.txt"],
       0,
-      `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+      "Implemented the thing.",
     );
     const sandbox = testSandbox(async (options) => {
       await commit(options);
@@ -4932,6 +4926,10 @@ describe("containerSandbox with the real docker container", () => {
     assert.equal(call?.[(call.indexOf("--output-format") ?? -1) + 1], "stream-json");
     assert.ok(call?.includes("--verbose"));
     assert.ok(!call?.includes("--include-partial-messages"));
+    assert.deepEqual(
+      JSON.parse(valueOf(call, "--json-schema") ?? "null"),
+      JSON.parse(JSON.stringify(RUN_ANSWER_SCHEMA)),
+    );
     const volume = valueOf(call, "--volume") ?? "";
     const [mounted] = volume.split(":");
     assert.notEqual(mounted, directory, "must mount the clone, not the checkout");
@@ -5114,6 +5112,7 @@ fi`;
     const [call] = await docker.calls();
     assert.equal(call?.[(call.indexOf("--model") ?? -1) + 1], "opus");
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(call?.includes("--json-schema"), "a review answers against the same schema as a run");
     assert.ok(
       call?.includes("--permission-mode"),
       "no --permission-mode: a review denied Bash cannot even run gh to post its findings",
@@ -5410,6 +5409,7 @@ fi`;
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(call?.includes("--json-schema"), "a review answers against the same schema as a run");
   });
 
   it("mounts each declared host directory read-only at its container path, for a run and for a review", async (t) => {
@@ -5533,6 +5533,7 @@ fi`;
     const [call] = await docker.calls();
     assert.ok(mountsDiscoveries(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(call?.includes("--json-schema"), "a review answers against the same schema as a run");
   });
 
   /**
