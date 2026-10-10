@@ -10,6 +10,7 @@ import type {
   ModelDefaults,
   OpenInvocation,
   Priority,
+  ReadOnlyMount,
   ProjectState,
   RegisteredProject,
   RepoSlug,
@@ -44,6 +45,7 @@ export interface Registration {
   turbo?: boolean;
   priority?: Priority;
   manager?: true;
+  mounts?: ReadOnlyMount[];
 }
 
 /**
@@ -84,6 +86,7 @@ export class FakeStore implements Store {
         priority: registration.priority,
       }),
       ...(registration.manager === true && { manager: true }),
+      ...(registration.mounts !== undefined && { mounts: registration.mounts }),
     });
   }
 

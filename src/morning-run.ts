@@ -75,6 +75,7 @@ import {
   uniformFilesAmong,
 } from "./ports/index.ts";
 import type { ImageTag } from "./ports/image-tag.ts";
+import type { ReadOnlyMount } from "./ports/read-only-mount.ts";
 import {
   invocationBudgetGate,
   spendCeilingForTicket,
@@ -1435,12 +1436,13 @@ interface SandboxResult<Outcome> {
 /**
  * What `runInSandbox` hands a run's request beside the checkout, to spread
  * into it: the image `Sandbox.prepare` resolved, so the run starts in that tag
- * rather than resolving again; and the open issues already discovered against
- * the ticket its discoveries land on — absent, rather than empty, where there
- * are none.
+ * rather than resolving again; the project's declared read-only mounts; and
+ * the open issues already discovered against the ticket its discoveries land
+ * on — absent, rather than empty, where there are none.
  */
 type PreparedRequestParts = {
   image: ImageTag;
+  mounts?: readonly ReadOnlyMount[];
   discovered?: readonly DiscoveredTicketSummary[];
 };
 
@@ -1550,10 +1552,17 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     let outcome: Outcome;
     try {
       const discovered = await priorDiscoveriesFor(ports.tracker, ticket);
+      const registered = (await ports.store.loadRegistry()).find(
+        (project) => project.repo === repo,
+      );
       outcome = await sandboxCall(
         checkout,
         onStarted,
-        { image, ...(discovered.length > 0 && { discovered }) },
+        {
+          image,
+          ...(registered?.mounts !== undefined && { mounts: registered.mounts }),
+          ...(discovered.length > 0 && { discovered }),
+        },
       );
     } catch (error: unknown) {
       // Nothing comes back from a rejected run — no branch, no output, and no
