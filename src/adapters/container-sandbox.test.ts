@@ -46,7 +46,7 @@ import {
   checkout,
   containerPath,
   commitSha,
-  hostDirectory,
+  hostPath,
   issueNumber,
   milliseconds,
   modelName,
@@ -5497,8 +5497,8 @@ fi`;
     const config = await mkdtemp(path.join(tmpdir(), "mount-config-"));
     const logs = await mkdtemp(path.join(tmpdir(), "mount-logs-"));
     const mounts = [
-      { host: hostDirectory(config), container: containerPath("/mnt/config") },
-      { host: hostDirectory(logs), container: containerPath("/mnt/logs") },
+      { host: hostPath(config), container: containerPath("/mnt/config") },
+      { host: hostPath(logs), container: containerPath("/mnt/logs") },
     ];
     const { docker: run } = await runWithDocker(
       t,
@@ -5534,7 +5534,7 @@ fi`;
         ticket: TICKET,
         checkout: directory,
         spendCeiling: CEILING,
-        mounts: [{ host: hostDirectory(missing), container: containerPath("/mnt/config") }],
+        mounts: [{ host: hostPath(missing), container: containerPath("/mnt/config") }],
       }),
       (error: unknown) =>
         error instanceof AgentNeverRan && error.message.includes(missing),

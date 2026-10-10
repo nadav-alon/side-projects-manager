@@ -23,7 +23,7 @@ import {
   checkout,
   commitSha,
   containerPath,
-  hostDirectory,
+  hostPath,
   iterationLimit,
   issueNumber,
   localDay,
@@ -9614,7 +9614,7 @@ describe("morningLoop", () => {
     it("mounts the project's declared host directories into its run", async () => {
       const ports = fakePorts();
       const mounts = [
-        { host: hostDirectory("/srv/pilot/config"), container: containerPath("/mnt/config") },
+        { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
       ];
       ports.store.register(PILOT, { mounts });
       ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
@@ -9627,7 +9627,7 @@ describe("morningLoop", () => {
     it("mounts the project's declared host directories into its review", async () => {
       const ports = fakePorts();
       const mounts = [
-        { host: hostDirectory("/srv/pilot/config"), container: containerPath("/mnt/config") },
+        { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
       ];
       queued(ports, { mounts });
 

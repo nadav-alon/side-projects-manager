@@ -9,7 +9,7 @@ import {
   DEFAULT_BUDGET,
   branch,
   containerPath,
-  hostDirectory,
+  hostPath,
   day,
   exitCode,
   issueNumber,
@@ -95,7 +95,7 @@ describe("the registry document", () => {
         turbo: false,
         mounts: [
           {
-            host: hostDirectory("/srv/pilot/config"),
+            host: hostPath("/srv/pilot/config"),
             container: containerPath("/mnt/config"),
           },
         ],
@@ -129,7 +129,7 @@ describe("the registry document", () => {
         turbo: false,
         mounts: [
           {
-            host: hostDirectory("/srv/pilot/config"),
+            host: hostPath("/srv/pilot/config"),
             container: containerPath("/mnt/config"),
           },
         ],

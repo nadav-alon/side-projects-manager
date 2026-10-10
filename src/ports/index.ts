@@ -276,13 +276,13 @@ export {
 export type { TranscriptDirectory } from "./transcript-directory.ts";
 export {
   containerPath,
-  hostDirectory,
+  hostPath,
   isContainerPath,
-  isHostDirectory,
+  isHostPath,
 } from "./read-only-mount.ts";
 export type {
   ContainerPath,
-  HostDirectory,
+  HostPath,
   ReadOnlyMount,
 } from "./read-only-mount.ts";
 export { isSubmodulePath, submodulePath } from "./submodule-path.ts";

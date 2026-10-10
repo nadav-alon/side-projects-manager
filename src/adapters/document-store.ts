@@ -56,7 +56,7 @@ import {
   TICKET_KINDS,
   exitCode,
   isContainerPath,
-  isHostDirectory,
+  isHostPath,
   findInvocationRecord,
   isBranch,
   isDay,
@@ -377,7 +377,7 @@ function mountsField(entry: unknown, where: string): ReadOnlyMount[] | undefined
   const parsed = mounts.map((mount, index): ReadOnlyMount => {
     const at = `${where}: mount ${index + 1}`;
     const host = fieldOf(mount, "host", at);
-    if (typeof host !== "string" || !isHostDirectory(host)) {
+    if (typeof host !== "string" || !isHostPath(host)) {
       throw new Error(
         `${at}: "host" must be a normalised absolute path: ${JSON.stringify(host)}`,
       );
