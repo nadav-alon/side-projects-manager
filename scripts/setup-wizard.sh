@@ -181,7 +181,7 @@ finish() {
 
 # ──────────────────────────────────────────────────────────────────────────
 # STAGES: author this section. One stage() per step the human takes.
-# Replace the example below. Set TOTAL_STAGES to match the stages you write.
+# Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
 TOTAL_STAGES=7
@@ -363,8 +363,8 @@ fi
 # ── Stage 6: titles for interactive sessions ──────────────────────────────
 stage "Session titles"
 say "A UserPromptSubmit hook in ~/.claude/settings.json titles a session"
-say "'<mode>: <owner/repo>[#n]' when you invoke /grilling, /grill-me,"
-say "/standup, /triage or /wayfinder, in the /resume picker and the terminal tab."
+say "'<mode>: <owner/repo>[#n]' when you invoke a mode skill (see MODES in"
+say "src/session-title.ts), in the /resume picker and the terminal tab."
 say "It merges beside any hooks you already have and is safe to re-run."
 if confirm "Install the session-title hook?"; then
   if (cd "$REPO_DIR" && node scripts/install-session-title-hook.ts); then

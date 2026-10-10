@@ -7,6 +7,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { withPromptHook } from "../src/session-title-settings.ts";
+
 const HOOK_SCRIPT = path.join(import.meta.dirname, "session-title-hook.ts");
 
 const settingsPath =
@@ -29,27 +31,11 @@ function readSettings(): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** Whether a settings group holds a hook running our script. */
-function isOurs(group: unknown): boolean {
-  const hooks = (group as { hooks?: unknown })?.hooks;
-  return (
-    Array.isArray(hooks) &&
-    hooks.some((hook: { command?: unknown }) =>
-      String(hook?.command).includes("session-title-hook.ts"),
-    )
-  );
-}
-
-const settings = readSettings();
-const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-const existing = Array.isArray(hooks.UserPromptSubmit) ? hooks.UserPromptSubmit : [];
-settings.hooks = {
-  ...hooks,
-  UserPromptSubmit: [
-    ...existing.filter((group) => !isOurs(group)),
-    { hooks: [{ type: "command", command: `node ${JSON.stringify(HOOK_SCRIPT)}` }] },
-  ],
-};
+const settings = withPromptHook(
+  readSettings(),
+  path.basename(HOOK_SCRIPT),
+  `node ${JSON.stringify(HOOK_SCRIPT)}`,
+);
 
 mkdirSync(path.dirname(settingsPath), { recursive: true });
 writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);

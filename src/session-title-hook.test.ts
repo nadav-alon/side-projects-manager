@@ -52,9 +52,39 @@ for (const prompt of ["fix the bug", "/tdd", "/grillingly", "please /standup", "
 }
 
 test("a ticket named in the arguments is appended to the title", () => {
-  for (const prompt of ["/grilling pilot#42", "/triage #42", "/standup https://github.com/nadav-alon/pilot/issues/42"]) {
+  for (const prompt of ["/grilling nadav-alon/pilot#42", "/triage #42", "/standup https://github.com/nadav-alon/pilot/issues/42"]) {
     const mode = /^\/(\w+)/.exec(prompt)![1];
     assert.equal(runHook({ prompt }).hookSpecificOutput.sessionTitle, `${mode}: nadav-alon/pilot#42`);
+  }
+});
+
+test("a ticket of another repo is not appended to this repo's title", () => {
+  for (const prompt of ["/grilling other/repo#42", "/standup https://github.com/other/repo/issues/42"]) {
+    const mode = /^\/(\w+)/.exec(prompt)![1];
+    assert.equal(runHook({ prompt }).hookSpecificOutput.sessionTitle, `${mode}: nadav-alon/pilot`);
+  }
+});
+
+test("a hand title sharing our prefix is left alone", () => {
+  assert.equal(runHook({ prompt: "/triage", session_title: "triage: notes for Q3" }), undefined);
+});
+
+test("empty or malformed stdin passes through with no output", () => {
+  for (const input of ["", "not json"]) {
+    const result = spawnSync("node", [script], { input, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "");
+  }
+});
+
+test("with no origin the directory name titles the session, stripped of control characters", () => {
+  const bare = mkdtempSync(path.join(tmpdir(), "bare\u0007dir-"));
+  try {
+    const out = runHook({ prompt: "/triage", cwd: bare });
+    assert.equal(out.hookSpecificOutput.sessionTitle, `triage: ${path.basename(bare).replace("\u0007", "")}`);
+    assert.ok(!out.terminalSequence.slice(4, -1).includes("\u0007"));
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
   }
 });
 

@@ -5,47 +5,39 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import path from "node:path";
 
-import { isRepoSlug } from "../src/ports/repo-slug.ts";
+import { isRemoteUrl, repoOfRemote } from "../src/ports/remote-url.ts";
+import type { RepoSlug } from "../src/ports/repo-slug.ts";
+import {
+  isOwnTitle,
+  modeOf,
+  terminalTitleSequence,
+  ticketOf,
+  titleOf,
+} from "../src/session-title.ts";
 
-/** The skills that open an interactive session worth telling apart. */
-const MODES = "grilling|grill-me|standup|triage|wayfinder";
-const MODE_PROMPT = new RegExp(`^\\/(?:[\\w-]+:)?(${MODES})(?=\\s|$)`);
-
-/** A title this hook set: how it tells its own from one the developer chose. */
-const OWN_TITLE = new RegExp(`^(?:${MODES}): `);
-
-/** The ticket a mode skill's arguments name, as `#n` or an issue URL. */
-function ticketOf(prompt: string): string | undefined {
-  return /(?:#|\/issues\/)(\d+)\b/.exec(prompt)?.[1];
-}
-
-/** The mode named by a prompt that starts with a mode skill. */
-function modeOf(prompt: string): string | undefined {
-  return MODE_PROMPT.exec(prompt.trimStart())?.[1];
-}
-
-/** `owner/repo` of the cwd's origin remote, else the cwd's directory name. */
-function repoOf(cwd: string): string {
+/** `owner/repo` of the cwd's origin remote, if it has one. */
+function repoOf(cwd: string): RepoSlug | undefined {
   try {
     const url = execFileSync("git", ["remote", "get-url", "origin"], {
       cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    const slug = /([^/:]+\/[^/:]+?)(?:\.git)?\/?$/.exec(url)?.[1];
-    if (slug !== undefined && isRepoSlug(slug)) {
-      return slug;
-    }
+    return isRemoteUrl(url) ? repoOfRemote(url) : undefined;
   } catch {
-    // No git, no checkout, or no origin: fall through to the directory name.
+    // No git, no checkout, or no origin.
+    return undefined;
   }
-  return path.basename(cwd);
 }
 
 function main(): void {
-  const input: unknown = JSON.parse(readFileSync(0, "utf8"));
+  let input: unknown;
+  try {
+    input = JSON.parse(readFileSync(0, "utf8"));
+  } catch {
+    return;
+  }
   if (typeof input !== "object" || input === null) {
     return;
   }
@@ -64,16 +56,16 @@ function main(): void {
   if (
     typeof session_title === "string" &&
     session_title !== "" &&
-    !OWN_TITLE.test(session_title)
+    !isOwnTitle(session_title)
   ) {
     return;
   }
-  const ticket = ticketOf(prompt);
-  const repo = repoOf(typeof cwd === "string" ? cwd : process.cwd());
-  const title = `${mode}: ${repo}${ticket === undefined ? "" : `#${ticket}`}`;
+  const directory = typeof cwd === "string" ? cwd : process.cwd();
+  const repo = repoOf(directory);
+  const title = titleOf(mode, repo, directory, ticketOf(prompt, repo));
   process.stdout.write(
     JSON.stringify({
-      terminalSequence: `\u001b]2;${title}\u0007`,
+      terminalSequence: terminalTitleSequence(title),
       hookSpecificOutput: {
         hookEventName: "UserPromptSubmit",
         sessionTitle: title,
