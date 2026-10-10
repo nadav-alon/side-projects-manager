@@ -3911,6 +3911,28 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(seen[0]?.at, headCommit);
   });
 
+  it("hands the container the project's declared mounts", async () => {
+    const { directory } = await hostedProject();
+    const mounts = [
+      { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
+    ];
+    let seen: unknown;
+    const sandbox = testSandbox(async (options) => {
+      seen = options.mounts;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await sandbox.applyReview({
+      image: TEST_IMAGE,
+      ticket: APPLY_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      mounts,
+    });
+
+    assert.deepEqual(seen, mounts);
+  });
+
   it("calls onStarted with the run's own transcript directory too", async () => {
     const { directory } = await hostedProject();
     let seenInContainer = "";
