@@ -41,6 +41,15 @@ type InstalledPlugin = {
 const SPEND_CEILING_FLAG = "--max-budget-usd";
 
 /**
+ * The flag the manager hands every run its answer's schema through. The
+ * manager reads a run's gist, nits and whether it gave up off the envelope's
+ * `structured_output`; a CLI without the flag returns none, so every run
+ * would report its raw text with no gist — quiet, and discovered the morning
+ * after. This is the check that makes it loud.
+ */
+const JSON_SCHEMA_FLAG = "--json-schema";
+
+/**
  * How the manager grants an unattended agent its permissions
  * (docs/specs/morning-loop.md: Sandboxing). A run is unattended, so there is
  * nobody to answer a permission question; without this flag the CLI denies
@@ -322,6 +331,13 @@ if (!usage.includes(PERMISSION_FLAG)) {
   );
 }
 
+if (!usage.includes(JSON_SCHEMA_FLAG)) {
+  fail(
+    `this image's claude accepts no ${JSON_SCHEMA_FLAG}, so a run in it would answer without structure and report no ticket gist`,
+    usage,
+  );
+}
+
 // The mode by name as well as the flag: the flag surviving a rename of the
 // mode would leave the manager passing a value the CLI rejects, which fails
 // every run at once — loud, but only once somebody runs the loop.
@@ -502,5 +518,5 @@ const pinnedEnvPresent = PINNED_ENV.map(({ variable, pinned }) => `${variable}=$
 );
 
 console.log(
-  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
+  `${PLUGIN_ID} ${harness.version}: enabled, ${skills.length} skills, ${REQUIRED_SKILL} present, ${personalSkillsPresent}, ${SPEND_CEILING_FLAG}, ${JSON_SCHEMA_FLAG} and ${PERMISSION_FLAG} ${PERMISSION_MODE} accepted, playwright-mcp screenshot a local page, ${pinnedEnvPresent} pinned, running as uid ${UID} with ${HOME} writable`,
 );
