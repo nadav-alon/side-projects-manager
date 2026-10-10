@@ -399,6 +399,64 @@ describe("statusReport's run-in-progress lines", () => {
     assert.match(lines.join("\n"), /Transcript not readable yet/);
   });
 
+  it("reports a run's tool calls, last tool and when, from its journaled progress", () => {
+    const run: RunInProgress = {
+      ...RUN,
+      progress: {
+        toolCalls: 12,
+        lastTool: { name: "Bash", at: new Date("2026-09-17T08:58:00.000Z") },
+        lastEventAt: new Date("2026-09-17T08:59:00.000Z"),
+      },
+    };
+
+    const text = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run, steps: [] }])),
+      false,
+    ).join("\n");
+
+    assert.match(text, /Progress: 12 tool calls, last Bash at \d\d:\d\d\./);
+    assert.doesNotMatch(text, /No events for/);
+  });
+
+  it("says when the stream has gone quiet", () => {
+    const run: RunInProgress = {
+      ...RUN,
+      progress: { toolCalls: 4, lastEventAt: new Date("2026-09-17T08:40:00.000Z") },
+    };
+
+    const text = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run, steps: [] }])),
+      false,
+    ).join("\n");
+
+    assert.match(text, /Progress: 4 tool calls\./);
+    assert.match(text, /No events for 20 minutes\./);
+  });
+
+  it("does not call the stream quiet when the invocation has died", () => {
+    const run: RunInProgress = {
+      ...RUN,
+      progress: { toolCalls: 4, lastEventAt: new Date("2026-09-17T08:40:00.000Z") },
+    };
+
+    const text = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", false, [{ run, steps: [] }])),
+      false,
+    ).join("\n");
+
+    assert.doesNotMatch(text, /No events for/);
+  });
+
+  it("says progress is unknown for an in-flight run recorded before progress was kept", () => {
+    const lines = report(
+      journal(inFlight("2026-09-17T08:55:00.000Z", true, [{ run: RUN, steps: [] }])),
+      false,
+    );
+
+    assert.match(lines.join("\n"), /Progress unknown\./);
+    assert.match(lines.join("\n"), /Running: implementation/);
+  });
+
   it("says a run was running when the invocation died, rather than that it still is", () => {
     const lines = report(
       journal(inFlight("2026-09-17T08:55:00.000Z", false, [{ run: RUN, steps: [] }])),

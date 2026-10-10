@@ -5,6 +5,7 @@ import type {
   InvocationClosing,
   OpenInvocation,
   RunInProgress,
+  RunProgress,
   TokenCount,
 } from "./ports/index.ts";
 import { localDay, localTimeOfMinute } from "./ports/index.ts";
@@ -296,15 +297,47 @@ function runLines({ run, steps }: StatusRun, now: Date, alive: boolean): string[
   const header = alive
     ? `  Running: ${target}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`
     : `  Was running when the invocation died: ${target}, started ${localTimeOfMinute(run.startedAt)}, had been running for ${elapsedSince(run.startedAt, now)}.`;
+  const progress = progressLines(run.progress, now, alive);
   if (steps === undefined) {
-    return [header, "    Transcript not readable yet."];
+    return [header, ...progress, "    Transcript not readable yet."];
   }
   if (steps.length === 0) {
-    return [header, "    No steps yet."];
+    return [header, ...progress, "    No steps yet."];
   }
   return [
     header,
+    ...progress,
     ...steps.map((step) => `    ${localTimeOfMinute(step.at)} ${step.line}`),
+  ];
+}
+
+/**
+ * How long a running run's stream may stay silent before `status` says so —
+ * the hang a developer would stop by hand.
+ */
+export const QUIET_AFTER_MINUTES = 10;
+
+/**
+ * What a run's journaled progress says: tool calls so far, the last tool and
+ * when, and — for a run whose invocation is alive — that the stream has gone
+ * quiet once its last event is older than `QUIET_AFTER_MINUTES`. A run with
+ * no progress on record, one written before progress was kept, says it is
+ * unknown rather than that nothing has happened.
+ */
+function progressLines(progress: RunProgress | undefined, now: Date, alive: boolean): string[] {
+  if (progress === undefined) {
+    return ["    Progress unknown."];
+  }
+  const { toolCalls, lastTool, lastEventAt } = progress;
+  const calls = `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`;
+  const last =
+    lastTool === undefined ? "" : `, last ${lastTool.name} at ${localTimeOfMinute(lastTool.at)}`;
+  const quietMinutes = Math.floor(Math.max(0, now.getTime() - lastEventAt.getTime()) / 60_000);
+  return [
+    `    Progress: ${calls}${last}.`,
+    ...(alive && quietMinutes >= QUIET_AFTER_MINUTES
+      ? [`    No events for ${quietMinutes} minutes.`]
+      : []),
   ];
 }
 
