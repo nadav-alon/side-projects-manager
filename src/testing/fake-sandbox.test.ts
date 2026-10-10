@@ -404,6 +404,25 @@ describe("FakeSandbox", () => {
     await bare;
   });
 
+  it("warns about a progress callback that throws and goes on with the run", HANGS, async (t) => {
+    const warn = t.mock.method(console, "warn", () => undefined);
+    const sandbox = new FakeSandbox();
+    sandbox.progress = () => [{ toolCalls: 0, lastEventAt: new Date(1) }];
+
+    const outcome = await sandbox.run({
+      image: TEST_IMAGE,
+      ticket: TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+      onProgress: () => {
+        throw new Error("nope");
+      },
+    });
+
+    assert.equal(outcome.kind, "finished");
+    assert.equal(warn.mock.callCount(), 1);
+  });
+
   it("holds runs and reviews until released, in any order, counting how many were in progress", HANGS, async () => {
     const sandbox = new FakeSandbox();
     sandbox.hold();

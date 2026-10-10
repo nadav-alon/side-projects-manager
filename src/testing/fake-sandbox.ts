@@ -27,6 +27,7 @@ import type {
   UxReviewTicket,
   Ticket,
 } from "../ports/index.ts";
+import { errorMessage } from "../error-message.ts";
 import { branch, ticketKey, tokenCount, transcriptDirectory } from "../ports/index.ts";
 import { imageTag, type ImageTag } from "../ports/image-tag.ts";
 import { gate } from "./gate.ts";
@@ -198,7 +199,11 @@ export class FakeSandbox implements Sandbox {
       () => this.result(request.ticket),
       () => {
         for (const progress of this.progress(request.ticket)) {
-          request.onProgress?.(progress);
+          try {
+            request.onProgress?.(progress);
+          } catch (error: unknown) {
+            console.warn(`The progress callback threw: ${errorMessage(error)}`);
+          }
         }
       },
     );
