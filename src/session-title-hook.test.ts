@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -62,4 +62,33 @@ test("a session titled by hand is left alone, one titled by the hook is retitled
   assert.equal(runHook({ prompt: "/standup", session_title: "my own name" }), undefined);
   const out = runHook({ prompt: "/triage #7", session_title: "standup: nadav-alon/pilot" });
   assert.equal(out.hookSpecificOutput.sessionTitle, "triage: nadav-alon/pilot#7");
+});
+
+test("the installer merges into an existing hooks block and is safe to re-run", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "session-title-settings-"));
+  try {
+    const settings = path.join(dir, "nested", "settings.json");
+    const installer = path.join(import.meta.dirname, "..", "scripts", "install-session-title-hook.ts");
+    const install = () => execFileSync("node", [installer, settings]);
+    const read = () => JSON.parse(readFileSync(settings, "utf8"));
+
+    install();
+    assert.equal(read().hooks.UserPromptSubmit.length, 1);
+
+    const other = { hooks: [{ type: "command", command: "echo hi" }] };
+    writeFileSync(
+      settings,
+      JSON.stringify({ model: "x", hooks: { Stop: [other], UserPromptSubmit: [other] } }),
+    );
+    install();
+    install();
+    const after = read();
+    assert.equal(after.model, "x");
+    assert.deepEqual(after.hooks.Stop, [other]);
+    assert.equal(after.hooks.UserPromptSubmit.length, 2);
+    assert.deepEqual(after.hooks.UserPromptSubmit[0], other);
+    assert.ok(after.hooks.UserPromptSubmit[1].hooks[0].command.includes(script));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

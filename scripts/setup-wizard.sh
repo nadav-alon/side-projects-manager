@@ -184,7 +184,7 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=6
+TOTAL_STAGES=7
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$HOME/.side-projects-manager.env"
@@ -360,7 +360,23 @@ else
   SKIPPED+=("triggers — run 'npm run triggers:install' from $REPO_DIR yourself")
 fi
 
-# ── Stage 6: optional — get one project onto the registry ─────────────────
+# ── Stage 6: titles for interactive sessions ──────────────────────────────
+stage "Session titles"
+say "A UserPromptSubmit hook in ~/.claude/settings.json titles a session"
+say "'<mode>: <owner/repo>[#n]' when you invoke /grilling, /grill-me,"
+say "/standup, /triage or /wayfinder, in the /resume picker and the terminal tab."
+say "It merges beside any hooks you already have and is safe to re-run."
+if confirm "Install the session-title hook?"; then
+  if (cd "$REPO_DIR" && node scripts/install-session-title-hook.ts); then
+    note "installed into ~/.claude/settings.json."
+  else
+    SKIPPED+=("session-title hook — investigate, then run 'node scripts/install-session-title-hook.ts' from $REPO_DIR")
+  fi
+else
+  SKIPPED+=("session-title hook — run 'node scripts/install-session-title-hook.ts' from $REPO_DIR to title interactive sessions")
+fi
+
+# ── Stage 7: optional — get one project onto the registry ─────────────────
 stage "Register your first project"
 say "Optional. registry.json only lists this manager repo right now, so the"
 say "loop has nothing to work on until at least one project is added. You"
