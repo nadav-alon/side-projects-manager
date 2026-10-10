@@ -3106,8 +3106,13 @@ function dockerCommand(
     image,
     "--print",
     prompt,
+    // One NDJSON event per message as it happens; the final `result` line
+    // carries what the `json` envelope did. Per-message events are enough, so
+    // `--include-partial-messages` is not asked for. `--verbose` is what the
+    // CLI requires of `stream-json` in print mode.
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     // Absent when the request named no model, leaving the image's own pin in
     // force. `model` is its own array element — `execFile` never runs through
     // a shell, so whatever the name contains reaches the CLI as one argument
@@ -3190,9 +3195,12 @@ function captured(error: unknown): { stdout: string; stderr: string } {
 }
 
 /**
- * What `claude --output-format json` said. Output the manager cannot parse is
- * still output worth keeping, so an unreadable envelope reports the raw text
- * and no spend rather than failing the run.
+ * What `claude --output-format stream-json` said. The run's envelope is the
+ * stream's final `result` event; a single JSON document (what `json` printed)
+ * is read the same way. Output the manager cannot parse is still output
+ * worth keeping, so a stream with no readable `result` event reports the raw
+ * text and no spend rather than failing the run — and events that do not
+ * parse mid-stream are skipped, not fatal.
  *
  * `stderr` is appended rather than dropped: a run that went wrong says so
  * there, and that is exactly the run whose output somebody has to read. So are
@@ -3209,7 +3217,7 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  */
 function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
-  const envelope: unknown = parse(stdout);
+  const envelope: unknown = resultEvent(stdout) ?? parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
     const gist = gistFrom(stdout);
     const nits = nitsFrom(stdout);
@@ -3297,6 +3305,27 @@ function withDiagnostics(
       : `The agent was refused these tools and could not use them: ${denied.join(", ")}.`,
   ].filter((note) => note !== "");
   return notes.join("\n");
+}
+
+/** The last line of `stdout` that parses as a `result` event, if any. */
+function resultEvent(stdout: string): object | undefined {
+  const lines = stdout.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const event = parse(lines[index] ?? "");
+    if (isEventOfType(event, "result")) {
+      return event;
+    }
+  }
+  return undefined;
+}
+
+/** Whether `event` parsed as an object whose `type` is `type`. */
+function isEventOfType(event: unknown, type: string): event is object {
+  return (
+    typeof event === "object" &&
+    event !== null &&
+    (event as { type?: unknown }).type === type
+  );
 }
 
 function parse(stdout: string): unknown {

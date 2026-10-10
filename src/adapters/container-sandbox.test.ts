@@ -56,6 +56,7 @@ import {
   repoSlug,
   reviewFindingTemplate,
   tokenCount,
+  ticketGist,
   UNIFORM_FILES,
   usd,
   type ApplyReviewOutcome,
@@ -5089,7 +5090,9 @@ describe("containerSandbox with the real docker container", () => {
     assert.equal(call?.[0], "run");
     assert.ok(call?.includes("--rm"));
     assert.ok(call?.includes("--print"));
-    assert.equal(call?.[(call.indexOf("--output-format") ?? -1) + 1], "json");
+    assert.equal(call?.[(call.indexOf("--output-format") ?? -1) + 1], "stream-json");
+    assert.ok(call?.includes("--verbose"));
+    assert.ok(!call?.includes("--include-partial-messages"));
     const volume = valueOf(call, "--volume") ?? "";
     const [mounted] = volume.split(":");
     assert.notEqual(mounted, directory, "must mount the clone, not the checkout");
@@ -5785,6 +5788,45 @@ fi`;
 
     it("keeps output it cannot parse, and charges nothing for it", async (t) => {
       const stdout = "claude: command not found";
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, stdout);
+      assert.equal(result.tokensUsed, tokenCount(0));
+    });
+
+    it("reads the final result event of a stream, whatever precedes it", async (t) => {
+      const stdout = [
+        JSON.stringify({ type: "system", subtype: "init" }),
+        "not an event at all",
+        JSON.stringify({ type: "assistant", message: { content: [] } }),
+        JSON.stringify({
+          type: "result",
+          result: "Done.\n\nTICKET GIST: Streamed.",
+          modelUsage: { "claude-sonnet-5": { inputTokens: 7 } },
+        }),
+      ].join("\n");
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, "Done.\n\nTICKET GIST: Streamed.");
+      assert.equal(variant(result, "finished")?.gist, ticketGist("Streamed."));
+      assert.equal(result.tokensUsed, tokenCount(7));
+    });
+
+    it("reports the raw text of a stream with no result event", async (t) => {
+      const stdout = [
+        JSON.stringify({ type: "system", subtype: "init" }),
+        "{ cut off mid-ev",
+      ].join("\n");
       const { result } = await runWithDocker(
         t,
         dockerAnswering(stdout),
