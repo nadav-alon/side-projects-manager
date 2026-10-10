@@ -45,4 +45,14 @@ describe("installing the status line", () => {
 
     assert.equal(await readFile(file, "utf8"), first);
   });
+
+  for (const [name, content] of [["null", "null"], ["an array", "[]"]] as const) {
+    it(`refuses a settings file holding ${name}, leaving it alone`, async () => {
+      const file = path.join(await tempHome("install-status-line"), "settings.json");
+      await writeFile(file, content);
+
+      assert.throws(() => execFileSync(process.execPath, [installer, file], { stdio: "ignore" }));
+      assert.equal(await readFile(file, "utf8"), content);
+    });
+  }
 });
