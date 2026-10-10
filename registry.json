@@ -18,7 +18,13 @@
       "turbo": true
     },
     {
-      "repo": "nadav-alon/self-hosted-media"
+      "repo": "nadav-alon/self-hosted-media",
+      "mounts": [
+        {
+          "host": "/home/cowclaw/self-hosted-media/config/bazarr",
+          "container": "/live/config/bazarr"
+        }
+      ]
     }
   ]
 }
