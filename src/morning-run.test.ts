@@ -5,6 +5,7 @@ import { describe, it, type TestContext } from "node:test";
 import { failureOf, handedBackFailure, type IterationOutcome } from "./iteration-outcome.ts";
 import { imageTag } from "./ports/image-tag.ts";
 import { morningLoop } from "./morning-run.ts";
+import { statusReport } from "./status-report.ts";
 import { CHECKS_POLL_INTERVAL, CHECKS_WAIT } from "./settled-checks.ts";
 import type { InvocationReport } from "./summary.ts";
 import {
@@ -1353,6 +1354,29 @@ describe("morningLoop", () => {
         second,
       );
       assert.deepEqual(writes, [first, second]);
+
+      const record = inFlight.records.find((candidate) => candidate.process === SELF.process)!;
+      const window = {
+        tokensUsed: tokenCount(0),
+        loopSpent: tokenCount(0),
+        developerSpent: tokenCount(0),
+        allowance: tokenCount(1_000),
+        spendable: tokenCount(1_000),
+        resetsAt: new Date(FROZEN_NOW.getTime() + 5 * 60 * 60_000),
+        reserveReached: false,
+      };
+      const lines = statusReport(
+        { records: [{ ...record, alive: true, runs: record.runs!.map((run) => ({ run, steps: [] })) }] },
+        { todayClaimed: true, halted: false },
+        new Date(FROZEN_NOW.getTime() + 25 * 60_000),
+        { schedule: { registered: false }, logonGuard: { registered: false }, managerHome: "/manager" },
+        { fiveHour: window, weekly: window },
+      );
+      assert.ok(
+        lines.some((line) => line.includes("Progress: 2 tool calls, last Bash at")),
+        lines.join("\n"),
+      );
+      assert.ok(lines.includes("    No events for 25 minutes."), lines.join("\n"));
 
       ports.sandbox.release({ repo: PILOT, ...TICKET });
       await invocation;
