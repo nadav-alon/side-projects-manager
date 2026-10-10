@@ -206,12 +206,11 @@ export function documentStore(home: string = MANAGER_HOME): Store {
     ): Promise<void> {
       const journal = await loadJournalDocument(journalFile);
       const record = findInvocationRecord(journal.records, opened);
-      const index =
-        record?.runs?.findIndex((run) => run.repo === repo && run.number === number) ?? -1;
-      if (record === undefined || record.runs === undefined || index < 0) {
+      const run = record?.runs?.find((candidate) => candidate.repo === repo && candidate.number === number);
+      if (run === undefined) {
         return;
       }
-      record.runs[index] = { ...record.runs[index]!, progress };
+      run.progress = progress;
       await writeJournal(home, journalFile, journal);
     },
 
@@ -1345,7 +1344,31 @@ function formatOpenInvocation(open: OpenInvocation): { openedAt: string; process
   return { openedAt: open.openedAt.toISOString(), process: open.process };
 }
 
-function formatRunInProgress(run: RunInProgress): object {
+/** `RunProgress` as the document stores it: every instant an ISO string. */
+interface StoredRunProgress {
+  toolCalls: number;
+  lastTool?: { name: string; at: string };
+  lastEventAt: string;
+}
+
+/** `RunInProgress` as the document stores it: every instant an ISO string, `progress` included. */
+type StoredRunInProgress = Omit<RunInProgress, "startedAt" | "progress"> & {
+  startedAt: string;
+  progress?: StoredRunProgress;
+};
+
+/** The inverse of `progressField`: keep the two together. */
+function formatRunProgress(progress: RunProgress): StoredRunProgress {
+  return {
+    toolCalls: progress.toolCalls,
+    ...(progress.lastTool !== undefined && {
+      lastTool: { name: progress.lastTool.name, at: progress.lastTool.at.toISOString() },
+    }),
+    lastEventAt: progress.lastEventAt.toISOString(),
+  };
+}
+
+function formatRunInProgress(run: RunInProgress): StoredRunInProgress {
   return {
     kind: run.kind,
     repo: run.repo,
@@ -1353,18 +1376,7 @@ function formatRunInProgress(run: RunInProgress): object {
     startedAt: run.startedAt.toISOString(),
     transcriptDirectory: run.transcriptDirectory,
     ...(run.pullRequest !== undefined && { pullRequest: run.pullRequest }),
-    ...(run.progress !== undefined && {
-      progress: {
-        toolCalls: run.progress.toolCalls,
-        ...(run.progress.lastTool !== undefined && {
-          lastTool: {
-            name: run.progress.lastTool.name,
-            at: run.progress.lastTool.at.toISOString(),
-          },
-        }),
-        lastEventAt: run.progress.lastEventAt.toISOString(),
-      },
-    }),
+    ...(run.progress !== undefined && { progress: formatRunProgress(run.progress) }),
   };
 }
 

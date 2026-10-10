@@ -286,11 +286,10 @@ export class FakeStore implements Store {
     progress: RunProgress,
   ): Promise<void> {
     const record = findInvocationRecord(this.#journal, opened);
-    record?.runs?.forEach((run, index) => {
-      if (run.repo === repo && run.number === number) {
-        record.runs![index] = { ...run, progress };
-      }
-    });
+    const run = record?.runs?.find((candidate) => candidate.repo === repo && candidate.number === number);
+    if (run !== undefined) {
+      run.progress = progress;
+    }
   }
 
   async recordRunEnded(
