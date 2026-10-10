@@ -29,10 +29,10 @@ import {
   dockerNeverRanMessage,
   pruneOldDiscoveries,
   pruneOldTranscripts,
+  RUN_ANSWER_SCHEMA,
   SALVAGE_COMMIT_MESSAGE,
   STALL_POLL_INTERVAL,
   STALL_TIMEOUT,
-  TICKET_GIST_TAG,
   TRANSCRIPT_RETENTION,
   TRANSCRIPTS_DIRECTORY,
   type AgentRun,
@@ -52,11 +52,12 @@ import {
   milliseconds,
   modelName,
   NIT_SECTION_HEADING,
+  nits,
   pullRequestUrl,
   repoSlug,
   reviewFindingTemplate,
-  tokenCount,
   ticketGist,
+  tokenCount,
   type RunProgress,
   UNIFORM_FILES,
   usd,
@@ -89,6 +90,7 @@ import {
   PROVIDER_FAILURE_STDOUT,
   recordingGh,
   recordingDocker,
+  structuredStdout,
   tempHome,
   valueOf,
   type RecordedDocker,
@@ -800,38 +802,8 @@ describe("containerSandbox", () => {
 
     assert.match(asked, /nit your own change causes.*is fixed in that same commit/);
     assert.match(asked, /Any other nit you notice is not a discovery/);
-    assert.match(
-      asked,
-      new RegExp(`end your own\\s+output with a section headed exactly \`${NIT_SECTION_HEADING}\``),
-    );
-    assert.match(asked, /true last line of your output/);
-    assert.ok(
-      asked.indexOf(NIT_SECTION_HEADING) < asked.indexOf(TICKET_GIST_TAG),
-      "the nits section is asked for before the closing ticket-gist line",
-    );
-  });
-
-  it("parses nits and gist off output shaped the way the prompt itself asks for", async () => {
-    const directory = await project();
-    let asked = "";
-    const output = [
-      "Implemented the thing.",
-      "",
-      NIT_SECTION_HEADING,
-      "- one nit",
-      "",
-      `${TICKET_GIST_TAG} Add the thing.`,
-    ].join("\n");
-    const sandbox = testSandbox(async (options) => {
-      asked = options.prompt;
-      return { output, tokensUsed: tokenCount(0) };
-    });
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.ok(asked.indexOf(NIT_SECTION_HEADING) < asked.indexOf(TICKET_GIST_TAG));
-    assert.equal(variant(result, "finished")?.nits, "- one nit");
-    assert.equal(variant(result, "finished")?.gist, "Add the thing.");
+    assert.match(asked, /`nits` field of your final structured answer/);
+    assert.doesNotMatch(asked, /TICKET GIST/);
   });
 
   it("tells the agent the four discovery kinds, the path and shape to file one, and the one-suggestion limit", async () => {
@@ -998,7 +970,7 @@ describe("containerSandbox", () => {
     assert.equal(result.tokensUsed, tokenCount(42_000));
   });
 
-  it("asks the agent to close its output with a ticket gist, naming the tag", async () => {
+  it("asks for the gist, and whether it gave up, as fields of its structured answer", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
@@ -1008,43 +980,23 @@ describe("containerSandbox", () => {
 
     await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.ok(asked.includes(TICKET_GIST_TAG));
+    assert.match(asked, /`gist` is one\s+sentence/);
+    assert.match(asked, /`gaveUp` to true, with the `reason`/);
   });
 
-  it("carries a well-formed ticket gist off the last line of a finished run", async () => {
+  it("carries the gist and nits a container read off the agent's answer", async () => {
     const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
-      ),
-    );
+    const sandbox = testSandbox(async () => ({
+      output: "Implemented the thing.",
+      tokensUsed: tokenCount(0),
+      gist: ticketGist("Add the thing."),
+      nits: nits("- one nit"),
+    }));
 
     const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(
-      variant(result, "finished")?.gist,
-      "Add retries to the flaky upload step.",
-    );
-  });
-
-  it("carries the gist even when the agent echoes the prompt's own backticks", async () => {
-    const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        `Implemented the thing.\n\`${TICKET_GIST_TAG} Add retries to the flaky upload step.\``,
-      ),
-    );
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(
-      variant(result, "finished")?.gist,
-      "Add retries to the flaky upload step.",
-    );
+    assert.equal(variant(result, "finished")?.gist, "Add the thing.");
+    assert.equal(variant(result, "finished")?.nits, "- one nit");
   });
 
   it("carries no gist when the agent gave none", async () => {
@@ -1056,73 +1008,19 @@ describe("containerSandbox", () => {
     assert.equal(variant(result, "finished")?.gist, undefined);
   });
 
-  it("carries no gist when the tagged line is empty", async () => {
+  it("carries no gist on a run that gave up, even one the agent supplied", async () => {
     const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting([], 0, `Implemented the thing.\n${TICKET_GIST_TAG}   `),
-    );
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = testSandbox(async (options) => ({
+      ...(await commit(options)),
+      failure: "the agent gave up",
+      gist: ticketGist("Add the thing."),
+    }));
 
     const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(variant(result, "finished")?.gist, undefined);
-  });
-
-  it("carries no gist when the agent gave more than one line", async () => {
-    const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        `${TICKET_GIST_TAG} Add retries to the flaky upload step.\nOne more line after it.`,
-      ),
-    );
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "finished")?.gist, undefined);
-  });
-
-  it("carries no gist on a run that gave up, even one tagged like a finished run's", async () => {
-    const directory = await project();
-    const commit = agentCommitting(
-      ["one.txt"],
-      0,
-      `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
-    );
-    const sandbox = testSandbox(async (options) => {
-      await commit(options);
-      throw new Error("the agent gave up");
-    });
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
-  });
-
-  it("carries the nits listed under the fixed heading off a finished run's output", async () => {
-    const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        [
-          "Implemented the thing.",
-          "",
-          NIT_SECTION_HEADING,
-          "- the widget's name is misspelled two lines up",
-          "",
-          `${TICKET_GIST_TAG} Add the thing.`,
-        ].join("\n"),
-      ),
-    );
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(
-      variant(result, "finished")?.nits,
-      "- the widget's name is misspelled two lines up",
-    );
+    assert.equal("gist" in result, false);
   });
 
   it("carries no nits when the agent listed none", async () => {
@@ -1134,95 +1032,19 @@ describe("containerSandbox", () => {
     assert.equal(variant(result, "finished")?.nits, undefined);
   });
 
-  it("carries no nits when the heading was listed with nothing under it", async () => {
+  it("carries no nits on a run that gave up, even ones the agent listed", async () => {
     const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        [NIT_SECTION_HEADING, `${TICKET_GIST_TAG} Add the thing.`].join("\n"),
-      ),
-    );
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = testSandbox(async (options) => ({
+      ...(await commit(options)),
+      failure: "the agent gave up",
+      nits: nits("- one nit"),
+    }));
 
     const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(variant(result, "finished")?.nits, undefined);
-  });
-
-  it("carries the nits even when the agent echoes the heading's own backticks", async () => {
-    const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        [
-          `\`${NIT_SECTION_HEADING}\``,
-          "- a stray comment restates what the diff already says",
-          `${TICKET_GIST_TAG} Add the thing.`,
-        ].join("\n"),
-      ),
-    );
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(
-      variant(result, "finished")?.nits,
-      "- a stray comment restates what the diff already says",
-    );
-  });
-
-  it("carries the nits without swallowing the gist's own last line", async () => {
-    const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        [
-          NIT_SECTION_HEADING,
-          "- one nit",
-          `${TICKET_GIST_TAG} Add the thing.`,
-        ].join("\n"),
-      ),
-    );
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "finished")?.nits, "- one nit");
-    assert.equal(variant(result, "finished")?.gist, "Add the thing.");
-  });
-
-  it("drops the tagged last line from its nits even when the gist itself fails to validate", async () => {
-    const directory = await project();
-    const sandbox = testSandbox(
-      agentCommitting(
-        [],
-        0,
-        [NIT_SECTION_HEADING, "- one nit", `${TICKET_GIST_TAG}   `].join("\n"),
-      ),
-    );
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "finished")?.nits, "- one nit");
-    assert.equal(variant(result, "finished")?.gist, undefined);
-  });
-
-  it("carries no nits on a run that gave up, even one listed like a finished run's", async () => {
-    const directory = await project();
-    const commit = agentCommitting(
-      ["one.txt"],
-      0,
-      [NIT_SECTION_HEADING, "- one nit"].join("\n"),
-    );
-    const sandbox = testSandbox(async (options) => {
-      await commit(options);
-      throw new Error("the agent gave up");
-    });
-
-    const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
-
-    assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
+    assert.equal("nits" in result, false);
   });
 
   it("takes the clone away and leaves the branch behind", async () => {
@@ -5099,6 +4921,10 @@ describe("containerSandbox with the real docker container", () => {
     assert.equal(call?.[(call.indexOf("--output-format") ?? -1) + 1], "stream-json");
     assert.ok(call?.includes("--verbose"));
     assert.ok(!call?.includes("--include-partial-messages"));
+    assert.deepEqual(
+      JSON.parse(valueOf(call, "--json-schema") ?? "null"),
+      JSON.parse(JSON.stringify(RUN_ANSWER_SCHEMA)),
+    );
     const volume = valueOf(call, "--volume") ?? "";
     const [mounted] = volume.split(":");
     assert.notEqual(mounted, directory, "must mount the clone, not the checkout");
@@ -5281,6 +5107,7 @@ fi`;
     const [call] = await docker.calls();
     assert.equal(call?.[(call.indexOf("--model") ?? -1) + 1], "opus");
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(call?.includes("--json-schema"), "a review answers against the same schema as a run");
     assert.ok(
       call?.includes("--permission-mode"),
       "no --permission-mode: a review denied Bash cannot even run gh to post its findings",
@@ -5577,6 +5404,7 @@ fi`;
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(call?.includes("--json-schema"), "a review answers against the same schema as a run");
   });
 
   it("mounts each declared host directory read-only at its container path, for a run and for a review", async (t) => {
@@ -5700,6 +5528,7 @@ fi`;
     const [call] = await docker.calls();
     assert.ok(mountsDiscoveries(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+    assert.ok(call?.includes("--json-schema"), "a review answers against the same schema as a run");
   });
 
   /**
@@ -5788,6 +5617,7 @@ fi`;
         dockerAnswering(
           JSON.stringify({
             result: "implemented the thing",
+            structured_output: { gaveUp: false },
             modelUsage: {
               "claude-sonnet-5": {
                 inputTokens: 1,
@@ -5866,7 +5696,8 @@ fi`;
         JSON.stringify({ type: "assistant", message: { content: [] } }),
         JSON.stringify({
           type: "result",
-          result: "Done.\n\nTICKET GIST: Streamed.",
+          result: "Done.",
+          structured_output: { gist: "Streamed.", gaveUp: false },
           modelUsage: { "claude-sonnet-5": { inputTokens: 7 } },
         }),
       ].join("\n");
@@ -5877,7 +5708,7 @@ fi`;
           sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
       );
 
-      assert.equal(variant(result, "finished")?.output, "Done.\n\nTICKET GIST: Streamed.");
+      assert.equal(variant(result, "finished")?.output, "Done.");
       assert.equal(variant(result, "finished")?.gist, ticketGist("Streamed."));
       assert.equal(result.tokensUsed, tokenCount(7));
     });
@@ -5894,7 +5725,7 @@ fi`;
         "not an event at all",
         JSON.stringify({ type: "user", message: { content: [] } }),
         tool("Bash"),
-        JSON.stringify({ type: "result", result: "Done." }),
+        structuredStdout("Done."),
       ].join("\n");
       const reported: RunProgress[] = [];
       const { result } = await runWithDocker(
@@ -5976,7 +5807,7 @@ fi`;
       t.mock.method(console, "warn", () => undefined);
       const { result } = await runWithDocker(
         t,
-        dockerAnswering(JSON.stringify({ type: "result", result: "Done." })),
+        dockerAnswering(structuredStdout("Done.")),
         (sandbox, directory) =>
           sandbox.run({
             image: TEST_IMAGE,
@@ -6010,6 +5841,7 @@ fi`;
 
     it("keeps the raw envelope when it carries no result", async (t) => {
       const stdout = JSON.stringify({
+        structured_output: { gaveUp: false },
         modelUsage: { "claude-sonnet-5": { inputTokens: 5 } },
       });
       const { result } = await runWithDocker(
@@ -6151,7 +5983,11 @@ fi`;
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
-          JSON.stringify({ result: "done", permission_denials: [] }),
+          JSON.stringify({
+            result: "done",
+            structured_output: { gaveUp: false },
+            permission_denials: [],
+          }),
         ),
         (sandbox, directory) =>
           sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
@@ -6165,12 +6001,18 @@ fi`;
      * text, so a gist that reads correctly off the raw result must not be lost
      * once those are appended to the output a caller sees.
      */
-    it("still carries a well-formed ticket gist once stderr is appended after it", async (t) => {
+    it("carries the gist and nits off structured_output, whatever is appended to the output", async (t) => {
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
-            result: `Implemented the thing.\n${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
+            ...JSON.parse(
+              structuredStdout("Implemented the thing.", {
+                gist: "Add retries to the flaky upload step.",
+                nits: "- one nit",
+              }),
+            ),
+            permission_denials: [{ tool_name: "Bash" }],
           }),
           "npm warn deprecated foo@1.0.0\n",
         ),
@@ -6180,17 +6022,46 @@ fi`;
 
       const finished = variant(result, "finished");
       assert.equal(finished?.gist, "Add retries to the flaky upload step.");
+      assert.equal(finished?.nits, "- one nit");
       assert.match(finished?.output ?? "", /npm warn deprecated/);
+      assert.match(finished?.output ?? "", /refused these tools/);
+      assert.doesNotMatch(finished?.output ?? "", /without structured output/);
     });
 
-    it("still carries a well-formed ticket gist once a denied-tools note is appended after it", async (t) => {
+    it("drops a gist that is empty or spans lines, and nits with stray padding", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          structuredStdout("done", { gist: "One.\nTwo.", nits: "  - padded  " }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(variant(result, "finished")?.gist, undefined);
+      assert.equal(variant(result, "finished")?.nits, undefined);
+    });
+
+    it("reads a run that gave up off structured_output, with the agent's reason", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          structuredStdout("could not finish", { gaveUp: true, reason: "the tests stay red" }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.equal(result.kind, "gave-up");
+      assert.equal(variant(result, "gave-up")?.reason, "the tests stay red");
+    });
+
+    it("reports the raw result, no gist and an unstructured note when the envelope has no structured_output", async (t) => {
       const { result } = await runWithDocker(
         t,
         dockerAnswering(
           JSON.stringify({
-            is_error: false,
-            result: `${TICKET_GIST_TAG} Add retries to the flaky upload step.`,
-            permission_denials: [{ tool_name: "Bash" }],
+            result: `Implemented the thing.\nTICKET GIST: Add retries.`,
           }),
         ),
         (sandbox, directory) =>
@@ -6198,8 +6069,9 @@ fi`;
       );
 
       const finished = variant(result, "finished");
-      assert.equal(finished?.gist, "Add retries to the flaky upload step.");
-      assert.match(finished?.output ?? "", /refused these tools/);
+      assert.equal(finished?.gist, undefined);
+      assert.match(finished?.output ?? "", /^Implemented the thing\.\nTICKET GIST: Add retries\./);
+      assert.match(finished?.output ?? "", /answered without structured output/);
     });
 
     it("reads a limit refusal out of the CLI's JSON envelope", async (t) => {

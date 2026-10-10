@@ -314,15 +314,13 @@ export interface AgentRun {
    */
   budgetExhausted?: string;
   /**
-   * The ticket gist off the agent's own last line, read before `output` gains
-   * any diagnostics appended after it — see `gistFrom`. Absent when the agent
-   * gave none.
+   * The ticket gist off the envelope's `structured_output` — see
+   * `structuredAnswerFrom`. Absent when the agent gave none.
    */
   gist?: TicketGist;
   /**
-   * The nits listed under `NIT_SECTION_HEADING` off the agent's own text,
-   * read at the same point `gist` is — before `output` gains any diagnostics
-   * appended after it — see `nitsFrom`. Absent when the agent listed none.
+   * The nits off the envelope's `structured_output`, read with `gist`. Absent
+   * when the agent listed none.
    */
   nits?: Nits;
   /**
@@ -1667,11 +1665,8 @@ function needsSalvage(ending: Ending, agent: AgentRun): boolean {
 
 /**
  * `ending`, with the branch an implementation run worked on and its commits,
- * and — for a finished run — its ticket gist and its nits: `agent.gist` and
- * `agent.nits` when the container already read them off the agent's own
- * text, before any diagnostics were appended to `output`, and only otherwise
- * a best-effort read of `output` itself, for a container that never sets
- * them.
+ * and — for a finished run — the ticket gist and nits the container read off
+ * the agent's structured output.
  */
 function runOutcomeOf(
   ending: Ending,
@@ -1681,9 +1676,8 @@ function runOutcomeOf(
   resumedCommits: CommitSha[] | undefined,
 ): RunOutcome {
   const gist =
-    ending.kind === "finished" ? (agent.gist ?? gistFrom(ending.output)) : undefined;
-  const nits =
-    ending.kind === "finished" ? (agent.nits ?? nitsFrom(ending.output)) : undefined;
+    ending.kind === "finished" ? agent.gist : undefined;
+  const nits = ending.kind === "finished" ? agent.nits : undefined;
   return withTranscriptAndDiscoveryFields(
     {
       ...ending,
@@ -1855,6 +1849,20 @@ function discoveryInstructionsFor(
 }
 
 /**
+ * What the non-implementation prompts tell the agent about its structured
+ * answer: `RUN_ANSWER_SCHEMA` asks every run for `gaveUp`, so each kind says
+ * what it means there. `gist` and `nits` belong to an implementation run and
+ * are left out, so a review's answer is not read for them.
+ */
+function answerInstructionsFor(work: string): string {
+  return [
+    "Finally, give your final answer as the structured output: set `gaveUp` to true,",
+    `with the \`reason\`, only if you stopped short of ${work}, and to false otherwise.`,
+    "Leave `gist` and `nits` out.",
+  ].join(" ");
+}
+
+/**
  * What the spec-reviewing agent is asked to do.
  *
  * The ticket is named explicitly for the same reason `promptFor` names the
@@ -1898,6 +1906,7 @@ function specReviewPromptFor(
     "finish and report without asking for confirmation.",
     "A discovery you file below is about that supertask, not about this ticket.",
     discoveryInstructionsFor(discovered),
+    answerInstructionsFor("reporting your review"),
   ].join(" ");
 }
 
@@ -1927,6 +1936,8 @@ function uxReviewPromptFor(
     "finish and report without asking for confirmation.",
     "",
     discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("reporting your review"),
   ].join("\n");
 }
 
@@ -2403,6 +2414,8 @@ function applyReviewPromptFor(
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
     discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("working every review thread"),
   ].join("\n");
 }
 
@@ -2441,17 +2454,10 @@ function rebasePromptFor(
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
     discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("rebasing the pull request"),
   ].join("\n");
 }
-
-/**
- * The tag `promptFor` asks the agent to close its output with, and `gistFrom`
- * reads back off the last line — the one place in source its wording is
- * spelled out, so the prompt and the parser cannot drift apart from each
- * other. Exported so a test can assert against the tag that ships rather
- * than a copy of the literal.
- */
-export const TICKET_GIST_TAG = "TICKET GIST:";
 
 /**
  * What the agent is asked to do. The repo's own instructions say how.
@@ -2493,71 +2499,16 @@ function promptFor(
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
     "A nit your own change causes is fixed in that same commit, as part of",
-    "the change. Any other nit you notice is not a discovery: end your own",
-    `output with a section headed exactly \`${NIT_SECTION_HEADING}\`, listing`,
-    "each one, so the pull request opened from your output carries it for",
-    "the reviewer. Omit the section entirely if you have no such nit.",
+    "the change. Any other nit you notice is not a discovery: list each one in",
+    "the `nits` field of your final structured answer, so the pull request",
+    "opened from your output carries it for the reviewer. Omit the field if",
+    "you have no such nit.",
     discoveryInstructionsFor(discovered),
-    `Finally, after that section if you gave one, end your output with a line`,
-    `reading exactly \`${TICKET_GIST_TAG}\` followed by one sentence saying`,
-    "what the ticket asked for — not what your diff did; the run is complete",
-    "either way. This must be the true last line of your output.",
+    "Finally, give your final answer as the structured output: `gist` is one",
+    "sentence saying what the ticket asked for — not what your diff did; the",
+    "run is complete either way. Set `gaveUp` to true, with the `reason`, if",
+    "you stopped short of finishing the ticket, and to false otherwise.",
   ].join(" ");
-}
-
-/**
- * The ticket gist off the last line of a finished run's output, absent when
- * the agent gave none.
- *
- * Only the last line is read, trailing blank lines aside: an agent that wrote
- * more after the tag has made the gist span more than one line, which is
- * indistinguishable here from an agent that tagged nothing at all, and both
- * come back absent rather than guessed at.
- *
- * Backticks are stripped before the prefix test: `promptFor` shows the tag
- * wrapped in backticks (as `BRANCH_MOVED`'s own prompt does for its line),
- * and an agent that echoes that formatting verbatim must not lose its gist
- * over it.
- */
-function gistFrom(output: string): TicketGist | undefined {
-  const lines = output.trimEnd().split("\n");
-  const last = (lines.at(-1) ?? "").replace(/`/g, "");
-  if (!last.startsWith(TICKET_GIST_TAG)) {
-    return undefined;
-  }
-  const text = last.slice(TICKET_GIST_TAG.length).trim();
-  return isTicketGist(text) ? text : undefined;
-}
-
-/**
- * The nits an implementation run listed under `NIT_SECTION_HEADING` but did
- * not fix, off its own output, absent when it gave none.
- *
- * Read from the line carrying the heading to the end of the run's text, the
- * last line trimmed off first when it starts with `TICKET_GIST_TAG` — so a
- * run that gave both never has the gist tag's own line read back as a nit,
- * whether or not that line goes on to pass `isTicketGist`: an invalid gist
- * is `gistFrom`'s to report as absent, not a nit for this function to invent
- * out of the tag it failed to validate. Checked directly against the last
- * line rather than through `gistFrom`, so a caller that already has the
- * parsed gist at hand is never asked to hand it back in just to avoid a
- * second parse.
- *
- * Backticks are stripped from each line before the heading test, for the
- * same reason `gistFrom` strips them off its own tagged line.
- */
-function nitsFrom(output: string): Nits | undefined {
-  const lines = output.trimEnd().split("\n");
-  const last = (lines.at(-1) ?? "").replace(/`/g, "");
-  const withoutGist = last.startsWith(TICKET_GIST_TAG) ? lines.slice(0, -1) : lines;
-  const headingIndex = withoutGist.findIndex(
-    (line) => line.trim().replace(/`/g, "") === NIT_SECTION_HEADING,
-  );
-  if (headingIndex === -1) {
-    return undefined;
-  }
-  const found = withoutGist.slice(headingIndex + 1).join("\n").trim();
-  return isNits(found) ? found : undefined;
 }
 
 /**
@@ -2622,6 +2573,7 @@ function reviewPromptFor(
     "apart from one the developer wrote. Never post a comment whose whole body is",
     "`/apply-review` — acting on this review is the developer's call, not yours.",
     discoveryInstructionsFor(discovered),
+    answerInstructionsFor("posting your review"),
   ].join(" ");
 }
 
@@ -3163,6 +3115,11 @@ function dockerCommand(
     "--output-format",
     "stream-json",
     "--verbose",
+    // The final answer is validated against this and handed back as the
+    // envelope's `structured_output`, so the manager reads fields instead of
+    // pattern-matching prose.
+    "--json-schema",
+    JSON.stringify(RUN_ANSWER_SCHEMA),
     // Absent when the request named no model, leaving the image's own pin in
     // force. `model` is its own array element — `execFile` never runs through
     // a shell, so whatever the name contains reaches the CLI as one argument
@@ -3246,6 +3203,78 @@ function captured(error: unknown): { stdout: string; stderr: string } {
 }
 
 /**
+ * The fields a run's final answer is validated against, handed to the CLI as
+ * `--json-schema` and read back off the envelope's `structured_output` by
+ * `structuredAnswerFrom`. The one place the shape is spelled out, so the
+ * schema and its reader cannot drift apart; the test fixture `StructuredAnswerFixture`
+ * mirrors it by hand. Exported so a test can check the
+ * `--json-schema` argument a run is handed is this shape.
+ *
+ * Only `gaveUp` is required: a review has no ticket gist to give, and an
+ * agent with no nits lists none.
+ */
+export const RUN_ANSWER_SCHEMA = {
+  type: "object",
+  properties: {
+    gist: {
+      type: "string",
+      description:
+        "One sentence saying what the ticket asked for, not what the diff did. A single line.",
+    },
+    nits: {
+      type: "string",
+      description:
+        "Every nit noticed but not fixed, one per line, each starting with `- `. Omit when there are none.",
+    },
+    gaveUp: {
+      type: "boolean",
+      description: "True when the run stopped short of finishing what it was asked to do.",
+    },
+    reason: {
+      type: "string",
+      description: "Why the run stopped short. Required when gaveUp is true.",
+    },
+  },
+  required: ["gaveUp"],
+} as const;
+
+/** What `RUN_ANSWER_SCHEMA` validated, as far as the manager trusts it. */
+interface StructuredAnswer {
+  gist?: TicketGist;
+  nits?: Nits;
+  /** Why the agent says it gave up, absent when it did not. */
+  gaveUpReason?: string;
+}
+
+/**
+ * The fields of `structured_output` the manager reads, each dropped rather
+ * than guessed at when it is the wrong type or fails its brand's guard: an
+ * empty or multi-line gist is absent, as is a nit list with stray padding.
+ * Undefined when the envelope carries no `structured_output` object at all.
+ */
+function structuredAnswerFrom(envelope: object): StructuredAnswer | undefined {
+  const { structured_output: structured } = envelope as { structured_output?: unknown };
+  if (typeof structured !== "object" || structured === null) {
+    return undefined;
+  }
+  const { gist, nits, gaveUp, reason } = structured as Record<string, unknown>;
+  return {
+    ...(typeof gist === "string" && isTicketGist(gist) && { gist }),
+    ...(typeof nits === "string" && isNits(nits) && { nits }),
+    ...(gaveUp === true && {
+      gaveUpReason:
+        typeof reason === "string" && reason.trim() !== ""
+          ? reason.trim()
+          : "the agent reported giving up without saying why",
+    }),
+  };
+}
+
+/** Appended to the output of a run whose envelope carried no `structured_output`. */
+const UNSTRUCTURED_NOTE =
+  "The agent answered without structured output, so no ticket gist or nits were read from it.";
+
+/**
  * What `claude --output-format stream-json` said. The run's envelope is the
  * stream's final `result` event; a single JSON document
  * is read the same way, since a CLI that ignores the format flag prints one. Output the manager cannot parse is still output
@@ -3253,56 +3282,56 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * text and no spend rather than failing the run — and events that do not
  * parse mid-stream are skipped, not fatal.
  *
+ * The ticket gist, the nits and whether the agent gave up come off the
+ * envelope's `structured_output`; an envelope without one reports its raw
+ * `result` and no gist, and says so in the output.
+ *
  * `stderr` is appended rather than dropped: a run that went wrong says so
  * there, and that is exactly the run whose output somebody has to read. So are
  * the tools the CLI refused the agent — see `deniedTools`.
  *
  * A model refusal's words are the envelope's `result`, which is prose meant
  * for a reader, or the stderr tag itself when there is no `result` to quote.
- *
- * The ticket gist and the nits are both read off the agent's own text before
- * `stderr` and the denied-tools note are appended to it: once appended, the
- * gist's tag is no longer on the last line, and `gistFrom` would find
- * nothing — and `nitsFrom`, which trims the gist's own line off first, would
- * read the appended text as more nits.
  */
 function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = resultEvent(stdout) ?? parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
-    const gist = gistFrom(stdout);
-    const nits = nitsFrom(stdout);
     const providerFailure = providerFailureFromProse(stdout);
     return {
       output: withDiagnostics(stdout, stderr),
       tokensUsed: tokenCount(0),
       ...(refusalTag !== undefined && { modelRefused: refusalTag }),
       ...(providerFailure !== undefined && { providerFailure }),
-      ...(gist !== undefined && { gist }),
-      ...(nits !== undefined && { nits }),
     };
   }
 
-  const { result, modelUsage, usage } = envelope as {
+  const { result, modelUsage, usage, is_error } = envelope as {
     result?: unknown;
     modelUsage?: unknown;
     usage?: unknown;
+    is_error?: unknown;
   };
   const output = typeof result === "string" ? result : stdout;
-  const gist = gistFrom(output);
-  const nits = nitsFrom(output);
+  const answer = structuredAnswerFrom(envelope);
   const providerFailure = providerFailureFromEnvelope(envelope);
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
-    output: withDiagnostics(output, stderr, deniedTools(envelope)),
+    output: withDiagnostics(
+      output,
+      stderr,
+      deniedTools(envelope),
+      answer === undefined && is_error !== true ? UNSTRUCTURED_NOTE : "",
+    ),
     tokensUsed: totalTokens(modelUsage, usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
     }),
     ...(providerFailure !== undefined && { providerFailure }),
     ...(budgetExhausted !== undefined && { budgetExhausted }),
-    ...(gist !== undefined && { gist }),
-    ...(nits !== undefined && { nits }),
+    ...(answer?.gaveUpReason !== undefined && { failure: answer.gaveUpReason }),
+    ...(answer?.gist !== undefined && { gist: answer.gist }),
+    ...(answer?.nits !== undefined && { nits: answer.nits }),
   };
 }
 
@@ -3347,9 +3376,11 @@ function withDiagnostics(
   output: string,
   stderr: string,
   denied: readonly string[] = [],
+  unstructuredNote = "",
 ): string {
   const notes = [
     output,
+    unstructuredNote,
     stderr.trim() === "" ? "" : stderr,
     denied.length === 0
       ? ""
