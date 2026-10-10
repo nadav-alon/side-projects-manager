@@ -14,6 +14,7 @@ import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import { type Milliseconds, milliseconds } from "./milliseconds.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
+import type { ReadOnlyMount } from "./read-only-mount.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { TokenCount } from "./token-count.ts";
 
@@ -43,6 +44,12 @@ export interface RegisteredProject {
    * here that touches one is the source being updated, not drift.
    */
   manager?: true;
+  /**
+   * Host directories every run, review and apply-review in this project sees,
+   * read-only, at their container paths. Absent for a project that declares
+   * none, which is most of them.
+   */
+  mounts?: ReadOnlyMount[];
 }
 
 /** What one run cost, kept so the reserve can be calibrated against real spend. */
