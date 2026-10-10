@@ -184,7 +184,8 @@ else's clone stops the command rather than being scaffolded into. The clones you
 elsewhere are never touched.
 
 `new-project` rewrites `registry.json` in full when it appends, from the fields it models (`repo`,
-`paused`, `turbo`, `priority`, `manager`, `mounts`). Anything else you put in that file does not survive the write.
+`paused`, `turbo`, `priority`, `manager`, `mounts`). Anything else you put in that file does not
+survive the write.
 
 ## Registering a project
 
@@ -213,12 +214,18 @@ A project may also declare `mounts`, host directories its runs read but the clon
 live state that is gitignored, say:
 
 ```json
-{ "repo": "nadav-alon/pilot", "mounts": [{ "host": "/srv/pilot/config", "container": "/mnt/config" }] }
+{
+  "repo": "nadav-alon/pilot",
+  "mounts": [{ "host": "/srv/pilot/config", "container": "/mnt/config" }]
+}
 ```
 
-Every run, review and apply-review in that project sees each `host` directory at its `container`
-path, always read-only. Both paths are absolute. A `host` that is not a directory on the machine
-fails the run before it starts, naming the path.
+Every run in that project, whatever its kind (implementation, review, apply-review, rebase, spec
+review, ux review), sees each `host` directory at its `container` path, always read-only. Both
+paths are absolute and contain no `:`, and a `container` path is never `/`, `/repo`, `/discoveries`
+or `/home/node/.claude/projects`, nor under one: those are the run's own mounts. A `host` that is
+not a directory on the machine, or that your user cannot read, fails the run before it starts,
+naming the path.
 
 Selection picks one project and one ticket per iteration: a review ticket before any
 implementation ticket, then explicit priority, then least recently worked. An invocation keeps
