@@ -1909,6 +1909,32 @@ describe("runs in progress on the journal document", () => {
 
     await assert.rejects(store.loadJournal(), /"pullRequest" must be a pull request URL/);
   });
+  it("replaces a run's progress, keeps it through a write/read round trip, and drops it when the run ends", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: STARTED_AT,
+      transcriptDirectory: TRANSCRIPT,
+    });
+    const progress = {
+      toolCalls: 3,
+      lastTool: { name: "Bash", at: new Date("2026-01-01T06:06:00.000Z") },
+      lastEventAt: new Date("2026-01-01T06:07:00.000Z"),
+    };
+
+    await store.recordRunProgress(opened, PILOT, issueNumber(7), { toolCalls: 1, lastEventAt: STARTED_AT });
+    await store.recordRunProgress(opened, PILOT, issueNumber(7), progress);
+
+    assert.deepEqual((await store.loadJournal()).records[0]?.runs?.[0]?.progress, progress);
+
+    await store.recordRunEnded(opened, PILOT, issueNumber(7));
+    await store.recordRunProgress(opened, PILOT, issueNumber(7), progress);
+    assert.equal((await store.loadJournal()).records[0]?.runs?.length ?? 0, 0);
+  });
+
 
   it("keeps every run going at once, in the order they started", async () => {
     const store = documentStore(await home());

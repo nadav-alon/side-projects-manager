@@ -33,6 +33,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunProgress,
   GrantRecord,
   RunSpan,
   Salvage,
@@ -81,6 +82,7 @@ import {
   isUsd,
   spendCeilingFor,
 } from "../ports/index.ts";
+import { expectField } from "./expect-field.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import { errorMessage } from "../error-message.ts";
 import { summaryFileName } from "../summary.ts";
@@ -193,6 +195,22 @@ export function documentStore(home: string = MANAGER_HOME): Store {
         );
       }
       record.runs = [...(record.runs ?? []), run];
+      await writeJournal(home, journalFile, journal);
+    },
+
+    async recordRunProgress(
+      opened: OpenInvocation,
+      repo: RepoSlug,
+      number: IssueNumber,
+      progress: RunProgress,
+    ): Promise<void> {
+      const journal = await loadJournalDocument(journalFile);
+      const record = findInvocationRecord(journal.records, opened);
+      const run = record?.runs?.find((candidate) => candidate.repo === repo && candidate.number === number);
+      if (run === undefined) {
+        return;
+      }
+      run.progress = progress;
       await writeJournal(home, journalFile, journal);
     },
 
@@ -1170,6 +1188,32 @@ function parseRunInProgress(run: unknown, where: string): RunInProgress {
     startedAt: parseInstant(fieldOf(run, "startedAt", where), `${where}: "startedAt"`),
     transcriptDirectory,
     ...pullRequestField(fieldOf(run, "pullRequest", where), where),
+    ...progressField(fieldOf(run, "progress", where), where),
+  };
+}
+
+/**
+ * `{ "toolCalls": 12, "lastTool": { "name": "Bash", "at": "…" }, "lastEventAt": "…" }`
+ * — absent on a run recorded before progress was kept.
+ */
+function progressField(value: unknown, where: string): { progress?: RunProgress } {
+  if (value === undefined) {
+    return {};
+  }
+  const at = `${where}: "progress"`;
+  const toolCalls = expectField(fieldOf(value, "toolCalls", at), "number", "toolCalls", at);
+  const lastTool = fieldOf(value, "lastTool", at);
+  return {
+    progress: {
+      toolCalls,
+      ...(lastTool !== undefined && {
+        lastTool: {
+          name: expectField(fieldOf(lastTool, "name", at), "string", "name", at),
+          at: parseInstant(fieldOf(lastTool, "at", at), `${at} "lastTool" "at"`),
+        },
+      }),
+      lastEventAt: parseInstant(fieldOf(value, "lastEventAt", at), `${at} "lastEventAt"`),
+    },
   };
 }
 
@@ -1300,9 +1344,31 @@ function formatOpenInvocation(open: OpenInvocation): { openedAt: string; process
   return { openedAt: open.openedAt.toISOString(), process: open.process };
 }
 
-function formatRunInProgress(
-  run: RunInProgress,
-): Omit<RunInProgress, "startedAt"> & { startedAt: string } {
+/** `RunProgress` as the document stores it: every instant an ISO string. */
+interface StoredRunProgress {
+  toolCalls: number;
+  lastTool?: { name: string; at: string };
+  lastEventAt: string;
+}
+
+/** `RunInProgress` as the document stores it: every instant an ISO string, `progress` included. */
+type StoredRunInProgress = Omit<RunInProgress, "startedAt" | "progress"> & {
+  startedAt: string;
+  progress?: StoredRunProgress;
+};
+
+/** The inverse of `progressField`: keep the two together. */
+function formatRunProgress(progress: RunProgress): StoredRunProgress {
+  return {
+    toolCalls: progress.toolCalls,
+    ...(progress.lastTool !== undefined && {
+      lastTool: { name: progress.lastTool.name, at: progress.lastTool.at.toISOString() },
+    }),
+    lastEventAt: progress.lastEventAt.toISOString(),
+  };
+}
+
+function formatRunInProgress(run: RunInProgress): StoredRunInProgress {
   return {
     kind: run.kind,
     repo: run.repo,
@@ -1310,6 +1376,7 @@ function formatRunInProgress(
     startedAt: run.startedAt.toISOString(),
     transcriptDirectory: run.transcriptDirectory,
     ...(run.pullRequest !== undefined && { pullRequest: run.pullRequest }),
+    ...(run.progress !== undefined && { progress: formatRunProgress(run.progress) }),
   };
 }
 

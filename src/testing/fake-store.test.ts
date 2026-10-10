@@ -150,6 +150,26 @@ describe("FakeStore journal", () => {
     assert.equal((await store.loadJournal()).records[0]?.runs, undefined);
   });
 
+  it("replaces a run's progress, and ignores progress for a run no longer going", async () => {
+    const store = new FakeStore();
+    const opened = await store.openInvocation({ openedAt: OPENED_AT, process: PROCESS });
+    await store.recordRunStarted(opened, {
+      kind: "review",
+      repo: PILOT,
+      number: issueNumber(7),
+      startedAt: OPENED_AT,
+      transcriptDirectory: transcriptDirectory("/home/dev/transcripts/review-abc"),
+    });
+    const progress = { toolCalls: 2, lastEventAt: OPENED_AT };
+
+    await store.recordRunProgress(opened, PILOT, issueNumber(7), progress);
+    assert.deepEqual((await store.loadJournal()).records[0]?.runs?.[0]?.progress, progress);
+
+    await store.recordRunEnded(opened, PILOT, issueNumber(7));
+    await store.recordRunProgress(opened, PILOT, issueNumber(7), progress);
+    assert.equal((await store.loadJournal()).records[0]?.runs?.length, 0);
+  });
+
   it("adds and clears a run in progress on the open record", async () => {
     const store = new FakeStore();
     const opened = await store.openInvocation({

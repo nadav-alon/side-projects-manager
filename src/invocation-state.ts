@@ -8,6 +8,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunProgress,
   RunSpan,
   State,
   Store,
@@ -57,7 +58,7 @@ export interface FreedWorkedTicket {
  * back, and recording its own runs in progress on the journal.
  */
 export interface InvocationStatePorts {
-  store: Pick<Store, "loadState" | "saveState" | "recordRunStarted" | "recordRunEnded">;
+  store: Pick<Store, "loadState" | "saveState" | "recordRunStarted" | "recordRunProgress" | "recordRunEnded">;
 }
 
 /**
@@ -142,6 +143,13 @@ export interface InvocationState {
    * test that builds an `InvocationState` directly.
    */
   recordRunStarted(run: RunInProgress): Promise<void>;
+
+  /**
+   * Replaces the progress of the run against `repo` and `number` on this
+   * invocation's own record on the journal — one write per call. Does nothing
+   * when this invocation has no journal identity, same as `recordRunStarted`.
+   */
+  recordRunProgress(repo: RepoSlug, number: IssueNumber, progress: RunProgress): Promise<void>;
 
   /**
    * Clears the run against `repo` and `number` from this invocation's own
@@ -347,6 +355,12 @@ export function invocationState(
         return Promise.resolve();
       }
       return queueRunWrite(() => ports.store.recordRunStarted(current.self, run));
+    },
+    recordRunProgress: (repo, number, progress) => {
+      if (current === undefined) {
+        return Promise.resolve();
+      }
+      return queueRunWrite(() => ports.store.recordRunProgress(current.self, repo, number, progress));
     },
     recordRunEnded: (repo, number) => {
       if (current === undefined) {

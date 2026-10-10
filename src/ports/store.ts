@@ -16,6 +16,7 @@ import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
 import type { ReadOnlyMount } from "./read-only-mount.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { RunProgress } from "./sandbox.ts";
 import type { TokenCount } from "./token-count.ts";
 
 /**
@@ -531,6 +532,19 @@ export interface Store {
    * silently going unrecorded.
    */
   recordRunStarted(opened: OpenInvocation, run: RunInProgress): Promise<void>;
+  /**
+   * Replaces the progress of the run against `repo` and `number` on the
+   * invocation record `opened` identifies.
+   *
+   * Not an error when no such run is found — it already ended, or the record
+   * closed: a late event has nothing left to report on.
+   */
+  recordRunProgress(
+    opened: OpenInvocation,
+    repo: RepoSlug,
+    number: IssueNumber,
+    progress: RunProgress,
+  ): Promise<void>;
   /**
    * Removes the run against `repo` and `number` from the invocation record
    * `opened` identifies, whatever it came to.

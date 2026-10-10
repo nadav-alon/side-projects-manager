@@ -5,9 +5,11 @@ import type {
   InvocationClosing,
   OpenInvocation,
   RunInProgress,
+  Milliseconds,
+  RunProgress,
   TokenCount,
 } from "./ports/index.ts";
-import { localDay, localTimeOfMinute } from "./ports/index.ts";
+import { localDay, localTimeOfMinute, milliseconds } from "./ports/index.ts";
 import type { TranscriptStep } from "./transcript-steps.ts";
 import type {
   ScheduleRegistration,
@@ -296,23 +298,58 @@ function runLines({ run, steps }: StatusRun, now: Date, alive: boolean): string[
   const header = alive
     ? `  Running: ${target}, started ${localTimeOfMinute(run.startedAt)}, running for ${elapsedSince(run.startedAt, now)}.`
     : `  Was running when the invocation died: ${target}, started ${localTimeOfMinute(run.startedAt)}, had been running for ${elapsedSince(run.startedAt, now)}.`;
+  const progress = progressLines(run.progress, now, alive);
   if (steps === undefined) {
-    return [header, "    Transcript not readable yet."];
+    return [header, ...progress, "    Transcript not readable yet."];
   }
   if (steps.length === 0) {
-    return [header, "    No steps yet."];
+    return [header, ...progress, "    No steps yet."];
   }
   return [
     header,
+    ...progress,
     ...steps.map((step) => `    ${localTimeOfMinute(step.at)} ${step.line}`),
   ];
 }
 
+/**
+ * How long a running run's stream may stay silent before `status` says so —
+ * the hang a developer would stop by hand.
+ */
+const QUIET_AFTER: Milliseconds = milliseconds(10 * 60_000);
+
+/**
+ * What a run's journaled progress says: tool calls so far, the last tool and
+ * when, and — for a run whose invocation is alive — that the stream has gone
+ * quiet once its last event is older than `QUIET_AFTER`. A run with
+ * no progress on record, one written before progress was kept, says it is
+ * unknown rather than that nothing has happened.
+ */
+function progressLines(progress: RunProgress | undefined, now: Date, alive: boolean): string[] {
+  if (progress === undefined) {
+    return ["    Progress unknown."];
+  }
+  const { toolCalls, lastTool, lastEventAt } = progress;
+  const calls = `${toolCalls} tool ${toolCalls === 1 ? "call" : "calls"}`;
+  const last =
+    lastTool === undefined ? "" : `, last ${lastTool.name} at ${localTimeOfMinute(lastTool.at)}`;
+  const quietMinutes = minutesBetween(lastEventAt, now);
+  return [
+    `    Progress: ${calls}${last}.`,
+    ...(alive && quietMinutes * 60_000 >= QUIET_AFTER
+      ? [`    No events for ${quietMinutes} minutes.`]
+      : []),
+  ];
+}
+
+/** Whole minutes from `from` to `now`, never negative. */
+function minutesBetween(from: Date, now: Date): number {
+  return Math.floor(Math.max(0, now.getTime() - from.getTime()) / 60_000);
+}
+
 /** How long `startedAt` has been running, as of `now` — minutes, or hours and minutes past the first hour. */
 function elapsedSince(startedAt: Date, now: Date): string {
-  const totalMinutes = Math.floor(
-    Math.max(0, now.getTime() - startedAt.getTime()) / 60_000,
-  );
+  const totalMinutes = minutesBetween(startedAt, now);
   if (totalMinutes < 1) {
     return "under a minute";
   }
