@@ -16,6 +16,7 @@ import type {
   DiscoveryDirectory,
   ModelName,
   ModelRefusal,
+  OnRunProgress,
   OnRunStarted,
   PullRequestUrl,
   RebaseOutcome,
@@ -28,6 +29,7 @@ import type {
   ReviewTicket,
   RunModelRefused,
   RunOutcome,
+  RunProgress,
   RunRequest,
   ReadOnlyMount,
   Sandbox,
@@ -422,6 +424,11 @@ export interface RunOptions {
   mounts?: readonly ReadOnlyMount[];
   /** As `RunRequest.model`, absent to leave the image's own pin in force. */
   model?: ModelName;
+  /**
+   * Called with the run's progress as the container's stdout streams events.
+   * Absent, nothing is read before the container ends.
+   */
+  onProgress?: OnRunProgress;
   /**
    * The host directory `dockerCommand` mounts at `TRANSCRIPT_MOUNT`, so the
    * agent CLI's own session transcript lands somewhere that outlives the
@@ -936,6 +943,7 @@ async function runOnClone(
           spendCeiling,
           mount: "rw",
           credential: "developer",
+          ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
         },
         model,
         roots,
@@ -2844,11 +2852,17 @@ const dockerContainer: Container = async (options) => {
   }
 
   try {
-    const { stdout, stderr } = await run("docker", command, {
+    const running = run("docker", command, {
       maxBuffer: OUTPUT_LIMIT,
       env,
       signal: options.signal,
     });
+    if (options.onProgress !== undefined) {
+      const progress = progressFrom(options.onProgress);
+      running.child.stdout?.on("data", (chunk: string) => progress.onChunk(chunk));
+      running.child.stdout?.on("end", () => progress.onEnd());
+    }
+    const { stdout, stderr } = await running;
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
     // `options.signal.aborted` means this exit is ours: `onAbort` already
@@ -3305,6 +3319,74 @@ function withDiagnostics(
       : `The agent was refused these tools and could not use them: ${denied.join(", ")}.`,
   ].filter((note) => note !== "");
   return notes.join("\n");
+}
+
+/**
+ * Turns the chunks of a stream-json stdout into calls to `onProgress`, one
+ * per complete line. A chunk may end mid-line, so the unfinished tail is held
+ * until the rest of it arrives, or the stream ends. Every non-empty line is an event for
+ * `lastEventAt`, parseable or not; only an `assistant` event's `tool_use`
+ * blocks count as tool calls.
+ *
+ * A callback that throws is warned about rather than let escape: this runs
+ * inside a stream listener, where a throw would take down the whole process,
+ * and the run it reports on is worth more than its report.
+ */
+function progressFrom(onProgress: OnRunProgress): {
+  onChunk: (chunk: string) => void;
+  onEnd: () => void;
+} {
+  let toolCalls = 0;
+  let lastTool: RunProgress["lastTool"];
+  let unfinished = "";
+
+  function report(lines: readonly string[]): void {
+    for (const line of lines) {
+      if (line.trim() === "") {
+        continue;
+      }
+      const at = new Date();
+      const names = toolNamesIn(parse(line));
+      toolCalls += names.length;
+      const last = names.at(-1);
+      if (last !== undefined) {
+        lastTool = { name: last, at };
+      }
+      try {
+        onProgress({ toolCalls, ...(lastTool !== undefined && { lastTool }), lastEventAt: at });
+      } catch (error: unknown) {
+        console.warn(`The progress callback threw: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  return {
+    onChunk(chunk) {
+      const lines = (unfinished + chunk).split("\n");
+      unfinished = lines.pop() ?? "";
+      report(lines);
+    },
+    onEnd() {
+      report([unfinished]);
+      unfinished = "";
+    },
+  };
+}
+
+/** The names of the tools an `assistant` event calls, in order; none for any other event. */
+function toolNamesIn(event: unknown): string[] {
+  if (!isEventOfType(event, "assistant")) {
+    return [];
+  }
+  const content = (event as { message?: { content?: unknown } }).message?.content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  return content.flatMap((block: unknown) =>
+    isEventOfType(block, "tool_use") && typeof (block as { name?: unknown }).name === "string"
+      ? [(block as { name: string }).name]
+      : [],
+  );
 }
 
 /** The last line of `stdout` that parses as a `result` event, if any. */

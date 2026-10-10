@@ -57,6 +57,7 @@ import {
   reviewFindingTemplate,
   tokenCount,
   ticketGist,
+  type RunProgress,
   UNIFORM_FILES,
   usd,
   type ApplyReviewOutcome,
@@ -5820,6 +5821,65 @@ fi`;
       assert.equal(variant(result, "finished")?.output, "Done.\n\nTICKET GIST: Streamed.");
       assert.equal(variant(result, "finished")?.gist, ticketGist("Streamed."));
       assert.equal(result.tokensUsed, tokenCount(7));
+    });
+
+    it("reports a streamed run's progress to the request's callback, and yields the same result", async (t) => {
+      const tool = (name: string) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: "..." }, { type: "tool_use", name }] },
+        });
+      const stdout = [
+        JSON.stringify({ type: "system", subtype: "init" }),
+        tool("Read"),
+        "not an event at all",
+        JSON.stringify({ type: "user", message: { content: [] } }),
+        tool("Bash"),
+        JSON.stringify({ type: "result", result: "Done." }),
+      ].join("\n");
+      const reported: RunProgress[] = [];
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(stdout),
+        (sandbox, directory) =>
+          sandbox.run({
+            image: TEST_IMAGE,
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            onProgress: (progress) => reported.push(progress),
+          }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, "Done.");
+      assert.deepEqual(
+        reported.map((progress) => progress.toolCalls),
+        [0, 1, 1, 1, 2, 2],
+      );
+      const last = reported.at(-1);
+      assert.equal(last?.lastTool?.name, "Bash");
+      assert.ok(last?.lastTool !== undefined && last.lastEventAt >= last.lastTool.at);
+      assert.equal(reported[0]?.lastTool, undefined);
+    });
+
+    it("goes on with the run when the progress callback throws", async (t) => {
+      t.mock.method(console, "warn", () => undefined);
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(JSON.stringify({ type: "result", result: "Done." })),
+        (sandbox, directory) =>
+          sandbox.run({
+            image: TEST_IMAGE,
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            onProgress: () => {
+              throw new Error("nope");
+            },
+          }),
+      );
+
+      assert.equal(variant(result, "finished")?.output, "Done.");
     });
 
     it("reports the raw text of a stream with no result event", async (t) => {
