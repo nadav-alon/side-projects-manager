@@ -184,7 +184,7 @@ else's clone stops the command rather than being scaffolded into. The clones you
 elsewhere are never touched.
 
 `new-project` rewrites `registry.json` in full when it appends, from the fields it models (`repo`,
-`paused`, `turbo`, `priority`). Anything else you put in that file does not survive the write.
+`paused`, `turbo`, `priority`, `manager`, `mounts`). Anything else you put in that file does not survive the write.
 
 ## Registering a project
 
@@ -208,6 +208,17 @@ considered; `turbo` is standing consent to post `/apply-review` on a pull reques
 review ticket closes, in place of you typing it; `priority` is a whole number from 1 upwards, the
 smaller worked first, and a project without one is worked least-recently-first. All three are
 optional, and a paused project is never selected however high its priority.
+
+A project may also declare `mounts`, host directories its runs read but the clone does not hold —
+live state that is gitignored, say:
+
+```json
+{ "repo": "nadav-alon/pilot", "mounts": [{ "host": "/srv/pilot/config", "container": "/mnt/config" }] }
+```
+
+Every run, review and apply-review in that project sees each `host` directory at its `container`
+path, always read-only. Both paths are absolute. A `host` that is not a directory on the machine
+fails the run before it starts, naming the path.
 
 Selection picks one project and one ticket per iteration: a review ticket before any
 implementation ticket, then explicit priority, then least recently worked. An invocation keeps
