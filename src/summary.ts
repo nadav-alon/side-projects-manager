@@ -336,6 +336,13 @@ export type InvocationOutcome =
   /** An iteration selected a project with work. */
   | "work-selected"
   /**
+   * Every iteration failed on infrastructure, failed at the provider or was
+   * refused by its limit, and none left a salvage branch or filed a
+   * discovery. Something could have landed and nothing did, so it follows
+   * the once-a-day rule of a quiet morning rather than `work-selected`'s.
+   */
+  | "nothing-landed"
+  /**
    * The loop's own plumbing broke before it could finish — a registry that
    * would not parse, or a port that could not be reached before a single
    * iteration ran. Distinct from a run that gave up or an infrastructure
@@ -622,7 +629,34 @@ export interface InvocationReport {
 }
 
 /**
- * What this invocation came to: whether it worked something, stood down —
+ * Whether `iteration` landed something: it counts as work, and is not an
+ * infrastructure failure or a provider failure that left no salvage branch
+ * and filed no discovery. `countsAsWork` stays the broader question of
+ * whether a run was attempted at all.
+ */
+function landedSomething(iteration: IterationOutcome): boolean {
+  if (!countsAsWork(iteration)) {
+    return false;
+  }
+  switch (iteration.kind) {
+    case "failed":
+      return (
+        iteration.failure.kind !== "infrastructure" ||
+        iteration.failure.salvage !== undefined
+      );
+    case "provider-failed":
+      return (
+        iteration.discard.kind === "kept" ||
+        iteration.discard.kind === "salvaged" ||
+        (iteration.discoveryReport?.routing.filed.length ?? 0) > 0
+      );
+    default:
+      return true;
+  }
+}
+
+/**
+ * What this invocation came to: whether it landed something, stood down —
  * before or after working something — ran into nothing to do, or never
  * finished at all.
  *
@@ -639,9 +673,11 @@ function outcomeOf(facts: SummaryFacts): InvocationOutcome {
   if (facts.invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  const worked = facts.iterations.some(countsAsWork);
-  if (worked) {
+  if (facts.iterations.some(landedSomething)) {
     return "work-selected";
+  }
+  if (facts.iterations.some(countsAsWork)) {
+    return "nothing-landed";
   }
   if (facts.standDown !== undefined) {
     return "stood-down";
@@ -744,6 +780,11 @@ export async function composeInvocationReport(
     }
   }
 
+  const suppressed =
+    outcome === "nothing-landed" &&
+    summaryLocation === undefined &&
+    summaryFailure === undefined;
+
   return {
     startedAt,
     outcome,
@@ -753,8 +794,9 @@ export async function composeInvocationReport(
     ...(summaryLocation !== undefined && { summaryLocation }),
     ...(summaryFailure !== undefined && { summaryFailure }),
     needsAttention: needsAttention(outcome, facts.iterations, summaryFailure),
-    message:
-      summaryFailure === undefined
+    message: suppressed
+      ? `${line} Today is already announced, so no summary was published.`
+      : summaryFailure === undefined
         ? line
         : `${line} The summary issue could not be published: ${summaryFailure.reason}.`,
   };

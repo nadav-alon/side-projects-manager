@@ -87,11 +87,15 @@ _Avoid_: abort, bail, skip, fail
 
 **Summary**:
 The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and
-what now needs the developer. An invocation that worked something always publishes one; a quiet or
-broken invocation — a dry queue, a stand-down, or an invocation failure — publishes one only if none
+what now needs the developer. An invocation that landed something always publishes one; a quiet or
+broken invocation — a dry queue, a stand-down, an invocation failure, or an invocation where nothing
+landed — publishes one only if none
 has been published yet that local calendar day, recorded in the state document with that day once
 the publish succeeds, so a loop firing every 15 minutes still reports one quiet or broken morning rather
-than up to ninety-six. "Worked something" excludes a run the provider limit refused, alongside a
+than up to ninety-six. An invocation where nothing landed is one whose every iteration was an infrastructure failure, a
+provider failure or a limit refusal, none leaving a salvage branch or filing a discovery: it claims
+the same day marker a dry queue does, and a different failure later on an announced day stays silent
+until the next. "Landed something" excludes a run the provider limit refused, alongside a
 ticket handed back ahead of the gate: neither ran, so an invocation whose iterations were only
 those, however many, is a stand-down like any other — unless one of those limit refusals left a
 branch in the project checkout, kept because git refused to delete it or salvaged on purpose, or

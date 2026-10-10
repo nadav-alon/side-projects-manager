@@ -9066,6 +9066,35 @@ describe("morningLoop", () => {
         assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
       });
 
+      it("publishes an invocation where nothing landed only when today is not yet announced", async (t) => {
+        function brokenPorts(): FakePorts {
+          const ports = fakePorts();
+          ports.store.register(PILOT);
+          ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+          t.mock.method(ports.sandbox, "run", async () => {
+            throw new Error("docker-credential-desktop.exe not found");
+          });
+          return ports;
+        }
+        const notYetAnnounced = brokenPorts();
+
+        const first = await morningLoop(notYetAnnounced);
+
+        assert.equal(first.outcome, "nothing-landed");
+        assert.equal(first.needsAttention, true);
+        assert.equal(notYetAnnounced.tracker.summaries.length, 1);
+
+        const alreadyAnnounced = brokenPorts();
+        alreadyAnnounced.store.markAnnouncedOn(TODAY);
+
+        const second = await morningLoop(alreadyAnnounced);
+
+        assert.equal(second.outcome, "nothing-landed");
+        assert.equal(alreadyAnnounced.tracker.summaries.length, 0);
+        assert.match(second.message, /docker-credential-desktop\.exe not found/);
+        assert.match(second.message, /already announced/);
+      });
+
       it("publishes a stand-down only when today is not yet announced", async () => {
         function stoodDownPorts(): FakePorts {
           const ports = fakePorts();

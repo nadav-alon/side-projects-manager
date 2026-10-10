@@ -117,7 +117,7 @@ describe("invocationClosing", () => {
 
     const report = await morningLoop(ports);
 
-    assert.equal(report.outcome, "work-selected");
+    assert.equal(report.outcome, "nothing-landed");
     assert.deepEqual(invocationClosing(report, CLOSED_AT).projects, [
       { repo: PILOT, tokensUsed: tokenCount(0) },
     ]);

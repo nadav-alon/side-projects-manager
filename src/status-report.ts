@@ -393,6 +393,8 @@ function describeRecord(record: StatusRecord): string {
       return record.projects.length === 0
         ? "worked something"
         : `worked ${record.projects.map((project) => `${project.repo} (${project.tokensUsed} tokens)`).join(", ")}`;
+    case "nothing-landed":
+      return "ran into trouble and landed nothing";
     case "never-reported":
       return record.exitCode === undefined
         ? "never reported"
