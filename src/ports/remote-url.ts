@@ -1,3 +1,6 @@
+import { isRepoSlug } from "./repo-slug.ts";
+import type { RepoSlug } from "./repo-slug.ts";
+
 declare const remoteUrlBrand: unique symbol;
 
 /**
@@ -45,4 +48,16 @@ export function remoteUrl(value: string): RemoteUrl {
     throw new TypeError(`Not a git remote address: ${JSON.stringify(value)}`);
   }
   return value;
+}
+
+/**
+ * The `owner/repo` a remote address ends with, over HTTPS, SSH or the `git@`
+ * shorthand alike; `undefined` for a remote that is not a GitHub-shaped repo,
+ * such as a local path.
+ */
+export function repoOfRemote(remote: RemoteUrl): RepoSlug | undefined {
+  const candidate = /([^/:]+\/[^/:]+?)(?:\.git)?\/?$/.exec(remote)?.[1];
+  return candidate !== undefined && isRepoSlug(candidate)
+    ? candidate
+    : undefined;
 }
