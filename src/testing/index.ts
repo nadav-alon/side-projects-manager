@@ -20,6 +20,7 @@ export {
   BUDGET_EXHAUSTED_JSON_RESULT,
   BUDGET_EXHAUSTED_STDOUT,
 } from "./budget-exhaustion.ts";
+export { structuredStdout, type StructuredAnswerFixture } from "./structured-answer.ts";
 export { LIMIT_REFUSAL } from "./limit-refusal.ts";
 export {
   PROVIDER_FAILURE_JSON_RESULT,
