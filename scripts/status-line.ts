@@ -8,19 +8,36 @@
 // blank rather than breaking the line.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-const HOME = process.env["SIDE_PROJECTS_MANAGER_HOME"] || path.resolve(import.meta.dirname, "..");
+import { documentStore } from "../src/adapters/document-store.ts";
+import { fileHalt } from "../src/adapters/file-halt.ts";
+import { MANAGER_HOME } from "../src/adapters/manager-home.ts";
+import { isProcessAlive } from "../src/adapters/process-alive.ts";
+import { isClosedInvocation } from "../src/ports/journal.ts";
+
+/** The loop's part is recomputed at most this often, however often the line re-runs. */
+const LOOP_STATE_TTL_MS = 60_000;
 
 const RESET = "\u001b[0m";
-/** A session titled `<mode>: …` shows its mode in this colour; any other title shows no badge. */
-const MODE_COLOURS: Record<string, string> = {
-  grill: "\u001b[35m",
+/**
+ * A session titled `<mode>: …` shows its mode in this colour; any other title shows no badge. The
+ * keys are the modes the session-naming hook titles a session with.
+ */
+const MODE_COLOURS = {
+  grilling: "\u001b[35m",
+  "grill-me": "\u001b[35m",
   standup: "\u001b[36m",
   triage: "\u001b[33m",
   wayfinder: "\u001b[32m",
-};
+} as const;
+
+function isMode(word: string): word is keyof typeof MODE_COLOURS {
+  return Object.hasOwn(MODE_COLOURS, word);
+}
 
 interface StatusInput {
   session_name?: unknown;
@@ -31,9 +48,8 @@ interface StatusInput {
 
 function badge(sessionName: unknown): string {
   if (typeof sessionName !== "string") return "";
-  const mode = /^([a-z]+):/.exec(sessionName)?.[1];
-  const colour = mode === undefined ? undefined : MODE_COLOURS[mode];
-  return mode === undefined || colour === undefined ? "" : `${colour}${mode}${RESET}`;
+  const mode = /^([a-z-]+):/.exec(sessionName)?.[1];
+  return mode !== undefined && isMode(mode) ? `${MODE_COLOURS[mode]}${mode}${RESET}` : "";
 }
 
 function repoAndBranch(cwd: unknown): string {
@@ -54,32 +70,47 @@ function repoAndBranch(cwd: unknown): string {
   return branch === "" ? repo : `${repo}@${branch}`;
 }
 
-/** `halted`, `in flight: owner/repo#n (m min)`, or empty when idle or unreadable. */
-function loopState(home: string, now: number): string {
+/** `halted`, `in flight: owner/repo#n (m min)`, or empty when idle, between runs, dead or unreadable. */
+async function computeLoopState(home: string, now: number): Promise<string> {
   try {
-    readFileSync(path.join(home, "halt"));
-    return "halted";
-  } catch {
-    // Not halted, or no home to read.
-  }
-  try {
-    const journal: unknown = JSON.parse(readFileSync(path.join(home, "journal.json"), "utf8"));
-    const records = (journal as { records?: unknown }).records;
-    if (!Array.isArray(records)) return "";
-    const open = records.filter((r) => r && typeof r === "object" && r.closedAt === undefined).at(-1);
-    if (open === undefined) return "";
-    const run = Array.isArray(open.runs) ? open.runs.at(-1) : undefined;
-    const startedAt = Date.parse(run?.startedAt ?? open.openedAt);
-    if (Number.isNaN(startedAt)) return "";
-    const minutes = Math.max(0, Math.floor((now - startedAt) / 60_000));
-    const ticket = run ? `${run.repo}#${run.number}` : undefined;
-    return ticket === undefined ? `in flight (${minutes} min)` : `in flight: ${ticket} (${minutes} min)`;
+    if (await fileHalt(home).engaged()) return "halted";
+    const journal = await documentStore(home).loadJournal();
+    const open = journal.records.filter((record) => !isClosedInvocation(record)).at(-1);
+    // A record whose process died never closes; it is not in flight.
+    if (open === undefined || !isProcessAlive(open.process)) return "";
+    const run = open.runs?.at(-1);
+    if (run === undefined) return "";
+    const minutes = Math.max(0, Math.floor((now - run.startedAt.getTime()) / 60_000));
+    return `in flight: ${run.repo}#${run.number} (${minutes} min)`;
   } catch {
     return "";
   }
 }
 
-function main(): void {
+/** The loop's part, read from a stamp file under the temp dir when it is under a minute old. */
+async function loopState(home: string, now: number): Promise<string> {
+  const stamp = path.join(
+    os.tmpdir(),
+    `side-projects-status-line-${createHash("sha256").update(home).digest("hex").slice(0, 16)}.json`,
+  );
+  try {
+    const cached = JSON.parse(readFileSync(stamp, "utf8")) as { at?: unknown; state?: unknown };
+    if (typeof cached.at === "number" && typeof cached.state === "string" && now - cached.at < LOOP_STATE_TTL_MS) {
+      return cached.state;
+    }
+  } catch {
+    // No stamp, or an unreadable one: recompute.
+  }
+  const state = await computeLoopState(home, now);
+  try {
+    writeFileSync(stamp, JSON.stringify({ at: now, state }));
+  } catch {
+    // An unwritable temp dir only costs the cache.
+  }
+  return state;
+}
+
+async function main(): Promise<void> {
   let input: StatusInput = {};
   try {
     input = JSON.parse(readFileSync(0, "utf8")) as StatusInput;
@@ -93,9 +124,9 @@ function main(): void {
     repoAndBranch(input.cwd),
     typeof model === "string" ? model : "",
     typeof cost === "number" ? `$${cost.toFixed(2)}` : "",
-    loopState(HOME, Date.now()),
+    await loopState(MANAGER_HOME, Date.now()),
   ].filter((part) => part !== "");
   console.log(parts.join(" "));
 }
 
-main();
+await main();
