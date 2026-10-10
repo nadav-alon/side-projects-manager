@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, constants, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -2886,17 +2886,13 @@ const dockerContainer: Container = async (options) => {
   }
 
   try {
-    const running = run("docker", command, {
-      maxBuffer: OUTPUT_LIMIT,
+    const progress =
+      options.onProgress !== undefined ? progressFrom(options.onProgress) : undefined;
+    const { stdout, stderr } = await runStreaming("docker", command, {
       env,
       signal: options.signal,
+      progress,
     });
-    if (options.onProgress !== undefined) {
-      const progress = progressFrom(options.onProgress);
-      running.child.stdout?.on("data", (chunk: string) => progress.onChunk(chunk));
-      running.child.stdout?.on("end", () => progress.onEnd());
-    }
-    const { stdout, stderr } = await running;
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
     // `options.signal.aborted` means this exit is ours: `onAbort` already
@@ -2919,6 +2915,96 @@ const dockerContainer: Container = async (options) => {
     await killed;
   }
 };
+
+/**
+ * How much of a run's raw stdout `runStreaming` keeps for the fallback when
+ * the stream never yields a `result` line.
+ */
+const STREAM_TAIL = 1024 * 1024;
+
+/**
+ * Runs `file` the way `execFile` would, but reads its stdout as it arrives
+ * instead of buffering all of it under `maxBuffer`: a stream-json run says
+ * more than any fixed buffer can be trusted to hold, and overflowing one
+ * kills the container mid-run. What it resolves with, and hangs off a
+ * rejection, as `execFile` does, is the stream's last `result` line and
+ * a bounded tail of the raw text — enough for `readAgentRun`, whatever the
+ * stream's size. `stderr` is bounded to the same tail.
+ *
+ * `progress` sees every chunk of the stream, untouched by that bound.
+ */
+function runStreaming(
+  file: string,
+  args: readonly string[],
+  options: {
+    env: NodeJS.ProcessEnv;
+    signal: AbortSignal;
+    progress: ReturnType<typeof progressFrom> | undefined;
+  },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, {
+      env: options.env,
+      signal: options.signal,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    let stdoutTail = "";
+    let unfinished = "";
+    let lastResult: string | undefined;
+    let stderr = "";
+
+    function boundedTail(text: string): string {
+      return text.length > 2 * STREAM_TAIL ? text.slice(-STREAM_TAIL) : text;
+    }
+    function noteLine(line: string): void {
+      if (line.includes('"result"') && isEventOfType(parse(line), "result")) {
+        lastResult = line;
+      }
+    }
+    function captured(): { stdout: string; stderr: string } {
+      noteLine(unfinished);
+      const kept = stdoutTail.slice(-STREAM_TAIL);
+      const stdout =
+        lastResult !== undefined && !kept.includes(lastResult)
+          ? `${lastResult}\n${kept}`
+          : kept;
+      return { stdout, stderr: stderr.slice(-STREAM_TAIL) };
+    }
+
+    child.stdout.on("data", (chunk: string) => {
+      options.progress?.onChunk(chunk);
+      stdoutTail = boundedTail(stdoutTail + chunk);
+      const lines = (unfinished + chunk).split("\n");
+      unfinished = lines.pop() ?? "";
+      // A line longer than the tail is not worth parsing for a result: it
+      // could not be kept, and `unfinished` is what bounds it below.
+      for (const line of lines) {
+        noteLine(line);
+      }
+      if (unfinished.length > STREAM_TAIL) {
+        unfinished = "";
+      }
+    });
+    child.stdout.on("end", () => options.progress?.onEnd());
+    child.stderr.on("data", (chunk: string) => {
+      stderr = boundedTail(stderr + chunk);
+    });
+    child.on("error", (error) => {
+      reject(Object.assign(error, captured()));
+    });
+    child.on("close", (code, signal) => {
+      const output = captured();
+      if (code === 0) {
+        resolve(output);
+        return;
+      }
+      reject(Object.assign(new Error(`Command failed: ${file}`), { code, signal }, output));
+    });
+  });
+}
 
 /**
  * Kills the container `dockerCommand`'s `--cidfile` named, once `attempt`'s

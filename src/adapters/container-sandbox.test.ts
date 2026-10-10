@@ -5921,6 +5921,50 @@ fi`;
       assert.equal(reported[0]?.lastTool, undefined);
     });
 
+    it("reads the result of a stream larger than the output limit", async (t) => {
+      const result = JSON.stringify({
+        type: "result",
+        result: "Done.",
+        usage: { input_tokens: 7, output_tokens: 5 },
+      });
+      const script = [
+        `yes ${shQuote("x".repeat(99))} | head -c 70000000`,
+        `printf '%s\n' ${shQuote(result)}`,
+        "exit 0",
+      ].join("\n");
+      const { result: outcome } = await runWithDocker(t, script, (sandbox, directory) =>
+        sandbox.run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+      );
+
+      const finished = variant(outcome, "finished");
+      assert.equal(finished?.output, "Done.");
+      assert.equal(Number(finished?.tokensUsed), 32);
+    });
+
+    it("keeps only a bounded tail of an oversized stream with no result line", async (t) => {
+      const script = [
+        `yes ${shQuote("y".repeat(99))} | head -c 70000000`,
+        "exit 0",
+      ].join("\n");
+      const { result } = await runWithDocker(t, script, (sandbox, directory) =>
+        sandbox.run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+        }),
+      );
+
+      const output = variant(result, "finished")?.output ?? "";
+      assert.ok(output.length > 0);
+      assert.ok(output.length < 4 * 1024 * 1024);
+    });
+
     it("counts an event split across two chunks once, as a tool call", async (t) => {
       const event = JSON.stringify({
         type: "assistant",
