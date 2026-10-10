@@ -1,12 +1,12 @@
 import type { RenderElement } from 'claude-code'
 import { expect, test, type TestBody } from 'claude-code/testing'
 
-const site = (hasSurvey: boolean) =>
+const abovePrompt = (hasSurvey: boolean) =>
   ({
     component: 'AbovePrompt',
     props: { hasSurvey, isWorking: false, maxRows: 1, bodyColumns: 80, scroll: { offset: 0, bodyRows: 1 }, view: {} },
   }) as const
-const ABOVE_PROMPT = site(false)
+const ABOVE_PROMPT = abovePrompt(false)
 
 type On = Parameters<TestBody>[1]
 
@@ -40,6 +40,15 @@ test('the band appears after a mode skill and not before', async ($, on) => {
   await after.unmount()
 })
 
+test('a plugin-prefixed mode skill sets the band too', async ($, on) => {
+  engine(on)
+  await $.skill.prompt({ skill: 'mattpocock-skills:grilling', text: 'acme/pilot#42' })
+
+  const ui = await $.ui.mount({ plugin: 'mode-band', surface: 'terminal', ...ABOVE_PROMPT })
+  const band = await ui.find({ type: 'Text' })
+  expect(band?.text.trim()).toBe('grill: acme/pilot#42')
+})
+
 test('another mode skill replaces the band and a toast says so once', async ($, on) => {
   const toasts = engine(on)
   await $.skill.prompt({ skill: 'grilling', text: 'acme/pilot#42' })
@@ -68,8 +77,7 @@ test('a survey keeps its place', async ($, on) => {
   const ui = await $.ui.mount({
     plugin: 'mode-band',
     surface: 'terminal',
-    component: 'AbovePrompt',
-    props: site(true).props,
+    ...abovePrompt(true),
   })
   expect(await ui.find({ type: 'Text', text: /standup/ })).toBeUndefined()
 })

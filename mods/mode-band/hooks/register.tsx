@@ -1,12 +1,12 @@
 import { update, read, atom } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import { bandLabel, bandOfSkill, colorOfMode } from './modes'
+import { bandLabel, bandOfSkill, colorOfMode, modeSkills } from './modes'
 
 const current = atom({ plugin: 'mode-band', key: 'current' } as const, null)
 
 export const register: Register = on => {
-  for (const skill of ['grilling', 'grill-me', 'standup', 'triage', 'wayfinder']) {
+  for (const skill of modeSkills) {
     on('skill.prompt', { skill }, async ($, e, next) => {
       const band = bandOfSkill(e.skill, e.text)
       if (band !== null) {
