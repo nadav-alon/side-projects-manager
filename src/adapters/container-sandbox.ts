@@ -416,6 +416,13 @@ export interface RunOptions {
    */
   playwrightMcp?: true;
   /**
+   * Set only for a run whose contract is to force-push (a rebase): the
+   * project's own settings are not read for it, since a deny on a force-push
+   * there would outrank everything a run could be handed. See
+   * `IGNORE_PROJECT_SETTINGS_ARGS`.
+   */
+  ignoreProjectSettings?: true;
+  /**
    * Host directories `dockerCommand` mounts read-only at their container
    * paths, whatever `mount` is. Set by `containerSandbox` from the request.
    */
@@ -679,8 +686,31 @@ const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
  * `failIfUnavailable` is overridden too, so the run does not lean on it being
  * inert while `enabled` is false. `--settings` outranks the project's file
  * without editing it, and a project with no `sandbox` block is unaffected.
+ *
+ * It also denies pushing to `master`, so that holds in every run kind whether
+ * or not the project's file says so; a deny the project also writes is merely
+ * redundant. This is a fixed pair of patterns for the literal `master`, not
+ * whatever the project's file would have supplied: a project guarding another
+ * branch, or denying anything else, relies on its own file, which a run that
+ * ignores project settings (see `IGNORE_PROJECT_SETTINGS_ARGS`) does not read.
  */
-const CLI_SETTINGS = JSON.stringify({ sandbox: { enabled: false, failIfUnavailable: false } });
+const CLI_SETTINGS = JSON.stringify({
+  sandbox: { enabled: false, failIfUnavailable: false },
+  permissions: { deny: ["Bash(git push origin master:*)", "Bash(git push origin HEAD:master:*)"] },
+});
+
+/**
+ * What a run that ignores project settings is handed besides `CLI_SETTINGS`.
+ * A deny rule in the project's `.claude/settings.json` outranks
+ * `--permission-mode bypassPermissions` and every allow rule, so
+ * `--settings` cannot lift a deny the project writes; the run reads no
+ * project or local settings at all instead. The cost is everything else those
+ * files carry: the project's other `permissions.deny` rules, its hooks and
+ * its `env`, and possibly its `CLAUDE.md` and `.claude/skills`, if the CLI
+ * gates them on the `project` source as the Agent SDK does (untested against
+ * the real CLI).
+ */
+const IGNORE_PROJECT_SETTINGS_ARGS = ["--setting-sources", "user"];
 
 /**
  * The six shapes a sandboxed run comes in — named for `withThrowawayClone`
@@ -2009,6 +2039,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
   },
   promptFor: (ticket: T, discovered: readonly DiscoveredTicketSummary[] | undefined) => string,
   roots: SandboxRoots,
+  options: { ignoreProjectSettings?: true },
   onStarted?: OnRunStarted,
 ): Promise<ApplyReviewOutcome> {
   const { ticket, checkout: project, spendCeiling, model, manager } = request;
@@ -2027,6 +2058,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         spendCeiling,
         mount: "rw",
         credential: "developer",
+        ...options,
       },
       model,
       roots,
@@ -2060,6 +2092,7 @@ async function applyReviewOnClone(
     request,
     applyReviewPromptFor,
     roots,
+    {},
     onStarted,
   );
 }
@@ -2078,6 +2111,7 @@ async function rebaseOnClone(
     request,
     rebasePromptFor,
     roots,
+    { ignoreProjectSettings: true },
     onStarted,
   );
 }
@@ -3052,6 +3086,7 @@ function dockerCommand(
     mount,
     mounts,
     playwrightMcp,
+    ignoreProjectSettings,
     model,
     transcriptDirectory,
     discoveriesDirectory,
@@ -3136,6 +3171,7 @@ function dockerCommand(
     // read-only with a credential that cannot push (see `Mount`).
     "--permission-mode",
     "bypassPermissions",
+    ...(ignoreProjectSettings === true ? IGNORE_PROJECT_SETTINGS_ARGS : []),
     "--settings",
     CLI_SETTINGS,
     // The spend ceiling, enforced by the agent CLI rather than by the manager:

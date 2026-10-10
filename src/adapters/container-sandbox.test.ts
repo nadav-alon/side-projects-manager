@@ -612,6 +612,11 @@ function providerFailureStdoutWithStatus(status: number | null): string {
   });
 }
 
+const CLI_SETTINGS = {
+  sandbox: { enabled: false, failIfUnavailable: false },
+  permissions: { deny: ["Bash(git push origin master:*)", "Bash(git push origin HEAD:master:*)"] },
+};
+
 describe("containerSandbox", () => {
   allowFileSubmodules();
 
@@ -5408,9 +5413,7 @@ fi`;
     );
 
     const [call] = await docker.calls();
-    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), {
-      sandbox: { enabled: false, failIfUnavailable: false },
-    });
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
     assert.equal(await readFile(path.join(directory, ".claude", "settings.json"), "utf8"), demanding);
   });
 
@@ -5423,9 +5426,65 @@ fi`;
     );
 
     const [call] = await docker.calls();
-    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), {
-      sandbox: { enabled: false, failIfUnavailable: false },
-    });
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
+  });
+
+  /**
+   * `--permission-mode bypassPermissions` does not override a deny rule, and
+   * a deny rule outranks any allow, so a rebase run can only force-push when
+   * the project's own settings are not read for it. The deny rules that
+   * protect the default branch are then the manager's to carry.
+   */
+  it("reads no project settings for a rebase run, which carries the master denies itself", async (t) => {
+    withCredential(t);
+    const { directory } = await hostedProject();
+    const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+
+    await rebaseOn(testSandbox(undefined, headIsBranch), directory);
+
+    const [call] = await docker.calls();
+    assert.equal(valueOf(call, "--setting-sources"), "user");
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
+  });
+
+  it("denies pushing to master in a plain run too", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    const settings = JSON.parse(valueOf(call, "--settings") ?? "null");
+    assert.deepEqual(settings.permissions.deny, [
+      "Bash(git push origin master:*)",
+      "Bash(git push origin HEAD:master:*)",
+    ]);
+  });
+
+  it("still reads the project's settings for an apply-review run, which pushes plain", async (t) => {
+    withCredential(t);
+    const { directory } = await hostedProject();
+    const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+
+    await applyReviewOn(testSandbox(undefined, headIsBranch), directory);
+
+    const [call] = await docker.calls();
+    assert.equal(call?.includes("--setting-sources"), false);
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
+  });
+
+  it("still reads the project's settings for a plain run, so its force-push denies hold", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.equal(call?.includes("--setting-sources"), false);
   });
 
   /**
