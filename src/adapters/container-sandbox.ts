@@ -48,6 +48,7 @@ import type {
 import {
   branch,
   checkout,
+  FORCE_PUSH_RUN_KINDS,
   commitSha,
   discoveryDirectory,
   isBranch,
@@ -412,6 +413,10 @@ export interface RunOptions {
   spendCeiling: Usd;
   mount: Mount;
   credential: Credential;
+  /** The kind of run, which decides which of the manager's deny rules are lifted. */
+  kind: RunKind;
+  /** The branch the clone was taken on: pushing to it is refused to every run. */
+  base: Branch;
   /**
    * Set only for a ux review: starts the Playwright MCP server the image
    * carries, via `--mcp-config`. Absent, the agent has no browser.
@@ -693,21 +698,45 @@ const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
  * `failIfUnavailable` is overridden too, so the run does not lean on it being
  * inert while `enabled` is false. `--settings` outranks the project's file
  * without editing it, and a project with no `sandbox` block is unaffected.
- *
- * It also denies pushing to `master`, so that holds in every run kind whether
- * or not the project's file says so; a deny the project also writes is merely
- * redundant. This is a fixed pair of patterns for the literal `master`, not
- * whatever the project's file would have supplied: a project guarding another
- * branch, or denying anything else, relies on its own file, which a run that
- * ignores project settings (see `IGNORE_PROJECT_SETTINGS_ARGS`) does not read.
  */
-const CLI_SETTINGS = JSON.stringify({
-  sandbox: { enabled: false, failIfUnavailable: false },
-  permissions: { deny: ["Bash(git push origin master:*)", "Bash(git push origin HEAD:master:*)"] },
-});
+const CLI_SETTINGS_SANDBOX = { enabled: false, failIfUnavailable: false };
 
 /**
- * What a run that ignores project settings is handed besides `CLI_SETTINGS`.
+ * The deny rules the manager hands every run, whatever the project's own
+ * `.claude/settings.json` denies — or does not: a project with an empty one
+ * is protected the same. They replace the project's for merging and pushing:
+ * a project's rules can pull against a run's contract (a rebase must
+ * force-push), and a manager that outranks them has to carry its own.
+ * Carried in `--settings` rather than baked into the image, so they travel
+ * with the manager and need no image rebuild to change.
+ *
+ * Refused to every run: `gh pr merge`, a push to `base`, and a force-push.
+ * A kind in `FORCE_PUSH_RUN_KINDS` is refused `--force` alone, leaving it
+ * `--force-with-lease`. Each rule is a fixed string, so a denial's rule can
+ * be named in the hand-back (`ruleDenying`).
+ */
+export function managerDenyRules(kind: RunKind, base: Branch): string[] {
+  const forcePush = FORCE_PUSH_RUN_KINDS.includes(kind)
+    ? ["Bash(git push --force)", "Bash(git push --force *)"]
+    : ["Bash(git push --force*)"];
+  return [
+    "Bash(gh pr merge*)",
+    `Bash(git push origin ${base})`,
+    `Bash(git push origin HEAD:${base})`,
+    ...forcePush,
+  ];
+}
+
+/** The settings the agent CLI is handed for a run of `kind` against `base`. */
+export function cliSettings(kind: RunKind, base: Branch): string {
+  return JSON.stringify({
+    sandbox: CLI_SETTINGS_SANDBOX,
+    permissions: { deny: managerDenyRules(kind, base) },
+  });
+}
+
+/**
+ * What a run that ignores project settings is handed besides `cliSettings`.
  * A deny rule in the project's `.claude/settings.json` outranks
  * `--permission-mode bypassPermissions` and every allow rule, so
  * `--settings` cannot lift a deny the project writes; the run reads no
@@ -725,7 +754,7 @@ const IGNORE_PROJECT_SETTINGS_ARGS = ["--setting-sources", "user"];
  * derived, rather than spelled out again, so a kind added to `TicketKind`
  * forces the issue here too, as it already does at `SELECTION_RANK`.
  */
-type RunKind = Exclude<TicketKind, "implementation"> | "run";
+export type RunKind = Exclude<TicketKind, "implementation"> | "run";
 
 /**
  * Runs `body` on a throwaway clone's directory, named for the `kind` of run
@@ -930,6 +959,7 @@ async function runOnClone(
       // Branded before the agent starts: a clone whose hashes this cannot read
       // fails the sandbox's set-up, not a run whose work is already done.
       const head = commitSha(await revision(clone, "HEAD"));
+      const base = await baseBranchOf(clone);
       if (chosen.resuming) {
         // The clone only ever gets a local branch for the checkout's default
         // one; `onto` is resumed from the remote-tracking ref the clone made
@@ -957,11 +987,11 @@ async function runOnClone(
       // merge-base, not `head` itself, is what commits are counted from. The
       // commits already there are named too, so the loop can tell what this
       // run itself added.
-      const base = chosen.resuming
+      const baseCommit = chosen.resuming
         ? commitSha(await mergeBase(clone, head, onto))
         : head;
       const resumedCommits = chosen.resuming
-        ? await commitsSince(clone, base)
+        ? await commitsSince(clone, baseCommit)
         : undefined;
 
       const agent = await attempt(
@@ -973,6 +1003,7 @@ async function runOnClone(
           spendCeiling,
           mount: "rw",
           credential: "developer",
+          base,
           ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
         },
         model,
@@ -1001,7 +1032,7 @@ async function runOnClone(
           await salvageUncommitted(clone);
         }
 
-        const commits = await commitsSince(clone, base);
+        const commits = await commitsSince(clone, baseCommit);
 
         // Only when the agent actually committed: a branch pointing at the
         // commit it started from is not work, and the checkout should not
@@ -1128,7 +1159,7 @@ async function attempt(
   kind: RunKind,
   options: Omit<
     RunOptions,
-    "model" | "image" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
+    "model" | "image" | "kind" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
   >,
   model: ModelName | undefined,
   { transcriptsRoot, discoveriesRoot }: SandboxRoots,
@@ -1151,6 +1182,7 @@ async function attempt(
   try {
     const agent = await container({
       ...options,
+      kind,
       transcriptDirectory: transcriptDir,
       discoveriesDirectory: discoveriesDir,
       signal: controller.signal,
@@ -1735,10 +1767,11 @@ async function reviewOnClone(
   return withThrowawayClone(kind, async (clone) => {
     await withCheckoutLock(project, () => cloneWithSubmodules(project, clone));
     await populateSubmodules(project, clone);
+    const base = await baseBranchOf(clone);
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt, spendCeiling, credential: "review", ...access },
+      { directory: clone, prompt, spendCeiling, credential: "review", base, ...access },
       model,
       roots,
       onStarted,
@@ -1931,6 +1964,19 @@ function uxReviewPromptFor(
 }
 
 /**
+ * The branch a fresh clone of the project is on: the base every pull request
+ * and every push is measured against.
+ */
+async function baseBranchOf(clone: Checkout): Promise<Branch> {
+  const { stdout } = await run("git", ["-C", clone, "branch", "--show-current"]);
+  const base = stdout.trim();
+  if (!isBranch(base)) {
+    throw new Error(`${clone} is not on a usable branch, so there is no base to refuse pushes to.`);
+  }
+  return base;
+}
+
+/**
  * Clones `project` under the checkout lock, points the clone's `origin` at
  * the checkout's own remote made pushable, and switches it onto the pull
  * request's `head` branch as the repo host has it now, tracking it — so the
@@ -2066,6 +2112,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         spendCeiling,
         mount: "rw",
         credential: "developer",
+        base,
         ...options,
       },
       model,
@@ -3099,6 +3146,8 @@ function dockerCommand(
     image,
     mount,
     mounts,
+    kind,
+    base,
     playwrightMcp,
     ignoreProjectSettings,
     model,
@@ -3193,7 +3242,7 @@ function dockerCommand(
     "bypassPermissions",
     ...(ignoreProjectSettings === true ? IGNORE_PROJECT_SETTINGS_ARGS : []),
     "--settings",
-    CLI_SETTINGS,
+    cliSettings(kind, base),
     // The spend ceiling, enforced by the agent CLI rather than by the manager:
     // nothing out here can stop a run that is already going, and a run that
     // overspends is exactly the one the gate cannot catch until the morning
