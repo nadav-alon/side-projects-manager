@@ -11,6 +11,9 @@ on:
       - scripts/verify-harness.ts
       # Mounted into the image by sandbox:verify (package.json).
       - src/error-message.ts
+      - src/adapters/manager-settings.ts
+      - src/ports/sandbox.ts
+      - src/ports/branch.ts
       # The docker invocations themselves live here, both of them.
       - package.json
       - .github/workflows/sandbox-image.yml
@@ -26,6 +29,9 @@ on:
       - scripts/verify-harness.ts
       # Mounted into the image by sandbox:verify (package.json).
       - src/error-message.ts
+      - src/adapters/manager-settings.ts
+      - src/ports/sandbox.ts
+      - src/ports/branch.ts
       # The docker invocations themselves live here, both of them.
       - package.json
       - .github/workflows/sandbox-image.yml

@@ -21,10 +21,10 @@ import { routeRunDiscoveries } from "../discovery-routing.ts";
 import { REASON_QUOTED } from "../hand-back.ts";
 import { imageTag, type ImageTag } from "../ports/image-tag.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { cliSettings } from "./manager-settings.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import {
   AgentNeverRan,
-  cliSettings,
   containerSandbox,
   DISCOVERIES_DIRECTORY,
   dockerNeverRanMessage,

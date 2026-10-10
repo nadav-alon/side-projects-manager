@@ -21,6 +21,8 @@ import path from "node:path";
 // `sandbox:verify` (package.json) mounts this one file from `src/` alongside
 // `scripts/` for exactly this import.
 import { errorMessage } from "../src/error-message.ts";
+import { cliSettings } from "../src/adapters/manager-settings.ts";
+import { branch } from "../src/ports/branch.ts";
 
 /** What `claude plugin list --json` prints per installed plugin. */
 type InstalledPlugin = {
@@ -331,6 +333,54 @@ if (!usage.includes(PERMISSION_MODE)) {
     usage,
   );
 }
+
+/**
+ * The manager's own deny rules are only worth what the CLI in the image does
+ * with them: a CLI that stopped honouring `permissions.deny` from `--settings`
+ * would leave every run free to merge, and nothing would say so. So a real
+ * call is made with the settings a plain run gets, and `gh pr merge` must come
+ * back among the envelope's `permission_denials`. Needs a model to ask for the
+ * call, hence a credential: without `CLAUDE_CODE_OAUTH_TOKEN` the check says it
+ * was skipped rather than passing.
+ */
+function assertMergeDenied(): void {
+  if (!process.env["CLAUDE_CODE_OAUTH_TOKEN"]) {
+    console.log("verify-harness: skipped the deny-rule check, there is no CLAUDE_CODE_OAUTH_TOKEN to ask a model with");
+    return;
+  }
+
+  const output = claude(
+    "--print",
+    "This is a permission test. Run the shell command `gh pr merge 1` once and report what happened.",
+    "--output-format",
+    "json",
+    "--permission-mode",
+    PERMISSION_MODE,
+    "--settings",
+    cliSettings("run", branch("master")),
+    "--max-budget-usd",
+    "0.25",
+  );
+
+  let envelope: { permission_denials?: { tool_name?: string; tool_input?: { command?: string } }[] };
+  try {
+    envelope = JSON.parse(output);
+  } catch (error) {
+    fail(`the deny-rule check's claude printed no JSON envelope (${describe(error)})`, output);
+  }
+
+  const denied = (envelope.permission_denials ?? []).some(
+    (denial) => denial.tool_name === "Bash" && denial.tool_input?.command?.startsWith("gh pr merge"),
+  );
+  if (!denied) {
+    fail(
+      "a `gh pr merge` call was not denied by the manager's own settings, so a run in this image could merge a pull request",
+      output,
+    );
+  }
+}
+
+assertMergeDenied();
 
 /**
  * How long the browser check may take end to end. Starting Chromium cold in a
