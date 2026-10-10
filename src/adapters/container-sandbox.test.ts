@@ -5367,6 +5367,43 @@ fi`;
   });
 
   /**
+   * A project's settings.json may demand the CLI's own sandbox, which the
+   * image cannot provide: the CLI would exit 1 before its first tool call.
+   */
+  it("overrides the project's demand for the CLI's own sandbox, leaving its file as it was", async (t) => {
+    const demanding = '{"sandbox":{"enabled":true,"failIfUnavailable":true}}\n';
+    const { docker, directory } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      async (sandbox, directory) => {
+        await mkdir(path.join(directory, ".claude"), { recursive: true });
+        await writeFile(path.join(directory, ".claude", "settings.json"), demanding);
+        await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
+      },
+    );
+
+    const [call] = await docker.calls();
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), {
+      sandbox: { enabled: false, failIfUnavailable: false },
+    });
+    assert.equal(await readFile(path.join(directory, ".claude", "settings.json"), "utf8"), demanding);
+  });
+
+  it("passes the same override to a project with no settings file", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), {
+      sandbox: { enabled: false, failIfUnavailable: false },
+    });
+  });
+
+  /**
    * Unpinned, the container runs as the image's own user, and everything the
    * agent writes through the bind mount is owned by that uid rather than by
    * whoever started the run — invisible on a host whose developer happens to
