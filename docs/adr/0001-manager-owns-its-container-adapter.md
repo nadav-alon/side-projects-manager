@@ -37,9 +37,17 @@ A rebase run is the one run kind whose contract is to force-push, and a project'
 `.claude/settings.json` may deny that: `--permission-mode bypassPermissions` does not override a
 deny rule, and a deny outranks every allow, so `--settings` alone cannot lift it. The manager
 outranks the project here too, the second setting it does: a rebase run is started with
-`--setting-sources user`, so the project's settings are not read for it, and its `--settings` carry
-the denies on pushing to `master` that the project's file would have supplied. Every other run kind
-reads the project's settings as before, force-push denies included.
+`--setting-sources user`, so the project's settings are not read for it. Every other run kind reads
+the project's settings as before, force-push denies included.
+
+The `--settings` of every run kind, not only a rebase's, deny pushing to `master` (two fixed
+patterns, for the literal branch name). That is not what the project's file would have supplied: a
+project that guards another branch, or denies anything else, loses that in a rebase run. What a
+rebase run gives up by not reading project settings is all of it: the project's other
+`permissions.deny` rules, its hooks and its `env`, and possibly its `CLAUDE.md` and
+`.claude/skills` too, if the CLI gates them on the project source as the Agent SDK does (not
+checked against the real CLI). The manager accepts that cost because a deny it cannot lift would
+otherwise stop the run's whole contract.
 
 The user pin is not a privilege boundary and was never chosen as one: the agent runs as the
 developer, which is whose files the bind mount exposes anyway. What it buys is that the clone comes
