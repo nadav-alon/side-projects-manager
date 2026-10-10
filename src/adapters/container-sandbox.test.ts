@@ -5494,9 +5494,11 @@ fi`;
   });
 
   it("mounts each declared host directory read-only at its container path, for a run and for a review", async (t) => {
+    const config = await mkdtemp(path.join(tmpdir(), "mount-config-"));
+    const logs = await mkdtemp(path.join(tmpdir(), "mount-logs-"));
     const mounts = [
-      { host: hostDirectory("/srv/pilot/config"), container: containerPath("/mnt/config") },
-      { host: hostDirectory("/srv/pilot/logs"), container: containerPath("/mnt/logs") },
+      { host: hostDirectory(config), container: containerPath("/mnt/config") },
+      { host: hostDirectory(logs), container: containerPath("/mnt/logs") },
     ];
     const { docker: run } = await runWithDocker(
       t,
@@ -5515,9 +5517,29 @@ fi`;
     for (const docker of [run, review]) {
       const [call] = await docker.calls();
       const volumes = volumesOf(call);
-      assert.ok(volumes.includes("/srv/pilot/config:/mnt/config:ro"));
-      assert.ok(volumes.includes("/srv/pilot/logs:/mnt/logs:ro"));
+      assert.ok(volumes.includes(`${config}:/mnt/config:ro`));
+      assert.ok(volumes.includes(`${logs}:/mnt/logs:ro`));
     }
+  });
+
+  it("refuses to start, naming the path, when a declared host directory does not exist", async (t) => {
+    withCredential(t, "rw");
+    const directory = await project();
+    const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+    const missing = path.join(TEST_HOME, "no-such-directory");
+
+    await assert.rejects(
+      testSandbox().run({
+        image: TEST_IMAGE,
+        ticket: TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+        mounts: [{ host: hostDirectory(missing), container: containerPath("/mnt/config") }],
+      }),
+      (error: unknown) =>
+        error instanceof AgentNeverRan && error.message.includes(missing),
+    );
+    assert.deepEqual(await docker.calls(), [], "docker must not be asked to run");
   });
 
   it("mounts nothing beyond the clone, transcripts and discoveries for a project that declares no mounts", async (t) => {
