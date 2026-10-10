@@ -1008,22 +1008,19 @@ describe("containerSandbox", () => {
     assert.equal(variant(result, "finished")?.gist, undefined);
   });
 
-  it("carries no gist on a run that gave up", async () => {
+  it("carries no gist on a run that gave up, even one the agent supplied", async () => {
     const directory = await project();
-    const commit = agentCommitting(
-      ["one.txt"],
-      0,
-      "Implemented the thing.",
-    );
-    const sandbox = testSandbox(async (options) => {
-      await commit(options);
-      throw new Error("the agent gave up");
-    });
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = testSandbox(async (options) => ({
+      ...(await commit(options)),
+      failure: "the agent gave up",
+      gist: ticketGist("Add the thing."),
+    }));
 
     const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
+    assert.equal("gist" in result, false);
   });
 
   it("carries no nits when the agent listed none", async () => {
@@ -1035,22 +1032,19 @@ describe("containerSandbox", () => {
     assert.equal(variant(result, "finished")?.nits, undefined);
   });
 
-  it("carries no nits on a run that gave up, even one listed like a finished run's", async () => {
+  it("carries no nits on a run that gave up, even ones the agent listed", async () => {
     const directory = await project();
-    const commit = agentCommitting(
-      ["one.txt"],
-      0,
-      [NIT_SECTION_HEADING, "- one nit"].join("\n"),
-    );
-    const sandbox = testSandbox(async (options) => {
-      await commit(options);
-      throw new Error("the agent gave up");
-    });
+    const commit = agentCommitting(["one.txt"]);
+    const sandbox = testSandbox(async (options) => ({
+      ...(await commit(options)),
+      failure: "the agent gave up",
+      nits: nits("- one nit"),
+    }));
 
     const result = await sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING });
 
-    assert.equal(variant(result, "finished"), undefined);
     assert.equal(result.kind, "gave-up");
+    assert.equal("nits" in result, false);
   });
 
   it("takes the clone away and leaves the branch behind", async () => {

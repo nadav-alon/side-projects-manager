@@ -1849,6 +1849,20 @@ function discoveryInstructionsFor(
 }
 
 /**
+ * What the non-implementation prompts tell the agent about its structured
+ * answer: `RUN_ANSWER_SCHEMA` asks every run for `gaveUp`, so each kind says
+ * what it means there. `gist` and `nits` belong to an implementation run and
+ * are left out, so a review's answer is not read for them.
+ */
+function answerInstructionsFor(work: string): string {
+  return [
+    "Finally, give your final answer as the structured output: set `gaveUp` to true,",
+    `with the \`reason\`, only if you stopped short of ${work}, and to false otherwise.`,
+    "Leave `gist` and `nits` out.",
+  ].join(" ");
+}
+
+/**
  * What the spec-reviewing agent is asked to do.
  *
  * The ticket is named explicitly for the same reason `promptFor` names the
@@ -1892,6 +1906,7 @@ function specReviewPromptFor(
     "finish and report without asking for confirmation.",
     "A discovery you file below is about that supertask, not about this ticket.",
     discoveryInstructionsFor(discovered),
+    answerInstructionsFor("reporting your review"),
   ].join(" ");
 }
 
@@ -1921,6 +1936,8 @@ function uxReviewPromptFor(
     "finish and report without asking for confirmation.",
     "",
     discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("reporting your review"),
   ].join("\n");
 }
 
@@ -2397,6 +2414,8 @@ function applyReviewPromptFor(
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
     discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("working every review thread"),
   ].join("\n");
 }
 
@@ -2435,6 +2454,8 @@ function rebasePromptFor(
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
     discoveryInstructionsFor(discovered),
+    "",
+    answerInstructionsFor("rebasing the pull request"),
   ].join("\n");
 }
 
@@ -2552,6 +2573,7 @@ function reviewPromptFor(
     "apart from one the developer wrote. Never post a comment whose whole body is",
     "`/apply-review` — acting on this review is the developer's call, not yours.",
     discoveryInstructionsFor(discovered),
+    answerInstructionsFor("posting your review"),
   ].join(" ");
 }
 
@@ -3184,8 +3206,9 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * The fields a run's final answer is validated against, handed to the CLI as
  * `--json-schema` and read back off the envelope's `structured_output` by
  * `structuredAnswerFrom`. The one place the shape is spelled out, so the
- * schema and its reader cannot drift apart. Exported so a test can build an
- * envelope from the shape that ships.
+ * schema and its reader cannot drift apart; the test fixture `StructuredAnswerFixture`
+ * mirrors it by hand. Exported so a test can check the
+ * `--json-schema` argument a run is handed is this shape.
  *
  * Only `gaveUp` is required: a review has no ticket gist to give, and an
  * agent with no nits lists none.
@@ -3220,7 +3243,7 @@ interface StructuredAnswer {
   gist?: TicketGist;
   nits?: Nits;
   /** Why the agent says it gave up, absent when it did not. */
-  gaveUp?: string;
+  gaveUpReason?: string;
 }
 
 /**
@@ -3239,7 +3262,7 @@ function structuredAnswerFrom(envelope: object): StructuredAnswer | undefined {
     ...(typeof gist === "string" && isTicketGist(gist) && { gist }),
     ...(typeof nits === "string" && isNits(nits) && { nits }),
     ...(gaveUp === true && {
-      gaveUp:
+      gaveUpReason:
         typeof reason === "string" && reason.trim() !== ""
           ? reason.trim()
           : "the agent reported giving up without saying why",
@@ -3298,7 +3321,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
       output,
       stderr,
       deniedTools(envelope),
-      answer === undefined && is_error !== true,
+      answer === undefined && is_error !== true ? UNSTRUCTURED_NOTE : "",
     ),
     tokensUsed: totalTokens(modelUsage, usage),
     ...(refusalTag !== undefined && {
@@ -3306,7 +3329,7 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
     }),
     ...(providerFailure !== undefined && { providerFailure }),
     ...(budgetExhausted !== undefined && { budgetExhausted }),
-    ...(answer?.gaveUp !== undefined && { failure: answer.gaveUp }),
+    ...(answer?.gaveUpReason !== undefined && { failure: answer.gaveUpReason }),
     ...(answer?.gist !== undefined && { gist: answer.gist }),
     ...(answer?.nits !== undefined && { nits: answer.nits }),
   };
@@ -3353,11 +3376,11 @@ function withDiagnostics(
   output: string,
   stderr: string,
   denied: readonly string[] = [],
-  unstructured = false,
+  unstructuredNote = "",
 ): string {
   const notes = [
     output,
-    unstructured ? UNSTRUCTURED_NOTE : "",
+    unstructuredNote,
     stderr.trim() === "" ? "" : stderr,
     denied.length === 0
       ? ""
