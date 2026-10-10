@@ -50,3 +50,16 @@ for (const prompt of ["fix the bug", "/tdd", "/grillingly", "please /standup", "
     assert.equal(runHook({ prompt }), undefined);
   });
 }
+
+test("a ticket named in the arguments is appended to the title", () => {
+  for (const prompt of ["/grilling pilot#42", "/triage #42", "/standup https://github.com/nadav-alon/pilot/issues/42"]) {
+    const mode = /^\/(\w+)/.exec(prompt)![1];
+    assert.equal(runHook({ prompt }).hookSpecificOutput.sessionTitle, `${mode}: nadav-alon/pilot#42`);
+  }
+});
+
+test("a session titled by hand is left alone, one titled by the hook is retitled", () => {
+  assert.equal(runHook({ prompt: "/standup", session_title: "my own name" }), undefined);
+  const out = runHook({ prompt: "/triage #7", session_title: "standup: nadav-alon/pilot" });
+  assert.equal(out.hookSpecificOutput.sessionTitle, "triage: nadav-alon/pilot#7");
+});

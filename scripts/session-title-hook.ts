@@ -10,7 +10,16 @@ import path from "node:path";
 import { isRepoSlug } from "../src/ports/repo-slug.ts";
 
 /** The skills that open an interactive session worth telling apart. */
-const MODE_PROMPT = /^\/(?:[\w-]+:)?(grilling|grill-me|standup|triage|wayfinder)(?=\s|$)/;
+const MODES = "grilling|grill-me|standup|triage|wayfinder";
+const MODE_PROMPT = new RegExp(`^\\/(?:[\\w-]+:)?(${MODES})(?=\\s|$)`);
+
+/** A title this hook set: how it tells its own from one the developer chose. */
+const OWN_TITLE = new RegExp(`^(?:${MODES}): `);
+
+/** The ticket a mode skill's arguments name, as `#n` or an issue URL. */
+function ticketOf(prompt: string): string | undefined {
+  return /(?:#|\/issues\/)(\d+)\b/.exec(prompt)?.[1];
+}
 
 /** The mode named by a prompt that starts with a mode skill. */
 function modeOf(prompt: string): string | undefined {
@@ -40,7 +49,11 @@ function main(): void {
   if (typeof input !== "object" || input === null) {
     return;
   }
-  const { prompt, cwd } = input as { prompt?: unknown; cwd?: unknown };
+  const { prompt, cwd, session_title } = input as {
+    prompt?: unknown;
+    cwd?: unknown;
+    session_title?: unknown;
+  };
   if (typeof prompt !== "string") {
     return;
   }
@@ -48,7 +61,16 @@ function main(): void {
   if (mode === undefined) {
     return;
   }
-  const title = `${mode}: ${repoOf(typeof cwd === "string" ? cwd : process.cwd())}`;
+  if (
+    typeof session_title === "string" &&
+    session_title !== "" &&
+    !OWN_TITLE.test(session_title)
+  ) {
+    return;
+  }
+  const ticket = ticketOf(prompt);
+  const repo = repoOf(typeof cwd === "string" ? cwd : process.cwd());
+  const title = `${mode}: ${repo}${ticket === undefined ? "" : `#${ticket}`}`;
   process.stdout.write(
     JSON.stringify({
       terminalSequence: `\u001b]2;${title}\u0007`,
