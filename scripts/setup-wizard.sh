@@ -231,7 +231,10 @@ _register_mod_dir() {
         (if ($dirs // "") == "" then $dir
          elif ($dirs | split(":") | index($dir)) != null then $dirs
          else $dirs + ":" + $dir end)})
-  ' "$settings" >"$tmp" && mv "$tmp" "$settings"
+  ' "$settings" >"$tmp" && cat "$tmp" >"$settings"
+  local status=$?
+  rm -f "$tmp"
+  return $status
 }
 
 banner "Side Projects Manager: setup"
@@ -419,17 +422,20 @@ say "mods/mode-band draws a coloured band above the prompt naming the mode"
 say "a grilling, standup, triage or wayfinder session is in. It is loaded by"
 say "listing its folder in CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json,"
 say "which every interactive session reads, whatever alias starts it."
+mod_dir="$REPO_DIR/mods/mode-band"
+claude_settings="$HOME/.claude/settings.json"
+mod_hint="add $mod_dir to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block"
 if ! command -v jq >/dev/null 2>&1; then
-  SKIPPED+=("session mod — install jq and re-run, or add $REPO_DIR/mods/mode-band to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block")
+  SKIPPED+=("session mod — install jq and re-run, or $mod_hint")
 elif confirm "Register mods/mode-band in ~/.claude/settings.json?"; then
   mkdir -p "$HOME/.claude"
-  if _register_mod_dir "$HOME/.claude/settings.json" "$REPO_DIR/mods/mode-band"; then
+  if _register_mod_dir "$claude_settings" "$mod_dir"; then
     printf '  %s✓%s settings.json: mode-band registered.\n' "$GREEN" "$RESET"
   else
-    SKIPPED+=("session mod — ~/.claude/settings.json did not parse; add $REPO_DIR/mods/mode-band to CLAUDE_CODE_PLUGIN_DIRS in its env block by hand")
+    SKIPPED+=("session mod — ~/.claude/settings.json did not parse; $mod_hint by hand")
   fi
 else
-  SKIPPED+=("session mod — add $REPO_DIR/mods/mode-band to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block")
+  SKIPPED+=("session mod — $mod_hint")
 fi
 
 finish
