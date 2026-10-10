@@ -1,0 +1,6 @@
+{
+  "name": "mode-band",
+  "version": "0.1.0",
+  "description": "Draws a coloured band above the prompt naming the session's mode and ticket.",
+  "types": "./types/index.d.ts"
+}
