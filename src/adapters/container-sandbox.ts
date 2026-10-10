@@ -416,6 +416,13 @@ export interface RunOptions {
    */
   playwrightMcp?: true;
   /**
+   * Set only for a run whose contract is to force-push (a rebase): the
+   * project's own settings are not read for it, since a deny on a force-push
+   * there would outrank everything a run could be handed. See
+   * `FORCE_PUSH_SETTINGS`.
+   */
+  forcePush?: true;
+  /**
    * Host directories `dockerCommand` mounts read-only at their container
    * paths, whatever `mount` is. Set by `containerSandbox` from the request.
    */
@@ -681,6 +688,20 @@ const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
  * without editing it, and a project with no `sandbox` block is unaffected.
  */
 const CLI_SETTINGS = JSON.stringify({ sandbox: { enabled: false, failIfUnavailable: false } });
+
+/**
+ * The settings a run that force-pushes is handed in place of `CLI_SETTINGS`,
+ * together with `--setting-sources user`. A deny rule in the project's
+ * `.claude/settings.json` outranks `--permission-mode bypassPermissions` and
+ * every allow rule, so `--settings` cannot lift a deny the project writes;
+ * the run reads no project settings at all instead. What those settings
+ * guarded on the default branch is carried here, so it holds whatever the
+ * project wrote.
+ */
+const FORCE_PUSH_SETTINGS = JSON.stringify({
+  sandbox: { enabled: false, failIfUnavailable: false },
+  permissions: { deny: ["Bash(git push origin master:*)", "Bash(git push origin HEAD:master:*)"] },
+});
 
 /**
  * The six shapes a sandboxed run comes in — named for `withThrowawayClone`
@@ -2027,6 +2048,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         spendCeiling,
         mount: "rw",
         credential: "developer",
+        ...(kind === "rebase" ? { forcePush: true as const } : {}),
       },
       model,
       roots,
@@ -3052,6 +3074,7 @@ function dockerCommand(
     mount,
     mounts,
     playwrightMcp,
+    forcePush,
     model,
     transcriptDirectory,
     discoveriesDirectory,
@@ -3136,8 +3159,9 @@ function dockerCommand(
     // read-only with a credential that cannot push (see `Mount`).
     "--permission-mode",
     "bypassPermissions",
+    ...(forcePush === true ? ["--setting-sources", "user"] : []),
     "--settings",
-    CLI_SETTINGS,
+    forcePush === true ? FORCE_PUSH_SETTINGS : CLI_SETTINGS,
     // The spend ceiling, enforced by the agent CLI rather than by the manager:
     // nothing out here can stop a run that is already going, and a run that
     // overspends is exactly the one the gate cannot catch until the morning

@@ -33,6 +33,14 @@ The agent CLI's own sandbox is switched off for every run (`--settings`), whatev
 `.claude/settings.json` demands: the container is the boundary, and the image carries no bubblewrap
 to give the CLI one.
 
+A rebase run is the one run kind whose contract is to force-push, and a project's
+`.claude/settings.json` may deny that: `--permission-mode bypassPermissions` does not override a
+deny rule, and a deny outranks every allow, so `--settings` alone cannot lift it. The manager
+outranks the project here too, the second setting it does: a rebase run is started with
+`--setting-sources user`, so the project's settings are not read for it, and its `--settings` carry
+the denies on pushing to `master` that the project's file would have supplied. Every other run kind
+reads the project's settings as before, force-push denies included.
+
 The user pin is not a privilege boundary and was never chosen as one: the agent runs as the
 developer, which is whose files the bind mount exposes anyway. What it buys is that the clone comes
 back owned by the developer, and that the CLI will run unattended at all — it refuses
