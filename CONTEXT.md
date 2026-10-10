@@ -933,9 +933,9 @@ One of the invocation's own **Run**s the manager has started and not yet seen en
 own in-flight invocation record: the kind of ticket it runs, the ticket's own repo and number, when
 it started, where its session transcript lands, and, for a pull request ticket's run, the pull
 request its ticket is bound to, and, once its agent has streamed an event, its progress: tool calls
-so far, the last tool and when, and when the last event arrived. Recorded the moment the manager starts the run — never parsed
-back out of a prompt or a container command line — and cleared the moment the run ends, whatever it
-came to. What `status` reads to name each run an in-flight invocation has going, and its agent's own
+so far, the last tool and when, and when the last event arrived. Recorded the moment the manager
+starts the run — never parsed back out of a prompt or a container command line — and cleared the
+moment the run ends, whatever it came to. What `status` reads to name each run an in-flight invocation has going, and its agent's own
 recent steps, from the transcript the run names, and whether its stream has gone quiet.
 _Avoid_: in-flight run, active run, live run
 
