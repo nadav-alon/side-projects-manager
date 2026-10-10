@@ -44,7 +44,10 @@ import {
 import {
   branch,
   checkout,
+  containerPath,
+  RESERVED_CONTAINER_PATHS,
   commitSha,
+  hostPath,
   issueNumber,
   milliseconds,
   modelName,
@@ -3908,6 +3911,28 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(seen[0]?.at, headCommit);
   });
 
+  it("hands the container the project's declared mounts", async () => {
+    const { directory } = await hostedProject();
+    const mounts = [
+      { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
+    ];
+    let seen: unknown;
+    const sandbox = testSandbox(async (options) => {
+      seen = options.mounts;
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await sandbox.applyReview({
+      image: TEST_IMAGE,
+      ticket: APPLY_REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+      mounts,
+    });
+
+    assert.deepEqual(seen, mounts);
+  });
+
   it("calls onStarted with the run's own transcript directory too", async () => {
     const { directory } = await hostedProject();
     let seenInContainer = "";
@@ -5489,6 +5514,99 @@ fi`;
     const [call] = await docker.calls();
     assert.ok(mountsTranscripts(call));
     assert.ok(valueOf(call, "--volume")?.endsWith(":/repo:ro"));
+  });
+
+  it("mounts each declared host directory read-only at its container path, for a run and for a review", async (t) => {
+    const config = await mkdtemp(path.join(tmpdir(), "mount-config-"));
+    const logs = await mkdtemp(path.join(tmpdir(), "mount-logs-"));
+    const mounts = [
+      { host: hostPath(config), container: containerPath("/mnt/config") },
+      { host: hostPath(logs), container: containerPath("/mnt/logs") },
+    ];
+    const { docker: run } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING, mounts }),
+    );
+    const { docker: review } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING, mounts }),
+      "ro",
+    );
+
+    for (const docker of [run, review]) {
+      const [call] = await docker.calls();
+      const volumes = volumesOf(call);
+      assert.ok(volumes.includes(`${config}:/mnt/config:ro`));
+      assert.ok(volumes.includes(`${logs}:/mnt/logs:ro`));
+    }
+  });
+
+  it("refuses to start, naming the path, when a declared host directory does not exist", async (t) => {
+    withCredential(t, "rw");
+    const directory = await project();
+    const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+    const missing = path.join(TEST_HOME, "no-such-directory");
+
+    await assert.rejects(
+      testSandbox().run({
+        image: TEST_IMAGE,
+        ticket: TICKET,
+        checkout: directory,
+        spendCeiling: CEILING,
+        mounts: [{ host: hostPath(missing), container: containerPath("/mnt/config") }],
+      }),
+      (error: unknown) =>
+        error instanceof AgentNeverRan && error.message.includes(missing),
+    );
+    assert.deepEqual(await docker.calls(), [], "docker must not be asked to run");
+  });
+
+  it("refuses to start, naming the path, when a declared host path is a file or a directory this user cannot read", async (t) => {
+    withCredential(t, "rw");
+    const directory = await project();
+    const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+    const file = path.join(TEST_HOME, "a-file");
+    await writeFile(file, "not a directory\n");
+    const locked = await mkdtemp(path.join(tmpdir(), "mount-locked-"));
+    await chmod(locked, 0o000);
+    t.after(() => chmod(locked, 0o700));
+    const hosts = [file, ...(process.getuid?.() === 0 ? [] : [locked])];
+
+    for (const host of hosts) {
+      await assert.rejects(
+        testSandbox().run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          mounts: [{ host: hostPath(host), container: containerPath("/mnt/config") }],
+        }),
+        (error: unknown) =>
+          error instanceof AgentNeverRan && error.message.includes(host),
+      );
+    }
+    assert.deepEqual(await docker.calls(), [], "docker must not be asked to run");
+  });
+
+  it("mounts nothing beyond the clone, transcripts and discoveries for a project that declares no mounts", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    assert.equal(volumesOf(call).length, 3);
+    // What a declared mount may not land on is what a run mounts itself.
+    assert.deepEqual(
+      volumesOf(call).map((volume) => volume.split(":")[1]).sort(),
+      [...RESERVED_CONTAINER_PATHS].sort(),
+    );
   });
 
   it("mounts a fresh, writable directory at the agent's discoveries location", async (t) => {

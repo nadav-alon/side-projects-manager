@@ -8,6 +8,8 @@ import { documentStore } from "./document-store.ts";
 import {
   DEFAULT_BUDGET,
   branch,
+  containerPath,
+  hostPath,
   day,
   exitCode,
   issueNumber,
@@ -70,6 +72,80 @@ describe("the registry document", () => {
       { repo: MANAGER, paused: false, turbo: false },
       { repo: PILOT, paused: false, turbo: false },
     ]);
+  });
+
+  it("reads the host directories a project mounts into its runs", async () => {
+    const store = documentStore(
+      await home({
+        registry: JSON.stringify({
+          projects: [
+            {
+              repo: PILOT,
+              mounts: [{ host: "/srv/pilot/config", container: "/mnt/config" }],
+            },
+          ],
+        }),
+      }),
+    );
+
+    assert.deepEqual(await store.loadRegistry(), [
+      {
+        repo: PILOT,
+        paused: false,
+        turbo: false,
+        mounts: [
+          {
+            host: hostPath("/srv/pilot/config"),
+            container: containerPath("/mnt/config"),
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("rejects a mount whose paths are not absolute, naming the field", async () => {
+    for (const mount of [
+      { host: "config", container: "/mnt/config" },
+      { host: "/srv/config", container: "mnt/config" },
+      { host: "/srv/config", container: "/" },
+      { host: "/srv/config", container: "/repo" },
+      { host: "/srv/config", container: "/repo/config" },
+      { host: "/srv/config", container: "/discoveries" },
+      { host: "/srv/config", container: "/home/node/.claude/projects" },
+      { host: "/srv/config", container: "/home/node/.claude/projects/x" },
+      { host: "/srv:config", container: "/mnt/config" },
+      { host: "/srv/config", container: "/mnt:config" },
+    ]) {
+      const store = documentStore(
+        await home({
+          registry: JSON.stringify({ projects: [{ repo: PILOT, mounts: [mount] }] }),
+        }),
+      );
+
+      await assert.rejects(store.loadRegistry(), /"host"|"container"/);
+    }
+  });
+
+  it("keeps a project's mounts when the registry is saved", async () => {
+    const dir = await home({});
+    const store = documentStore(dir);
+    const projects = [
+      {
+        repo: PILOT,
+        paused: false,
+        turbo: false,
+        mounts: [
+          {
+            host: hostPath("/srv/pilot/config"),
+            container: containerPath("/mnt/config"),
+          },
+        ],
+      },
+    ];
+
+    await store.saveRegistry(projects);
+
+    assert.deepEqual(await store.loadRegistry(), projects);
   });
 
   it("reads paused and an explicit priority", async () => {

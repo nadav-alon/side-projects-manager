@@ -14,6 +14,7 @@ import type {
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
 import type { Nits } from "./nits.ts";
+import type { ReadOnlyMount } from "./read-only-mount.ts";
 import type { TicketGist } from "./ticket-gist.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { TranscriptDirectory } from "./transcript-directory.ts";
@@ -77,6 +78,12 @@ export interface RunRequest {
    * quietly resolving after `container-started`.
    */
   image: ImageTag;
+  /**
+   * Host directories the run sees read-only at their container paths: the
+   * project's `RegisteredProject.mounts`, passed through unchanged. Absent
+   * for a project that declares none.
+   */
+  mounts?: readonly ReadOnlyMount[];
 }
 
 /** One review ticket, and the project checkout it is to be worked against. */
@@ -91,6 +98,8 @@ export interface ReviewRequest {
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
   image: ImageTag;
+  /** As `RunRequest.mounts`. */
+  mounts?: readonly ReadOnlyMount[];
 }
 
 /** One apply-review ticket, and the project checkout it is to be worked against. */
@@ -115,6 +124,8 @@ export interface ApplyReviewRequest {
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
   image: ImageTag;
+  /** As `RunRequest.mounts`. */
+  mounts?: readonly ReadOnlyMount[];
 }
 
 /**
@@ -136,6 +147,8 @@ export interface ReviewRequestFor<T extends Ticket> {
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
   image: ImageTag;
+  /** As `RunRequest.mounts`. */
+  mounts?: readonly ReadOnlyMount[];
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -163,6 +176,8 @@ export interface RebaseRequest {
   discovered?: readonly DiscoveredTicketSummary[];
   /** As `RunRequest.image`. */
   image: ImageTag;
+  /** As `RunRequest.mounts`. */
+  mounts?: readonly ReadOnlyMount[];
 }
 
 /**

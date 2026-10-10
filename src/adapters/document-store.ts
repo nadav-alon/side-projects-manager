@@ -28,6 +28,7 @@ import type {
   ProcessId,
   ProjectState,
   PullRequestUrl,
+  ReadOnlyMount,
   RegisteredProject,
   RepoSlug,
   RunCost,
@@ -54,6 +55,9 @@ import {
   SIZES,
   TICKET_KINDS,
   exitCode,
+  RESERVED_CONTAINER_PATHS,
+  isContainerPath,
+  isHostPath,
   findInvocationRecord,
   isBranch,
   isDay,
@@ -339,17 +343,55 @@ function parseRegistry(
       throw new Error(`${where}: "manager" must be true, or omitted.`);
     }
 
+    const mounts = mountsField(entry, where);
+    const extras = {
+      ...(manager === true && { manager: true as const }),
+      ...(mounts !== undefined && { mounts }),
+    };
+
     const priority = fieldOf(entry, "priority", where);
     if (priority === undefined) {
-      return { repo, paused, turbo, ...(manager === true && { manager: true as const }) };
+      return { repo, paused, turbo, ...extras };
     }
     if (typeof priority !== "number" || !isPriority(priority)) {
       throw new Error(
         `${where}: "priority" must be a whole number of 1 or more: ${JSON.stringify(priority)}`,
       );
     }
-    return { repo, paused, turbo, priority, ...(manager === true && { manager: true as const }) };
+    return { repo, paused, turbo, priority, ...extras };
   });
+}
+
+/**
+ * `"mounts": [{ "host": "/abs/dir", "container": "/abs/in/run" }]`: the host
+ * directories the project's runs see read-only. Undefined when omitted or
+ * empty. There is no way to ask for a writable one.
+ */
+function mountsField(entry: unknown, where: string): ReadOnlyMount[] | undefined {
+  const mounts = fieldOf(entry, "mounts", where);
+  if (mounts === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(mounts)) {
+    throw new Error(`${where}: "mounts" must be a list of mounts.`);
+  }
+  const parsed = mounts.map((mount, index): ReadOnlyMount => {
+    const at = `${where}: mount ${index + 1}`;
+    const host = fieldOf(mount, "host", at);
+    if (typeof host !== "string" || !isHostPath(host)) {
+      throw new Error(
+        `${at}: "host" must be a normalised absolute path without ":": ${JSON.stringify(host)}`,
+      );
+    }
+    const container = fieldOf(mount, "container", at);
+    if (typeof container !== "string" || !isContainerPath(container)) {
+      throw new Error(
+        `${at}: "container" must be a normalised absolute path other than "/", without ":", and at or under none of ${RESERVED_CONTAINER_PATHS.join(", ")}: ${JSON.stringify(container)}`,
+      );
+    }
+    return { host, container };
+  });
+  return parsed.length === 0 ? undefined : parsed;
 }
 
 /**
@@ -953,6 +995,7 @@ function formatRegistry(projects: RegisteredProject[]): string {
     ...(project.turbo && { turbo: true }),
     ...(project.priority !== undefined && { priority: project.priority }),
     ...(project.manager === true && { manager: true }),
+    ...(project.mounts !== undefined && { mounts: project.mounts }),
   }));
 
   return `${JSON.stringify({ projects: entries }, undefined, 2)}\n`;

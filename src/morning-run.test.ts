@@ -22,6 +22,8 @@ import {
   branch,
   checkout,
   commitSha,
+  containerPath,
+  hostPath,
   iterationLimit,
   issueNumber,
   localDay,
@@ -9607,6 +9609,40 @@ describe("morningLoop", () => {
 
       assert.equal(ports.sandbox.runs.length, 1);
       assert.equal(ports.sandbox.runs[0]?.image, prepared);
+    });
+
+    it("mounts the project's declared host directories into its run", async () => {
+      const ports = fakePorts();
+      const mounts = [
+        { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
+      ];
+      ports.store.register(PILOT, { mounts });
+      ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Add the thing" });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.runs[0]?.mounts, mounts);
+    });
+
+    it("mounts the project's declared host directories into its review", async () => {
+      const ports = fakePorts();
+      const mounts = [
+        { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
+      ];
+      queued(ports, { mounts });
+
+      await morningLoop(ports);
+
+      assert.deepEqual(ports.sandbox.reviews[0]?.mounts, mounts);
+    });
+
+    it("asks for no mounts for a project that declares none", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+
+      await morningLoop(ports);
+
+      assert.equal(ports.sandbox.runs[0]?.mounts, undefined);
     });
 
     it("starts the review in the image prepare returned", async () => {

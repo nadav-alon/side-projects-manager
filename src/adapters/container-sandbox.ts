@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { access, constants, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -29,6 +29,7 @@ import type {
   RunModelRefused,
   RunOutcome,
   RunRequest,
+  ReadOnlyMount,
   Sandbox,
   SpecReviewOutcome,
   SpecReviewRequest,
@@ -414,6 +415,11 @@ export interface RunOptions {
    * carries, via `--mcp-config`. Absent, the agent has no browser.
    */
   playwrightMcp?: true;
+  /**
+   * Host directories `dockerCommand` mounts read-only at their container
+   * paths, whatever `mount` is. Set by `containerSandbox` from the request.
+   */
+  mounts?: readonly ReadOnlyMount[];
   /** As `RunRequest.model`, absent to leave the image's own pin in force. */
   model?: ModelName;
   /**
@@ -526,14 +532,17 @@ export function containerSandbox(
   };
 
   /**
-   * Hands `body` a `container` that starts every run in `image` — the tag
-   * `prepare` resolved, so nothing of the run resolves or builds again.
+   * Hands `body` a `container` that starts every run in the request's
+   * `image` — the tag `prepare` resolved, so nothing of the run resolves or
+   * builds again — with its `mounts` bound read-only.
    */
   function inProjectImage<T>(
-    image: ImageTag,
+    { image, mounts }: { image: ImageTag; mounts?: readonly ReadOnlyMount[] },
     body: (container: ContainerInImage) => Promise<T>,
   ): Promise<T> {
-    return body((options) => container({ ...options, image }));
+    return body((options) =>
+      container({ ...options, image, ...(mounts !== undefined && { mounts }) }),
+    );
   }
 
   function run(
@@ -548,7 +557,7 @@ export function containerSandbox(
     request: RunRequest,
     onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       runOnClone(inImage, request, roots, onStarted, onPoll),
     );
   }
@@ -565,7 +574,7 @@ export function containerSandbox(
     request: ReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       pullRequestReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -582,7 +591,7 @@ export function containerSandbox(
     request: ApplyReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<ApplyReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       applyReviewOnClone(inImage, pullRequestHead, request, roots, onStarted),
     );
   }
@@ -599,7 +608,7 @@ export function containerSandbox(
     request: RebaseRequest,
     onStarted?: OnRunStarted,
   ): Promise<RebaseOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       rebaseOnClone(inImage, pullRequestHead, request, roots, onStarted),
     );
   }
@@ -616,7 +625,7 @@ export function containerSandbox(
     request: SpecReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<SpecReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       specReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -633,7 +642,7 @@ export function containerSandbox(
     request: UxReviewRequest,
     onStarted?: OnRunStarted,
   ): Promise<UxReviewOutcome> {
-    return inProjectImage(request.image, (inImage) =>
+    return inProjectImage(request, (inImage) =>
       uxReviewOnClone(inImage, request, roots, onStarted),
     );
   }
@@ -2755,6 +2764,37 @@ async function commitsSince(
 }
 
 /**
+ * Throws `AgentNeverRan` naming the first of `mounts` whose host directory is
+ * not there, or is there but not readable by this process — the uid the
+ * container runs as. Docker would create a missing bind-mount source as an
+ * empty root-owned directory, and the run would read it as the data it was
+ * promised having none; an unreadable one would only fail partway through the
+ * run, with `EACCES`.
+ */
+async function requireMountsPresent(
+  mounts: readonly ReadOnlyMount[],
+): Promise<void> {
+  for (const { host } of mounts) {
+    const found = await stat(host).catch((error: unknown) => {
+      if (isErrorWithCode(error, "ENOENT")) {
+        return undefined;
+      }
+      throw error;
+    });
+    if (found === undefined || !found.isDirectory()) {
+      throw new AgentNeverRan(
+        `The project declares ${host} as a read-only mount, but it is not a directory on this host. Create it or fix the registry, and run again.`,
+      );
+    }
+    await access(host, constants.R_OK | constants.X_OK).catch(() => {
+      throw new AgentNeverRan(
+        `The project declares ${host} as a read-only mount, but this user cannot read it. Fix its permissions or the registry, and run again.`,
+      );
+    });
+  }
+}
+
+/**
  * The real container: the image from the Dockerfile, with the clone bound at
  * the workdir the image already declares.
  *
@@ -2787,6 +2827,8 @@ const dockerContainer: Container = async (options) => {
       "CLAUDE_CODE_OAUTH_TOKEN is not set, so the agent would have no way to sign in. Export it (see README) and run again.",
     );
   }
+
+  await requireMountsPresent(options.mounts ?? []);
 
   const env = envFor(options.credential);
   const cidFile = path.join(options.transcriptDirectory, "container-id");
@@ -3008,6 +3050,7 @@ function dockerCommand(
     spendCeiling,
     image,
     mount,
+    mounts,
     playwrightMcp,
     model,
     transcriptDirectory,
@@ -3048,6 +3091,12 @@ function dockerCommand(
     // exactly as a run does, even though its clone is read-only.
     "--volume",
     `${discoveriesDirectory}:${DISCOVERIES_MOUNT}`,
+    // Read-only whatever `mount` is: a project's declared directories are
+    // somewhere a run reads from, never somewhere it leaves work.
+    ...(mounts ?? []).flatMap(({ host, container }) => [
+      "--volume",
+      `${host}:${container}:ro`,
+    ]),
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "--env",

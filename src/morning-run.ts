@@ -75,6 +75,7 @@ import {
   uniformFilesAmong,
 } from "./ports/index.ts";
 import type { ImageTag } from "./ports/image-tag.ts";
+import type { ReadOnlyMount } from "./ports/read-only-mount.ts";
 import {
   invocationBudgetGate,
   spendCeilingForTicket,
@@ -702,7 +703,7 @@ async function work(
   if (isReviewTicket(selection.ticket)) {
     return await runReview(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
@@ -713,7 +714,7 @@ async function work(
   if (isSpecReviewTicket(selection.ticket)) {
     return await runSpecReview(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
@@ -723,7 +724,7 @@ async function work(
   if (isUxReviewTicket(selection.ticket)) {
     return await runUxReview(
       ports,
-      selection.project.repo,
+      selection.project,
       selection.ticket,
       invocation,
       spendCeiling,
@@ -1435,12 +1436,13 @@ interface SandboxResult<Outcome> {
 /**
  * What `runInSandbox` hands a run's request beside the checkout, to spread
  * into it: the image `Sandbox.prepare` resolved, so the run starts in that tag
- * rather than resolving again; and the open issues already discovered against
- * the ticket its discoveries land on — absent, rather than empty, where there
- * are none.
+ * rather than resolving again; the project's declared read-only mounts; and
+ * the open issues already discovered against the ticket its discoveries land
+ * on — absent, rather than empty, where there are none.
  */
 type PreparedRequestParts = {
   image: ImageTag;
+  mounts?: readonly ReadOnlyMount[];
   discovered?: readonly DiscoveredTicketSummary[];
 };
 
@@ -1480,7 +1482,7 @@ type PreparedRequestParts = {
  */
 async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: Ticket,
   spendCeiling: Usd,
   invocation: RunRecording,
@@ -1490,6 +1492,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     parts: PreparedRequestParts,
   ) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
+  const { repo, mounts } = project;
   let checkout: Checkout;
   try {
     checkout = await ports.repoHost.clone(repo);
@@ -1553,7 +1556,11 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
       outcome = await sandboxCall(
         checkout,
         onStarted,
-        { image, ...(discovered.length > 0 && { discovered }) },
+        {
+          image,
+          ...(mounts !== undefined && { mounts }),
+          ...(discovered.length > 0 && { discovered }),
+        },
       );
     } catch (error: unknown) {
       // Nothing comes back from a rejected run — no branch, no output, and no
@@ -1639,9 +1646,9 @@ async function attemptRun(
   salvageBranch: Branch | undefined,
 ): Promise<SandboxResult<RunOutcome> | Failed> {
   const { ticket } = selection;
-  const repo = selection.project.repo;
+  const { project } = selection;
 
-  return runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  return runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1822,7 +1829,7 @@ async function markCleanReviewReady(
  */
 async function runReview(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: ReviewTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
@@ -1850,7 +1857,7 @@ async function runReview(
   const mergeGateContext = await mergeGateContextFor(ports, ticket, invocation, turbo);
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
@@ -2028,13 +2035,13 @@ async function handReviewBack(
  */
 async function runSpecReview(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: SpecReviewTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<ReportedReviewEnding> {
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
     model === undefined
@@ -2057,13 +2064,13 @@ async function runSpecReview(
  */
 async function runUxReview(
   ports: MorningLoopPorts,
-  repo: RepoSlug,
+  project: RegisteredProject,
   ticket: UxReviewTicket,
   invocation: RunRecording,
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<ReportedReviewEnding> {
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.uxReview` overload that actually matches.
     model === undefined
@@ -2236,7 +2243,7 @@ async function runApplyReview(
   | PullRequestResolved
   | DiscoveryBlocked
 > {
-  const { repo, turbo, manager } = project;
+  const { turbo, manager } = project;
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -2277,7 +2284,7 @@ async function runApplyReview(
     );
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
@@ -2718,7 +2725,7 @@ async function runRebase(
   | PullRequestResolved
   | DiscoveryBlocked
 > {
-  const { repo, manager } = project;
+  const { manager } = project;
   const pullRequest = ticket.pullRequest.url;
 
   const resolved = await resolvedPullRequestOutcome(ports, ticket, (comment) =>
@@ -2744,7 +2751,7 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, repo, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
