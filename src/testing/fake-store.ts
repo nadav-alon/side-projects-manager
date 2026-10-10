@@ -16,6 +16,7 @@ import type {
   RepoSlug,
   RunCost,
   RunInProgress,
+  RunProgress,
   GrantRecord,
   RunSpan,
   Salvage,
@@ -276,6 +277,20 @@ export class FakeStore implements Store {
       );
     }
     record.runs = [...(record.runs ?? []), run];
+  }
+
+  async recordRunProgress(
+    opened: OpenInvocation,
+    repo: RepoSlug,
+    number: IssueNumber,
+    progress: RunProgress,
+  ): Promise<void> {
+    const record = findInvocationRecord(this.#journal, opened);
+    record?.runs?.forEach((run, index) => {
+      if (run.repo === repo && run.number === number) {
+        record.runs![index] = { ...run, progress };
+      }
+    });
   }
 
   async recordRunEnded(

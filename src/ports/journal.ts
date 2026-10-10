@@ -6,6 +6,7 @@ import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import type { ProcessId } from "./process-id.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
+import type { RunProgress } from "./sandbox.ts";
 import type { TokenCount } from "./token-count.ts";
 import type { TranscriptDirectory } from "./transcript-directory.ts";
 
@@ -110,6 +111,13 @@ export interface RunInProgress {
   startedAt: Date;
   transcriptDirectory: TranscriptDirectory;
   pullRequest?: PullRequestUrl;
+  /**
+   * Where the run has got to as of its last streamed event, rewritten once
+   * per event. Absent until the first event arrives, and on a record written
+   * before progress was kept — status reads that as progress unknown. Goes
+   * with the run when it ends, so a closed record carries none.
+   */
+  progress?: RunProgress;
 }
 
 /**
