@@ -13,6 +13,7 @@ import type {
   IssueTracker,
   IterationLimit,
   ModelRefusal,
+  OnRunProgress,
   OnRunStarted,
   OpenInvocation,
   Progress,
@@ -194,6 +195,7 @@ type RunRecording = Pick<
   InvocationState,
   | "recordRunCost"
   | "recordRunStarted"
+  | "recordRunProgress"
   | "recordRunEnded"
   | "recordRunSpanStarted"
   | "recordRunSpanEnded"
@@ -1490,6 +1492,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
     checkout: Checkout,
     onStarted: OnRunStarted,
     parts: PreparedRequestParts,
+    onProgress: OnRunProgress,
   ) => Promise<Outcome>,
 ): Promise<SandboxResult<Outcome> | Failed> {
   const { repo, mounts } = project;
@@ -1549,6 +1552,15 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
         );
       });
   };
+  // One journal write per event the agent streams, each failure warned about
+  // and let go: progress is a convenience for `status`, never worth a run.
+  const onProgress: OnRunProgress = (progress) => {
+    void invocation.recordRunProgress(repo, ticket.number, progress).catch((error: unknown) => {
+      console.warn(
+        `Could not record the progress of ${repo} #${ticket.number}: ${errorMessage(error)}`,
+      );
+    });
+  };
   try {
     let outcome: Outcome;
     try {
@@ -1561,6 +1573,7 @@ async function runInSandbox<Outcome extends { tokensUsed: TokenCount }>(
           ...(mounts !== undefined && { mounts }),
           ...(discovered.length > 0 && { discovered }),
         },
+        onProgress,
       );
     } catch (error: unknown) {
       // Nothing comes back from a rejected run — no branch, no output, and no
@@ -1648,7 +1661,7 @@ async function attemptRun(
   const { ticket } = selection;
   const { project } = selection;
 
-  return runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  return runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // Built as two distinct calls rather than one call with `model` spread in
     // conditionally: `Sandbox.run` is overloaded on whether `model` is
     // present precisely so that a run given none can never come back with a
@@ -1661,6 +1674,7 @@ async function attemptRun(
             checkout,
             spendCeiling,
             ...parts,
+            onProgress,
             ...(salvageBranch !== undefined && { salvageBranch }),
           },
           onStarted,
@@ -1672,6 +1686,7 @@ async function attemptRun(
             spendCeiling,
             model: model.name,
             ...parts,
+            onProgress,
             ...(salvageBranch !== undefined && { salvageBranch }),
           },
           onStarted,

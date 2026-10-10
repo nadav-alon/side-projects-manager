@@ -1115,14 +1115,20 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.runs, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        ports.sandbox.runs.map(({ onProgress, ...request }) => {
+          assert.equal(typeof onProgress, "function");
+          return request;
+        }),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
     });
 
     it("asks the repo host for a checkout of the project it selected", async () => {
@@ -1319,6 +1325,42 @@ describe("morningLoop", () => {
         afterward.records.find((record) => record.process === SELF.process)?.runs ?? [],
         [],
       );
+    });
+
+    it("writes each progress event the run reports onto its journal entry, and leaves none on the closed record", async () => {
+      const ports = fakePorts();
+      ports.store.register(PILOT);
+      ports.tracker.addEligibleTicket(PILOT, TICKET);
+      await ports.store.openInvocation(SELF);
+      const first = { toolCalls: 1, lastTool: { name: "Read", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
+      const second = { toolCalls: 2, lastTool: { name: "Bash", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
+      ports.sandbox.progress = () => [first, second];
+      const writes: unknown[] = [];
+      const recordRunProgress = ports.store.recordRunProgress.bind(ports.store);
+      ports.store.recordRunProgress = async (opened, repo, number, progress) => {
+        writes.push(progress);
+        await recordRunProgress(opened, repo, number, progress);
+      };
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports, { invocation: SELF });
+      await ports.sandbox.whenHeld(1);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const inFlight = await ports.store.loadJournal();
+      assert.deepEqual(
+        inFlight.records.find((record) => record.process === SELF.process)?.runs?.[0]?.progress,
+        second,
+      );
+      assert.deepEqual(writes, [first, second]);
+
+      ports.sandbox.release({ repo: PILOT, ...TICKET });
+      await invocation;
+
+      const closed = (await ports.store.loadJournal()).records.find(
+        (record) => record.process === SELF.process,
+      );
+      assert.deepEqual(closed?.runs ?? [], []);
     });
 
     it("records the pull request a review run is bound to, alongside its ticket", async () => {
