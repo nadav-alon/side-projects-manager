@@ -45,6 +45,7 @@ import {
   branch,
   checkout,
   containerPath,
+  RESERVED_CONTAINER_PATHS,
   commitSha,
   hostPath,
   issueNumber,
@@ -5552,6 +5553,11 @@ fi`;
 
     const [call] = await docker.calls();
     assert.equal(volumesOf(call).length, 3);
+    // What a declared mount may not land on is what a run mounts itself.
+    assert.deepEqual(
+      volumesOf(call).map((volume) => volume.split(":")[1]).sort(),
+      [...RESERVED_CONTAINER_PATHS].sort(),
+    );
   });
 
   it("mounts a fresh, writable directory at the agent's discoveries location", async (t) => {

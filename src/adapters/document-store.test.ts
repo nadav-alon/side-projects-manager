@@ -108,6 +108,13 @@ describe("the registry document", () => {
       { host: "config", container: "/mnt/config" },
       { host: "/srv/config", container: "mnt/config" },
       { host: "/srv/config", container: "/" },
+      { host: "/srv/config", container: "/repo" },
+      { host: "/srv/config", container: "/repo/config" },
+      { host: "/srv/config", container: "/discoveries" },
+      { host: "/srv/config", container: "/home/node/.claude/projects" },
+      { host: "/srv/config", container: "/home/node/.claude/projects/x" },
+      { host: "/srv:config", container: "/mnt/config" },
+      { host: "/srv/config", container: "/mnt:config" },
     ]) {
       const store = documentStore(
         await home({

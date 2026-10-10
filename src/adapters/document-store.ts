@@ -55,6 +55,7 @@ import {
   SIZES,
   TICKET_KINDS,
   exitCode,
+  RESERVED_CONTAINER_PATHS,
   isContainerPath,
   isHostPath,
   findInvocationRecord,
@@ -379,13 +380,13 @@ function mountsField(entry: unknown, where: string): ReadOnlyMount[] | undefined
     const host = fieldOf(mount, "host", at);
     if (typeof host !== "string" || !isHostPath(host)) {
       throw new Error(
-        `${at}: "host" must be a normalised absolute path: ${JSON.stringify(host)}`,
+        `${at}: "host" must be a normalised absolute path without ":": ${JSON.stringify(host)}`,
       );
     }
     const container = fieldOf(mount, "container", at);
     if (typeof container !== "string" || !isContainerPath(container)) {
       throw new Error(
-        `${at}: "container" must be a normalised absolute path other than "/": ${JSON.stringify(container)}`,
+        `${at}: "container" must be a normalised absolute path other than "/", without ":", and at or under none of ${RESERVED_CONTAINER_PATHS.join(", ")}: ${JSON.stringify(container)}`,
       );
     }
     return { host, container };

@@ -277,6 +277,7 @@ export type { TranscriptDirectory } from "./transcript-directory.ts";
 export {
   containerPath,
   hostPath,
+  RESERVED_CONTAINER_PATHS,
   isContainerPath,
   isHostPath,
 } from "./read-only-mount.ts";
