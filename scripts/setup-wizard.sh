@@ -218,6 +218,22 @@ _crontab_upsert_var() {
   } | crontab -
 }
 
+# _register_mod_dir SETTINGS DIR: idempotently adds DIR to the env block's
+# CLAUDE_CODE_PLUGIN_DIRS in SETTINGS, keeping every other setting and every
+# directory already listed.
+_register_mod_dir() {
+  local settings="$1" dir="$2" tmp
+  [[ -f "$settings" ]] || printf '{}\n' >"$settings"
+  tmp=$(mktemp)
+  jq --arg dir "$dir" '
+    .env.CLAUDE_CODE_PLUGIN_DIRS as $dirs
+    | .env = ((.env // {}) + {CLAUDE_CODE_PLUGIN_DIRS:
+        (if ($dirs // "") == "" then $dir
+         elif ($dirs | split(":") | index($dir)) != null then $dirs
+         else $dirs + ":" + $dir end)})
+  ' "$settings" >"$tmp" && mv "$tmp" "$settings"
+}
+
 banner "Side Projects Manager: setup"
 
 # ── Stage 1: the Claude subscription token the sandbox authenticates with ──
@@ -395,6 +411,25 @@ if confirm "Register a project now?"; then
   fi
 else
   note "skipped — run 'npm run new-project -- owner/repo \"idea\"' (or --existing) when ready."
+fi
+
+# ── Stage 8: the session mod that draws the mode band ─────────────────────
+stage "Session mod"
+say "mods/mode-band draws a coloured band above the prompt naming the mode"
+say "a grilling, standup, triage or wayfinder session is in. It is loaded by"
+say "listing its folder in CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json,"
+say "which every interactive session reads, whatever alias starts it."
+if ! command -v jq >/dev/null 2>&1; then
+  SKIPPED+=("session mod — install jq and re-run, or add $REPO_DIR/mods/mode-band to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block")
+elif confirm "Register mods/mode-band in ~/.claude/settings.json?"; then
+  mkdir -p "$HOME/.claude"
+  if _register_mod_dir "$HOME/.claude/settings.json" "$REPO_DIR/mods/mode-band"; then
+    printf '  %s✓%s settings.json: mode-band registered.\n' "$GREEN" "$RESET"
+  else
+    SKIPPED+=("session mod — ~/.claude/settings.json did not parse; add $REPO_DIR/mods/mode-band to CLAUDE_CODE_PLUGIN_DIRS in its env block by hand")
+  fi
+else
+  SKIPPED+=("session mod — add $REPO_DIR/mods/mode-band to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block")
 fi
 
 finish
