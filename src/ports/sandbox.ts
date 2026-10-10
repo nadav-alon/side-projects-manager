@@ -51,6 +51,21 @@ export interface RunProgress {
 /** The callback a run request takes `onProgress` as. */
 export type OnRunProgress = (progress: RunProgress) => void;
 
+/**
+ * The run kinds whose contract is to force-push, and so are allowed
+ * `git push --force-with-lease`: they rewrite or add to a pull request's head
+ * branch with the implementation's own credential. Every other kind is
+ * refused every force-push.
+ *
+ * The manager's own deny rules apply to every run whatever the project's
+ * `.claude/settings.json` says, and refuse `gh pr merge`, a push to the base
+ * branch and a force-push. Only the force-push rule is ever lifted, only for
+ * these kinds, and only down to `--force-with-lease`; the merge and
+ * base-branch rules hold for all of them. This list is the one place that
+ * contract is stated; the container adapter reads it.
+ */
+export const FORCE_PUSH_RUN_KINDS: readonly string[] = ["apply-review", "rebase"];
+
 /** One ticket, and the project checkout it is to be worked against. */
 export interface RunRequest {
   ticket: Ticket;
