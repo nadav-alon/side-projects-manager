@@ -3465,6 +3465,90 @@ describe("composeInvocationReport", () => {
     assert.match(report.message, /summary issue could not be published: rate limited/);
   });
 
+  describe("an invocation where nothing landed", () => {
+    function providerFailed(number: number, discard: Discard, discoveryReport?: DiscoveryReport): IterationOutcome {
+      return {
+        repo: REPO,
+        ticket: implementationTicket(number),
+        kind: "provider-failed",
+        providerFailure: "the provider is unreachable",
+        tokensUsed: tokenCount(0),
+        discard,
+        ...(discoveryReport !== undefined && { discoveryReport }),
+      };
+    }
+
+    async function composeAnnounced(iterations: IterationOutcome[]) {
+      const tracker = recordingTracker();
+      const report = await composeInvocationReport(tracker, {
+        startedAt: STARTED_AT,
+        facts: facts(iterations),
+        alreadyAnnouncedToday: true,
+      });
+      return { report, published: tracker.published };
+    }
+
+    it("stays silent on an announced day for an infrastructure failure alone", async () => {
+      const { report, published } = await composeAnnounced([infrastructureFailure(7)]);
+
+      assert.equal(report.outcome, "nothing-landed");
+      assert.equal(published.length, 0);
+      assert.match(report.message, /Today is already announced/);
+    });
+
+    it("still publishes on an announced day when the infrastructure failure salvaged a branch", async () => {
+      const { report, published } = await composeAnnounced([
+        infrastructureFailure(7, { branch: branch("issue-7"), stopShorts: 1 }),
+      ]);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(published.length, 1);
+    });
+
+    it("is work-selected when an infrastructure failure shares the invocation with a finished run", async () => {
+      const { report, published } = await composeAnnounced([
+        infrastructureFailure(7),
+        finishedSpending(implementationTicket(8), 1000, 1000),
+      ]);
+
+      assert.equal(report.outcome, "work-selected");
+      assert.equal(published.length, 1);
+    });
+
+    it("counts a provider failure that left no branch and filed nothing", async () => {
+      const { report, published } = await composeAnnounced([providerFailed(7, { kind: "none" })]);
+
+      assert.equal(report.outcome, "nothing-landed");
+      assert.equal(published.length, 0);
+    });
+
+    it("does not count a provider failure that kept a branch", async () => {
+      const { report } = await composeAnnounced([
+        providerFailed(7, { kind: "kept", reason: "git refused to delete it" }),
+      ]);
+
+      assert.equal(report.outcome, "work-selected");
+    });
+
+    it("does not count a provider failure that salvaged a branch", async () => {
+      const { report } = await composeAnnounced([
+        providerFailed(7, { kind: "salvaged", branch: branch("issue-7"), stopShorts: 1 }),
+      ]);
+
+      assert.equal(report.outcome, "work-selected");
+    });
+
+    it("does not count a provider failure that filed a discovery", async () => {
+      const { report } = await composeAnnounced([
+        providerFailed(7, { kind: "none" }, {
+          routing: routing({ filed: [{ discovery: discovery(), action: "commented" }] }),
+        }),
+      ]);
+
+      assert.equal(report.outcome, "work-selected");
+    });
+  });
+
   describe("needsAttention", () => {
     it("is true for an invocation that never finished", async () => {
       const broken: SummaryFacts = { ...facts([]), invocationFailure: "registry.json is not valid JSON" };

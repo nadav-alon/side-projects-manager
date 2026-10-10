@@ -89,19 +89,21 @@ _Avoid_: abort, bail, skip, fail
 The single issue an invocation writes in the manager repo, covering every attempt, what it cost, and
 what now needs the developer. An invocation that landed something always publishes one; a quiet or
 broken invocation — a dry queue, a stand-down, an invocation failure, or an invocation where nothing
-landed — publishes one only if none
-has been published yet that local calendar day, recorded in the state document with that day once
-the publish succeeds, so a loop firing every 15 minutes still reports one quiet or broken morning rather
-than up to ninety-six. An invocation where nothing landed is one whose every iteration was an infrastructure failure, a
-provider failure or a limit refusal, none leaving a salvage branch or filing a discovery: it claims
-the same day marker a dry queue does, and a different failure later on an announced day stays silent
-until the next. "Landed something" excludes a run the provider limit refused, alongside a
-ticket handed back ahead of the gate: neither ran, so an invocation whose iterations were only
-those, however many, is a stand-down like any other — unless one of those limit refusals left a
-branch in the project checkout, kept because git refused to delete it or salvaged on purpose, or
-filed a discovery, in which case the invocation still always publishes. The title carries the local
-time to the minute beside the date, since more than one summary can land on one day. A summary the
-invocation composed but could not publish is a summary failure instead.
+landed — publishes one only if none has been published yet that local calendar day, recorded in the
+state document with that day once the publish succeeds, so a loop firing every 15 minutes still
+reports one quiet or broken morning rather than up to ninety-six. An invocation where nothing landed
+is one where at least one iteration failed on infrastructure or at the provider, and any others were
+limit refusals or hand-backs, none leaving a salvage branch or filing a discovery: it claims the same
+day marker a dry queue does, and a different failure later on an announced day stays silent until the
+next. "Landed something" excludes a run the provider limit refused, alongside a ticket handed back
+ahead of the gate: neither ran, so an invocation whose iterations were only those, however many, is a
+stand-down like any other — unless one of those limit refusals left a branch in the project
+checkout, kept because git refused to delete it or salvaged on purpose, or filed a discovery, in
+which case the invocation still always publishes. A hand-back beside an infrastructure or provider
+failure is part of an invocation where nothing landed, so it publishes only once a day, as it does
+beside a stand-down; a hand-back on its own always publishes. The title carries the local time to the
+minute beside the date, since more than one summary can land on one day. A summary the invocation
+composed but could not publish is a summary failure instead.
 _Avoid_: report, digest, changelog
 
 **Summary failure**:
