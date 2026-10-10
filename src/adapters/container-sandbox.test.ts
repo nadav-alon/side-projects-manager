@@ -5543,6 +5543,33 @@ fi`;
     assert.deepEqual(await docker.calls(), [], "docker must not be asked to run");
   });
 
+  it("refuses to start, naming the path, when a declared host path is a file or a directory this user cannot read", async (t) => {
+    withCredential(t, "rw");
+    const directory = await project();
+    const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+    const file = path.join(TEST_HOME, "a-file");
+    await writeFile(file, "not a directory\n");
+    const locked = await mkdtemp(path.join(tmpdir(), "mount-locked-"));
+    await chmod(locked, 0o000);
+    t.after(() => chmod(locked, 0o700));
+    const hosts = [file, ...(process.getuid?.() === 0 ? [] : [locked])];
+
+    for (const host of hosts) {
+      await assert.rejects(
+        testSandbox().run({
+          image: TEST_IMAGE,
+          ticket: TICKET,
+          checkout: directory,
+          spendCeiling: CEILING,
+          mounts: [{ host: hostPath(host), container: containerPath("/mnt/config") }],
+        }),
+        (error: unknown) =>
+          error instanceof AgentNeverRan && error.message.includes(host),
+      );
+    }
+    assert.deepEqual(await docker.calls(), [], "docker must not be asked to run");
+  });
+
   it("mounts nothing beyond the clone, transcripts and discoveries for a project that declares no mounts", async (t) => {
     const { docker } = await runWithDocker(
       t,

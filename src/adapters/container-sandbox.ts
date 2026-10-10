@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { access, constants, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -2765,9 +2765,11 @@ async function commitsSince(
 
 /**
  * Throws `AgentNeverRan` naming the first of `mounts` whose host directory is
- * not there. Docker would create a missing bind-mount source as an empty
- * root-owned directory, and the run would read it as the data it was promised
- * having none.
+ * not there, or is there but not readable by this process — the uid the
+ * container runs as. Docker would create a missing bind-mount source as an
+ * empty root-owned directory, and the run would read it as the data it was
+ * promised having none; an unreadable one would only fail partway through the
+ * run, with `EACCES`.
  */
 async function requireMountsPresent(
   mounts: readonly ReadOnlyMount[],
@@ -2784,6 +2786,11 @@ async function requireMountsPresent(
         `The project declares ${host} as a read-only mount, but it is not a directory on this host. Create it or fix the registry, and run again.`,
       );
     }
+    await access(host, constants.R_OK | constants.X_OK).catch(() => {
+      throw new AgentNeverRan(
+        `The project declares ${host} as a read-only mount, but this user cannot read it. Fix its permissions or the registry, and run again.`,
+      );
+    });
   }
 }
 
