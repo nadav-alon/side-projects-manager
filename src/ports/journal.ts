@@ -13,23 +13,24 @@ import type { TranscriptDirectory } from "./transcript-directory.ts";
 /**
  * What became of an invocation, once it is known.
  *
- * The first four are their own copy of the variants `morningLoop` reports,
+ * The first five are their own copy of the variants `morningLoop` reports,
  * rather than an import from it: the store port must not depend on the loop's
  * own module, and a string union costs nothing to duplicate. `never-reported`
- * is the journal's own fifth: the loop's process left no record at all, so the
+ * is the journal's own sixth: the loop's process left no record at all, so the
  * trigger that spawned it wrote one in its place — see `bin/morning-run.ts`.
  */
 export const INVOCATION_OUTCOMES = [
   "dry-queue",
   "stood-down",
   "work-selected",
+  "nothing-landed",
   "invocation-failed",
   "never-reported",
 ] as const;
 
 export type InvocationOutcome = (typeof INVOCATION_OUTCOMES)[number];
 
-/** Whether `value` is one of the five invocation outcomes. */
+/** Whether `value` is one of the six invocation outcomes. */
 export function isInvocationOutcome(
   value: string,
 ): value is InvocationOutcome {

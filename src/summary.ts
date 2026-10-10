@@ -333,8 +333,16 @@ export type InvocationOutcome =
   | "dry-queue"
   /** There was work, and the budget gate refused to start it. */
   | "stood-down"
-  /** An iteration selected a project with work. */
+  /** An iteration landed something. */
   | "work-selected"
+  /**
+   * At least one iteration failed on infrastructure or at the provider, and
+   * any others were limit refusals or hand-backs; none left a salvage
+   * branch or filed a discovery. Something could have landed and nothing
+   * did, so it follows the once-a-day rule of a quiet morning rather than
+   * `work-selected`'s.
+   */
+  | "nothing-landed"
   /**
    * The loop's own plumbing broke before it could finish — a registry that
    * would not parse, or a port that could not be reached before a single
@@ -622,16 +630,70 @@ export interface InvocationReport {
 }
 
 /**
- * What this invocation came to: whether it worked something, stood down —
- * before or after working something — ran into nothing to do, or never
- * finished at all.
+ * Whether a run left a branch in the project checkout — kept because git
+ * refused to delete it, or salvaged on purpose per CONTEXT.md's "Salvage" —
+ * or filed a discovery, either of which the summary has to name. False for a
+ * `none` or `discarded` discard with nothing filed, however many tokens the
+ * run spent.
+ */
+function leftSomethingToName(run: {
+  discard: Discard;
+  discoveryReport?: DiscoveryReport;
+}): boolean {
+  return (
+    run.discard.kind === "kept" ||
+    run.discard.kind === "salvaged" ||
+    (run.discoveryReport?.routing.filed.length ?? 0) > 0
+  );
+}
+
+/**
+ * Whether `iteration` landed something: it counts as work, and is not an
+ * infrastructure failure or a provider failure that left no salvage branch
+ * and filed no discovery. Narrower than `countsAsWork`, which asks whether a
+ * run was attempted at all. A switch on every kind, so an iteration kind
+ * added later has to say whether it lands something.
+ */
+function landedSomething(iteration: IterationOutcome): boolean {
+  if (!countsAsWork(iteration)) {
+    return false;
+  }
+  switch (iteration.kind) {
+    case "failed":
+      return (
+        iteration.failure.kind !== "infrastructure" ||
+        iteration.failure.salvage !== undefined
+      );
+    case "provider-failed":
+      return leftSomethingToName(iteration);
+    case "finished":
+    case "reviewed":
+    case "applied-review":
+    case "rebased":
+    case "spec-reviewed":
+    case "ux-reviewed":
+    case "pull-request-resolved":
+    case "budget-exhausted":
+    case "discovery-blocked":
+    case "blocked-on-existing":
+    case "limit-refused":
+      return true;
+  }
+}
+
+/**
+ * What this invocation came to: whether it landed something, attempted
+ * something and landed nothing, stood down — before or after working
+ * something — ran into nothing to do, or never finished at all.
  *
  * A ticket handed back ahead of the gate — for its model or size labels —
  * was never run, and neither was a run the provider limit refused, so
  * neither counts as work when the morning then stood down: a stand-down that
  * ran nothing reads as one, whatever was handed back or refused before it.
- * Without a stand-down, either kind of non-work is still work an iteration
- * selected. A limit refusal that also filed a blocking discovery is a
+ * Without a stand-down, a hand-back or a limit refusal on its own is still
+ * work an iteration selected, and always publishes; beside an infrastructure
+ * or provider failure it is only part of an invocation where nothing landed,
+ * and publishes once a day with it — CONTEXT.md's "Summary". A limit refusal that also filed a blocking discovery is a
  * `discovery-blocked` iteration instead, and does count: the discovery needs
  * the developer.
  */
@@ -639,9 +701,11 @@ function outcomeOf(facts: SummaryFacts): InvocationOutcome {
   if (facts.invocationFailure !== undefined) {
     return "invocation-failed";
   }
-  const worked = facts.iterations.some(countsAsWork);
-  if (worked) {
+  if (facts.iterations.some(landedSomething)) {
     return "work-selected";
+  }
+  if (facts.iterations.some(countsAsWork)) {
+    return "nothing-landed";
   }
   if (facts.standDown !== undefined) {
     return "stood-down";
@@ -676,23 +740,16 @@ export interface InvocationReportInputs {
 }
 
 /**
- * Whether a limit refusal left something for the summary to name: a branch
- * left in the project checkout — kept because git refused to delete it, or
- * salvaged on purpose per CONTEXT.md's "Salvage" — or an advisory discovery
- * filed, the only kind a limit refusal can file since a blocking one hands
- * the ticket back instead and makes this a `DiscoveryBlocked` iteration.
- * Returns false for a `none` or `discarded` discard with nothing filed,
- * however many tokens the refusal spent.
+ * Whether a limit refusal left something for the summary to name, per
+ * {@link leftSomethingToName}. The discovery is an advisory one, the only
+ * kind a limit refusal can file since a blocking one hands the ticket back
+ * instead and makes this a `DiscoveryBlocked` iteration.
  */
 function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
   if (iteration.kind !== "limit-refused") {
     return false;
   }
-  return (
-    iteration.discard.kind === "kept" ||
-    iteration.discard.kind === "salvaged" ||
-    (iteration.discoveryReport?.routing.filed.length ?? 0) > 0
-  );
+  return leftSomethingToName(iteration);
 }
 
 /**
@@ -704,7 +761,7 @@ function limitRefusalLeftSomethingToName(iteration: IterationOutcome): boolean {
  * Composes the line once and reuses it for both `message` and, when
  * publishing, the issue body.
  *
- * An invocation that worked something, freed a ticket a dead invocation had
+ * An invocation that landed something, freed a ticket a dead invocation had
  * recorded, or had a limit refusal that left a branch behind or filed a
  * discovery, always publishes — a freed ticket nobody else will mention must
  * be named somewhere, never only erased from the state document; a branch
@@ -723,12 +780,14 @@ export async function composeInvocationReport(
 
   let summaryLocation: IssueUrl | undefined;
   let summaryFailure: SummaryFailure | undefined;
+  let published = false;
   if (
     outcome === "work-selected" ||
     facts.freedFromDeadInvocation.length > 0 ||
     facts.iterations.some(limitRefusalLeftSomethingToName) ||
     !alreadyAnnouncedToday
   ) {
+    published = true;
     const body = summaryBody(facts, line);
     // Never thrown: a summary issue that could not be written must not cost
     // the developer the account of everything else the invocation did — said
@@ -753,8 +812,9 @@ export async function composeInvocationReport(
     ...(summaryLocation !== undefined && { summaryLocation }),
     ...(summaryFailure !== undefined && { summaryFailure }),
     needsAttention: needsAttention(outcome, facts.iterations, summaryFailure),
-    message:
-      summaryFailure === undefined
+    message: !published
+      ? `${line} Today is already announced, so no summary was published.`
+      : summaryFailure === undefined
         ? line
         : `${line} The summary issue could not be published: ${summaryFailure.reason}.`,
   };
