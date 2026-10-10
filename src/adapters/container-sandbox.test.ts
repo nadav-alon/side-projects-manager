@@ -614,11 +614,6 @@ function providerFailureStdoutWithStatus(status: number | null): string {
   });
 }
 
-const CLI_SETTINGS = {
-  sandbox: { enabled: false, failIfUnavailable: false },
-  permissions: { deny: ["Bash(git push origin master:*)", "Bash(git push origin HEAD:master:*)"] },
-};
-
 describe("containerSandbox", () => {
   allowFileSubmodules();
 
@@ -5417,7 +5412,8 @@ fi`;
     );
 
     const [call] = await docker.calls();
-    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
+    const settings = JSON.parse(valueOf(call, "--settings") ?? "null");
+    assert.deepEqual(settings.sandbox, { enabled: false, failIfUnavailable: false });
     assert.equal(await readFile(path.join(directory, ".claude", "settings.json"), "utf8"), demanding);
   });
 
@@ -5430,16 +5426,17 @@ fi`;
     );
 
     const [call] = await docker.calls();
-    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
+    const settings = JSON.parse(valueOf(call, "--settings") ?? "null");
+    assert.deepEqual(settings.sandbox, { enabled: false, failIfUnavailable: false });
   });
 
   /**
    * `--permission-mode bypassPermissions` does not override a deny rule, and
    * a deny rule outranks any allow, so a rebase run can only force-push when
    * the project's own settings are not read for it. The deny rules that
-   * protect the default branch are then the manager's to carry.
+   * protect the base branch are then the manager's to carry.
    */
-  it("reads no project settings for a rebase run, which carries the master denies itself", async (t) => {
+  it("reads no project settings for a rebase run, which carries the manager's denies itself", async (t) => {
     withCredential(t);
     const { directory } = await hostedProject();
     const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
@@ -5448,23 +5445,8 @@ fi`;
 
     const [call] = await docker.calls();
     assert.equal(valueOf(call, "--setting-sources"), "user");
-    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
-  });
-
-  it("denies pushing to master in a plain run too", async (t) => {
-    const { docker } = await runWithDocker(
-      t,
-      dockerAnswering(JSON.stringify({ result: "" })),
-      (sandbox, directory) =>
-        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
-    );
-
-    const [call] = await docker.calls();
-    const settings = JSON.parse(valueOf(call, "--settings") ?? "null");
-    assert.deepEqual(settings.permissions.deny, [
-      "Bash(git push origin master:*)",
-      "Bash(git push origin HEAD:master:*)",
-    ]);
+    const { deny } = JSON.parse(valueOf(call, "--settings") ?? "null").permissions;
+    assert.ok(deny.includes("Bash(gh pr merge*)"));
   });
 
   it("still reads the project's settings for an apply-review run, which pushes plain", async (t) => {
@@ -5476,10 +5458,9 @@ fi`;
 
     const [call] = await docker.calls();
     assert.equal(call?.includes("--setting-sources"), false);
-    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null"), CLI_SETTINGS);
   });
 
-  it("still reads the project's settings for a plain run, so its force-push denies hold", async (t) => {
+  it("still reads the project's settings for a plain run", async (t) => {
     const { docker } = await runWithDocker(
       t,
       dockerAnswering(JSON.stringify({ result: "" })),
@@ -5490,6 +5471,71 @@ fi`;
     const [call] = await docker.calls();
     assert.equal(call?.includes("--setting-sources"), false);
   });
+
+  /**
+   * The manager's own deny rules travel in `--settings`, so a project whose
+   * settings.json denies nothing is refused a merge and a base-branch or
+   * force push all the same.
+   */
+  it("refuses a plain run a merge, a push to the base branch and every force-push", async (t) => {
+    const { docker, directory } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions, {
+      deny: [
+        "Bash(gh pr merge*)",
+        `Bash(git push origin ${base})`,
+        `Bash(git push origin HEAD:${base})`,
+        "Bash(git push --force*)",
+      ],
+    });
+  });
+
+  it("refuses a review the same four", async (t) => {
+    const { docker, directory } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout: directory, spendCeiling: CEILING }),
+      "ro",
+    );
+
+    const [call] = await docker.calls();
+    const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+    assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions.deny, [
+      "Bash(gh pr merge*)",
+      `Bash(git push origin ${base})`,
+      `Bash(git push origin HEAD:${base})`,
+      "Bash(git push --force*)",
+    ]);
+  });
+
+  for (const kind of ["rebase", "apply-review"] as const) {
+    it(`narrows the force-push rule to allow --force-with-lease for a ${kind} run`, async (t) => {
+      withCredential(t);
+      const { directory } = await hostedProject();
+      const docker = await recordingDocker(t, dockerAnswering(JSON.stringify({ result: "" })));
+      const sandbox = testSandbox(undefined, headIsBranch);
+
+      await (kind === "rebase" ? rebaseOn(sandbox, directory) : applyReviewOn(sandbox, directory));
+
+      const [call] = await docker.calls();
+      const base = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+      assert.deepEqual(JSON.parse(valueOf(call, "--settings") ?? "null").permissions.deny, [
+        "Bash(gh pr merge*)",
+        `Bash(git push origin ${base})`,
+        `Bash(git push origin HEAD:${base})`,
+        "Bash(git push --force)",
+        "Bash(git push --force *)",
+      ]);
+    });
+  }
 
   /**
    * Unpinned, the container runs as the image's own user, and everything the
@@ -6120,6 +6166,46 @@ fi`;
       // The agent's own words are kept as well: what it was refused explains
       // the run, but what it said is still what a developer reads first.
       assert.match(output, /write permission was denied/);
+    });
+
+    it("says it was the manager's own rule when a merge or a force-push was refused", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            result: "I could not push.",
+            permission_denials: [
+              { tool_name: "Bash", tool_input: { command: "gh pr merge 12 --squash" } },
+              { tool_name: "Bash", tool_input: { command: "git push --force origin feature" } },
+              { tool_name: "Bash", tool_input: { command: "git status" } },
+            ],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      const output = variant(result, "finished")?.output ?? "";
+      assert.match(output, /refused command matches the manager's own rules: Bash\(gh pr merge\*\), Bash\(git push --force\*\)\./);
+      assert.doesNotMatch(output, /git status/);
+    });
+
+    it("does not blame the manager when a refusal matches none of its rules", async (t) => {
+      const { result } = await runWithDocker(
+        t,
+        dockerAnswering(
+          JSON.stringify({
+            is_error: false,
+            result: "x",
+            permission_denials: [{ tool_name: "Bash", tool_input: { command: "git commit -m x" } }],
+          }),
+        ),
+        (sandbox, directory) =>
+          sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+      );
+
+      assert.doesNotMatch(variant(result, "finished")?.output ?? "", /manager's own rules/);
     });
 
     it("names each refused tool once, however often it was refused", async (t) => {

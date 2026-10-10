@@ -40,7 +40,7 @@ import type {
   UxReviewRequest,
   UxReviewTicket,
   Ticket,
-  TicketKind,
+  RunKind,
   TranscriptDirectory,
   UniformFilesReverted,
   Usd,
@@ -86,6 +86,7 @@ import {
   unreserveBranch,
 } from "./branch-reservations.ts";
 import { withCheckoutLock } from "./checkout-lock.ts";
+import { cliSettings, managerDenyRules } from "./manager-settings.ts";
 import { isErrorWithCode } from "./error-code.ts";
 import { MANAGER_HOME } from "./manager-home.ts";
 import type { ImageTag } from "../ports/image-tag.ts";
@@ -412,6 +413,10 @@ export interface RunOptions {
   spendCeiling: Usd;
   mount: Mount;
   credential: Credential;
+  /** The kind of run, which decides which of the manager's deny rules are lifted. */
+  kind: RunKind;
+  /** The branch the clone was taken on: pushing to it is refused to every run. */
+  base: Branch;
   /**
    * Set only for a ux review: starts the Playwright MCP server the image
    * carries, via `--mcp-config`. Absent, the agent has no browser.
@@ -685,29 +690,7 @@ const PLAYWRIGHT_MCP_CONFIG = JSON.stringify({
 });
 
 /**
- * The settings the agent CLI is handed for every run, whatever the project's
- * `.claude/settings.json` says: its own sandbox is off. That setting serves
- * the developer's interactive sessions; here the container is the boundary,
- * and the image has neither bubblewrap nor socat, so a project demanding the
- * sandbox would have every run exit before its first tool call.
- * `failIfUnavailable` is overridden too, so the run does not lean on it being
- * inert while `enabled` is false. `--settings` outranks the project's file
- * without editing it, and a project with no `sandbox` block is unaffected.
- *
- * It also denies pushing to `master`, so that holds in every run kind whether
- * or not the project's file says so; a deny the project also writes is merely
- * redundant. This is a fixed pair of patterns for the literal `master`, not
- * whatever the project's file would have supplied: a project guarding another
- * branch, or denying anything else, relies on its own file, which a run that
- * ignores project settings (see `IGNORE_PROJECT_SETTINGS_ARGS`) does not read.
- */
-const CLI_SETTINGS = JSON.stringify({
-  sandbox: { enabled: false, failIfUnavailable: false },
-  permissions: { deny: ["Bash(git push origin master:*)", "Bash(git push origin HEAD:master:*)"] },
-});
-
-/**
- * What a run that ignores project settings is handed besides `CLI_SETTINGS`.
+ * What a run that ignores project settings is handed besides `cliSettings`.
  * A deny rule in the project's `.claude/settings.json` outranks
  * `--permission-mode bypassPermissions` and every allow rule, so
  * `--settings` cannot lift a deny the project writes; the run reads no
@@ -718,14 +701,6 @@ const CLI_SETTINGS = JSON.stringify({
  * the real CLI).
  */
 const IGNORE_PROJECT_SETTINGS_ARGS = ["--setting-sources", "user"];
-
-/**
- * The six shapes a sandboxed run comes in — named for `withThrowawayClone`
- * and `attempt` alike. `TicketKind` with `"implementation"` spelled `"run"`:
- * derived, rather than spelled out again, so a kind added to `TicketKind`
- * forces the issue here too, as it already does at `SELECTION_RANK`.
- */
-type RunKind = Exclude<TicketKind, "implementation"> | "run";
 
 /**
  * Runs `body` on a throwaway clone's directory, named for the `kind` of run
@@ -930,6 +905,7 @@ async function runOnClone(
       // Branded before the agent starts: a clone whose hashes this cannot read
       // fails the sandbox's set-up, not a run whose work is already done.
       const head = commitSha(await revision(clone, "HEAD"));
+      const base = await baseBranchOf(clone);
       if (chosen.resuming) {
         // The clone only ever gets a local branch for the checkout's default
         // one; `onto` is resumed from the remote-tracking ref the clone made
@@ -957,11 +933,11 @@ async function runOnClone(
       // merge-base, not `head` itself, is what commits are counted from. The
       // commits already there are named too, so the loop can tell what this
       // run itself added.
-      const base = chosen.resuming
+      const baseCommit = chosen.resuming
         ? commitSha(await mergeBase(clone, head, onto))
         : head;
       const resumedCommits = chosen.resuming
-        ? await commitsSince(clone, base)
+        ? await commitsSince(clone, baseCommit)
         : undefined;
 
       const agent = await attempt(
@@ -973,6 +949,7 @@ async function runOnClone(
           spendCeiling,
           mount: "rw",
           credential: "developer",
+          base,
           ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
         },
         model,
@@ -1001,7 +978,7 @@ async function runOnClone(
           await salvageUncommitted(clone);
         }
 
-        const commits = await commitsSince(clone, base);
+        const commits = await commitsSince(clone, baseCommit);
 
         // Only when the agent actually committed: a branch pointing at the
         // commit it started from is not work, and the checkout should not
@@ -1128,7 +1105,7 @@ async function attempt(
   kind: RunKind,
   options: Omit<
     RunOptions,
-    "model" | "image" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
+    "model" | "image" | "kind" | "transcriptDirectory" | "discoveriesDirectory" | "signal"
   >,
   model: ModelName | undefined,
   { transcriptsRoot, discoveriesRoot }: SandboxRoots,
@@ -1151,6 +1128,7 @@ async function attempt(
   try {
     const agent = await container({
       ...options,
+      kind,
       transcriptDirectory: transcriptDir,
       discoveriesDirectory: discoveriesDir,
       signal: controller.signal,
@@ -1735,10 +1713,11 @@ async function reviewOnClone(
   return withThrowawayClone(kind, async (clone) => {
     await withCheckoutLock(project, () => cloneWithSubmodules(project, clone));
     await populateSubmodules(project, clone);
+    const base = await baseBranchOf(clone);
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt, spendCeiling, credential: "review", ...access },
+      { directory: clone, prompt, spendCeiling, credential: "review", base, ...access },
       model,
       roots,
       onStarted,
@@ -1931,6 +1910,19 @@ function uxReviewPromptFor(
 }
 
 /**
+ * The branch a fresh clone of the project is on: the base every pull request
+ * and every push is measured against.
+ */
+async function baseBranchOf(clone: Checkout): Promise<Branch> {
+  const { stdout } = await run("git", ["-C", clone, "branch", "--show-current"]);
+  const base = stdout.trim();
+  if (!isBranch(base)) {
+    throw new Error(`${clone} is not on a usable branch, so there is no base to refuse pushes to.`);
+  }
+  return base;
+}
+
+/**
  * Clones `project` under the checkout lock, points the clone's `origin` at
  * the checkout's own remote made pushable, and switches it onto the pull
  * request's `head` branch as the repo host has it now, tracking it — so the
@@ -1972,13 +1964,7 @@ async function cloneOntoPullRequestHead(
     }
     return origin;
   });
-  const { stdout: onto } = await run("git", ["-C", clone, "branch", "--show-current"]);
-  const base = onto.trim();
-  if (!isBranch(base)) {
-    throw new Error(
-      `${clone} is not on a usable branch, so there is no base to check ${head}'s push against.`,
-    );
-  }
+  const base = await baseBranchOf(clone);
   await run("git", [
     "-C",
     clone,
@@ -2066,6 +2052,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         spendCeiling,
         mount: "rw",
         credential: "developer",
+        base,
         ...options,
       },
       model,
@@ -2897,7 +2884,7 @@ const dockerContainer: Container = async (options) => {
       running.child.stdout?.on("end", () => progress.onEnd());
     }
     const { stdout, stderr } = await running;
-    return readAgentRun(stdout, stderr);
+    return readAgentRun(stdout, stderr, managerDenyRules(options.kind, options.base));
   } catch (error: unknown) {
     // `options.signal.aborted` means this exit is ours: `onAbort` already
     // `docker kill`ed the container, `execFile`'s own `signal` already ended
@@ -2913,7 +2900,7 @@ const dockerContainer: Container = async (options) => {
     if (dockerNeverRan(error)) {
       throw new AgentNeverRan(dockerNeverRanMessage(error));
     }
-    return readExitedRun(error);
+    return readExitedRun(error, managerDenyRules(options.kind, options.base));
   } finally {
     options.signal.removeEventListener("abort", onAbort);
     await killed;
@@ -2962,9 +2949,9 @@ export function dockerNeverRanMessage(error: unknown): string {
  * hangs the output it did capture off the error, so the run still comes back
  * with what it said and what it spent.
  */
-function readExitedRun(error: unknown): AgentRun {
+function readExitedRun(error: unknown, rules: readonly string[]): AgentRun {
   const { stdout, stderr } = captured(error);
-  return { ...readAgentRun(stdout, stderr), failure: commandFailure(error, stderr) };
+  return { ...readAgentRun(stdout, stderr, rules), failure: commandFailure(error, stderr) };
 }
 
 /**
@@ -3099,6 +3086,8 @@ function dockerCommand(
     image,
     mount,
     mounts,
+    kind,
+    base,
     playwrightMcp,
     ignoreProjectSettings,
     model,
@@ -3193,7 +3182,7 @@ function dockerCommand(
     "bypassPermissions",
     ...(ignoreProjectSettings === true ? IGNORE_PROJECT_SETTINGS_ARGS : []),
     "--settings",
-    CLI_SETTINGS,
+    cliSettings(kind, base),
     // The spend ceiling, enforced by the agent CLI rather than by the manager:
     // nothing out here can stop a run that is already going, and a run that
     // overspends is exactly the one the gate cannot catch until the morning
@@ -3266,7 +3255,7 @@ function captured(error: unknown): { stdout: string; stderr: string } {
  * nothing — and `nitsFrom`, which trims the gist's own line off first, would
  * read the appended text as more nits.
  */
-function readAgentRun(stdout: string, stderr = ""): AgentRun {
+function readAgentRun(stdout: string, stderr = "", rules: readonly string[] = []): AgentRun {
   const refusalTag = MODEL_REFUSAL.exec(stderr)?.[0].trim();
   const envelope: unknown = resultEvent(stdout) ?? parse(stdout);
   if (typeof envelope !== "object" || envelope === null) {
@@ -3294,7 +3283,12 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
   const providerFailure = providerFailureFromEnvelope(envelope);
   const budgetExhausted = budgetExhaustedFromEnvelope(envelope);
   return {
-    output: withDiagnostics(output, stderr, deniedTools(envelope)),
+    output: withDiagnostics(
+      output,
+      stderr,
+      deniedTools(envelope),
+      managerRulesRefusing(envelope, rules),
+    ),
     tokensUsed: totalTokens(modelUsage, usage),
     ...(refusalTag !== undefined && {
       modelRefused: typeof result === "string" ? result.trim() : refusalTag,
@@ -3322,31 +3316,62 @@ function readAgentRun(stdout: string, stderr = ""): AgentRun {
  * discarding the one field that says why a run came to nothing.
  */
 function deniedTools(envelope: object): string[] {
-  const { permission_denials: denials } = envelope as {
-    permission_denials?: unknown;
-  };
+  return [...new Set(refusals(envelope).map(({ tool }) => tool))];
+}
+
+/**
+ * The calls the CLI refused the agent, as the envelope's `permission_denials`
+ * list them: the tool, and the command when it was a Bash call.
+ */
+function refusals(envelope: object): { tool: string; command?: string }[] {
+  const { permission_denials: denials } = envelope as { permission_denials?: unknown };
   if (!Array.isArray(denials)) {
     return [];
   }
+  return denials.flatMap((denial: unknown) => {
+    const { tool_name: tool, tool_input: input } = (denial ?? {}) as {
+      tool_name?: unknown;
+      tool_input?: { command?: unknown };
+    };
+    if (typeof tool !== "string") {
+      return [];
+    }
+    const command = input?.command;
+    return [typeof command === "string" ? { tool, command: command.trim() } : { tool }];
+  });
+}
 
-  const names = denials
-    .map((denial: unknown) =>
-      typeof denial === "object" && denial !== null
-        ? (denial as { tool_name?: unknown }).tool_name
-        : undefined,
-    )
-    .filter((name): name is string => typeof name === "string");
-  return [...new Set(names)];
+/**
+ * Whether a Bash `command` falls under a `managerDenyRules` rule: a rule
+ * ending in `*` matches by prefix, any other exactly.
+ */
+function ruleMatches(rule: string, command: string): boolean {
+  const pattern = rule.slice("Bash(".length, -1);
+  return pattern.endsWith("*") ? command.startsWith(pattern.slice(0, -1)) : command === pattern;
+}
+
+/**
+ * The manager's own deny rules the CLI refused the agent a command under, once
+ * each in the order first hit, so a developer reading "the agent could not
+ * push" can see a manager rule that matched. The project may deny the same
+ * command too, and a compound command the CLI splits matches none by name.
+ */
+function managerRulesRefusing(envelope: object, rules: readonly string[]): string[] {
+  const commands = refusals(envelope).flatMap(({ tool, command }) =>
+    tool === "Bash" && command !== undefined ? [command] : [],
+  );
+  return rules.filter((rule) => commands.some((command) => ruleMatches(rule, command)));
 }
 
 /**
  * Everything worth keeping alongside what the agent said: what it wrote to
- * stderr, and what it was refused.
+ * stderr, what it was refused, and which of the manager's own rules refused it.
  */
 function withDiagnostics(
   output: string,
   stderr: string,
   denied: readonly string[] = [],
+  managerRules: readonly string[] = [],
 ): string {
   const notes = [
     output,
@@ -3354,6 +3379,9 @@ function withDiagnostics(
     denied.length === 0
       ? ""
       : `The agent was refused these tools and could not use them: ${denied.join(", ")}.`,
+    managerRules.length === 0
+      ? ""
+      : `The refused command matches the manager's own rules: ${managerRules.join(", ")}.`,
   ].filter((note) => note !== "");
   return notes.join("\n");
 }
