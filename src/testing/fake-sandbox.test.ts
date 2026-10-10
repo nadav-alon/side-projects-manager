@@ -20,6 +20,7 @@ import type {
   RebaseOutcome,
   RebaseTicket,
   ReviewTicket,
+  RunProgress,
   Ticket,
 } from "../ports/index.ts";
 import { imageTag } from "../ports/image-tag.ts";
@@ -373,6 +374,34 @@ describe("FakeSandbox", () => {
     assert.deepEqual(sandbox.held().map((ticket) => ticket.number), [10]);
     sandbox.release(APPLY_REVIEW_TICKET);
     await applying;
+  });
+
+  it("emits scripted progress to a run's callback while it is held, and to none without one", HANGS, async () => {
+    const sandbox = new FakeSandbox();
+    const progress: RunProgress[] = [
+      { toolCalls: 1, lastTool: { name: "Read", at: new Date(1) }, lastEventAt: new Date(1) },
+      { toolCalls: 1, lastTool: { name: "Read", at: new Date(1) }, lastEventAt: new Date(2) },
+    ];
+    sandbox.progress = () => progress;
+    sandbox.hold();
+    const reported: RunProgress[] = [];
+
+    const run = sandbox.run({
+      image: TEST_IMAGE,
+      ticket: TICKET,
+      checkout: CHECKOUT,
+      spendCeiling: CEILING,
+      onProgress: (each) => reported.push(each),
+    });
+    await sandbox.whenHeld(1);
+    assert.deepEqual(reported, progress);
+    sandbox.release(TICKET);
+    await run;
+
+    const bare = sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: CHECKOUT, spendCeiling: CEILING });
+    await sandbox.whenHeld(1);
+    sandbox.release(TICKET);
+    await bare;
   });
 
   it("holds runs and reviews until released, in any order, counting how many were in progress", HANGS, async () => {

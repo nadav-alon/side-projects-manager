@@ -16,6 +16,7 @@ import type {
   ReviewTicket,
   RunModelRefused,
   RunOutcome,
+  RunProgress,
   RunRequest,
   Sandbox,
   SpecReviewOutcome,
@@ -71,6 +72,13 @@ export class FakeSandbox implements Sandbox {
     output: "",
     tokensUsed: tokenCount(0),
   });
+
+  /**
+   * The progress a run reports to its request's `onProgress`, in order, once
+   * it is in progress and before any hold — so a caller sees it while the run
+   * is still going. None unless set.
+   */
+  progress: (ticket: Ticket) => RunProgress[] = () => [];
 
   /** What the next review comes to. A costless, finished review unless set. */
   reviewResult: (ticket: ReviewTicket) => ReviewOutcome = () => ({
@@ -184,7 +192,16 @@ export class FakeSandbox implements Sandbox {
     onStarted?: OnRunStarted,
   ): Promise<RunOutcome> {
     this.runs.push(request);
-    return this.#inProgress(request.ticket, onStarted, () => this.result(request.ticket));
+    return this.#inProgress(
+      request.ticket,
+      onStarted,
+      () => this.result(request.ticket),
+      () => {
+        for (const progress of this.progress(request.ticket)) {
+          request.onProgress?.(progress);
+        }
+      },
+    );
   }
 
   review(
@@ -282,17 +299,20 @@ export class FakeSandbox implements Sandbox {
    * progress until `finish`, holding it first if told to. Calls `onStarted`,
    * when given, with a fake but deterministic transcript directory before
    * either — as `containerSandbox` calls it, before the run itself is even
-   * held or finished.
+   * held or finished. `whileRunning`, when given, runs once the run counts as
+   * in progress and before it is held.
    */
   async #inProgress<T>(
     ticket: Ticket,
     onStarted: OnRunStarted | undefined,
     finish: () => T,
+    whileRunning?: () => void,
   ): Promise<T> {
     onStarted?.({ transcriptDirectory: fakeTranscriptDirectory(ticket) });
     this.#running++;
     this.mostInProgress = Math.max(this.mostInProgress, this.#running);
     try {
+      whileRunning?.();
       if (this.#holding) {
         const released = gate();
         this.#held.push({ ticket, release: released.open });
