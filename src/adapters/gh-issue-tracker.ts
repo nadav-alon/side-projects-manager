@@ -37,6 +37,7 @@ import {
   SPEC_REVIEW_SIZE_LABEL,
   TURBOABLE_LABEL,
   LIVE_WRITE_LABEL,
+  GRANT_LABELS,
   type GrantLabel,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
@@ -380,7 +381,8 @@ export function ghIssueTracker(
       }
 
       // Three calls in the order they degrade best, because `gh` gives no way
-      // to do them as one and any of them can be the one that fails.
+      // to do them as one and any of them can be the one that fails. The
+      // grant strip after them is a best-effort tail, not part of that order.
       //
       // The comment goes first: it needs nothing to exist beforehand, and a
       // developer who reads why the morning stopped is served even if the
@@ -419,6 +421,32 @@ export function ghIssueTracker(
         // back on a ticket that is meant to stay off it.
         console.warn(
           `${ticket.repo}#${ticket.number} is out of the queue but not labelled ${READY_FOR_HUMAN_LABEL}: ${errorMessage(error)}`,
+        );
+      }
+      // Last, and best effort: a per-ticket grant is one round's consent, so
+      // the next round starts without it and a human grants it afresh. A
+      // grant left on the ticket could not be re-applied next round, so the
+      // gate would have no fresh `labeled` event for it to match. Only the
+      // grants the ticket carries come off: a repo may never have created
+      // one, and `gh` refuses to remove a label that does not exist.
+      try {
+        const { stdout } = await execFileAsync("gh", [
+          "issue",
+          "view",
+          ...args,
+          "--json",
+          "labels",
+          "--jq",
+          ".labels[].name",
+        ]);
+        const carried = new Set(stdout.split("\n").map((name) => name.trim()));
+        const held = GRANT_LABELS.filter((grant) => carried.has(grant));
+        if (held.length > 0) {
+          await execFileAsync("gh", ["issue", "edit", ...args, "--remove-label", held.join(",")]);
+        }
+      } catch (error) {
+        console.warn(
+          `${ticket.repo}#${ticket.number} is handed back but its grants could not be removed: ${errorMessage(error)}`,
         );
       }
       return "handed-back";

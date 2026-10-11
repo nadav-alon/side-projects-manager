@@ -505,6 +505,65 @@ describe("ghIssueTracker.handBack", () => {
     assert.deepEqual(order, [...order].sort((a, b) => a - b));
   });
 
+  /** A tracker whose ticket is open and carries `labels`. */
+  const CARRYING = (labels: string[], extra: string[] = []) =>
+    [
+      `case "$*" in`,
+      `  *"--json state"*) echo "OPEN" ;;`,
+      `  *"--json labels"*) printf '%s\\n' ${labels.map((l) => `"${l}"`).join(" ")} ;;`,
+      ...extra,
+      `  *) : ;;`,
+      `esac`,
+    ].join("\n");
+
+  it("takes the grants the ticket carries off, after relabelling it", async (t) => {
+    const gh = await recordingGh(t, CARRYING(["turboable", "live-write", "bug"]));
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const calls = await gh.calls();
+    const removed = calls.filter((call) => call.includes("--remove-label"));
+    assert.deepEqual(
+      removed.map((call) => valueOf(call, "--remove-label")),
+      [READY_FOR_AGENT_LABEL, "turboable,live-write"],
+    );
+    const added = callWith(calls, "--add-label");
+    assert.ok(added);
+    assert.ok(
+      calls.indexOf(removed[1]!) > calls.indexOf(added),
+      "grants should come off after the relabel",
+    );
+  });
+
+  it("leaves alone a grant the ticket does not carry", async (t) => {
+    const gh = await recordingGh(t, CARRYING(["live-write"]));
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const removed = (await gh.calls())
+      .filter((call) => call.includes("--remove-label"))
+      .map((call) => valueOf(call, "--remove-label"));
+    assert.deepEqual(removed, [READY_FOR_AGENT_LABEL, "live-write"]);
+  });
+
+  it("removes no grant from a ticket that carries none", async (t) => {
+    const gh = await recordingGh(t, CARRYING(["bug"]));
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const removed = (await gh.calls()).filter((call) => call.includes("--remove-label"));
+    assert.equal(removed.length, 1);
+  });
+
+  it("still counts as handed back when the grants cannot be removed", async (t) => {
+    await recordingGh(
+      t,
+      CARRYING(["turboable"], [`  *"--remove-label turboable"*) echo "label not found" >&2; exit 1 ;;`]),
+    );
+
+    assert.equal(await ghIssueTracker().handBack(TICKET, COMMENT), "handed-back");
+  });
+
   it("relabels a ticket in a project that already has the label", async (t) => {
     const gh = await recordingGh(
       t,
