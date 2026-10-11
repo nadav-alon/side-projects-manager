@@ -184,7 +184,7 @@ finish() {
 # Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=7
+TOTAL_STAGES=9
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$HOME/.side-projects-manager.env"
@@ -216,6 +216,25 @@ _crontab_upsert_var() {
   { printf '%s=%s\n' "$name" "$value"
     printf '%s\n' "$existing" | grep -vE "^${name}=" | grep -v '^$' || true
   } | crontab -
+}
+
+# _register_mod_dir SETTINGS DIR: idempotently adds DIR to the env block's
+# CLAUDE_CODE_PLUGIN_DIRS in SETTINGS, keeping every other setting and every
+# directory already listed.
+_register_mod_dir() {
+  local settings="$1" dir="$2" tmp
+  [[ -f "$settings" ]] || printf '{}\n' >"$settings"
+  tmp=$(mktemp)
+  jq --arg dir "$dir" '
+    .env.CLAUDE_CODE_PLUGIN_DIRS as $dirs
+    | .env = ((.env // {}) + {CLAUDE_CODE_PLUGIN_DIRS:
+        (if ($dirs // "") == "" then $dir
+         elif ($dirs | split(":") | index($dir)) != null then $dirs
+         else $dirs + ":" + $dir end)})
+  ' "$settings" >"$tmp" && cat "$tmp" >"$settings"
+  local status=$?
+  rm -f "$tmp"
+  return $status
 }
 
 banner "Side Projects Manager: setup"
@@ -397,7 +416,7 @@ else
   note "skipped — run 'npm run new-project -- owner/repo \"idea\"' (or --existing) when ready."
 fi
 
-# ── Stage 7: the status line ────────────────────────────────────────────────
+# ── Stage 8: the status line ────────────────────────────────────────────────
 stage "Status line"
 say "A status line for interactive sessions: the session's mode in colour, the"
 say "repo and branch, the model and spend, and whether the loop is halted or in"
@@ -410,6 +429,28 @@ if confirm "Set the status line now?"; then
   fi
 else
   SKIPPED+=("status line — run 'node scripts/install-status-line.ts' from $REPO_DIR to see the mode and the loop's state")
+fi
+
+# ── Stage 9: the session mod that draws the mode band ─────────────────────
+stage "Session mod"
+say "mods/mode-band draws a coloured band above the prompt naming the mode"
+say "a grilling, standup, triage or wayfinder session is in. It is loaded by"
+say "listing its folder in CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json,"
+say "which every interactive session reads, whatever alias starts it."
+mod_dir="$REPO_DIR/mods/mode-band"
+claude_settings="$HOME/.claude/settings.json"
+mod_hint="add $mod_dir to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block"
+if ! command -v jq >/dev/null 2>&1; then
+  SKIPPED+=("session mod — install jq and re-run, or $mod_hint")
+elif confirm "Register mods/mode-band in ~/.claude/settings.json?"; then
+  mkdir -p "$HOME/.claude"
+  if _register_mod_dir "$claude_settings" "$mod_dir"; then
+    printf '  %s✓%s settings.json: mode-band registered.\n' "$GREEN" "$RESET"
+  else
+    SKIPPED+=("session mod — ~/.claude/settings.json did not parse; $mod_hint by hand")
+  fi
+else
+  SKIPPED+=("session mod — $mod_hint")
 fi
 
 finish
