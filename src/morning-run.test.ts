@@ -1404,6 +1404,27 @@ describe("morningLoop", () => {
       await invocation;
     });
 
+    it("writes each progress event a review run reports onto its journal entry", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      await ports.store.openInvocation(SELF);
+      const first = { toolCalls: 1, lastTool: { name: "Read", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
+      const second = { toolCalls: 2, lastTool: { name: "Bash", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
+      ports.sandbox.progress = () => [first, second];
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports, { invocation: SELF });
+      await ports.sandbox.whenHeld(1);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const inFlight = await ports.store.loadJournal();
+      const [run] = inFlight.records.find((record) => record.process === SELF.process)?.runs ?? [];
+      assert.deepEqual(run?.progress, second);
+
+      ports.sandbox.release(ticket);
+      await invocation;
+    });
+
     it("records nothing when the invocation carries no journal identity", async () => {
       const ports = fakePorts();
       ports.store.register(PILOT);
@@ -2547,14 +2568,20 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.reviews, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        ports.sandbox.reviews.map(({ onProgress, ...request }) => {
+          assert.equal(typeof onProgress, "function");
+          return request;
+        }),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
     });
 
     it("closes the review ticket once it finished", async () => {
@@ -3863,17 +3890,23 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.uxReviews, [
-        {
-          // The raw ticket `addUxReviewTicket` stored, before `uxReview` is
-          // folded in from its label the way `listOpenIssues` reads it back.
-          ticket: { ...ticket, uxReview: true },
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-          model: modelName("fable"),
-        },
-      ]);
+      assert.deepEqual(
+        ports.sandbox.uxReviews.map(({ onProgress, ...request }) => {
+          assert.equal(typeof onProgress, "function");
+          return request;
+        }),
+        [
+          {
+            // The raw ticket `addUxReviewTicket` stored, before `uxReview` is
+            // folded in from its label the way `listOpenIssues` reads it back.
+            ticket: { ...ticket, uxReview: true },
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+            model: modelName("fable"),
+          },
+        ],
+      );
     });
 
     it("works a spec review, then a ux review, then an implementation, however they were filed", async () => {
@@ -4027,17 +4060,23 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.specReviews, [
-        {
-          // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
-          // stored, before `specReview` is folded in from its label — the way
-          // `listOpenIssues` reads it back for selection.
-          ticket: { ...ticket, specReview: true },
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        ports.sandbox.specReviews.map(({ onProgress, ...request }) => {
+          assert.equal(typeof onProgress, "function");
+          return request;
+        }),
+        [
+          {
+            // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
+            // stored, before `specReview` is folded in from its label — the way
+            // `listOpenIssues` reads it back for selection.
+            ticket: { ...ticket, specReview: true },
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
     });
 
     it("hands the ticket back with its own findings as the comment, once it finishes", async () => {
@@ -4390,14 +4429,20 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.applyReviews, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        ports.sandbox.applyReviews.map(({ onProgress, ...request }) => {
+          assert.equal(typeof onProgress, "function");
+          return request;
+        }),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
       assert.equal(ports.sandbox.runs.length, 0);
       assert.equal(ports.sandbox.reviews.length, 0);
     });
@@ -5615,14 +5660,20 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.rebases, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        ports.sandbox.rebases.map(({ onProgress, ...request }) => {
+          assert.equal(typeof onProgress, "function");
+          return request;
+        }),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
       assert.equal(ports.sandbox.runs.length, 0);
       assert.equal(ports.sandbox.reviews.length, 0);
       assert.equal(ports.sandbox.applyReviews.length, 0);
