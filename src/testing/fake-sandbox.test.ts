@@ -252,7 +252,7 @@ describe("FakeSandbox", () => {
     },
     {
       kind: "gave-up",
-      output: "Branch moved: 0123456789abcdef0123456789abcdef01234567",
+      output: "Push rejected: the branch moved under me.",
       reason: "the branch moved",
       tokensUsed: tokenCount(30),
       movedHead: commitSha("0123456789abcdef0123456789abcdef01234567"),
@@ -316,7 +316,7 @@ describe("FakeSandbox", () => {
     },
     {
       kind: "gave-up",
-      output: "Branch moved: 0123456789abcdef0123456789abcdef01234567",
+      output: "Push rejected: the branch moved under me.",
       reason: "the branch moved",
       tokensUsed: tokenCount(30),
       movedHead: commitSha("0123456789abcdef0123456789abcdef01234567"),

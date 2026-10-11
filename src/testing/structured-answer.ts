@@ -9,6 +9,7 @@ export interface StructuredAnswerFixture {
   nits?: string;
   gaveUp?: boolean;
   reason?: string;
+  branchMoved?: string;
 }
 
 /**

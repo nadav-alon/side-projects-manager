@@ -30,6 +30,7 @@ import {
   pruneOldDiscoveries,
   pruneOldTranscripts,
   RUN_ANSWER_SCHEMA,
+  branchMovedFrom,
   SALVAGE_COMMIT_MESSAGE,
   STALL_POLL_INTERVAL,
   STALL_TIMEOUT,
@@ -2453,6 +2454,24 @@ describe("transcript", () => {
     assert.equal(started, false);
   });
 
+  it("asks an apply-review run and a rebase run to name a moved branch head in the branchMoved field", async () => {
+    const { directory } = await hostedProject();
+    const asked: string[] = [];
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked.push(prompt);
+      return { output: "", tokensUsed: tokenCount(0) };
+    }, headIsBranch);
+
+    await applyReviewOn(sandbox, directory);
+    await rebaseOn(sandbox, directory);
+
+    assert.equal(asked.length, 2);
+    for (const prompt of asked) {
+      assert.match(prompt, /set `branchMoved` in your\s+structured answer/);
+    }
+    assert.ok("branchMoved" in RUN_ANSWER_SCHEMA.properties);
+  });
+
   it("reports the transcript an apply-review run's container wrote", async () => {
     const { directory } = await hostedProject();
     let written = "";
@@ -3558,6 +3577,15 @@ async function withInsteadOf(
 
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
+/** The `branchMoved` an agent run carries for `said`, which must not be blank. */
+function branchMovedSaying(said: string): Pick<AgentRun, "branchMoved"> {
+  const branchMoved = branchMovedFrom(said);
+  if (branchMoved === undefined) {
+    throw new Error("branchMovedSaying needs a non-blank answer");
+  }
+  return { branchMoved };
+}
+
 /** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
 function applyReviewOn(sandbox: Sandbox, directory: Checkout, image: ImageTag = TEST_IMAGE) {
   return sandbox.applyReview({
@@ -3969,12 +3997,10 @@ describe("containerSandbox.applyReview", () => {
 
   it("reports a push rejected because the branch moved as gave-up, carrying the moved head", async () => {
     const { directory } = await hostedProject();
-    const report = [
-      "Push rejected: the branch moved under me.",
-      `Branch moved: ${MOVED_HEAD}`,
-    ].join("\n");
+    const report = "Push rejected: the branch moved under me.";
     const sandbox = testSandbox(async () => ({
       output: report,
+      ...branchMovedSaying(MOVED_HEAD),
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
@@ -3988,22 +4014,11 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(result.tokensUsed, tokenCount(500));
   });
 
-  it("reads a moved head the agent followed with more words on the same line", async () => {
-    const { directory } = await hostedProject();
-    const sandbox = testSandbox(async () => ({
-      output: `Branch moved: ${MOVED_HEAD} (was def5678)`,
-      tokensUsed: tokenCount(0),
-    }), headIsBranch);
-
-    const result = await applyReviewOn(sandbox, directory);
-
-    assert.equal(variant(result, "gave-up")?.movedHead, commitSha(MOVED_HEAD));
-  });
-
   it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
-      output: "Branch moved: abc1234",
+      output: "Push rejected.",
+      ...branchMovedSaying("abc1234"),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4028,16 +4043,18 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(at, headCommit);
   });
 
-  it("reads no moved head from a line that names no commit", async () => {
+  it("gives up without a moved head when the branchMoved field wraps the hash in other text", async () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
-      output: "Branch moved: somewhere",
+      output: "Push rejected.",
+      ...branchMovedSaying(`\`${MOVED_HEAD}\` (a note)`),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
     const result = await applyReviewOn(sandbox, directory);
 
-    assert.equal(result.kind, "finished");
+    assert.equal(result.kind, "gave-up");
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
   });
 
   it("reports a limit refusal as a review run does", async () => {
@@ -4254,15 +4271,12 @@ describe("containerSandbox.applyReview", () => {
 
     it("never reverts a push the repo host rejected for a moved branch, since forcing it back would erase whatever actually landed there instead", async () => {
       const { directory, hosted } = await hostedProject();
-      const report = [
-        "Push rejected: the branch moved under me.",
-        `Branch moved: ${MOVED_HEAD}`,
-      ].join("\n");
+      const report = "Push rejected: the branch moved under me.";
       let pushed = "";
       const sandbox = testSandbox(async (request) => {
         await touchesUniformFile(request);
         pushed = await headOf(request.directory);
-        return { output: report, tokensUsed: tokenCount(0) };
+        return { output: report, ...branchMovedSaying(MOVED_HEAD), tokensUsed: tokenCount(0) };
       }, headIsBranch);
 
       const result = await applyReviewOn(sandbox, directory);
@@ -4558,12 +4572,10 @@ describe("containerSandbox.rebase", () => {
 
   it("reports a push rejected because the branch moved as gave-up, carrying the moved head", async () => {
     const { directory } = await hostedProject();
-    const report = [
-      "Push rejected: the branch moved under me.",
-      `Branch moved: ${MOVED_HEAD}`,
-    ].join("\n");
+    const report = "Push rejected: the branch moved under me.";
     const sandbox = testSandbox(async () => ({
       output: report,
+      ...branchMovedSaying(MOVED_HEAD),
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
@@ -4580,7 +4592,8 @@ describe("containerSandbox.rebase", () => {
   it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
-      output: "Branch moved: abc1234",
+      output: "Push rejected.",
+      ...branchMovedSaying("abc1234"),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4745,15 +4758,12 @@ describe("containerSandbox.rebase", () => {
 
     it("never reverts a push the repo host rejected for a moved branch, since forcing it back would erase whatever actually landed there instead", async () => {
       const { directory, hosted } = await hostedProject();
-      const report = [
-        "Push rejected: the branch moved under me.",
-        `Branch moved: ${MOVED_HEAD}`,
-      ].join("\n");
+      const report = "Push rejected: the branch moved under me.";
       let pushed = "";
       const sandbox = testSandbox(async (request) => {
         await touchesUniformFile(request);
         pushed = await headOf(request.directory);
-        return { output: report, tokensUsed: tokenCount(0) };
+        return { output: report, ...branchMovedSaying(MOVED_HEAD), tokensUsed: tokenCount(0) };
       }, headIsBranch);
 
       const result = await rebaseOn(sandbox, directory);
@@ -6307,6 +6317,25 @@ fi`;
       assert.equal(finished?.gist, undefined);
       assert.match(finished?.output ?? "", /^Implemented the thing\.\nTICKET GIST: Add retries\./);
       assert.match(finished?.output ?? "", /answered without structured output/);
+    });
+
+    it("carries the moved head an apply-review run reports in its structured_output, wherever the prose puts it", async (t) => {
+      withCredential(t);
+      const { directory } = await hostedProject();
+      await recordingDocker(
+        t,
+        dockerAnswering(
+          structuredStdout(`Push rejected, branch is now at \`${MOVED_HEAD}\`, sorry.`, {
+            gaveUp: true,
+            reason: "push rejected",
+            branchMoved: MOVED_HEAD,
+          }),
+        ),
+      );
+
+      const result = await applyReviewOn(testSandbox(undefined, headIsBranch), directory);
+
+      assert.equal(variant(result, "gave-up")?.movedHead, commitSha(MOVED_HEAD));
     });
 
     it("reads a limit refusal out of the CLI's JSON envelope", async (t) => {
