@@ -6,7 +6,6 @@ import type {
   ApplyReviewTicket,
   Checkout,
   ModelName,
-  OnRunProgress,
   OnRunStarted,
   RebaseOutcome,
   RebaseRequest,
@@ -76,7 +75,8 @@ export class FakeSandbox implements Sandbox {
   });
 
   /**
-   * The progress a run reports to its request's `onProgress`, in order, once
+   * The progress a run of any kind (implementation, review, spec review, ux
+   * review, apply-review, rebase) reports to its request's `onProgress`, in order, once
    * it is in progress and before any hold — so a caller sees it while the run
    * is still going. None unless set.
    */
@@ -298,7 +298,7 @@ export class FakeSandbox implements Sandbox {
   }
 
   /** Hands `request.onProgress`, when it has one, each progress `this.progress` gives for its ticket. */
-  #reportProgress(request: { ticket: Ticket; onProgress?: OnRunProgress | undefined }): void {
+  #reportProgress(request: Pick<RunRequest, "onProgress"> & { ticket: Ticket }): void {
     for (const progress of this.progress(request.ticket)) {
       try {
         request.onProgress?.(progress);

@@ -377,6 +377,23 @@ async function writeDiscovery(
  * five embed the one constant, so tightening its wording should mean
  * editing one assertion, not five.
  */
+/** Stream output where the agent calls `tool` once, then finishes. */
+function streamedTool(tool: string): string {
+  return [
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: tool }] } }),
+    structuredStdout("Done."),
+  ].join("\n");
+}
+
+/** Assert `reported` is what a run of `streamedTool(tool)` reports. */
+function assertReportedTool(reported: RunProgress[], tool: string): void {
+  assert.deepEqual(
+    reported.map((progress) => progress.toolCalls),
+    [1, 1],
+  );
+  assert.equal(reported.at(-1)?.lastTool?.name, tool);
+}
+
 function assertDiscoveryInstructions(asked: string): void {
   assert.match(asked, /correction/);
   assert.match(asked, /prerequisite/);
@@ -5809,13 +5826,7 @@ fi`;
         sandbox.uxReview({ image: TEST_IMAGE, ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING, onProgress })],
     ] as const) {
       it(`reports a streamed ${name}'s progress to the request's callback`, async (t) => {
-        const stdout = [
-          JSON.stringify({
-            type: "assistant",
-            message: { content: [{ type: "tool_use", name: "Read" }] },
-          }),
-          JSON.stringify({ type: "result", result: "Done." }),
-        ].join("\n");
+        const stdout = streamedTool("Read");
         const reported: RunProgress[] = [];
         const { result } = await runWithDocker(t, dockerAnswering(stdout), (sandbox, directory) =>
           ask(sandbox, directory, (progress) => reported.push(progress)),
@@ -5823,11 +5834,7 @@ fi`;
         );
 
         assert.equal(variant(result, "finished")?.output, "Done.");
-        assert.deepEqual(
-          reported.map((progress) => progress.toolCalls),
-          [1, 1],
-        );
-        assert.equal(reported.at(-1)?.lastTool?.name, "Read");
+        assertReportedTool(reported, "Read");
       });
     }
 
@@ -5838,13 +5845,7 @@ fi`;
         sandbox.rebase({ image: TEST_IMAGE, ticket: REBASE_TICKET, checkout, spendCeiling: CEILING, onProgress })],
     ] as const) {
       it(`reports a streamed ${name}'s progress to the request's callback`, async (t) => {
-        const stdout = [
-          JSON.stringify({
-            type: "assistant",
-            message: { content: [{ type: "tool_use", name: "Bash" }] },
-          }),
-          JSON.stringify({ type: "result", result: "Done." }),
-        ].join("\n");
+        const stdout = streamedTool("Bash");
         withCredential(t);
         const { directory } = await hostedProject();
         await recordingDocker(t, dockerAnswering(stdout));
@@ -5855,11 +5856,7 @@ fi`;
         );
 
         assert.equal(variant(result, "finished")?.output, "Done.");
-        assert.deepEqual(
-          reported.map((progress) => progress.toolCalls),
-          [1, 1],
-        );
-        assert.equal(reported.at(-1)?.lastTool?.name, "Bash");
+        assertReportedTool(reported, "Bash");
       });
     }
 
