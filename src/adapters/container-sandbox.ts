@@ -325,6 +325,13 @@ export interface AgentRun {
    */
   nits?: Nits;
   /**
+   * The head an apply-review or rebase agent says the pull request's branch
+   * has on the repo host now, off the envelope's `structured_output` — see
+   * `structuredAnswerFrom`. Absent unless the agent reported its push
+   * rejected because the branch moved. Not yet checked to be a commit.
+   */
+  branchMoved?: string;
+  /**
    * Set only by `attempt`, when the container itself threw once the agent had
    * already started, rather than the agent's own exit setting `failure` the
    * normal way. `attempt` is the only place that can tell the two apart —
@@ -2122,17 +2129,6 @@ async function rebaseOnClone(
   );
 }
 
-/**
- * The line an apply-review or rebase agent ends its report with when the repo
- * host rejected its push because the branch moved, naming the head it moved
- * to — as `applyReviewPromptFor` and `rebasePromptFor` ask for it. Anchored to
- * the start of a line (`m`), and matched only with a commit hash after it, so
- * prose that merely mentions a moved branch is not read as one; whatever the
- * agent adds after the hash is ignored, since a rejected push must not read
- * as finished over a stray word. The only place the line's shape is known.
- */
-const BRANCH_MOVED = /^Branch moved: `?([0-9a-f]+)\b/m;
-
 /** A full commit hash, SHA-1 or SHA-256, rather than an abbreviation of one. */
 const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
@@ -2152,7 +2148,7 @@ function pushOutcomeOf(
   model: ModelName | undefined,
 ): { outcome: ApplyReviewOutcome; moved: boolean } {
   const ending = endingOf(agent, model);
-  const movedTo = BRANCH_MOVED.exec(agent.output)?.[1];
+  const movedTo = agent.branchMoved;
   if (
     (ending.kind === "finished" || ending.kind === "gave-up") &&
     movedTo !== undefined &&
@@ -2378,8 +2374,8 @@ function pullRequestHeadFrom(
  * leaving it to the skill.
  *
  * The run is unattended, as a review's is, so a pass that stops to ask has
- * answered nothing. A rejected push is asked for as one fixed line naming the
- * moved head (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
+ * answered nothing. A rejected push is asked for as the `branchMoved` field
+ * naming the moved head, which is how the sandbox tells a run the repo host
  * refused from one that finished.
  */
 function applyReviewPromptFor(
@@ -2396,8 +2392,8 @@ function applyReviewPromptFor(
     "work every thread, push and reply without asking for confirmation.",
     "Push after each commit rather than once at the end — a run stopped part way through should",
     "still leave its finished commits on the pull request.",
-    "If the push is rejected because the branch moved, stop, and end your report with the line",
-    "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
+    "If the push is rejected because the branch moved, stop, and set `branchMoved` in your",
+    "structured answer to the full commit hash the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
     discoveryInstructionsFor(discovered),
@@ -2413,8 +2409,8 @@ function applyReviewPromptFor(
  *
  * Shaped exactly like `applyReviewPromptFor`, and for the same reason: the
  * run is unattended, so a pass that stops to ask has answered nothing, and a
- * rejected push is asked for as the same fixed line naming the moved head
- * (`BRANCH_MOVED`), which is how the sandbox tells a run the repo host
+ * rejected push is asked for as the same `branchMoved` field naming the moved
+ * head, which is how the sandbox tells a run the repo host
  * refused from one that finished.
  *
  * Unlike `applyReviewPromptFor`, this does not ask for a push after each
@@ -2436,8 +2432,8 @@ function rebasePromptFor(
     "wherever gh needs one.",
     "This run is unattended: nobody is reading along, and nothing you ask will be answered, so",
     "resolve the rebase and force-push without asking for confirmation.",
-    "If the push is rejected because the branch moved, stop, and end your report with the line",
-    "`Branch moved: <full commit hash>`, naming the head the branch has on GitHub now",
+    "If the push is rejected because the branch moved, stop, and set `branchMoved` in your",
+    "structured answer to the full commit hash the branch has on GitHub now",
     `(\`gh pr view ${url} --json headRefOid\`).`,
     "",
     discoveryInstructionsFor(discovered),
@@ -3324,6 +3320,11 @@ export const RUN_ANSWER_SCHEMA = {
       type: "string",
       description: "Why the run stopped short. Required when gaveUp is true.",
     },
+    branchMoved: {
+      type: "string",
+      description:
+        "Only when the push was rejected because the pull request's branch moved: the full commit hash the branch has on GitHub now.",
+    },
   },
   required: ["gaveUp"],
 } as const;
@@ -3332,6 +3333,7 @@ export const RUN_ANSWER_SCHEMA = {
 interface StructuredAnswer {
   gist?: TicketGist;
   nits?: Nits;
+  branchMoved?: string;
   /** Why the agent says it gave up, absent when it did not. */
   gaveUpReason?: string;
 }
@@ -3347,10 +3349,13 @@ function structuredAnswerFrom(envelope: object): StructuredAnswer | undefined {
   if (typeof structured !== "object" || structured === null) {
     return undefined;
   }
-  const { gist, nits, gaveUp, reason } = structured as Record<string, unknown>;
+  const { gist, nits, gaveUp, reason, branchMoved } = structured as Record<string, unknown>;
   return {
     ...(typeof gist === "string" && isTicketGist(gist) && { gist }),
     ...(typeof nits === "string" && isNits(nits) && { nits }),
+    ...(typeof branchMoved === "string" && branchMoved.trim() !== "" && {
+      branchMoved: branchMoved.trim(),
+    }),
     ...(gaveUp === true && {
       gaveUpReason:
         typeof reason === "string" && reason.trim() !== ""
@@ -3424,6 +3429,7 @@ function readAgentRun(stdout: string, stderr = "", rules: readonly string[] = []
     ...(answer?.gaveUpReason !== undefined && { failure: answer.gaveUpReason }),
     ...(answer?.gist !== undefined && { gist: answer.gist }),
     ...(answer?.nits !== undefined && { nits: answer.nits }),
+    ...(answer?.branchMoved !== undefined && { branchMoved: answer.branchMoved }),
   };
 }
 
