@@ -19,6 +19,7 @@ import type {
   RunSpan,
   SubIssue,
   Ticket,
+  GrantLabel,
   TurboableConsent,
 } from "../ports/index.ts";
 import {
@@ -43,7 +44,7 @@ import {
   sizeLabelOf,
   specReviewTitle,
   ticketReference,
-  turboableConsentAt,
+  grantConsentAt,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../summary.ts";
 
@@ -550,9 +551,19 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     action: LabelAction,
     at: Date,
   ): void {
+    this.recordLabelEvent(ticket, TURBOABLE_LABEL, action, at);
+  }
+
+  /** As `recordTurboableEvent`, for any `GrantLabel`. */
+  recordLabelEvent(
+    ticket: Ticket,
+    label: GrantLabel,
+    action: LabelAction,
+    at: Date,
+  ): void {
     const key = ticketReference(ticket);
     const events = this.#turboableEvents.get(key) ?? [];
-    events.push({ label: TURBOABLE_LABEL, action, at });
+    events.push({ label, action, at });
     this.#turboableEvents.set(key, events);
   }
 
@@ -563,7 +574,19 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     spans: readonly RunSpan[],
     grants: readonly GrantRecord[],
   ): Promise<TurboableConsent> {
-    return turboableConsentAt(
+    return this.wasGrantedAt(TURBOABLE_LABEL, ticket, instant, spans, grants);
+  }
+
+  /** Replays the events `recordLabelEvent` was given for `ticket`. */
+  async wasGrantedAt(
+    label: GrantLabel,
+    ticket: Ticket,
+    instant: Date,
+    spans: readonly RunSpan[],
+    grants: readonly GrantRecord[],
+  ): Promise<TurboableConsent> {
+    return grantConsentAt(
+      label,
       ticket,
       this.#turboableEvents.get(ticketReference(ticket)) ?? [],
       instant,
@@ -692,6 +715,11 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
   /** Puts `TURBOABLE_LABEL` on `ticket`, as the real tracker does once it has made sure the label exists. */
   async labelTurboable(ticket: IssueReference): Promise<void> {
     this.addLabel(ticket, TURBOABLE_LABEL);
+  }
+
+  /** Puts `label` on `ticket`, as `labelTurboable` does for `TURBOABLE_LABEL`. */
+  async labelGranted(ticket: IssueReference, label: GrantLabel): Promise<void> {
+    this.addLabel(ticket, label);
   }
 
   /**

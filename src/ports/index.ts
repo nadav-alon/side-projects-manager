@@ -60,6 +60,7 @@ export {
   SUPERTASK_LABEL,
   TICKET_KINDS,
   TURBOABLE_LABEL,
+  LIVE_WRITE_LABEL,
   backlogIn,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
@@ -90,6 +91,7 @@ export {
   ticketKind,
   ticketPrioritiesIn,
   ticketReference,
+  grantConsentAt,
   turboableConsentAt,
 } from "./issue-tracker.ts";
 export type {
@@ -300,6 +302,7 @@ export type { Usd } from "./usd.ts";
 export {
   GRANT_MATCH_WINDOW,
   clearSalvage,
+  grantLabelOf,
   grantMatches,
   hasAnnouncedOn,
   recordInfrastructureFailureSalvage,
@@ -320,6 +323,7 @@ export {
   workedTicket,
 } from "./store.ts";
 export type {
+  GrantLabel,
   GrantRecord,
   ProjectState,
   RegisteredProject,

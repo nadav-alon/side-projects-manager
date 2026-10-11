@@ -36,6 +36,8 @@ import {
   SPEC_REVIEW_LABEL,
   SPEC_REVIEW_SIZE_LABEL,
   TURBOABLE_LABEL,
+  LIVE_WRITE_LABEL,
+  type GrantLabel,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -53,7 +55,7 @@ import {
   sameRepo,
   sizeLabelOf,
   specReviewTitle,
-  turboableConsentAt,
+  grantConsentAt,
 } from "../ports/index.ts";
 import type { SummaryTracker } from "../summary.ts";
 import { errorMessage } from "../error-message.ts";
@@ -340,6 +342,16 @@ export function ghIssueTracker(
       spans: readonly RunSpan[],
       grants: readonly GrantRecord[],
     ): Promise<TurboableConsent> {
+      return this.wasGrantedAt(TURBOABLE_LABEL, ticket, instant, spans, grants);
+    },
+
+    async wasGrantedAt(
+      label: GrantLabel,
+      ticket: Ticket,
+      instant: Date,
+      spans: readonly RunSpan[],
+      grants: readonly GrantRecord[],
+    ): Promise<TurboableConsent> {
       // `--paginate`, so an issue with a longer timeline than fits one page
       // is read whole — the same reason `listSubIssues` paginates. Filtered
       // to the two event kinds a label's history is made of, so a comment or
@@ -353,7 +365,7 @@ export function ghIssueTracker(
         '.[] | select(.event == "labeled" or .event == "unlabeled") | {event, label: .label.name, created_at}',
       ]);
       const events = labelTimelineEventsIn(stdout, ticket);
-      return turboableConsentAt(ticket, events, instant, spans, grants);
+      return grantConsentAt(label, ticket, events, instant, spans, grants);
     },
 
     async handBack(ticket: Ticket, comment: string): Promise<HandBackOutcome> {
@@ -417,8 +429,12 @@ export function ghIssueTracker(
     },
 
     async labelTurboable(ticket: IssueReference): Promise<void> {
-      await ensureLabel(ticket.repo, TURBOABLE_LABEL);
-      await execFileAsync("gh", ["issue", "edit", ...issueArgs(ticket), "--add-label", TURBOABLE_LABEL]);
+      await this.labelGranted(ticket, TURBOABLE_LABEL);
+    },
+
+    async labelGranted(ticket: IssueReference, label: GrantLabel): Promise<void> {
+      await ensureLabel(ticket.repo, label);
+      await execFileAsync("gh", ["issue", "edit", ...issueArgs(ticket), "--add-label", label]);
     },
 
     async createDiscoveredTicket(
@@ -551,6 +567,7 @@ const LABEL_DESCRIPTIONS = {
   [SIZE_S_LABEL]: "Smallest",
   [READY_DISCOVERY_LABEL]: "Born from a discovery its filer declared ready",
   [TURBOABLE_LABEL]: "Consents to the manager merging this ticket's pull request",
+  [LIVE_WRITE_LABEL]: "Consents to this ticket's run writing the project's mounted directories",
 } as const;
 
 /**

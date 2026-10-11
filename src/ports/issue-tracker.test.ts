@@ -10,6 +10,7 @@ import {
   SPEC_REVIEW_LABEL,
   UX_REVIEW_LABEL,
   SUPERTASK_LABEL,
+  LIVE_WRITE_LABEL,
   TURBOABLE_LABEL,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
@@ -17,6 +18,7 @@ import {
   carriesUxReviewLabel,
   carriesSupertaskLabel,
   declaredSize,
+  grantConsentAt,
   isApplyReviewTicket,
   isPullRequestTicket,
   isRebaseTicket,
@@ -816,6 +818,46 @@ describe("turboableConsentAt", () => {
     assert.deepEqual(turboableConsentAt(TICKET, events, DAY_2, []), {
       consented: false,
       reason: "not-labeled-in-time",
+    });
+  });
+});
+
+describe("grantConsentAt for live-write", () => {
+  const DAY_1 = new Date("2026-01-01T00:00:00Z");
+  const DAY_2 = new Date("2026-01-02T00:00:00Z");
+  const DAY_3 = new Date("2026-01-03T00:00:00Z");
+  const DAY_4 = new Date("2026-01-04T00:00:00Z");
+  const TICKET = { repo: PILOT, number: issueNumber(40), title: "Some ticket" };
+  const OTHER = { repo: PILOT, number: issueNumber(41) };
+  const labeled = (label: string, at: Date): LabelTimelineEvent => ({ label, action: "labeled", at });
+  const span: RunSpan = { repo: PILOT, number: OTHER.number, startedAt: DAY_1, endedAt: DAY_3 };
+
+  it("reads consent from the live-write label, never from turboable's", () => {
+    assert.deepEqual(grantConsentAt("live-write", TICKET, [labeled(LIVE_WRITE_LABEL, DAY_1)], DAY_2, []), {
+      consented: true,
+    });
+    assert.deepEqual(grantConsentAt("live-write", TICKET, [labeled(TURBOABLE_LABEL, DAY_1)], DAY_2, []), {
+      consented: false,
+      reason: "never-labeled",
+    });
+  });
+
+  it("applies the same timing: a label added after the instant is too late", () => {
+    assert.deepEqual(grantConsentAt("live-write", TICKET, [labeled(LIVE_WRITE_LABEL, DAY_3)], DAY_2, []), {
+      consented: false,
+      reason: "not-labeled-in-time",
+    });
+  });
+
+  it("rejects a grant inside a run span unless a live-write record vouches for it", () => {
+    const events = [labeled(LIVE_WRITE_LABEL, DAY_2)];
+    const turboableRecord = [{ repo: PILOT, number: TICKET.number, grantedAt: DAY_2 }];
+    const liveWriteRecord = [{ ...turboableRecord[0]!, label: "live-write" as const }];
+    const inside = { consented: false, reason: "inside-run-span" };
+    assert.deepEqual(grantConsentAt("live-write", TICKET, events, DAY_4, [span]), inside);
+    assert.deepEqual(grantConsentAt("live-write", TICKET, events, DAY_4, [span], turboableRecord), inside);
+    assert.deepEqual(grantConsentAt("live-write", TICKET, events, DAY_4, [span], liveWriteRecord), {
+      consented: true,
     });
   });
 });

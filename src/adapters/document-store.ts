@@ -775,7 +775,7 @@ function parseState(document: unknown, file: string): State {
   };
 }
 
-/** `[{ "repo": "owner/repo", "number": 7, "grantedAt": "…" }]` */
+/** `[{ "repo": "owner/repo", "number": 7, "grantedAt": "…", "label": "live-write" }]`, `label` absent for `turboable`. */
 function parseGrants(value: unknown, where: string): GrantRecord[] {
   if (!Array.isArray(value)) {
     throw new Error(`${where} must be a list of grant records.`);
@@ -783,7 +783,16 @@ function parseGrants(value: unknown, where: string): GrantRecord[] {
   return value.map((grant, index) => {
     const at = `${where}: grant ${index + 1}`;
     const { repo, number } = parseWorkedTicket(grant, at);
-    return { repo, number, grantedAt: parseInstant(fieldOf(grant, "grantedAt", at), `${at}: "grantedAt"`) };
+    const label = fieldOf(grant, "label", at);
+    if (label !== undefined && label !== "turboable" && label !== "live-write") {
+      throw new Error(`${at}: "label" must be "turboable" or "live-write": ${JSON.stringify(label)}`);
+    }
+    return {
+      repo,
+      number,
+      grantedAt: parseInstant(fieldOf(grant, "grantedAt", at), `${at}: "grantedAt"`),
+      ...(label !== undefined && { label }),
+    };
   });
 }
 
@@ -1061,6 +1070,7 @@ function formatState(state: State): string {
     repo: grant.repo,
     number: grant.number,
     grantedAt: grant.grantedAt.toISOString(),
+    ...(grant.label !== undefined && { label: grant.label }),
   }));
 
   return `${JSON.stringify(
