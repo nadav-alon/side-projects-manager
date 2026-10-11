@@ -5845,6 +5845,7 @@ fi`;
         type: "result",
         result: "Done.",
         usage: { input_tokens: 7, output_tokens: 5 },
+        structured_output: { gaveUp: false },
       });
       const script = [
         `yes ${shQuote("x".repeat(99))} | head -c 70000000`,
