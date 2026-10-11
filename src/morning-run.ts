@@ -1872,14 +1872,14 @@ async function runReview(
   const mergeGateContext = await mergeGateContextFor(ports, ticket, invocation, turbo);
 
   const startedAt = ports.clock.now();
-  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // As `attemptRun`: two distinct calls so each resolves the `Sandbox.review`
     // overload that actually matches, rather than one call TypeScript could
     // not resolve to either.
     model === undefined
-      ? ports.sandbox.review({ ticket, checkout, spendCeiling, ...parts }, onStarted)
+      ? ports.sandbox.review({ ticket, checkout, spendCeiling, ...parts, onProgress }, onStarted)
       : ports.sandbox.review(
-          { ticket, checkout, spendCeiling, model: model.name, ...parts },
+          { ticket, checkout, spendCeiling, model: model.name, ...parts, onProgress },
           onStarted,
         ),
   );
@@ -2056,13 +2056,13 @@ async function runSpecReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<ReportedReviewEnding> {
-  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.specReview` overload that actually matches.
     model === undefined
-      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling, ...parts }, onStarted)
+      ? ports.sandbox.specReview({ ticket, checkout, spendCeiling, ...parts, onProgress }, onStarted)
       : ports.sandbox.specReview(
-          { ticket, checkout, spendCeiling, model: model.name, ...parts },
+          { ticket, checkout, spendCeiling, model: model.name, ...parts, onProgress },
           onStarted,
         ),
   );
@@ -2085,13 +2085,13 @@ async function runUxReview(
   spendCeiling: Usd,
   model: ResolvedModel | undefined,
 ): Promise<ReportedReviewEnding> {
-  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // As `attemptRun`: two distinct calls so each resolves the
     // `Sandbox.uxReview` overload that actually matches.
     model === undefined
-      ? ports.sandbox.uxReview({ ticket, checkout, spendCeiling, ...parts }, onStarted)
+      ? ports.sandbox.uxReview({ ticket, checkout, spendCeiling, ...parts, onProgress }, onStarted)
       : ports.sandbox.uxReview(
-          { ticket, checkout, spendCeiling, model: model.name, ...parts },
+          { ticket, checkout, spendCeiling, model: model.name, ...parts, onProgress },
           onStarted,
         ),
   );
@@ -2299,12 +2299,12 @@ async function runApplyReview(
     );
   }
 
-  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
       ? ports.sandbox.applyReview(
-          { ticket, checkout, spendCeiling, ...parts, ...(manager !== undefined && { manager }) },
+          { ticket, checkout, spendCeiling, ...parts, onProgress, ...(manager !== undefined && { manager }) },
           onStarted,
         )
       : ports.sandbox.applyReview(
@@ -2314,6 +2314,7 @@ async function runApplyReview(
             spendCeiling,
             model: model.name,
             ...parts,
+            onProgress,
             ...(manager !== undefined && { manager }),
           },
           onStarted,
@@ -2766,12 +2767,12 @@ async function runRebase(
     return finishRebase(ports, ticket, { kind: "rebased" });
   }
 
-  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts) =>
+  const result = await runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // As `attemptRun`: two distinct calls so each resolves the overload that
     // actually matches.
     model === undefined
       ? ports.sandbox.rebase(
-          { ticket, checkout, spendCeiling, ...parts, ...(manager !== undefined && { manager }) },
+          { ticket, checkout, spendCeiling, ...parts, onProgress, ...(manager !== undefined && { manager }) },
           onStarted,
         )
       : ports.sandbox.rebase(
@@ -2781,6 +2782,7 @@ async function runRebase(
             spendCeiling,
             model: model.name,
             ...parts,
+            onProgress,
             ...(manager !== undefined && { manager }),
           },
           onStarted,

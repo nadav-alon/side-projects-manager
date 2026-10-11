@@ -82,6 +82,16 @@ import {
 const UNSIZED_ESTIMATE = DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs];
 
 /** The finished half of an iteration outcome — undefined if it ended any other way. */
+/** The requests a sandbox received, each with its `onProgress` — which must be a function — taken off. */
+function withoutProgress<Request extends { onProgress?: unknown }>(
+  requests: readonly Request[],
+): Omit<Request, "onProgress">[] {
+  return requests.map(({ onProgress, ...request }) => {
+    assert.equal(typeof onProgress, "function");
+    return request;
+  });
+}
+
 function finished(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "finished" ? iteration : undefined;
 }
@@ -1117,10 +1127,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.runs.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.runs),
         [
           {
             ticket,
@@ -1399,6 +1406,34 @@ describe("morningLoop", () => {
       const inFlight = await ports.store.loadJournal();
       const [run] = inFlight.records.find((record) => record.process === SELF.process)?.runs ?? [];
       assert.equal(run?.pullRequest, PULL_REQUEST);
+
+      ports.sandbox.release(ticket);
+      await invocation;
+    });
+
+    it("writes each progress event a review run reports onto its journal entry", async () => {
+      const ports = fakePorts();
+      const ticket = queued(ports);
+      await ports.store.openInvocation(SELF);
+      const first = { toolCalls: 1, lastTool: { name: "Read", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
+      const second = { toolCalls: 2, lastTool: { name: "Bash", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
+      ports.sandbox.progress = () => [first, second];
+      const writes: unknown[] = [];
+      const recordRunProgress = ports.store.recordRunProgress.bind(ports.store);
+      ports.store.recordRunProgress = async (opened, repo, number, progress) => {
+        writes.push(progress);
+        await recordRunProgress(opened, repo, number, progress);
+      };
+      ports.sandbox.hold();
+
+      const invocation = morningLoop(ports, { invocation: SELF });
+      await ports.sandbox.whenHeld(1);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const inFlight = await ports.store.loadJournal();
+      assert.deepEqual(writes, [first, second]);
+      const [run] = inFlight.records.find((record) => record.process === SELF.process)?.runs ?? [];
+      assert.deepEqual(run?.progress, second);
 
       ports.sandbox.release(ticket);
       await invocation;
@@ -2547,14 +2582,17 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.reviews, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        withoutProgress(ports.sandbox.reviews),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
     });
 
     it("closes the review ticket once it finished", async () => {
@@ -3863,17 +3901,20 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.uxReviews, [
-        {
-          // The raw ticket `addUxReviewTicket` stored, before `uxReview` is
-          // folded in from its label the way `listOpenIssues` reads it back.
-          ticket: { ...ticket, uxReview: true },
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-          model: modelName("fable"),
-        },
-      ]);
+      assert.deepEqual(
+        withoutProgress(ports.sandbox.uxReviews),
+        [
+          {
+            // The raw ticket `addUxReviewTicket` stored, before `uxReview` is
+            // folded in from its label the way `listOpenIssues` reads it back.
+            ticket: { ...ticket, uxReview: true },
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+            model: modelName("fable"),
+          },
+        ],
+      );
     });
 
     it("works a spec review, then a ux review, then an implementation, however they were filed", async () => {
@@ -4027,17 +4068,20 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.specReviews, [
-        {
-          // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
-          // stored, before `specReview` is folded in from its label — the way
-          // `listOpenIssues` reads it back for selection.
-          ticket: { ...ticket, specReview: true },
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        withoutProgress(ports.sandbox.specReviews),
+        [
+          {
+            // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
+            // stored, before `specReview` is folded in from its label — the way
+            // `listOpenIssues` reads it back for selection.
+            ticket: { ...ticket, specReview: true },
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
     });
 
     it("hands the ticket back with its own findings as the comment, once it finishes", async () => {
@@ -4390,14 +4434,17 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.applyReviews, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        withoutProgress(ports.sandbox.applyReviews),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
       assert.equal(ports.sandbox.runs.length, 0);
       assert.equal(ports.sandbox.reviews.length, 0);
     });
@@ -5615,14 +5662,17 @@ describe("morningLoop", () => {
 
       await morningLoop(ports);
 
-      assert.deepEqual(ports.sandbox.rebases, [
-        {
-          ticket,
-          checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
-          spendCeiling: DEFAULT_BUDGET.spendCeiling,
-          image: FAKE_IMAGE,
-        },
-      ]);
+      assert.deepEqual(
+        withoutProgress(ports.sandbox.rebases),
+        [
+          {
+            ticket,
+            checkout: `${FakeRepoHost.MANAGED_LOCATION}/${PILOT}`,
+            spendCeiling: DEFAULT_BUDGET.spendCeiling,
+            image: FAKE_IMAGE,
+          },
+        ],
+      );
       assert.equal(ports.sandbox.runs.length, 0);
       assert.equal(ports.sandbox.reviews.length, 0);
       assert.equal(ports.sandbox.applyReviews.length, 0);

@@ -1711,7 +1711,15 @@ async function reviewOnClone(
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt, spendCeiling, credential: "review", base, ...access },
+      {
+        directory: clone,
+        prompt,
+        spendCeiling,
+        credential: "review",
+        base,
+        ...access,
+        ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
+      },
       model,
       roots,
       onStarted,
@@ -2041,6 +2049,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
     model?: ModelName;
     manager?: true;
     discovered?: readonly DiscoveredTicketSummary[];
+    onProgress?: OnRunProgress;
   },
   promptFor: (ticket: T, discovered: readonly DiscoveredTicketSummary[] | undefined) => string,
   roots: SandboxRoots,
@@ -2065,6 +2074,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         credential: "developer",
         base,
         ...options,
+        ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
       },
       model,
       roots,

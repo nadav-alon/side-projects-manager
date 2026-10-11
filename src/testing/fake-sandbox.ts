@@ -75,7 +75,8 @@ export class FakeSandbox implements Sandbox {
   });
 
   /**
-   * The progress a run reports to its request's `onProgress`, in order, once
+   * The progress a run of any kind (implementation, review, spec review, ux
+   * review, apply-review, rebase) reports to its request's `onProgress`, in order, once
    * it is in progress and before any hold — so a caller sees it while the run
    * is still going. None unless set.
    */
@@ -197,15 +198,7 @@ export class FakeSandbox implements Sandbox {
       request.ticket,
       onStarted,
       () => this.result(request.ticket),
-      () => {
-        for (const progress of this.progress(request.ticket)) {
-          try {
-            request.onProgress?.(progress);
-          } catch (error: unknown) {
-            console.warn(`The progress callback threw: ${errorMessage(error)}`);
-          }
-        }
-      },
+      () => this.#reportProgress(request),
     );
   }
 
@@ -224,6 +217,7 @@ export class FakeSandbox implements Sandbox {
     this.reviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.reviewResult(request.ticket),
+      () => this.#reportProgress(request),
     );
   }
 
@@ -242,6 +236,7 @@ export class FakeSandbox implements Sandbox {
     this.applyReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.applyReviewResult(request.ticket),
+      () => this.#reportProgress(request),
     );
   }
 
@@ -260,6 +255,7 @@ export class FakeSandbox implements Sandbox {
     this.rebases.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.rebaseResult(request.ticket),
+      () => this.#reportProgress(request),
     );
   }
 
@@ -278,6 +274,7 @@ export class FakeSandbox implements Sandbox {
     this.specReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.specReviewResult(request.ticket),
+      () => this.#reportProgress(request),
     );
   }
 
@@ -296,7 +293,19 @@ export class FakeSandbox implements Sandbox {
     this.uxReviews.push(request);
     return this.#inProgress(request.ticket, onStarted, () =>
       this.uxReviewResult(request.ticket),
+      () => this.#reportProgress(request),
     );
+  }
+
+  /** Hands `request.onProgress`, when it has one, each progress `this.progress` gives for its ticket. */
+  #reportProgress(request: Pick<RunRequest, "onProgress"> & { ticket: Ticket }): void {
+    for (const progress of this.progress(request.ticket)) {
+      try {
+        request.onProgress?.(progress);
+      } catch (error: unknown) {
+        console.warn(`The progress callback threw: ${errorMessage(error)}`);
+      }
+    }
   }
 
   /**

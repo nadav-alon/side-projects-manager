@@ -146,6 +146,8 @@ export interface ReviewRequest {
   image: ImageTag;
   /** As `RunRequest.mounts`. */
   mounts?: readonly ReadOnlyMount[];
+  /** As `RunRequest.onProgress`. */
+  onProgress?: OnRunProgress;
 }
 
 /** One apply-review ticket, and the project checkout it is to be worked against. */
@@ -172,6 +174,8 @@ export interface ApplyReviewRequest {
   image: ImageTag;
   /** As `RunRequest.mounts`. */
   mounts?: readonly ReadOnlyMount[];
+  /** As `RunRequest.onProgress`. */
+  onProgress?: OnRunProgress;
 }
 
 /**
@@ -195,6 +199,8 @@ export interface ReviewRequestFor<T extends Ticket> {
   image: ImageTag;
   /** As `RunRequest.mounts`. */
   mounts?: readonly ReadOnlyMount[];
+  /** As `RunRequest.onProgress`. */
+  onProgress?: OnRunProgress;
 }
 
 /** One spec review ticket, and the project checkout it is to be worked against. */
@@ -224,6 +230,8 @@ export interface RebaseRequest {
   image: ImageTag;
   /** As `RunRequest.mounts`. */
   mounts?: readonly ReadOnlyMount[];
+  /** As `RunRequest.onProgress`. */
+  onProgress?: OnRunProgress;
 }
 
 /**
