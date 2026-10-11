@@ -3,8 +3,18 @@ import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
-import { type GrantRecord, type RunSpan, grantMatches, runSpanCovers } from "./store.ts";
+import {
+  type GrantLabel,
+  type GrantRecord,
+  LIVE_WRITE_LABEL,
+  type RunSpan,
+  TURBOABLE_LABEL,
+  grantMatches,
+  runSpanCovers,
+} from "./store.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
+
+export { LIVE_WRITE_LABEL, TURBOABLE_LABEL };
 
 /**
  * Whether `labels` include `name`, matched without regard to case, as GitHub
@@ -397,16 +407,6 @@ export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
   return carriesLabel(labels, SUPERTASK_LABEL);
 }
 
-/**
- * The label that records a human's per-ticket consent for the merge gate to
- * merge that ticket's pull request without asking again. Applied and
- * removed by a human on the tracker's own UI — never by the manager, which
- * opens every ticket it opens (a discovery, a review, an apply-review, a
- * rebase, a spec review, a pull request) without it, whatever was asked.
- * The one place the literal lives; every adapter reads it from here.
- */
-export const TURBOABLE_LABEL = "turboable";
-
 /** Whether a label timeline event added or removed the label. */
 export type LabelAction = "labeled" | "unlabeled";
 
@@ -466,7 +466,7 @@ export function labelWasPresentAt(
 }
 
 /**
- * Whether `turboableConsentAt` found consent, and, when it did not, why:
+ * Whether `grantConsentAt` found consent, and, when it did not, why:
  * `"never-labeled"` when `turboable` never had a `labeled` event in the
  * ticket's timeline at all — nobody ever granted it — told apart from
  * `"not-labeled-in-time"`, where a `labeled` event exists but the one at or
@@ -476,7 +476,7 @@ export function labelWasPresentAt(
  * reads `"never-labeled"` as no grant to report at all, and the other two as
  * a grant it declined, worth naming.
  */
-export type TurboableConsent =
+export type GrantConsent =
   | { readonly consented: true }
   | {
       readonly consented: false;
@@ -484,7 +484,7 @@ export type TurboableConsent =
     };
 
 /**
- * The `TurboableConsent` `ticket` had at `instant`, replaying `events` —
+ * The `GrantConsent` `ticket` had at `instant`, replaying `events` —
  * its full label timeline — and checking the granting event against
  * `spans`, every run span recorded for any ticket. Per `CONTEXT.md`'s
  * "Turboable", the timeline check alone (`labelWasPresentAt`) and stripping
@@ -518,18 +518,35 @@ export function turboableConsentAt(
   instant: Date,
   spans: readonly RunSpan[],
   grants: readonly GrantRecord[] = [],
-): TurboableConsent {
-  const grant = mostRecentLabelEvent(events, TURBOABLE_LABEL, instant);
+): GrantConsent {
+  return grantConsentAt(TURBOABLE_LABEL, ticket, events, instant, spans, grants);
+}
+
+/**
+ * The `GrantConsent` rule for any `GrantLabel`: `turboableConsentAt`
+ * is this for `turboable`, and `live-write` is read with exactly the same
+ * timing, run-span and grant-record rules. A grant record only vouches for
+ * the label it names.
+ */
+export function grantConsentAt(
+  label: GrantLabel,
+  ticket: Ticket,
+  events: readonly LabelTimelineEvent[],
+  instant: Date,
+  spans: readonly RunSpan[],
+  grants: readonly GrantRecord[] = [],
+): GrantConsent {
+  const grant = mostRecentLabelEvent(events, label, instant);
   if (grant?.action !== "labeled") {
     const everLabeled = events.some(
-      (event) => event.label.toLowerCase() === TURBOABLE_LABEL.toLowerCase() && event.action === "labeled",
+      (event) => event.label.toLowerCase() === label.toLowerCase() && event.action === "labeled",
     );
     return { consented: false, reason: everLabeled ? "not-labeled-in-time" : "never-labeled" };
   }
   const insideSpan = spans.some(
     (span) => span.repo === ticket.repo && runSpanCovers(span, grant.at),
   );
-  return insideSpan && !grantMatches(grants, ticket, grant.at)
+  return insideSpan && !grantMatches(grants, ticket, grant.at, label)
     ? { consented: false, reason: "inside-run-span" }
     : { consented: true };
 }
@@ -964,7 +981,7 @@ export interface IssueTracker {
    * and only a read of history, rather than the present, can tell any of
    * those from a human's grant. `grants` is the state's grant records, which
    * let a grant inside a run span count — see {@link turboableConsentAt}.
-   * Answers with a {@link TurboableConsent} so
+   * Answers with a {@link GrantConsent} so
    * the caller's own "not turboable" reason can name which check said no.
    */
   wasTurboableAt(
@@ -972,7 +989,18 @@ export interface IssueTracker {
     instant: Date,
     spans: readonly RunSpan[],
     grants: readonly GrantRecord[],
-  ): Promise<TurboableConsent>;
+  ): Promise<GrantConsent>;
+  /**
+   * Whether `ticket` had `label`'s consent at `instant`: `wasTurboableAt`
+   * for any `GrantLabel`, by the same rule (see {@link grantConsentAt}).
+   */
+  wasGrantedAt(
+    label: GrantLabel,
+    ticket: Ticket,
+    instant: Date,
+    spans: readonly RunSpan[],
+    grants: readonly GrantRecord[],
+  ): Promise<GrantConsent>;
   /**
    * Opens a spec review ticket against `ticket`, a supertask — a sub-issue
    * carrying `body` — and answers with it.
@@ -1065,6 +1093,12 @@ export interface IssueTracker {
    * does not exist. The label half of the developer's own grant (ADR 0012).
    */
   labelTurboable(ticket: IssueReference): Promise<void>;
+
+  /**
+   * Adds `label` to `ticket` as `labelTurboable` does `TURBOABLE_LABEL`:
+   * the label half of the developer's grant of any `GrantLabel`.
+   */
+  labelGranted(ticket: IssueReference, label: GrantLabel): Promise<void>;
 
   /**
    * Opens an issue in the same repo as `ticket` — a ticket discovered while

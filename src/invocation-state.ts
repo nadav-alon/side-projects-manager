@@ -23,6 +23,7 @@ import {
   recordWorked,
   runSpanFor,
   runSpanInProgress,
+  grantLabelOf,
   sameGrant,
   sameInvocation,
   ticketKey,
@@ -211,12 +212,13 @@ export interface InvocationState {
   grants(): Promise<readonly GrantRecord[]>;
 
   /**
-   * Uses up `ticket`'s grant record, as the merge gate does once it fires,
+   * Uses up `ticket`'s grant record of the label it names (`turboable` where
+   * none), as the merge gate does once it fires,
    * and saves. Not an error when none stands. Every later save re-reads the
    * document's records and folds in only those this invocation has not used
    * up, so a record the `grant` command wrote since the load survives.
    */
-  consumeGrant(ticket: WorkedTicket): Promise<void>;
+  consumeGrant(ticket: WorkedTicket & Pick<GrantRecord, "label">): Promise<void>;
 
   /**
    * Every ticket freed on construction because a dead in-flight invocation
@@ -394,7 +396,7 @@ export function invocationState(
     grants: standingGrants,
     consumeGrant: async (ticket) => {
       const standing = (await standingGrants()).filter(
-        (grant) => ticketKey(grant) === ticketKey(ticket),
+        (grant) => ticketKey(grant) === ticketKey(ticket) && grantLabelOf(grant) === grantLabelOf(ticket),
       );
       if (standing.length === 0) {
         return;

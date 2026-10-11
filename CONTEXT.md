@@ -765,6 +765,22 @@ not find, or that carried no run span reads as ordinary, silent, ready for revie
 project that isn't turbo, since there is no grant to report. See ADR 0009.
 _Avoid_: auto-merge, merge flag, greenlight
 
+**Live-write**:
+Per-ticket consent, the `live-write` label set by a human on an implementation ticket, starting its
+run with the project's registry `mounts` bound read-write instead of read-only. Granted with
+`npm run grant -- owner/repo#n live-write`, and read through the same gate as **Turboable**: the
+`labeled` event must come before the run starts and fall inside no run span in the repo, unless a
+**grant record** for `live-write` — a record vouches only for the label it names — lies within 2
+minutes of it. Whole mounts only: every mount of the project is writable, or none is. A consent, not
+a default: nothing in `registry.json` makes a mount writable, so its schema is unchanged, and every
+run without the grant — including a review, apply-review or rebase of the same ticket — keeps its
+mounts read-only. The run's prompt names the writable mounts. The manager never applies it. A grant
+whose timeline cannot be read is no grant. Its **grant record** is deliberately not used up when the
+run reads it, unlike **Turboable**'s, which a merge gate fires on once: the consent is to the ticket's
+runs, so a retry, a resume or a re-queue after hand-back keeps its mounts writable; the record goes
+when the sweep finds the ticket closed.
+_Avoid_: write mount, rw mount, writable registry
+
 ### Budget
 
 **Budget gate**:

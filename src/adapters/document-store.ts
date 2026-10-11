@@ -49,6 +49,7 @@ import type {
 import {
   PULL_REQUEST_KIND_KEYS,
   DEFAULT_BUDGET,
+  GRANT_LABELS,
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
   KEPT_SUMMARY_LIMIT,
@@ -63,6 +64,7 @@ import {
   isBranch,
   isDay,
   isExitCode,
+  isGrantLabel,
   isInvocationOutcome,
   isIssueNumber,
   isIssueUrl,
@@ -775,7 +777,7 @@ function parseState(document: unknown, file: string): State {
   };
 }
 
-/** `[{ "repo": "owner/repo", "number": 7, "grantedAt": "…" }]` */
+/** `[{ "repo": "owner/repo", "number": 7, "grantedAt": "…", "label": "live-write" }]`, `label` absent for `turboable`. */
 function parseGrants(value: unknown, where: string): GrantRecord[] {
   if (!Array.isArray(value)) {
     throw new Error(`${where} must be a list of grant records.`);
@@ -783,7 +785,16 @@ function parseGrants(value: unknown, where: string): GrantRecord[] {
   return value.map((grant, index) => {
     const at = `${where}: grant ${index + 1}`;
     const { repo, number } = parseWorkedTicket(grant, at);
-    return { repo, number, grantedAt: parseInstant(fieldOf(grant, "grantedAt", at), `${at}: "grantedAt"`) };
+    const label = fieldOf(grant, "label", at);
+    if (label !== undefined && !isGrantLabel(label)) {
+      throw new Error(`${at}: "label" must be one of ${GRANT_LABELS.join(", ")}: ${JSON.stringify(label)}`);
+    }
+    return {
+      repo,
+      number,
+      grantedAt: parseInstant(fieldOf(grant, "grantedAt", at), `${at}: "grantedAt"`),
+      ...(label !== undefined && { label }),
+    };
   });
 }
 
@@ -1061,6 +1072,7 @@ function formatState(state: State): string {
     repo: grant.repo,
     number: grant.number,
     grantedAt: grant.grantedAt.toISOString(),
+    ...(grant.label !== undefined && { label: grant.label }),
   }));
 
   return `${JSON.stringify(

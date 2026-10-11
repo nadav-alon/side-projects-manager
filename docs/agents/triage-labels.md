@@ -116,6 +116,20 @@ second such ticket from that run's own discoveries, so unreviewed work never cha
   before `gh issue edit --add-label`.
 - Applied by the loop alone, at the ticket's creation, and never removed by anything afterward.
 
+## Live-write label
+
+Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run
+starts, per `CONTEXT.md`'s "Live-write". It starts that run with the project's mounts bound
+read-write; every other run keeps them read-only. Read through the same gate as `turboable`.
+
+| Label        | Meaning                                                                      |
+| ------------ | ---------------------------------------------------------------------------- |
+| `live-write` | Consents to this ticket's run writing the project's mounted directories.     |
+
+- A label may not exist yet in a given repo: create it on first use (`gh label create live-write`)
+  before `gh issue edit --add-label`.
+- The manager never applies it.
+
 ## Turboable label
 
 Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run

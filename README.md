@@ -53,7 +53,9 @@ logon-guard rc snippet, or a cron line pointing at the old checkout path — wit
 `npm run grant -- owner/repo#n` labels a ticket `turboable` as the developer and writes the grant
 record that lets the merge gate count it even if it lands inside an unrelated run's span — see
 [ADR 0012](docs/adr/0012-a-host-only-grant-record-vouches-for-a-grant-inside-a-run-span.md). It refuses a
-project whose `turbo` is off.
+project whose `turbo` is off. `npm run grant -- owner/repo#n live-write` grants `live-write` the same
+way, for a project with or without `turbo`: that ticket's implementation run gets the project's `mounts`
+read-write (see below) and no other run does.
 
 `npm run halt` stops every trigger from doing anything, scheduled or manual, until `npm run resume`
 clears it — both commands are idempotent, and say what they did. Distinct from pausing every project
@@ -223,8 +225,9 @@ live state that is gitignored, say:
 ```
 
 Every run in that project, whatever its kind (implementation, review, apply-review, rebase, spec
-review, ux review), sees each `host` directory at its `container` path, always read-only. Both
+review, ux review), sees each `host` directory at its `container` path, read-only — except the
 paths are absolute and contain no `:`, and a `container` path is never `/`, `/repo`, `/discoveries`
+implementation run of a ticket the developer granted `live-write`, which sees them all writable. Both
 or `/home/node/.claude/projects`, nor under one: those are the run's own mounts. A `host` that is
 not a directory on the machine, or that your user cannot read, fails the run before it starts,
 naming the path.

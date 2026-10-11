@@ -9769,6 +9769,69 @@ describe("morningLoop", () => {
       assert.deepEqual(ports.sandbox.runs[0]?.mounts, mounts);
     });
 
+    describe("live-write", () => {
+      const mounts = [
+        { host: hostPath("/srv/pilot/config"), container: containerPath("/mnt/config") },
+      ];
+      const BEFORE = new Date(FROZEN_NOW.getTime() - 3_600_000);
+
+      function arranged(declared: typeof mounts | undefined = mounts) {
+        const ports = fakePorts();
+        ports.store.register(PILOT, declared === undefined ? {} : { mounts: declared });
+        const ticket = ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(7), title: "Edit config" });
+        return { ports, ticket };
+      }
+
+      it("binds the mounts writable for a ticket granted live-write before its run", async () => {
+        const { ports, ticket } = arranged();
+        ports.tracker.recordLabelEvent(ticket, "live-write", "labeled", BEFORE);
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.mountsWritable, true);
+        assert.deepEqual(ports.sandbox.runs[0]?.mounts, mounts);
+      });
+
+      it("keeps them read-only for a ticket never granted it", async () => {
+        const { ports } = arranged();
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.mountsWritable, undefined);
+      });
+
+      it("keeps them read-only where the grant came after the run started", async () => {
+        const { ports, ticket } = arranged();
+        ports.tracker.recordLabelEvent(ticket, "live-write", "labeled", new Date(FROZEN_NOW.getTime() + 1000));
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.mountsWritable, undefined);
+      });
+
+      it("keeps them read-only where the timeline cannot be read", async (t) => {
+        const { ports, ticket } = arranged();
+        ports.tracker.recordLabelEvent(ticket, "live-write", "labeled", BEFORE);
+        t.mock.method(ports.tracker, "wasGrantedAt", async () => {
+          throw new Error("offline");
+        });
+        t.mock.method(console, "warn", () => {});
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.mountsWritable, undefined);
+      });
+
+      it("keeps a turboable grant from counting as one", async () => {
+        const { ports, ticket } = arranged();
+        ports.tracker.recordTurboableEvent(ticket, "labeled", BEFORE);
+
+        await morningLoop(ports);
+
+        assert.equal(ports.sandbox.runs[0]?.mountsWritable, undefined);
+      });
+    });
+
     it("mounts the project's declared host directories into its review", async () => {
       const ports = fakePorts();
       const mounts = [

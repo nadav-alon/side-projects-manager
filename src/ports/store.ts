@@ -344,65 +344,118 @@ export function runSpanInProgress(
 }
 
 /**
- * The developer's own grant of `turboable` on a ticket, as the `grant`
+ * The label that records a human's per-ticket consent for the merge gate to
+ * merge that ticket's pull request without asking again. Applied and
+ * removed by a human on the tracker's own UI — never by the manager, which
+ * opens every ticket it opens (a discovery, a review, an apply-review, a
+ * rebase, a spec review, a pull request) without it, whatever was asked.
+ * The one place the literal lives; every adapter reads it from here.
+ */
+export const TURBOABLE_LABEL = "turboable";
+
+/**
+ * The label that records a human's per-ticket consent for the ticket's run
+ * to be started with the project's registry mounts writable. Granted like
+ * `turboable`, with `npm run grant`, and read through the same gate; the
+ * manager never applies it. The one place the literal lives.
+ */
+export const LIVE_WRITE_LABEL = "live-write";
+
+/** The labels only the developer grants, each one a per-ticket consent. */
+export const GRANT_LABELS = [TURBOABLE_LABEL, LIVE_WRITE_LABEL] as const;
+
+export type GrantLabel = (typeof GRANT_LABELS)[number];
+
+/** Whether `value` is one of the `GRANT_LABELS`. */
+export function isGrantLabel(value: unknown): value is GrantLabel {
+  return GRANT_LABELS.some((label) => label === value);
+}
+
+/**
+ * The developer's own grant of a `GrantLabel` on a ticket, as the `grant`
  * command wrote it: host-only, since no sandbox run mounts the manager home
  * to write the state document. How far from the label's own `labeled` event
- * `grantedAt` may lie and still match it is `GRANT_MATCH_WINDOW`.
+ * `grantedAt` may lie and still match it is `GRANT_MATCH_WINDOW`. A record
+ * with no `label` is a grant of `turboable`.
  */
 export interface GrantRecord extends WorkedTicket {
   grantedAt: Date;
+  label?: GrantLabel;
+}
+
+/** The label `grant` is a grant of: `turboable` where it names none. */
+export function grantLabelOf(grant: Pick<GrantRecord, "label">): GrantLabel {
+  return grant.label ?? TURBOABLE_LABEL;
 }
 
 /** How far a `GrantRecord`'s `grantedAt` may lie from the `labeled` event it vouches for. */
 export const GRANT_MATCH_WINDOW: Milliseconds = milliseconds(2 * 60 * 1000);
 
 /**
- * Whether `grants` carries a record for `ticket` whose `grantedAt` lies
- * within `GRANT_MATCH_WINDOW` of `labeledAt`, inclusive. A record for
- * another ticket never matches, nor does one outside the window, however
- * near.
+ * Whether `grants` carries a record of `label` for `ticket` whose
+ * `grantedAt` lies within `GRANT_MATCH_WINDOW` of `labeledAt`, inclusive. A
+ * record for another ticket or another label never matches, nor does one
+ * outside the window, however near.
  */
 export function grantMatches(
   grants: readonly GrantRecord[] | undefined,
   ticket: WorkedTicket,
   labeledAt: Date,
+  label: GrantLabel = TURBOABLE_LABEL,
 ): boolean {
   return (grants ?? []).some(
     (grant) =>
       ticketKey(grant) === ticketKey(ticket) &&
+      grantLabelOf(grant) === label &&
       Math.abs(grant.grantedAt.getTime() - labeledAt.getTime()) <= GRANT_MATCH_WINDOW,
   );
 }
 
 /**
- * `previous` with `ticket`'s grant recorded at `grantedAt`, in place of any
- * record it already carried.
+ * `previous` with `ticket`'s grant of `label` recorded at `grantedAt`, in
+ * place of any record of that label it already carried.
  */
 export function recordGrant(
   previous: readonly GrantRecord[] | undefined,
   ticket: WorkedTicket,
   grantedAt: Date,
+  label: GrantLabel = TURBOABLE_LABEL,
 ): GrantRecord[] {
   return [
-    ...(withoutGrant(previous, ticket) ?? []),
-    { repo: ticket.repo, number: ticket.number, grantedAt },
+    ...(withoutGrant(previous, ticket, label) ?? []),
+    {
+      repo: ticket.repo,
+      number: ticket.number,
+      grantedAt,
+      ...(label !== TURBOABLE_LABEL && { label }),
+    },
   ];
 }
 
 /**
- * Whether `a` and `b` are the same record: the same ticket, granted at the
- * same instant. A re-grant of a ticket is a different record.
+ * Whether `a` and `b` are the same record: the same ticket and label,
+ * granted at the same instant. A re-grant of a ticket is a different record.
  */
 export function sameGrant(a: GrantRecord, b: GrantRecord): boolean {
-  return ticketKey(a) === ticketKey(b) && a.grantedAt.getTime() === b.grantedAt.getTime();
+  return (
+    ticketKey(a) === ticketKey(b) &&
+    grantLabelOf(a) === grantLabelOf(b) &&
+    a.grantedAt.getTime() === b.grantedAt.getTime()
+  );
 }
 
-/** `previous` without `ticket`'s grant record; undefined once none is left. */
+/**
+ * `previous` without `ticket`'s grant record of `label`; undefined once none
+ * is left.
+ */
 export function withoutGrant(
   previous: readonly GrantRecord[] | undefined,
   ticket: WorkedTicket,
+  label: GrantLabel = TURBOABLE_LABEL,
 ): GrantRecord[] | undefined {
-  const kept = (previous ?? []).filter((grant) => ticketKey(grant) !== ticketKey(ticket));
+  const kept = (previous ?? []).filter(
+    (grant) => ticketKey(grant) !== ticketKey(ticket) || grantLabelOf(grant) !== label,
+  );
   return kept.length === 0 ? undefined : kept;
 }
 

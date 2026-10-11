@@ -48,12 +48,13 @@ import type {
   Ticket,
   TokenCount,
   TranscriptPath,
-  TurboableConsent,
+  GrantConsent,
   UniformFilesReverted,
   UsageLedger,
   Usd,
 } from "./ports/index.ts";
 import {
+  LIVE_WRITE_LABEL,
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
@@ -1642,6 +1643,40 @@ function infrastructureFailure(error: unknown): Failed {
 }
 
 /**
+ * `{ mountsWritable: true }` when `ticket` carries a `live-write` grant the
+ * gate accepts as of now — the instant its run is about to start — and its
+ * project declares mounts for it to apply to; nothing otherwise. The same
+ * gate as `turboable`'s, so a grant a run made inside a run span counts only
+ * with the developer's own grant record. A timeline that cannot be read is no
+ * grant: the mounts stay read-only.
+ */
+async function liveWriteGranted(
+  ports: MorningLoopPorts,
+  project: RegisteredProject,
+  ticket: Ticket,
+  invocation: RunRecording,
+): Promise<{ mountsWritable?: true }> {
+  if (project.mounts === undefined || project.mounts.length === 0) {
+    return {};
+  }
+  try {
+    const consent = await ports.tracker.wasGrantedAt(
+      LIVE_WRITE_LABEL,
+      ticket,
+      ports.clock.now(),
+      invocation.runSpans(),
+      await invocation.grants(),
+    );
+    return consent.consented ? { mountsWritable: true } : {};
+  } catch (error: unknown) {
+    console.warn(
+      `Could not read ${ticketReference(ticket)}'s ${LIVE_WRITE_LABEL} grant, so its mounts stay read-only: ${errorMessage(error)}`,
+    );
+    return {};
+  }
+}
+
+/**
  * An implementation run: works `selection`'s ticket in the sandbox, held to
  * `spendCeiling` and started on `model` — or, given none, on whatever model
  * the sandbox image itself is pinned to, which can never come back refused.
@@ -1660,6 +1695,7 @@ async function attemptRun(
 ): Promise<SandboxResult<RunOutcome> | Failed> {
   const { ticket } = selection;
   const { project } = selection;
+  const writable = await liveWriteGranted(ports, project, ticket, invocation);
 
   return runInSandbox(ports, project, ticket, spendCeiling, invocation, (checkout, onStarted, parts, onProgress) =>
     // Built as two distinct calls rather than one call with `model` spread in
@@ -1674,6 +1710,7 @@ async function attemptRun(
             checkout,
             spendCeiling,
             ...parts,
+            ...writable,
             onProgress,
             ...(salvageBranch !== undefined && { salvageBranch }),
           },
@@ -1686,6 +1723,7 @@ async function attemptRun(
             spendCeiling,
             model: model.name,
             ...parts,
+            ...writable,
             onProgress,
             ...(salvageBranch !== undefined && { salvageBranch }),
           },
@@ -2542,7 +2580,7 @@ async function decideMerge(
       reason: "its implementation ticket carries no run span",
     };
   }
-  let consent: TurboableConsent;
+  let consent: GrantConsent;
   try {
     consent = await ports.tracker.wasTurboableAt(
       implementation,

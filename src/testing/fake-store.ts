@@ -17,6 +17,7 @@ import type {
   RunCost,
   RunInProgress,
   RunProgress,
+  GrantLabel,
   GrantRecord,
   RunSpan,
   Salvage,
@@ -143,9 +144,9 @@ export class FakeStore implements Store {
       endedAt === undefined ? started : recordRunSpanEnded(started, ticket, endedAt);
   }
 
-  /** Records `ticket`'s grant at `grantedAt`, as the `grant` command would have left it. */
-  markGranted(ticket: WorkedTicket, grantedAt: Date): void {
-    this.#grants = recordGrant(this.#grants, ticket, grantedAt);
+  /** Records `ticket`'s grant of `label` at `grantedAt`, as the `grant` command would have left it. */
+  markGranted(ticket: WorkedTicket, grantedAt: Date, label?: GrantLabel): void {
+    this.#grants = recordGrant(this.#grants, ticket, grantedAt, label);
   }
 
   /** The grant records now standing, whoever left them. */

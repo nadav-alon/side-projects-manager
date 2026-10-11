@@ -6,7 +6,7 @@ import type { InvocationRecord, Journal, OpenInvocation } from "./journal.ts";
 import { processId } from "./process-id.ts";
 import { repoSlug } from "./repo-slug.ts";
 import type { RunSpan } from "./store.ts";
-import { recordRunSpanStarted, runSpanInProgress } from "./store.ts";
+import { recordGrant, recordRunSpanStarted, runSpanInProgress, withoutGrant } from "./store.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
 const TICKET_7 = { repo: PILOT, number: issueNumber(7) };
@@ -74,5 +74,24 @@ describe("runSpanInProgress", () => {
     const span: RunSpan = { ...SPAN, openedBy: OPENER };
 
     assert.equal(runSpanInProgress(span, OPENER, journalOf([])), false);
+  });
+});
+
+describe("grant records by label", () => {
+  const ticket = { repo: repoSlug("nadav-alon/pilot"), number: issueNumber(7) };
+  const at = new Date("2026-01-01T00:00:00Z");
+
+  it("keeps a live-write grant beside a turboable one, replacing only its own label", () => {
+    const both = recordGrant(recordGrant(undefined, ticket, at), ticket, at, "live-write");
+    assert.deepEqual(both, [
+      { ...ticket, grantedAt: at },
+      { ...ticket, grantedAt: at, label: "live-write" },
+    ]);
+    const later = new Date("2026-01-02T00:00:00Z");
+    assert.deepEqual(recordGrant(both, ticket, later, "live-write"), [
+      { ...ticket, grantedAt: at },
+      { ...ticket, grantedAt: later, label: "live-write" },
+    ]);
+    assert.deepEqual(withoutGrant(both, ticket), [{ ...ticket, grantedAt: at, label: "live-write" }]);
   });
 });

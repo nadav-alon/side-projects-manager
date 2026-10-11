@@ -435,10 +435,13 @@ export interface RunOptions {
    */
   ignoreProjectSettings?: true;
   /**
-   * Host directories `dockerCommand` mounts read-only at their container
-   * paths, whatever `mount` is. Set by `containerSandbox` from the request.
+   * Host directories `dockerCommand` mounts at their container paths,
+   * read-only unless `mountsWritable`, whatever `mount` is. Set by
+   * `containerSandbox` from the request.
    */
   mounts?: readonly ReadOnlyMount[];
+  /** Binds `mounts` read-write: only a run granted `live-write` sets it. */
+  mountsWritable?: true;
   /** As `RunRequest.model`, absent to leave the image's own pin in force. */
   model?: ModelName;
   /**
@@ -950,9 +953,15 @@ async function runOnClone(
         "run",
         {
           directory: clone,
-          prompt: promptFor(ticket, chosen.resuming ? onto : undefined, request.discovered),
+          prompt: promptFor(
+            ticket,
+            chosen.resuming ? onto : undefined,
+            request.discovered,
+            request.mountsWritable === true ? request.mounts : undefined,
+          ),
           spendCeiling,
           mount: "rw",
+          ...(request.mountsWritable === true && { mountsWritable: true }),
           credential: "developer",
           base,
           ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
@@ -2490,6 +2499,7 @@ function promptFor(
   ticket: Ticket,
   salvageBranch: Branch | undefined,
   discovered: readonly DiscoveredTicketSummary[] | undefined,
+  writableMounts: readonly ReadOnlyMount[] | undefined = undefined,
 ): string {
   return [
     `Implement issue #${ticket.number} in this repository: ${ticket.title}.`,
@@ -2512,6 +2522,15 @@ function promptFor(
     "a run stopped part way through should still leave reviewable progress on",
     "the branch. Stay on the branch you are on: do not push, and do not open a",
     "pull request.",
+    ...(writableMounts !== undefined && writableMounts.length > 0
+      ? [
+          "The developer granted this ticket `live-write`: these directories are",
+          "mounted writable in this container, and you may edit them as the",
+          "ticket asks — they are live files, outside the clone and outside git,",
+          "so a change there is not reviewable or reversible from the branch:",
+          writableMounts.map(({ container }) => container).join(", ") + ".",
+        ]
+      : []),
     "A nit your own change causes is fixed in that same commit, as part of",
     "the change. Any other nit you notice is not a discovery: list each one in",
     "the `nits` field of your final structured answer, so the pull request",
@@ -2781,7 +2800,9 @@ async function commitsSince(
  */
 async function requireMountsPresent(
   mounts: readonly ReadOnlyMount[],
+  writable: boolean,
 ): Promise<void> {
+  const kind = writable ? "writable" : "read-only";
   for (const { host } of mounts) {
     const found = await stat(host).catch((error: unknown) => {
       if (isErrorWithCode(error, "ENOENT")) {
@@ -2791,12 +2812,13 @@ async function requireMountsPresent(
     });
     if (found === undefined || !found.isDirectory()) {
       throw new AgentNeverRan(
-        `The project declares ${host} as a read-only mount, but it is not a directory on this host. Create it or fix the registry, and run again.`,
+        `The project declares ${host} as a ${kind} mount, but it is not a directory on this host. Create it or fix the registry, and run again.`,
       );
     }
-    await access(host, constants.R_OK | constants.X_OK).catch(() => {
+    const needed = constants.R_OK | constants.X_OK | (writable ? constants.W_OK : 0);
+    await access(host, needed).catch(() => {
       throw new AgentNeverRan(
-        `The project declares ${host} as a read-only mount, but this user cannot read it. Fix its permissions or the registry, and run again.`,
+        `The project declares ${host} as a ${kind} mount, but this user cannot ${writable ? "read and write" : "read"} it. Fix its permissions or the registry, and run again.`,
       );
     });
   }
@@ -2836,7 +2858,7 @@ const dockerContainer: Container = async (options) => {
     );
   }
 
-  await requireMountsPresent(options.mounts ?? []);
+  await requireMountsPresent(options.mounts ?? [], options.mountsWritable === true);
 
   const env = envFor(options.credential);
   const cidFile = path.join(options.transcriptDirectory, "container-id");
@@ -3166,6 +3188,7 @@ function dockerCommand(
     image,
     mount,
     mounts,
+    mountsWritable,
     kind,
     base,
     playwrightMcp,
@@ -3209,11 +3232,12 @@ function dockerCommand(
     // exactly as a run does, even though its clone is read-only.
     "--volume",
     `${discoveriesDirectory}:${DISCOVERIES_MOUNT}`,
-    // Read-only whatever `mount` is: a project's declared directories are
-    // somewhere a run reads from, never somewhere it leaves work.
+    // Read-only whatever `mount` is, unless the ticket was granted
+    // `live-write`: a project's declared directories are somewhere a run
+    // reads from, never somewhere it leaves work, without that consent.
     ...(mounts ?? []).flatMap(({ host, container }) => [
       "--volume",
-      `${host}:${container}:ro`,
+      `${host}:${container}${mountsWritable ? "" : ":ro"}`,
     ]),
     "--env",
     "CLAUDE_CODE_OAUTH_TOKEN",

@@ -25,6 +25,9 @@ for nothing else — not the timeline check, not stripping.
   label and having it added again later makes a newer event, which an old record does not cover.
 - **Used up once the gate fires**, whatever it decides — merge, `ready-for-human`, or a decline. A
   record vouches for one firing.
+  This holds for `turboable` records, which the merge gate uses up. A `live-write` record is
+  deliberately kept: no gate fires on it, and the consent is to every run of the ticket — a retry, a
+  resume, a re-queue after hand-back — so only the sweep removes it, once the ticket is closed.
 - **Pruned on the sweep** once its ticket is closed, so a ticket that never reached the gate does
   not keep its record. A repo whose open issues cannot be read whole keeps its records until a
   sweep that can tell.
