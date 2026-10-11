@@ -57,7 +57,7 @@ export function pushRefusal(
       words = [];
     };
     for (let index = 0; index < text.length; index += 1) {
-      const character = text[index];
+      const character = text[index] ?? "";
       if (character === "'") {
         const close = text.indexOf("'", index + 1);
         const end = close === -1 ? text.length : close;
@@ -69,12 +69,12 @@ export function pushRefusal(
         index += 1;
         while (index < text.length && text[index] !== '"') {
           if (text[index] === "\\" && index + 1 < text.length) index += 1;
-          word += text[index];
+          word += text[index] ?? "";
           index += 1;
         }
       } else if (character === "\\" && index + 1 < text.length) {
         if (text[index + 1] !== "\n") {
-          word += text[index + 1];
+          word += text[index + 1] ?? "";
           started = true;
         }
         index += 1;
@@ -111,6 +111,7 @@ export function pushRefusal(
     let optionsEnded = false;
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
+      if (arg === undefined) continue;
       if (optionsEnded || !arg.startsWith("-") || arg === "-") {
         positionals.push(arg);
       } else if (arg === "--") {
@@ -177,12 +178,12 @@ export function pushRefusal(
     }
     if (words[0] === "cd" || words[0] === "pushd") moved = true;
     for (let at = 0; at < words.length; at += 1) {
-      if (words[at].split("/").pop() !== "git") continue;
+      if (words[at]?.split("/").pop() !== "git") continue;
       const directories: string[] = [];
       let index = at + 1;
-      while (index < words.length && words[index].startsWith("-")) {
-        const option = words[index];
-        if (option === "-C" && index + 1 < words.length) directories.push(words[index + 1]);
+      for (let option = words[index]; option?.startsWith("-"); option = words[index]) {
+        const value = words[index + 1];
+        if (option === "-C" && value !== undefined) directories.push(value);
         if (option === "-c" && redirectingConfig.test(words[index + 1] ?? "")) return unreadable;
         index += gitOptionsWithValue.includes(option) ? 2 : 1;
       }
