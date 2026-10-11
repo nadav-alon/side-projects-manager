@@ -12,6 +12,7 @@ on:
       # Mounted into the image by sandbox:verify (package.json).
       - src/error-message.ts
       - src/adapters/manager-settings.ts
+      - src/adapters/push-guard.ts
       - src/ports/sandbox.ts
       - src/ports/branch.ts
       # The docker invocations themselves live here, both of them.
@@ -30,6 +31,7 @@ on:
       # Mounted into the image by sandbox:verify (package.json).
       - src/error-message.ts
       - src/adapters/manager-settings.ts
+      - src/adapters/push-guard.ts
       - src/ports/sandbox.ts
       - src/ports/branch.ts
       # The docker invocations themselves live here, both of them.
