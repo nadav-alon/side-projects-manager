@@ -1,11 +1,4 @@
-declare const repoSlugBrand: unique symbol
-declare const issueNumberBrand: unique symbol
-
-/** A GitHub repository as `owner/repo`; values enter through `repoSlug` or `isRepoSlug`. */
-export type RepoSlug = string & { readonly [repoSlugBrand]: true }
-
-/** The number a ticket is known by in its tracker; values enter through `issueNumber` or `isIssueNumber`. */
-export type IssueNumber = number & { readonly [issueNumberBrand]: true }
+import type { IssueNumber, RepoSlug } from '../types'
 
 const slugPattern = /^[\w.-]+\/[\w.-]+$/
 
