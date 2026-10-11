@@ -11,6 +11,7 @@ import type {
   SpecReviewTicket,
   UxReviewTicket,
   Ticket,
+  TicketKind,
 } from "./issue-tracker.ts";
 import type { ModelName } from "./model-name.ts";
 import type { Nits } from "./nits.ts";
@@ -50,6 +51,28 @@ export interface RunProgress {
 
 /** The callback a run request takes `onProgress` as. */
 export type OnRunProgress = (progress: RunProgress) => void;
+
+/**
+ * The six shapes a sandboxed run comes in. `TicketKind` with
+ * `"implementation"` spelled `"run"`: derived, rather than spelled out again,
+ * so a kind added to `TicketKind` forces the issue here too.
+ */
+export type RunKind = Exclude<TicketKind, "implementation"> | "run";
+
+/**
+ * The run kinds whose contract is to force-push, and so are allowed
+ * `git push --force-with-lease`: they rewrite or add to a pull request's head
+ * branch with the implementation's own credential. Every other kind is
+ * refused every force-push.
+ *
+ * The manager's own deny rules apply to every run whatever the project's
+ * `.claude/settings.json` says, and refuse `gh pr merge`, a push to the base
+ * branch and a force-push. Only the force-push rule is ever lifted, only for
+ * these kinds, and only down to `--force-with-lease`; the merge and
+ * base-branch rules hold for all of them. `manager-settings.ts` reads this
+ * list.
+ */
+export const FORCE_PUSH_RUN_KINDS: readonly RunKind[] = ["apply-review", "rebase"];
 
 /** One ticket, and the project checkout it is to be worked against. */
 export interface RunRequest {

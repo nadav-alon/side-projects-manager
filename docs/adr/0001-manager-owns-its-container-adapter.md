@@ -40,12 +40,20 @@ outranks the project here too, the second setting it does: a rebase run is start
 `--setting-sources user`, so the project's settings are not read for it. Every other run kind reads
 the project's settings as before, force-push denies included.
 
-The `--settings` of every run kind, not only a rebase's, deny pushing to `master` (two fixed
-patterns, for the literal branch name). That is not what the project's file would have supplied: a
-project that guards another branch, or denies anything else, loses that in a rebase run. What a
-rebase run gives up by not reading project settings is all of it: the project's other
-`permissions.deny` rules, its hooks and its `env`, and possibly its `CLAUDE.md` and
-`.claude/skills` too, if the CLI gates them on the project source as the Agent SDK does (not
+The same `--settings` carries the manager's own deny rules for `gh pr merge`, a push to the base
+branch and a force-push, on every run. They protect those operations whatever the project's own
+`.claude/settings.json` denies: a project that wrote none is protected the same. Deny rules merge
+across settings sources, so a project's own rules still apply on top of these in every run that
+reads them; a rebase run, which does not, can be let past the project's force-push rule only because
+the manager carries its own, lifted to `--force-with-lease` for the kinds whose contract is to
+force-push (apply-review, rebase). They live in `--settings` rather than the image because the
+settings travel with the manager's code, differ by run kind and base branch, and change with a
+commit rather than an image rebuild. A run refused a command matching one says so in its output, so
+a developer can see the manager's rule among whatever else denied it.
+
+What a rebase run gives up by not reading project settings is everything else the project's file
+carries: its other `permissions.deny` rules, its hooks and its `env`, and possibly its `CLAUDE.md`
+and `.claude/skills` too, if the CLI gates them on the project source as the Agent SDK does (not
 checked against the real CLI). The manager accepts that cost because a deny it cannot lift would
 otherwise stop the run's whole contract.
 
