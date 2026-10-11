@@ -1,8 +1,9 @@
-// Dependency-free beyond its two imports from `src/ports/`, because `scripts/verify-harness.ts` runs
+// Dependency-free beyond its imports from `src/ports/` and `push-guard.ts`, because `scripts/verify-harness.ts` runs
 // it inside the built image, where nothing else of `src/` is mounted.
 
 import type { Branch } from "../ports/branch.ts";
 import { FORCE_PUSH_RUN_KINDS, type RunKind } from "../ports/sandbox.ts";
+import { pushGuardHookCommand } from "./push-guard.ts";
 
 /**
  * The settings the agent CLI is handed for every run, whatever the project's
@@ -31,7 +32,8 @@ const CLI_SETTINGS_SANDBOX = { enabled: false, failIfUnavailable: false };
  * Refused to every run: `gh pr merge`, a push to `base`, and a force-push.
  * A kind in `FORCE_PUSH_RUN_KINDS` is refused `--force` alone, leaving it
  * `--force-with-lease`. Each rule is a fixed string, so a denial's rule can
- * be named in the hand-back (`managerRulesRefusing`).
+ * be named in the hand-back (`managerRulesRefusing`). A rule matches only the
+ * spellings it lists; `managerHooks` refuses a push however it is spelled.
  */
 export function managerDenyRules(kind: RunKind, base: Branch): string[] {
   const forcePush = FORCE_PUSH_RUN_KINDS.includes(kind)
@@ -45,10 +47,22 @@ export function managerDenyRules(kind: RunKind, base: Branch): string[] {
   ];
 }
 
+/**
+ * The `PreToolUse` hooks the manager hands every run: `push-guard.ts`'s parse
+ * of each Bash call, which refuses any `git push` whose refspec targets `base`
+ * and any force-push, under whatever spelling. A kind in `FORCE_PUSH_RUN_KINDS`
+ * may use `--force-with-lease`, never to `base`.
+ */
+function managerHooks(kind: RunKind, base: Branch) {
+  const command = pushGuardHookCommand({ base, lease: FORCE_PUSH_RUN_KINDS.includes(kind) });
+  return { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command }] }] };
+}
+
 /** The settings the agent CLI is handed for a run of `kind` against `base`. */
 export function cliSettings(kind: RunKind, base: Branch): string {
   return JSON.stringify({
     sandbox: CLI_SETTINGS_SANDBOX,
     permissions: { deny: managerDenyRules(kind, base) },
+    hooks: managerHooks(kind, base),
   });
 }
