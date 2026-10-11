@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
+import { branch } from "../ports/branch.ts";
 import { pushGuardHookCommand, pushRefusal, type PushPolicy } from "./push-guard.ts";
 
-const PLAIN: PushPolicy = { base: "master", lease: false };
-const LEASING: PushPolicy = { base: "master", lease: true };
+const PLAIN: PushPolicy = { base: branch("master"), lease: false };
+const LEASING: PushPolicy = { base: branch("master"), lease: true };
 
 function refusal(command: string, policy = PLAIN, current: string | undefined = "feature") {
   return pushRefusal(command, policy, () => current);
@@ -27,7 +28,6 @@ describe("pushRefusal: the base branch", () => {
     "git push --all",
     "git push origin 'refs/heads/*:refs/heads/*'",
     "git -C . push origin master",
-    "git -c push.default=current push origin master",
     "cd x && git push origin master",
     "git fetch; git push origin master | cat",
     "(git push origin master)",
@@ -38,6 +38,10 @@ describe("pushRefusal: the base branch", () => {
     'sh -c "git push origin master"',
     "/usr/bin/git push origin master",
     "git push origin feature master",
+    "git push origin feature:heads/master",
+    "git push origin HEAD:heads/master",
+    "git push origin :",
+    "git push -uo ci.skip origin master",
     "git push --repo=x -o ci.skip origin master",
   ]) {
     it(`refuses ${command}`, () => {
@@ -73,10 +77,29 @@ describe("pushRefusal: the base branch", () => {
         "git push origin v1.0",
         "git status && git log master",
         "git pull origin master",
-        "git push $ARGS",
+        "git push -ofoo origin feature",
+        "git push -o ci.skip origin feature",
       ]) {
         assert.equal(refusal(command, policy), undefined, command);
       }
+    }
+  });
+
+  it("refuses a push it cannot read the destination of", () => {
+    for (const command of [
+      "git push $ARGS",
+      "git push origin $'master'",
+      "git push origin {master,feature}",
+      "git -c remote.origin.push=+HEAD:feature push",
+      "git -c alias.x=push x -f",
+      "git -c push.default=upstream push",
+      "git -c push.default=current push origin master",
+      "git -c remote.origin.push=HEAD:master push",
+      "git checkout master && git push origin HEAD",
+      "git switch master; git push",
+      "cd sub && git push",
+    ]) {
+      assert.match(refusal(command) ?? "", /a (push whose destination|force-push)/, command);
     }
   });
 

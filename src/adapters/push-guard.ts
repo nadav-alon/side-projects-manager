@@ -1,10 +1,13 @@
-// Dependency-free, and `pushRefusal` is one self-contained function, because `pushGuardHookCommand`
-// ships that function's own source into the container as the hook's program: nothing else of
-// `src/` is there to import, and the image's node reads plain JavaScript through `-e`.
+// Dependency-free beyond a type import (stripped before the hook ships), and `pushRefusal` is one
+// self-contained function, because `pushGuardHookCommand` ships that function's own source into the
+// container as the hook's program: nothing else of `src/` is there to import, and the image's node
+// reads plain JavaScript through `-e`.
+
+import type { Branch } from "../ports/branch.ts";
 
 /** What a run may push: the branch nobody pushes to, and whether `--force-with-lease` is allowed. */
 export interface PushPolicy {
-  base: string;
+  base: Branch;
   lease: boolean;
 }
 
@@ -15,17 +18,22 @@ export interface PushPolicy {
  * `git -C dir`, `git -c k=v` — and refused when it:
  *
  * - targets `policy.base`: a refspec naming it (`base`, `HEAD:base`,
- *   `refs/heads/base`, `:base`, `+base`), a wildcard refspec, `--all`,
- *   `--mirror`, or no refspec at all while the current branch is `base`;
+ *   `refs/heads/base`, `heads/base`, `:base`, `+base`), a wildcard refspec,
+ *   the matching refspec `:`, `--all`, `--mirror`, or no refspec at all while
+ *   the current branch is `base`;
  * - force-pushes: `--force`, `-f` in a short cluster, a `+` refspec,
- *   `--mirror`, and `--force-with-lease` unless `policy.lease`.
+ *   `--mirror`, and `--force-with-lease` unless `policy.lease`;
+ * - cannot be read: an argument with a `$` or `{` in it (`$'base'`,
+ *   `{base,x}`, `$ARGS`), a `-c` setting `remote.*.push`, `push.*` or
+ *   `alias.*`, or an implicit or `HEAD` push after a `cd`, `checkout` or
+ *   `switch`, since the branch it would send is not the one the hook saw.
  *
  * `currentBranch` answers for the branch a push without a refspec (or with
  * `HEAD`) would send, given the `-C` directories in front of the push, in
  * order; `undefined` is a detached HEAD or no repository. A `git push` named
- * anywhere in a command is read as run, even as an argument to `echo`. A command that
- * builds its push out of expansions (`git push $ARGS`) cannot be read and is
- * not refused.
+ * anywhere in a command is read as run, even as an argument to `echo`. A bare
+ * push is read as going to the current branch's name; where repository config
+ * (`remote.*.push` set earlier, `push.default`) would send it is not read.
  */
 export function pushRefusal(
   command: string,
@@ -85,9 +93,17 @@ export function pushRefusal(
     return found;
   }
 
+  const toBase = `a push to ${policy.base}`;
+  const unreadable = "a push whose destination it cannot read";
+  const optionsWithValue = ["--repo", "--push-option", "--receive-pack", "--exec"];
+  const gitOptionsWithValue = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"];
+  /** Config that moves where a push goes, or hides one behind an alias. */
+  const redirectingConfig = /^(remote\.[^=]*\.push|push\.|alias\.)/i;
+  /** Set once a command switches branch or directory: the clone is no longer where the hook saw it. */
+  let moved = false;
+
   /** The refusal for the arguments after `git [options] push`, if any. */
   function refusalOf(args: string[], directories: string[]): string | undefined {
-    const withValue = ["--repo", "-o", "--push-option", "--receive-pack", "--exec"];
     const positionals: string[] = [];
     let force = false;
     let lease = false;
@@ -99,7 +115,7 @@ export function pushRefusal(
         positionals.push(arg);
       } else if (arg === "--") {
         optionsEnded = true;
-      } else if (withValue.includes(arg)) {
+      } else if (optionsWithValue.includes(arg)) {
         index += 1;
       } else if (arg === "--force") {
         force = true;
@@ -110,27 +126,41 @@ export function pushRefusal(
         everything = true;
       } else if (arg === "--all" || arg === "--branches") {
         everything = true;
-      } else if (!arg.startsWith("--") && arg.includes("f")) {
-        force = true;
+      } else if (!arg.startsWith("--")) {
+        // A short cluster: `-o` ends it, taking the rest of the cluster or the next word as its value.
+        for (let at = 1; at < arg.length; at += 1) {
+          if (arg[at] === "o") {
+            if (at === arg.length - 1) index += 1;
+            break;
+          }
+          if (arg[at] === "f") force = true;
+        }
       }
     }
     const [, ...refspecs] = positionals;
     if (refspecs.some((refspec) => refspec.startsWith("+"))) force = true;
-    if (force) return "a force-push";
-    if (lease && !policy.lease) return "a force-push";
+    if (force || (lease && !policy.lease)) return "a force-push";
+    if (args.some((arg) => arg.includes("$") || arg.includes("{"))) return unreadable;
 
-    const branch = (name: string) => name.replace(/^refs\/heads\//, "");
+    const withoutHeadsPrefix = (name: string) => name.replace(/^refs\/heads\//, "");
     const current = () => currentBranch(directories);
-    if (everything) return `a push to ${policy.base}`;
+    if (everything) return toBase;
     if (refspecs.length === 0) {
-      return current() === policy.base ? `a push to ${policy.base}` : undefined;
+      if (moved) return unreadable;
+      return current() === policy.base ? toBase : undefined;
     }
     for (const refspec of refspecs) {
       const bare = refspec.replace(/^\+/, "");
+      if (bare === ":") return toBase;
       const colon = bare.lastIndexOf(":");
-      let target = branch(colon === -1 ? bare : bare.slice(colon + 1));
-      if (target === "HEAD" || target === "@") target = current() ?? "";
-      if (target === policy.base || target.includes("*")) return `a push to ${policy.base}`;
+      let target = withoutHeadsPrefix(colon === -1 ? bare : bare.slice(colon + 1));
+      if (target === "HEAD" || target === "@") {
+        if (moved) return unreadable;
+        target = current() ?? "";
+      }
+      if (target === policy.base || target.endsWith(`/${policy.base}`) || target.includes("*")) {
+        return toBase;
+      }
     }
     return undefined;
   }
@@ -145,6 +175,7 @@ export function pushRefusal(
         }
       }
     }
+    if (words[0] === "cd" || words[0] === "pushd") moved = true;
     for (let at = 0; at < words.length; at += 1) {
       if (words[at].split("/").pop() !== "git") continue;
       const directories: string[] = [];
@@ -152,9 +183,10 @@ export function pushRefusal(
       while (index < words.length && words[index].startsWith("-")) {
         const option = words[index];
         if (option === "-C" && index + 1 < words.length) directories.push(words[index + 1]);
-        const takesValue = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"];
-        index += takesValue.includes(option) ? 2 : 1;
+        if (option === "-c" && redirectingConfig.test(words[index + 1] ?? "")) return unreadable;
+        index += gitOptionsWithValue.includes(option) ? 2 : 1;
       }
+      if (words[index] === "checkout" || words[index] === "switch") moved = true;
       if (words[index] === "push") {
         const refusal = refusalOf(words.slice(index + 1), directories);
         if (refusal !== undefined) return refusal;
@@ -174,7 +206,8 @@ export function pushRefusal(
  * The program a `PreToolUse` hook runs: reads the tool call from stdin and,
  * for a Bash call `pushRefusal` refuses under `policy`, says why on stderr and
  * exits 2, which the agent CLI takes as a refusal whatever the permission
- * mode. Anything it cannot read is let through rather than breaking every run.
+ * mode. Input it cannot parse, and a crash of its own, are let through rather
+ * than breaking every run (ADR 0001).
  */
 function pushGuardProgram(policy: PushPolicy): string {
   return `
