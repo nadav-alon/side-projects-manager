@@ -595,6 +595,19 @@ describe("invocationState", () => {
       assert.deepEqual(await state.grants(), [{ ...TICKET_7, grantedAt: GRANTED_AT }]);
     });
 
+    it("consumes only the record of the label it names", async () => {
+      const store = new FakeStore();
+      store.markGranted(TICKET_7, GRANTED_AT);
+      store.markGranted(TICKET_7, GRANTED_AT, "live-write");
+      const state = invocationState({ store }, await store.loadState(), TODAY, noForeignFields);
+
+      await state.consumeGrant(TICKET_7);
+
+      assert.deepEqual((await store.loadState()).grants, [
+        { ...TICKET_7, grantedAt: GRANTED_AT, label: "live-write" },
+      ]);
+    });
+
     it("drops a record once consumed, and keeps a later re-grant of the same ticket", async () => {
       const store = new FakeStore();
       store.markGranted(TICKET_7, GRANTED_AT);

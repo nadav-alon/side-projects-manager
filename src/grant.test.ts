@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { grantTurboable, parseTicketReference } from "./grant.ts";
-import { day, issueNumber, repoSlug, TURBOABLE_LABEL } from "./ports/index.ts";
+import { grantLiveWrite, grantTurboable, parseGrantLabel, parseTicketReference } from "./grant.ts";
+import { day, issueNumber, LIVE_WRITE_LABEL, repoSlug, TURBOABLE_LABEL } from "./ports/index.ts";
 import { FakeClock, FakeIssueTracker, FakeStore, FROZEN_NOW } from "./testing/index.ts";
 
 const PILOT = repoSlug("nadav-alon/pilot");
@@ -80,5 +80,47 @@ describe("grantTurboable", () => {
     await grantTurboable(ports, tracker, TICKET);
 
     assert.equal((await store.loadState()).announcedOn, "2026-01-01");
+  });
+});
+
+describe("parseGrantLabel", () => {
+  it("reads the two labels a developer grants", () => {
+    assert.equal(parseGrantLabel("turboable"), "turboable");
+    assert.equal(parseGrantLabel("live-write"), "live-write");
+  });
+
+  it("refuses any other", () => {
+    assert.throws(() => parseGrantLabel("ready-for-agent"), /Not a label to grant/);
+  });
+});
+
+describe("grantLiveWrite", () => {
+  function arranged(registration?: { turbo: boolean }) {
+    const store = new FakeStore();
+    if (registration !== undefined) {
+      store.register(PILOT, registration);
+    }
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addIneligibleTicket(PILOT, { number: TICKET.number, title: "Grant me" });
+    return { store, tracker, ticket, ports: { store, clock: new FakeClock() } };
+  }
+
+  it("adds the live-write label and a live-write record stamped now, on a project without turbo", async () => {
+    const { store, tracker, ticket, ports } = arranged({ turbo: false });
+
+    await grantLiveWrite(ports, tracker, TICKET);
+
+    assert.equal(tracker.carriesLabel(ticket, LIVE_WRITE_LABEL), true);
+    assert.equal(tracker.carriesLabel(ticket, TURBOABLE_LABEL), false);
+    assert.deepEqual(store.grants(), [{ ...TICKET, grantedAt: FROZEN_NOW, label: "live-write" }]);
+  });
+
+  it("refuses an unregistered project, labelling and writing nothing", async () => {
+    const { store, tracker, ticket, ports } = arranged();
+
+    await assert.rejects(grantLiveWrite(ports, tracker, TICKET), /not a registered project/);
+
+    assert.equal(tracker.carriesLabel(ticket, LIVE_WRITE_LABEL), false);
+    assert.deepEqual(store.grants(), []);
   });
 });
