@@ -48,7 +48,7 @@ import type {
   Ticket,
   TokenCount,
   TranscriptPath,
-  TurboableConsent,
+  GrantConsent,
   UniformFilesReverted,
   UsageLedger,
   Usd,
@@ -2580,7 +2580,7 @@ async function decideMerge(
       reason: "its implementation ticket carries no run span",
     };
   }
-  let consent: TurboableConsent;
+  let consent: GrantConsent;
   try {
     consent = await ports.tracker.wasTurboableAt(
       implementation,

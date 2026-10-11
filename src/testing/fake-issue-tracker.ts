@@ -20,7 +20,7 @@ import type {
   SubIssue,
   Ticket,
   GrantLabel,
-  TurboableConsent,
+  GrantConsent,
 } from "../ports/index.ts";
 import {
   READY_FOR_AGENT_LABEL,
@@ -573,7 +573,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     instant: Date,
     spans: readonly RunSpan[],
     grants: readonly GrantRecord[],
-  ): Promise<TurboableConsent> {
+  ): Promise<GrantConsent> {
     return this.wasGrantedAt(TURBOABLE_LABEL, ticket, instant, spans, grants);
   }
 
@@ -584,7 +584,7 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     instant: Date,
     spans: readonly RunSpan[],
     grants: readonly GrantRecord[],
-  ): Promise<TurboableConsent> {
+  ): Promise<GrantConsent> {
     return grantConsentAt(
       label,
       ticket,
