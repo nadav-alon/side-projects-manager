@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, constants, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -2886,23 +2886,19 @@ const dockerContainer: Container = async (options) => {
   }
 
   try {
-    const running = run("docker", command, {
-      maxBuffer: OUTPUT_LIMIT,
+    const progress =
+      options.onProgress !== undefined ? progressFrom(options.onProgress) : undefined;
+    const { stdout, stderr } = await runStreaming("docker", command, {
       env,
       signal: options.signal,
+      progress,
     });
-    if (options.onProgress !== undefined) {
-      const progress = progressFrom(options.onProgress);
-      running.child.stdout?.on("data", (chunk: string) => progress.onChunk(chunk));
-      running.child.stdout?.on("end", () => progress.onEnd());
-    }
-    const { stdout, stderr } = await running;
     return readAgentRun(stdout, stderr);
   } catch (error: unknown) {
     // `options.signal.aborted` means this exit is ours: `onAbort` already
-    // `docker kill`ed the container, `execFile`'s own `signal` already ended
-    // the client waiting on it, or both — whatever `execFile` rejected with
-    // is just that shape (a signal, an abort error, or docker's exit code for
+    // `docker kill`ed the container, `runStreaming`'s spawn `signal` already
+    // ended the client waiting on it, or both — whatever `runStreaming`
+    // rejected with is just that shape (a signal, an abort error, or docker's exit code for
     // one), not the agent's own exit to read as `readExitedRun` would.
     // Rethrown rather than turned into a result here, so `attempt` — which
     // owns the timer and so is the one place that can word a stall — is what
@@ -2919,6 +2915,111 @@ const dockerContainer: Container = async (options) => {
     await killed;
   }
 };
+
+/**
+ * How much of a run's raw stdout `runStreaming` keeps for the fallback when
+ * the stream never yields a `result` line, in characters (`string.length`),
+ * not bytes like `OUTPUT_LIMIT`.
+ */
+export const STREAM_TAIL = 1024 * 1024;
+
+/**
+ * How long `runStreaming`'s running tails may grow before they are cut back
+ * to `STREAM_TAIL`: slack, so a tail is sliced once per `STREAM_TAIL` of
+ * output rather than on every chunk.
+ */
+const TRIM_AT = 2 * STREAM_TAIL;
+
+/** The start of a stream-json `result` line, which may be kept past `STREAM_TAIL`. */
+const RESULT_PREFIX = '{"type":"result"';
+
+/**
+ * Runs `file` the way `execFile` would, but reads its stdout as it arrives
+ * instead of buffering all of it under `maxBuffer`: a stream-json run says
+ * more than any fixed buffer can be trusted to hold, and overflowing one
+ * kills the container mid-run. What it resolves with, and hangs off a
+ * rejection, as `execFile` does, is the stream's last `result` line and
+ * a bounded tail of the raw text — enough for `readAgentRun`, whatever the
+ * stream's size. `stderr` is bounded to the same tail.
+ *
+ * `progress` sees every chunk of the stream, untouched by that bound.
+ */
+function runStreaming(
+  file: string,
+  args: readonly string[],
+  options: {
+    env: NodeJS.ProcessEnv;
+    signal: AbortSignal;
+    progress: ProgressReader | undefined;
+  },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, {
+      env: options.env,
+      signal: options.signal,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    let stdoutTail = "";
+    let unfinished = "";
+    let lastResult: string | undefined;
+    let stderr = "";
+
+    function boundedTail(text: string): string {
+      return text.length > TRIM_AT ? text.slice(-STREAM_TAIL) : text;
+    }
+    function noteLine(line: string): void {
+      if (line.includes('"result"') && isEventOfType(parse(line), "result")) {
+        lastResult = line;
+      }
+    }
+    function finalOutput(): { stdout: string; stderr: string } {
+      noteLine(unfinished);
+      const kept = stdoutTail.slice(-STREAM_TAIL);
+      // `readAgentRun` finds the result with `resultEvent`, over this text, so
+      // `lastResult` goes back in front when the tail has cut it off.
+      const stdout =
+        lastResult !== undefined && !kept.includes(lastResult)
+          ? `${lastResult}\n${kept}`
+          : kept;
+      return { stdout, stderr: stderr.slice(-STREAM_TAIL) };
+    }
+
+    child.stdout.on("data", (chunk: string) => {
+      options.progress?.onChunk(chunk);
+      stdoutTail = boundedTail(stdoutTail + chunk);
+      const split = completeLines(unfinished, chunk);
+      unfinished = split.unfinished;
+      for (const line of split.lines) {
+        noteLine(line);
+      }
+      // Every complete line is parsed, however long. An unfinished line past
+      // the tail is held on only while it can still be a `result` line, so
+      // one longer than the tail is read whole once its newline arrives;
+      // any other is dropped, and the rest of it parses as a stray fragment.
+      if (unfinished.length > STREAM_TAIL && !unfinished.startsWith(RESULT_PREFIX)) {
+        unfinished = "";
+      }
+    });
+    child.stdout.on("end", () => options.progress?.onEnd());
+    child.stderr.on("data", (chunk: string) => {
+      stderr = boundedTail(stderr + chunk);
+    });
+    child.on("error", (error) => {
+      reject(Object.assign(error, finalOutput()));
+    });
+    child.on("close", (code, signal) => {
+      const output = finalOutput();
+      if (code === 0) {
+        resolve(output);
+        return;
+      }
+      reject(Object.assign(new Error(`Command failed: ${file}`), { code, signal }, output));
+    });
+  });
+}
 
 /**
  * Kills the container `dockerCommand`'s `--cidfile` named, once `attempt`'s
@@ -3247,11 +3348,12 @@ function captured(error: unknown): { stdout: string; stderr: string } {
 
 /**
  * What `claude --output-format stream-json` said. The run's envelope is the
- * stream's final `result` event; a single JSON document
- * is read the same way, since a CLI that ignores the format flag prints one. Output the manager cannot parse is still output
- * worth keeping, so a stream with no readable `result` event reports the raw
- * text and no spend rather than failing the run — and events that do not
- * parse mid-stream are skipped, not fatal.
+ * stream's final `result` event; a single JSON document is read the same
+ * way, since a CLI that ignores the format flag prints one. Output the
+ * manager cannot parse is still output worth keeping, so a stream with no
+ * readable `result` event reports the raw text and no spend rather than
+ * failing the run — and events that do not parse mid-stream are skipped, not
+ * fatal.
  *
  * `stderr` is appended rather than dropped: a run that went wrong says so
  * there, and that is exactly the run whose output somebody has to read. So are
@@ -3358,6 +3460,22 @@ function withDiagnostics(
   return notes.join("\n");
 }
 
+/** What `progressFrom` hands back: feed it the stream's chunks, then tell it the stream ended. */
+type ProgressReader = {
+  onChunk(chunk: string): void;
+  onEnd(): void;
+};
+
+/**
+ * Splits `held + chunk` at newlines: the complete lines, and the unfinished
+ * text after the last one, to be held until the rest of it arrives.
+ */
+function completeLines(held: string, chunk: string): { lines: string[]; unfinished: string } {
+  const lines = (held + chunk).split("\n");
+  const unfinished = lines.pop() ?? "";
+  return { lines, unfinished };
+}
+
 /**
  * Turns the chunks of a stream-json stdout into calls to `onProgress`, one
  * per complete line. A chunk may end mid-line, so the unfinished tail is held
@@ -3369,10 +3487,7 @@ function withDiagnostics(
  * inside a stream listener, where a throw would take down the whole process,
  * and the run it reports on is worth more than its report.
  */
-function progressFrom(onProgress: OnRunProgress): {
-  onChunk: (chunk: string) => void;
-  onEnd: () => void;
-} {
+function progressFrom(onProgress: OnRunProgress): ProgressReader {
   let toolCalls = 0;
   let lastTool: RunProgress["lastTool"];
   let unfinished = "";
@@ -3399,9 +3514,9 @@ function progressFrom(onProgress: OnRunProgress): {
 
   return {
     onChunk(chunk) {
-      const lines = (unfinished + chunk).split("\n");
-      unfinished = lines.pop() ?? "";
-      report(lines);
+      const split = completeLines(unfinished, chunk);
+      unfinished = split.unfinished;
+      report(split.lines);
     },
     onEnd() {
       report([unfinished]);
