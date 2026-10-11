@@ -328,9 +328,9 @@ export interface AgentRun {
    * The head an apply-review or rebase agent says the pull request's branch
    * has on the repo host now, off the envelope's `structured_output` — see
    * `structuredAnswerFrom`. Absent unless the agent reported its push
-   * rejected because the branch moved. Not yet checked to be a commit.
+   * rejected because the branch moved.
    */
-  branchMoved?: string;
+  branchMoved?: BranchMoved;
   /**
    * Set only by `attempt`, when the container itself threw once the agent had
    * already started, rather than the agent's own exit setting `failure` the
@@ -2139,8 +2139,30 @@ async function rebaseOnClone(
   );
 }
 
+/**
+ * What an agent said of the head its rejected push found: its words, and the
+ * commit they name when they are exactly a full hash. An abbreviation cannot
+ * be compared with the head the repo host reports, so it leaves `head` out.
+ */
+export interface BranchMoved {
+  said: string;
+  head?: CommitSha;
+}
+
 /** A full commit hash, SHA-1 or SHA-256, rather than an abbreviation of one. */
 const FULL_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** The `BranchMoved` for `said`, or undefined when it is blank. */
+export function branchMovedFrom(said: string): BranchMoved | undefined {
+  const trimmed = said.trim();
+  if (trimmed === "") {
+    return undefined;
+  }
+  return {
+    said: trimmed,
+    ...(FULL_HASH.test(trimmed) && isCommitSha(trimmed) && { head: trimmed }),
+  };
+}
 
 /**
  * `endingOf`, as an apply-review or rebase run ends it, together with
@@ -2161,19 +2183,18 @@ function pushOutcomeOf(
   const movedTo = agent.branchMoved;
   if (
     (ending.kind === "finished" || ending.kind === "gave-up") &&
-    movedTo !== undefined &&
-    isCommitSha(movedTo)
+    movedTo !== undefined
   ) {
-    // Only a full hash is carried: an abbreviation cannot be compared with
-    // the head the repo host reports. The push was rejected all the same.
+    // The agent sets the field only for a rejected push, so any answer gives
+    // up; only a full hash is carried on.
     return {
       moved: true,
       outcome: withTranscriptAndDiscoveryFields(
         {
           kind: "gave-up",
           output: agent.output,
-          reason: `The push was rejected: the pull request's branch had moved to ${movedTo}.`,
-          ...(FULL_HASH.test(movedTo) ? { movedHead: movedTo } : {}),
+          reason: `The push was rejected: the pull request's branch had moved to ${movedTo.said}.`,
+          ...(movedTo.head !== undefined && { movedHead: movedTo.head }),
           tokensUsed: agent.tokensUsed,
         },
         agent,
@@ -3343,7 +3364,7 @@ export const RUN_ANSWER_SCHEMA = {
 interface StructuredAnswer {
   gist?: TicketGist;
   nits?: Nits;
-  branchMoved?: string;
+  branchMoved?: BranchMoved;
   /** Why the agent says it gave up, absent when it did not. */
   gaveUpReason?: string;
 }
@@ -3360,12 +3381,11 @@ function structuredAnswerFrom(envelope: object): StructuredAnswer | undefined {
     return undefined;
   }
   const { gist, nits, gaveUp, reason, branchMoved } = structured as Record<string, unknown>;
+  const moved = typeof branchMoved === "string" ? branchMovedFrom(branchMoved) : undefined;
   return {
     ...(typeof gist === "string" && isTicketGist(gist) && { gist }),
     ...(typeof nits === "string" && isNits(nits) && { nits }),
-    ...(typeof branchMoved === "string" && branchMoved.trim() !== "" && {
-      branchMoved: branchMoved.trim(),
-    }),
+    ...(moved !== undefined && { branchMoved: moved }),
     ...(gaveUp === true && {
       gaveUpReason:
         typeof reason === "string" && reason.trim() !== ""
