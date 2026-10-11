@@ -51,6 +51,19 @@ settings travel with the manager's code, differ by run kind and base branch, and
 commit rather than an image rebuild. A run refused a command matching one says so in its output, so
 a developer can see the manager's rule among whatever else denied it.
 
+Those deny rules match only the spellings they list, so `--settings` also carries a `PreToolUse`
+hook on Bash that parses each `git push` in the command and refuses it when its refspec targets
+the base branch (explicitly, by wildcard, by `--all`/`--mirror`, or implicitly because the clone
+is on the base branch) or when it force-pushes: `--force`, `-f`, a `+` refspec.
+Apply-review and rebase runs may use `--force-with-lease`, never to the base branch. A hook was
+chosen over a broader pattern set because the set of spellings of a push is open-ended. A command
+the hook cannot read is refused: an argument built from an expansion or brace (`$ARGS`, `$'master'`,
+`{master,x}`), a `-c` setting `remote.*.push`, `push.*` or `alias.*`, and an implicit or `HEAD` push
+after a `cd`, `checkout` or `switch`. Two gaps remain, accepted: a bare push is read as going to the
+current branch's name, so config set by an earlier call (`git config remote.origin.push HEAD:master`)
+is not followed; and the hook fails open, letting through input it cannot parse and any crash of its
+own, because failing closed would break every Bash call of every run on a hook fault.
+
 What a rebase run gives up by not reading project settings is everything else the project's file
 carries: its other `permissions.deny` rules, its hooks and its `env`, and possibly its `CLAUDE.md`
 and `.claude/skills` too, if the CLI gates them on the project source as the Agent SDK does (not

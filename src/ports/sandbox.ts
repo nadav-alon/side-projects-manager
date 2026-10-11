@@ -65,12 +65,12 @@ export type RunKind = Exclude<TicketKind, "implementation"> | "run";
  * branch with the implementation's own credential. Every other kind is
  * refused every force-push.
  *
- * The manager's own deny rules apply to every run whatever the project's
- * `.claude/settings.json` says, and refuse `gh pr merge`, a push to the base
- * branch and a force-push. Only the force-push rule is ever lifted, only for
- * these kinds, and only down to `--force-with-lease`; the merge and
- * base-branch rules hold for all of them. `manager-settings.ts` reads this
- * list.
+ * The manager's own deny rules and push-guard hook apply to every run whatever
+ * the project's `.claude/settings.json` says, and refuse `gh pr merge`, a push
+ * to the base branch and a force-push. Only the force-push refusal is ever
+ * lifted, in the deny rules and in the hook's `lease` policy, only for these
+ * kinds, and only down to `--force-with-lease`; the merge and base-branch
+ * refusals hold for all of them. `manager-settings.ts` reads this list.
  */
 export const FORCE_PUSH_RUN_KINDS: readonly RunKind[] = ["apply-review", "rebase"];
 
