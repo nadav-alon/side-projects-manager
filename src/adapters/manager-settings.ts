@@ -1,5 +1,6 @@
-// Dependency-free beyond its imports from `src/ports/` and `push-guard.ts`, because `scripts/verify-harness.ts` runs
-// it inside the built image, where nothing else of `src/` is mounted.
+// Dependency-free beyond its imports from `src/ports/` and `push-guard.ts`, because
+// `scripts/verify-harness.ts` runs it inside the built image, where nothing else of `src/` is
+// mounted.
 
 import type { Branch } from "../ports/branch.ts";
 import { FORCE_PUSH_RUN_KINDS, type RunKind } from "../ports/sandbox.ts";
