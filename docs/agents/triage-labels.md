@@ -129,7 +129,9 @@ read-write; every other run keeps them read-only. Read through the same gate as 
 - A label may not exist yet in a given repo: create it on first use (`gh label create live-write`)
   before `gh issue edit --add-label`.
 - The manager never applies it.
-- Handing the ticket back removes it, in the same step that relabels the ticket `ready-for-human`; the next round starts without it and the standup grants afresh.
+- Handing the ticket back also removes it, best effort, right after relabelling the ticket
+  `ready-for-human`; the next round starts without it and a human grants it afresh. If it is still
+  present, remove it before granting again.
 
 ## Turboable label
 
@@ -146,4 +148,6 @@ pending read; otherwise the manager labels it `ready-for-human` instead.
 - A label may not exist yet in a given repo: create it on first use (`gh label create turboable`)
   before `gh issue edit --add-label`.
 - The manager strips it from every ticket it opens, and never applies it.
-- Handing the ticket back removes it, in the same step that relabels the ticket `ready-for-human`; the next round starts without consent and the standup grants afresh, so the gate always has a fresh `labeled` event to match.
+- Handing the ticket back also removes it, best effort, right after relabelling the ticket
+  `ready-for-human`; the next round starts without consent and a human grants it afresh. If it is
+  still present, remove it before granting again, so the gate has a fresh `labeled` event to match.
