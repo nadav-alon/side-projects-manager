@@ -30,6 +30,7 @@ import {
   SPEC_REVIEW_SIZE_LABEL,
   SUPERTASK_LABEL,
   TURBOABLE_LABEL,
+  GRANT_LABELS,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
   carriesSpecReviewLabel,
@@ -704,6 +705,9 @@ export class FakeIssueTracker implements IssueTracker, SummaryTracker {
     // invoking the loop again and finding nothing to select.
     entry?.labels.delete(READY_FOR_AGENT_LABEL);
     entry?.labels.add(READY_FOR_HUMAN_LABEL);
+    for (const grant of GRANT_LABELS) {
+      entry?.labels.delete(grant);
+    }
     return "handed-back";
   }
 

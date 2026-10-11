@@ -505,6 +505,32 @@ describe("ghIssueTracker.handBack", () => {
     assert.deepEqual(order, [...order].sort((a, b) => a - b));
   });
 
+  it("takes each per-ticket grant off, so the next round starts without consent", async (t) => {
+    const gh = await recordingGh(t, WORKING);
+
+    await ghIssueTracker().handBack(TICKET, COMMENT);
+
+    const removed = (await gh.calls())
+      .filter((call) => call.includes("--remove-label"))
+      .map((call) => valueOf(call, "--remove-label"));
+    assert.deepEqual(removed, [READY_FOR_AGENT_LABEL, "turboable", "live-write"]);
+  });
+
+  it("still counts as handed back when a grant cannot be removed", async (t) => {
+    await recordingGh(
+      t,
+      [
+        `case "$*" in`,
+        `  "issue view "*) echo "OPEN" ;;`,
+        `  *"--remove-label turboable"*) echo "label not found" >&2; exit 1 ;;`,
+        `  *) : ;;`,
+        `esac`,
+      ].join("\n"),
+    );
+
+    assert.equal(await ghIssueTracker().handBack(TICKET, COMMENT), "handed-back");
+  });
+
   it("relabels a ticket in a project that already has the label", async (t) => {
     const gh = await recordingGh(
       t,

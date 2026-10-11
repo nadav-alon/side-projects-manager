@@ -18,6 +18,7 @@ import {
   repoSlug,
   SIZE_S_LABEL,
   ticketPriority,
+  LIVE_WRITE_LABEL,
   TURBOABLE_LABEL,
   type ApplyReviewTicket,
   type RebaseTicket,
@@ -57,6 +58,21 @@ describe("FakeIssueTracker", () => {
 
     assert.equal(outcome, "handed-back");
     assert.deepEqual(backlogIn(await tracker.listOpenIssues(PILOT)).tickets, []);
+  });
+
+  it("strips the per-ticket grants when a ticket is handed back", async () => {
+    const tracker = new FakeIssueTracker();
+    const ticket = tracker.addEligibleTicket(PILOT, {
+      number: issueNumber(7),
+      title: "Add the thing",
+    });
+    tracker.addLabel(ticket, TURBOABLE_LABEL);
+    tracker.addLabel(ticket, LIVE_WRITE_LABEL);
+
+    await tracker.handBack(ticket, "gave up");
+
+    assert.equal(tracker.carriesLabel(ticket, TURBOABLE_LABEL), false);
+    assert.equal(tracker.carriesLabel(ticket, LIVE_WRITE_LABEL), false);
   });
 
   it("leaves a closed ticket's labels alone and records no comment when handed back", async () => {

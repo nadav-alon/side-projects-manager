@@ -37,6 +37,7 @@ import {
   SPEC_REVIEW_SIZE_LABEL,
   TURBOABLE_LABEL,
   LIVE_WRITE_LABEL,
+  GRANT_LABELS,
   type GrantLabel,
   carriesReadyDiscoveryLabel,
   carriesReadyForAgent,
@@ -420,6 +421,19 @@ export function ghIssueTracker(
         console.warn(
           `${ticket.repo}#${ticket.number} is out of the queue but not labelled ${READY_FOR_HUMAN_LABEL}: ${errorMessage(error)}`,
         );
+      }
+      // Last, and best effort: a per-ticket grant is one round's consent, so
+      // the next round starts without it and the standup grants afresh. A
+      // grant left on the ticket would make a relabel to ready-for-agent
+      // produce no `labeled` event for the gate to match.
+      for (const grant of GRANT_LABELS) {
+        try {
+          await execFileAsync("gh", ["issue", "edit", ...args, "--remove-label", grant]);
+        } catch (error) {
+          console.warn(
+            `${ticket.repo}#${ticket.number} is handed back but ${grant} could not be removed: ${errorMessage(error)}`,
+          );
+        }
       }
       return "handed-back";
     },
