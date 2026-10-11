@@ -57,7 +57,7 @@ export function pushRefusal(
       words = [];
     };
     for (let index = 0; index < text.length; index += 1) {
-      const character = text[index] ?? "";
+      const character = text.charAt(index);
       if (character === "'") {
         const close = text.indexOf("'", index + 1);
         const end = close === -1 ? text.length : close;
@@ -69,12 +69,12 @@ export function pushRefusal(
         index += 1;
         while (index < text.length && text[index] !== '"') {
           if (text[index] === "\\" && index + 1 < text.length) index += 1;
-          word += text[index] ?? "";
+          word += text.charAt(index);
           index += 1;
         }
       } else if (character === "\\" && index + 1 < text.length) {
         if (text[index + 1] !== "\n") {
-          word += text[index + 1] ?? "";
+          word += text.charAt(index + 1);
           started = true;
         }
         index += 1;
@@ -109,15 +109,14 @@ export function pushRefusal(
     let lease = false;
     let everything = false;
     let optionsEnded = false;
-    for (let index = 0; index < args.length; index += 1) {
-      const arg = args[index];
-      if (arg === undefined) continue;
+    const remaining = args.values();
+    for (const arg of remaining) {
       if (optionsEnded || !arg.startsWith("-") || arg === "-") {
         positionals.push(arg);
       } else if (arg === "--") {
         optionsEnded = true;
       } else if (optionsWithValue.includes(arg)) {
-        index += 1;
+        remaining.next();
       } else if (arg === "--force") {
         force = true;
       } else if (arg.startsWith("--force-with-lease")) {
@@ -131,7 +130,7 @@ export function pushRefusal(
         // A short cluster: `-o` ends it, taking the rest of the cluster or the next word as its value.
         for (let at = 1; at < arg.length; at += 1) {
           if (arg[at] === "o") {
-            if (at === arg.length - 1) index += 1;
+            if (at === arg.length - 1) remaining.next();
             break;
           }
           if (arg[at] === "f") force = true;
@@ -181,10 +180,12 @@ export function pushRefusal(
       if (words[at]?.split("/").pop() !== "git") continue;
       const directories: string[] = [];
       let index = at + 1;
-      for (let option = words[index]; option?.startsWith("-"); option = words[index]) {
-        const value = words[index + 1];
-        if (option === "-C" && value !== undefined) directories.push(value);
-        if (option === "-c" && redirectingConfig.test(words[index + 1] ?? "")) return unreadable;
+      while (true) {
+        const option = words[index];
+        if (!option?.startsWith("-")) break;
+        const next = words[index + 1];
+        if (option === "-C" && next !== undefined) directories.push(next);
+        if (option === "-c" && next !== undefined && redirectingConfig.test(next)) return unreadable;
         index += gitOptionsWithValue.includes(option) ? 2 : 1;
       }
       if (words[index] === "checkout" || words[index] === "switch") moved = true;

@@ -64,6 +64,13 @@ describe("pushRefusal: the base branch", () => {
     assert.deepEqual(asked, [["a", "b"]]);
   });
 
+  it("reads an option missing its value at the end of the command", () => {
+    assert.equal(refusal("git -C", PLAIN, "master"), undefined);
+    assert.equal(refusal("git -c", PLAIN, "master"), undefined);
+    assert.match(refusal("git push --repo", PLAIN, "master") ?? "", /a push to master/);
+    assert.match(refusal("git push -o", PLAIN, "master") ?? "", /a push to master/);
+  });
+
   it("lets a push of another branch through, to every run", () => {
     for (const policy of [PLAIN, LEASING]) {
       for (const command of [
