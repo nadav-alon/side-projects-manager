@@ -3577,10 +3577,13 @@ async function withInsteadOf(
 
 const MOVED_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
-/** The `branchMoved` an agent run carries for `said`, left off when `said` names no head. */
-function movedHead(said: string): Pick<AgentRun, "branchMoved"> {
+/** The `branchMoved` an agent run carries for `said`, which must not be blank. */
+function branchMovedSaying(said: string): Pick<AgentRun, "branchMoved"> {
   const branchMoved = branchMovedFrom(said);
-  return branchMoved === undefined ? {} : { branchMoved };
+  if (branchMoved === undefined) {
+    throw new Error("branchMovedSaying needs a non-blank answer");
+  }
+  return { branchMoved };
 }
 
 /** Asks `sandbox` to apply the review on `APPLY_REVIEW_TICKET`, against `directory`. */
@@ -3997,7 +4000,7 @@ describe("containerSandbox.applyReview", () => {
     const report = "Push rejected: the branch moved under me.";
     const sandbox = testSandbox(async () => ({
       output: report,
-      ...movedHead(MOVED_HEAD),
+      ...branchMovedSaying(MOVED_HEAD),
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
@@ -4015,7 +4018,7 @@ describe("containerSandbox.applyReview", () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
       output: "Push rejected.",
-      ...movedHead("abc1234"),
+      ...branchMovedSaying("abc1234"),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4044,7 +4047,7 @@ describe("containerSandbox.applyReview", () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
       output: "Push rejected.",
-      ...movedHead(`\`${MOVED_HEAD}\` (a note)`),
+      ...branchMovedSaying(`\`${MOVED_HEAD}\` (a note)`),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4273,7 +4276,7 @@ describe("containerSandbox.applyReview", () => {
       const sandbox = testSandbox(async (request) => {
         await touchesUniformFile(request);
         pushed = await headOf(request.directory);
-        return { output: report, ...movedHead(MOVED_HEAD), tokensUsed: tokenCount(0) };
+        return { output: report, ...branchMovedSaying(MOVED_HEAD), tokensUsed: tokenCount(0) };
       }, headIsBranch);
 
       const result = await applyReviewOn(sandbox, directory);
@@ -4572,7 +4575,7 @@ describe("containerSandbox.rebase", () => {
     const report = "Push rejected: the branch moved under me.";
     const sandbox = testSandbox(async () => ({
       output: report,
-      ...movedHead(MOVED_HEAD),
+      ...branchMovedSaying(MOVED_HEAD),
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
@@ -4590,7 +4593,7 @@ describe("containerSandbox.rebase", () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
       output: "Push rejected.",
-      ...movedHead("abc1234"),
+      ...branchMovedSaying("abc1234"),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4760,7 +4763,7 @@ describe("containerSandbox.rebase", () => {
       const sandbox = testSandbox(async (request) => {
         await touchesUniformFile(request);
         pushed = await headOf(request.directory);
-        return { output: report, ...movedHead(MOVED_HEAD), tokensUsed: tokenCount(0) };
+        return { output: report, ...branchMovedSaying(MOVED_HEAD), tokensUsed: tokenCount(0) };
       }, headIsBranch);
 
       const result = await rebaseOn(sandbox, directory);
