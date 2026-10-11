@@ -4552,7 +4552,7 @@ describe("morningLoop", () => {
       const moved = commitSha("a1".repeat(20));
       ports.sandbox.applyReviewResult = () => ({
         kind: "gave-up",
-        output: `Branch moved: ${moved}`,
+        output: "Push rejected: the branch moved under me.",
         reason: `The push was rejected: the pull request's branch had moved to ${moved}.`,
         movedHead: moved,
         tokensUsed: tokenCount(2_000),
@@ -5721,7 +5721,7 @@ describe("morningLoop", () => {
       const moved = commitSha("b2".repeat(20));
       ports.sandbox.rebaseResult = () => ({
         kind: "gave-up",
-        output: `Branch moved: ${moved}`,
+        output: "Push rejected: the branch moved under me.",
         reason: `The force-push was rejected: the branch had moved to ${moved}.`,
         movedHead: moved,
         tokensUsed: tokenCount(2_000),

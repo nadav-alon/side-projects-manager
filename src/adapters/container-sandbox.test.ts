@@ -30,6 +30,7 @@ import {
   pruneOldDiscoveries,
   pruneOldTranscripts,
   RUN_ANSWER_SCHEMA,
+  branchMovedFrom,
   SALVAGE_COMMIT_MESSAGE,
   STALL_POLL_INTERVAL,
   STALL_TIMEOUT,
@@ -2449,7 +2450,6 @@ describe("transcript", () => {
     assert.equal(asked.length, 2);
     for (const prompt of asked) {
       assert.match(prompt, /set `branchMoved` in your\s+structured answer/);
-      assert.doesNotMatch(prompt, /Branch moved:/);
     }
     assert.ok("branchMoved" in RUN_ANSWER_SCHEMA.properties);
   });
@@ -3973,7 +3973,7 @@ describe("containerSandbox.applyReview", () => {
     const report = "Push rejected: the branch moved under me.";
     const sandbox = testSandbox(async () => ({
       output: report,
-      branchMoved: MOVED_HEAD,
+      branchMoved: branchMovedFrom(MOVED_HEAD),
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
@@ -3987,24 +3987,11 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(result.tokensUsed, tokenCount(500));
   });
 
-  it("reads a moved head the agent followed with more words on the same line", async () => {
-    const { directory } = await hostedProject();
-    const sandbox = testSandbox(async () => ({
-      output: "Push rejected.",
-      branchMoved: MOVED_HEAD,
-      tokensUsed: tokenCount(0),
-    }), headIsBranch);
-
-    const result = await applyReviewOn(sandbox, directory);
-
-    assert.equal(variant(result, "gave-up")?.movedHead, commitSha(MOVED_HEAD));
-  });
-
   it("gives up without a moved head when the agent named it by an abbreviated hash", async () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
       output: "Push rejected.",
-      branchMoved: "abc1234",
+      branchMoved: branchMovedFrom("abc1234"),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4029,17 +4016,18 @@ describe("containerSandbox.applyReview", () => {
     assert.equal(at, headCommit);
   });
 
-  it("reads no moved head from a line that names no commit", async () => {
+  it("gives up without a moved head when the branchMoved field wraps the hash in other text", async () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
       output: "Push rejected.",
-      branchMoved: "somewhere",
+      branchMoved: branchMovedFrom(`\`${MOVED_HEAD}\` (a note)`),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
     const result = await applyReviewOn(sandbox, directory);
 
-    assert.equal(result.kind, "finished");
+    assert.equal(result.kind, "gave-up");
+    assert.equal(variant(result, "gave-up")?.movedHead, undefined);
   });
 
   it("reports a limit refusal as a review run does", async () => {
@@ -4261,7 +4249,7 @@ describe("containerSandbox.applyReview", () => {
       const sandbox = testSandbox(async (request) => {
         await touchesUniformFile(request);
         pushed = await headOf(request.directory);
-        return { output: report, branchMoved: MOVED_HEAD, tokensUsed: tokenCount(0) };
+        return { output: report, branchMoved: branchMovedFrom(MOVED_HEAD), tokensUsed: tokenCount(0) };
       }, headIsBranch);
 
       const result = await applyReviewOn(sandbox, directory);
@@ -4560,7 +4548,7 @@ describe("containerSandbox.rebase", () => {
     const report = "Push rejected: the branch moved under me.";
     const sandbox = testSandbox(async () => ({
       output: report,
-      branchMoved: MOVED_HEAD,
+      branchMoved: branchMovedFrom(MOVED_HEAD),
       tokensUsed: tokenCount(500),
     }), headIsBranch);
 
@@ -4578,7 +4566,7 @@ describe("containerSandbox.rebase", () => {
     const { directory } = await hostedProject();
     const sandbox = testSandbox(async () => ({
       output: "Push rejected.",
-      branchMoved: "abc1234",
+      branchMoved: branchMovedFrom("abc1234"),
       tokensUsed: tokenCount(0),
     }), headIsBranch);
 
@@ -4748,7 +4736,7 @@ describe("containerSandbox.rebase", () => {
       const sandbox = testSandbox(async (request) => {
         await touchesUniformFile(request);
         pushed = await headOf(request.directory);
-        return { output: report, branchMoved: MOVED_HEAD, tokensUsed: tokenCount(0) };
+        return { output: report, branchMoved: branchMovedFrom(MOVED_HEAD), tokensUsed: tokenCount(0) };
       }, headIsBranch);
 
       const result = await rebaseOn(sandbox, directory);
