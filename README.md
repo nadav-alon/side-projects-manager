@@ -225,9 +225,8 @@ live state that is gitignored, say:
 ```
 
 Every run in that project, whatever its kind (implementation, review, apply-review, rebase, spec
-review, ux review), sees each `host` directory at its `container` path, read-only — except the implementation run of a
-ticket the developer granted `live-write`, which sees them all writable. Both
-paths are absolute and contain no `:`, and a `container` path is never `/`, `/repo`, `/discoveries`
+review, ux review), sees each `host` directory at its `container` path, read-only — except the
+implementation run of a ticket the developer granted `live-write`, which sees them all writable. Both
 or `/home/node/.claude/projects`, nor under one: those are the run's own mounts. A `host` that is
 not a directory on the machine, or that your user cannot read, fails the run before it starts,
 naming the path.
