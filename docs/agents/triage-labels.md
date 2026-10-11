@@ -119,9 +119,8 @@ second such ticket from that run's own discoveries, so unreviewed work never cha
 ## Live-write label
 
 Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run
-starts, per `CONTEXT.md`'s "Live-write". It starts that run with the project's registry mounts
-bound read-write; every other run keeps them read-only. Granted with
-`npm run grant -- owner/repo#n live-write` and read through the same gate as `turboable`.
+starts, per `CONTEXT.md`'s "Live-write". It starts that run with the project's mounts bound
+read-write; every other run keeps them read-only. Read through the same gate as `turboable`.
 
 | Label        | Meaning                                                                      |
 | ------------ | ---------------------------------------------------------------------------- |
