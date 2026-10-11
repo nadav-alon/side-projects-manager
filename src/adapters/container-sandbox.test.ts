@@ -59,6 +59,7 @@ import {
   reviewFindingTemplate,
   ticketGist,
   tokenCount,
+  type OnRunProgress,
   type RunProgress,
   UNIFORM_FILES,
   usd,
@@ -5798,6 +5799,37 @@ fi`;
       assert.ok(last?.lastTool !== undefined && last.lastEventAt >= last.lastTool.at);
       assert.equal(reported[0]?.lastTool, undefined);
     });
+
+    for (const [name, mount, ask] of [
+      ["review", "ro", (sandbox: Sandbox, checkout: Checkout, onProgress: OnRunProgress) =>
+        sandbox.review({ image: TEST_IMAGE, ticket: REVIEW_TICKET, checkout, spendCeiling: CEILING, onProgress })],
+      ["spec review", "ro", (sandbox: Sandbox, checkout: Checkout, onProgress: OnRunProgress) =>
+        sandbox.specReview({ image: TEST_IMAGE, ticket: SPEC_REVIEW_TICKET, checkout, spendCeiling: CEILING, onProgress })],
+      ["ux review", "ro", (sandbox: Sandbox, checkout: Checkout, onProgress: OnRunProgress) =>
+        sandbox.uxReview({ image: TEST_IMAGE, ticket: UX_REVIEW_TICKET, checkout, spendCeiling: CEILING, onProgress })],
+    ] as const) {
+      it(`reports a streamed ${name}'s progress to the request's callback`, async (t) => {
+        const stdout = [
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "tool_use", name: "Read" }] },
+          }),
+          JSON.stringify({ type: "result", result: "Done." }),
+        ].join("\n");
+        const reported: RunProgress[] = [];
+        const { result } = await runWithDocker(t, dockerAnswering(stdout), (sandbox, directory) =>
+          ask(sandbox, directory, (progress) => reported.push(progress)),
+          mount,
+        );
+
+        assert.equal(variant(result, "finished")?.output, "Done.");
+        assert.deepEqual(
+          reported.map((progress) => progress.toolCalls),
+          [1, 1],
+        );
+        assert.equal(reported.at(-1)?.lastTool?.name, "Read");
+      });
+    }
 
     it("reads a result line longer than the stream tail", async (t) => {
       const result = JSON.stringify({

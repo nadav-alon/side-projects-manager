@@ -1711,7 +1711,15 @@ async function reviewOnClone(
     const agent = await attempt(
       container,
       kind,
-      { directory: clone, prompt, spendCeiling, credential: "review", base, ...access },
+      {
+        directory: clone,
+        prompt,
+        spendCeiling,
+        credential: "review",
+        base,
+        ...access,
+        ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
+      },
       model,
       roots,
       onStarted,
