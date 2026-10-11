@@ -23,6 +23,10 @@
         {
           "host": "/home/cowclaw/self-hosted-media/config/bazarr",
           "container": "/live/config/bazarr"
+        },
+        {
+          "host": "/home/cowclaw/self-hosted-media/config/jellyfin",
+          "container": "/live/config/jellyfin"
         }
       ]
     }
