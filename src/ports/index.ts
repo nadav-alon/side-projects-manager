@@ -303,6 +303,8 @@ export {
   GRANT_MATCH_WINDOW,
   clearSalvage,
   grantLabelOf,
+  GRANT_LABELS,
+  isGrantLabel,
   grantMatches,
   hasAnnouncedOn,
   recordInfrastructureFailureSalvage,

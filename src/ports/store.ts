@@ -343,8 +343,33 @@ export function runSpanInProgress(
   return sameInvocation(span.openedBy, self) && inFlight(span.openedBy, journal);
 }
 
+/**
+ * The label that records a human's per-ticket consent for the merge gate to
+ * merge that ticket's pull request without asking again. Applied and
+ * removed by a human on the tracker's own UI — never by the manager, which
+ * opens every ticket it opens (a discovery, a review, an apply-review, a
+ * rebase, a spec review, a pull request) without it, whatever was asked.
+ * The one place the literal lives; every adapter reads it from here.
+ */
+export const TURBOABLE_LABEL = "turboable";
+
+/**
+ * The label that records a human's per-ticket consent for the ticket's run
+ * to be started with the project's registry mounts writable. Granted like
+ * `turboable`, with `npm run grant`, and read through the same gate; the
+ * manager never applies it. The one place the literal lives.
+ */
+export const LIVE_WRITE_LABEL = "live-write";
+
 /** The labels only the developer grants, each one a per-ticket consent. */
-export type GrantLabel = "turboable" | "live-write";
+export const GRANT_LABELS = [TURBOABLE_LABEL, LIVE_WRITE_LABEL] as const;
+
+export type GrantLabel = (typeof GRANT_LABELS)[number];
+
+/** Whether `value` is one of the `GRANT_LABELS`. */
+export function isGrantLabel(value: unknown): value is GrantLabel {
+  return GRANT_LABELS.some((label) => label === value);
+}
 
 /**
  * The developer's own grant of a `GrantLabel` on a ticket, as the `grant`
@@ -360,7 +385,7 @@ export interface GrantRecord extends WorkedTicket {
 
 /** The label `grant` is a grant of: `turboable` where it names none. */
 export function grantLabelOf(grant: Pick<GrantRecord, "label">): GrantLabel {
-  return grant.label ?? "turboable";
+  return grant.label ?? TURBOABLE_LABEL;
 }
 
 /** How far a `GrantRecord`'s `grantedAt` may lie from the `labeled` event it vouches for. */
@@ -376,7 +401,7 @@ export function grantMatches(
   grants: readonly GrantRecord[] | undefined,
   ticket: WorkedTicket,
   labeledAt: Date,
-  label: GrantLabel = "turboable",
+  label: GrantLabel = TURBOABLE_LABEL,
 ): boolean {
   return (grants ?? []).some(
     (grant) =>
@@ -394,7 +419,7 @@ export function recordGrant(
   previous: readonly GrantRecord[] | undefined,
   ticket: WorkedTicket,
   grantedAt: Date,
-  label: GrantLabel = "turboable",
+  label: GrantLabel = TURBOABLE_LABEL,
 ): GrantRecord[] {
   return [
     ...(withoutGrant(previous, ticket, label) ?? []),
@@ -402,7 +427,7 @@ export function recordGrant(
       repo: ticket.repo,
       number: ticket.number,
       grantedAt,
-      ...(label !== "turboable" && { label }),
+      ...(label !== TURBOABLE_LABEL && { label }),
     },
   ];
 }
@@ -426,7 +451,7 @@ export function sameGrant(a: GrantRecord, b: GrantRecord): boolean {
 export function withoutGrant(
   previous: readonly GrantRecord[] | undefined,
   ticket: WorkedTicket,
-  label: GrantLabel = "turboable",
+  label: GrantLabel = TURBOABLE_LABEL,
 ): GrantRecord[] | undefined {
   const kept = (previous ?? []).filter(
     (grant) => ticketKey(grant) !== ticketKey(ticket) || grantLabelOf(grant) !== label,

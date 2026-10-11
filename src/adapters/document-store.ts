@@ -49,6 +49,7 @@ import type {
 import {
   PULL_REQUEST_KIND_KEYS,
   DEFAULT_BUDGET,
+  GRANT_LABELS,
   INVOCATION_OUTCOMES,
   JOURNAL_LIMIT,
   KEPT_SUMMARY_LIMIT,
@@ -63,6 +64,7 @@ import {
   isBranch,
   isDay,
   isExitCode,
+  isGrantLabel,
   isInvocationOutcome,
   isIssueNumber,
   isIssueUrl,
@@ -784,8 +786,8 @@ function parseGrants(value: unknown, where: string): GrantRecord[] {
     const at = `${where}: grant ${index + 1}`;
     const { repo, number } = parseWorkedTicket(grant, at);
     const label = fieldOf(grant, "label", at);
-    if (label !== undefined && label !== "turboable" && label !== "live-write") {
-      throw new Error(`${at}: "label" must be "turboable" or "live-write": ${JSON.stringify(label)}`);
+    if (label !== undefined && !isGrantLabel(label)) {
+      throw new Error(`${at}: "label" must be one of ${GRANT_LABELS.join(", ")}: ${JSON.stringify(label)}`);
     }
     return {
       repo,

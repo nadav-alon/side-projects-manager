@@ -61,7 +61,7 @@ describe("grantTurboable", () => {
 
   it("writes no record when the label cannot be added", async () => {
     const { store, tracker, ports } = arranged({ turbo: true });
-    tracker.labelTurboable = async () => {
+    tracker.labelGranted = async () => {
       throw new Error("offline");
     };
 

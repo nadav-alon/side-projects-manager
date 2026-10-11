@@ -3,8 +3,18 @@ import { isModelName, type ModelName } from "./model-name.ts";
 import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import { isSize, largerSize, type Size } from "./size.ts";
-import { type GrantLabel, type GrantRecord, type RunSpan, grantMatches, runSpanCovers } from "./store.ts";
+import {
+  type GrantLabel,
+  type GrantRecord,
+  LIVE_WRITE_LABEL,
+  type RunSpan,
+  TURBOABLE_LABEL,
+  grantMatches,
+  runSpanCovers,
+} from "./store.ts";
 import type { TicketPriority } from "./ticket-priority.ts";
+
+export { LIVE_WRITE_LABEL, TURBOABLE_LABEL };
 
 /**
  * Whether `labels` include `name`, matched without regard to case, as GitHub
@@ -396,24 +406,6 @@ export const SUPERTASK_LABEL = "supertask";
 export function carriesSupertaskLabel(labels: Iterable<string>): boolean {
   return carriesLabel(labels, SUPERTASK_LABEL);
 }
-
-/**
- * The label that records a human's per-ticket consent for the merge gate to
- * merge that ticket's pull request without asking again. Applied and
- * removed by a human on the tracker's own UI — never by the manager, which
- * opens every ticket it opens (a discovery, a review, an apply-review, a
- * rebase, a spec review, a pull request) without it, whatever was asked.
- * The one place the literal lives; every adapter reads it from here.
- */
-export const TURBOABLE_LABEL = "turboable";
-
-/**
- * The label that records a human's per-ticket consent for the ticket's run
- * to be started with the project's registry mounts writable. Granted like
- * `turboable`, with `npm run grant`, and read through the same gate; the
- * manager never applies it. The one place the literal lives.
- */
-export const LIVE_WRITE_LABEL = "live-write";
 
 /** Whether a label timeline event added or removed the label. */
 export type LabelAction = "labeled" | "unlabeled";
