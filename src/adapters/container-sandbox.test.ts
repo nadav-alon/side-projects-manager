@@ -5831,6 +5831,38 @@ fi`;
       });
     }
 
+    for (const [name, ask] of [
+      ["apply-review run", (sandbox: Sandbox, checkout: Checkout, onProgress: OnRunProgress) =>
+        sandbox.applyReview({ image: TEST_IMAGE, ticket: APPLY_REVIEW_TICKET, checkout, spendCeiling: CEILING, onProgress })],
+      ["rebase run", (sandbox: Sandbox, checkout: Checkout, onProgress: OnRunProgress) =>
+        sandbox.rebase({ image: TEST_IMAGE, ticket: REBASE_TICKET, checkout, spendCeiling: CEILING, onProgress })],
+    ] as const) {
+      it(`reports a streamed ${name}'s progress to the request's callback`, async (t) => {
+        const stdout = [
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "tool_use", name: "Bash" }] },
+          }),
+          JSON.stringify({ type: "result", result: "Done." }),
+        ].join("\n");
+        withCredential(t);
+        const { directory } = await hostedProject();
+        await recordingDocker(t, dockerAnswering(stdout));
+        const reported: RunProgress[] = [];
+
+        const result = await ask(testSandbox(undefined, headIsBranch), directory, (progress) =>
+          reported.push(progress),
+        );
+
+        assert.equal(variant(result, "finished")?.output, "Done.");
+        assert.deepEqual(
+          reported.map((progress) => progress.toolCalls),
+          [1, 1],
+        );
+        assert.equal(reported.at(-1)?.lastTool?.name, "Bash");
+      });
+    }
+
     it("reads a result line longer than the stream tail", async (t) => {
       const result = JSON.stringify({
         type: "result",

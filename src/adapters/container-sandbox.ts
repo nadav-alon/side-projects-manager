@@ -2049,6 +2049,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
     model?: ModelName;
     manager?: true;
     discovered?: readonly DiscoveredTicketSummary[];
+    onProgress?: OnRunProgress;
   },
   promptFor: (ticket: T, discovered: readonly DiscoveredTicketSummary[] | undefined) => string,
   roots: SandboxRoots,
@@ -2073,6 +2074,7 @@ async function pushingRunOnClone<T extends ApplyReviewTicket | RebaseTicket>(
         credential: "developer",
         base,
         ...options,
+        ...(request.onProgress !== undefined && { onProgress: request.onProgress }),
       },
       model,
       roots,

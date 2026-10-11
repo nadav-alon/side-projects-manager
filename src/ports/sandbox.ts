@@ -174,6 +174,8 @@ export interface ApplyReviewRequest {
   image: ImageTag;
   /** As `RunRequest.mounts`. */
   mounts?: readonly ReadOnlyMount[];
+  /** As `RunRequest.onProgress`. */
+  onProgress?: OnRunProgress;
 }
 
 /**
@@ -228,6 +230,8 @@ export interface RebaseRequest {
   image: ImageTag;
   /** As `RunRequest.mounts`. */
   mounts?: readonly ReadOnlyMount[];
+  /** As `RunRequest.onProgress`. */
+  onProgress?: OnRunProgress;
 }
 
 /**
