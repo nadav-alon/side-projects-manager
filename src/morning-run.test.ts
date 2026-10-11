@@ -82,6 +82,16 @@ import {
 const UNSIZED_ESTIMATE = DEFAULT_BUDGET.sizes[DEFAULT_BUDGET.unsizedCountsAs];
 
 /** The finished half of an iteration outcome — undefined if it ended any other way. */
+/** The requests a sandbox received, each with its `onProgress` — which must be a function — taken off. */
+function withoutProgress<Request extends { onProgress?: unknown }>(
+  requests: readonly Request[],
+): Omit<Request, "onProgress">[] {
+  return requests.map(({ onProgress, ...request }) => {
+    assert.equal(typeof onProgress, "function");
+    return request;
+  });
+}
+
 function finished(iteration: IterationOutcome | undefined) {
   return iteration?.kind === "finished" ? iteration : undefined;
 }
@@ -1117,10 +1127,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.runs.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.runs),
         [
           {
             ticket,
@@ -1411,6 +1418,12 @@ describe("morningLoop", () => {
       const first = { toolCalls: 1, lastTool: { name: "Read", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
       const second = { toolCalls: 2, lastTool: { name: "Bash", at: FROZEN_NOW }, lastEventAt: FROZEN_NOW };
       ports.sandbox.progress = () => [first, second];
+      const writes: unknown[] = [];
+      const recordRunProgress = ports.store.recordRunProgress.bind(ports.store);
+      ports.store.recordRunProgress = async (opened, repo, number, progress) => {
+        writes.push(progress);
+        await recordRunProgress(opened, repo, number, progress);
+      };
       ports.sandbox.hold();
 
       const invocation = morningLoop(ports, { invocation: SELF });
@@ -1418,6 +1431,7 @@ describe("morningLoop", () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       const inFlight = await ports.store.loadJournal();
+      assert.deepEqual(writes, [first, second]);
       const [run] = inFlight.records.find((record) => record.process === SELF.process)?.runs ?? [];
       assert.deepEqual(run?.progress, second);
 
@@ -2569,10 +2583,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.reviews.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.reviews),
         [
           {
             ticket,
@@ -3891,10 +3902,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.uxReviews.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.uxReviews),
         [
           {
             // The raw ticket `addUxReviewTicket` stored, before `uxReview` is
@@ -4061,10 +4069,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.specReviews.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.specReviews),
         [
           {
             // `queuedSpecReview` hands back the raw ticket `addSpecReviewTicket`
@@ -4430,10 +4435,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.applyReviews.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.applyReviews),
         [
           {
             ticket,
@@ -5661,10 +5663,7 @@ describe("morningLoop", () => {
       await morningLoop(ports);
 
       assert.deepEqual(
-        ports.sandbox.rebases.map(({ onProgress, ...request }) => {
-          assert.equal(typeof onProgress, "function");
-          return request;
-        }),
+        withoutProgress(ports.sandbox.rebases),
         [
           {
             ticket,
