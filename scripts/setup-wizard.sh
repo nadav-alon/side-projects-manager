@@ -184,7 +184,7 @@ finish() {
 # Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=7
+TOTAL_STAGES=9
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$HOME/.side-projects-manager.env"
@@ -416,7 +416,7 @@ else
   note "skipped — run 'npm run new-project -- owner/repo \"idea\"' (or --existing) when ready."
 fi
 
-# ── Stage 7: the status line ────────────────────────────────────────────────
+# ── Stage 8: the status line ────────────────────────────────────────────────
 stage "Status line"
 say "A status line for interactive sessions: the session's mode in colour, the"
 say "repo and branch, the model and spend, and whether the loop is halted or in"
@@ -431,7 +431,7 @@ else
   SKIPPED+=("status line — run 'node scripts/install-status-line.ts' from $REPO_DIR to see the mode and the loop's state")
 fi
 
-# ── Stage 8: the session mod that draws the mode band ─────────────────────
+# ── Stage 9: the session mod that draws the mode band ─────────────────────
 stage "Session mod"
 say "mods/mode-band draws a coloured band above the prompt naming the mode"
 say "a grilling, standup, triage or wayfinder session is in. It is loaded by"
