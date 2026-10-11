@@ -125,6 +125,12 @@ export interface RunRequest {
    */
   mounts?: readonly ReadOnlyMount[];
   /**
+   * Set only when the ticket carries a `live-write` grant the gate accepted:
+   * `mounts` are then bound read-write and the prompt names them as
+   * writable. Absent, they are read-only, as for every other run.
+   */
+  mountsWritable?: true;
+  /**
    * Called as the run's events arrive, with where it has got to. Absent, the
    * sandbox does no progress work at all. A callback that throws is warned
    * about and the run goes on.

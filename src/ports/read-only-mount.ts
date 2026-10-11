@@ -74,8 +74,10 @@ export function containerPath(value: string): ContainerPath {
 }
 
 /**
- * A host directory a project's runs see at `container`, never writable: the
- * registry offers no way to declare one that is.
+ * A host directory a project's runs see at `container`. Read-only: the
+ * registry offers no way to declare one that is writable. Only a ticket's own
+ * `live-write` grant binds it read-write, for that ticket's run alone
+ * (`RunRequest.mountsWritable`).
  */
 export interface ReadOnlyMount {
   host: HostPath;

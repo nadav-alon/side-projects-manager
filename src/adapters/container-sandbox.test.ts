@@ -5511,6 +5511,32 @@ fi`;
     }
   });
 
+  it("mounts the declared directories writable, and names them in the prompt, for a run granted live-write only", async (t) => {
+    const config = await mkdtemp(path.join(tmpdir(), "mount-config-"));
+    const mounts = [{ host: hostPath(config), container: containerPath("/mnt/config") }];
+    const ask = (mountsWritable?: true) =>
+      runWithDocker(
+        t,
+        dockerAnswering(JSON.stringify({ result: "" })),
+        (sandbox, directory) =>
+          sandbox.run({
+            image: TEST_IMAGE,
+            ticket: TICKET,
+            checkout: directory,
+            spendCeiling: CEILING,
+            mounts,
+            ...(mountsWritable && { mountsWritable }),
+          }),
+      );
+    const granted = (await (await ask(true)).docker.calls())[0];
+    const ordinary = (await (await ask()).docker.calls())[0];
+
+    assert.ok(volumesOf(granted).includes(`${config}:/mnt/config`));
+    assert.ok(volumesOf(ordinary).includes(`${config}:/mnt/config:ro`));
+    assert.match(valueOf(granted, "--print") ?? "", /`live-write`[^]*\/mnt\/config/);
+    assert.doesNotMatch(valueOf(ordinary, "--print") ?? "", /live-write/);
+  });
+
   it("refuses to start, naming the path, when a declared host directory does not exist", async (t) => {
     withCredential(t, "rw");
     const directory = await project();
