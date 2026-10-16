@@ -2906,6 +2906,26 @@ describe("containerSandbox.review", () => {
     assert.match(asked, /mattpocock-skills:code-review/);
   });
 
+  it("tells the reviewer to wait for every review check it started before posting or answering", async () => {
+    const directory = await project();
+    let asked = "";
+    const sandbox = testSandbox(async ({ prompt }) => {
+      asked = prompt;
+      return { output: "", tokensUsed: tokenCount(0) };
+    });
+
+    await sandbox.review({ image: TEST_IMAGE,
+      ticket: REVIEW_TICKET,
+      checkout: directory,
+      spendCeiling: CEILING,
+    });
+
+    assert.match(
+      asked,
+      /Wait for every review check you started to come back before you post/,
+    );
+  });
+
   it("names both standards files as the documented standards the review checks against", async () => {
     const directory = await project();
     let asked = "";
