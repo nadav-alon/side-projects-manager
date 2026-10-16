@@ -2906,7 +2906,7 @@ describe("containerSandbox.review", () => {
     assert.match(asked, /mattpocock-skills:code-review/);
   });
 
-  it("tells the reviewer to wait for every review check it started before posting or answering", async () => {
+  it("tells the reviewer to wait for every sub-agent it started before posting or answering", async () => {
     const directory = await project();
     let asked = "";
     const sandbox = testSandbox(async ({ prompt }) => {
@@ -2922,7 +2922,7 @@ describe("containerSandbox.review", () => {
 
     assert.match(
       asked,
-      /Wait for every review check you started to come back before you post/,
+      /Wait for every\s+sub-agent you started to report back before you post/,
     );
   });
 
