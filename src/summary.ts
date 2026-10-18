@@ -1993,6 +1993,9 @@ function mergeGateNote(pullRequest: PullRequestUrl, merge: MergeGate | undefined
   if (merge?.kind === "not-turboable" && merge.declinedGrant !== undefined) {
     return ` Not merged: ${withoutTrailingStop(merge.reason)}.`;
   }
+  if (merge?.kind === "checks-pending") {
+    return " Not merged yet: its checks are still running; a later run merges it once they are green.";
+  }
   if (merge?.kind !== "left-for-human") {
     return "";
   }

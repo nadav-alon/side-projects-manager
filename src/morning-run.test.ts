@@ -3223,9 +3223,9 @@ describe("morningLoop", () => {
           );
         });
 
-        it("labels the pull request ready-for-human instead of merging when its checks are still running", async () => {
+        it("neither merges nor labels the pull request, recording the merge as pending, when its checks are still running", async () => {
           const ports = fakePorts();
-          queuedTurboableReview(ports);
+          const implementation = queuedTurboableReview(ports);
           postedACleanReview(ports);
           ports.repoHost.checksStatus = () => "pending";
 
@@ -3236,12 +3236,15 @@ describe("morningLoop", () => {
             ports.repoHost.labelled.filter(
               (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
             ),
-            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+            [],
           );
+          assert.deepEqual(ports.store.pendingMerges(), [
+            { repo: implementation.repo, number: implementation.number, pullRequest: PULL_REQUEST },
+          ]);
           const outcome = report.iterations[0];
           assert.deepEqual(
             outcome?.kind === "reviewed" ? outcome.merge : undefined,
-            { kind: "left-for-human", reason: "checks still running" },
+            { kind: "checks-pending" },
           );
         });
       });
@@ -5159,18 +5162,27 @@ describe("morningLoop", () => {
         );
       });
 
-      it("labels the pull request ready-for-human instead of merging when its checks are still running", async () => {
+      it("neither merges nor labels the pull request, recording the merge as pending, when its checks are still running", async () => {
         const ports = fakePorts();
-        queuedTurboable(ports);
+        const implementation = queuedTurboable(ports);
         ports.repoHost.checksStatus = () => "pending";
 
         const report = await morningLoop(ports);
 
         assert.deepEqual(ports.repoHost.merged, []);
+        assert.deepEqual(
+          ports.repoHost.labelled.filter(
+            (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+          ),
+          [],
+        );
+        assert.deepEqual(ports.store.pendingMerges(), [
+          { repo: implementation.repo, number: implementation.number, pullRequest: PULL_REQUEST },
+        ]);
         const outcome = report.iterations[0];
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "left-for-human", reason: "checks still running" },
+          { kind: "checks-pending" },
         );
       });
 
@@ -5284,7 +5296,7 @@ describe("morningLoop", () => {
         );
       });
 
-      it("leaves the pull request ready-for-human, reading checks for three minutes from the first pending read and posting no rebase or apply-review", async () => {
+      it("leaves the pull request unlabelled, reading checks for three minutes from the first pending read and posting no rebase or apply-review", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
         const checks = readsInTurn("pending");
@@ -5299,12 +5311,12 @@ describe("morningLoop", () => {
           ports.repoHost.labelled.filter(
             (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
           ),
-          [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          [],
         );
         const outcome = report.iterations[0];
         assert.deepEqual(
           outcome?.kind === "applied-review" ? outcome.merge : undefined,
-          { kind: "left-for-human", reason: "checks still running" },
+          { kind: "checks-pending" },
         );
       });
 

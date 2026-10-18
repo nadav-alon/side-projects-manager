@@ -203,6 +203,7 @@ type RunRecording = Pick<
   | "runSpans"
   | "grants"
   | "consumeGrant"
+  | "deferMerge"
 >;
 
 /**
@@ -2248,7 +2249,7 @@ async function endReportedReview(
  */
 interface MergeGateContext {
   implementation: Ticket | undefined;
-  invocation: Pick<RunRecording, "runSpans" | "grants" | "consumeGrant">;
+  invocation: Pick<RunRecording, "runSpans" | "grants" | "consumeGrant" | "deferMerge">;
 }
 
 /**
@@ -2522,7 +2523,9 @@ async function finishApplyReview(
  * checks read green — waiting out a pending read, up to `CHECKS_WAIT` —
  * attempting the merge itself to settle mergeable. Fires once, right after
  * the one apply-review run, or the one clean review, already in the loop: no
- * retry beyond that wait, no `/rebase`, whatever it finds. Never throws:
+ * `/rebase`, whatever it finds. Checks still pending when that wait ends
+ * leave the pull request unlabelled, its merge recorded pending for
+ * `mergePendingSweep`, which reads them again. Never throws:
  * every read this makes past `implementation` and `span` is guarded, so a
  * tracker or repo host failure comes back as a verdict rather than sinking a
  * ticket that has already closed.
@@ -2541,8 +2544,20 @@ async function mergeGate(
   // Read before the verdict and used up after it, whatever it is: a record
   // vouches for one firing of the gate (ADR 0012).
   const grants = await context.invocation.grants().catch(() => []);
-  const verdict = await decideMerge(ports, ticket, context, grants);
+  let verdict = await decideMerge(ports, ticket, context, grants);
   const { implementation } = context;
+  if (verdict.kind === "checks-pending" && implementation !== undefined) {
+    // Recorded before the grant is used up: a record the gate could not write
+    // leaves the pull request for the developer rather than pending for ever.
+    try {
+      await context.invocation.deferMerge(implementation, ticket.pullRequest.url);
+    } catch (error: unknown) {
+      console.warn(
+        `Could not record the pending merge of ${ticket.pullRequest.url}: ${errorMessage(error)}`,
+      );
+      verdict = await leftForHuman(ports, ticket.pullRequest.url, "checks still running");
+    }
+  }
   if (implementation !== undefined) {
     await context.invocation.consumeGrant(implementation).catch((error: unknown) => {
       console.warn(
@@ -2614,7 +2629,23 @@ async function decideMerge(
     }
   }
 
-  const pullRequest = ticket.pullRequest.url;
+  return mergeWhenGreen(ports, ticket.pullRequest.url, implementation, () =>
+    settledChecks(ports.repoHost, ports.clock, ticket.pullRequest.url),
+  );
+}
+
+/**
+ * Merges `pullRequest` if it is green and mergeable, once `readChecks` has
+ * read its checks; the consent behind it already settled by the caller.
+ * Checks still `pending` come back as `checks-pending`, neither merged nor
+ * labelled. Everything else short of a merge is left for the developer.
+ */
+async function mergeWhenGreen(
+  ports: MorningLoopPorts,
+  pullRequest: PullRequestUrl,
+  implementation: Ticket,
+  readChecks: () => Promise<ChecksStatus>,
+): Promise<MergeGate> {
   let head: string;
   try {
     head = await ports.repoHost.readPullRequestHead(pullRequest);
@@ -2627,16 +2658,15 @@ async function decideMerge(
   }
   let checks: ChecksStatus;
   try {
-    checks = await settledChecks(ports.repoHost, ports.clock, pullRequest);
+    checks = await readChecks();
   } catch (error: unknown) {
     return leftForHuman(ports, pullRequest, errorMessage(error));
   }
+  if (checks === "pending") {
+    return { kind: "checks-pending" };
+  }
   if (checks !== "green") {
-    return leftForHuman(
-      ports,
-      pullRequest,
-      checks === "pending" ? "checks still running" : "checks failing",
-    );
+    return leftForHuman(ports, pullRequest, "checks failing");
   }
   try {
     await ports.repoHost.mergePullRequest(pullRequest, head);
