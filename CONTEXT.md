@@ -753,14 +753,14 @@ review**) — whichever happens, and only the one that does — one pass: the ma
 request, with a merge commit, and deletes its branch, but only if it is mergeable and green. It never
 merges a pull request whose diff touches anything under `.sandbox/`, whoever consented; that one,
 and any other that is not mergeable and green, it labels `ready-for-human` and stops — no
-re-rebase, and no retry beyond
-one bounded wait: checks that read `pending` are read again, inside the gate, for at most 3 minutes
+re-rebase. Checks that read `pending` are read again, inside the gate, for at most 3 minutes
 from the first pending read, so green merges and failing leaves it for the developer. Still pending
-after 3 minutes leaves it neither merged nor labelled: the merge is recorded pending in `state.json`,
-and read once more at each later iteration, and at the start of the next invocation, until the checks
-settle — merged if green and mergeable, `ready-for-human` otherwise. A declined thread, open or not, is never asked about. Stacked pull requests are
-out of scope until that is specced. When the gate declines a grant — the label came too late, or fell inside a run
-span — the summary names its own reason in the review sentence, so the developer knows their grant
+after 3 minutes leaves it neither merged nor labelled: the merge is recorded pending in
+`state.json`, and read once more at each later iteration, and at the start of the next invocation,
+until the checks settle — merged if green and mergeable, `ready-for-human` otherwise, or after 24
+hours pending (ADR 0015). A declined thread, open or not, is never asked about. Stacked pull
+requests are out of scope until that is specced. When the gate declines a grant — the label came too
+late, or fell inside a run span — the summary names its own reason in the review sentence, so the developer knows their grant
 did not count, and a grant that fell inside a run span also gets a Waiting-on-you line saying so
 and naming `npm run grant` for future tickets; an implementation ticket that never carried `turboable` at all, that the gate could
 not find, or that carried no run span reads as ordinary, silent, ready for review, the same as on a
