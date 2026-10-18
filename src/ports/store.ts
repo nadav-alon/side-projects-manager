@@ -14,6 +14,7 @@ import type { KeptSummaryPath } from "./kept-summary-path.ts";
 import { type Milliseconds, milliseconds } from "./milliseconds.ts";
 import type { ModelDefaults } from "./model-defaults.ts";
 import type { Priority } from "./priority.ts";
+import type { PullRequestUrl } from "./pull-request-url.ts";
 import type { ReadOnlyMount } from "./read-only-mount.ts";
 import type { RepoSlug } from "./repo-slug.ts";
 import type { RunProgress } from "./sandbox.ts";
@@ -460,6 +461,38 @@ export function withoutGrant(
 }
 
 /**
+ * A turboable ticket's pull request whose merge gate gave up waiting on
+ * checks still running: `number` is the implementation ticket, and a later
+ * pass reads the checks again rather than leaving the pull request for the
+ * developer. Written only by the manager, after the gate had already
+ * accepted the ticket's consent.
+ */
+export interface PendingMerge extends WorkedTicket {
+  pullRequest: PullRequestUrl;
+}
+
+/** `previous` with `ticket`'s pending merge recorded for `pullRequest`, in place of any it already carried. */
+export function recordPendingMerge(
+  previous: readonly PendingMerge[] | undefined,
+  ticket: WorkedTicket,
+  pullRequest: PullRequestUrl,
+): PendingMerge[] {
+  return [
+    ...(withoutPendingMerge(previous, ticket) ?? []),
+    { repo: ticket.repo, number: ticket.number, pullRequest },
+  ];
+}
+
+/** `previous` without `ticket`'s pending merge; undefined once none is left. */
+export function withoutPendingMerge(
+  previous: readonly PendingMerge[] | undefined,
+  ticket: WorkedTicket,
+): PendingMerge[] | undefined {
+  const kept = (previous ?? []).filter((pending) => ticketKey(pending) !== ticketKey(ticket));
+  return kept.length === 0 ? undefined : kept;
+}
+
+/**
  * The tickets the loop worked on one local calendar day, kept so a later
  * invocation the same day does not select them again. A record for any day
  * but today reads as nothing worked today.
@@ -500,6 +533,11 @@ export interface State {
    * yet used up. Absent when none stands. See ADR 0012.
    */
   grants?: GrantRecord[];
+  /**
+   * Every pull request whose merge gate is still waiting on checks. Absent
+   * when none is.
+   */
+  pendingMerges?: PendingMerge[];
 }
 
 /**

@@ -310,6 +310,7 @@ export {
   recordInfrastructureFailureSalvage,
   recordRunSpanEnded,
   recordGrant,
+  recordPendingMerge,
   recordRunSpanStarted,
   recordStopShortSalvage,
   recordRun,
@@ -322,11 +323,13 @@ export {
   unrecordWorked,
   sameGrant,
   withoutGrant,
+  withoutPendingMerge,
   workedTicket,
 } from "./store.ts";
 export type {
   GrantLabel,
   GrantRecord,
+  PendingMerge,
   ProjectState,
   RegisteredProject,
   RunCost,

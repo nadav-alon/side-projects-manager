@@ -8,6 +8,7 @@ import {
   day,
   issueNumber,
   processId,
+  pullRequestUrl,
   repoSlug,
   tokenCount,
   transcriptDirectory,
@@ -578,6 +579,46 @@ describe("invocationState", () => {
           { ...TICKET_8, recordedBy: SELF },
         ],
       });
+    });
+  });
+
+  describe("pending merges", () => {
+    const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
+
+    it("keeps a deferred merge through every later save, and reads it back live", async () => {
+      const store = new FakeStore();
+      const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+
+      await state.deferMerge(TICKET_7, PULL_REQUEST);
+      await state.ticketSelected(TICKET_8, TODAY);
+
+      const expected = [{ ...TICKET_7, pullRequest: PULL_REQUEST }];
+      assert.deepEqual(store.pendingMerges(), expected);
+      assert.deepEqual(state.pendingMerges(), expected);
+    });
+
+    it("loads the merges an earlier invocation left pending", () => {
+      const state = invocationState(
+        { store: new FakeStore() },
+        { ...EMPTY_STATE, pendingMerges: [{ ...TICKET_7, pullRequest: PULL_REQUEST }] },
+        TODAY,
+        noForeignFields,
+      );
+
+      assert.deepEqual(state.pendingMerges(), [{ ...TICKET_7, pullRequest: PULL_REQUEST }]);
+    });
+
+    it("drops a settled merge, and settling one that is not pending saves nothing", async () => {
+      const store = new FakeStore();
+      const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
+      await state.deferMerge(TICKET_7, PULL_REQUEST);
+
+      await state.settleMerge(TICKET_8);
+      assert.equal(store.pendingMerges().length, 1);
+      await state.settleMerge(TICKET_7);
+
+      assert.deepEqual(store.pendingMerges(), []);
+      assert.deepEqual(state.pendingMerges(), []);
     });
   });
 
