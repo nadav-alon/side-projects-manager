@@ -5296,7 +5296,112 @@ describe("morningLoop", () => {
         );
       });
 
-      it("leaves the pull request unlabelled, reading checks for three minutes from the first pending read and posting no rebase or apply-review", async () => {
+      describe("a merge left pending on checks", () => {
+        /** A second, plain ticket, so the loop has a later iteration to read the pending checks on. */
+        function queuedLaterTicket(ports: FakePorts): void {
+          ports.tracker.addEligibleTicket(PILOT, { number: issueNumber(50), title: "Something else" });
+        }
+
+        /**
+         * A turboable ticket's implementation ticket, open and not eligible, whose merge an
+         * earlier invocation left pending on PULL_REQUEST.
+         */
+        function queuedPendingMerge(ports: FakePorts): Ticket {
+          ports.store.register(PILOT, { turbo: true });
+          const implementation = ports.tracker.addIneligibleTicket(PILOT, {
+            number: IMPLEMENTATION,
+            title: "Add the thing",
+          });
+          ports.store.markMergePending(implementation, PULL_REQUEST);
+          return implementation;
+        }
+
+        it("merges on a later iteration's read once the checks are green", async () => {
+          const ports = fakePorts();
+          const implementation = queuedTurboable(ports);
+          queuedLaterTicket(ports);
+          const checks = readsInTurn(
+            ...([...Array<ChecksStatus>(1 + CHECKS_WAIT / CHECKS_POLL_INTERVAL).fill("pending"), "green"] as [
+              ChecksStatus,
+              ...ChecksStatus[],
+            ]),
+          );
+          ports.repoHost.checksStatus = checks.checksStatus;
+
+          const report = await morningLoop(ports);
+
+          assert.ok(report.iterations.length >= 2);
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [],
+          );
+          assert.equal(implementation.number, IMPLEMENTATION);
+        });
+
+        it("merges on the next invocation's first read once the checks are green", async () => {
+          const ports = fakePorts();
+          const implementation = queuedPendingMerge(ports);
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+        });
+
+        it("leaves it pending, reading once with no wait, while the checks still run", async () => {
+          const ports = fakePorts();
+          const implementation = queuedPendingMerge(ports);
+          const checks = readsInTurn("pending");
+          ports.repoHost.checksStatus = checks.checksStatus;
+
+          await morningLoop(ports);
+
+          assert.equal(checks.reads(), 1);
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.equal(ports.store.pendingMerges().length, 1);
+        });
+
+        it("labels the pull request ready-for-human, and stops waiting, when the checks end failing", async () => {
+          const ports = fakePorts();
+          const implementation = queuedPendingMerge(ports);
+          ports.repoHost.checksStatus = () => "red";
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
+        });
+
+        it("labels the pull request ready-for-human when the repo host refuses the merge", async (t) => {
+          const ports = fakePorts();
+          const implementation = queuedPendingMerge(ports);
+          t.mock.method(ports.repoHost, "mergePullRequest", async () => {
+            throw new Error("Pull Request is not mergeable");
+          });
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(
+            ports.repoHost.labelled.filter(
+              (labelled) => labelled.label === READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+            ),
+            [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
+          );
+        });
+      });
+
+      it("leaves the pull request unlabelled, reading checks for three minutes from the first pending read, and once more on the next iteration, posting no rebase or apply-review", async () => {
         const ports = fakePorts();
         queuedTurboable(ports);
         const checks = readsInTurn("pending");
@@ -5304,7 +5409,8 @@ describe("morningLoop", () => {
 
         const report = await morningLoop(ports);
 
-        assert.equal(checks.reads(), 1 + CHECKS_WAIT / CHECKS_POLL_INTERVAL);
+        assert.ok(report.iterations.length >= 2);
+        assert.equal(checks.reads(), 1 + CHECKS_WAIT / CHECKS_POLL_INTERVAL + 1);
         assert.deepEqual(ports.repoHost.merged, []);
         assert.deepEqual(ports.repoHost.comments, []);
         assert.deepEqual(

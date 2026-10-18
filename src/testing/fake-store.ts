@@ -20,6 +20,7 @@ import type {
   GrantLabel,
   GrantRecord,
   PendingMerge,
+  PullRequestUrl,
   RunSpan,
   Salvage,
   State,
@@ -34,6 +35,7 @@ import {
   findInvocationRecord,
   keptSummaryPath,
   recordGrant,
+  recordPendingMerge,
   recordRunSpanEnded,
   recordRunSpanStarted,
   recordStopShortSalvage,
@@ -149,6 +151,11 @@ export class FakeStore implements Store {
   /** Records `ticket`'s grant of `label` at `grantedAt`, as the `grant` command would have left it. */
   markGranted(ticket: WorkedTicket, grantedAt: Date, label?: GrantLabel): void {
     this.#grants = recordGrant(this.#grants, ticket, grantedAt, label);
+  }
+
+  /** Records `ticket`'s merge as pending on `pullRequest`, as an earlier invocation's gate would have left it. */
+  markMergePending(ticket: WorkedTicket, pullRequest: PullRequestUrl): void {
+    this.#pendingMerges = recordPendingMerge(this.#pendingMerges, ticket, pullRequest);
   }
 
   /** The pending merges now recorded. */

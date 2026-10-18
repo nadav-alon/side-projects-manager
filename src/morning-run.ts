@@ -72,6 +72,7 @@ import {
   parentTicketIn,
   runSpanFor,
   ticketKind,
+  ticketKey,
   ticketReference,
   tokenCount,
   uniformFilesAmong,
@@ -376,6 +377,8 @@ export async function morningLoop(
     // consultation names are exactly the ones still running when it asks —
     // never the one it is asking on behalf of, which is passed separately.
     const inProgress = new Map<Promise<void>, Ticket>();
+    // Asked once per turn of the loop below, ahead of selection.
+    const mergePending = mergePendingSweep(ports, state);
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
     const thrown: unknown[] = [];
@@ -407,6 +410,7 @@ export async function morningLoop(
           break;
         }
 
+        await mergePending();
         const chosen = await selecting.next(
           new Set(
             [...inProgress.values()].flatMap((running) =>
@@ -2566,6 +2570,52 @@ async function mergeGate(
     });
   }
   return verdict;
+}
+
+/**
+ * A sweep over the pull requests whose merge gate gave up waiting on checks
+ * still running (`State.pendingMerges`), built once per invocation and
+ * called once per turn of the loop. Each call reads the checks of every
+ * pending merge once more, with no wait: green and mergeable merges, pending
+ * stays pending, and anything else — failing checks, a refused merge, an
+ * unreadable pull request — labels the pull request `ready-for-human`, as
+ * the gate would have. A merge that was already pending when the sweep was
+ * built, or at its previous call, is read; one recorded since is left for the
+ * next call, so the checks it was just waited on are not read straight away.
+ * Its implementation ticket no longer open settles it without a read. Never
+ * throws: a failure leaves the merge pending for the next call.
+ */
+function mergePendingSweep(
+  ports: MorningLoopPorts,
+  state: Pick<InvocationState, "pendingMerges" | "settleMerge">,
+): () => Promise<void> {
+  const seen = new Set(state.pendingMerges().map(ticketKey));
+  return async () => {
+    const due = state.pendingMerges().filter((pending) => seen.has(ticketKey(pending)));
+    for (const pending of state.pendingMerges()) {
+      seen.add(ticketKey(pending));
+    }
+    for (const pending of due) {
+      try {
+        const open = await ports.tracker.listOpenIssues(pending.repo);
+        const implementation = open.issues.find((issue) => issue.ticket.number === pending.number)?.ticket;
+        if (implementation === undefined) {
+          if (!open.truncated) {
+            await state.settleMerge(pending);
+          }
+          continue;
+        }
+        const verdict = await mergeWhenGreen(ports, pending.pullRequest, implementation, () =>
+          ports.repoHost.readChecksStatus(pending.pullRequest),
+        );
+        if (verdict.kind !== "checks-pending") {
+          await state.settleMerge(pending);
+        }
+      } catch (error: unknown) {
+        console.warn(`Could not settle the pending merge of ${pending.pullRequest}: ${errorMessage(error)}`);
+      }
+    }
+  };
 }
 
 /**
