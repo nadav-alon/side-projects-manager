@@ -469,18 +469,36 @@ export function withoutGrant(
  */
 export interface PendingMerge extends WorkedTicket {
   pullRequest: PullRequestUrl;
+  /** When the gate gave up waiting: the age `PENDING_MERGE_LIMIT` is counted from. */
+  deferredAt: Date;
 }
+
+/**
+ * How long a merge may stay pending. A pending merge older than this is read
+ * one last time and, still pending, left for the developer as the gate once
+ * left it, so a check that never reports does not hold it for ever.
+ */
+export const PENDING_MERGE_LIMIT: Milliseconds = milliseconds(24 * 60 * 60 * 1000);
 
 /** `previous` with `ticket`'s pending merge recorded for `pullRequest`, in place of any it already carried. */
 export function recordPendingMerge(
   previous: readonly PendingMerge[] | undefined,
   ticket: WorkedTicket,
   pullRequest: PullRequestUrl,
+  deferredAt: Date,
 ): PendingMerge[] {
   return [
     ...(withoutPendingMerge(previous, ticket) ?? []),
-    { repo: ticket.repo, number: ticket.number, pullRequest },
+    { repo: ticket.repo, number: ticket.number, pullRequest, deferredAt },
   ];
+}
+
+/** Whether `previous` carries a pending merge for `ticket`. */
+export function hasPendingMerge(
+  previous: readonly PendingMerge[] | undefined,
+  ticket: WorkedTicket,
+): boolean {
+  return (previous ?? []).some((pending) => ticketKey(pending) === ticketKey(ticket));
 }
 
 /** `previous` without `ticket`'s pending merge; undefined once none is left. */

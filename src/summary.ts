@@ -35,6 +35,7 @@ import {
   type Handover,
   type IterationOutcome,
   type MergeGate,
+  type SettledMerge,
   type NotClosed,
   type NotCommented,
   type NotLabelled,
@@ -448,6 +449,8 @@ export interface SummaryFacts {
   conflictSweeps: ConflictSweepOutcome[];
   specReviewSweeps: SpecReviewSweepOutcome[];
   uniformSyncSweeps: UniformSyncSweepOutcome[];
+  /** Every merge an earlier iteration left pending on checks that this invocation settled. */
+  settledMerges: SettledMerge[];
   /** Every ticket freed because a dead in-flight invocation had recorded it. */
   freedFromDeadInvocation: FreedWorkedTicket[];
 }
@@ -575,6 +578,7 @@ export function summaryBody(facts: SummaryFacts, line: string): string {
     conflictSweepSection(facts.conflictSweeps),
     specReviewSweepSection(facts.specReviewSweeps),
     uniformSyncSweepSection(facts.uniformSyncSweeps),
+    settledMergesSection(facts.settledMerges),
     freedFromDeadInvocationSection(facts.freedFromDeadInvocation),
   ]
     .filter((section): section is string => section !== undefined)
@@ -1214,6 +1218,19 @@ function uniformSyncSweepSection(
     (sweep) => `- ${sweep.repo}: ${uniformSyncSweepPhrase(sweep.result)}`,
   );
   return ["## Uniform sync sweep", ...lines].join("\n");
+}
+
+/** One bullet per merge left pending on checks that this invocation settled, naming what came of it. */
+function settledMergesSection(settledMerges: SettledMerge[]): string | undefined {
+  if (settledMerges.length === 0) {
+    return undefined;
+  }
+  const lines = settledMerges.map(({ pullRequest, merge }) =>
+    merge.kind === "merged"
+      ? `- ${pullRequest}: merged, its checks having finished green.`
+      : `- ${pullRequest}:${mergeGateNote(pullRequest, merge)}`,
+  );
+  return ["## Merges settled", ...lines].join("\n");
 }
 
 /**

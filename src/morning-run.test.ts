@@ -17,6 +17,7 @@ import {
   READY_FOR_AGENT_LABEL,
   READY_FOR_HUMAN_LABEL,
   READY_FOR_HUMAN_PULL_REQUEST_LABEL,
+  PENDING_MERGE_LIMIT,
   REBASE_COMMENT,
   REVIEWED_LABEL,
   backlogIn,
@@ -3236,7 +3237,12 @@ describe("morningLoop", () => {
             [],
           );
           assert.deepEqual(ports.store.pendingMerges(), [
-            { repo: implementation.repo, number: implementation.number, pullRequest: PULL_REQUEST },
+            {
+            repo: implementation.repo,
+            number: implementation.number,
+            pullRequest: PULL_REQUEST,
+            deferredAt: new Date(FROZEN_NOW.getTime() + CHECKS_WAIT),
+          },
           ]);
           const outcome = report.iterations[0];
           assert.deepEqual(
@@ -5167,7 +5173,12 @@ describe("morningLoop", () => {
           [],
         );
         assert.deepEqual(ports.store.pendingMerges(), [
-          { repo: implementation.repo, number: implementation.number, pullRequest: PULL_REQUEST },
+          {
+            repo: implementation.repo,
+            number: implementation.number,
+            pullRequest: PULL_REQUEST,
+            deferredAt: new Date(FROZEN_NOW.getTime() + CHECKS_WAIT),
+          },
         ]);
         const outcome = report.iterations[0];
         assert.deepEqual(
@@ -5289,13 +5300,13 @@ describe("morningLoop", () => {
          * A turboable ticket's implementation ticket, open and not eligible, whose merge an
          * earlier invocation left pending on PULL_REQUEST.
          */
-        function queuedPendingMerge(ports: FakePorts): Ticket {
+        function queuedPendingMerge(ports: FakePorts, deferredAt: Date = FROZEN_NOW): Ticket {
           ports.store.register(PILOT, { turbo: true });
           const implementation = ports.tracker.addIneligibleTicket(PILOT, {
             number: IMPLEMENTATION,
             title: "Add the thing",
           });
-          ports.store.markMergePending(implementation, PULL_REQUEST);
+          ports.store.markMergePending(implementation, PULL_REQUEST, deferredAt);
           return implementation;
         }
 
@@ -5328,6 +5339,8 @@ describe("morningLoop", () => {
 
           assert.deepEqual(ports.repoHost.merged, [PULL_REQUEST]);
           assert.deepEqual(ports.store.pendingMerges(), []);
+          const [summary] = ports.tracker.summaries;
+          assert.match(summary?.body ?? "", new RegExp(`## Merges settled\\n- ${PULL_REQUEST}: merged`));
         });
 
         it("leaves it pending, reading once with no wait, while the checks still run", async () => {
@@ -5356,6 +5369,35 @@ describe("morningLoop", () => {
             readyForHumanLabels(ports),
             [{ pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL }],
           );
+        });
+
+        it("settles quietly, merging and labelling nothing, once the pull request was closed by hand", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports);
+          ports.repoHost.setPullRequestState(PULL_REQUEST, "closed");
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(readyForHumanLabels(ports), []);
+          for (const summary of ports.tracker.summaries) {
+            assert.doesNotMatch(summary.body, /Merges settled/);
+          }
+        });
+
+        it("labels the pull request ready-for-human once its checks have run pending for longer than a merge may", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
+          ports.repoHost.checksStatus = () => "pending";
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(readyForHumanLabels(ports), [
+            { pullRequest: PULL_REQUEST, label: READY_FOR_HUMAN_PULL_REQUEST_LABEL },
+          ]);
         });
 
         it("labels the pull request ready-for-human when the repo host refuses the merge", async (t) => {

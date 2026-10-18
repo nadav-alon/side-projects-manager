@@ -782,7 +782,7 @@ function parseState(document: unknown, file: string): State {
   };
 }
 
-/** `[{ "repo": "owner/repo", "number": 7, "pullRequest": "https://github.com/owner/repo/pull/9" }]` */
+/** `[{ "repo": "owner/repo", "number": 7, "pullRequest": "https://github.com/owner/repo/pull/9", "deferredAt": "…" }]` */
 function parsePendingMerges(value: unknown, where: string): PendingMerge[] {
   if (!Array.isArray(value)) {
     throw new Error(`${where} must be a list of pending merges.`);
@@ -794,7 +794,8 @@ function parsePendingMerges(value: unknown, where: string): PendingMerge[] {
     if (typeof pullRequest !== "string" || !isPullRequestUrl(pullRequest)) {
       throw new Error(`${at}: "pullRequest" must be a pull request URL: ${JSON.stringify(pullRequest)}`);
     }
-    return { repo, number, pullRequest };
+    const deferredAt = parseInstant(fieldOf(pending, "deferredAt", at), `${at}: "deferredAt"`);
+    return { repo, number, pullRequest, deferredAt };
   });
 }
 
@@ -1100,6 +1101,7 @@ function formatState(state: State): string {
     repo: pending.repo,
     number: pending.number,
     pullRequest: pending.pullRequest,
+    deferredAt: pending.deferredAt.toISOString(),
   }));
 
   return `${JSON.stringify(

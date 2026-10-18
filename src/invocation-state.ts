@@ -19,6 +19,7 @@ import type {
 } from "./ports/index.ts";
 import {
   inFlight,
+  hasPendingMerge,
   recordPendingMerge,
   recordRun,
   recordRunSpanEnded,
@@ -234,7 +235,7 @@ export interface InvocationState {
    * checks, and saves: a later pass reads them again. Replaces any pending
    * merge `ticket` already carried.
    */
-  deferMerge(ticket: WorkedTicket, pullRequest: PullRequestUrl): Promise<void>;
+  deferMerge(ticket: WorkedTicket, pullRequest: PullRequestUrl, at: Date): Promise<void>;
 
   /** Drops `ticket`'s pending merge, whatever it came to, and saves. Not an error when none stands. */
   settleMerge(ticket: WorkedTicket): Promise<void>;
@@ -426,12 +427,12 @@ export function invocationState(
       await doSave(buildState());
     },
     pendingMerges: () => pendingMerges ?? [],
-    deferMerge: (ticket, pullRequest) => {
-      pendingMerges = recordPendingMerge(pendingMerges, ticket, pullRequest);
+    deferMerge: (ticket, pullRequest, at) => {
+      pendingMerges = recordPendingMerge(pendingMerges, ticket, pullRequest, at);
       return doSave(buildState());
     },
     settleMerge: (ticket) => {
-      if (!(pendingMerges ?? []).some((pending) => ticketKey(pending) === ticketKey(ticket))) {
+      if (!hasPendingMerge(pendingMerges, ticket)) {
         return Promise.resolve();
       }
       pendingMerges = withoutPendingMerge(pendingMerges, ticket);

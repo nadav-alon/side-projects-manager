@@ -584,15 +584,16 @@ describe("invocationState", () => {
 
   describe("pending merges", () => {
     const PULL_REQUEST = pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9");
+    const DEFERRED_AT = new Date("2026-01-01T06:00:00.000Z");
 
     it("keeps a deferred merge through every later save, and reads it back live", async () => {
       const store = new FakeStore();
       const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
 
-      await state.deferMerge(TICKET_7, PULL_REQUEST);
+      await state.deferMerge(TICKET_7, PULL_REQUEST, DEFERRED_AT);
       await state.ticketSelected(TICKET_8, TODAY);
 
-      const expected = [{ ...TICKET_7, pullRequest: PULL_REQUEST }];
+      const expected = [{ ...TICKET_7, pullRequest: PULL_REQUEST, deferredAt: DEFERRED_AT }];
       assert.deepEqual(store.pendingMerges(), expected);
       assert.deepEqual(state.pendingMerges(), expected);
     });
@@ -600,18 +601,20 @@ describe("invocationState", () => {
     it("loads the merges an earlier invocation left pending", () => {
       const state = invocationState(
         { store: new FakeStore() },
-        { ...EMPTY_STATE, pendingMerges: [{ ...TICKET_7, pullRequest: PULL_REQUEST }] },
+        { ...EMPTY_STATE, pendingMerges: [{ ...TICKET_7, pullRequest: PULL_REQUEST, deferredAt: DEFERRED_AT }] },
         TODAY,
         noForeignFields,
       );
 
-      assert.deepEqual(state.pendingMerges(), [{ ...TICKET_7, pullRequest: PULL_REQUEST }]);
+      assert.deepEqual(state.pendingMerges(), [
+        { ...TICKET_7, pullRequest: PULL_REQUEST, deferredAt: DEFERRED_AT },
+      ]);
     });
 
     it("drops a settled merge, and settling one that is not pending saves nothing", async () => {
       const store = new FakeStore();
       const state = invocationState({ store }, EMPTY_STATE, TODAY, noForeignFields);
-      await state.deferMerge(TICKET_7, PULL_REQUEST);
+      await state.deferMerge(TICKET_7, PULL_REQUEST, DEFERRED_AT);
 
       await state.settleMerge(TICKET_8);
       assert.equal(store.pendingMerges().length, 1);

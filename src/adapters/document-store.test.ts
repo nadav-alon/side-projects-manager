@@ -1214,6 +1214,7 @@ describe("the state document", () => {
           repo: PILOT,
           number: issueNumber(7),
           pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
+          deferredAt: new Date("2026-01-01T06:00:00.000Z"),
         },
       ],
     };
@@ -1226,7 +1227,7 @@ describe("the state document", () => {
   it("rejects a pending merge whose pullRequest is not a pull request URL", async () => {
     const store = documentStore(
       await home({
-        state: JSON.stringify({ projects: {}, pendingMerges: [{ repo: PILOT, number: 7, pullRequest: "nope" }] }),
+        state: JSON.stringify({ projects: {}, pendingMerges: [{ repo: PILOT, number: 7, pullRequest: "nope", deferredAt: "2026-01-01T06:00:00.000Z" }] }),
       }),
     );
 

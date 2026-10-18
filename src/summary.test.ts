@@ -678,6 +678,7 @@ function facts(iterations: IterationOutcome[]): SummaryFacts {
     conflictSweeps: [],
     specReviewSweeps: [],
     uniformSyncSweeps: [],
+    settledMerges: [],
     freedFromDeadInvocation: [],
   };
 }
@@ -1988,6 +1989,7 @@ describe("summaryLine", () => {
         conflictSweeps: [],
         specReviewSweeps: [],
         uniformSyncSweeps: [],
+        settledMerges: [],
         freedFromDeadInvocation: [],
       });
     }
@@ -2134,6 +2136,7 @@ describe("summaryLine", () => {
       conflictSweeps: [],
       specReviewSweeps: [],
       uniformSyncSweeps: [],
+      settledMerges: [],
       freedFromDeadInvocation: [],
     });
 
@@ -2197,6 +2200,7 @@ describe("summaryLine", () => {
       conflictSweeps: [],
       specReviewSweeps: [],
       uniformSyncSweeps: [],
+      settledMerges: [],
       freedFromDeadInvocation: [],
     });
 

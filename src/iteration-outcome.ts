@@ -792,6 +792,16 @@ export type MergeGate =
   | { kind: "checks-pending" };
 
 /**
+ * A pending merge a later sweep settled: the pull request, and what came of
+ * its merge — `merged`, or `left-for-human` where the checks failed, the merge
+ * was refused or the merge had been pending longer than it may.
+ */
+export interface SettledMerge {
+  pullRequest: PullRequestUrl;
+  merge: Extract<MergeGate, { kind: "merged" | "left-for-human" }>;
+}
+
+/**
  * Why an apply-review iteration left its ticket open, and the error that
  * stopped it. `demote-failed` alone names `ticket`, the implementation
  * ticket whose `Closes #N.` the run could not rewrite to `Part of #N.`: the

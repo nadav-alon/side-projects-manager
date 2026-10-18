@@ -154,8 +154,8 @@ export class FakeStore implements Store {
   }
 
   /** Records `ticket`'s merge as pending on `pullRequest`, as an earlier invocation's gate would have left it. */
-  markMergePending(ticket: WorkedTicket, pullRequest: PullRequestUrl): void {
-    this.#pendingMerges = recordPendingMerge(this.#pendingMerges, ticket, pullRequest);
+  markMergePending(ticket: WorkedTicket, pullRequest: PullRequestUrl, deferredAt: Date): void {
+    this.#pendingMerges = recordPendingMerge(this.#pendingMerges, ticket, pullRequest, deferredAt);
   }
 
   /** The pending merges now recorded. */

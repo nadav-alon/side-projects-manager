@@ -55,6 +55,7 @@ import type {
 } from "./ports/index.ts";
 import {
   LIVE_WRITE_LABEL,
+  PENDING_MERGE_LIMIT,
   APPLIED_REVIEW_LABEL,
   APPLY_REVIEW_COMMENT,
   MergeabilityUnknown,
@@ -144,6 +145,7 @@ import {
   type IterationOutcome,
   type LimitRefused,
   type MergeGate,
+  type SettledMerge,
   type NotCommented,
   type NotLabelled,
   type NotReadied,
@@ -332,6 +334,8 @@ export async function morningLoop(
   // are stale says nothing about ticket selection, and a clone is too heavy a
   // thing to repeat on every scan an invocation makes.
   let uniformSyncSweepOutcomes: UniformSyncSweepOutcome[] = [];
+  // What the pending-merge sweep settled, in the order it did.
+  const settledMerges: SettledMerge[] = [];
   // Populated from `worked.freed()` once `worked` exists: every ticket a dead
   // in-flight invocation had recorded, freed for this invocation to select.
   let freedTickets: FreedWorkedTicket[] = [];
@@ -378,7 +382,7 @@ export async function morningLoop(
     // never the one it is asking on behalf of, which is passed separately.
     const inProgress = new Map<Promise<void>, Ticket>();
     // Asked once per turn of the loop below, ahead of selection.
-    const mergePending = mergePendingSweep(ports, state);
+    const sweepPendingMerges = pendingMergeSweep(ports, state, settledMerges);
     // What an iteration in progress threw, rethrown once the others finish:
     // only a port breaking its own contract gets here.
     const thrown: unknown[] = [];
@@ -410,7 +414,7 @@ export async function morningLoop(
           break;
         }
 
-        await mergePending();
+        await sweepPendingMerges();
         const chosen = await selecting.next(
           new Set(
             [...inProgress.values()].flatMap((running) =>
@@ -604,6 +608,7 @@ export async function morningLoop(
     conflictSweeps: sweepOutcomes,
     specReviewSweeps: specReviewSweepOutcomes,
     uniformSyncSweeps: uniformSyncSweepOutcomes,
+    settledMerges,
     freedFromDeadInvocation: freedTickets,
   };
 
@@ -2529,7 +2534,7 @@ async function finishApplyReview(
  * the one apply-review run, or the one clean review, already in the loop: no
  * `/rebase`, whatever it finds. Checks still pending when that wait ends
  * leave the pull request unlabelled, its merge recorded pending for
- * `mergePendingSweep`, which reads them again. Never throws:
+ * `pendingMergeSweep`, which reads them again. Never throws:
  * every read this makes past `implementation` and `span` is guarded, so a
  * tracker or repo host failure comes back as a verdict rather than sinking a
  * ticket that has already closed.
@@ -2554,7 +2559,11 @@ async function mergeGate(
     // Recorded before the grant is used up: a record the gate could not write
     // leaves the pull request for the developer rather than pending for ever.
     try {
-      await context.invocation.deferMerge(implementation, ticket.pullRequest.url);
+      await context.invocation.deferMerge(
+        implementation,
+        ticket.pullRequest.url,
+        ports.clock.now(),
+      );
     } catch (error: unknown) {
       console.warn(
         `Could not record the pending merge of ${ticket.pullRequest.url}: ${errorMessage(error)}`,
@@ -2579,15 +2588,18 @@ async function mergeGate(
  * pending merge once more, with no wait: green and mergeable merges, pending
  * stays pending, and anything else — failing checks, a refused merge, an
  * unreadable pull request — labels the pull request `ready-for-human`, as
- * the gate would have. A merge that was already pending when the sweep was
+ * the gate would have, as does one pending for longer than
+ * `PENDING_MERGE_LIMIT`. A pull request closed or merged by hand settles
+ * quietly, unmerged and unlabelled. A merge that was already pending when the sweep was
  * built, or at its previous call, is read; one recorded since is left for the
  * next call, so the checks it was just waited on are not read straight away.
  * Its implementation ticket no longer open settles it without a read. Never
  * throws: a failure leaves the merge pending for the next call.
  */
-function mergePendingSweep(
+function pendingMergeSweep(
   ports: MorningLoopPorts,
   state: Pick<InvocationState, "pendingMerges" | "settleMerge">,
+  settled: SettledMerge[],
 ): () => Promise<void> {
   const seen = new Set(state.pendingMerges().map(ticketKey));
   return async () => {
@@ -2597,6 +2609,10 @@ function mergePendingSweep(
     }
     for (const pending of due) {
       try {
+        if ((await ports.repoHost.pullRequestState(pending.pullRequest)) !== "open") {
+          await state.settleMerge(pending);
+          continue;
+        }
         const open = await ports.tracker.listOpenIssues(pending.repo);
         const implementation = open.issues.find((issue) => issue.ticket.number === pending.number)?.ticket;
         if (implementation === undefined) {
@@ -2605,9 +2621,18 @@ function mergePendingSweep(
           }
           continue;
         }
-        const verdict = await mergeWhenGreen(ports, pending.pullRequest, implementation, () =>
+        let verdict = await mergeWhenGreen(ports, pending.pullRequest, implementation, () =>
           ports.repoHost.readChecksStatus(pending.pullRequest),
         );
+        if (
+          verdict.kind === "checks-pending" &&
+          ports.clock.now().getTime() - pending.deferredAt.getTime() >= PENDING_MERGE_LIMIT
+        ) {
+          verdict = await leftForHuman(ports, pending.pullRequest, "checks still running after a day");
+        }
+        if (verdict.kind === "merged" || verdict.kind === "left-for-human") {
+          settled.push({ pullRequest: pending.pullRequest, merge: verdict });
+        }
         if (verdict.kind !== "checks-pending") {
           await state.settleMerge(pending);
         }
