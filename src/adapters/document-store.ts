@@ -35,6 +35,7 @@ import type {
   RunInProgress,
   RunProgress,
   GrantRecord,
+  PendingMerge,
   RunSpan,
   Salvage,
   Size,
@@ -757,6 +758,7 @@ function parseState(document: unknown, file: string): State {
   const salvages = fieldOf(document, "salvages", file);
   const runSpans = fieldOf(document, "runSpans", file);
   const grants = fieldOf(document, "grants", file);
+  const pendingMerges = fieldOf(document, "pendingMerges", file);
   return {
     projects: parseProjectStates(fieldOf(document, "projects", file), file),
     ...(workedToday !== undefined && {
@@ -774,7 +776,27 @@ function parseState(document: unknown, file: string): State {
     ...(grants !== undefined && {
       grants: parseGrants(grants, `${file}: "grants"`),
     }),
+    ...(pendingMerges !== undefined && {
+      pendingMerges: parsePendingMerges(pendingMerges, `${file}: "pendingMerges"`),
+    }),
   };
+}
+
+/** `[{ "repo": "owner/repo", "number": 7, "pullRequest": "https://github.com/owner/repo/pull/9", "deferredAt": "…" }]` */
+function parsePendingMerges(value: unknown, where: string): PendingMerge[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${where} must be a list of pending merges.`);
+  }
+  return value.map((pending, index) => {
+    const at = `${where}: pending merge ${index + 1}`;
+    const { repo, number } = parseWorkedTicket(pending, at);
+    const pullRequest = fieldOf(pending, "pullRequest", at);
+    if (typeof pullRequest !== "string" || !isPullRequestUrl(pullRequest)) {
+      throw new Error(`${at}: "pullRequest" must be a pull request URL: ${JSON.stringify(pullRequest)}`);
+    }
+    const deferredAt = parseInstant(fieldOf(pending, "deferredAt", at), `${at}: "deferredAt"`);
+    return { repo, number, pullRequest, deferredAt };
+  });
 }
 
 /** `[{ "repo": "owner/repo", "number": 7, "grantedAt": "…", "label": "live-write" }]`, `label` absent for `turboable`. */
@@ -1075,8 +1097,15 @@ function formatState(state: State): string {
     ...(grant.label !== undefined && { label: grant.label }),
   }));
 
+  const pendingMerges = state.pendingMerges?.map((pending) => ({
+    repo: pending.repo,
+    number: pending.number,
+    pullRequest: pending.pullRequest,
+    deferredAt: pending.deferredAt.toISOString(),
+  }));
+
   return `${JSON.stringify(
-    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans, grants },
+    { projects, workedToday, announcedOn: state.announcedOn, salvages, runSpans, grants, pendingMerges },
     undefined,
     2,
   )}\n`;

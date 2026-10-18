@@ -1205,6 +1205,35 @@ describe("the state document", () => {
     assert.deepEqual(await store.loadState(), state);
   });
 
+  it("survives a round trip with a pending merge", async () => {
+    const store = documentStore(await home());
+    const state = {
+      projects: new Map(),
+      pendingMerges: [
+        {
+          repo: PILOT,
+          number: issueNumber(7),
+          pullRequest: pullRequestUrl("https://github.com/nadav-alon/pilot/pull/9"),
+          deferredAt: new Date("2026-01-01T06:00:00.000Z"),
+        },
+      ],
+    };
+
+    await store.saveState(state);
+
+    assert.deepEqual(await store.loadState(), state);
+  });
+
+  it("rejects a pending merge whose pullRequest is not a pull request URL", async () => {
+    const store = documentStore(
+      await home({
+        state: JSON.stringify({ projects: {}, pendingMerges: [{ repo: PILOT, number: 7, pullRequest: "nope", deferredAt: "2026-01-01T06:00:00.000Z" }] }),
+      }),
+    );
+
+    await assert.rejects(store.loadState(), /pullRequest/);
+  });
+
   it("reads a document with no grants as none standing", async () => {
     const store = documentStore(await home({ state: JSON.stringify({ projects: {} }) }));
 

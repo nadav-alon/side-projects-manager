@@ -138,8 +138,11 @@ read-write; every other run keeps them read-only. Read through the same gate as 
 Per-ticket consent, set by a human alone, on an implementation ticket, before that ticket's own run
 starts, per `CONTEXT.md`'s "Turboable". It lets the manager merge that ticket's pull request on a
 turbo project once the ticket's apply-review ticket finishes, provided the pull request is also
-mergeable and green — checks still `pending` are read again for at most 3 minutes from the first
-pending read; otherwise the manager labels it `ready-for-human` instead.
+mergeable and green. Checks still `pending` are read again for at most 3 minutes from the first
+pending read; if they are still pending then, the manager leaves the pull request as it is and reads
+them once more at each later iteration, and at the start of the next invocation, until they finish —
+however long the project's CI takes. Checks that finish failing, or a pull request that is not
+mergeable, it labels `ready-for-human` instead.
 
 | Label       | Meaning                                                                                            |
 | ----------- | --------------------------------------------------------------------------------------------------- |

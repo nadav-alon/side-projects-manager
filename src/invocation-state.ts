@@ -4,7 +4,9 @@ import type {
   IssueNumber,
   Journal,
   OpenInvocation,
+  PendingMerge,
   ProjectState,
+  PullRequestUrl,
   RepoSlug,
   RunCost,
   RunInProgress,
@@ -17,6 +19,8 @@ import type {
 } from "./ports/index.ts";
 import {
   inFlight,
+  hasPendingMerge,
+  recordPendingMerge,
   recordRun,
   recordRunSpanEnded,
   recordRunSpanStarted,
@@ -28,6 +32,7 @@ import {
   sameInvocation,
   ticketKey,
   unrecordWorked,
+  withoutPendingMerge,
 } from "./ports/index.ts";
 import { freesTicketToday, type Iteration } from "./iteration-outcome.ts";
 
@@ -221,6 +226,21 @@ export interface InvocationState {
   consumeGrant(ticket: WorkedTicket & Pick<GrantRecord, "label">): Promise<void>;
 
   /**
+   * The pull requests whose merge gate is still waiting on checks, live.
+   */
+  pendingMerges(): readonly PendingMerge[];
+
+  /**
+   * Records that `ticket`'s merge gate gave up waiting on `pullRequest`'s
+   * checks, and saves: a later pass reads them again. Replaces any pending
+   * merge `ticket` already carried.
+   */
+  deferMerge(ticket: WorkedTicket, pullRequest: PullRequestUrl, at: Date): Promise<void>;
+
+  /** Drops `ticket`'s pending merge, whatever it came to, and saves. Not an error when none stands. */
+  settleMerge(ticket: WorkedTicket): Promise<void>;
+
+  /**
    * Every ticket freed on construction because a dead in-flight invocation
    * had recorded it — CONTEXT.md's "Worked today". Fixed for the life of this
    * invocation's state: nothing recorded or unrecorded during the invocation
@@ -269,6 +289,7 @@ export function invocationState(
 ): InvocationState {
   const projects = new Map(stored.projects);
   let runSpans = stored.runSpans;
+  let pendingMerges = stored.pendingMerges;
   const storedToday =
     stored.workedToday?.day === today ? stored.workedToday : undefined;
   const { kept, freed } = freeDeadInvocations(storedToday, current);
@@ -305,6 +326,7 @@ export function invocationState(
     projects,
     ...(record !== undefined && { workedToday: record }),
     ...(runSpans !== undefined && { runSpans }),
+    ...(pendingMerges !== undefined && { pendingMerges }),
     ...foreignFields(),
   });
 
@@ -403,6 +425,18 @@ export function invocationState(
       }
       usedUp.push(...standing);
       await doSave(buildState());
+    },
+    pendingMerges: () => pendingMerges ?? [],
+    deferMerge: (ticket, pullRequest, at) => {
+      pendingMerges = recordPendingMerge(pendingMerges, ticket, pullRequest, at);
+      return doSave(buildState());
+    },
+    settleMerge: (ticket) => {
+      if (!hasPendingMerge(pendingMerges, ticket)) {
+        return Promise.resolve();
+      }
+      pendingMerges = withoutPendingMerge(pendingMerges, ticket);
+      return doSave(buildState());
     },
     freed: () => freed,
     save: () => doSave(buildState()),

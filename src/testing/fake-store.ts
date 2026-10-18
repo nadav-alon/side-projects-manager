@@ -19,6 +19,8 @@ import type {
   RunProgress,
   GrantLabel,
   GrantRecord,
+  PendingMerge,
+  PullRequestUrl,
   RunSpan,
   Salvage,
   State,
@@ -33,6 +35,7 @@ import {
   findInvocationRecord,
   keptSummaryPath,
   recordGrant,
+  recordPendingMerge,
   recordRunSpanEnded,
   recordRunSpanStarted,
   recordStopShortSalvage,
@@ -66,6 +69,7 @@ export class FakeStore implements Store {
   #salvages: Salvage[] | undefined = undefined;
   #runSpans: RunSpan[] | undefined = undefined;
   #grants: GrantRecord[] | undefined = undefined;
+  #pendingMerges: PendingMerge[] | undefined = undefined;
   #journal: InvocationRecord[] = [];
   #keptSummaries: { at: KeptSummaryPath; body: string }[] = [];
   /** What the developer declared they are willing to spend. */
@@ -149,6 +153,16 @@ export class FakeStore implements Store {
     this.#grants = recordGrant(this.#grants, ticket, grantedAt, label);
   }
 
+  /** Records `ticket`'s merge as pending on `pullRequest`, as an earlier invocation's gate would have left it. */
+  markMergePending(ticket: WorkedTicket, pullRequest: PullRequestUrl, deferredAt: Date): void {
+    this.#pendingMerges = recordPendingMerge(this.#pendingMerges, ticket, pullRequest, deferredAt);
+  }
+
+  /** The pending merges now recorded. */
+  pendingMerges(): PendingMerge[] {
+    return (this.#pendingMerges ?? []).map((pending) => ({ ...pending }));
+  }
+
   /** The grant records now standing, whoever left them. */
   grants(): GrantRecord[] {
     return (this.#grants ?? []).map((grant) => ({ ...grant }));
@@ -193,6 +207,9 @@ export class FakeStore implements Store {
       ...(this.#grants !== undefined && {
         grants: this.#grants.map((grant) => ({ ...grant })),
       }),
+      ...(this.#pendingMerges !== undefined && {
+        pendingMerges: this.#pendingMerges.map((pending) => ({ ...pending })),
+      }),
     };
   }
 
@@ -211,6 +228,7 @@ export class FakeStore implements Store {
     this.#salvages = state.salvages?.map((salvage) => ({ ...salvage }));
     this.#runSpans = state.runSpans?.map((span) => ({ ...span }));
     this.#grants = state.grants?.map((grant) => ({ ...grant }));
+    this.#pendingMerges = state.pendingMerges?.map((pending) => ({ ...pending }));
   }
 
   async openInvocation(opened: OpenInvocation): Promise<OpenInvocation> {

@@ -783,7 +783,23 @@ export type MergeGate =
    * to the pull request. A refusal labelling it is reported here too, never
    * raised, the same as `AppliedReview.notLabelled`.
    */
-  | { kind: "left-for-human"; reason: string; notLabelled?: NotLabelled };
+  | { kind: "left-for-human"; reason: string; notLabelled?: NotLabelled }
+  /**
+   * Checks still running when the gate gave up its wait: the pull request
+   * is neither merged nor labelled, and a later pass reads the checks again
+   * until they settle.
+   */
+  | { kind: "checks-pending" };
+
+/**
+ * A pending merge a later sweep settled: the pull request, and what came of
+ * its merge — `merged`, or `left-for-human` where the checks failed, the merge
+ * was refused or the merge had been pending longer than it may.
+ */
+export interface SettledMerge {
+  pullRequest: PullRequestUrl;
+  merge: Extract<MergeGate, { kind: "merged" | "left-for-human" }>;
+}
 
 /**
  * Why an apply-review iteration left its ticket open, and the error that
