@@ -11,13 +11,16 @@ _mods_with_manifest() {
   return 0
 }
 
+# The one rule for whether a directory is listed in a CLAUDE_CODE_PLUGIN_DIRS value, as a jq def.
+_JQ_LISTED='def listed($dir): (. // "") | split(":") | index($dir) != null;'
+
 # _mod_registered SETTINGS DIR: succeeds when DIR is listed in the env block's
 # CLAUDE_CODE_PLUGIN_DIRS in SETTINGS.
 _mod_registered() {
   local settings="$1" dir="$2"
   [[ -f "$settings" ]] || return 1
   jq -e --arg dir "$dir" \
-    '(.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":") | index($dir) != null' \
+    "$_JQ_LISTED"' .env.CLAUDE_CODE_PLUGIN_DIRS | listed($dir)' \
     "$settings" >/dev/null 2>&1
 }
 
@@ -28,11 +31,11 @@ _register_mod_dir() {
   local settings="$1" dir="$2" tmp
   [[ -f "$settings" ]] || printf '{}\n' >"$settings"
   tmp=$(mktemp)
-  jq --arg dir "$dir" '
+  jq --arg dir "$dir" "$_JQ_LISTED"'
     .env.CLAUDE_CODE_PLUGIN_DIRS as $dirs
     | .env = ((.env // {}) + {CLAUDE_CODE_PLUGIN_DIRS:
         (if ($dirs // "") == "" then $dir
-         elif ($dirs | split(":") | index($dir)) != null then $dirs
+         elif ($dirs | listed($dir)) then $dirs
          else $dirs + ":" + $dir end)})
   ' "$settings" >"$tmp" && cat "$tmp" >"$settings"
   local status=$?
