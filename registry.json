@@ -29,6 +29,9 @@
           "container": "/live/config/jellyfin"
         }
       ]
+    },
+    {
+      "repo": "nadav-alon/smart-home"
     }
   ]
 }
