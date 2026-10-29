@@ -1,0 +1,5 @@
+{
+  "name": "ready-guard",
+  "version": "0.1.0",
+  "description": "Denies labelling a ticket ready-for-agent while a blocker its body names is not linked as a native dependency."
+}

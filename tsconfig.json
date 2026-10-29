@@ -25,6 +25,6 @@
 
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts", "mods/ready-guard/hooks/**/*.ts"],
   "exclude": []
 }
