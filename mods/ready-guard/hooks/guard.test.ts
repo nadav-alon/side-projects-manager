@@ -39,3 +39,31 @@ describe('denyReadyLabel', () => {
     assert.match(denial ?? '', /other\/lib#9/)
   })
 })
+
+describe('denyReadyLabel, calls that run untouched', () => {
+  it('lets a ticket through whose named blockers are all linked', async () => {
+    const tracker = fakeTracker('## Blocked by\n\n- #3\n- other/lib#9\n', [issueRef(`${REPO}#3`), issueRef('other/lib#9')])
+    assert.equal(await denyReadyLabel(ADD, tracker), null)
+  })
+
+  it('lets a ticket through whose Blocked by says none', async () => {
+    assert.equal(await denyReadyLabel(ADD, fakeTracker('## What\n\nx\n\n## Blocked by\n\nNone - can start immediately.\n')), null)
+  })
+
+  it('lets a ticket with no Blocked by through', async () => {
+    assert.equal(await denyReadyLabel(ADD, fakeTracker('## What\n\nsee #12\n')), null)
+  })
+
+  it('leaves unrelated shell calls alone without reading the tracker', async () => {
+    const tracker = fakeTracker('## Blocked by\n\n- #3\n')
+    for (const command of [
+      'ls -la',
+      'gh issue edit 7 --add-label bug',
+      'gh issue edit 7 --remove-label ready-for-agent',
+      'gh issue view 7',
+      'echo ready-for-agent',
+    ]) {
+      assert.equal(await denyReadyLabel(command, tracker), null, command)
+    }
+  })
+})
