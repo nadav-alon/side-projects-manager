@@ -6,10 +6,10 @@ This repo tracks coding related side project shared files. This includes the wor
 `scripts/setup-wizard.sh` walks a fresh machine through everything below: generating the
 `CLAUDE_CODE_OAUTH_TOKEN` and GitHub tokens, persisting them for both an interactive shell and cron
 (which sources neither `.bashrc` nor `.zshrc`), building and verifying the sandbox image, installing
-the git hooks and the triggers, a Claude hook that titles a mode-skill session (the `MODES` in `src/session-title.ts`)
-`<mode>: <owner/repo>[#n]`, optionally registering a first project, and registering every mod under `mods/` (today `mode-band`, which
-draws a coloured band above the prompt naming the session's mode). Re-running it is safe — it
-remembers what it already captured.
+the git hooks and the triggers, a Claude hook that titles a mode-skill session (the `MODES` in
+`src/session-title.ts`) `<mode>: <owner/repo>[#n]`, optionally registering a first project, and
+registering every mod under `mods/`, such as `mode-band`, which draws a coloured band above the
+prompt naming the session's mode. Re-running it is safe — it remembers what it already captured.
 
 ```sh
 scripts/setup-wizard.sh
