@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { denyReadyLabel, issueRef, type IssueRef, type Tracker } from './guard.ts'
+import { checkReadyLabel, denyReadyLabel, issueRef, type IssueRef, type Tracker } from './guard.ts'
 
 const REPO = 'acme/pilot'
 
@@ -65,5 +65,39 @@ describe('denyReadyLabel, calls that run untouched', () => {
     ]) {
       assert.equal(await denyReadyLabel(command, tracker), null, command)
     }
+  })
+})
+
+describe('checkReadyLabel', () => {
+  it('denies with the reason', async () => {
+    const verdict = await checkReadyLabel(ADD, fakeTracker('Blocked by: #3'))
+    assert.equal(verdict.kind, 'deny')
+  })
+
+  it('runs with a warning when the tracker cannot be read', async () => {
+    const unreadable: Tracker = {
+      ...fakeTracker(''),
+      async body() {
+        throw new Error('gh: HTTP 502')
+      },
+    }
+    const verdict = await checkReadyLabel(ADD, unreadable)
+    assert.equal(verdict.kind, 'warn')
+    assert.match(verdict.kind === 'warn' ? verdict.warning : '', /HTTP 502/)
+  })
+
+  it('runs an unrelated call without reading the tracker', async () => {
+    const unreadable: Tracker = {
+      async currentRepo() {
+        throw new Error('unread')
+      },
+      async body() {
+        throw new Error('unread')
+      },
+      async linkedBlockers() {
+        throw new Error('unread')
+      },
+    }
+    assert.deepEqual(await checkReadyLabel('ls', unreadable), { kind: 'allow' })
   })
 })

@@ -76,3 +76,17 @@ export async function denyReadyLabel(command: string, tracker: Tracker): Promise
   if (missing.length === 0) return null
   return `${issue} names blockers that are not linked as blocked-by dependencies: ${missing.join(', ')}. Link them first, then add ${LABEL}.`
 }
+
+/** What the guard says of a call: it runs, it is denied with a reason, or it runs with a warning. */
+export type Verdict = { kind: 'allow' } | { kind: 'deny'; reason: string } | { kind: 'warn'; warning: string }
+
+/** The verdict on `command`; a tracker that cannot be read warns instead of blocking. */
+export async function checkReadyLabel(command: string, tracker: Tracker): Promise<Verdict> {
+  try {
+    const reason = await denyReadyLabel(command, tracker)
+    return reason === null ? { kind: 'allow' } : { kind: 'deny', reason }
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error)
+    return { kind: 'warn', warning: `ready-guard: could not read the tracker, so the blockers were not checked: ${cause}` }
+  }
+}
