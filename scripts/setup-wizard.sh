@@ -218,24 +218,7 @@ _crontab_upsert_var() {
   } | crontab -
 }
 
-# _register_mod_dir SETTINGS DIR: idempotently adds DIR to the env block's
-# CLAUDE_CODE_PLUGIN_DIRS in SETTINGS, keeping every other setting and every
-# directory already listed.
-_register_mod_dir() {
-  local settings="$1" dir="$2" tmp
-  [[ -f "$settings" ]] || printf '{}\n' >"$settings"
-  tmp=$(mktemp)
-  jq --arg dir "$dir" '
-    .env.CLAUDE_CODE_PLUGIN_DIRS as $dirs
-    | .env = ((.env // {}) + {CLAUDE_CODE_PLUGIN_DIRS:
-        (if ($dirs // "") == "" then $dir
-         elif ($dirs | split(":") | index($dir)) != null then $dirs
-         else $dirs + ":" + $dir end)})
-  ' "$settings" >"$tmp" && cat "$tmp" >"$settings"
-  local status=$?
-  rm -f "$tmp"
-  return $status
-}
+source "$REPO_DIR/scripts/mods.sh"
 
 banner "Side Projects Manager: setup"
 
@@ -431,26 +414,33 @@ else
   SKIPPED+=("status line — run 'node scripts/install-status-line.ts' from $REPO_DIR to see the mode and the loop's state")
 fi
 
-# ── Stage 9: the session mod that draws the mode band ─────────────────────
-stage "Session mod"
-say "mods/mode-band draws a coloured band above the prompt naming the mode"
-say "a grilling, standup, triage or wayfinder session is in. It is loaded by"
-say "listing its folder in CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json,"
-say "which every interactive session reads, whatever alias starts it."
-mod_dir="$REPO_DIR/mods/mode-band"
+# ── Stage 9: the session mods under mods/ ─────────────────────────────────
+stage "Session mods"
+say "Each folder under mods/ with a plugin manifest is a session mod, such as"
+say "mods/mode-band, which draws a coloured band above the prompt naming the"
+say "mode a session is in. A mod is loaded by listing its folder in"
+say "CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json, which every"
+say "interactive session reads, whatever alias starts it."
 claude_settings="$HOME/.claude/settings.json"
-mod_hint="add $mod_dir to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block"
 if ! command -v jq >/dev/null 2>&1; then
-  SKIPPED+=("session mod — install jq and re-run, or $mod_hint")
-elif confirm "Register mods/mode-band in ~/.claude/settings.json?"; then
-  mkdir -p "$HOME/.claude"
-  if _register_mod_dir "$claude_settings" "$mod_dir"; then
-    printf '  %s✓%s settings.json: mode-band registered.\n' "$GREEN" "$RESET"
-  else
-    SKIPPED+=("session mod — ~/.claude/settings.json did not parse; $mod_hint by hand")
-  fi
+  SKIPPED+=("session mods — install jq and re-run, or add each mods/ folder to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block")
 else
-  SKIPPED+=("session mod — $mod_hint")
+  while IFS= read -r mod_dir; do
+    mod_name="$(basename "$mod_dir")"
+    mod_hint="add $mod_dir to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block"
+    if _mod_registered "$claude_settings" "$mod_dir"; then
+      note "mods/$mod_name: already registered."
+    elif confirm "Register mods/$mod_name in ~/.claude/settings.json?"; then
+      mkdir -p "$HOME/.claude"
+      if _register_mod_dir "$claude_settings" "$mod_dir"; then
+        printf '  %s✓%s settings.json: %s registered.\n' "$GREEN" "$RESET" "$mod_name"
+      else
+        SKIPPED+=("session mod $mod_name — ~/.claude/settings.json did not parse; $mod_hint by hand")
+      fi
+    else
+      SKIPPED+=("session mod $mod_name — $mod_hint")
+    fi
+  done < <(_mods_with_manifest "$REPO_DIR/mods")
 fi
 
 finish
