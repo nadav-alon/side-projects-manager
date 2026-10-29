@@ -423,24 +423,9 @@ say "CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json, which every"
 say "interactive session reads, whatever alias starts it."
 claude_settings="$HOME/.claude/settings.json"
 if ! command -v jq >/dev/null 2>&1; then
-  SKIPPED+=("session mods — install jq and re-run, or add each mods/ folder to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block")
+  SKIPPED+=("session mods — install jq and re-run, or $(_mod_hint "each mods/ folder")")
 else
-  while IFS= read -r mod_dir; do
-    mod_name="$(basename "$mod_dir")"
-    mod_hint="add $mod_dir to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block"
-    if _mod_registered "$claude_settings" "$mod_dir"; then
-      note "mods/$mod_name: already registered."
-    elif confirm "Register mods/$mod_name in ~/.claude/settings.json?"; then
-      mkdir -p "$HOME/.claude"
-      if _register_mod_dir "$claude_settings" "$mod_dir"; then
-        printf '  %s✓%s settings.json: %s registered.\n' "$GREEN" "$RESET" "$mod_name"
-      else
-        SKIPPED+=("session mod $mod_name — ~/.claude/settings.json did not parse; $mod_hint by hand")
-      fi
-    else
-      SKIPPED+=("session mod $mod_name — $mod_hint")
-    fi
-  done < <(_mods_with_manifest "$REPO_DIR/mods")
+  _register_mods "$REPO_DIR/mods" "$claude_settings"
 fi
 
 finish

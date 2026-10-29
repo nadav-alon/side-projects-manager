@@ -39,3 +39,31 @@ _register_mod_dir() {
   rm -f "$tmp"
   return $status
 }
+
+# _mod_hint DIR: the by-hand step that registers DIR.
+_mod_hint() {
+  printf "add %s to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json's env block" "$1"
+}
+
+# _register_mods MODS_DIR SETTINGS: offers to register each folder under MODS_DIR that holds a
+# plugin manifest, naming each one. Needs the wizard's confirm, note, SKIPPED, GREEN and RESET.
+# The folder list is read on fd 3 so confirm's read takes the user's answer, not the next folder.
+_register_mods() {
+  local mods_dir="$1" settings="$2" mod_dir mod_name mod_hint
+  while IFS= read -r -u3 mod_dir; do
+    mod_name="$(basename "$mod_dir")"
+    mod_hint="$(_mod_hint "$mod_dir")"
+    if _mod_registered "$settings" "$mod_dir"; then
+      note "mods/$mod_name: already registered."
+    elif confirm "Register mods/$mod_name in ~/.claude/settings.json?"; then
+      mkdir -p "$(dirname "$settings")"
+      if _register_mod_dir "$settings" "$mod_dir"; then
+        printf '  %s✓%s settings.json: %s registered.\n' "$GREEN" "$RESET" "$mod_name"
+      else
+        SKIPPED+=("session mod $mod_name — ~/.claude/settings.json did not parse; $mod_hint by hand")
+      fi
+    else
+      SKIPPED+=("session mod $mod_name — $mod_hint")
+    fi
+  done 3< <(_mods_with_manifest "$mods_dir")
+}

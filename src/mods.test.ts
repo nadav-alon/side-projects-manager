@@ -36,4 +36,27 @@ describe("mods.sh", () => {
     sh(`_mod_registered "${settings}" "${alpha}"`);
     assert.equal(JSON.parse(readFileSync(settings, "utf8")).env.CLAUDE_CODE_PLUGIN_DIRS, alpha);
   });
+
+  it("offers each mod and registers the ones answered yes, reading answers from stdin", () => {
+    const root = modsDir();
+    const settings = join(root, "home", "settings.json");
+    const out = execFileSync(
+      "bash",
+      [
+        "-c",
+        `source "${lib}"
+        GREEN=; RESET=; SKIPPED=()
+        note() { echo "$1"; }
+        confirm() { local reply=""; echo "ask: $1"; read -r reply || true; [[ "$reply" =~ ^[Yy] ]]; }
+        _register_mods "${root}" "${settings}"
+        printf 'skipped: %s\\n' "\${SKIPPED[@]}"`,
+      ],
+      { encoding: "utf8", input: "y\nn\n" },
+    );
+    assert.match(out, /ask: Register mods\/alpha/);
+    assert.match(out, /ask: Register mods\/beta/);
+    assert.match(out, /skipped: session mod beta/);
+    assert.doesNotMatch(out, /skipped: session mod alpha/);
+    assert.equal(JSON.parse(readFileSync(settings, "utf8")).env.CLAUDE_CODE_PLUGIN_DIRS, `${root}/alpha`);
+  });
 });
