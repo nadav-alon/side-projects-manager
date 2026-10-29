@@ -25,6 +25,6 @@
 
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts"],
   "exclude": []
 }
