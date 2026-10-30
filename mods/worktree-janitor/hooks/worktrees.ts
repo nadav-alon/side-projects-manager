@@ -1,4 +1,4 @@
-import { isBranchName, type BranchName } from './branch-name.ts'
+import { isBranch, type Branch } from './branch.ts'
 
 /** Runs `git` with `args` in `cwd` and returns its stdout; rejects when git fails. */
 export type Git = (args: readonly string[], cwd: string) => Promise<string>
@@ -6,7 +6,7 @@ export type Git = (args: readonly string[], cwd: string) => Promise<string>
 /** One worktree under the repo's agent-worktree folder. `branch` is `undefined` for a detached HEAD. */
 export type Worktree = {
   path: string
-  branch: BranchName | undefined
+  branch: Branch | undefined
   /** Whether the branch is already contained in the main worktree's HEAD; never true without a branch. */
   merged: boolean
   /** Whether the worktree has uncommitted changes, untracked files included. */
@@ -20,7 +20,7 @@ export const AGENT_WORKTREE_FOLDER = '.claude/worktrees'
 
 export const NO_WORKTREES = 'No agent worktrees in this repo.'
 
-type Listed = { path: string; branch: BranchName | undefined }
+type Listed = { path: string; branch: Branch | undefined }
 
 /** Reads `git worktree list --porcelain`; the first entry is the main worktree. */
 export function parseWorktreeList(porcelain: string): Listed[] {
@@ -31,13 +31,13 @@ export function parseWorktreeList(porcelain: string): Listed[] {
       const path = lines.find(l => l.startsWith('worktree '))?.slice('worktree '.length)
       if (path === undefined) return []
       const ref = lines.find(l => l.startsWith('branch refs/heads/'))?.slice('branch refs/heads/'.length)
-      return [{ path, branch: ref !== undefined && isBranchName(ref) ? ref : undefined }]
+      return [{ path, branch: ref !== undefined && isBranch(ref) ? ref : undefined }]
     })
 }
 
 /** The names `git branch --merged` prints: each line carries a two-character marker before the name. */
-function parseMergedBranches(output: string): Set<string> {
-  return new Set(output.split('\n').map(l => l.slice(2).trim()).filter(l => l !== ''))
+function parseMergedBranches(output: string): Set<Branch> {
+  return new Set(output.split('\n').map(l => l.slice(2).trim()).filter(isBranch))
 }
 
 /** Every worktree under the agent-worktree folder of the repo `cwd` belongs to, with its state. */
