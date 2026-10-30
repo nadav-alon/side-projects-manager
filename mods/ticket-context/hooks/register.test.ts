@@ -5,14 +5,15 @@ type Run = { argv: string[] }
 
 const ISSUE = JSON.stringify({ title: 'Add the thing', body: 'Build it.', labels: [{ name: 'enhancement' }, { name: 'size:M' }] })
 
-/** Stands for the engine beneath the mod: `gh` answers from `answers`, keyed by its argv joined, and the prompt enters. */
+/** Stands for the engine beneath the mod: `gh` answers from `answers`, keyed by its argv joined (a ticket with no blockers needs no answer), and the prompt enters. */
 function engine(on: On, answers: Record<string, { exitCode?: number; stdout?: string; stderr?: string }>): { runs: string[][] } {
   const seen = { runs: [] as string[][] }
   on('session.cwd', () => ({ value: '/work/repo' }) as never)
   on('process.run', (_$, e) => {
     const { argv } = e as unknown as Run
     seen.runs.push(argv)
-    const answer = answers[argv.join(' ')] ?? { exitCode: 1, stderr: 'not found' }
+    const unblocked = argv[1] === 'api' ? { stdout: '' } : { exitCode: 1, stderr: 'not found' }
+    const answer = answers[argv.join(' ')] ?? unblocked
     return { value: { exitCode: 0, stdout: '', stderr: '', ...answer } } as never
   })
   on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
@@ -49,4 +50,19 @@ test('a bare #n resolves against the session repo', async ($, on) => {
   const entered = await $.prompt.submit({ text: 'Do #42 next' })
   expect(entered.context?.join('\n')).toMatch(/acme\/pilot#42: Add the thing/)
   expect(seen.runs.filter(argv => argv[1] === 'repo').length).toBe(1)
+})
+
+test('several references each get their context, up to a cap', async ($, on) => {
+  const answers: Parameters<typeof engine>[1] = {}
+  for (let n = 1; n <= 7; n++) {
+    answers[`gh issue view ${n} --repo acme/pilot --json title,body,labels`] = {
+      stdout: JSON.stringify({ title: `Ticket ${n}`, body: '', labels: [] }),
+    }
+  }
+  engine(on, answers)
+  const entered = await $.prompt.submit({ text: 'acme/pilot#1 acme/pilot#2 acme/pilot#3 acme/pilot#4 acme/pilot#5 acme/pilot#6 acme/pilot#7' })
+  const context = entered.context?.join('\n') ?? ''
+  for (const n of [1, 2, 3, 4, 5]) expect(context).toMatch(new RegExp(`acme/pilot#${n}: Ticket ${n}`))
+  expect(context).not.toMatch(/Ticket 6/)
+  expect(context).toMatch(/7 tickets named, the first 5 fetched/)
 })
