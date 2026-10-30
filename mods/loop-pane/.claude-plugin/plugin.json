@@ -1,0 +1,6 @@
+{
+  "name": "loop-pane",
+  "version": "0.1.0",
+  "description": "Opens a pane beside the chat showing the manager's in-flight invocation, its spend and the entries it freed.",
+  "types": "./types/index.d.ts"
+}
