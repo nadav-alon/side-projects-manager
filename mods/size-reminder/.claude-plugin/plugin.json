@@ -1,0 +1,5 @@
+{
+  "name": "size-reminder",
+  "version": "0.1.0",
+  "description": "Reminds the model, when it creates or sizes a ticket in the side-projects-manager repo, to size it one step larger than a project's."
+}
