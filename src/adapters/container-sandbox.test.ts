@@ -5705,7 +5705,7 @@ fi`;
    */
   for (const kind of ["run", "review"] as const) {
     it(`caps a ${kind}'s container memory at 8g with no swap beyond it`, async (t) => {
-      const { docker } = await runWithDocker(
+      const { docker } = await runWithDocker<unknown>(
         t,
         dockerAnswering(JSON.stringify({ result: "" })),
         (sandbox, directory) =>
