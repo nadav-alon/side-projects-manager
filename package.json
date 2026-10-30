@@ -23,7 +23,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"src/**/*.test.ts\" \"mods/manager-home/*.test.ts\" \"mods/ready-guard/hooks/*.test.ts\" \"mods/size-reminder/hooks/*.test.ts\" \"mods/worktree-janitor/hooks/*.test.ts\" \"mods/avoided-terms/hooks/*.test.ts\" \"mods/review-threads/hooks/*.test.ts\"",
+    "test": "node --test \"src/**/*.test.ts\" \"mods/manager-home/*.test.ts\" \"mods/ready-guard/hooks/*.test.ts\" \"mods/size-reminder/hooks/*.test.ts\" \"mods/worktree-janitor/hooks/*.test.ts\" \"mods/avoided-terms/hooks/*.test.ts\" \"mods/review-threads/hooks/*.test.ts\" \"mods/ticket-context/hooks/ticket.test.ts\"",
     "morning-run": "node src/bin/morning-run.ts",
     "new-project": "node src/bin/new-project.ts",
     "status": "node src/bin/status.ts",

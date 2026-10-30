@@ -22,7 +22,7 @@ function engine(on: On, answers: Record<string, { exitCode?: number; stdout?: st
 
 const ACME_42 = {
   'gh issue view 42 --repo acme/pilot --json title,body,labels': { stdout: ISSUE },
-  'gh api --paginate repos/acme/pilot/issues/42/dependencies/blocked_by --jq .[] | (.repository_url | sub(".*/repos/"; "")) + "#" + (.number | tostring)': {
+  'gh api --paginate repos/acme/pilot/issues/42/dependencies/blocked_by --jq .[] | select(.state == "open") | (.repository_url | sub(".*/repos/"; "")) + "#" + (.number | tostring)': {
     stdout: 'acme/pilot#7\n',
   },
 }
@@ -40,7 +40,7 @@ test('a prompt naming owner/repo#n gets that ticket appended', async ($, on) => 
 
 test('a prompt without a reference is untouched and asks the tracker nothing', async ($, on) => {
   const seen = engine(on, ACME_42)
-  const entered = await $.prompt.submit({ text: 'Fix the build in src/a#b and issue 42' })
+  const entered = await $.prompt.submit({ text: 'Fix the build in foo#3, file.ts#5, src/a#b and issue 42' })
   expect(entered.context).toBeUndefined()
   expect(seen.runs.length).toBe(0)
 })
@@ -59,11 +59,12 @@ test('several references each get their context, up to a cap', async ($, on) => 
       stdout: JSON.stringify({ title: `Ticket ${n}`, body: '', labels: [] }),
     }
   }
-  engine(on, answers)
+  const seen = engine(on, answers)
   const entered = await $.prompt.submit({ text: 'acme/pilot#1 acme/pilot#2 acme/pilot#3 acme/pilot#4 acme/pilot#5 acme/pilot#6 acme/pilot#7' })
   const context = entered.context?.join('\n') ?? ''
   for (const n of [1, 2, 3, 4, 5]) expect(context).toMatch(new RegExp(`acme/pilot#${n}: Ticket ${n}`))
   expect(context).not.toMatch(/Ticket 6/)
+  expect(seen.runs.some(argv => argv.includes('6') || argv.includes('7'))).toBe(false)
   expect(context).toMatch(/7 tickets named, the first 5 fetched/)
 })
 
@@ -81,4 +82,40 @@ test('a reference that cannot be fetched leaves the prompt as typed, with a one-
   expect(context.join('\n')).not.toMatch(/second line/)
   expect(context.join('\n')).toMatch(/acme\/pilot#42: Add the thing/)
   expect(toasts.length).toBe(1)
+})
+
+test('a failing repo lookup gives one note and one toast for all the bare #n', async ($, on) => {
+  const toasts: string[] = []
+  const seen = engine(on, { 'gh repo view --json nameWithOwner --jq .nameWithOwner': { exitCode: 1, stderr: 'not a git repository' } })
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return {} as never
+  })
+  const entered = await $.prompt.submit({ text: 'step #1, then #2 and #3' })
+  expect(entered.text).toBe('step #1, then #2 and #3')
+  expect(entered.context ?? []).toHaveLength(1)
+  expect(entered.context?.[0]).toMatch(/could not fetch #1, #2, #3/)
+  expect(toasts.length).toBe(1)
+  expect(seen.runs.filter(argv => argv[1] === 'repo').length).toBe(1)
+})
+
+test('a bare #n and the same ticket spelled out are fetched once', async ($, on) => {
+  const seen = engine(on, { 'gh repo view --json nameWithOwner --jq .nameWithOwner': { stdout: 'acme/pilot\n' }, ...ACME_42 })
+  const entered = await $.prompt.submit({ text: '#42 is acme/pilot#42' })
+  expect(entered.context ?? []).toHaveLength(1)
+  expect(seen.runs.filter(argv => argv[1] === 'issue').length).toBe(1)
+})
+
+test('blockers failing keeps the ticket and says its blockers are unknown', async ($, on) => {
+  engine(on, {
+    'gh issue view 42 --repo acme/pilot --json title,body,labels': { stdout: ISSUE },
+    'gh api --paginate repos/acme/pilot/issues/42/dependencies/blocked_by --jq .[] | select(.state == "open") | (.repository_url | sub(".*/repos/"; "")) + "#" + (.number | tostring)': {
+      exitCode: 1,
+      stderr: 'forbidden',
+    },
+  })
+  const entered = await $.prompt.submit({ text: 'acme/pilot#42' })
+  const context = entered.context?.join('\n') ?? ''
+  expect(context).toMatch(/acme\/pilot#42: Add the thing/)
+  expect(context).toMatch(/Blocked by: unknown/)
 })

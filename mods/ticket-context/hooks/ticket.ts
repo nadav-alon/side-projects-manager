@@ -1,11 +1,15 @@
 declare const repoSlugBrand: unique symbol
 declare const issueNumberBrand: unique symbol
+declare const issueRefBrand: unique symbol
 
 /** A GitHub repository as `owner/repo`. */
 export type RepoSlug = string & { readonly [repoSlugBrand]: true }
 
 /** The number a ticket is known by in its tracker: a positive integer. */
 export type IssueNumber = number & { readonly [issueNumberBrand]: true }
+
+/** A ticket as `owner/repo#n`; values enter through `issueRef` or `isIssueRef`. */
+export type IssueRef = string & { readonly [issueRefBrand]: true }
 
 /** A ticket a prompt names; `repo` is null for a bare `#n`, which means the session's repo. */
 export type Reference = { repo: RepoSlug | null; number: IssueNumber }
@@ -34,6 +38,18 @@ export function issueNumber(value: number): IssueNumber {
   return value
 }
 
+const issueRefPattern = /^[\w.-]+\/[\w.-]+#[1-9]\d*$/
+
+/** Whether `value` is shaped like `owner/repo#n`. */
+export function isIssueRef(value: string): value is IssueRef {
+  return issueRefPattern.test(value)
+}
+
+/** The one way a ticket is written as `owner/repo#n`. */
+export function issueRef(repo: RepoSlug, number: IssueNumber): IssueRef {
+  return `${repo}#${number}` as IssueRef
+}
+
 // A reference is `owner/repo#n`; the lookbehind keeps a bare `#n` from matching inside a word or a path.
 const referencePattern = /(?<![\w/.-])(?:([\w.-]+\/[\w.-]+))?#(\d+)\b/g
 
@@ -54,14 +70,32 @@ export function referencesIn(text: string): Reference[] {
 }
 
 /** What the tracker holds about one ticket. */
-export type Ticket = { title: string; body: string; labels: readonly string[]; blockers: readonly string[] }
+export type Ticket = { title: string; body: string; labels: readonly string[]; blockers: readonly IssueRef[] | null }
+
+/** What `gh issue view --json title,body,labels` printed, checked: a missing body or labels read as empty, a missing title throws. */
+export function parseIssue(json: string): Pick<Ticket, 'title' | 'body' | 'labels'> {
+  const issue: unknown = JSON.parse(json)
+  if (typeof issue !== 'object' || issue === null) throw new TypeError('gh issue view did not answer with an object')
+  const { title, body, labels } = issue as Record<string, unknown>
+  if (typeof title !== 'string') throw new TypeError('gh issue view answered without a title')
+  const names = Array.isArray(labels) ? labels.flatMap(label => (typeof label?.name === 'string' ? [label.name as string] : [])) : []
+  return { title, body: typeof body === 'string' ? body : '', labels: names }
+}
+
+/** The blockers `gh api ...blocked_by --jq` printed, one `owner/repo#n` a line; lines of any other shape are dropped. */
+export function parseBlockers(output: string): IssueRef[] {
+  return output
+    .split('\n')
+    .map(line => line.trim())
+    .filter(isIssueRef)
+}
 
 /** The block the model reads for `ticket`, headed by `ref` as the prompt named it. */
-export function describeTicket(ref: string, ticket: Ticket): string {
+export function describeTicket(ref: IssueRef, ticket: Ticket): string {
   return [
     `Ticket ${ref}: ${ticket.title}`,
     `Labels: ${ticket.labels.length === 0 ? 'none' : ticket.labels.join(', ')}`,
-    `Blocked by: ${ticket.blockers.length === 0 ? 'none' : ticket.blockers.join(', ')}`,
+    `Blocked by: ${ticket.blockers === null ? 'unknown' : ticket.blockers.length === 0 ? 'none' : ticket.blockers.join(', ')}`,
     '',
     ticket.body.trim() === '' ? '(no body)' : ticket.body.trim(),
   ].join('\n')
