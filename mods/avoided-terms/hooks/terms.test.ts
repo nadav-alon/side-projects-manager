@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
-import { avoidedTermsIn, avoidedUses, proseOf } from './terms.ts'
+import { avoidedTermsIn, avoidedUses, issueTextOf, proseOf } from './terms.ts'
 
 const CONTEXT = `# Glossary
 
@@ -24,8 +24,15 @@ describe('avoidedTermsIn', () => {
   })
 
   it('drops a term whose avoidance depends on what is meant', () => {
-    assert.deepEqual(avoidedTermsIn(CONTEXT).map(t => t.avoided).includes('repo'), false)
+    assert.equal(avoidedTermsIn(CONTEXT).some(t => t.avoided === 'repo'), false)
     assert.equal(avoidedTermsIn(CONTEXT).some(t => t.avoided === 'app' && t.preferred === 'Project'), true)
+  })
+
+  it('drops a term that is itself a glossary entry', () => {
+    const terms = avoidedTermsIn('**Invocation**:\nOne firing.\n_Avoid_: run, summary\n\n**Run**:\nA ticket.\n\n**Summary**:\nThe tally.\n')
+    assert.deepEqual(terms, [])
+    const real = avoidedTermsIn(readFileSync(new URL('../../../CONTEXT.md', import.meta.url), 'utf8'))
+    assert.equal(real.some(t => t.avoided === 'run' || t.avoided === 'summary'), false)
   })
 
   it('finds nothing in a document with no glossary', () => {
@@ -47,6 +54,11 @@ describe('avoidedUses', () => {
 
   it('matches without case and reports a term once', () => {
     assert.equal(avoidedUses('Run it. Then run it again.', TERMS).length, 1)
+  })
+
+  it('reports a term avoided for two entries once, naming both', () => {
+    const two = [{ avoided: 'task', preferred: 'Run' }, { avoided: 'task', preferred: 'Job' }]
+    assert.deepEqual(avoidedUses('a task', two), [{ avoided: 'task', preferred: 'Run" or "Job' }])
   })
 
   it('does not flag a term inside an identifier', () => {
@@ -71,5 +83,25 @@ describe('proseOf', () => {
 
   it('keeps the comments of a hash-commented file', () => {
     assert.equal(avoidedUses(proseOf('a.yml', 'run: x\n# the execution\n'), TERMS).length, 1)
+  })
+
+  it('leaves out an indented fence and a fence closed by a longer one', () => {
+    assert.equal(avoidedUses(proseOf('a.md', '- item\n  ```ts\n  const run = 1\n  ```\n'), TERMS).length, 0)
+    assert.equal(avoidedUses(proseOf('a.md', '````md\n```\nrun\n```\n````\nDone.'), TERMS).length, 0)
+  })
+
+  it('does not read a URL as a comment', () => {
+    assert.deepEqual(avoidedUses(proseOf('a.ts', 'const url = "http://host/run"\n'), TERMS), [])
+  })
+
+  it('leaves out CONTEXT.md, which lists the avoided terms', () => {
+    assert.equal(proseOf('/repo/CONTEXT.md', '_Avoid_: run'), '')
+  })
+})
+
+describe('issueTextOf', () => {
+  it('keeps the title and body values, not the other flags', () => {
+    const command = 'gh issue edit 12 --add-label ready --title "Each run" -b \'a session\' --repo o/run'
+    assert.equal(issueTextOf(command), 'Each run\na session')
   })
 })
