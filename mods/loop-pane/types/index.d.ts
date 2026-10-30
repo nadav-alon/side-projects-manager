@@ -13,6 +13,6 @@ export type LoopSnapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'loop-pane': { snapshot: LoopSnapshot }
+    'loop-pane': { snapshot: LoopSnapshot; notice: string | null }
   }
 }

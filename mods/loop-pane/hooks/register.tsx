@@ -12,6 +12,9 @@ const NO = 'No'
 const EMPTY: LoopSnapshot = { inFlight: null, usage: null }
 const snapshot = atom({ plugin: 'loop-pane', key: 'snapshot' } as const, EMPTY)
 
+/** What the last button press came to when it did not succeed, or `null` when it did (or none was pressed). */
+const notice = atom({ plugin: 'loop-pane', key: 'notice' } as const, null as string | null)
+
 /** The manager scripts the buttons run, as `npm run <script>`; `confirm` is the question asked first, when there is one. */
 const BUTTONS = [
   { key: 'halt', label: 'Halt', script: 'halt' },
@@ -52,6 +55,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const { inFlight, usage } = await read($, snapshot)
+    const failure = await read($, notice)
     const home = managerHome($.plugin.root)
 
     return (
@@ -80,6 +84,7 @@ export const register: Register = on => {
             5-hour spend: {usage.tokensUsed} of {usage.allowance} tokens
           </Text>
         )}
+        {failure !== null && <Text color="red">{failure}</Text>}
         <Box>
           {BUTTONS.map(button => (
             <Button
@@ -89,7 +94,15 @@ export const register: Register = on => {
                   const answer = await $.ui.ask(button.confirm, [YES, NO]).catch(() => NO)
                   if (answer !== YES) return
                 }
-                await $.process.run(['npm', 'run', '--silent', button.script], { cwd: home }).catch(() => undefined)
+                await update($, notice, () => null)
+                try {
+                  const { exitCode, stdout, stderr } = await $.process.run(['npm', 'run', '--silent', button.script], { cwd: home })
+                  if (exitCode !== 0) {
+                    await update($, notice, () => `${button.label} failed (exit ${exitCode}): ${(stderr || stdout).trim()}`)
+                  }
+                } catch (error) {
+                  await update($, notice, () => `${button.label} failed: ${error instanceof Error ? error.message : String(error)}`)
+                }
               }}
             >
               {button.label}

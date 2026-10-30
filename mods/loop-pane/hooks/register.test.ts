@@ -10,7 +10,7 @@ const now = Date.now()
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
 /** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
-function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = []) {
+function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = [], outcome: { exitCode: number; stderr: string } = { exitCode: 0, stderr: '' }) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
     reads.push(e.path)
@@ -20,7 +20,7 @@ function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: s
   })
   on('process.run', (_$, { argv, init }) => {
     ran.push({ argv, cwd: init?.cwd })
-    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
   })
   on('ui.open', () => ({ value: {} }) as never)
   on('ui.render', ($, e) => {
@@ -107,6 +107,14 @@ test('halt and resume run the manager command from the manager home', async ($, 
     { argv: ['npm', 'run', '--silent', 'halt'], cwd: HOME },
     { argv: ['npm', 'run', '--silent', 'resume'], cwd: HOME },
   ])
+})
+
+test('a button whose command fails says so in the pane', async ($, on) => {
+  engine(on, home, [], [], { exitCode: 1, stderr: 'npm: not found' })
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  await ui.press({ key: 'halt' })
+  expect(await texts(ui)).toContain('Halt failed (exit 1): npm: not found')
 })
 
 /** Stands for the person at the confirmation dialog: every question asked is answered `choice`, and recorded. */
