@@ -10,7 +10,7 @@ export function bandLabel(usage: FiveHourUsage): string {
   return `5h window: ${usedPercent(usage)}% used`
 }
 
-/** Whether the window's usage has reached the share of the allowance the loop keeps in reserve. */
+/** Whether the window's usage has reached its 5-hour reserve: past the allowance less the reserve, rounded up as the gate does. */
 export function isInReserve({ tokensUsed, allowance, reserveFraction }: FiveHourUsage): boolean {
-  return tokensUsed >= allowance * (1 - reserveFraction)
+  return tokensUsed > allowance - Math.ceil(allowance * reserveFraction)
 }

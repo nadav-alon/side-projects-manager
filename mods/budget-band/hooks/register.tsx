@@ -12,7 +12,7 @@ export const register: Register = on => {
     const fs = { read: (path: string) => $.fs.read(path), list: (path: string) => $.fs.list(path) }
     const reader = managerHomeReader(fs, homeOf($.plugin.root))
     const usage = await reader.fiveHourUsage(new Date(await $.clock.now()))
-    // Whatever draws beneath, mode-band's band for one, stays: this band stacks on top of it.
+    // Whatever draws beneath stays: this band stacks on top of it.
     const below = await next(e)
     if (usage === undefined) return below
 
