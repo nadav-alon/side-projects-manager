@@ -1,0 +1,5 @@
+{
+  "name": "avoided-terms",
+  "version": "0.1.0",
+  "description": "Notes a use of a term the session repo's CONTEXT.md says to avoid in the prose being written, naming the term to write instead."
+}
