@@ -1,0 +1,6 @@
+{
+  "name": "project-switcher",
+  "version": "0.1.0",
+  "description": "Opens a pane listing every registered project with its ready tickets, open pull requests, CI state and turbo flag.",
+  "types": "./types/index.d.ts"
+}
