@@ -1,17 +1,19 @@
 import { expect, test, type TestBody } from 'claude-code/testing'
 
 type On = Parameters<TestBody>[1]
+type Exists = { path: string }
+type Run = { argv: string[]; init?: { cwd?: string } }
 
 const CWD = '/work/repo'
 const ADR = `${CWD}/docs/adr/0007-new.md`
 
 /** Stands for the engine beneath the mod: which paths exist, what the check answers, and that a write succeeds. */
-function engine(on: On, world: { existing: string[]; check: { exitCode: number; stderr: string } }): { ran: string[][] } {
-  const seen = { ran: [] as string[][] }
+function engine(on: On, world: { existing: string[]; check: { exitCode: number; stderr: string } }): { runs: Run[] } {
+  const seen = { runs: [] as Run[] }
   on('session.cwd', () => ({ value: CWD }) as never)
-  on('fs.exists', (_$, e) => ({ value: world.existing.includes((e as unknown as { path: string }).path) }) as never)
+  on('fs.exists', (_$, e) => ({ value: world.existing.includes((e as unknown as Exists).path) }) as never)
   on('process.run', (_$, e) => {
-    seen.ran.push((e as unknown as { argv: string[] }).argv)
+    seen.runs.push(e as unknown as Run)
     return { value: { ...world.check, stdout: '' } } as never
   })
   on('tool.call', { tool: 'Write' }, () => ({ result: { type: 'create' }, isError: false }) as never)
@@ -26,7 +28,28 @@ test('a new ADR whose number collides surfaces the check failure to the model', 
   const seen = engine(on, { existing: REPO, check: FAILING })
   const ran = await $.tool.call({ tool: 'Write', file_path: ADR, content: '# x' })
   expect(ran.context?.join('\n')).toMatch(/ADR 0007 is claimed by/)
-  expect(seen.ran.length).toBe(1)
+  expect(seen.runs.length).toBe(1)
+  expect(seen.runs[0]?.argv).toEqual(['node', 'scripts/check-adr-numbers.ts'])
+  expect(seen.runs[0]?.init?.cwd).toBe(CWD)
+})
+
+test('a collision between other ADRs is not blamed on the new file', async ($, on) => {
+  engine(on, { existing: REPO, check: { exitCode: 1, stderr: 'ADR 0003 is claimed by 0003-a.md and 0003-b.md' } })
+  const ran = await $.tool.call({ tool: 'Write', file_path: ADR, content: '# x' })
+  expect(ran.context).toBeUndefined()
+})
+
+test('a relative path is resolved against the session cwd', async ($, on) => {
+  const seen = engine(on, { existing: REPO, check: FAILING })
+  const ran = await $.tool.call({ tool: 'Write', file_path: 'docs/adr/0007-new.md', content: '# x' })
+  expect(ran.context?.join('\n')).toMatch(/ADR 0007 is claimed by/)
+  expect(seen.runs.length).toBe(1)
+})
+
+test('an ADR path in another project is untouched', async ($, on) => {
+  const seen = engine(on, { existing: REPO, check: FAILING })
+  await $.tool.call({ tool: 'Write', file_path: '/elsewhere/other/docs/adr/0003-x.md', content: '# x' })
+  expect(seen.runs.length).toBe(0)
 })
 
 test('a correctly numbered new ADR produces no message', async ($, on) => {
@@ -39,25 +62,25 @@ test('rewriting an existing ADR does not run the check', async ($, on) => {
   const seen = engine(on, { existing: [...REPO, ADR], check: FAILING })
   const ran = await $.tool.call({ tool: 'Write', file_path: ADR, content: '# x' })
   expect(ran.context).toBeUndefined()
-  expect(seen.ran.length).toBe(0)
+  expect(seen.runs.length).toBe(0)
 })
 
 test('editing an ADR does not run the check', async ($, on) => {
   const seen = engine(on, { existing: [...REPO, ADR], check: FAILING })
   on('tool.call', { tool: 'Edit' }, () => ({ result: {}, isError: false }) as never)
   await $.tool.call({ tool: 'Edit', file_path: ADR, old_string: 'a', new_string: 'b' })
-  expect(seen.ran.length).toBe(0)
+  expect(seen.runs.length).toBe(0)
 })
 
 test('a session outside this repo is untouched', async ($, on) => {
   const seen = engine(on, { existing: [], check: FAILING })
   const ran = await $.tool.call({ tool: 'Write', file_path: ADR, content: '# x' })
   expect(ran.context).toBeUndefined()
-  expect(seen.ran.length).toBe(0)
+  expect(seen.runs.length).toBe(0)
 })
 
 test('a file outside docs/adr is untouched', async ($, on) => {
   const seen = engine(on, { existing: REPO, check: FAILING })
   await $.tool.call({ tool: 'Write', file_path: `${CWD}/docs/notes/0007-x.md`, content: '# x' })
-  expect(seen.ran.length).toBe(0)
+  expect(seen.runs.length).toBe(0)
 })
