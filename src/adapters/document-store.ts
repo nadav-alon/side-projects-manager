@@ -19,6 +19,7 @@ import type {
   IssueNumber,
   IssueUrl,
   Journal,
+  JournaledFreedEntry,
   JournaledProject,
   JournaledSummaryFailure,
   KeptSummaryPath,
@@ -1118,6 +1119,7 @@ const RECORD_FIELDS = [
   "closedAt",
   "outcome",
   "projects",
+  "freed",
   "standDownReason",
   "summaryLocation",
   "summaryFailure",
@@ -1127,7 +1129,8 @@ const RECORD_FIELDS = [
 /**
  * `{ "records": [{ "openedAt": "…", "process": 123, "closedAt": "…",
  *    "outcome": "work-selected", "projects": [{ "repo": "owner/repo",
- *    "tokensUsed": 12000 }], "standDownReason": "…",
+ *    "tokensUsed": 12000 }], "freed": [{ "repo": "owner/repo", "number": 432 }],
+ *    "standDownReason": "…",
  *    "summaryLocation": "https://github.com/owner/repo/issues/1",
  *    "summaryFailure": { "reason": "…", "keptAt": "…" } }] }`
  *
@@ -1173,6 +1176,7 @@ function parseInvocationRecord(
     closedAt: parseInstant(closedAt, `${where}: "closedAt"`),
     outcome: outcomeField(fieldOf(record, "outcome", where), where),
     projects: journaledProjectsField(fieldOf(record, "projects", where), where),
+    ...freedField(fieldOf(record, "freed", where), where),
     ...standDownReasonField(fieldOf(record, "standDownReason", where), where),
     ...summaryLocationField(fieldOf(record, "summaryLocation", where), where),
     ...summaryFailureField(fieldOf(record, "summaryFailure", where), where),
@@ -1311,6 +1315,32 @@ function journaledProjectsField(
   });
 }
 
+/** `[{ "repo": "owner/repo", "number": 432 }]` — absent on a record written before it was kept. */
+function freedField(
+  value: unknown,
+  where: string,
+): { freed?: JournaledFreedEntry[] } {
+  if (value === undefined) {
+    return {};
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${where}: "freed" must be a list of tickets.`);
+  }
+  return {
+    freed: value.map((entry, index) => {
+      const entryWhere = `${where}: freed ${index + 1}`;
+      const repo = repoSlugField(entry, entryWhere);
+      const number = fieldOf(entry, "number", entryWhere);
+      if (typeof number !== "number" || !isIssueNumber(number)) {
+        throw new Error(
+          `${entryWhere}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
+        );
+      }
+      return { repo, number };
+    }),
+  };
+}
+
 function standDownReasonField(
   value: unknown,
   where: string,
@@ -1433,6 +1463,9 @@ function formatJournal(journal: Journal): string {
         repo,
         tokensUsed,
       })),
+      ...(record.freed !== undefined && {
+        freed: record.freed.map(({ repo, number }) => ({ repo, number })),
+      }),
       ...(record.standDownReason !== undefined && {
         standDownReason: record.standDownReason,
       }),

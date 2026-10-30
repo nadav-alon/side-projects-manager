@@ -1544,6 +1544,55 @@ describe("the journal document", () => {
     });
   });
 
+  it("records the entries an invocation freed, and an empty list when it freed none", async () => {
+    const store = documentStore(await home());
+    const first = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+    await store.closeInvocation(first, {
+      closedAt: CLOSED_AT,
+      outcome: "work-selected",
+      projects: [],
+      freed: [{ repo: MANAGER, number: issueNumber(432) }],
+    });
+    const second = await store.openInvocation({
+      openedAt: CLOSED_AT,
+      process: PROCESS,
+    });
+    await store.closeInvocation(second, {
+      closedAt: new Date("2026-01-01T09:00:00.000Z"),
+      outcome: "dry-queue",
+      projects: [],
+      freed: [],
+    });
+
+    const [freed, none] = (await store.loadJournal()).records;
+    assert.deepEqual(freed?.freed, [{ repo: MANAGER, number: 432 }]);
+    assert.deepEqual(none?.freed, []);
+  });
+
+  it("rejects a record whose freed list names a ticket without a valid number", async () => {
+    const store = documentStore(
+      await home({
+        journal: JSON.stringify({
+          records: [
+            {
+              openedAt: OPENED_AT.toISOString(),
+              process: 4242,
+              closedAt: CLOSED_AT.toISOString(),
+              outcome: "dry-queue",
+              projects: [],
+              freed: [{ repo: MANAGER, number: 0 }],
+            },
+          ],
+        }),
+      }),
+    );
+
+    await assert.rejects(store.loadJournal(), /"number"/);
+  });
+
   it("records a summary failure with no keptAt, when even that write failed", async () => {
     const store = documentStore(await home());
     const opened = await store.openInvocation({
