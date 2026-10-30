@@ -135,6 +135,7 @@ export type {
   InvocationOutcome,
   InvocationRecord,
   Journal,
+  JournaledFreedEntry,
   JournaledProject,
   JournaledSummaryFailure,
   OpenInvocation,

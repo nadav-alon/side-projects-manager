@@ -6,6 +6,7 @@ import type {
   InvocationRecord,
   IssueNumber,
   Journal,
+  JournaledFreedEntry,
   KeptSummaryPath,
   ModelDefaults,
   OpenInvocation,
@@ -257,6 +258,7 @@ export class FakeStore implements Store {
       closedAt: closing.closedAt,
       outcome: closing.outcome,
       projects: [...closing.projects],
+      ...(closing.freed !== undefined && { freed: [...closing.freed] }),
       ...(closing.standDownReason !== undefined && {
         standDownReason: closing.standDownReason,
       }),
@@ -278,11 +280,25 @@ export class FakeStore implements Store {
         ...(record.projects !== undefined && {
           projects: [...record.projects],
         }),
+        ...(record.freed !== undefined && { freed: [...record.freed] }),
         ...(record.summaryFailure !== undefined && {
           summaryFailure: { ...record.summaryFailure },
         }),
       })),
     };
+  }
+
+  async recordFreed(
+    opened: OpenInvocation,
+    freed: readonly JournaledFreedEntry[],
+  ): Promise<void> {
+    const record = findInvocationRecord(this.#journal, opened);
+    if (record === undefined) {
+      throw new Error(
+        `no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}`,
+      );
+    }
+    record.freed = freed.map(({ repo, number }) => ({ repo, number }));
   }
 
   async recordRunStarted(

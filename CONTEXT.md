@@ -943,8 +943,9 @@ outcomes rather than capturing output.
 _Avoid_: log (`trigger.log` is the log), history, audit trail, invocations file
 
 **Invocation record**:
-One journal entry. Opened before the loop runs, closed with the report — including where a published
-summary landed, or a summary failure and where its kept summary landed.
+One journal entry. Opened before the loop runs, closed with the report — including the entries the
+invocation **freed** (project and ticket; empty when none), and where a published summary landed, or
+a summary failure and where its kept summary landed.
 _Avoid_: entry, row, event
 
 **In flight**:
