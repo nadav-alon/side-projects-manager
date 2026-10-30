@@ -1,0 +1,5 @@
+{
+  "name": "worktree-janitor",
+  "version": "0.1.0",
+  "description": "Adds /worktrees, which lists the session repo's agent worktrees with branch, merged state and age, and prunes the merged ones on confirmation."
+}
