@@ -84,3 +84,29 @@ export function formatListing(worktrees: readonly Worktree[]): string {
     })
     .join('\n')
 }
+
+/** The worktrees a prune may remove: merged, with no uncommitted changes. */
+export function prunable(worktrees: readonly Worktree[]): Worktree[] {
+  return worktrees.filter(w => w.merged && !w.dirty)
+}
+
+export const NOTHING_TO_PRUNE = 'No merged worktrees without uncommitted changes to prune.'
+
+/** The question put to the person before a prune removes `candidates`. */
+export function pruneQuestion(candidates: readonly Worktree[]): string {
+  return `Remove ${candidates.length} merged worktree${candidates.length === 1 ? '' : 's'}?\n${formatListing(candidates)}`
+}
+
+/**
+ * Removes the prunable worktrees of the repo `cwd` belongs to once `confirm` agrees to the question.
+ * The worktrees are read again after the confirmation, so one that changed meanwhile is judged as it now is.
+ * Removal never forces: git itself refuses a worktree with uncommitted changes.
+ */
+export async function pruneAgentWorktrees(git: Git, cwd: string, confirm: (question: string) => Promise<boolean>): Promise<string> {
+  const candidates = prunable(await listAgentWorktrees(git, cwd))
+  if (candidates.length === 0) return NOTHING_TO_PRUNE
+  if (!(await confirm(pruneQuestion(candidates)))) return '/worktrees prune cancelled.'
+  const removed = prunable(await listAgentWorktrees(git, cwd))
+  for (const { path } of removed) await git(['worktree', 'remove', path], cwd)
+  return `Removed ${removed.length} worktree${removed.length === 1 ? '' : 's'}:\n${formatListing(removed)}`
+}

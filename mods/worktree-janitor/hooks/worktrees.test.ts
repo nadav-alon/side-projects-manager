@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { NO_WORKTREES, formatAge, formatListing, listAgentWorktrees, type Git } from './worktrees.ts'
+import { NO_WORKTREES, NOTHING_TO_PRUNE, formatAge, formatListing, listAgentWorktrees, pruneAgentWorktrees, type Git } from './worktrees.ts'
 
 const ROOT = '/work/repo'
 const NOW = Math.floor(Date.now() / 1000)
@@ -70,5 +70,56 @@ describe('listAgentWorktrees', () => {
 describe('formatAge', () => {
   it('uses the largest whole unit', () => {
     assert.deepEqual([0, 59, 3599, 3600, 86399, 86400].map(formatAge), ['0m', '0m', '59m', '1h', '23h', '1d'])
+  })
+})
+
+describe('pruneAgentWorktrees', () => {
+  const fakes = {
+    done: { branch: 'issue-1-done', dirty: false, committedAgoSeconds: 86400, merged: true },
+    open: { branch: 'issue-2-open', dirty: false, committedAgoSeconds: 60, merged: false },
+    wip: { branch: 'issue-3-wip', dirty: true, committedAgoSeconds: 60, merged: true },
+  }
+
+  /** `fakeGit` that also records the `worktree remove` calls. */
+  function recording(f: Record<string, Fake>) {
+    const removed: string[] = []
+    const inner = fakeGit(f)
+    const git: Git = async (args, cwd) => {
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        removed.push(args[2]!)
+        return ''
+      }
+      return inner(args, cwd)
+    }
+    return { git, removed }
+  }
+
+  it('removes only merged worktrees without uncommitted changes, after confirmation', async () => {
+    const { git, removed } = recording(fakes)
+    const asked: string[] = []
+    const out = await pruneAgentWorktrees(git, ROOT, async q => (asked.push(q), true))
+    assert.deepEqual(removed, [`${ROOT}/.claude/worktrees/done`])
+    assert.deepEqual(asked, ['Remove 1 merged worktree?\ndone  issue-1-done  merged  1d'])
+    assert.equal(out, 'Removed 1 worktree:\ndone  issue-1-done  merged  1d')
+  })
+
+  it('removes nothing when the person declines', async () => {
+    const { git, removed } = recording(fakes)
+    assert.equal(await pruneAgentWorktrees(git, ROOT, async () => false), '/worktrees prune cancelled.')
+    assert.deepEqual(removed, [])
+  })
+
+  it('never offers a worktree with uncommitted changes, even a merged one, and asks nothing when none is prunable', async () => {
+    const { git, removed } = recording({ wip: fakes.wip, open: fakes.open })
+    let asked = 0
+    const out = await pruneAgentWorktrees(git, ROOT, async () => (asked++, true))
+    assert.equal(out, NOTHING_TO_PRUNE)
+    assert.equal(asked, 0)
+    assert.deepEqual(removed, [])
+  })
+
+  it('says so when the repo has no agent worktrees', async () => {
+    const { git } = recording({})
+    assert.equal(await pruneAgentWorktrees(git, ROOT, async () => true), NOTHING_TO_PRUNE)
   })
 })
