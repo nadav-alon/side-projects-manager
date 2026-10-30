@@ -66,11 +66,23 @@ describe('checkReadyLabel, gh issue create', () => {
       'gh issue create -t t -l bug,ready-for-agent --body-file -',
       'gh issue create --label=ready-for-agent -R x/y',
       'gh issue create -lready-for-agent',
+      'gh issue new --label ready-for-agent',
+      'gh issue -R x/y create -l ready-for-agent',
+      'gh -R x/y issue create -l ready-for-agent',
+      'gh issue create -wl ready-for-agent',
     ]) {
       const verdict = await checkReadyLabel(command, unreadableTracker())
       assert.equal(verdict.kind, 'deny', command)
       assert.match(verdict.kind === 'deny' ? verdict.reason : '', /unlabelled, link its blockers, then add ready-for-agent/)
     }
+  })
+
+  it('denies a labelled create chained with an edit while the tracker cannot be read', async () => {
+    const verdict = await checkReadyLabel(
+      'gh issue create -l ready-for-agent --title t && gh issue edit 5 --add-label ready-for-agent',
+      unreadableTracker(),
+    )
+    assert.equal(verdict.kind, 'deny')
   })
 
   it('lets a create without the label run', async () => {
@@ -242,6 +254,12 @@ describe('checkReadyLabel, the repo of a call naming none', () => {
     const trail = { moved: false }
     await checkReadyLabel('cd ../other', blocked(), trail)
     assert.match((await denyReadyLabel(ADD, blocked(ELSEWHERE), trail)) ?? '', /acme\/elsewhere#7/)
+  })
+
+  it('remembers a cd in a call denied for a labelled create', async () => {
+    const trail = { moved: false }
+    await checkReadyLabel('cd ../other && gh issue create --title x --label ready-for-agent', blocked(), trail)
+    assert.equal(trail.moved, true)
   })
 
   it('judges a later call against the session while no call has run cd', async () => {
