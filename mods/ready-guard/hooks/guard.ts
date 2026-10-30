@@ -2,6 +2,8 @@
 // the ticket's body and the blockers linked to it. Pure over a tracker reader, so a mod's hook only
 // supplies the reads; it imports nothing from the engine.
 
+import { ghRepoPrefix, movesShell, targetRepo } from './target-repo/target.ts'
+
 declare const repoSlugBrand: unique symbol
 declare const issueNumberBrand: unique symbol
 declare const issueRefBrand: unique symbol
@@ -59,16 +61,23 @@ export function issueParts(issue: IssueRef): { repo: RepoSlug; number: IssueNumb
 
 /** The tracker reads the guard needs, for one ticket. */
 export interface Tracker {
-  /** The ticket's repo when the call named none: the repo the shell runs in. */
+  /** The repo of the session's working directory, which the shell may no longer be in. */
   currentRepo(): Promise<RepoSlug>
+  /** `GH_REPO` in the shell's environment; null when it is unset or not a repo. */
+  environmentRepo(): Promise<RepoSlug | null>
   body(issue: IssueRef): Promise<string>
   /** The tickets linked to `issue` as native blocked-by dependencies. */
   linkedBlockers(issue: IssueRef): Promise<readonly IssueRef[]>
 }
 
-/** A ticket a `gh issue edit` adds `ready-for-agent` to; `repo` is null when the call names none. */
+/**
+ * A ticket a `gh issue edit` adds `ready-for-agent` to; `repo` is null when the call names none by
+ * `--repo` or an issue URL, `prefix` is the command's own `GH_REPO=`, and `moved` is true after a `cd`.
+ */
 export interface ReadyLabelEdit {
   repo: RepoSlug | null
+  prefix: RepoSlug | null
+  moved: boolean
   number: IssueNumber
 }
 
@@ -142,10 +151,12 @@ function issueArgument(arg: string): { repo: RepoSlug | null; number: IssueNumbe
 }
 
 /** The tickets one `gh issue edit` adds `ready-for-agent` to; none when it does not add it. */
-function editsOf(words: readonly string[]): ReadyLabelEdit[] {
+function editsOf(words: readonly string[], moved: boolean): ReadyLabelEdit[] {
   const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'edit')
   if (start === -1) return []
   const args = words.slice(start + 3)
+  const assigned = ghRepoPrefix(words)
+  const prefix = assigned === null ? null : flagRepo(assigned)
 
   let repo: RepoSlug | null = null
   const issues: { repo: RepoSlug | null; number: IssueNumber }[] = []
@@ -164,12 +175,18 @@ function editsOf(words: readonly string[]): ReadyLabelEdit[] {
       if (issue) issues.push(issue)
     }
   }
-  return isAdding ? issues.map((issue) => ({ repo: issue.repo ?? repo, number: issue.number })) : []
+  return isAdding ? issues.map((issue) => ({ repo: issue.repo ?? repo, prefix, moved, number: issue.number })) : []
 }
 
 /** Every ticket the call adds `ready-for-agent` to; empty when it is not such a `gh issue edit`. */
 export function readyLabelEdits(command: string): ReadyLabelEdit[] {
-  return simpleCommands(command).flatMap(editsOf)
+  let moved = false
+  const edits: ReadyLabelEdit[] = []
+  for (const words of simpleCommands(command)) {
+    edits.push(...editsOf(words, moved))
+    moved ||= movesShell(words)
+  }
+  return edits
 }
 
 /** The tickets a body's Blocked by names, as written `#n`, `owner/repo#n` or an issue URL; `repo` qualifies a bare `#n`. */
@@ -186,7 +203,15 @@ export function namedBlockers(body: string, repo: RepoSlug): IssueRef[] {
 async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
   const denials: string[] = []
   for (const edit of readyLabelEdits(command)) {
-    const repo = edit.repo ?? (await tracker.currentRepo())
+    const repo =
+      edit.repo ??
+      (await targetRepo({ prefix: edit.prefix, moved: edit.moved, environment: () => tracker.environmentRepo(), session: () => tracker.currentRepo() }))
+    if (repo === null) {
+      denials.push(
+        `#${edit.number} is in a repo this call does not name, and the shell may have moved: add --repo OWNER/REPO, then add ${LABEL}.`,
+      )
+      continue
+    }
     const issue = issueRef(`${repo}#${edit.number}`)
     const named = namedBlockers(await tracker.body(issue), repo)
     const linked = new Set((await tracker.linkedBlockers(issue)).map((ref) => issueRef(ref)))

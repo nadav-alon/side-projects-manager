@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { checkReadyLabel, issueRef, repoSlug, type IssueRef, type Tracker } from './guard.ts'
+import { checkReadyLabel, issueRef, repoSlug, type IssueRef, type RepoSlug, type Tracker } from './guard.ts'
 
 const REPO = repoSlug('acme/pilot')
 
 /** A fake tracker holding one ticket's body and its linked blockers. */
-function fakeTracker(body: string, linked: IssueRef[] = []): Tracker {
+function fakeTracker(body: string, linked: IssueRef[] = [], environment: RepoSlug | null = null): Tracker {
   return {
     async currentRepo() {
       return REPO
+    },
+    async environmentRepo() {
+      return environment
     },
     async body() {
       return body
@@ -25,7 +28,7 @@ function unreadableTracker(message = 'unread'): Tracker {
   const fail = async (): Promise<never> => {
     throw new Error(message)
   }
-  return { currentRepo: fail, body: fail, linkedBlockers: fail }
+  return { currentRepo: fail, environmentRepo: fail, body: fail, linkedBlockers: fail }
 }
 
 /** The text that denies `command`, or null when it runs; a warning fails the test. */
@@ -151,5 +154,39 @@ describe('checkReadyLabel, blockers as written', () => {
 
   it('does not count #0 as a blocker', async () => {
     assert.equal(await denyReadyLabel(ADD, fakeTracker('Blocked by: #0')), null)
+  })
+})
+
+describe('checkReadyLabel, the repo of a call naming none', () => {
+  const ELSEWHERE = repoSlug('acme/elsewhere')
+  const blocked = (environment: RepoSlug | null = null) => fakeTracker('Blocked by: #3', [], environment)
+
+  it('reads the command\'s own GH_REPO= prefix over the environment and the session', async () => {
+    const denial = await denyReadyLabel(`GH_REPO=${ELSEWHERE} ${ADD}`, blocked(repoSlug('acme/env')))
+    assert.match(denial ?? '', /acme\/elsewhere#7/)
+  })
+
+  it('reads GH_REPO in the environment over the session', async () => {
+    assert.match((await denyReadyLabel(ADD, blocked(ELSEWHERE))) ?? '', /acme\/elsewhere#7/)
+  })
+
+  it('lets an explicit --repo win over GH_REPO', async () => {
+    const denial = await denyReadyLabel(`GH_REPO=${ELSEWHERE} gh issue edit 7 -R x/y --add-label ready-for-agent`, blocked())
+    assert.match(denial ?? '', /x\/y#7/)
+  })
+
+  it('denies after a cd, asking for --repo', async () => {
+    const denial = await denyReadyLabel(`cd ../other && ${ADD}`, blocked())
+    assert.match(denial ?? '', /--repo/)
+    assert.doesNotMatch(denial ?? '', /acme\/pilot/)
+  })
+
+  it('still reads GH_REPO after a cd', async () => {
+    const denial = await denyReadyLabel(`cd ../other && ${ADD}`, blocked(ELSEWHERE))
+    assert.match(denial ?? '', /acme\/elsewhere#7/)
+  })
+
+  it('does not deny a cd with no ready-for-agent edit after it', async () => {
+    assert.equal(await denyReadyLabel('cd ../other && gh issue view 7', blocked()), null)
   })
 })
