@@ -50,7 +50,7 @@ export const register: Register = on => {
     return { text: 'Review threads pane opened.' }
   })
 
-  /** Re-reads the tracker into the pane's state; a failure is shown in the pane, not thrown. */
+  /** Re-reads the repo host's answer into the pane's state; a failure is shown in the pane, not thrown. */
   async function refresh($: Parameters<typeof update>[0] & Shell) {
     try {
       const { exitCode, stdout, stderr } = await $.process.run(['gh', ...readArgs(await sessionRepo($))])
@@ -58,7 +58,7 @@ export const register: Register = on => {
       await update($, pullRequests, () => parseDraftPullRequests(stdout))
       await update($, notice, () => '')
     } catch (error) {
-      await update($, notice, () => `Could not read the tracker: ${messageOf(error)}`)
+      await update($, notice, () => `Could not read the repo host: ${messageOf(error)}`)
     }
   }
 

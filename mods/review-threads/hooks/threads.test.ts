@@ -83,7 +83,7 @@ describe('the buttons', () => {
     assert.equal(confirmationFor('rebase', number), 'Post /rebase on pull request #9?')
   })
 
-  it('re-read the tracker for the repo', () => {
+  it('read the repo host for the repo', () => {
     assert.deepEqual(readArgs(repo).slice(-4), ['-F', 'owner=acme', '-F', 'name=pilot'])
   })
 })
