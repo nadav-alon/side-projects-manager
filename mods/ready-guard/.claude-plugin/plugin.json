@@ -1,5 +1,5 @@
 {
   "name": "ready-guard",
   "version": "0.1.0",
-  "description": "Denies labelling a ticket ready-for-agent while a blocker its body names is not linked as a native dependency."
+  "description": "Denies every gh issue create that adds ready-for-agent, and labelling a ticket ready-for-agent while a blocker its body names is not linked as a native dependency."
 }

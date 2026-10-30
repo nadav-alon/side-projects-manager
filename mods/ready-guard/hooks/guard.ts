@@ -1,5 +1,6 @@
-// The ready-for-agent guard: whether a shell call labelling a ticket ready-for-agent may run, given
-// the ticket's body and the blockers linked to it. Pure over a tracker reader, so a mod's hook only
+// The ready-for-agent guard: whether a shell call labelling a ticket ready-for-agent may run. Every
+// `gh issue create` that adds the label is denied; an edit is judged by the ticket's body and the
+// blockers linked to it. Pure over a tracker reader, so a mod's hook only
 // supplies the reads; it imports nothing from the engine.
 
 import { targetRepo, walkCommands, type CommandContext } from './target-repo/target.ts'
@@ -83,32 +84,16 @@ export interface ReadyLabelEdit {
 
 const LABEL = 'ready-for-agent'
 
-/** The flags of `gh issue edit` and `gh issue create` that take a value, long and short. */
-const VALUE_FLAGS = new Set([
-  '--assignee',
-  '--label',
-  '--project',
-  '--template',
-  '-T',
-  '-a',
-  '-l',
-  '-p',
-  '--add-assignee',
-  '--add-label',
-  '--add-project',
-  '--body',
-  '--body-file',
-  '--milestone',
-  '--remove-assignee',
-  '--remove-label',
-  '--remove-project',
-  '--repo',
-  '--title',
-  '-R',
-  '-b',
-  '-F',
-  '-m',
-  '-t',
+/** The flags of `gh issue create` that take a value, long and short; see `gh issue create --help`. */
+const CREATE_VALUE_FLAGS = new Set([
+  '--assignee', '-a', '--body', '-b', '--body-file', '-F', '--label', '-l', '--milestone', '-m',
+  '--project', '-p', '--recover', '--repo', '-R', '--template', '-T', '--title', '-t',
+])
+
+/** The flags of `gh issue edit` that take a value, long and short; see `gh issue edit --help`. */
+const EDIT_VALUE_FLAGS = new Set([
+  '--add-assignee', '--add-label', '--add-project', '--body', '-b', '--body-file', '-F', '--milestone', '-m',
+  '--remove-assignee', '--remove-label', '--remove-project', '--repo', '-R', '--title', '-t',
 ])
 
 /** The command's simple commands, each as its words; quotes group, `&&` `||` `;` `|` `&` `(` `)` and newlines split. */
@@ -165,51 +150,84 @@ function issueArgument(arg: string): { repo: RepoSlug | null; number: IssueNumbe
   return url ? { repo: repoSlug(url[1]!), number: issueNumber(Number(url[2])) } : null
 }
 
-/** Whether one `gh issue create` labels the new ticket `ready-for-agent`. */
-function createsReady(words: readonly string[]): boolean {
-  const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'create')
-  if (start === -1) return false
-  const args = words.slice(start + 3)
+/** One flag given a value, as `--name=value`, `--name value`, `-n value` or `-nvalue`. */
+interface FlagValue {
+  name: string
+  value: string
+}
+
+/** The arguments of one `gh issue <subcommand>` call, split into the value flags it gives and its positionals. */
+interface IssueCall {
+  flags: FlagValue[]
+  positionals: string[]
+}
+
+/** Splits `args` into the flags of `valueFlags` with their values, and the words that are no flag. */
+function parseArgs(args: readonly string[], valueFlags: ReadonlySet<string>): IssueCall {
+  const flags: FlagValue[] = []
+  const positionals: string[] = []
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!
     const long = /^(--[\w-]+)=(.*)$/s.exec(arg)
-    const short = /^(-[A-Za-z])(.+)$/s.exec(arg)
-    const name = long?.[1] ?? (short && VALUE_FLAGS.has(short[1]!) ? short[1]! : arg)
-    if (!VALUE_FLAGS.has(name)) continue
-    const value = long?.[2] ?? short?.[2] ?? args[++i] ?? ''
-    if ((name === '--label' || name === '-l') && value.split(',').some((label) => label.trim() === LABEL)) return true
+    if (long) {
+      if (valueFlags.has(long[1]!)) flags.push({ name: long[1]!, value: long[2]! })
+    } else if (arg.startsWith('--')) {
+      if (valueFlags.has(arg)) flags.push({ name: arg, value: args[++i] ?? '' })
+    } else if (/^-[A-Za-z]/.test(arg)) {
+      // A cluster of short flags: booleans may chain before the one that takes the rest, or the next word.
+      for (let c = 1; c < arg.length; c++) {
+        const name = `-${arg[c]}`
+        if (!valueFlags.has(name)) continue
+        flags.push({ name, value: c + 1 < arg.length ? arg.slice(c + 1) : (args[++i] ?? '') })
+        break
+      }
+    } else {
+      positionals.push(arg)
+    }
   }
-  return false
+  return { flags, positionals }
 }
 
-/** Whether the call is a `gh issue create` that labels the new ticket `ready-for-agent`. */
-export function createsReadyTicket(command: string): boolean {
-  return simpleCommands(command).some(createsReady)
+/**
+ * The `gh issue <subcommand>` call in `words`, for any of `subcommands`; null when there is none.
+ * `gh` and `issue` may each be followed by flags (`gh -R x/y issue -R x/y create`), which count as the call's own.
+ */
+function issueCall(words: readonly string[], subcommands: readonly string[], valueFlags: ReadonlySet<string>): IssueCall | null {
+  const skipFlags = (from: number) => {
+    let i = from
+    while (words[i]?.startsWith('-')) i += words[i] === '--repo' || words[i] === '-R' ? 2 : 1
+    return i
+  }
+  for (let gh = words.indexOf('gh'); gh !== -1; gh = words.indexOf('gh', gh + 1)) {
+    const issue = skipFlags(gh + 1)
+    if (words[issue] !== 'issue') continue
+    const sub = skipFlags(issue + 1)
+    if (!subcommands.includes(words[sub] ?? '')) continue
+    const before = parseArgs(words.slice(gh + 1, sub), valueFlags)
+    const after = parseArgs(words.slice(sub + 1), valueFlags)
+    return { flags: [...before.flags, ...after.flags], positionals: after.positionals }
+  }
+  return null
+}
+
+function hasLabel(value: string): boolean {
+  return value.split(',').some((label) => label.trim() === LABEL)
+}
+
+/** Whether one `gh issue create` (or its alias `gh issue new`) labels the new ticket `ready-for-agent`. */
+function createsReady(words: readonly string[]): boolean {
+  const call = issueCall(words, ['create', 'new'], CREATE_VALUE_FLAGS)
+  return call?.flags.some((flag) => (flag.name === '--label' || flag.name === '-l') && hasLabel(flag.value)) ?? false
 }
 
 /** The tickets one `gh issue edit` adds `ready-for-agent` to; none when it does not add it. */
 function editsOf(words: readonly string[], context: CommandContext<RepoSlug>): ReadyLabelEdit[] {
-  const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'edit')
-  if (start === -1) return []
-  const args = words.slice(start + 3)
-
-  let repo: RepoSlug | null = null
-  const issues: { repo: RepoSlug | null; number: IssueNumber }[] = []
-  let isAdding = false
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!
-    const long = /^(--[\w-]+)=(.*)$/s.exec(arg)
-    const short = /^(-[A-Za-z])(.+)$/s.exec(arg)
-    const name = long?.[1] ?? (short && VALUE_FLAGS.has(short[1]!) ? short[1]! : arg)
-    if (VALUE_FLAGS.has(name)) {
-      const value = long?.[2] ?? short?.[2] ?? args[++i] ?? ''
-      if (name === '--repo' || name === '-R') repo = flagRepo(value)
-      else if (name === '--add-label') isAdding ||= value.split(',').some((label) => label.trim() === LABEL)
-    } else if (!arg.startsWith('-')) {
-      const issue = issueArgument(arg)
-      if (issue) issues.push(issue)
-    }
-  }
+  const call = issueCall(words, ['edit'], EDIT_VALUE_FLAGS)
+  if (call === null) return []
+  const repoFlag = call.flags.findLast((flag) => flag.name === '--repo' || flag.name === '-R')
+  const repo = repoFlag ? flagRepo(repoFlag.value) : null
+  const isAdding = call.flags.some((flag) => flag.name === '--add-label' && hasLabel(flag.value))
+  const issues = call.positionals.flatMap((arg) => issueArgument(arg) ?? [])
   return isAdding ? issues.map((issue) => ({ repo: issue.repo ?? repo, context, number: issue.number })) : []
 }
 
@@ -230,12 +248,11 @@ export function namedBlockers(body: string, repo: RepoSlug): IssueRef[] {
 
 /** `null` when the call may run; otherwise the text that denies it. */
 async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
-  const denials: string[] = []
-  if (createsReadyTicket(command)) {
-    denials.push(
-      `gh issue create must not add ${LABEL}: its blockers cannot be linked before the ticket exists. Create the ticket unlabelled, link its blockers, then add ${LABEL}.`,
-    )
+  // A labelled create needs no tracker, so it is denied before anything is read.
+  if (simpleCommands(command).some(createsReady)) {
+    return `gh issue create must not add ${LABEL}: its blockers cannot be linked before the ticket exists. Create the ticket unlabelled, link its blockers, then add ${LABEL}.`
   }
+  const denials: string[] = []
   for (const edit of readyLabelEdits(command)) {
     const repo =
       edit.repo ??
