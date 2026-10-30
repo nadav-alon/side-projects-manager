@@ -60,3 +60,19 @@ test('/halt shows the failure when the command fails', async ($, on) => {
   const out = await $.command.run({ command: 'halt' })
   expect(out.text).toBe('/halt failed (exit 1): halt failed: read-only')
 })
+
+test('/resume runs the resume command without asking and shows its output', async ($, on) => {
+  const ran: Ran[] = [], asked: string[] = []
+  person(on, asked, 'No')
+  engine(on, ran, { exitCode: 0, stdout: 'resumed\n', stderr: '' })
+  const out = await $.command.run({ command: 'resume' })
+  expect(asked).toEqual([])
+  expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'resume'])
+  expect(out.text).toBe('resumed')
+})
+
+test('/resume shows the failure when the command fails', async ($, on) => {
+  engine(on, [], { exitCode: 2, stdout: '', stderr: 'resume failed: no halt\n' })
+  const out = await $.command.run({ command: 'resume' })
+  expect(out.text).toBe('/resume failed (exit 2): resume failed: no halt')
+})

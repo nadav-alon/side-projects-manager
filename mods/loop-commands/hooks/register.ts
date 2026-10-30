@@ -11,6 +11,7 @@ const NO = 'No'
 /** The manager commands a slash command runs; `confirm` names the question asked first, when it asks one. */
 const COMMANDS = {
   'loop-status': { description: "Show the manager's loop status", script: 'status' },
+  resume: { description: "Resume the manager's loop after a halt", script: 'resume' },
   halt: { description: "Halt the manager's loop until it is resumed", script: 'halt', confirm: 'Halt the manager loop?' },
 } as const
 
