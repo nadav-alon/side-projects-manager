@@ -26,7 +26,7 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "mods/manager-home/**/*.ts", "mods/ready-guard/hooks/**/*.ts", "mods/size-reminder/hooks/**/*.ts"],
-  // register.ts alone is out: it imports the engine's gitignored types, which only the mod's own tsconfig has. Everything
-  // else in the mod is pure and in this build.
+  // Each mod's register.ts is out: it imports the engine's gitignored types, which only the mod's own tsconfig has. Everything
+  // else in each mod is pure and in this build.
   "exclude": ["mods/ready-guard/hooks/register.ts", "mods/size-reminder/hooks/register.ts"]
 }

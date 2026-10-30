@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { REMINDER, repoSlug, sizingReminder, THIS_REPO } from './reminder.ts'
+import { REMINDER, foldedRepoSlug, sizingReminder, THIS_REPO } from './reminder.ts'
 
-const OTHER = repoSlug('acme/pilot')
+const OTHER = foldedRepoSlug('acme/pilot')
 
 /** The reminder `command` earns when the shell runs in `cwdRepo`. */
 const remind = (command: string, cwdRepo = THIS_REPO) => sizingReminder(command, async () => cwdRepo)
@@ -17,11 +17,23 @@ describe('sizingReminder, in this repo', () => {
     'gh issue create --repo nadav-alon/side-projects-manager --title x',
     'gh issue edit 7 -R github.com/Nadav-Alon/Side-Projects-Manager --add-label size:S',
     'git status && gh issue create -t x',
+    'gh -R nadav-alon/side-projects-manager issue create -t x',
+    'gh issue \\\ncreate -t x',
+    'gh issue edit 7 \\\n--add-label size:M',
+    '(gh issue create -t x)',
+    'gh issue edit 7 --add-label Size:M',
+    'GH_REPO=nadav-alon/side-projects-manager gh issue create -t x',
+    'gh issue edit https://github.com/nadav-alon/side-projects-manager/issues/7 --add-label size:M',
   ]) {
     it(`reminds on: ${command}`, async () => {
       assert.equal(await remind(command), REMINDER)
     })
   }
+
+  it('reminds on a call naming this repo from another repo by GH_REPO or an issue URL', async () => {
+    assert.equal(await remind('GH_REPO=nadav-alon/side-projects-manager gh issue create -t x', OTHER), REMINDER)
+    assert.equal(await remind('gh issue edit https://github.com/nadav-alon/side-projects-manager/issues/7 --add-label size:M', OTHER), REMINDER)
+  })
 
   it('reminds on a call naming this repo while the shell runs in another', async () => {
     assert.equal(await remind('gh issue create -R nadav-alon/side-projects-manager -t x', OTHER), REMINDER)
@@ -36,6 +48,12 @@ describe('sizingReminder, carrying nothing', () => {
     'gh issue edit 7 --body "size:M"',
     'gh issue view 7',
     'gh issue list --label size:M',
+    'echo gh issue create',
+    'sudo -u x echo gh issue create',
+    'git log # gh issue create',
+    'cd ../pilot && gh issue create -t x',
+    'GH_REPO=acme/pilot gh issue create -t x',
+    'gh issue edit https://github.com/acme/pilot/issues/7 --add-label size:M',
   ]) {
     it(`stays silent on: ${command}`, async () => {
       assert.equal(await remind(command), null)
