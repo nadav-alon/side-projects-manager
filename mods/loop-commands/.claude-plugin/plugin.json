@@ -1,0 +1,5 @@
+{
+  "name": "loop-commands",
+  "version": "0.1.0",
+  "description": "Slash commands that halt, resume, grant and show the manager's loop from any session."
+}
