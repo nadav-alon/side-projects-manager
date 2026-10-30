@@ -1,0 +1,5 @@
+{
+  "name": "one-merge-per-call",
+  "version": "0.1.0",
+  "description": "Denies a shell command that merges more than one pull request, asking for one merge per call."
+}
