@@ -66,3 +66,19 @@ test('several references each get their context, up to a cap', async ($, on) => 
   expect(context).not.toMatch(/Ticket 6/)
   expect(context).toMatch(/7 tickets named, the first 5 fetched/)
 })
+
+test('a reference that cannot be fetched leaves the prompt as typed, with a one-line note', async ($, on) => {
+  const toasts: string[] = []
+  engine(on, { ...ACME_42, 'gh issue view 9 --repo acme/pilot --json title,body,labels': { exitCode: 1, stderr: 'no such issue\nsecond line' } })
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return {} as never
+  })
+  const entered = await $.prompt.submit({ text: 'acme/pilot#9 and acme/pilot#42' })
+  expect(entered.text).toBe('acme/pilot#9 and acme/pilot#42')
+  const context = entered.context ?? []
+  expect(context.filter(block => block.includes('could not fetch acme/pilot#9: no such issue'))).toHaveLength(1)
+  expect(context.join('\n')).not.toMatch(/second line/)
+  expect(context.join('\n')).toMatch(/acme\/pilot#42: Add the thing/)
+  expect(toasts.length).toBe(1)
+})

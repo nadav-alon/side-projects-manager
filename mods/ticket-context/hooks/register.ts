@@ -49,14 +49,22 @@ export const register: Register = on => {
 
     const run: Run = argv => $.process.run(argv)
     const blocks: string[] = []
+    const notes: string[] = []
     let sessionRepo: string | undefined
     for (const reference of references) {
-      const repo = reference.repo ?? (sessionRepo ??= await currentRepo(run))
-      blocks.push(describeTicket(`${repo}#${reference.number}`, await fetchTicket(run, repo, reference.number)))
+      const label = `${reference.repo ?? ''}#${reference.number}`
+      try {
+        const repo = reference.repo ?? (sessionRepo ??= await currentRepo(run))
+        blocks.push(describeTicket(`${repo}#${reference.number}`, await fetchTicket(run, repo, reference.number)))
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        notes.push(`${$.plugin.name}: could not fetch ${label}: ${reason.split('\n')[0]}`)
+      }
     }
     if (named.length > references.length) {
-      blocks.push(`${$.plugin.name}: ${named.length} tickets named, the first ${references.length} fetched.`)
+      notes.push(`${$.plugin.name}: ${named.length} tickets named, the first ${references.length} fetched.`)
     }
-    return next({ ...e, context: [...(e.context ?? []), ...blocks] })
+    for (const note of notes) $.ui.toast(note)
+    return next({ ...e, context: [...(e.context ?? []), ...blocks, ...notes] })
   })
 }
