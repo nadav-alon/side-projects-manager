@@ -24,6 +24,17 @@ export interface HomeFs {
   list(path: string): Promise<readonly { name: string }[]>
 }
 
+/** A ticket, as the journal names one. */
+export interface JournaledTicket {
+  repo: string
+  number: number
+}
+
+/** An iteration the journal records as running: its project, ticket and kind (`work`, `review`, …). */
+export interface RunningIteration extends JournaledTicket {
+  kind: string
+}
+
 /** The invocation the journal records as still open. */
 export interface InFlightInvocation {
   openedAt: Date
@@ -33,6 +44,10 @@ export interface InFlightInvocation {
    * come off the record when their iteration ends, so this is a lower bound on the iterations so far.
    */
   workedTodayEntries: number
+  /** The iterations the open record names as running; empty when it names none or none can be read. */
+  runs: RunningIteration[]
+  /** The worked-today entries the open record names as freed from invocations that died; empty when none. */
+  freed: JournaledTicket[]
 }
 
 /** The usage of the 5-hour window, and what the budget document allows of it. */
@@ -102,7 +117,13 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       if (openedAt === undefined || typeof pid !== 'number' || !isProcessId(pid)) return undefined
 
       const state = await readJson(fs, at('state.json'))
-      return { openedAt, pid, workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid) }
+      return {
+        openedAt,
+        pid,
+        workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid),
+        runs: listOf(open.runs).flatMap(runningIteration),
+        freed: listOf(open.freed).flatMap(journaledTicket),
+      }
     },
 
     async fiveHourUsage(now) {
@@ -148,6 +169,21 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       return files.sort()
     },
   }
+}
+
+function listOf(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function journaledTicket(value: unknown): JournaledTicket[] {
+  if (!isRecord(value) || typeof value.repo !== 'string' || typeof value.number !== 'number') return []
+  return [{ repo: value.repo, number: value.number }]
+}
+
+function runningIteration(value: unknown): RunningIteration[] {
+  const ticket = journaledTicket(value)[0]
+  const kind = isRecord(value) ? value.kind : undefined
+  return ticket === undefined || typeof kind !== 'string' ? [] : [{ ...ticket, kind }]
 }
 
 /** How many worked-today entries `state` records as recorded by the invocation opened at `openedAt` by `pid`. */

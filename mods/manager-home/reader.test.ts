@@ -64,12 +64,31 @@ describe('the in-flight invocation', () => {
       [`${HOME}/state.json`]: JSON.stringify(state),
     }).inFlightInvocation()
 
-    assert.deepEqual(found, { openedAt: new Date(open.openedAt), pid: 4242, workedTodayEntries: 2 })
+    assert.deepEqual(found, { openedAt: new Date(open.openedAt), pid: 4242, workedTodayEntries: 2, runs: [], freed: [] })
+  })
+
+  it('names the iterations running and the entries freed, leaving out what it cannot read', async () => {
+    const record = {
+      ...open,
+      runs: [
+        { kind: 'work', repo: 'o/a', number: 7, startedAt: open.openedAt, transcriptDirectory: '/t' },
+        { kind: 'review', repo: 'o/b', number: 8 },
+        { repo: 'o/c' },
+      ],
+      freed: [{ repo: 'o/d', number: 9 }, 'junk'],
+    }
+    const found = await reader({ [`${HOME}/journal.json`]: JSON.stringify({ records: [record] }) }).inFlightInvocation()
+
+    assert.deepEqual(found?.runs, [
+      { kind: 'work', repo: 'o/a', number: 7 },
+      { kind: 'review', repo: 'o/b', number: 8 },
+    ])
+    assert.deepEqual(found?.freed, [{ repo: 'o/d', number: 9 }])
   })
 
   it('counts no worked-today entries when the state document is missing or garbled', async () => {
     const journal = { [`${HOME}/journal.json`]: JSON.stringify({ records: [open] }) }
-    const expected = { openedAt: new Date(open.openedAt), pid: 4242, workedTodayEntries: 0 }
+    const expected = { openedAt: new Date(open.openedAt), pid: 4242, workedTodayEntries: 0, runs: [], freed: [] }
 
     assert.deepEqual(await reader(journal).inFlightInvocation(), expected)
     assert.deepEqual(await reader({ ...journal, [`${HOME}/state.json`]: '{nope' }).inFlightInvocation(), expected)
