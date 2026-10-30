@@ -11,14 +11,13 @@ function engine(on: On, ran: Ran[], answer: { exitCode: number; stdout: string; 
   })
 }
 
-test('/loop-status runs the status command from the manager clone and shows its output', async ($, on) => {
+test('/loop-status runs the status command from the manager home and shows its output', async ($, on) => {
   const ran: Ran[] = []
   engine(on, ran, { exitCode: 0, stdout: 'loop: running\n', stderr: '' })
   const out = await $.command.run({ command: 'loop-status' })
   expect(out.text).toBe('loop: running')
   expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'status'])
-  expect(ran[0]?.cwd).toBeTruthy()
-  expect(ran[0]?.cwd).not.toContain('/mods/')
+  expect(ran[0]?.cwd).toBe(import.meta.dir.split('/').slice(0, -3).join('/'))
 })
 
 test('/loop-status shows the failure when the command fails', async ($, on) => {
@@ -40,7 +39,7 @@ test('/halt asks first, then runs the halt command and shows its output', async 
   person(on, asked, 'Yes')
   engine(on, ran, { exitCode: 0, stdout: 'halted\n', stderr: '' })
   const out = await $.command.run({ command: 'halt' })
-  expect(asked).toEqual(['Halt the manager loop?'])
+  expect(asked).toEqual(['Halt the morning loop?'])
   expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'halt'])
   expect(out.text).toBe('halted')
 })
@@ -82,7 +81,7 @@ test('/grant asks first, then grants the ticket and shows the output', async ($,
   person(on, asked, 'Yes')
   engine(on, ran, { exitCode: 0, stdout: 'granted turboable\n', stderr: '' })
   const out = await $.command.run({ command: 'grant', args: 'o/r#12' })
-  expect(asked).toEqual(['Grant o/r#12 to the manager loop?'])
+  expect(asked).toEqual(['Grant turboable on o/r#12 so the morning loop may merge it?'])
   expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'grant', '--', 'o/r#12'])
   expect(out.text).toBe('granted turboable')
 })
@@ -113,4 +112,23 @@ test('/grant shows the failure when the command fails', async ($, on) => {
   engine(on, [], { exitCode: 1, stdout: '', stderr: 'grant failed: no such ticket\n' })
   const out = await $.command.run({ command: 'grant', args: 'o/r#12' })
   expect(out.text).toBe('/grant failed (exit 1): grant failed: no such ticket')
+})
+
+test('/loop-status shows the failure when the command cannot be run', async ($) => {
+  const out = await $.command.run({ command: 'loop-status' })
+  expect(out.text).toContain('/loop-status failed: ')
+})
+
+test('/loop-status shows a failure that wrote only to stdout', async ($, on) => {
+  engine(on, [], { exitCode: 1, stdout: 'no state\n', stderr: '' })
+  const out = await $.command.run({ command: 'loop-status' })
+  expect(out.text).toBe('/loop-status failed (exit 1): no state')
+})
+
+test('/grant reads a ticket number with leading zeros as the number', async ($, on) => {
+  const ran: Ran[] = []
+  person(on, [], 'Yes')
+  engine(on, ran, { exitCode: 0, stdout: 'granted\n', stderr: '' })
+  await $.command.run({ command: 'grant', args: 'o/r#012' })
+  expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'grant', '--', 'o/r#12'])
 })
