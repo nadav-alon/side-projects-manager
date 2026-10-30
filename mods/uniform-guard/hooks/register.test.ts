@@ -38,7 +38,7 @@ test('denies an edit to a uniform file that names the repo, quoting the text', a
     old_string: 'a',
     new_string: `# ${NAMING}`,
   })
-  expect(ran.deny).toContain(NAMING)
+  expect(ran.deny).toContain(JSON.stringify(`# ${NAMING}`))
 })
 
 test('denies a name spelled with underscores, no separator or split across lines, quoting the line it starts on', async ($, on) => {
@@ -51,13 +51,13 @@ test('denies a name spelled with underscores, no separator or split across lines
   expect(split.deny).toContain(JSON.stringify('See Side Projects'))
 })
 
-test('runs untouched an edit to a uniform file that does not name the repo', async ($, on) => {
+test('runs untouched a write to a uniform file that does not name the repo', async ($, on) => {
   engine(on)
   const ran = await $.tool.call({ tool: 'Write', file_path: `${HOME}/docs/agents/domain.md`, content: '# Domain\n' })
   expect(ran.deny).toBeUndefined()
 })
 
-test('runs untouched an edit to a non-uniform file that names the repo', async ($, on) => {
+test('runs untouched a write to a non-uniform file that names the repo', async ($, on) => {
   engine(on)
   const ran = await $.tool.call({ tool: 'Write', file_path: `${HOME}/README.md`, content: NAMING })
   expect(ran.deny).toBeUndefined()
@@ -90,5 +90,17 @@ test('denies a write to a uniform file reached by a non-normalized path', async 
 test('runs untouched a write to a uniform-looking path under another root', async ($, on) => {
   engine(on)
   const ran = await $.tool.call({ tool: 'Write', file_path: '/work/other/docs/agents/domain.md', content: NAMING })
+  expect(ran.deny).toBeUndefined()
+})
+
+test('runs untouched an edit to a uniform file that does not name the repo', async ($, on) => {
+  engine(on, HARNESS, { 'docs/agents/domain.md': '# Domain\n' })
+  const ran = await $.tool.call({ tool: 'Edit', file_path: `${HOME}/docs/agents/domain.md`, old_string: 'Domain', new_string: 'Terms' })
+  expect(ran.deny).toBeUndefined()
+})
+
+test('runs untouched an edit to a non-uniform file that names the repo', async ($, on) => {
+  engine(on)
+  const ran = await $.tool.call({ tool: 'Edit', file_path: `${HOME}/README.md`, old_string: 'a', new_string: NAMING })
   expect(ran.deny).toBeUndefined()
 })
