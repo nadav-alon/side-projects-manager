@@ -81,3 +81,16 @@ test('a survey keeps its place', async ($, on) => {
   })
   expect(await ui.find({ type: 'Text', text: /standup/ })).toBeUndefined()
 })
+
+test('a band drawn beneath it still draws', async ($, on) => {
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+  on('ui.render', ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    return h(Box, {}, h(Text, {}, ' 5h window: 30% used ')) as RenderElement
+  })
+  await $.skill.prompt({ skill: 'grilling', text: 'acme/pilot#42' })
+
+  const ui = await $.ui.mount({ plugin: 'mode-band', surface: 'terminal', ...ABOVE_PROMPT })
+  expect((await ui.find({ type: 'Text', text: /grill/ }))?.text.trim()).toBe('grill: acme/pilot#42')
+  expect((await ui.find({ type: 'Text', text: /5h window/ }))?.text.trim()).toBe('5h window: 30% used')
+})

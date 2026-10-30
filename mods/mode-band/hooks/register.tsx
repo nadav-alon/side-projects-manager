@@ -23,13 +23,16 @@ export const register: Register = on => {
     const band = await read($, current)
     if (band === null || e.props.hasSurvey) return next(e)
 
+    // Whatever draws beneath, budget-band's band for one, stays: this band stacks on top of it.
+    const below = await next(e)
     const { Box, Text } = $.ui.resolve(e)
 
     return (
-      <Box>
+      <Box flexDirection="column">
         <Text color="black" backgroundColor={colorOfMode[band.mode]}>
           {` ${bandLabel(band)} `}
         </Text>
+        {below}
       </Box>
     )
   })

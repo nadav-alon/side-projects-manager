@@ -12,15 +12,18 @@ export const register: Register = on => {
     const fs = { read: (path: string) => $.fs.read(path), list: (path: string) => $.fs.list(path) }
     const reader = managerHomeReader(fs, homeOf($.plugin.root))
     const usage = await reader.fiveHourUsage(new Date(await $.clock.now()))
-    if (usage === undefined) return next(e)
+    // Whatever draws beneath, mode-band's band for one, stays: this band stacks on top of it.
+    const below = await next(e)
+    if (usage === undefined) return below
 
     const { Box, Text } = $.ui.resolve(e)
 
     return (
-      <Box>
+      <Box flexDirection="column">
         <Text color="black" backgroundColor={isInReserve(usage) ? 'yellow' : 'green'}>
           {` ${bandLabel(usage)} `}
         </Text>
+        {below}
       </Box>
     )
   })
