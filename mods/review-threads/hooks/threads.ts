@@ -72,7 +72,7 @@ export function readArgs(repo: RepoSlug): string[] {
 
 const SUMMARY_LENGTH = 80
 
-function firstLine(body: string): string {
+function summaryOf(body: string): string {
   const line = body.split('\n').find(l => l.trim() !== '') ?? ''
   const text = line.trim()
   return text.length > SUMMARY_LENGTH ? `${text.slice(0, SUMMARY_LENGTH - 1)}…` : text
@@ -104,7 +104,7 @@ export function parseDraftPullRequests(output: string): DraftPullRequest[] {
       .filter(thread => thread.isResolved === false)
       .map(thread => ({
         path: typeof thread.path === 'string' ? thread.path : '',
-        summary: firstLine(String(nodesOf(thread.comments)[0]?.body ?? '')),
+        summary: summaryOf(String(nodesOf(thread.comments)[0]?.body ?? '')),
       }))
     return [
       {
