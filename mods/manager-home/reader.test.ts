@@ -71,8 +71,9 @@ describe('the in-flight invocation', () => {
     const record = {
       ...open,
       runs: [
-        { kind: 'work', repo: 'o/a', number: 7, startedAt: open.openedAt, transcriptDirectory: '/t' },
+        { kind: 'implementation', repo: 'o/a', number: 7, startedAt: open.openedAt, transcriptDirectory: '/t' },
         { kind: 'review', repo: 'o/b', number: 8 },
+        { kind: 'odd', repo: 'o/e', number: 5 },
         { repo: 'o/c' },
       ],
       freed: [{ repo: 'o/d', number: 9 }, 'junk'],
@@ -80,7 +81,7 @@ describe('the in-flight invocation', () => {
     const found = await reader({ [`${HOME}/journal.json`]: JSON.stringify({ records: [record] }) }).inFlightInvocation()
 
     assert.deepEqual(found?.runs, [
-      { kind: 'work', repo: 'o/a', number: 7 },
+      { kind: 'implementation', repo: 'o/a', number: 7 },
       { kind: 'review', repo: 'o/b', number: 8 },
     ])
     assert.deepEqual(found?.freed, [{ repo: 'o/d', number: 9 }])

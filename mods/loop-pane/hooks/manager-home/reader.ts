@@ -8,13 +8,19 @@
 // kept byte-identical to these by `copies.test.ts`.
 
 import {
+  isIssueNumber,
   isProcessId,
+  isRepoSlug,
   isReserveFraction,
+  isTicketKind,
   isTokenCount,
   reserveFraction,
   tokenCount,
+  type IssueNumber,
   type ProcessId,
+  type RepoSlug,
   type ReserveFraction,
+  type TicketKind,
   type TokenCount,
 } from './types.ts'
 
@@ -26,13 +32,13 @@ export interface HomeFs {
 
 /** A ticket, as the journal names one. */
 export interface JournaledTicket {
-  repo: string
-  number: number
+  repo: RepoSlug
+  number: IssueNumber
 }
 
-/** An iteration the journal records as running: its project, ticket and kind (`work`, `review`, …). */
-export interface RunningIteration extends JournaledTicket {
-  kind: string
+/** A run in progress, as the journal records one: its project, ticket and kind (`implementation`, `review`, …). */
+export interface RunInProgress extends JournaledTicket {
+  kind: TicketKind
 }
 
 /** The invocation the journal records as still open. */
@@ -44,8 +50,8 @@ export interface InFlightInvocation {
    * come off the record when their iteration ends, so this is a lower bound on the iterations so far.
    */
   workedTodayEntries: number
-  /** The iterations the open record names as running; empty when it names none or none can be read. */
-  runs: RunningIteration[]
+  /** The runs in progress the open record names; empty when it names none or none can be read. */
+  runs: RunInProgress[]
   /** The worked-today entries the open record names as freed from invocations that died; empty when none. */
   freed: JournaledTicket[]
 }
@@ -121,7 +127,7 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
         openedAt,
         pid,
         workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid),
-        runs: listOf(open.runs).flatMap(runningIteration),
+        runs: listOf(open.runs).flatMap(runInProgress),
         freed: listOf(open.freed).flatMap(journaledTicket),
       }
     },
@@ -176,14 +182,16 @@ function listOf(value: unknown): unknown[] {
 }
 
 function journaledTicket(value: unknown): JournaledTicket[] {
-  if (!isRecord(value) || typeof value.repo !== 'string' || typeof value.number !== 'number') return []
-  return [{ repo: value.repo, number: value.number }]
+  if (!isRecord(value)) return []
+  const { repo, number } = value
+  if (typeof repo !== 'string' || !isRepoSlug(repo) || typeof number !== 'number' || !isIssueNumber(number)) return []
+  return [{ repo, number }]
 }
 
-function runningIteration(value: unknown): RunningIteration[] {
+function runInProgress(value: unknown): RunInProgress[] {
   const ticket = journaledTicket(value)[0]
   const kind = isRecord(value) ? value.kind : undefined
-  return ticket === undefined || typeof kind !== 'string' ? [] : [{ ...ticket, kind }]
+  return ticket === undefined || typeof kind !== 'string' || !isTicketKind(kind) ? [] : [{ ...ticket, kind }]
 }
 
 /** How many worked-today entries `state` records as recorded by the invocation opened at `openedAt` by `pid`. */

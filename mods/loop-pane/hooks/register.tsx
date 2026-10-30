@@ -52,7 +52,7 @@ export const register: Register = on => {
         ) : (
           <Box flexDirection="column">
             <Text>Invocation open since {inFlight.openedAt}</Text>
-            {inFlight.runs.length === 0 && <Text dimColor>No iteration is running.</Text>}
+            {inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
             {inFlight.runs.map(run => (
               <Text>
                 {run.repo}#{run.number} {run.kind}

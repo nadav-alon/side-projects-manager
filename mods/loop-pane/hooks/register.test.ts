@@ -31,7 +31,7 @@ const running = {
     {
       openedAt: iso(60_000),
       process: 4242,
-      runs: [{ kind: 'work', repo: 'o/a', number: 7, startedAt: iso(1000), transcriptDirectory: '/t' }],
+      runs: [{ kind: 'implementation', repo: 'o/a', number: 7, startedAt: iso(1000), transcriptDirectory: '/t' }],
       freed: [{ repo: 'o/d', number: 9 }],
     },
   ],
@@ -50,7 +50,7 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
-  expect(lines).toContain('o/a#7 work')
+  expect(lines).toContain('o/a#7 implementation')
   expect(lines).toContain('o/d#9')
   expect(lines).toContain('5-hour spend: 1200 of 5000 tokens')
 })
@@ -73,7 +73,7 @@ test('the pane redraws when the journal changes', async ($, on) => {
   const clock = engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
-  expect(await texts(ui)).toContain('o/a#7 work')
+  expect(await texts(ui)).toContain('o/a#7 implementation')
   files[`${HOME}/journal.json`] = JSON.stringify({ records: [] })
   await clock.advance(2500)
   expect(await texts(ui)).toContain('No invocation is running.')
