@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { REMINDER, foldedRepoSlug, sizingReminder, THIS_REPO } from './reminder.ts'
+import { REMINDER, foldedRepoSlug, type FoldedRepoSlug, sizingReminder, THIS_REPO } from './reminder.ts'
 
 const OTHER = foldedRepoSlug('acme/pilot')
 
 /** The reminder `command` earns when the shell runs in `cwdRepo`. */
-const remind = (command: string, cwdRepo = THIS_REPO) => sizingReminder(command, async () => cwdRepo)
+const remind = (command: string, cwdRepo = THIS_REPO, envRepo: FoldedRepoSlug | null = null) =>
+  sizingReminder(command, async () => cwdRepo, async () => envRepo)
 
 describe('sizingReminder, in this repo', () => {
   for (const command of [
@@ -40,6 +41,33 @@ describe('sizingReminder, in this repo', () => {
   })
 })
 
+describe('sizingReminder, resolving the repo a call names none of', () => {
+  it('reminds when GH_REPO in the environment is this repo, though the session is in another', async () => {
+    assert.equal(await remind('gh issue create -t x', OTHER, THIS_REPO), REMINDER)
+  })
+
+  it('stays silent when GH_REPO in the environment is another repo, though the session is here', async () => {
+    assert.equal(await remind('gh issue create -t x', THIS_REPO, OTHER), null)
+  })
+
+  it('lets the command prefix win over the environment', async () => {
+    assert.equal(await remind('GH_REPO=nadav-alon/side-projects-manager gh issue create -t x', OTHER, OTHER), REMINDER)
+    assert.equal(await remind('GH_REPO=acme/pilot gh issue create -t x', THIS_REPO, THIS_REPO), null)
+  })
+
+  it('lets an explicit --repo win over the environment', async () => {
+    assert.equal(await remind('gh issue create -R acme/pilot -t x', THIS_REPO, THIS_REPO), null)
+  })
+
+  it('takes the repo as unknown after a cd, even when the session is here', async () => {
+    assert.equal(await remind('cd ../pilot && gh issue create -t x', THIS_REPO), null)
+  })
+
+  it('still reads GH_REPO in the environment after a cd', async () => {
+    assert.equal(await remind('cd ../pilot && gh issue create -t x', OTHER, THIS_REPO), REMINDER)
+  })
+})
+
 describe('sizingReminder, carrying nothing', () => {
   for (const command of [
     'gh issue create --repo acme/pilot --title x',
@@ -68,6 +96,6 @@ describe('sizingReminder, carrying nothing', () => {
     const unread = async () => {
       throw new Error('no remote')
     }
-    assert.equal(await sizingReminder('gh issue create -t x', unread), null)
+    assert.equal(await sizingReminder('gh issue create -t x', unread, async () => null), null)
   })
 })

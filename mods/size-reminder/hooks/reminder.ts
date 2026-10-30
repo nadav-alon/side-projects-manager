@@ -2,6 +2,8 @@
 // sized one step larger than a project's. Pure over a current-repo reader, so a mod's hook only
 // supplies the read; it imports nothing from the engine.
 
+import { ghRepoPrefix, movesShell, targetRepo } from './target-repo/target.ts'
+
 declare const foldedRepoSlugBrand: unique symbol
 
 /** A repo as lower-case `owner/repo`; values enter through `foldedRepoSlug` or `isFoldedRepoSlug`. */
@@ -25,10 +27,11 @@ export const THIS_REPO = foldedRepoSlug('nadav-alon/side-projects-manager')
 
 export const REMINDER = `This repo's tickets are sized one step larger than a project's: size:M where a project's would be size:S. Check the size label on ${THIS_REPO}'s ticket against that.`
 
-/** A shell call that creates or sizes a ticket; `repo` is null when it names none, `cwdKnown` false after a `cd`. */
+/** A shell call that creates or sizes a ticket; `repo` is null when it names none, `moved` true after a `cd`. */
 interface SizingCall {
   repo: FoldedRepoSlug | null
-  cwdKnown: boolean
+  prefix: FoldedRepoSlug | null
+  moved: boolean
 }
 
 /** The flags of `gh issue create` and `gh issue edit` that take a value, long and short. */
@@ -114,26 +117,18 @@ function urlRepo(arg: string): FoldedRepoSlug | null {
   return slug !== undefined && isFoldedRepoSlug(slug) ? slug : null
 }
 
-/** Whether a simple command moves the shell, so that a later one runs somewhere unknown. */
-function movesShell(words: readonly string[]): boolean {
-  const command = words.find((word) => !/^\w+=/.test(word))
-  return command === 'cd' || command === 'pushd' || command === 'popd'
-}
-
 /**
  * The call a `gh issue create`, or a `gh issue edit` adding a `size:` label, makes; null when it is neither.
  * `gh` must be the command word, after any `VAR=value` prefixes, and its global flags may sit before `issue`.
  */
 function sizingCallOf(words: readonly string[], moved: boolean): SizingCall | null {
   let at = 0
-  let envRepo: FoldedRepoSlug | null = null
-  for (; at < words.length && /^\w+=/.test(words[at]!); at++) {
-    const [name, ...value] = words[at]!.split('=')
-    if (name === 'GH_REPO') envRepo = flagRepo(value.join('='))
-  }
+  while (at < words.length && /^\w+=/.test(words[at]!)) at++
   if (words[at++] !== 'gh') return null
+  const assigned = ghRepoPrefix(words)
+  const prefix = assigned === null ? null : flagRepo(assigned)
 
-  let repo: FoldedRepoSlug | null = envRepo
+  let repo: FoldedRepoSlug | null = null
   let isSizing = false
   const takeFlag = (arg: string, next: () => string | undefined): boolean => {
     const long = /^(--[\w-]+)=(.*)$/s.exec(arg)
@@ -162,7 +157,7 @@ function sizingCallOf(words: readonly string[], moved: boolean): SizingCall | nu
   }
   if (!isSizing) return null
   repo = issueRepo ?? repo
-  return { repo, cwdKnown: !moved }
+  return { repo, prefix, moved }
 }
 
 /** Every ticket creation or sizing the call makes; empty when it makes none. */
@@ -179,12 +174,18 @@ function sizingCalls(command: string): SizingCall[] {
 
 /**
  * The reminder when `command` creates or sizes a ticket in this repo, else null. A call naming no repo
- * is in whichever repo `currentRepo` reads; one that cannot be read, or that follows a `cd`, is taken as
- * another repo.
+ * is in the repo `targetRepo` works out from its `GH_REPO=` prefix, `environmentRepo` and `currentRepo`;
+ * one whose repo is unknown is taken as another repo.
  */
-export async function sizingReminder(command: string, currentRepo: () => Promise<FoldedRepoSlug>): Promise<string | null> {
+export async function sizingReminder(
+  command: string,
+  currentRepo: () => Promise<FoldedRepoSlug>,
+  environmentRepo: () => Promise<FoldedRepoSlug | null>,
+): Promise<string | null> {
   for (const call of sizingCalls(command)) {
-    const repo = call.repo ?? (call.cwdKnown ? await currentRepo().catch(() => null) : null)
+    const repo =
+      call.repo ??
+      (await targetRepo({ prefix: call.prefix, moved: call.moved, environment: environmentRepo, session: currentRepo }).catch(() => null))
     if (repo === THIS_REPO) return REMINDER
   }
   return null
