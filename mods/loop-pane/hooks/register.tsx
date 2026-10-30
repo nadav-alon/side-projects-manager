@@ -90,7 +90,7 @@ export const register: Register = on => {
         )}
         {usage !== null && (
           <Text>
-            5-hour spend: {usage.tokensUsed} of {usage.allowance} tokens
+            5-hour spend of the loop's own runs: {usage.tokensUsed} of {usage.spendable} spendable tokens
           </Text>
         )}
         {failure !== null && <Text color="red">{failure}</Text>}

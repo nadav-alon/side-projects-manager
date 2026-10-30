@@ -11,7 +11,8 @@ export type LoopSnapshot = {
     runs: RunInProgress[]
     freed: JournaledTicket[]
   } | null
-  usage: { tokensUsed: TokenCount; allowance: TokenCount } | null
+  /** `spendable` is the allowance less the reserve: what the gate compares spend against. */
+  usage: { tokensUsed: TokenCount; spendable: TokenCount } | null
 }
 
 declare module 'claude-code' {

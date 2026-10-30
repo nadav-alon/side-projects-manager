@@ -57,7 +57,14 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   const lines = await texts(await mount($))
   expect(lines).toContain('o/a#7 implementation')
   expect(lines).toContain('o/d#9')
-  expect(lines).toContain('5-hour spend: 1200 of 5000 tokens')
+  expect(lines).toContain("5-hour spend of the loop's own runs: 1200 of 5000 spendable tokens")
+})
+
+test('the spend line counts against the allowance less the reserve', async ($, on) => {
+  const files = { ...home, [`${HOME}/budget.json`]: JSON.stringify({ fiveHourAllowance: 5000, fiveHourReserveFraction: 0.2 }) }
+  engine(on, files)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  expect(await texts(await mount($))).toContain("5-hour spend of the loop's own runs: 1200 of 4000 spendable tokens")
 })
 
 test('the pane says an invocation whose process is gone has died, and lists none of its runs', async ($, on) => {
