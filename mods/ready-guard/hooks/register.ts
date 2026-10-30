@@ -1,6 +1,7 @@
 import type { Register } from 'claude-code'
 
-import { checkReadyLabel, isIssueRef, isRepoSlug, issueParts, issueRef, repoSlug, type Tracker } from './guard'
+import { checkReadyLabel, isIssueRef, issueParts, issueRef, optionalRepo, repoSlug, type Tracker } from './guard'
+import { environmentRepo } from './target-repo/target'
 
 /** The tracker as `gh` reads it, run on the host from the session's working directory. */
 function ghTracker(run: (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>): Tracker {
@@ -14,11 +15,8 @@ function ghTracker(run: (argv: string[]) => Promise<{ exitCode: number; stdout: 
     async currentRepo() {
       return repoSlug((await gh('repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner')).trim())
     },
-    async environmentRepo() {
-      // `printenv` exits 1 when GH_REPO is unset.
-      const { exitCode, stdout } = await run(['printenv', 'GH_REPO'])
-      const value = stdout.trim()
-      return exitCode === 0 && isRepoSlug(value) ? value : null
+    environmentRepo() {
+      return environmentRepo(run, optionalRepo)
     },
     async body(issue) {
       const { repo, number } = issueParts(issue)

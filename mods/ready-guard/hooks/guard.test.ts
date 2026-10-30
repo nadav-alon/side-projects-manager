@@ -186,6 +186,25 @@ describe('checkReadyLabel, the repo of a call naming none', () => {
     assert.match(denial ?? '', /acme\/elsewhere#7/)
   })
 
+  it('strips a host from GH_REPO, in the prefix and in the environment', async () => {
+    assert.match((await denyReadyLabel(`GH_REPO=github.com/acme/elsewhere ${ADD}`, blocked())) ?? '', /acme\/elsewhere#7/)
+  })
+
+  it('denies after a cd inside a subshell', async () => {
+    assert.match((await denyReadyLabel(`(cd ../other && ${ADD})`, blocked())) ?? '', /--repo/)
+  })
+
+  it('reads GH_REPO after an env prefix, and denies after an export of it', async () => {
+    assert.match((await denyReadyLabel(`env GH_REPO=${ELSEWHERE} ${ADD}`, blocked())) ?? '', /acme\/elsewhere#7/)
+    assert.match((await denyReadyLabel(`export GH_REPO=${ELSEWHERE} && ${ADD}`, blocked(repoSlug('acme/env')))) ?? '', /--repo/)
+  })
+
+  it('denies when the GH_REPO= prefix is invalid or empty, whatever the environment', async () => {
+    for (const prefix of ['GH_REPO=garbage', 'GH_REPO=']) {
+      assert.match((await denyReadyLabel(`${prefix} ${ADD}`, blocked(ELSEWHERE))) ?? '', /--repo/)
+    }
+  })
+
   it('does not deny a cd with no ready-for-agent edit after it', async () => {
     assert.equal(await denyReadyLabel('cd ../other && gh issue view 7', blocked()), null)
   })

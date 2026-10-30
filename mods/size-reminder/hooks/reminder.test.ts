@@ -63,6 +63,20 @@ describe('sizingReminder, resolving the repo a call names none of', () => {
     assert.equal(await remind('cd ../pilot && gh issue create -t x', THIS_REPO), null)
   })
 
+  it('strips a host from GH_REPO in the prefix', async () => {
+    assert.equal(await remind('GH_REPO=github.com/nadav-alon/side-projects-manager gh issue create -t x', OTHER), REMINDER)
+  })
+
+  it('takes the repo as unknown after an export of GH_REPO, or an invalid or empty prefix', async () => {
+    assert.equal(await remind('export GH_REPO=acme/pilot && gh issue create -t x', THIS_REPO, THIS_REPO), null)
+    assert.equal(await remind('GH_REPO=garbage gh issue create -t x', THIS_REPO, THIS_REPO), null)
+    assert.equal(await remind('GH_REPO= gh issue create -t x', THIS_REPO, THIS_REPO), null)
+  })
+
+  it('reads GH_REPO after an env prefix', async () => {
+    assert.equal(await remind('env GH_REPO=nadav-alon/side-projects-manager gh issue create -t x', OTHER), REMINDER)
+  })
+
   it('still reads GH_REPO in the environment after a cd', async () => {
     assert.equal(await remind('cd ../pilot && gh issue create -t x', OTHER, THIS_REPO), REMINDER)
   })
