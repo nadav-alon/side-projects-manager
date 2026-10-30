@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { clonePath, projectRows, registeredProjects, repoSlug, type Run } from './switcher.ts'
+import { absolutePath, clonePath, projectRows, registeredProjects, repoSlug, type Run } from './switcher.ts'
 
 const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '' })
 
@@ -28,9 +28,14 @@ describe('registeredProjects', () => {
     ])
   })
 
-  it('is undefined for a document that is no registry', () => {
-    assert.equal(registeredProjects('not json'), undefined)
-    assert.equal(registeredProjects('{}'), undefined)
+  it('throws for a document that is no registry', () => {
+    assert.throws(() => registeredProjects('not json'), /not valid JSON/)
+    assert.throws(() => registeredProjects('{}'), /no projects list/)
+  })
+
+  it('names the entry that is malformed rather than dropping every project', () => {
+    const text = JSON.stringify({ projects: [{ repo: 'o/a' }, { repo: 'nope' }] })
+    assert.throws(() => registeredProjects(text), /entry 2 .*"nope"/)
   })
 })
 
@@ -54,6 +59,21 @@ describe('projectRows', () => {
     ])
   })
 
+  it('reads the newest verdict of a push run, passing over cancelled and skipped runs', async () => {
+    const rows = await projectRows(
+      tracker({ 'o/a': { ready: 0, prs: 0, runs: [{ status: 'completed', conclusion: 'cancelled' }, { status: 'completed', conclusion: 'success' }] } }),
+      projects.slice(0, 1),
+    )
+    assert.deepEqual(rows.map(row => row.reachable && row.ci), ['passing'])
+  })
+
+  it('asks for push runs only, so other workflows do not stand for CI', async () => {
+    const asked: string[][] = []
+    await projectRows(async command => (asked.push(command), tracker({ 'o/a': { ready: 0, prs: 0, runs: [] } })(command)), projects.slice(0, 1))
+    const list = asked.find(command => command[1] === 'run')!
+    assert.equal(list[list.indexOf('--event') + 1], 'push')
+  })
+
   it('reads a running or absent CI run as such', async () => {
     const rows = await projectRows(
       tracker({ 'o/a': { ready: 0, prs: 0, runs: [{ status: 'in_progress', conclusion: '' }] }, 'o/b': { ready: 0, prs: 0, runs: [] } }),
@@ -73,6 +93,6 @@ describe('projectRows', () => {
 
 describe('clonePath', () => {
   it('puts the clone under the managed location by slug', () => {
-    assert.equal(clonePath('/home/me/side-projects/', repoSlug('o/a')), '/home/me/side-projects/o/a')
+    assert.equal(clonePath(absolutePath('/home/me/side-projects/'), repoSlug('o/a')), '/home/me/side-projects/o/a')
   })
 })
