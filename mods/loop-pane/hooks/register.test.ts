@@ -10,7 +10,7 @@ const now = Date.now()
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
 /** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
-function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = [], outcome: { exitCode: number; stderr: string } = { exitCode: 0, stderr: '' }) {
+function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = [], outcome: { exitCode: number; stderr: string } = { exitCode: 0, stderr: '' }, alive = true) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
     reads.push(e.path)
@@ -19,6 +19,7 @@ function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: s
     return { value: text } as never
   })
   on('process.run', (_$, { argv, init }) => {
+    if (argv[0] === 'kill') return { value: { exitCode: alive ? 0 : 1, stdout: '', stderr: '' } } as never
     ran.push({ argv, cwd: init?.cwd })
     return { value: { exitCode: outcome.exitCode, stdout: '', stderr: outcome.stderr } } as never
   })
@@ -57,6 +58,14 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   expect(lines).toContain('o/a#7 implementation')
   expect(lines).toContain('o/d#9')
   expect(lines).toContain('5-hour spend: 1200 of 5000 tokens')
+})
+
+test('the pane says an invocation whose process is gone has died, and lists none of its runs', async ($, on) => {
+  engine(on, home, [], [], undefined, false)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  expect(lines).toContain('Process 4242 has died without closing its record; nothing below is running.')
+  expect(lines).not.toContain('o/a#7 implementation')
 })
 
 test('the pane says none is running when the journal has no open invocation', async ($, on) => {

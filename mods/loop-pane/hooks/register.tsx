@@ -33,7 +33,13 @@ export const register: Register = on => {
   on('command.run', { command: 'loop-pane' }, async $ => {
     const home = managerHome($.plugin.root)
     const refresh = async () => {
-      const next = await readSnapshot({ read: path => $.fs.read(path), list: path => $.fs.list(path) }, home, new Date(await $.clock.now()))
+      const next = await readSnapshot(
+        { read: path => $.fs.read(path), list: path => $.fs.list(path) },
+        // A check that cannot run says nothing of the process, so it is not called dead.
+        pid => $.process.run(['kill', '-0', String(pid)]).then(({ exitCode }) => exitCode === 0, () => true),
+        home,
+        new Date(await $.clock.now()),
+      )
       await update($, snapshot, () => next)
     }
     await refresh()
@@ -65,8 +71,11 @@ export const register: Register = on => {
         ) : (
           <Box flexDirection="column">
             <Text>Invocation open since {inFlight.openedAt}</Text>
-            {inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
-            {inFlight.runs.map(run => (
+            {!inFlight.alive && (
+              <Text color="red">Process {inFlight.pid} has died without closing its record; nothing below is running.</Text>
+            )}
+            {inFlight.alive && inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
+            {inFlight.alive && inFlight.runs.map(run => (
               <Text>
                 {run.repo}#{run.number} {run.kind}
               </Text>
