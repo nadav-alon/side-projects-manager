@@ -2,79 +2,202 @@
 // the ticket's body and the blockers linked to it. Pure over a tracker reader, so a mod's hook only
 // supplies the reads; it imports nothing from the engine.
 
+declare const repoSlugBrand: unique symbol
+declare const issueNumberBrand: unique symbol
 declare const issueRefBrand: unique symbol
 
-/** A ticket as `owner/repo#n`; values enter through `issueRef` or `isIssueRef`. */
+/** A repo as `owner/repo`; values enter through `repoSlug` or `isRepoSlug`. */
+export type RepoSlug = string & { readonly [repoSlugBrand]: true }
+/** A ticket's number: a positive integer; values enter through `issueNumber` or `isIssueNumber`. */
+export type IssueNumber = number & { readonly [issueNumberBrand]: true }
+/** A ticket as lower-case `owner/repo#n`; values enter through `issueRef` or `isIssueRef`. */
 export type IssueRef = string & { readonly [issueRefBrand]: true }
 
-const issueRefPattern = /^[\w.-]+\/[\w.-]+#[1-9]\d*$/
+// The shapes every pattern below is built from.
+const SLUG = '[\\w.-]+/[\\w.-]+'
+const NUMBER = '[1-9]\\d*'
 
-export function isIssueRef(value: string): value is IssueRef {
-  return issueRefPattern.test(value)
+const repoSlugPattern = new RegExp(`^${SLUG}$`)
+const issueRefPattern = new RegExp(`^${SLUG}#${NUMBER}$`)
+
+export function isRepoSlug(value: string): value is RepoSlug {
+  return repoSlugPattern.test(value)
 }
 
-/** Narrows `value` to an `IssueRef`, throwing if it is not shaped like one. */
-export function issueRef(value: string): IssueRef {
-  if (!isIssueRef(value)) throw new TypeError(`Not an issue ref, expected owner/repo#n: ${JSON.stringify(value)}`)
+/** Narrows `value` to a `RepoSlug`, throwing if it is not shaped like one. */
+export function repoSlug(value: string): RepoSlug {
+  if (!isRepoSlug(value)) throw new TypeError(`Not a repo slug, expected owner/repo: ${JSON.stringify(value)}`)
   return value
+}
+
+export function isIssueNumber(value: number): value is IssueNumber {
+  return Number.isSafeInteger(value) && value > 0
+}
+
+/** Narrows `value` to an `IssueNumber`, throwing if it is not a positive integer. */
+export function issueNumber(value: number): IssueNumber {
+  if (!isIssueNumber(value)) throw new TypeError(`Not an issue number, expected a positive integer: ${value}`)
+  return value
+}
+
+export function isIssueRef(value: string): value is IssueRef {
+  return issueRefPattern.test(value) && value === value.toLowerCase()
+}
+
+/** Narrows `value` to an `IssueRef`, lower-casing it (GitHub names are case-insensitive); throws if it is not shaped like one. */
+export function issueRef(value: string): IssueRef {
+  const folded = value.toLowerCase()
+  if (!isIssueRef(folded)) throw new TypeError(`Not an issue ref, expected owner/repo#n: ${JSON.stringify(value)}`)
+  return folded
+}
+
+/** The repo and number an `IssueRef` stands for. */
+export function issueParts(issue: IssueRef): { repo: RepoSlug; number: IssueNumber } {
+  const [repo = '', number = ''] = issue.split('#')
+  return { repo: repoSlug(repo), number: issueNumber(Number(number)) }
 }
 
 /** The tracker reads the guard needs, for one ticket. */
 export interface Tracker {
   /** The ticket's repo when the call named none: the repo the shell runs in. */
-  currentRepo(): Promise<string>
+  currentRepo(): Promise<RepoSlug>
   body(issue: IssueRef): Promise<string>
   /** The tickets linked to `issue` as native blocked-by dependencies. */
   linkedBlockers(issue: IssueRef): Promise<readonly IssueRef[]>
 }
 
-/** The ticket a `gh issue edit` adds `ready-for-agent` to; `repo` is null when the call names none. */
+/** A ticket a `gh issue edit` adds `ready-for-agent` to; `repo` is null when the call names none. */
 export interface ReadyLabelEdit {
-  repo: string | null
-  number: number
+  repo: RepoSlug | null
+  number: IssueNumber
 }
 
 const LABEL = 'ready-for-agent'
 
-/** What a call is, or null when it is not a `gh issue edit` adding `ready-for-agent`. */
-export function readyLabelEdit(command: string): ReadyLabelEdit | null {
-  const words = (command.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((word) => word.replace(/^(["'])(.*)\1$/, '$2'))
-  const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'edit')
-  if (start === -1) return null
-  const args = words.slice(start + 3)
+/** The flags of `gh issue edit` that take a value, long and short. */
+const VALUE_FLAGS = new Set([
+  '--add-assignee',
+  '--add-label',
+  '--add-project',
+  '--body',
+  '--body-file',
+  '--milestone',
+  '--remove-assignee',
+  '--remove-label',
+  '--remove-project',
+  '--repo',
+  '--title',
+  '-R',
+  '-b',
+  '-F',
+  '-m',
+  '-t',
+])
 
-  let repo: string | null = null
-  let number: number | null = null
-  let isAdding = false
-  for (let i = 0; i < args.length; i++) {
-    const [, name = args[i]!, inline] = /^(--[\w-]+)=(.*)$/.exec(args[i]!) ?? []
-    const takesValue = name === '--repo' || name === '-R' || name === '--add-label'
-    const value = inline ?? (takesValue ? args[++i] : undefined)
-    if (name === '--repo' || name === '-R') repo = value ?? null
-    else if (name === '--add-label') isAdding ||= (value ?? '').split(',').includes(LABEL)
-    else if (/^\d+$/.test(name) && number === null) number = Number(name)
+/** The command's simple commands, each as its words; quotes group, `&&` `||` `;` `|` `&` and newlines split. */
+function simpleCommands(command: string): string[][] {
+  const commands: string[][] = [[]]
+  let word: string | null = null
+  let quote: '"' | "'" | null = null
+  const endWord = () => {
+    if (word !== null) commands[commands.length - 1]!.push(word)
+    word = null
   }
-  return isAdding && number !== null ? { repo, number } : null
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]!
+    if (quote !== null) {
+      if (char === quote) quote = null
+      else if (char === '\\' && quote === '"' && i + 1 < command.length) word += command[++i]!
+      else word += char
+    } else if (char === '"' || char === "'") {
+      quote = char
+      word ??= ''
+    } else if (char === '\\' && i + 1 < command.length) {
+      word = (word ?? '') + command[++i]!
+    } else if (/\s/.test(char) && char !== '\n') {
+      endWord()
+    } else if (char === '\n' || char === ';' || char === '|' || char === '&') {
+      endWord()
+      if (commands[commands.length - 1]!.length > 0) commands.push([])
+    } else {
+      word = (word ?? '') + char
+    }
+  }
+  endWord()
+  return commands.filter((words) => words.length > 0)
 }
 
-/** The tickets a body's Blocked by names, as written: `#n` or `owner/repo#n`. */
-export function namedBlockers(body: string): string[] {
+/** The repo a `--repo` value names: `OWNER/REPO` or `HOST/OWNER/REPO`. */
+function flagRepo(value: string): RepoSlug {
+  const parts = value.split('/')
+  return repoSlug(parts.length === 3 ? parts.slice(1).join('/') : value)
+}
+
+/** The ticket an issue argument names: `7`, `#7` or an issue URL, which also names its repo. */
+function issueArgument(arg: string): { repo: RepoSlug | null; number: IssueNumber } | null {
+  const bare = /^#?(\d+)$/.exec(arg)
+  if (bare) return { repo: null, number: issueNumber(Number(bare[1])) }
+  const url = new RegExp(`^https?://[^/]+/(${SLUG})/issues/(\\d+)(?:[/?#].*)?$`).exec(arg)
+  return url ? { repo: repoSlug(url[1]!), number: issueNumber(Number(url[2])) } : null
+}
+
+/** The tickets one `gh issue edit` adds `ready-for-agent` to; none when it does not add it. */
+function editsOf(words: readonly string[]): ReadyLabelEdit[] {
+  const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'edit')
+  if (start === -1) return []
+  const args = words.slice(start + 3)
+
+  let repo: RepoSlug | null = null
+  const issues: { repo: RepoSlug | null; number: IssueNumber }[] = []
+  let isAdding = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    const long = /^(--[\w-]+)=(.*)$/s.exec(arg)
+    const short = /^(-[A-Za-z])(.+)$/s.exec(arg)
+    const name = long?.[1] ?? (short && VALUE_FLAGS.has(short[1]!) ? short[1]! : arg)
+    if (VALUE_FLAGS.has(name)) {
+      const value = long?.[2] ?? short?.[2] ?? args[++i] ?? ''
+      if (name === '--repo' || name === '-R') repo = flagRepo(value)
+      else if (name === '--add-label') isAdding ||= value.split(',').some((label) => label.trim() === LABEL)
+    } else if (!arg.startsWith('-')) {
+      const issue = issueArgument(arg)
+      if (issue) issues.push(issue)
+    }
+  }
+  return isAdding ? issues.map((issue) => ({ repo: issue.repo ?? repo, number: issue.number })) : []
+}
+
+/** Every ticket the call adds `ready-for-agent` to; empty when it is not such a `gh issue edit`. */
+export function readyLabelEdits(command: string): ReadyLabelEdit[] {
+  return simpleCommands(command).flatMap(editsOf)
+}
+
+/** The tickets a body's Blocked by names, as written `#n`, `owner/repo#n` or an issue URL; `repo` qualifies a bare `#n`. */
+export function namedBlockers(body: string, repo: RepoSlug): IssueRef[] {
   const section = /^#{1,6}\s*Blocked by\s*$([\s\S]*?)(?=^#{1,6}\s|(?![\s\S]))/im.exec(body)?.[1]
   const line = /^Blocked by:(.*)$/im.exec(body)?.[1]
-  return [...(section ?? line ?? '').matchAll(/(?:[\w.-]+\/[\w.-]+)?#\d+/g)].map((found) => found[0])
+  const ref = new RegExp(`https?://[^/\\s]+/(${SLUG})/issues/(${NUMBER})|(${SLUG})?#(${NUMBER})`, 'g')
+  return [...(section ?? line ?? '').matchAll(ref)].map((found) =>
+    issueRef(`${found[1] ?? found[3] ?? repo}#${found[2] ?? found[4]}`),
+  )
 }
 
 /** `null` when the call may run; otherwise the text that denies it. */
-export async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
-  const edit = readyLabelEdit(command)
-  if (edit === null) return null
-  const repo = edit.repo ?? (await tracker.currentRepo())
-  const issue = issueRef(`${repo}#${edit.number}`)
-  const named = namedBlockers(await tracker.body(issue)).map((ref) => (ref.startsWith('#') ? `${repo}${ref}` : ref))
-  const linked = await tracker.linkedBlockers(issue)
-  const missing = named.filter((ref) => !linked.includes(ref as IssueRef))
-  if (missing.length === 0) return null
-  return `${issue} names blockers that are not linked as blocked-by dependencies: ${missing.join(', ')}. Link them first, then add ${LABEL}.`
+async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
+  const denials: string[] = []
+  for (const edit of readyLabelEdits(command)) {
+    const repo = edit.repo ?? (await tracker.currentRepo())
+    const issue = issueRef(`${repo}#${edit.number}`)
+    const named = namedBlockers(await tracker.body(issue), repo)
+    const linked = new Set((await tracker.linkedBlockers(issue)).map((ref) => issueRef(ref)))
+    const missing = named.filter((ref) => !linked.has(ref))
+    if (missing.length > 0) {
+      denials.push(
+        `${issue} names blockers that are not linked as blocked-by dependencies: ${missing.join(', ')}. Link them first, then add ${LABEL}.`,
+      )
+    }
+  }
+  return denials.length === 0 ? null : denials.join('\n')
 }
 
 /** What the guard says of a call: it runs, it is denied with a reason, or it runs with a warning. */

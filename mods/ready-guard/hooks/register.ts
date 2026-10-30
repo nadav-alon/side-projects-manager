@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { checkReadyLabel, isIssueRef, type IssueRef, type Tracker } from './guard'
+import { checkReadyLabel, isIssueRef, issueParts, issueRef, repoSlug, type Tracker } from './guard'
 
 /** The tracker as `gh` reads it, run on the host from the session's working directory. */
 function ghTracker(run: (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>): Tracker {
@@ -9,25 +9,29 @@ function ghTracker(run: (argv: string[]) => Promise<{ exitCode: number; stdout: 
     if (exitCode !== 0) throw new Error(stderr.trim() || `gh ${argv[0]} exited ${exitCode}`)
     return stdout
   }
-  const split = (issue: IssueRef) => issue.split('#') as [string, string]
 
   return {
     async currentRepo() {
-      return (await gh('repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner')).trim()
+      return repoSlug((await gh('repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner')).trim())
     },
     async body(issue) {
-      const [repo, number] = split(issue)
-      return gh('issue', 'view', number, '--repo', repo, '--json', 'body', '--jq', '.body')
+      const { repo, number } = issueParts(issue)
+      return gh('issue', 'view', String(number), '--repo', repo, '--json', 'body', '--jq', '.body')
     },
     async linkedBlockers(issue) {
-      const [repo, number] = split(issue)
+      const { repo, number } = issueParts(issue)
       const out = await gh(
         'api',
+        '--paginate',
         `repos/${repo}/issues/${number}/dependencies/blocked_by`,
         '--jq',
         '.[] | (.repository_url | sub(".*/repos/"; "")) + "#" + (.number | tostring)',
       )
-      return out.split('\n').filter(isIssueRef)
+      return out
+        .split('\n')
+        .map((line) => line.trim().toLowerCase())
+        .filter(isIssueRef)
+        .map((ref) => issueRef(ref))
     },
   }
 }
@@ -36,7 +40,10 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const verdict = await checkReadyLabel(e.command, ghTracker(argv => $.process.run(argv)))
     if (verdict.kind === 'deny') return { deny: verdict.reason }
-    if (verdict.kind === 'warn') $.ui.toast(verdict.warning)
-    return next(e)
+    const result = await next(e)
+    if (verdict.kind === 'allow') return result
+    // The toast reaches the human only; the context is what the model reads after the result.
+    $.ui.toast(verdict.warning)
+    return { ...result, context: [...(result.context ?? []), verdict.warning] }
   })
 }
