@@ -1,0 +1,5 @@
+{
+  "name": "uniform-guard",
+  "version": "0.1.0",
+  "description": "Denies writing this repo's name into a uniform file, which is copied byte for byte into every project."
+}
