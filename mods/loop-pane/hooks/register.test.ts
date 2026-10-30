@@ -2,12 +2,15 @@ import { expect, mock, test, type TestBody } from 'claude-code/testing'
 
 type On = Parameters<TestBody>[1]
 
+/** A process the pane ran: what it was asked to run, and where. */
+type Ran = { argv: readonly string[]; cwd?: string }
+
 const HOME = import.meta.dir.split('/').slice(0, -3).join('/')
 const now = Date.now()
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
 /** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
-function engine(on: On, files: Record<string, string>, ran: { argv: readonly string[]; cwd?: string }[] = []) {
+function engine(on: On, files: Record<string, string>, ran: Ran[] = []) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
     const text = files[e.path]
@@ -80,7 +83,7 @@ test('the pane redraws when the journal changes', async ($, on) => {
 })
 
 test('halt and resume run the manager command from the manager home', async ($, on) => {
-  const ran: { argv: readonly string[]; cwd?: string }[] = []
+  const ran: Ran[] = []
   engine(on, home, ran)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
@@ -101,7 +104,7 @@ function person(on: On, asked: string[], choice: string): void {
 }
 
 test('stop asks first and runs only when the person agrees', async ($, on) => {
-  const ran: { argv: readonly string[]; cwd?: string }[] = [], asked: string[] = []
+  const ran: Ran[] = [], asked: string[] = []
   person(on, asked, 'No')
   engine(on, home, ran)
   await $.command.run({ command: 'loop-pane', args: '' })
@@ -112,11 +115,11 @@ test('stop asks first and runs only when the person agrees', async ($, on) => {
 })
 
 test('stop runs the stop command once the person agrees', async ($, on) => {
-  const ran: { argv: readonly string[]; cwd?: string }[] = []
+  const ran: Ran[] = []
   person(on, [], 'Yes')
   engine(on, home, ran)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
   await ui.press({ key: 'stop' })
-  expect(ran.map(r => r.argv)).toEqual([['npm', 'run', '--silent', 'stop']])
+  expect(ran).toEqual([{ argv: ['npm', 'run', '--silent', 'stop'], cwd: HOME }])
 })
