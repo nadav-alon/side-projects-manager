@@ -5699,6 +5699,29 @@ fi`;
   });
 
   /**
+   * One process filled the host's memory and swap and starved every other
+   * run. Swap equal to the cap leaves a runaway nowhere to go but an OOM kill
+   * inside its own container.
+   */
+  it("caps the container's memory at 8g with no swap beyond it", async (t) => {
+    const { docker } = await runWithDocker(
+      t,
+      dockerAnswering(JSON.stringify({ result: "" })),
+      (sandbox, directory) =>
+        sandbox.run({ image: TEST_IMAGE, ticket: TICKET, checkout: directory, spendCeiling: CEILING }),
+    );
+
+    const [call] = await docker.calls();
+    const print = call?.indexOf("--print") ?? -1;
+    for (const flag of ["--memory", "--memory-swap"]) {
+      const at = call?.indexOf(flag) ?? -1;
+      assert.notEqual(at, -1, `no ${flag}`);
+      assert.equal(call?.[at + 1], "8g");
+      assert.ok(at < print, `${flag} must reach docker, not the CLI`);
+    }
+  });
+
+  /**
    * Not every host reports a uid — `process.getuid` is absent on Windows. The
    * image's own non-root user is a workable answer there.
    */
