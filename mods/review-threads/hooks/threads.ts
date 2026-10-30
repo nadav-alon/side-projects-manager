@@ -47,18 +47,27 @@ export interface DraftPullRequest {
   title: string
   needsRebase: boolean
   openThreads: OpenThread[]
+  /** True when the repo host held more threads than were read, so `openThreads` may be short. */
+  threadsCut: boolean
+}
+
+/** The draft pull requests read, and whether the repo host held more open pull requests than were read. */
+export interface DraftPullRequestList {
+  pullRequests: DraftPullRequest[]
+  cut: boolean
 }
 
 /** The GraphQL query for the repo's open pull requests with their labels and review threads; takes `$owner` and `$name`. */
 export const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage }
       nodes {
         number
         title
         isDraft
         labels(first: 50) { nodes { name } }
-        reviewThreads(first: 100) { nodes { isResolved path comments(first: 1) { nodes { body } } } }
+        reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved path comments(first: 1) { nodes { body } } } }
       }
     }
   }
@@ -86,11 +95,14 @@ const nodesOf = (value: unknown): Node[] => {
   return Array.isArray(nodes) ? nodes.filter(isNode) : []
 }
 
+const hasNextPage = (connection: unknown): boolean =>
+  isNode(connection) && isNode(connection.pageInfo) && connection.pageInfo.hasNextPage === true
+
 /**
  * The draft pull requests in `gh api graphql`'s answer to `PULL_REQUESTS_QUERY`, newest first, ready
  * ones left out. Throws when the answer is not JSON or carries no pull requests.
  */
-export function parseDraftPullRequests(output: string): DraftPullRequest[] {
+export function parseDraftPullRequests(output: string): DraftPullRequestList {
   const root: unknown = JSON.parse(output)
   const data = isNode(root) ? root.data : undefined
   const repository = isNode(data) ? data.repository : undefined
@@ -98,7 +110,7 @@ export function parseDraftPullRequests(output: string): DraftPullRequest[] {
   if (!isNode(pullRequests) || !Array.isArray(pullRequests.nodes)) {
     throw new Error(`No pull requests in the repo host's answer: ${output.slice(0, 200)}`)
   }
-  return nodesOf(pullRequests).flatMap(pr => {
+  const list = nodesOf(pullRequests).flatMap(pr => {
     if (pr.isDraft !== true || typeof pr.number !== 'number' || !isPullRequestNumber(pr.number)) return []
     const openThreads = nodesOf(pr.reviewThreads)
       .filter(thread => thread.isResolved === false)
@@ -112,9 +124,11 @@ export function parseDraftPullRequests(output: string): DraftPullRequest[] {
         title: typeof pr.title === 'string' ? pr.title : '',
         needsRebase: nodesOf(pr.labels).some(label => label.name === NEEDS_REBASE_LABEL),
         openThreads,
+        threadsCut: hasNextPage(pr.reviewThreads),
       },
     ]
   })
+  return { pullRequests: list, cut: hasNextPage(pullRequests) }
 }
 
 /** What a button posts on a pull request: the comment that opens the matching ticket. */
@@ -133,7 +147,7 @@ export function commentArgs(repo: RepoSlug, pr: PullRequestNumber, action: PullR
 /** The lines a pull request is drawn as: its heading, then a line per open thread. */
 export function pullRequestLines(pr: DraftPullRequest): string[] {
   const count = pr.openThreads.length
-  const heading = `#${pr.number} ${pr.title} — ${count === 0 ? 'no open threads' : `${count} open thread${count === 1 ? '' : 's'}`}`
+  const heading = `#${pr.number} ${pr.title} — ${count === 0 ? 'no open threads' : `${count}${pr.threadsCut ? '+' : ''} open thread${count === 1 && !pr.threadsCut ? '' : 's'}`}`
   return [
     pr.needsRebase ? `${heading} [${NEEDS_REBASE_LABEL}]` : heading,
     ...pr.openThreads.map(t => `  ${t.path === '' ? '' : `${t.path}: `}${t.summary}`),

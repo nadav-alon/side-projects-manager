@@ -28,7 +28,7 @@ const answer = (...nodes: ReturnType<typeof pr>[]) =>
 
 describe('parseDraftPullRequests', () => {
   it('lists draft pull requests only, with their unresolved thread count and summaries', () => {
-    const listed = parseDraftPullRequests(
+    const { pullRequests: listed } = parseDraftPullRequests(
       answer(
         pr(5, true, [], [thread(false, 'Rename this\nbecause'), thread(true, 'done'), thread(false, 'Missing test', 'b.ts')]),
         pr(4, false, [], [thread(false, 'ready, so left out')]),
@@ -43,14 +43,26 @@ describe('parseDraftPullRequests', () => {
   })
 
   it('shortens a long first line', () => {
-    const [only] = parseDraftPullRequests(answer(pr(1, true, [], [thread(false, 'x'.repeat(200))])))
+    const [only] = parseDraftPullRequests(answer(pr(1, true, [], [thread(false, 'x'.repeat(200))]))).pullRequests
     assert.equal(only?.openThreads[0]?.summary.length, 80)
   })
 
   it('marks a pull request labelled needs-rebase and no other', () => {
-    const [labelled, plain] = parseDraftPullRequests(answer(pr(2, true, ['needs-rebase'], []), pr(1, true, ['reviewed'], [])))
+    const [labelled, plain] = parseDraftPullRequests(answer(pr(2, true, ['needs-rebase'], []), pr(1, true, ['reviewed'], []))).pullRequests
     assert.equal(labelled?.needsRebase, true)
     assert.equal(plain?.needsRebase, false)
+  })
+
+  it('says when the repo host held more pull requests or threads than were read', () => {
+    const cut = (connection: object) => ({ ...connection, pageInfo: { hasNextPage: true } })
+    const raw = JSON.parse(answer(pr(3, true, [], [thread(false, 'Rename this')])))
+    const prs = raw.data.repository.pullRequests
+    prs.nodes[0].reviewThreads = cut(prs.nodes[0].reviewThreads)
+    const read = parseDraftPullRequests(JSON.stringify({ data: { repository: { pullRequests: cut(prs) } } }))
+    assert.equal(read.cut, true)
+    assert.equal(read.pullRequests[0]?.threadsCut, true)
+    assert.equal(parseDraftPullRequests(answer(pr(3, true, [], []))).cut, false)
+    assert.deepEqual(pullRequestLines(read.pullRequests[0]!)[0], '#3 PR 3 — 1+ open threads')
   })
 
   it('throws on an answer with no pull requests', () => {
@@ -60,12 +72,12 @@ describe('parseDraftPullRequests', () => {
 
 describe('pullRequestLines', () => {
   it('names the count, the label and each open thread', () => {
-    const [only] = parseDraftPullRequests(answer(pr(5, true, ['needs-rebase'], [thread(false, 'Rename this')])))
+    const [only] = parseDraftPullRequests(answer(pr(5, true, ['needs-rebase'], [thread(false, 'Rename this')]))).pullRequests
     assert.deepEqual(pullRequestLines(only!), ['#5 PR 5 — 1 open thread [needs-rebase]', '  src/a.ts: Rename this'])
   })
 
   it('says so when no thread is open', () => {
-    const [only] = parseDraftPullRequests(answer(pr(6, true, [], [])))
+    const [only] = parseDraftPullRequests(answer(pr(6, true, [], []))).pullRequests
     assert.deepEqual(pullRequestLines(only!), ['#6 PR 6 — no open threads'])
   })
 })

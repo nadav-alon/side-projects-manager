@@ -55,8 +55,9 @@ export const register: Register = on => {
     try {
       const { exitCode, stdout, stderr } = await $.process.run(['gh', ...readArgs(await sessionRepo($))])
       if (exitCode !== 0) throw new Error(`gh api failed: ${stderr.trim()}`)
-      await update($, pullRequests, () => parseDraftPullRequests(stdout))
-      await update($, notice, () => '')
+      const read = parseDraftPullRequests(stdout)
+      await update($, pullRequests, () => read.pullRequests)
+      await update($, notice, () => (read.cut ? 'Only the newest 100 open pull requests were read; older drafts may be missing.' : ''))
     } catch (error) {
       await update($, notice, () => `Could not read the repo host: ${messageOf(error)}`)
     }
