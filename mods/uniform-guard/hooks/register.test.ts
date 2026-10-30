@@ -39,6 +39,16 @@ test('denies an edit to a uniform file that names the repo, quoting the text', a
   expect(ran.deny).toContain(NAMING)
 })
 
+test('denies a name spelled with underscores, no separator or split across lines, quoting the line it starts on', async ($, on) => {
+  engine(on)
+  for (const text of ['side_projects_manager', 'SideProjectsManager', 'side  projects  manager']) {
+    const ran = await $.tool.call({ tool: 'Write', file_path: `${ROOT}/docs/agents/domain.md`, content: `# Domain\n${text}\n` })
+    expect(ran.deny).toContain(JSON.stringify(text))
+  }
+  const split = await $.tool.call({ tool: 'Write', file_path: `${ROOT}/docs/agents/domain.md`, content: 'See Side Projects\nManager.' })
+  expect(split.deny).toContain(JSON.stringify('See Side Projects'))
+})
+
 test('runs untouched an edit to a uniform file that does not name the repo', async ($, on) => {
   engine(on)
   const ran = await $.tool.call({ tool: 'Write', file_path: `${ROOT}/docs/agents/domain.md`, content: '# Domain\n' })

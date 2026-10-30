@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { lineNamingRepo } from './naming'
+import { lineNamingManager } from './naming'
 import { HARNESS_SOURCE, uniformFilesIn } from './uniform'
 
 export const register: Register = on => {
@@ -16,11 +16,11 @@ export const register: Register = on => {
       const relative = e.file_path.slice(root.length + 1)
       if (!uniformFilesIn(harness).includes(relative)) return next(e)
 
-      const offending = lineNamingRepo(e.tool === 'Edit' ? e.new_string : e.content)
+      const offending = lineNamingManager(e.tool === 'Edit' ? e.new_string : e.content)
       return offending === undefined
         ? next(e)
         : {
-            deny: `${$.plugin.name}: ${relative} is copied byte for byte into every project, so it may not name this repo. Offending text: ${JSON.stringify(offending)}`,
+            deny: `${$.plugin.name}: ${relative} is copied byte for byte into every project, so it may not name the manager. Offending text: ${JSON.stringify(offending)}`,
           }
     })
   }
