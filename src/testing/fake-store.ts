@@ -6,6 +6,7 @@ import type {
   InvocationRecord,
   IssueNumber,
   Journal,
+  JournaledFreedEntry,
   KeptSummaryPath,
   ModelDefaults,
   OpenInvocation,
@@ -285,6 +286,19 @@ export class FakeStore implements Store {
         }),
       })),
     };
+  }
+
+  async recordFreed(
+    opened: OpenInvocation,
+    freed: readonly JournaledFreedEntry[],
+  ): Promise<void> {
+    const record = findInvocationRecord(this.#journal, opened);
+    if (record === undefined) {
+      throw new Error(
+        `no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}`,
+      );
+    }
+    record.freed = freed.map(({ repo, number }) => ({ repo, number }));
   }
 
   async recordRunStarted(

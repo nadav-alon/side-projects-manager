@@ -59,6 +59,7 @@ describe("FakeStore journal", () => {
       closedAt: CLOSED_AT,
       outcome: "work-selected",
       projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+      freed: [],
     });
 
     assert.deepEqual(await store.loadJournal(), {
@@ -69,9 +70,39 @@ describe("FakeStore journal", () => {
           closedAt: CLOSED_AT,
           outcome: "work-selected",
           projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+          freed: [],
         },
       ],
     });
+  });
+
+  it("names the freed entries on a record that is never closed", async () => {
+    const store = new FakeStore();
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.recordFreed(opened, [{ repo: PILOT, number: issueNumber(432) }]);
+
+    assert.deepEqual(await store.loadJournal(), {
+      records: [
+        {
+          openedAt: OPENED_AT,
+          process: PROCESS,
+          freed: [{ repo: PILOT, number: issueNumber(432) }],
+        },
+      ],
+    });
+  });
+
+  it("refuses to record freed entries on a record that was never opened", async () => {
+    const store = new FakeStore();
+
+    await assert.rejects(
+      store.recordFreed({ openedAt: OPENED_AT, process: PROCESS }, []),
+      /no invocation record opened/,
+    );
   });
 
   it("records an exit code when the invocation never reported", async () => {
@@ -85,6 +116,7 @@ describe("FakeStore journal", () => {
       closedAt: CLOSED_AT,
       outcome: "never-reported",
       projects: [],
+      freed: [],
       exitCode: exitCode(7),
     });
 
@@ -99,7 +131,7 @@ describe("FakeStore journal", () => {
     await assert.rejects(
       store.closeInvocation(
         { openedAt: OPENED_AT, process: PROCESS },
-        { closedAt: CLOSED_AT, outcome: "dry-queue", projects: [] },
+        { closedAt: CLOSED_AT, outcome: "dry-queue", projects: [], freed: [] },
       ),
       /no invocation record opened/,
     );
@@ -115,6 +147,7 @@ describe("FakeStore journal", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
     });
 
     await assert.rejects(
@@ -122,6 +155,7 @@ describe("FakeStore journal", () => {
         closedAt: CLOSED_AT,
         outcome: "dry-queue",
         projects: [],
+        freed: [],
       }),
       /already closed/,
     );
@@ -145,6 +179,7 @@ describe("FakeStore journal", () => {
       closedAt: CLOSED_AT,
       outcome: "invocation-failed",
       projects: [],
+      freed: [],
     });
 
     assert.equal((await store.loadJournal()).records[0]?.runs, undefined);

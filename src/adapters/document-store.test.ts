@@ -1442,6 +1442,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "work-selected",
       projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+      freed: [],
     });
 
     assert.deepEqual(await store.loadJournal(), {
@@ -1452,9 +1453,39 @@ describe("the journal document", () => {
           closedAt: CLOSED_AT,
           outcome: "work-selected",
           projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+          freed: [],
         },
       ],
     });
+  });
+
+  it("names the freed entries on a record that is never closed", async () => {
+    const store = documentStore(await home());
+    const opened = await store.openInvocation({
+      openedAt: OPENED_AT,
+      process: PROCESS,
+    });
+
+    await store.recordFreed(opened, [{ repo: PILOT, number: issueNumber(432) }]);
+
+    assert.deepEqual(await store.loadJournal(), {
+      records: [
+        {
+          openedAt: OPENED_AT,
+          process: PROCESS,
+          freed: [{ repo: PILOT, number: issueNumber(432) }],
+        },
+      ],
+    });
+  });
+
+  it("refuses to record freed entries on a record that was never opened", async () => {
+    const store = documentStore(await home());
+
+    await assert.rejects(
+      store.recordFreed({ openedAt: OPENED_AT, process: PROCESS }, []),
+      /no invocation record opened/,
+    );
   });
 
   it("records a stand-down reason when the invocation stood down", async () => {
@@ -1468,6 +1499,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "stood-down",
       projects: [],
+      freed: [],
       standDownReason: "weekly-reserve: 250000000 of 250000000 tokens used",
     });
 
@@ -1489,6 +1521,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "never-reported",
       projects: [],
+      freed: [],
       exitCode: exitCode(7),
     });
 
@@ -1508,6 +1541,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
       summaryLocation: issueUrl(
         "https://github.com/nadav-alon/side-projects-manager/issues/1",
       ),
@@ -1531,6 +1565,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
       summaryFailure: {
         reason: "rate limited",
         keptAt: keptSummaryPath("/home/summary.txt"),
@@ -1604,6 +1639,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
       summaryFailure: { reason: "rate limited" },
     });
 
@@ -1680,7 +1716,7 @@ describe("the journal document", () => {
     await assert.rejects(
       store.closeInvocation(
         { openedAt: OPENED_AT, process: PROCESS },
-        { closedAt: CLOSED_AT, outcome: "dry-queue", projects: [] },
+        { closedAt: CLOSED_AT, outcome: "dry-queue", projects: [], freed: [] },
       ),
       /no invocation record opened/,
     );
@@ -1696,6 +1732,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
     });
 
     await assert.rejects(
@@ -1703,6 +1740,7 @@ describe("the journal document", () => {
         closedAt: CLOSED_AT,
         outcome: "dry-queue",
         projects: [],
+        freed: [],
       }),
       /already closed/,
     );
@@ -1812,6 +1850,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "work-selected",
       projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+      freed: [],
     });
 
     assert.deepEqual(await store.loadJournal(), {
@@ -1822,6 +1861,7 @@ describe("the journal document", () => {
           closedAt: CLOSED_AT,
           outcome: "work-selected",
           projects: [{ repo: PILOT, tokensUsed: tokenCount(1_000) }],
+          freed: [],
         },
       ],
     });
@@ -1838,6 +1878,7 @@ describe("the journal document", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
     });
 
     const written = await readFile(path.join(directory, "journal.json"), "utf8");
@@ -1852,6 +1893,7 @@ describe("the journal document", () => {
               closedAt: CLOSED_AT.toISOString(),
               outcome: "dry-queue",
               projects: [],
+              freed: [],
             },
           ],
         },
@@ -2090,6 +2132,7 @@ describe("runs in progress on the journal document", () => {
       closedAt: STARTED_AT,
       outcome: "invocation-failed",
       projects: [],
+      freed: [],
     });
 
     const [record] = (await store.loadJournal()).records;

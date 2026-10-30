@@ -360,6 +360,23 @@ export async function morningLoop(
       await currentInvocation(ports, invocation),
     );
     freedTickets = state.freed();
+    // Journaled before anything saves the state: the next save drops these
+    // entries, so a record the process never closes must already name them.
+    if (invocation !== undefined && freedTickets.length > 0) {
+      await ports.store
+        .recordFreed(
+          invocation,
+          freedTickets.map(({ ticket }) => ({
+            repo: ticket.repo,
+            number: ticket.number,
+          })),
+        )
+        .catch((error: unknown) => {
+          console.warn(
+            `Could not record the freed entries on the journal: ${errorMessage(error)}`,
+          );
+        });
+    }
     saveState = () => state.save();
     const modelDefaults = await ports.store.loadModelDefaults();
     // Built once and kept for the whole invocation, not once per iteration:

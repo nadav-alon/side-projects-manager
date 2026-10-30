@@ -28,6 +28,7 @@ import {
   hostPath,
   iterationLimit,
   issueNumber,
+  sameInvocation,
   localDay,
   modelName,
   nits as toNits,
@@ -990,6 +991,32 @@ describe("morningLoop", () => {
         );
       });
 
+      it("names the freed ticket on this invocation's open record, before it closes", async () => {
+        const ports = fakePorts();
+        ports.store.register(PILOT);
+        ports.tracker.addEligibleTicket(PILOT, {
+          number: issueNumber(432),
+          title: "Add the thing",
+        });
+        await ports.store.openInvocation(DEAD);
+        ports.store.markWorkedOn(TODAY, {
+          repo: PILOT,
+          number: issueNumber(432),
+          recordedBy: DEAD,
+        });
+        await ports.store.openInvocation(SELF);
+
+        await morningLoop(ports, { invocation: SELF });
+
+        const record = (await ports.store.loadJournal()).records.find(
+          (candidate) => sameInvocation(candidate, SELF),
+        );
+        assert.equal(record?.closedAt, undefined);
+        assert.deepEqual(record?.freed, [
+          { repo: PILOT, number: issueNumber(432) },
+        ]);
+      });
+
       it("keeps a ticket passed over when the invocation that recorded it has closed", async () => {
         const ports = fakePorts();
         ports.store.register(PILOT);
@@ -1002,6 +1029,7 @@ describe("morningLoop", () => {
           closedAt: new Date("2026-09-19T08:20:00.000Z"),
           outcome: "work-selected",
           projects: [],
+          freed: [],
         });
         ports.store.markWorkedOn(TODAY, {
           repo: PILOT,

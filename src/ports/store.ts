@@ -7,6 +7,7 @@ import {
   sameInvocation,
   type InvocationClosing,
   type Journal,
+  type JournaledFreedEntry,
   type OpenInvocation,
   type RunInProgress,
 } from "./journal.ts";
@@ -631,6 +632,18 @@ export interface Store {
    * state document.
    */
   loadJournal(): Promise<Journal>;
+  /**
+   * Sets the entries the invocation record `opened` identifies freed — at
+   * the moment it frees them, so a record that never closes still names
+   * them. Replaces whatever the record already lists; closing it later
+   * writes the same list again.
+   *
+   * An error when no such record is open, as `closeInvocation`'s is.
+   */
+  recordFreed(
+    opened: OpenInvocation,
+    freed: readonly JournaledFreedEntry[],
+  ): Promise<void>;
   /**
    * Adds `run` to the invocation record `opened` identifies — CONTEXT.md's
    * "Run in progress", the moment the manager starts it.

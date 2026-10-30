@@ -187,6 +187,21 @@ export function documentStore(home: string = MANAGER_HOME): Store {
       return loadJournalDocument(journalFile);
     },
 
+    async recordFreed(
+      opened: OpenInvocation,
+      freed: readonly JournaledFreedEntry[],
+    ): Promise<void> {
+      const journal = await loadJournalDocument(journalFile);
+      const record = findInvocationRecord(journal.records, opened);
+      if (record === undefined) {
+        throw new Error(
+          `${journalFile}: no invocation record opened at ${opened.openedAt.toISOString()} by process ${opened.process}.`,
+        );
+      }
+      record.freed = freed.map(({ repo, number }) => ({ repo, number }));
+      await writeJournal(home, journalFile, journal);
+    },
+
     async recordRunStarted(
       opened: OpenInvocation,
       run: RunInProgress,
@@ -922,17 +937,24 @@ function parseWorkedToday(value: unknown, where: string): WorkedToday {
   };
 }
 
-function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
-  const repo = repoSlugField(ticket, where);
-  const number = fieldOf(ticket, "number", where);
+/** `{ "repo": "owner/repo", "number": 432 }` — the ticket a worked or freed entry names. */
+function ticketReference(
+  value: unknown,
+  where: string,
+): { repo: RepoSlug; number: IssueNumber } {
+  const repo = repoSlugField(value, where);
+  const number = fieldOf(value, "number", where);
   if (typeof number !== "number" || !isIssueNumber(number)) {
     throw new Error(
       `${where}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
     );
   }
+  return { repo, number };
+}
+
+function parseWorkedTicket(ticket: unknown, where: string): WorkedTicket {
   return {
-    repo,
-    number,
+    ...ticketReference(ticket, where),
     ...recordedByField(fieldOf(ticket, "recordedBy", where), where),
   };
 }
@@ -1134,8 +1156,9 @@ const RECORD_FIELDS = [
  *    "summaryLocation": "https://github.com/owner/repo/issues/1",
  *    "summaryFailure": { "reason": "…", "keptAt": "…" } }] }`
  *
- * A record with no `closedAt` is in flight, and carries nothing else — the
- * fields closing adds are read only once `closedAt` says they were written.
+ * A record with no `closedAt` is in flight, and carries only `runs` and
+ * `freed` besides — the other fields closing adds are read only once
+ * `closedAt` says they were written.
  */
 function parseJournal(document: unknown, file: string): Journal {
   if (document === undefined) {
@@ -1163,20 +1186,21 @@ function parseInvocationRecord(
 
   const { openedAt, process } = parseOpenInvocation(record, where);
   const runs = runsField(fieldOf(record, "runs", where), where);
+  const freed = freedField(fieldOf(record, "freed", where), where);
 
   const closedAt = fieldOf(record, "closedAt", where);
   if (closedAt === undefined) {
-    return { openedAt, process, ...runs };
+    return { openedAt, process, ...runs, ...freed };
   }
 
   return {
     openedAt,
     process,
     ...runs,
+    ...freed,
     closedAt: parseInstant(closedAt, `${where}: "closedAt"`),
     outcome: outcomeField(fieldOf(record, "outcome", where), where),
     projects: journaledProjectsField(fieldOf(record, "projects", where), where),
-    ...freedField(fieldOf(record, "freed", where), where),
     ...standDownReasonField(fieldOf(record, "standDownReason", where), where),
     ...summaryLocationField(fieldOf(record, "summaryLocation", where), where),
     ...summaryFailureField(fieldOf(record, "summaryFailure", where), where),
@@ -1327,17 +1351,9 @@ function freedField(
     throw new Error(`${where}: "freed" must be a list of tickets.`);
   }
   return {
-    freed: value.map((entry, index) => {
-      const entryWhere = `${where}: freed ${index + 1}`;
-      const repo = repoSlugField(entry, entryWhere);
-      const number = fieldOf(entry, "number", entryWhere);
-      if (typeof number !== "number" || !isIssueNumber(number)) {
-        throw new Error(
-          `${entryWhere}: "number" must be a whole number of 1 or more: ${JSON.stringify(number)}`,
-        );
-      }
-      return { repo, number };
-    }),
+    freed: value.map((entry, index) =>
+      ticketReference(entry, `${where}: freed ${index + 1}`),
+    ),
   };
 }
 
@@ -1451,11 +1467,19 @@ function formatRunInProgress(run: RunInProgress): StoredRunInProgress {
   };
 }
 
+/** The entries `record` freed, as the document writes them — nothing when it names none. */
+function formatFreed(record: InvocationRecord): { freed?: JournaledFreedEntry[] } {
+  return record.freed === undefined
+    ? {}
+    : { freed: record.freed.map(({ repo, number }) => ({ repo, number })) };
+}
+
 function formatJournal(journal: Journal): string {
   const records = journal.records.map((record) => ({
     ...formatOpenInvocation(record),
     ...(record.runs !== undefined &&
       record.runs.length > 0 && { runs: record.runs.map(formatRunInProgress) }),
+    ...(record.closedAt === undefined && formatFreed(record)),
     ...(record.closedAt !== undefined && {
       closedAt: record.closedAt.toISOString(),
       outcome: record.outcome,
@@ -1463,9 +1487,7 @@ function formatJournal(journal: Journal): string {
         repo,
         tokensUsed,
       })),
-      ...(record.freed !== undefined && {
-        freed: record.freed.map(({ repo, number }) => ({ repo, number })),
-      }),
+      ...formatFreed(record),
       ...(record.standDownReason !== undefined && {
         standDownReason: record.standDownReason,
       }),

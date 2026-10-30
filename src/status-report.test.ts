@@ -61,6 +61,7 @@ function closed(
     closedAt: new Date(openedAt),
     outcome: "dry-queue",
     projects: [],
+    freed: [],
     ...overrides,
   };
 }
