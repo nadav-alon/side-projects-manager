@@ -15,10 +15,20 @@ export const register: Register = on => {
     // The mod sits at `<manager home>/mods/<mod>`.
     const reader = managerHomeReader({ read: path => $.fs.read(path), list: path => $.fs.list(path) }, `${$.plugin.root}/../..`)
 
+    // Every discovery the session has seen: the ones present at start are never toasted, and one
+    // that goes and comes back is not toasted twice.
+    const seen = new Set<string>()
+    let isFirstRead = true
+
     const refresh = async () => {
       const pending = await reader.discoveries()
       // An unreadable folder is nothing known: leave the status as it stands.
       if (pending === undefined) return
+      for (const discovery of pending) {
+        if (!seen.has(discovery) && !isFirstRead) $.ui.toast(`New discovery: ${discovery}`)
+        seen.add(discovery)
+      }
+      isFirstRead = false
       $.ui.status(pendingStatus(pending.length))
     }
 
