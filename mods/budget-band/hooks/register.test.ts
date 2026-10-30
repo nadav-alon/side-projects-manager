@@ -34,3 +34,18 @@ test('the band shows the window usage as a share of the allowance', async ($, on
   const band = await ui.find({ type: 'Text' })
   expect(band?.text.trim()).toBe('5h window: 30% used')
 })
+
+test('the band turns yellow once usage enters the loop reserve', async ($, on) => {
+  const files = {
+    'state.json': state(7_900_000),
+    'budget.json': '{"fiveHourAllowance":10000000,"fiveHourReserveFraction":0.2}',
+  }
+  engine(on, files)
+  const before = await $.ui.mount({ plugin: 'budget-band', surface: 'terminal', ...ABOVE_PROMPT })
+  expect((await before.find({ type: 'Text' }))?.props.backgroundColor).toBe('green')
+  await before.unmount()
+
+  files['state.json'] = state(8_000_000)
+  const after = await $.ui.mount({ plugin: 'budget-band', surface: 'terminal', ...ABOVE_PROMPT })
+  expect((await after.find({ type: 'Text' }))?.props.backgroundColor).toBe('yellow')
+})

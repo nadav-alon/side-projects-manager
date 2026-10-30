@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { bandLabel } from './band'
+import { bandLabel, isInReserve } from './band'
 import { managerHomeReader } from './manager-home/reader'
 
 /** The manager home is the checkout this mod sits in: `<home>/mods/budget-band`. */
@@ -18,7 +18,7 @@ export const register: Register = on => {
 
     return (
       <Box>
-        <Text color="black" backgroundColor="green">
+        <Text color="black" backgroundColor={isInReserve(usage) ? 'yellow' : 'green'}>
           {` ${bandLabel(usage)} `}
         </Text>
       </Box>
