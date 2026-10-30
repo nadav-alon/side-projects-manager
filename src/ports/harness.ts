@@ -33,6 +33,7 @@ export class UnknownPreset extends Error {
  * `handOver`), and a second copy of the list would drift from this one
  * unnoticed.
  */
+// `mods/uniform-guard/hooks/uniform.ts` parses this literal as text: keep the exact form below (double quotes, no annotation).
 export const UNIFORM_FILES = [
   "docs/agents/coding-standards.md",
   "docs/agents/issue-tracker.md",
