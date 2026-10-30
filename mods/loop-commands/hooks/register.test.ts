@@ -76,3 +76,41 @@ test('/resume shows the failure when the command fails', async ($, on) => {
   const out = await $.command.run({ command: 'resume' })
   expect(out.text).toBe('/resume failed (exit 2): resume failed: no halt')
 })
+
+test('/grant asks first, then grants the ticket and shows the output', async ($, on) => {
+  const ran: Ran[] = [], asked: string[] = []
+  person(on, asked, 'Yes')
+  engine(on, ran, { exitCode: 0, stdout: 'granted turboable\n', stderr: '' })
+  const out = await $.command.run({ command: 'grant', args: 'o/r#12' })
+  expect(asked).toEqual(['Grant o/r#12 to the manager loop?'])
+  expect(ran[0]?.argv).toEqual(['npm', 'run', '--silent', 'grant', '--', 'o/r#12'])
+  expect(out.text).toBe('granted turboable')
+})
+
+test('/grant runs nothing when the person declines', async ($, on) => {
+  const ran: Ran[] = []
+  person(on, [], 'No')
+  engine(on, ran, { exitCode: 0, stdout: 'x', stderr: '' })
+  const out = await $.command.run({ command: 'grant', args: 'o/r#12' })
+  expect(ran).toEqual([])
+  expect(out.text).toBe('/grant cancelled.')
+})
+
+for (const args of ['', '  ', 'o/r', '12', 'o/r#x', 'o/r#12 live-write']) {
+  test(`/grant says how to use it for ${JSON.stringify(args)}, asking and running nothing`, async ($, on) => {
+    const ran: Ran[] = [], asked: string[] = []
+    person(on, asked, 'Yes')
+    engine(on, ran, { exitCode: 0, stdout: 'x', stderr: '' })
+    const out = await $.command.run({ command: 'grant', args })
+    expect(out.text).toBe('Usage: /grant owner/repo#n')
+    expect(asked).toEqual([])
+    expect(ran).toEqual([])
+  })
+}
+
+test('/grant shows the failure when the command fails', async ($, on) => {
+  person(on, [], 'Yes')
+  engine(on, [], { exitCode: 1, stdout: '', stderr: 'grant failed: no such ticket\n' })
+  const out = await $.command.run({ command: 'grant', args: 'o/r#12' })
+  expect(out.text).toBe('/grant failed (exit 1): grant failed: no such ticket')
+})
