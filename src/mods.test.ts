@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 
 const lib = resolve(import.meta.dirname, "../scripts/mods.sh");
 
@@ -64,35 +64,55 @@ describe("mods.sh", () => {
 describe("test-mods.sh", () => {
   const script = resolve(import.meta.dirname, "../scripts/test-mods.sh");
 
-  function hookMods(): { root: string; calls: string } {
+  function modsWithFakeClaude(...tests: Array<[name: string, source: string]>): string {
     const root = mkdtempSync(join(tmpdir(), "test-mods-"));
-    const withTest = (name: string, source: string): void => {
-      mkdirSync(join(root, name, "hooks"), { recursive: true });
+    roots.push(root);
+    for (const [name, source] of tests) {
+      mkdirSync(join(root, name, ".claude-plugin"), { recursive: true });
+      writeFileSync(join(root, name, ".claude-plugin", "plugin.json"), "{}");
+      mkdirSync(join(root, name, "hooks"));
       writeFileSync(join(root, name, "hooks", "a.test.ts"), source);
-    };
-    withTest("good", "import { test } from 'claude-code/testing'");
-    withTest("bad", "import { test } from 'claude-code/testing'");
-    withTest("plain", "import { it } from 'node:test'");
-    mkdirSync(join(root, "no-tests"));
-    const calls = join(root, "calls");
+    }
     const fake = join(root, "fake-claude");
-    writeFileSync(fake, `#!/usr/bin/env bash\necho "$3" >> "${calls}"\n[[ "$3" != */bad ]]\n`, { mode: 0o755 });
-    return { root, calls };
+    writeFileSync(
+      fake,
+      `#!/usr/bin/env bash\necho "$1 $2 $3" >> "${join(root, "calls")}"\n[[ "$3" != */bad ]]\n`,
+      { mode: 0o755 },
+    );
+    return root;
   }
 
-  function run(root: string): { status: number | null; calls: string } {
-    const calls = join(root, "calls");
-    const out = spawnSync("bash", [script, join(root, "")], {
+  function run(root: string): { status: number | null; stderr: string; calls: string } {
+    const out = spawnSync("bash", [script, root], {
       encoding: "utf8",
       env: { ...process.env, CLAUDE: join(root, "fake-claude") },
     });
-    return { status: out.status, calls: readFileSync(calls, "utf8") };
+    const calls = join(root, "calls");
+    return { status: out.status, stderr: out.stderr, calls: existsSync(calls) ? readFileSync(calls, "utf8") : "" };
   }
 
+  const hook = "import { test } from 'claude-code/testing'";
+  const plain = "import { it } from 'node:test'";
+  const roots: string[] = [];
+  after(() => {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  });
+
   it("tests each mod written with claude-code/testing, skips the rest, and fails when one fails", () => {
-    const { root } = hookMods();
-    const { status, calls } = run(root);
+    const root = modsWithFakeClaude(["good", hook], ["bad", hook], ["plain", plain]);
+    mkdirSync(join(root, "no-tests"));
+    const { status, stderr, calls } = run(root);
     assert.equal(status, 1);
-    assert.equal(calls, `${root}/bad\n${root}/good\n`);
+    assert.equal(calls, `plugin test ${root}/bad\nplugin test ${root}/good\n`);
+    assert.match(stderr, /Hook tests failed: bad/);
+  });
+
+  it("passes when every mod's tests pass", () => {
+    assert.equal(run(modsWithFakeClaude(["good", hook], ["fine", hook])).status, 0);
+  });
+
+  it("fails when the mods directory is missing or no mod was tested", () => {
+    assert.equal(run(join(modsWithFakeClaude(), "missing")).status, 1);
+    assert.equal(run(modsWithFakeClaude(["plain", plain])).status, 1);
   });
 });
