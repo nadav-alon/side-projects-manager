@@ -135,7 +135,7 @@ export function pullRequestLines(pr: DraftPullRequest): string[] {
   const count = pr.openThreads.length
   const heading = `#${pr.number} ${pr.title} — ${count === 0 ? 'no open threads' : `${count} open thread${count === 1 ? '' : 's'}`}`
   return [
-    pr.needsRebase ? `${heading} [needs-rebase]` : heading,
+    pr.needsRebase ? `${heading} [${NEEDS_REBASE_LABEL}]` : heading,
     ...pr.openThreads.map(t => `  ${t.path === '' ? '' : `${t.path}: `}${t.summary}`),
   ]
 }
