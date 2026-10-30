@@ -3,7 +3,9 @@
 //
 // Every read answers `undefined` — "nothing known" — for a missing home, a missing file or a document
 // that cannot be read as what it claims to be, and never throws, so a mod drawing from it stays blank
-// instead of failing its hook. It is not itself a mod; any mod's hooks import it.
+// instead of failing its hook. It is not itself a mod, and a mod cannot import it from outside its
+// own folder: a mod carries a copy of `reader.ts` and `types.ts` in its `hooks/manager-home/`,
+// kept byte-identical to these by `copies.test.ts`.
 
 import {
   isProcessId,
