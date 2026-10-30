@@ -108,6 +108,9 @@ async function removeOrWarn(directory: string): Promise<void> {
   );
 }
 
+/** The memory cap on every run and review container, swap included. */
+const CONTAINER_MEMORY_LIMIT = "8g";
+
 /**
  * How much of the agent's output to hold in memory. A full implementation run
  * says far more than `execFile`'s 1 MB default allows, and overflowing it
@@ -3226,6 +3229,13 @@ function dockerCommand(
     // filesystem — a throwaway clone, read-only for a review (see `Mount`).
     "--network",
     "host",
+    // Swap equal to the memory cap leaves no swap on top of it, so a runaway
+    // process is OOM-killed inside its own container instead of pushing the
+    // host into swap and starving every other run.
+    "--memory",
+    CONTAINER_MEMORY_LIMIT,
+    "--memory-swap",
+    CONTAINER_MEMORY_LIMIT,
     "--volume",
     // Half the enforcement for a review — see `Mount`.
     `${directory}:/repo${mount === "ro" ? ":ro" : ""}`,
