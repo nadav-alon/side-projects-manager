@@ -10,9 +10,10 @@ const now = Date.now()
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
 /** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
-function engine(on: On, files: Record<string, string>, ran: Ran[] = []) {
+function engine(on: On, files: Record<string, string>, ran: Ran[] = [], reads: string[] = []) {
   const clock = mock.clock(on, { now })
   on('fs.read', (_$, e) => {
+    reads.push(e.path)
     const text = files[e.path]
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
     return { value: text } as never
@@ -80,6 +81,19 @@ test('the pane redraws when the journal changes', async ($, on) => {
   files[`${HOME}/journal.json`] = JSON.stringify({ records: [] })
   await clock.advance(2500)
   expect(await texts(ui)).toContain('No invocation is running.')
+})
+
+test('the pane stops polling the manager home once it is closed', async ($, on) => {
+  const reads: string[] = []
+  const clock = engine(on, home, [], reads)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  await clock.advance(2500)
+  const whileOpen = reads.length
+  expect(whileOpen).toBeGreaterThan(0)
+  await $.ui.close({ id: 'loop-pane' })
+  const atClose = reads.length
+  await clock.advance(10_000)
+  expect(reads.length).toBe(atClose)
 })
 
 test('halt and resume run the manager command from the manager home', async ($, on) => {

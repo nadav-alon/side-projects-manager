@@ -40,6 +40,15 @@ export const register: Register = on => {
     return { text: 'Loop pane opened.' }
   })
 
+  on('ui.close', async ($, e, next) => {
+    const closed = await next(e)
+    if (e.id === PANE) {
+      tick?.cancel()
+      tick = undefined
+    }
+    return closed
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const { inFlight, usage } = await read($, snapshot)
