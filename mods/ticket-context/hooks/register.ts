@@ -4,20 +4,26 @@ import { describeTicket, referencesIn, type Ticket } from './ticket'
 
 type Run = (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>
 
-/** The ticket as `gh` reads it, run on the host from the session's working directory. */
-async function fetchTicket(run: Run, repo: string, number: number): Promise<Ticket> {
-  async function gh(...argv: string[]): Promise<string> {
-    const { exitCode, stdout, stderr } = await run(['gh', ...argv])
-    if (exitCode !== 0) throw new Error(stderr.trim() || `gh ${argv[0]} exited ${exitCode}`)
-    return stdout
-  }
+/** `gh`, run on the host from the session's working directory; throws with its own words on failure. */
+async function gh(run: Run, ...argv: string[]): Promise<string> {
+  const { exitCode, stdout, stderr } = await run(['gh', ...argv])
+  if (exitCode !== 0) throw new Error(stderr.trim() || `gh ${argv[0]} exited ${exitCode}`)
+  return stdout
+}
 
-  const issue = JSON.parse(await gh('issue', 'view', String(number), '--repo', repo, '--json', 'title,body,labels')) as {
+/** The repo the session's working directory is a clone of. */
+async function currentRepo(run: Run): Promise<string> {
+  return (await gh(run, 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner')).trim()
+}
+
+async function fetchTicket(run: Run, repo: string, number: number): Promise<Ticket> {
+  const issue = JSON.parse(await gh(run, 'issue', 'view', String(number), '--repo', repo, '--json', 'title,body,labels')) as {
     title: string
     body: string
     labels: { name: string }[]
   }
   const blockers = await gh(
+    run,
     'api',
     '--paginate',
     `repos/${repo}/issues/${number}/dependencies/blocked_by`,
@@ -39,9 +45,10 @@ export const register: Register = on => {
 
     const run: Run = argv => $.process.run(argv)
     const blocks: string[] = []
-    for (const { repo, number } of references) {
-      if (repo === null) continue
-      blocks.push(describeTicket(`${repo}#${number}`, await fetchTicket(run, repo, number)))
+    let sessionRepo: string | undefined
+    for (const reference of references) {
+      const repo = reference.repo ?? (sessionRepo ??= await currentRepo(run))
+      blocks.push(describeTicket(`${repo}#${reference.number}`, await fetchTicket(run, repo, reference.number)))
     }
     return next({ ...e, context: [...(e.context ?? []), ...blocks] })
   })

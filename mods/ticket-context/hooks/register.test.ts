@@ -43,3 +43,10 @@ test('a prompt without a reference is untouched and asks the tracker nothing', a
   expect(entered.context).toBeUndefined()
   expect(seen.runs.length).toBe(0)
 })
+
+test('a bare #n resolves against the session repo', async ($, on) => {
+  const seen = engine(on, { 'gh repo view --json nameWithOwner --jq .nameWithOwner': { stdout: 'acme/pilot\n' }, ...ACME_42 })
+  const entered = await $.prompt.submit({ text: 'Do #42 next' })
+  expect(entered.context?.join('\n')).toMatch(/acme\/pilot#42: Add the thing/)
+  expect(seen.runs.filter(argv => argv[1] === 'repo').length).toBe(1)
+})
