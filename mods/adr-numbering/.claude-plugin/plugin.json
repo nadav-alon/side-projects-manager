@@ -1,0 +1,5 @@
+{
+  "name": "adr-numbering",
+  "version": "0.1.0",
+  "description": "Runs the repo's ADR-number check when a new ADR is written, so a number collision reaches the model at once."
+}
