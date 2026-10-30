@@ -83,8 +83,16 @@ export interface ReadyLabelEdit {
 
 const LABEL = 'ready-for-agent'
 
-/** The flags of `gh issue edit` that take a value, long and short. */
+/** The flags of `gh issue edit` and `gh issue create` that take a value, long and short. */
 const VALUE_FLAGS = new Set([
+  '--assignee',
+  '--label',
+  '--project',
+  '--template',
+  '-T',
+  '-a',
+  '-l',
+  '-p',
   '--add-assignee',
   '--add-label',
   '--add-project',
@@ -157,6 +165,28 @@ function issueArgument(arg: string): { repo: RepoSlug | null; number: IssueNumbe
   return url ? { repo: repoSlug(url[1]!), number: issueNumber(Number(url[2])) } : null
 }
 
+/** Whether one `gh issue create` labels the new ticket `ready-for-agent`. */
+function createsReady(words: readonly string[]): boolean {
+  const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'create')
+  if (start === -1) return false
+  const args = words.slice(start + 3)
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    const long = /^(--[\w-]+)=(.*)$/s.exec(arg)
+    const short = /^(-[A-Za-z])(.+)$/s.exec(arg)
+    const name = long?.[1] ?? (short && VALUE_FLAGS.has(short[1]!) ? short[1]! : arg)
+    if (!VALUE_FLAGS.has(name)) continue
+    const value = long?.[2] ?? short?.[2] ?? args[++i] ?? ''
+    if ((name === '--label' || name === '-l') && value.split(',').some((label) => label.trim() === LABEL)) return true
+  }
+  return false
+}
+
+/** Whether the call is a `gh issue create` that labels the new ticket `ready-for-agent`. */
+export function createsReadyTicket(command: string): boolean {
+  return simpleCommands(command).some(createsReady)
+}
+
 /** The tickets one `gh issue edit` adds `ready-for-agent` to; none when it does not add it. */
 function editsOf(words: readonly string[], context: CommandContext<RepoSlug>): ReadyLabelEdit[] {
   const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'edit')
@@ -201,6 +231,11 @@ export function namedBlockers(body: string, repo: RepoSlug): IssueRef[] {
 /** `null` when the call may run; otherwise the text that denies it. */
 async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
   const denials: string[] = []
+  if (createsReadyTicket(command)) {
+    denials.push(
+      `gh issue create must not add ${LABEL}: its blockers cannot be linked before the ticket exists. Create the ticket unlabelled, link its blockers, then add ${LABEL}.`,
+    )
+  }
   for (const edit of readyLabelEdits(command)) {
     const repo =
       edit.repo ??
