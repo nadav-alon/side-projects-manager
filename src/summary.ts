@@ -605,6 +605,8 @@ export interface InvocationReport {
    * run.
    */
   iterations: IterationOutcome[];
+  /** Every ticket freed because a dead in-flight invocation had recorded it. */
+  freed: FreedWorkedTicket[];
   /**
    * Why the invocation stood down, absent when it never did: the gate
    * refusing, before the first run of the morning or between two later ones,
@@ -812,6 +814,7 @@ export async function composeInvocationReport(
     outcome,
     projects: facts.projects,
     iterations: facts.iterations,
+    freed: facts.freedFromDeadInvocation,
     ...(facts.standDown !== undefined && { standDown: facts.standDown }),
     ...(summaryLocation !== undefined && { summaryLocation }),
     ...(summaryFailure !== undefined && { summaryFailure }),

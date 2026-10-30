@@ -43,6 +43,12 @@ export interface JournaledProject {
   tokensUsed: TokenCount;
 }
 
+/** One worked-today entry an invocation freed: the project and the ticket in it. */
+export interface JournaledFreedEntry {
+  repo: RepoSlug;
+  number: IssueNumber;
+}
+
 /**
  * What opening an invocation record captures, and everything closing it
  * later needs to find it again.
@@ -72,6 +78,12 @@ export interface InvocationClosing {
   outcome: InvocationOutcome;
   /** Every project the invocation worked. Empty for a quiet or broken morning. */
   projects: JournaledProject[];
+  /**
+   * Every worked-today entry the invocation freed from a dead invocation —
+   * CONTEXT.md's "Freed". Empty when it freed none; absent only on a record
+   * written before this was kept, which reads the same as empty.
+   */
+  freed?: JournaledFreedEntry[];
   /** Why the invocation stood down, absent when it did not. */
   standDownReason?: string;
   /**

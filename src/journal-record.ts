@@ -11,8 +11,8 @@ import { tokenCount } from "./ports/index.ts";
 
 /**
  * `report` as the journal records it: what the invocation came to, every
- * project it actually worked with what all its runs together cost, and —
- * when it stood down — why.
+ * project it actually worked with what all its runs together cost, the
+ * entries it freed, and — when it stood down — why.
  *
  * Lives beside the loop rather than inside it, the same reason recording
  * itself does: this is the composition root's account of a report the loop
@@ -32,6 +32,10 @@ export function invocationClosing(
     closedAt,
     outcome: report.outcome,
     projects: projectsWorked(report),
+    freed: report.freed.map(({ ticket }) => ({
+      repo: ticket.repo,
+      number: ticket.number,
+    })),
     ...(report.standDown !== undefined && {
       standDownReason: standDownReason(report.standDown),
     }),
@@ -58,7 +62,7 @@ export function neverReportedClosing(
   closedAt: Date,
   exit: ExitCode,
 ): InvocationClosing {
-  return { closedAt, outcome: "never-reported", projects: [], exitCode: exit };
+  return { closedAt, outcome: "never-reported", projects: [], freed: [], exitCode: exit };
 }
 
 /**

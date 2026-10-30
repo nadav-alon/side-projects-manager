@@ -257,6 +257,7 @@ export class FakeStore implements Store {
       closedAt: closing.closedAt,
       outcome: closing.outcome,
       projects: [...closing.projects],
+      ...(closing.freed !== undefined && { freed: [...closing.freed] }),
       ...(closing.standDownReason !== undefined && {
         standDownReason: closing.standDownReason,
       }),
@@ -278,6 +279,7 @@ export class FakeStore implements Store {
         ...(record.projects !== undefined && {
           projects: [...record.projects],
         }),
+        ...(record.freed !== undefined && { freed: [...record.freed] }),
         ...(record.summaryFailure !== undefined && {
           summaryFailure: { ...record.summaryFailure },
         }),

@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { invocationClosing } from "./journal-record.ts";
+import { invocationClosing, neverReportedClosing } from "./journal-record.ts";
 import { morningLoop } from "./morning-run.ts";
 import {
   DEFAULT_BUDGET,
   branch,
   issueNumber,
+  exitCode,
   keptSummaryPath,
+  localDay,
+  processId,
   repoSlug,
   tokenCount,
 } from "./ports/index.ts";
 import {
+  FROZEN_NOW,
   LIMIT_REFUSAL,
   PROVIDER_FAILURE_PROSE,
   SPENDABLE_THIS_WEEK,
@@ -34,6 +38,7 @@ describe("invocationClosing", () => {
       closedAt: CLOSED_AT,
       outcome: "dry-queue",
       projects: [],
+      freed: [],
       summaryLocation: report.summaryLocation,
     });
   });
@@ -310,5 +315,38 @@ describe("invocationClosing", () => {
     const closing = invocationClosing(report, CLOSED_AT);
 
     assert.deepEqual(closing.summaryFailure, { reason: "rate limited" });
+  });
+
+  it("lists the entries the invocation freed from a dead invocation", async () => {
+    const dead = {
+      openedAt: new Date("2026-01-01T04:00:00.000Z"),
+      process: processId(7563),
+    };
+    const self = {
+      openedAt: new Date("2026-01-01T05:00:00.000Z"),
+      process: processId(9001),
+    };
+    const ports = fakePorts();
+    ports.store.register(PILOT);
+    await ports.store.openInvocation(dead);
+    ports.store.markWorkedOn(localDay(FROZEN_NOW), {
+      repo: PILOT,
+      number: issueNumber(432),
+      recordedBy: dead,
+    });
+    await ports.store.openInvocation(self);
+
+    const report = await morningLoop(ports, { invocation: self });
+
+    assert.deepEqual(invocationClosing(report, CLOSED_AT).freed, [
+      { repo: PILOT, number: issueNumber(432) },
+    ]);
+  });
+
+  it("records an empty list when the invocation freed nothing", async () => {
+    const report = await morningLoop(fakePorts());
+
+    assert.deepEqual(invocationClosing(report, CLOSED_AT).freed, []);
+    assert.deepEqual(neverReportedClosing(CLOSED_AT, exitCode(1)).freed, []);
   });
 });
