@@ -1,0 +1,5 @@
+{
+  "name": "ticket-context",
+  "version": "0.1.0",
+  "description": "Appends the title, labels, body and blockers of each ticket a prompt names to that prompt, so the model starts with the ticket in hand."
+}
