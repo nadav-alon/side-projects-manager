@@ -1,0 +1,6 @@
+{
+  "name": "review-threads",
+  "version": "0.1.0",
+  "description": "A pane of the session repo's draft pull requests and their open review threads, with buttons that post /apply-review or /rebase.",
+  "types": "./types/index.d.ts"
+}
