@@ -10,9 +10,11 @@ function managerHome(pluginRoot: string): string {
 /** How often the discoveries folder is read, in milliseconds. */
 const POLL_MS = 5000
 
-/** The status entry naming the pending discoveries; `undefined` clears it at zero. */
-function pendingStatus(pending: number): string | undefined {
-  return pending === 0 ? undefined : `${pending} pending discover${pending === 1 ? 'y' : 'ies'}`
+/** The status entry counting the pending discoveries and naming the newest; `undefined` clears it at zero. */
+function pendingStatus(pending: number, newest: string | undefined): string | undefined {
+  if (pending === 0) return undefined
+  const count = `${pending} pending discover${pending === 1 ? 'y' : 'ies'}`
+  return newest === undefined ? count : `${count} (newest: ${newest})`
 }
 
 /** What a discovery is called: its `<kind>: <title>`, or `undefined` when its file cannot be read as one. */
@@ -38,6 +40,8 @@ export const register: Register = on => {
     // Every discovery the session has seen: the ones present at start are never toasted, and one
     // that goes and comes back is not toasted twice.
     const seen = new Set<string>()
+    // The same discoveries in the order the session first saw them, so the last one still pending is the newest.
+    const order: string[] = []
     let isFirstRead = true
 
     const refresh = async () => {
@@ -52,9 +56,12 @@ export const register: Register = on => {
           const name = await describe(read, home, discovery)
           $.ui.toast(name ?? `New discovery: ${discovery}`)
         }
+        if (!seen.has(discovery)) order.push(discovery)
         seen.add(discovery)
       }
-      $.ui.status(pendingStatus(pending.length))
+      const newest = order.findLast(discovery => pending.includes(discovery))
+      const name = newest === undefined ? undefined : ((await describe(read, home, newest)) ?? newest)
+      $.ui.status(pendingStatus(pending.length, name))
     }
 
     await refresh()

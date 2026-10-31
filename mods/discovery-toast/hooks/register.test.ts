@@ -58,8 +58,28 @@ test('discoveries already present are counted and not toasted', async ($, on) =>
   const { seen } = engine(on, { 'run-a': ['1.json', '2.json'] })
   await $.session.start({ cwd: '/session' } as never)
 
-  expect(seen.statuses.at(-1)).toBe('2 pending discoveries')
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/2.json)')
   expect(seen.toasts).toEqual([])
+})
+
+test('the status names the newest pending discovery by its kind and title', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': ['1.json', '3.json'] }
+  const contents = {
+    'run-a/1.json': JSON.stringify({ kind: 'nit', title: 'Old' }),
+    'run-a/2.json': JSON.stringify({ kind: 'correction', title: 'Wrong scope' }),
+    'run-a/3.json': 'garbled',
+  }
+  const { seen, tick } = engine(on, files, undefined, contents)
+  await $.session.start({ cwd: '/session' } as never)
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/3.json)')
+
+  files['run-a']!.push('2.json')
+  await tick()
+  expect(seen.statuses.at(-1)).toBe('3 pending discoveries (newest: correction: Wrong scope)')
+
+  files['run-a'] = ['1.json']
+  await tick()
+  expect(seen.statuses.at(-1)).toBe('1 pending discovery (newest: nit: Old)')
 })
 
 test('no discoveries leave the status clear', async ($, on) => {
@@ -77,7 +97,7 @@ test('a discovery that appears while the session is open toasts once, naming it'
   files['run-a']!.push('2.json')
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/2.json'])
-  expect(seen.statuses.at(-1)).toBe('2 pending discoveries')
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/2.json)')
 
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/2.json'])
@@ -130,7 +150,7 @@ test('a discovery that goes and comes back is not toasted twice', async ($, on) 
   files['run-a'] = ['1.json', '2.json']
   await tick()
   expect(seen.toasts).toEqual([])
-  expect(seen.statuses.at(-1)).toBe('2 pending discoveries')
+  expect(seen.statuses.at(-1)).toBe('2 pending discoveries (newest: run-a/2.json)')
 })
 
 test('a folder unreadable at start has an empty baseline, so what it later holds toasts', async ($, on) => {
@@ -143,5 +163,5 @@ test('a folder unreadable at start has an empty baseline, so what it later holds
   unreadable.isSo = false
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/1.json'])
-  expect(seen.statuses.at(-1)).toBe('1 pending discovery')
+  expect(seen.statuses.at(-1)).toBe('1 pending discovery (newest: run-a/1.json)')
 })
