@@ -2,6 +2,8 @@
 // sized one step larger than a project's. Pure over a current-repo reader, so a mod's hook only
 // supplies the read; it imports nothing from the engine.
 
+import { commandWordIndex, targetRepo, walkCommands, type CommandContext } from './target-repo/target.ts'
+
 declare const foldedRepoSlugBrand: unique symbol
 
 /** A repo as lower-case `owner/repo`; values enter through `foldedRepoSlug` or `isFoldedRepoSlug`. */
@@ -25,10 +27,10 @@ export const THIS_REPO = foldedRepoSlug('nadav-alon/side-projects-manager')
 
 export const REMINDER = `This repo's tickets are sized one step larger than a project's: size:M where a project's would be size:S. Check the size label on ${THIS_REPO}'s ticket against that.`
 
-/** A shell call that creates or sizes a ticket; `repo` is null when it names none, `cwdKnown` false after a `cd`. */
+/** A shell call that creates or sizes a ticket; `repo` is null when it names none, and `context` settles the repo then. */
 interface SizingCall {
   repo: FoldedRepoSlug | null
-  cwdKnown: boolean
+  context: CommandContext<FoldedRepoSlug>
 }
 
 /** The flags of `gh issue create` and `gh issue edit` that take a value, long and short. */
@@ -101,8 +103,8 @@ function simpleCommands(command: string): string[][] {
   return commands.filter((words) => words.length > 0)
 }
 
-/** The repo a `--repo` value names: `OWNER/REPO` or `HOST/OWNER/REPO`; null when it is neither. */
-function flagRepo(value: string): FoldedRepoSlug | null {
+/** The repo a `--repo` or `GH_REPO` value names: `OWNER/REPO` or `HOST/OWNER/REPO`; null when it is neither. */
+export function flagRepo(value: string): FoldedRepoSlug | null {
   const parts = value.split('/')
   const slug = (parts.length === 3 ? parts.slice(1).join('/') : value).toLowerCase()
   return isFoldedRepoSlug(slug) ? slug : null
@@ -114,26 +116,16 @@ function urlRepo(arg: string): FoldedRepoSlug | null {
   return slug !== undefined && isFoldedRepoSlug(slug) ? slug : null
 }
 
-/** Whether a simple command moves the shell, so that a later one runs somewhere unknown. */
-function movesShell(words: readonly string[]): boolean {
-  const command = words.find((word) => !/^\w+=/.test(word))
-  return command === 'cd' || command === 'pushd' || command === 'popd'
-}
-
 /**
  * The call a `gh issue create`, or a `gh issue edit` adding a `size:` label, makes; null when it is neither.
- * `gh` must be the command word, after any `VAR=value` prefixes, and its global flags may sit before `issue`.
+ * `gh` must be the command word, after any `VAR=value` prefixes and a plain `env`, and its global flags may sit before `issue`.
  */
-function sizingCallOf(words: readonly string[], moved: boolean): SizingCall | null {
-  let at = 0
-  let envRepo: FoldedRepoSlug | null = null
-  for (; at < words.length && /^\w+=/.test(words[at]!); at++) {
-    const [name, ...value] = words[at]!.split('=')
-    if (name === 'GH_REPO') envRepo = flagRepo(value.join('='))
-  }
+function sizingCallOf(words: readonly string[], context: CommandContext<FoldedRepoSlug>): SizingCall | null {
+  let at = commandWordIndex(words)
+  if (words[at] === 'env') at += 1 + commandWordIndex(words.slice(at + 1))
   if (words[at++] !== 'gh') return null
 
-  let repo: FoldedRepoSlug | null = envRepo
+  let repo: FoldedRepoSlug | null = null
   let isSizing = false
   const takeFlag = (arg: string, next: () => string | undefined): boolean => {
     const long = /^(--[\w-]+)=(.*)$/s.exec(arg)
@@ -162,29 +154,28 @@ function sizingCallOf(words: readonly string[], moved: boolean): SizingCall | nu
   }
   if (!isSizing) return null
   repo = issueRepo ?? repo
-  return { repo, cwdKnown: !moved }
+  return { repo, context }
 }
 
 /** Every ticket creation or sizing the call makes; empty when it makes none. */
 function sizingCalls(command: string): SizingCall[] {
-  let moved = false
-  const calls: SizingCall[] = []
-  for (const words of simpleCommands(command)) {
-    const call = sizingCallOf(words, moved)
-    if (call !== null) calls.push(call)
-    moved ||= movesShell(words)
-  }
-  return calls
+  return walkCommands(simpleCommands(command), flagRepo, sizingCallOf)
 }
 
 /**
  * The reminder when `command` creates or sizes a ticket in this repo, else null. A call naming no repo
- * is in whichever repo `currentRepo` reads; one that cannot be read, or that follows a `cd`, is taken as
- * another repo.
+ * is in the repo `targetRepo` works out from its `GH_REPO=` prefix, `environmentRepo` and `currentRepo`;
+ * one whose repo is unknown is taken as another repo.
  */
-export async function sizingReminder(command: string, currentRepo: () => Promise<FoldedRepoSlug>): Promise<string | null> {
+export async function sizingReminder(
+  command: string,
+  currentRepo: () => Promise<FoldedRepoSlug>,
+  environmentRepo: () => Promise<FoldedRepoSlug | null>,
+): Promise<string | null> {
   for (const call of sizingCalls(command)) {
-    const repo = call.repo ?? (call.cwdKnown ? await currentRepo().catch(() => null) : null)
+    const repo =
+      call.repo ??
+      (await targetRepo({ ...call.context, environment: environmentRepo, session: currentRepo }).catch(() => null))
     if (repo === THIS_REPO) return REMINDER
   }
   return null

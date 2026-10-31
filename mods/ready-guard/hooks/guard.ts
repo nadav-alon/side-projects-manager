@@ -2,6 +2,8 @@
 // the ticket's body and the blockers linked to it. Pure over a tracker reader, so a mod's hook only
 // supplies the reads; it imports nothing from the engine.
 
+import { targetRepo, walkCommands, type CommandContext } from './target-repo/target.ts'
+
 declare const repoSlugBrand: unique symbol
 declare const issueNumberBrand: unique symbol
 declare const issueRefBrand: unique symbol
@@ -59,16 +61,23 @@ export function issueParts(issue: IssueRef): { repo: RepoSlug; number: IssueNumb
 
 /** The tracker reads the guard needs, for one ticket. */
 export interface Tracker {
-  /** The ticket's repo when the call named none: the repo the shell runs in. */
+  /** The repo of the session's working directory, which the shell may no longer be in. */
   currentRepo(): Promise<RepoSlug>
+  /** `GH_REPO` in the shell's environment; null when it is unset or not a repo. */
+  environmentRepo(): Promise<RepoSlug | null>
   body(issue: IssueRef): Promise<string>
   /** The tickets linked to `issue` as native blocked-by dependencies. */
   linkedBlockers(issue: IssueRef): Promise<readonly IssueRef[]>
 }
 
-/** A ticket a `gh issue edit` adds `ready-for-agent` to; `repo` is null when the call names none. */
+/**
+ * A ticket a `gh issue edit` adds `ready-for-agent` to; `repo` is null when the call names none by
+ * `--repo` or an issue URL, and `context` is what settles the repo then: the command's own `GH_REPO=`,
+ * and whether a `cd` or a change of `GH_REPO` came before it.
+ */
 export interface ReadyLabelEdit {
   repo: RepoSlug | null
+  context: CommandContext<RepoSlug>
   number: IssueNumber
 }
 
@@ -94,7 +103,7 @@ const VALUE_FLAGS = new Set([
   '-t',
 ])
 
-/** The command's simple commands, each as its words; quotes group, `&&` `||` `;` `|` `&` and newlines split. */
+/** The command's simple commands, each as its words; quotes group, `&&` `||` `;` `|` `&` `(` `)` and newlines split. */
 function simpleCommands(command: string): string[][] {
   const commands: string[][] = [[]]
   let word: string | null = null
@@ -116,7 +125,7 @@ function simpleCommands(command: string): string[][] {
       word = (word ?? '') + command[++i]!
     } else if (/\s/.test(char) && char !== '\n') {
       endWord()
-    } else if (char === '\n' || char === ';' || char === '|' || char === '&') {
+    } else if (char === '\n' || char === ';' || char === '|' || char === '&' || char === '(' || char === ')') {
       endWord()
       if (commands[commands.length - 1]!.length > 0) commands.push([])
     } else {
@@ -133,6 +142,13 @@ function flagRepo(value: string): RepoSlug {
   return repoSlug(parts.length === 3 ? parts.slice(1).join('/') : value)
 }
 
+/** The repo a `GH_REPO` value names, host and all; null when it names none. */
+export function optionalRepo(value: string): RepoSlug | null {
+  const parts = value.split('/')
+  const slug = parts.length === 3 ? parts.slice(1).join('/') : value
+  return isRepoSlug(slug) ? slug : null
+}
+
 /** The ticket an issue argument names: `7`, `#7` or an issue URL, which also names its repo. */
 function issueArgument(arg: string): { repo: RepoSlug | null; number: IssueNumber } | null {
   const bare = /^#?(\d+)$/.exec(arg)
@@ -142,7 +158,7 @@ function issueArgument(arg: string): { repo: RepoSlug | null; number: IssueNumbe
 }
 
 /** The tickets one `gh issue edit` adds `ready-for-agent` to; none when it does not add it. */
-function editsOf(words: readonly string[]): ReadyLabelEdit[] {
+function editsOf(words: readonly string[], context: CommandContext<RepoSlug>): ReadyLabelEdit[] {
   const start = words.findIndex((word, i) => word === 'gh' && words[i + 1] === 'issue' && words[i + 2] === 'edit')
   if (start === -1) return []
   const args = words.slice(start + 3)
@@ -164,12 +180,12 @@ function editsOf(words: readonly string[]): ReadyLabelEdit[] {
       if (issue) issues.push(issue)
     }
   }
-  return isAdding ? issues.map((issue) => ({ repo: issue.repo ?? repo, number: issue.number })) : []
+  return isAdding ? issues.map((issue) => ({ repo: issue.repo ?? repo, context, number: issue.number })) : []
 }
 
 /** Every ticket the call adds `ready-for-agent` to; empty when it is not such a `gh issue edit`. */
 export function readyLabelEdits(command: string): ReadyLabelEdit[] {
-  return simpleCommands(command).flatMap(editsOf)
+  return walkCommands(simpleCommands(command), optionalRepo, editsOf).flat()
 }
 
 /** The tickets a body's Blocked by names, as written `#n`, `owner/repo#n` or an issue URL; `repo` qualifies a bare `#n`. */
@@ -186,7 +202,15 @@ export function namedBlockers(body: string, repo: RepoSlug): IssueRef[] {
 async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
   const denials: string[] = []
   for (const edit of readyLabelEdits(command)) {
-    const repo = edit.repo ?? (await tracker.currentRepo())
+    const repo =
+      edit.repo ??
+      (await targetRepo({ ...edit.context, environment: () => tracker.environmentRepo(), session: () => tracker.currentRepo() }))
+    if (repo === null) {
+      denials.push(
+        `#${edit.number} is in a repo this call does not name, and the shell may have moved or changed GH_REPO: add --repo OWNER/REPO, then add ${LABEL}.`,
+      )
+      continue
+    }
     const issue = issueRef(`${repo}#${edit.number}`)
     const named = namedBlockers(await tracker.body(issue), repo)
     const linked = new Set((await tracker.linkedBlockers(issue)).map((ref) => issueRef(ref)))
