@@ -68,3 +68,18 @@ describe('repeatingFailures', () => {
     assert.deepEqual(keys([`${SANDBOX}.`, ...failing, ...failing]), [])
   })
 })
+
+describe('repeatingFailures on a log as the loop writes it', () => {
+  const run = [
+    START,
+    'Working nadav-alon/home-catalogue #7.',
+    'Starting a container for nadav-alon/home-catalogue #7, held to $2.',
+    `${SANDBOX}.`,
+    'nadav-alon/home-catalogue #7 spent 1.2k tokens.',
+    'Stood down on nadav-alon/other #3: the budget is spent (1k of 2k tokens spendable, 1k charged as the run estimate). Resets 2026-01-01T00:00:00.000Z.',
+  ]
+
+  it('reads the failure through the lines that name none', () => {
+    assert.deepEqual(repeated([...run, ...run, ...run]), ['nadav-alon/home-catalogue#7: the sandbox image could not build'])
+  })
+})
