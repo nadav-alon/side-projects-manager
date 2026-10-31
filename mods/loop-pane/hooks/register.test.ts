@@ -55,7 +55,7 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
-  expect(lines).toContain('Current run:')
+  expect(lines).toContain('Run:')
   expect(lines).toContain('o/a#7')
   expect(lines).toContain('[implementation]')
   expect(lines).toContain('o/d#9')
@@ -91,14 +91,14 @@ test('the pane says an invocation whose process is gone has died, and lists none
 test('the pane says none is running when the journal has no open invocation', async ($, on) => {
   engine(on, { [`${HOME}/journal.json`]: JSON.stringify({ records: [] }) })
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toEqual(['No invocation is running.'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
 })
 
 test('a missing manager home draws an empty pane, not an error', async ($, on) => {
   engine(on, {})
   const out = await $.command.run({ command: 'loop-pane', args: '' })
   expect(out.text).toBe('Loop pane opened.')
-  expect(await texts(await mount($))).toEqual(['No invocation is running.'])
+  expect(await texts(await mount($))).toEqual(['Status', 'No invocation is running.', 'Controls'])
 })
 
 test('the pane redraws when the journal changes', async ($, on) => {
@@ -181,4 +181,20 @@ test('the pane shows when the invocation opened in local time, and for how long'
   const opened = new Date(now - 60_000)
   const local = `${String(opened.getHours()).padStart(2, '0')}:${String(opened.getMinutes()).padStart(2, '0')}`
   expect(await texts(await mount($))).toContain(`Running since ${local} (1m)`)
+})
+
+test('the pane has labelled sections for status, current runs, spend and controls', async ($, on) => {
+  engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  const headings = ['Status', 'Current runs', '5-hour spend', 'Controls']
+  expect(lines.filter(line => headings.includes(line))).toEqual(headings)
+})
+
+test('the buttons have space between them', async ($, on) => {
+  engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const ui = await mount($)
+  const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('Halt'))
+  expect(row).toBeDefined()
 })

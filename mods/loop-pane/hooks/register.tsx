@@ -66,20 +66,32 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const home = managerHome($.plugin.root)
 
+    const Section = ({ title, children }: { title: string; children?: unknown }) => (
+      <Box flexDirection="column" marginTop={1}>
+        <Text bold underline>{title}</Text>
+        {children as never}
+      </Box>
+    )
+    const running = inFlight !== null && inFlight.alive
+
     return (
       <Box flexDirection="column">
-        {inFlight === null ? (
-          <Text dimColor>No invocation is running.</Text>
-        ) : (
-          <Box flexDirection="column">
+        <Section title="Status">
+          {inFlight === null ? (
+            <Text dimColor>No invocation is running.</Text>
+          ) : (
             <Text>Running since {localTime(new Date(inFlight.openedAt))} ({elapsed(now - Date.parse(inFlight.openedAt))})</Text>
-            {!inFlight.alive && (
-              <Text color="red">Process {inFlight.pid} has died without closing its record; nothing below is running.</Text>
-            )}
-            {inFlight.alive && inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
-            {inFlight.alive && inFlight.runs.map(run => (
+          )}
+          {inFlight !== null && !inFlight.alive && (
+            <Text color="red">Process {inFlight.pid} has died without closing its record; nothing below is running.</Text>
+          )}
+        </Section>
+        {inFlight !== null && (
+          <Section title="Current runs">
+            {running && inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
+            {running && inFlight.runs.map(run => (
               <Box gap={1}>
-                <Text bold>Current run:</Text>
+                <Text bold>Run:</Text>
                 <Text>
                   {run.repo}#{run.number}
                 </Text>
@@ -92,38 +104,42 @@ export const register: Register = on => {
                 {entry.repo}#{entry.number}
               </Text>
             ))}
-          </Box>
+          </Section>
         )}
         {usage !== null && (
-          <Text>
-            5-hour spend of the loop's own runs: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
-          </Text>
+          <Section title="5-hour spend">
+            <Text>
+              5-hour spend of the loop's own runs: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
+            </Text>
+          </Section>
         )}
-        {failure !== null && <Text color="red">{failure}</Text>}
-        <Box>
-          {BUTTONS.map(button => (
-            <Button
-              key={button.key}
-              onPress={async () => {
-                if ('confirm' in button) {
-                  const answer = await $.ui.ask(button.confirm, [YES, NO]).catch(() => NO)
-                  if (answer !== YES) return
-                }
-                await update($, notice, () => null)
-                try {
-                  const { exitCode, stdout, stderr } = await $.process.run(['npm', 'run', '--silent', button.script], { cwd: home })
-                  if (exitCode !== 0) {
-                    await update($, notice, () => `${button.label} failed (exit ${exitCode}): ${(stderr || stdout).trim()}`)
+        <Section title="Controls">
+          {failure !== null && <Text color="red">{failure}</Text>}
+          <Box gap={1}>
+            {BUTTONS.map(button => (
+              <Button
+                key={button.key}
+                onPress={async () => {
+                  if ('confirm' in button) {
+                    const answer = await $.ui.ask(button.confirm, [YES, NO]).catch(() => NO)
+                    if (answer !== YES) return
                   }
-                } catch (error) {
-                  await update($, notice, () => `${button.label} failed: ${error instanceof Error ? error.message : String(error)}`)
-                }
-              }}
-            >
-              {button.label}
-            </Button>
-          ))}
-        </Box>
+                  await update($, notice, () => null)
+                  try {
+                    const { exitCode, stdout, stderr } = await $.process.run(['npm', 'run', '--silent', button.script], { cwd: home })
+                    if (exitCode !== 0) {
+                      await update($, notice, () => `${button.label} failed (exit ${exitCode}): ${(stderr || stdout).trim()}`)
+                    }
+                  } catch (error) {
+                    await update($, notice, () => `${button.label} failed: ${error instanceof Error ? error.message : String(error)}`)
+                  }
+                }}
+              >
+                {button.label}
+              </Button>
+            ))}
+          </Box>
+        </Section>
       </Box>
     )
   })
