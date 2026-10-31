@@ -578,6 +578,11 @@ export async function morningLoop(
             },
             (error: unknown) => {
               thrown.push(error);
+              notify(ports.progress, {
+                kind: "iteration-failed",
+                ticket,
+                reason: errorMessage(error),
+              });
             },
           )
           .finally(() => inProgress.delete(completion));
