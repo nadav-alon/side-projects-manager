@@ -78,9 +78,13 @@ export const register: Register = on => {
             )}
             {inFlight.alive && inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
             {inFlight.alive && inFlight.runs.map(run => (
-              <Text>
-                {run.repo}#{run.number} {run.kind}
-              </Text>
+              <Box gap={1}>
+                <Text bold>Current run:</Text>
+                <Text>
+                  {run.repo}#{run.number}
+                </Text>
+                <Text color="cyan">[{run.kind}]</Text>
+              </Box>
             ))}
             {inFlight.freed.length > 0 && <Text>Freed entries:</Text>}
             {inFlight.freed.map(entry => (

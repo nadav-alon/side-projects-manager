@@ -55,7 +55,9 @@ test('the pane shows the in-flight invocation, its iterations, its spend and its
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
-  expect(lines).toContain('o/a#7 implementation')
+  expect(lines).toContain('Current run:')
+  expect(lines).toContain('o/a#7')
+  expect(lines).toContain('[implementation]')
   expect(lines).toContain('o/d#9')
   expect(lines).toContain("5-hour spend of the loop's own runs: 1.2K / 5.0K spendable tokens (24%)")
 })
@@ -83,7 +85,7 @@ test('the pane says an invocation whose process is gone has died, and lists none
   await $.command.run({ command: 'loop-pane', args: '' })
   const lines = await texts(await mount($))
   expect(lines).toContain('Process 4242 has died without closing its record; nothing below is running.')
-  expect(lines).not.toContain('o/a#7 implementation')
+  expect(lines).not.toContain('o/a#7')
 })
 
 test('the pane says none is running when the journal has no open invocation', async ($, on) => {
@@ -104,7 +106,7 @@ test('the pane redraws when the journal changes', async ($, on) => {
   const clock = engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
   const ui = await mount($)
-  expect(await texts(ui)).toContain('o/a#7 implementation')
+  expect(await texts(ui)).toContain('o/a#7')
   files[`${HOME}/journal.json`] = JSON.stringify({ records: [] })
   await clock.advance(2500)
   expect(await texts(ui)).toContain('No invocation is running.')
