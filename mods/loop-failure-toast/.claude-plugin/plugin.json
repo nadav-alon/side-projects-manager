@@ -1,0 +1,5 @@
+{
+  "name": "loop-failure-toast",
+  "version": "0.1.0",
+  "description": "Toasts once when the manager's trigger log shows the same failure on the same ticket across consecutive invocations."
+}
