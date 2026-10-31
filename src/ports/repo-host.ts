@@ -781,6 +781,14 @@ export interface RepoHost {
    */
   pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState>;
   /**
+   * Whether `pullRequest` is a draft right now.
+   *
+   * What a later sweep re-reads before it acts on a pull request it deferred:
+   * the developer putting it back to draft is how they withdraw consent to
+   * its merge.
+   */
+  isPullRequestDraft(pullRequest: PullRequestUrl): Promise<boolean>;
+  /**
    * Lists `repo`'s open pull requests — draft and ready alike — up to
    * {@link OPEN_PULL_REQUEST_LIMIT}, newest first: each one's url, labels,
    * and the ticket its body closes (see {@link closedTicketIn}).
