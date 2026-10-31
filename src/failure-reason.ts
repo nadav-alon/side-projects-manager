@@ -1,8 +1,7 @@
 import { modelProblem } from "./model-resolution.ts";
-import type { RunFailure } from "./iteration-outcome.ts";
+import type { RunFailure, UniformFilesTouched } from "./iteration-outcome.ts";
 import type { Ticket } from "./ports/index.ts";
 import { sizeProblem } from "./size-resolution.ts";
-import { uniformFilesTouchedPhrase } from "./summary.ts";
 
 /**
  * Why `failure` ended `ticket`'s iteration, as the words a person watching the
@@ -25,4 +24,13 @@ export function failureReason(ticket: Ticket, failure: RunFailure): string {
     case "uniform-files-touched":
       return uniformFilesTouchedPhrase(failure);
   }
+}
+
+/**
+ * The phrase a uniform-files-touched failure reads as: shared by
+ * `failureReason`, `waitingOnFailure` and `stoppedBecause`, so a wording
+ * change touches one place.
+ */
+export function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
+  return `its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`;
 }
