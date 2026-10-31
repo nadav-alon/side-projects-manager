@@ -58,6 +58,42 @@ describe('checkReadyLabel, denials', () => {
   })
 })
 
+describe('checkReadyLabel, gh issue create', () => {
+  it('denies a create that adds ready-for-agent, whatever its body says, without reading the tracker', async () => {
+    for (const command of [
+      "gh issue create --title t --label ready-for-agent --body 'x'",
+      'gh issue create -t t -l bug,ready-for-agent --body-file -',
+      'gh issue create --label=ready-for-agent -R x/y',
+      'gh issue create -lready-for-agent',
+      'gh issue new --label ready-for-agent',
+      'gh issue -R x/y create -l ready-for-agent',
+      'gh -R x/y issue create -l ready-for-agent',
+      'gh issue create -wl ready-for-agent',
+    ]) {
+      const verdict = await checkReadyLabel(command, unreadableTracker())
+      assert.equal(verdict.kind, 'deny', command)
+      assert.match(verdict.kind === 'deny' ? verdict.reason : '', /unlabelled, link its blockers, then add ready-for-agent/)
+    }
+  })
+
+  it('denies a labelled create chained with an edit while the tracker cannot be read', async () => {
+    const verdict = await checkReadyLabel(
+      'gh issue create -l ready-for-agent --title t && gh issue edit 5 --add-label ready-for-agent',
+      unreadableTracker(),
+    )
+    assert.equal(verdict.kind, 'deny')
+  })
+
+  it('lets a create without the label run', async () => {
+    for (const command of [
+      "gh issue create --title t --label bug --body 'ready-for-agent'",
+      'gh issue create --title ready-for-agent',
+    ]) {
+      assert.deepEqual(await checkReadyLabel(command, unreadableTracker()), { kind: 'allow' }, command)
+    }
+  })
+})
+
 describe('checkReadyLabel, calls that run untouched', () => {
   it('lets a ticket through whose named blockers are all linked', async () => {
     const tracker = fakeTracker('## Blocked by\n\n- #3\n- other/lib#9\n', [issueRef(`${REPO}#3`), issueRef('other/lib#9')])
