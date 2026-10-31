@@ -215,7 +215,7 @@ describe("the morning-run command", () => {
 
     const { stdout, stderr } = await run(await home());
 
-    assert.equal(stderr, "");
+    assert.equal(stderr, "Invocation started.\n");
     assert.match(stdout, /nothing to do/i);
   });
 
@@ -264,7 +264,7 @@ describe("the morning-run command", () => {
       (error: { stdout: string; stderr: string; code: number }) => error,
     );
 
-    assert.equal(stderr, "");
+    assert.equal(stderr, "Invocation started.\n");
     assert.equal(code, 1);
     assert.match(stdout, /registry\.json.*"pilot"/);
     assert.doesNotMatch(stdout, /\n\s+at /);

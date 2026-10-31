@@ -35,6 +35,9 @@ export function terminalProgress(): Progress {
   return {
     note(event: ProgressEvent): void {
       switch (event.kind) {
+        case "invocation-started":
+          line("Invocation started.");
+          return;
         case "iteration-selected":
           line(`Working ${event.ticket.repo} #${event.ticket.number}.`);
           return;

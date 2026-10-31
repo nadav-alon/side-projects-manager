@@ -156,6 +156,7 @@ export { notify } from "./progress.ts";
 export type {
   Abandoning,
   ContainerStarted,
+  InvocationStarted,
   IterationSelected,
   JournalUnreadable,
   Progress,

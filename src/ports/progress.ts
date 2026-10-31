@@ -5,6 +5,15 @@ import type { TokenCount } from "./token-count.ts";
 import type { Usd } from "./usd.ts";
 
 /**
+ * An invocation of the morning loop has begun. Announced first, ahead of
+ * everything else the invocation says, so a log of several invocations shows
+ * where each one starts.
+ */
+export interface InvocationStarted {
+  kind: "invocation-started";
+}
+
+/**
  * One project's ticket, chosen to work this iteration. Announced before the
  * sandbox is ever invoked — the earliest point an iteration has anything to
  * say about itself.
@@ -90,6 +99,7 @@ export interface JournalUnreadable {
 
 /** Something worth telling whoever is watching an invocation, the instant it happens. */
 export type ProgressEvent =
+  | InvocationStarted
   | IterationSelected
   | StoodDown
   | ContainerStarted

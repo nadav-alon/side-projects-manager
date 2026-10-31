@@ -33,6 +33,14 @@ function capturedStderr(t: TestContext, run: () => void): string[] {
 }
 
 describe("terminalProgress", () => {
+  it("marks an invocation's start with one stable line", (t) => {
+    const progress = terminalProgress();
+
+    const lines = capturedStderr(t, () => progress.note({ kind: "invocation-started" }));
+
+    assert.deepEqual(lines, ["Invocation started."]);
+  });
+
   it("announces an iteration's selection, naming the repo and the ticket", (t) => {
     const progress = terminalProgress();
 
