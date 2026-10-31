@@ -89,6 +89,9 @@ const BUDGET_FIELDS: readonly string[] = [
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000
 
+/** An ISO 8601 instant ends in a zone; the manager refuses an `observedResetAt` that does not. */
+const HAS_ZONE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/
+
 /** The provider's price ratios to a fresh input token, as the manager weighs a session log line's usage. */
 const INPUT_WEIGHT = 1
 const CACHE_CREATION_WEIGHT = 1.25
@@ -154,6 +157,7 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
 
       const budget = await readBudget(fs, at('budget.json'))
       if (budget === undefined) return undefined
+      const { observedResetAt, ...figures } = budget
 
       const runs: OwnRun[] = []
       for (const project of Object.values(projects)) {
@@ -172,15 +176,17 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
       if (sessionLogs === undefined) {
         const since = now.getTime() - FIVE_HOURS_MS
         const own = runs.filter(run => run.at.getTime() > since && run.at.getTime() <= now.getTime())
-        return { tokensUsed: tokenCount(sum(own)), ...budget }
+        return { tokensUsed: tokenCount(sum(own)), ...figures }
       }
 
       const entries = await readLogEntries(fs, sessionLogs)
       if (entries === undefined) return undefined
-      const openedAt = fiveHourBlockOpenedAt(entries, now)
+      // A reset more than five hours ahead names a block that cannot be open yet; the manager refuses it.
+      if (observedResetAt !== undefined && observedResetAt.getTime() - now.getTime() > FIVE_HOURS_MS) return undefined
+      const openedAt = fiveHourBlockOpenedAt(entries, now, observedResetAt)
       const developer = openedAt === undefined ? 0 : roundedSum(entries.filter(entry => entry.at.getTime() >= openedAt.getTime()))
       const own = runs.filter(run => run.at.getTime() >= (openedAt ?? now).getTime())
-      return { tokensUsed: tokenCount(developer + sum(own)), ...budget }
+      return { tokensUsed: tokenCount(developer + sum(own)), ...figures }
     },
 
     async recentTriggerLog(limit = DEFAULT_TRIGGER_LOG_LINES) {
@@ -271,10 +277,17 @@ function logEntry(line: string): LogEntry | undefined {
 /**
  * When the block open at `now` was opened: by the first message of a run of messages none of which
  * is 5 hours past the one that opened it. `undefined` when no block is open — none ever began, or
- * the last one has ended.
+ * the last one has ended. `observedResetAt`, a boundary the developer read off the provider, is believed
+ * ahead of the logs: one still to come states the open block outright; one already past drops the
+ * messages before it from the inference.
  */
-function fiveHourBlockOpenedAt(entries: readonly LogEntry[], now: Date): Date | undefined {
-  const sorted = [...entries].sort((a, b) => a.at.getTime() - b.at.getTime())
+function fiveHourBlockOpenedAt(entries: readonly LogEntry[], now: Date, observedResetAt?: Date): Date | undefined {
+  if (observedResetAt !== undefined && observedResetAt.getTime() > now.getTime()) {
+    return new Date(observedResetAt.getTime() - FIVE_HOURS_MS)
+  }
+  const sorted = entries
+    .filter(entry => observedResetAt === undefined || entry.at.getTime() >= observedResetAt.getTime())
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
   let opened: Date | undefined
   for (const entry of sorted) {
     if (opened === undefined || entry.at.getTime() - opened.getTime() >= FIVE_HOURS_MS) opened = entry.at
@@ -314,10 +327,17 @@ function workedTodayEntriesRecordedBy(state: unknown, openedAt: Date, pid: Proce
  * document is the default budget; a garbled one, one naming a field the manager does not know, or one
  * with a figure the manager refuses is `undefined`.
  */
+/** The budget figures the 5-hour window is measured against, with the reset the developer observed, if any. */
+interface BudgetFigures {
+  allowance: TokenCount
+  reserveFraction: ReserveFraction
+  observedResetAt?: Date
+}
+
 async function readBudget(
   fs: HomeFs,
   file: string,
-): Promise<{ allowance: TokenCount; reserveFraction: ReserveFraction } | undefined> {
+): Promise<BudgetFigures | undefined> {
   const text = await attempt(() => fs.read(file))
   if (text === undefined) {
     return { allowance: DEFAULT_FIVE_HOUR_ALLOWANCE, reserveFraction: DEFAULT_FIVE_HOUR_RESERVE_FRACTION }
@@ -334,7 +354,11 @@ async function readBudget(
   const reserve = budget.fiveHourReserveFraction ?? DEFAULT_FIVE_HOUR_RESERVE_FRACTION
   if (typeof allowance !== 'number' || !isTokenCount(allowance) || allowance <= 0) return undefined
   if (typeof reserve !== 'number' || !isReserveFraction(reserve)) return undefined
-  return { allowance, reserveFraction: reserve }
+  const observed = budget.observedResetAt
+  if (observed === undefined) return { allowance, reserveFraction: reserve }
+  if (typeof observed !== 'string' || !HAS_ZONE.test(observed)) return undefined
+  const observedResetAt = instant(observed)
+  return observedResetAt === undefined ? undefined : { allowance, reserveFraction: reserve, observedResetAt }
 }
 
 /** The parsed document at `file`; `undefined` when it is missing or garbled. */
