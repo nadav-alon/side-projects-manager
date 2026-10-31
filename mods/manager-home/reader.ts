@@ -58,7 +58,12 @@ export interface InFlightInvocation {
 
 /** The usage of the 5-hour window, and what the budget document allows of it. */
 export interface FiveHourUsage {
-  /** Tokens the manager's own runs recorded in the state document over the five hours up to `now`. */
+  /**
+   * What the manager's gate counts against the window: the session logs' usage since the block
+   * opened, which includes the developer's interactive use, plus the manager's own runs recorded in
+   * the state document since then. With no session logs to read, the own runs of the five hours up
+   * to `now`.
+   */
   tokensUsed: TokenCount
   allowance: TokenCount
   reserveFraction: ReserveFraction
@@ -84,6 +89,12 @@ const BUDGET_FIELDS: readonly string[] = [
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000
 
+/** The provider's price ratios to a fresh input token, as the manager weighs a session log line's usage. */
+const INPUT_WEIGHT = 1
+const CACHE_CREATION_WEIGHT = 1.25
+const CACHE_READ_WEIGHT = 0.1
+const OUTPUT_WEIGHT = 5
+
 /** How many lines of the trigger log `recentTriggerLog` returns unless told otherwise. */
 export const DEFAULT_TRIGGER_LOG_LINES = 20
 
@@ -106,8 +117,12 @@ export interface ManagerHomeReader {
   discoveries(): Promise<string[] | undefined>
 }
 
-/** Reads the manager home at `home` through `fs`. */
-export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
+/**
+ * Reads the manager home at `home` through `fs`. `sessionLogs` is the directory of Claude Code's
+ * session logs, one folder per project holding `.jsonl` files; with it, `fiveHourUsage` counts the
+ * developer's interactive use as the manager's gate does.
+ */
+export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string): ManagerHomeReader {
   const at = (name: string) => `${home.replace(/\/+$/, '')}/${name}`
 
   return {
@@ -140,21 +155,32 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       const budget = await readBudget(fs, at('budget.json'))
       if (budget === undefined) return undefined
 
-      const since = now.getTime() - FIVE_HOURS_MS
-      let used = 0
+      const runs: OwnRun[] = []
       for (const project of Object.values(projects)) {
         if (!isRecord(project)) return undefined
         // The manager reads a project with no `runs` as having none.
-        const runs = project.runs ?? []
-        if (!Array.isArray(runs)) return undefined
-        for (const run of runs) {
+        const projectRuns = project.runs ?? []
+        if (!Array.isArray(projectRuns)) return undefined
+        for (const run of projectRuns) {
           const when = isRecord(run) ? instant(run.at) : undefined
           const tokens = isRecord(run) ? run.tokensUsed : undefined
           if (when === undefined || typeof tokens !== 'number' || !isTokenCount(tokens)) return undefined
-          if (when.getTime() > since && when.getTime() <= now.getTime()) used += tokens
+          runs.push({ at: when, tokensUsed: tokens })
         }
       }
-      return { tokensUsed: tokenCount(used), ...budget }
+
+      if (sessionLogs === undefined) {
+        const since = now.getTime() - FIVE_HOURS_MS
+        const own = runs.filter(run => run.at.getTime() > since && run.at.getTime() <= now.getTime())
+        return { tokensUsed: tokenCount(sum(own)), ...budget }
+      }
+
+      const entries = await readLogEntries(fs, sessionLogs)
+      if (entries === undefined) return undefined
+      const openedAt = fiveHourBlockOpenedAt(entries, now)
+      const developer = openedAt === undefined ? 0 : roundedSum(entries.filter(entry => entry.at.getTime() >= openedAt.getTime()))
+      const own = runs.filter(run => run.at.getTime() >= (openedAt ?? now).getTime())
+      return { tokensUsed: tokenCount(developer + sum(own)), ...budget }
     },
 
     async recentTriggerLog(limit = DEFAULT_TRIGGER_LOG_LINES) {
@@ -175,6 +201,85 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       return files.sort()
     },
   }
+}
+
+/** A run the state document records, reduced to what the window's spend needs. */
+interface OwnRun {
+  at: Date
+  tokensUsed: number
+}
+
+/** One assistant line of a session log carrying usage; `weighted` is left unrounded so a window rounds once. */
+interface LogEntry {
+  at: Date
+  weighted: number
+}
+
+function sum(items: readonly { tokensUsed: number }[]): number {
+  return items.reduce((total, item) => total + item.tokensUsed, 0)
+}
+
+function roundedSum(entries: readonly LogEntry[]): number {
+  return Math.max(0, Math.round(entries.reduce((total, entry) => total + entry.weighted, 0)))
+}
+
+/**
+ * Every usage-bearing line of every session log under `sessionLogs`, read as the manager's ledger
+ * reads them: lines that are not a well-formed assistant message with usage are skipped. A log that
+ * vanishes between listing and reading is skipped; a logs folder that cannot be listed is `undefined`.
+ */
+async function readLogEntries(fs: HomeFs, sessionLogs: string): Promise<LogEntry[] | undefined> {
+  const root = sessionLogs.replace(/\/+$/, '')
+  const projects = await attempt(() => fs.list(root))
+  if (projects === undefined) return undefined
+  const entries: LogEntry[] = []
+  for (const project of projects) {
+    const files = (await attempt(() => fs.list(`${root}/${project.name}`))) ?? []
+    for (const file of files.filter(file => file.name.endsWith('.jsonl'))) {
+      const text = await attempt(() => fs.read(`${root}/${project.name}/${file.name}`))
+      for (const line of (text ?? '').split('\n')) {
+        const entry = logEntry(line)
+        if (entry !== undefined) entries.push(entry)
+      }
+    }
+  }
+  return entries
+}
+
+function logEntry(line: string): LogEntry | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(line.trim())
+  } catch {
+    return undefined
+  }
+  if (!isRecord(parsed) || parsed.type !== 'assistant') return undefined
+  const at = instant(parsed.timestamp)
+  const usage = isRecord(parsed.message) ? parsed.message.usage : undefined
+  if (at === undefined || !isRecord(usage)) return undefined
+  const { input_tokens: input, output_tokens: output } = usage
+  if (typeof input !== 'number' || typeof output !== 'number') return undefined
+  const field = (value: unknown) => (typeof value === 'number' ? value : 0)
+  const weighted =
+    input * INPUT_WEIGHT +
+    output * OUTPUT_WEIGHT +
+    field(usage.cache_creation_input_tokens) * CACHE_CREATION_WEIGHT +
+    field(usage.cache_read_input_tokens) * CACHE_READ_WEIGHT
+  return Number.isFinite(weighted) && weighted >= 0 ? { at, weighted } : undefined
+}
+
+/**
+ * When the block open at `now` was opened: by the first message of a run of messages none of which
+ * is 5 hours past the one that opened it. `undefined` when no block is open — none ever began, or
+ * the last one has ended.
+ */
+function fiveHourBlockOpenedAt(entries: readonly LogEntry[], now: Date): Date | undefined {
+  const sorted = [...entries].sort((a, b) => a.at.getTime() - b.at.getTime())
+  let opened: Date | undefined
+  for (const entry of sorted) {
+    if (opened === undefined || entry.at.getTime() - opened.getTime() >= FIVE_HOURS_MS) opened = entry.at
+  }
+  return opened !== undefined && opened.getTime() + FIVE_HOURS_MS > now.getTime() ? opened : undefined
 }
 
 function listOf(value: unknown): unknown[] {

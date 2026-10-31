@@ -216,3 +216,44 @@ describe('a home given with trailing slashes', () => {
     assert.deepEqual(await managerHomeReader(fakeFs(files), `${HOME}//`).recentTriggerLog(), ['one'])
   })
 })
+
+describe("the 5-hour window's usage with the session logs", () => {
+  const now = new Date('2026-01-02T12:00:00.000Z')
+  const LOGS = '/home/dev/.claude/projects'
+  const line = (at: string, usage: Record<string, number>) =>
+    JSON.stringify({ type: 'assistant', timestamp: at, message: { usage } })
+  const state = {
+    projects: {
+      'o/a': { runs: [{ at: '2026-01-02T09:30:00.000Z', tokensUsed: 100 }, { at: '2026-01-02T07:00:00.000Z', tokensUsed: 5000 }] },
+    },
+  }
+  const logs = {
+    // The block opens at 09:00; the 03:00 block ended at 08:00.
+    [`${LOGS}/p1/s1.jsonl`]: [
+      line('2026-01-02T03:00:00.000Z', { input_tokens: 9999, output_tokens: 9999 }),
+      line('2026-01-02T09:00:00.000Z', { input_tokens: 10, output_tokens: 2, cache_creation_input_tokens: 4, cache_read_input_tokens: 100 }),
+      'not json',
+      JSON.stringify({ type: 'user', timestamp: '2026-01-02T09:30:00.000Z' }),
+    ].join('\n'),
+    [`${LOGS}/p2/s2.jsonl`]: line('2026-01-02T10:00:00.000Z', { input_tokens: 1, output_tokens: 1 }),
+    [`${LOGS}/p2/notes.txt`]: 'ignored',
+  }
+  const directories = { [LOGS]: ['p1', 'p2'], [`${LOGS}/p1`]: ['s1.jsonl'], [`${LOGS}/p2`]: ['s2.jsonl', 'notes.txt'] }
+  const home = (extra: Record<string, string> = {}) =>
+    managerHomeReader(fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state), ...logs, ...extra }, directories), HOME, LOGS)
+
+  it("adds the developer's interactive use of the open block to the runs since it opened", async () => {
+    // Developer: 10 + 2*5 + 4*1.25 + 100*0.1 = 35, plus 1 + 5 = 6, rounded once = 41; own: 100 (the 07:00 run is before the block).
+    assert.equal((await home().fiveHourUsage(now))?.tokensUsed, 141)
+  })
+
+  it('counts only the own runs once the block has ended', async () => {
+    const later = new Date('2026-01-02T14:30:00.000Z')
+    assert.equal((await home().fiveHourUsage(later))?.tokensUsed, 0)
+  })
+
+  it('is nothing known when the session logs cannot be listed', async () => {
+    const lonely = managerHomeReader(fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state) }), HOME, LOGS)
+    assert.equal(await lonely.fiveHourUsage(now), undefined)
+  })
+})
