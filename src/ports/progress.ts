@@ -27,6 +27,11 @@ export interface IterationSelected {
  * An iteration ended in failure: `reason` is why, in words, whatever kind of
  * failure it was — a ticket the agent gave up on, a hand-over that did not
  * land, or a setup that could not run it at all.
+ *
+ * Only those endings: an iteration cut off by the provider (`provider-failed`,
+ * `limit-refused`, which has its own `ProviderLimited`), one that exhausted
+ * the budget, or one blocked on a discovery is not announced here. A thrown
+ * iteration is, with the error as `reason`.
  */
 export interface IterationFailed {
   kind: "iteration-failed";
