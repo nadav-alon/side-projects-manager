@@ -2049,7 +2049,7 @@ function timelineUnreadableWaitingLine(repo: RepoSlug, pullRequest: PullRequestU
  * `waitingOnFailure` and `stoppedBecause`, so a wording change touches one
  * place.
  */
-function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
+export function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
   return `its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`;
 }
 

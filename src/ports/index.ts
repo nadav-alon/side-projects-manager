@@ -157,6 +157,7 @@ export type {
   Abandoning,
   ContainerStarted,
   InvocationStarted,
+  IterationFailed,
   IterationSelected,
   JournalUnreadable,
   Progress,

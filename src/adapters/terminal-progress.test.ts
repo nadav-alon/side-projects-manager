@@ -41,6 +41,22 @@ describe("terminalProgress", () => {
     assert.deepEqual(lines, ["Invocation started."]);
   });
 
+  it("names a failed iteration's repo, ticket and reason on one line", (t) => {
+    const progress = terminalProgress();
+
+    const lines = capturedStderr(t, () =>
+      progress.note({
+        kind: "iteration-failed",
+        ticket: ticket(7),
+        reason: "the sandbox image could not be built.\nNo space left.",
+      }),
+    );
+
+    assert.deepEqual(lines, [
+      "Failed nadav-alon/pilot #7: the sandbox image could not be built. No space left.",
+    ]);
+  });
+
   it("announces an iteration's selection, naming the repo and the ticket", (t) => {
     const progress = terminalProgress();
 

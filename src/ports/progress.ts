@@ -24,6 +24,17 @@ export interface IterationSelected {
 }
 
 /**
+ * An iteration ended in failure: `reason` is why, in words, whatever kind of
+ * failure it was — a ticket the agent gave up on, a hand-over that did not
+ * land, or a setup that could not run it at all.
+ */
+export interface IterationFailed {
+  kind: "iteration-failed";
+  ticket: Ticket;
+  reason: string;
+}
+
+/**
  * The gate refused the ticket about to start: the same facts `StandDown`
  * (`budget-gate.ts`) carries, so a caller already holding one has this for
  * free. Announced the instant the gate decides, rather than only surfacing
@@ -101,6 +112,7 @@ export interface JournalUnreadable {
 export type ProgressEvent =
   | InvocationStarted
   | IterationSelected
+  | IterationFailed
   | StoodDown
   | ContainerStarted
   | RunEnded

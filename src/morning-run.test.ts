@@ -10065,6 +10065,39 @@ describe("morningLoop", () => {
       );
     });
 
+    it("announces a failed iteration with the ticket and why, including a refused image build", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+      ports.sandbox.prepareResult = () =>
+        Promise.reject(new Error("the sandbox image for nadav-alon/pilot could not be built"));
+
+      await morningLoop(ports);
+
+      const failed = progress.events.filter((event) => event.kind === "iteration-failed");
+      assert.equal(failed.length, 1);
+      assert.deepEqual(
+        failed.map((event) => (event.kind === "iteration-failed" ? event.ticket.number : 0)),
+        [issueNumber(7)],
+      );
+      assert.deepEqual(
+        failed.map((event) => (event.kind === "iteration-failed" ? event.reason : "")),
+        ["the sandbox image for nadav-alon/pilot could not be built"],
+      );
+    });
+
+    it("announces no failure for an iteration that did not fail", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.equal(progress.events.some((event) => event.kind === "iteration-failed"), false);
+    });
+
     it("announces no container, and runs nothing, when the project's image is refused", async () => {
       const ports = fakePorts();
       readyToWork(ports);
@@ -10196,7 +10229,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["invocation-started", "iteration-selected", "container-started", "run-ended"],
+        ["invocation-started", "iteration-selected", "container-started", "run-ended", "iteration-failed"],
       );
       const ended = progress.events.find((event) => event.kind === "run-ended");
       assert.equal(ended?.tokensUsed, 0);
@@ -10215,7 +10248,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["invocation-started", "iteration-selected"],
+        ["invocation-started", "iteration-selected", "iteration-failed"],
       );
     });
 
