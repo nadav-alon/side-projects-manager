@@ -24,13 +24,13 @@ function wrote(result: { deny?: unknown; isError?: boolean }): boolean {
   return result.deny === undefined && result.isError !== true
 }
 
+async function termsOf($: { session: { cwd(): Promise<string> }; fs: { read(path: string): Promise<unknown> } }): Promise<AvoidedTerm[]> {
+  const context = await $.fs.read(`${await $.session.cwd()}/CONTEXT.md`).catch(() => undefined)
+  return typeof context === 'string' ? avoidedTermsIn(context) : []
+}
+
 // A note rides on the result and never blocks the write. A session whose repo has no CONTEXT.md is untouched.
 export const register: Register = on => {
-  async function termsOf($: { session: { cwd(): Promise<string> }; fs: { read(path: string): Promise<unknown> } }): Promise<AvoidedTerm[]> {
-    const context = await $.fs.read(`${await $.session.cwd()}/CONTEXT.md`).catch(() => undefined)
-    return typeof context === 'string' ? avoidedTermsIn(context) : []
-  }
-
   for (const tool of ['Edit', 'Write'] as const) {
     on('tool.call', { tool }, async ($, e, next) => {
       const result = await next(e)
