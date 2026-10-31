@@ -8,13 +8,19 @@
 // kept byte-identical to these by `copies.test.ts`.
 
 import {
+  isIssueNumber,
   isProcessId,
+  isRepoSlug,
   isReserveFraction,
+  isTicketKind,
   isTokenCount,
   reserveFraction,
   tokenCount,
+  type IssueNumber,
   type ProcessId,
+  type RepoSlug,
   type ReserveFraction,
+  type TicketKind,
   type TokenCount,
 } from './types.ts'
 
@@ -22,6 +28,17 @@ import {
 export interface HomeFs {
   read(path: string): Promise<string>
   list(path: string): Promise<readonly { name: string }[]>
+}
+
+/** A ticket, as the journal names one. */
+export interface JournaledTicket {
+  repo: RepoSlug
+  number: IssueNumber
+}
+
+/** A run in progress, as the journal records one: its project, ticket and kind (`implementation`, `review`, …). */
+export interface RunInProgress extends JournaledTicket {
+  kind: TicketKind
 }
 
 /** The invocation the journal records as still open. */
@@ -33,14 +50,30 @@ export interface InFlightInvocation {
    * come off the record when their iteration ends, so this is a lower bound on the iterations so far.
    */
   workedTodayEntries: number
+  /** The runs in progress the open record names; empty when it names none or none can be read. */
+  runs: RunInProgress[]
+  /** The worked-today entries the open record names as freed from invocations that died; empty when none. */
+  freed: JournaledTicket[]
 }
 
 /** The usage of the 5-hour window, and what the budget document allows of it. */
 export interface FiveHourUsage {
-  /** Tokens the manager's own runs recorded in the state document over the five hours up to `now`. */
+  /**
+   * What the manager's gate counts against the window: the session logs' usage since the block
+   * opened, which includes the developer's interactive use, plus the manager's own runs recorded in
+   * the state document since then. With no session logs to read, only an estimate: the own runs
+   * over a rolling look-back of the five hours up to `now`. That look-back is not the window: it
+   * ignores the developer's interactive use and `observedResetAt` — so it can undercount the gate.
+   */
   tokensUsed: TokenCount
   allowance: TokenCount
   reserveFraction: ReserveFraction
+  /**
+   * Whether `tokensUsed` already exceeds what the window may spend once its reserve is held back,
+   * worked out as the gate works out "reserve reached". It is the gate's verdict only when `tokensUsed`
+   * is the gate's figure; with no session logs it judges the loop-only estimate and can read lower.
+   */
+  reserveReached: boolean
 }
 
 /** The manager's default 5-hour allowance and reserve, for a budget document that names neither. */
@@ -62,6 +95,19 @@ const BUDGET_FIELDS: readonly string[] = [
 ]
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000
+
+/** An ISO 8601 instant ends in a zone; the manager refuses an `observedResetAt` that does not (`HAS_ZONE` in `src/adapters/document-store.ts`). */
+const HAS_ZONE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/
+
+/**
+ * The provider's price ratios to a fresh input token, as the manager weighs a session log line's usage.
+ * Copies of the weights in `src/ports/token-count.ts`: a mod cannot import `src/`, so a change there is
+ * to be made here too.
+ */
+const INPUT_WEIGHT = 1
+const CACHE_CREATION_WEIGHT = 1.25
+const CACHE_READ_WEIGHT = 0.1
+const OUTPUT_WEIGHT = 5
 
 /** How many lines of the trigger log `recentTriggerLog` returns unless told otherwise. */
 export const DEFAULT_TRIGGER_LOG_LINES = 20
@@ -85,8 +131,12 @@ export interface ManagerHomeReader {
   discoveries(): Promise<string[] | undefined>
 }
 
-/** Reads the manager home at `home` through `fs`. */
-export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
+/**
+ * Reads the manager home at `home` through `fs`. `sessionLogs` is the directory of Claude Code's
+ * session logs, one folder per project holding `.jsonl` files; with it, `fiveHourUsage` counts the
+ * developer's interactive use as the manager's gate does.
+ */
+export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string): ManagerHomeReader {
   const at = (name: string) => `${home.replace(/\/+$/, '')}/${name}`
 
   return {
@@ -102,7 +152,13 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       if (openedAt === undefined || typeof pid !== 'number' || !isProcessId(pid)) return undefined
 
       const state = await readJson(fs, at('state.json'))
-      return { openedAt, pid, workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid) }
+      return {
+        openedAt,
+        pid,
+        workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid),
+        runs: listOf(open.runs).flatMap(runInProgress),
+        freed: listOf(open.freed).flatMap(journaledTicket),
+      }
     },
 
     async fiveHourUsage(now) {
@@ -112,22 +168,36 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
 
       const budget = await readBudget(fs, at('budget.json'))
       if (budget === undefined) return undefined
+      const { observedResetAt, ...figures } = budget
 
-      const since = now.getTime() - FIVE_HOURS_MS
-      let used = 0
+      const runs: OwnRun[] = []
       for (const project of Object.values(projects)) {
         if (!isRecord(project)) return undefined
         // The manager reads a project with no `runs` as having none.
-        const runs = project.runs ?? []
-        if (!Array.isArray(runs)) return undefined
-        for (const run of runs) {
+        const projectRuns = project.runs ?? []
+        if (!Array.isArray(projectRuns)) return undefined
+        for (const run of projectRuns) {
           const when = isRecord(run) ? instant(run.at) : undefined
           const tokens = isRecord(run) ? run.tokensUsed : undefined
           if (when === undefined || typeof tokens !== 'number' || !isTokenCount(tokens)) return undefined
-          if (when.getTime() > since && when.getTime() <= now.getTime()) used += tokens
+          runs.push({ at: when, tokensUsed: tokens })
         }
       }
-      return { tokensUsed: tokenCount(used), ...budget }
+
+      if (sessionLogs === undefined) {
+        const since = now.getTime() - FIVE_HOURS_MS
+        const own = runs.filter(run => run.at.getTime() > since && run.at.getTime() <= now.getTime())
+        return withVerdict(ownSpend(own), figures)
+      }
+
+      const entries = await readLogEntries(fs, sessionLogs)
+      if (entries === undefined) return undefined
+      // A reset more than five hours ahead names a block that cannot be open yet; the manager refuses it.
+      if (observedResetAt !== undefined && observedResetAt.getTime() - now.getTime() > FIVE_HOURS_MS) return undefined
+      const openedAt = fiveHourBlockOpenedAt(entries, now, observedResetAt)
+      const developer = openedAt === undefined ? tokenCount(0) : loggedSpend(entries.filter(entry => entry.at.getTime() >= openedAt.getTime()))
+      const own = runs.filter(run => run.at.getTime() >= (openedAt ?? now).getTime())
+      return withVerdict(tokenCount(developer + ownSpend(own)), figures)
     },
 
     async recentTriggerLog(limit = DEFAULT_TRIGGER_LOG_LINES) {
@@ -150,6 +220,150 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
   }
 }
 
+/** A run the state document records, reduced to what the window's spend needs. */
+interface OwnRun {
+  at: Date
+  tokensUsed: TokenCount
+}
+
+/**
+ * One assistant line of a session log carrying usage. `weighted` is fractional (the cache weights are
+ * not whole), so it is no `TokenCount`, which is whole; it is left unrounded so a window rounds once.
+ */
+interface LogEntry {
+  at: Date
+  weighted: number
+}
+
+/**
+ * `tokensUsed` against `figures`, with the gate's verdict. The reserve is rounded up and held back
+ * whole, as `spendableOf` in `src/budget-gate.ts` does, so a fractional reserve never shrinks.
+ */
+function withVerdict(tokensUsed: TokenCount, figures: Omit<BudgetFigures, 'observedResetAt'>): FiveHourUsage {
+  const spendable: TokenCount = tokenCount(figures.allowance - Math.ceil(figures.allowance * figures.reserveFraction))
+  return { tokensUsed, ...figures, reserveReached: tokensUsed > spendable }
+}
+
+/** What the manager's own `runs` spent. */
+function ownSpend(runs: readonly OwnRun[]): TokenCount {
+  return tokenCount(runs.reduce((total, run) => total + run.tokensUsed, 0))
+}
+
+/** What the session log `entries` spent, rounded once over the whole window. */
+function loggedSpend(entries: readonly LogEntry[]): TokenCount {
+  return tokenCount(Math.max(0, Math.round(entries.reduce((total, entry) => total + entry.weighted, 0))))
+}
+
+/**
+ * Every usage-bearing line of every session log under `sessionLogs`, read as the manager's ledger
+ * (`session-log-usage-ledger.ts`) reads them: lines that are not a well-formed assistant message with
+ * usage are skipped. A folder or log that is missing is no entries; a failure of any other kind (a
+ * permission error, say) leaves the usage `undefined` rather than a figure short of the gate's.
+ */
+async function readLogEntries(fs: HomeFs, sessionLogs: string): Promise<LogEntry[] | undefined> {
+  const root = sessionLogs.replace(/\/+$/, '')
+  try {
+    const entries: LogEntry[] = []
+    for (const project of await listIfPresent(fs, root)) {
+      const files = await listIfPresent(fs, `${root}/${project.name}`)
+      for (const file of files.filter(file => file.name.endsWith('.jsonl'))) {
+        const text = await readIfPresent(fs, `${root}/${project.name}/${file.name}`)
+        for (const line of (text ?? '').split('\n')) {
+          const entry = logEntry(line)
+          if (entry !== undefined) entries.push(entry)
+        }
+      }
+    }
+    return entries
+  } catch {
+    return undefined
+  }
+}
+
+/** Whether `error` says the path is not there, as Node's `ENOENT` does. */
+function isMissing(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 'ENOENT' || String((error as Error | null)?.message ?? error).startsWith('ENOENT')
+}
+
+async function listIfPresent(fs: HomeFs, path: string): Promise<readonly { name: string }[]> {
+  try {
+    return await fs.list(path)
+  } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
+}
+
+async function readIfPresent(fs: HomeFs, path: string): Promise<string | undefined> {
+  try {
+    return await fs.read(path)
+  } catch (error) {
+    if (isMissing(error)) return undefined
+    throw error
+  }
+}
+
+function logEntry(line: string): LogEntry | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(line.trim())
+  } catch {
+    return undefined
+  }
+  if (!isRecord(parsed) || parsed.type !== 'assistant') return undefined
+  const at = instant(parsed.timestamp)
+  const usage = isRecord(parsed.message) ? parsed.message.usage : undefined
+  if (at === undefined || !isRecord(usage)) return undefined
+  const { input_tokens: input, output_tokens: output } = usage
+  if (typeof input !== 'number' || typeof output !== 'number') return undefined
+  const field = (value: unknown) => (typeof value === 'number' ? value : 0)
+  const weighted =
+    input * INPUT_WEIGHT +
+    output * OUTPUT_WEIGHT +
+    field(usage.cache_creation_input_tokens) * CACHE_CREATION_WEIGHT +
+    field(usage.cache_read_input_tokens) * CACHE_READ_WEIGHT
+  return Number.isFinite(weighted) && weighted >= 0 ? { at, weighted } : undefined
+}
+
+/**
+ * When the block open at `now` was opened: by the first message of a run of messages none of which
+ * is 5 hours past the one that opened it. `undefined` when no block is open — none ever began, or
+ * the last one has ended. `observedResetAt`, a boundary the developer read off the provider, is believed
+ * ahead of the logs: one still to come states the open block outright; one already past drops the
+ * messages before it from the inference. A copy of the block inference in
+ * `src/adapters/usage-ledger/parse-usage-windows.ts`; keep the two in step.
+ */
+function fiveHourBlockOpenedAt(entries: readonly LogEntry[], now: Date, observedResetAt?: Date): Date | undefined {
+  if (observedResetAt !== undefined && observedResetAt.getTime() > now.getTime()) {
+    return new Date(observedResetAt.getTime() - FIVE_HOURS_MS)
+  }
+  const sorted = entries
+    .filter(entry => observedResetAt === undefined || entry.at.getTime() >= observedResetAt.getTime())
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+  let opened: Date | undefined
+  for (const entry of sorted) {
+    if (opened === undefined || entry.at.getTime() - opened.getTime() >= FIVE_HOURS_MS) opened = entry.at
+  }
+  return opened !== undefined && opened.getTime() + FIVE_HOURS_MS > now.getTime() ? opened : undefined
+}
+
+function listOf(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function journaledTicket(value: unknown): JournaledTicket[] {
+  if (!isRecord(value)) return []
+  const { repo, number } = value
+  if (typeof repo !== 'string' || !isRepoSlug(repo) || typeof number !== 'number' || !isIssueNumber(number)) return []
+  return [{ repo, number }]
+}
+
+function runInProgress(value: unknown): RunInProgress[] {
+  const ticket = journaledTicket(value)[0]
+  const kind = isRecord(value) ? value.kind : undefined
+  return ticket === undefined || typeof kind !== 'string' || !isTicketKind(kind) ? [] : [{ ...ticket, kind }]
+}
+
 /** How many worked-today entries `state` records as recorded by the invocation opened at `openedAt` by `pid`. */
 function workedTodayEntriesRecordedBy(state: unknown, openedAt: Date, pid: ProcessId): number {
   const tickets = isRecord(state) && isRecord(state.workedToday) ? state.workedToday.tickets : undefined
@@ -165,10 +379,17 @@ function workedTodayEntriesRecordedBy(state: unknown, openedAt: Date, pid: Proce
  * document is the default budget; a garbled one, one naming a field the manager does not know, or one
  * with a figure the manager refuses is `undefined`.
  */
+/** The budget figures the 5-hour window is measured against, with the reset the developer observed, if any. */
+interface BudgetFigures {
+  allowance: TokenCount
+  reserveFraction: ReserveFraction
+  observedResetAt?: Date
+}
+
 async function readBudget(
   fs: HomeFs,
   file: string,
-): Promise<{ allowance: TokenCount; reserveFraction: ReserveFraction } | undefined> {
+): Promise<BudgetFigures | undefined> {
   const text = await attempt(() => fs.read(file))
   if (text === undefined) {
     return { allowance: DEFAULT_FIVE_HOUR_ALLOWANCE, reserveFraction: DEFAULT_FIVE_HOUR_RESERVE_FRACTION }
@@ -185,7 +406,11 @@ async function readBudget(
   const reserve = budget.fiveHourReserveFraction ?? DEFAULT_FIVE_HOUR_RESERVE_FRACTION
   if (typeof allowance !== 'number' || !isTokenCount(allowance) || allowance <= 0) return undefined
   if (typeof reserve !== 'number' || !isReserveFraction(reserve)) return undefined
-  return { allowance, reserveFraction: reserve }
+  const observed = budget.observedResetAt
+  if (observed === undefined) return { allowance, reserveFraction: reserve }
+  if (typeof observed !== 'string' || !HAS_ZONE.test(observed)) return undefined
+  const observedResetAt = instant(observed)
+  return observedResetAt === undefined ? undefined : { allowance, reserveFraction: reserve, observedResetAt }
 }
 
 /** The parsed document at `file`; `undefined` when it is missing or garbled. */
