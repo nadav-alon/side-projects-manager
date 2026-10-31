@@ -2,7 +2,7 @@
 // the ticket's body and the blockers linked to it. Pure over a tracker reader, so a mod's hook only
 // supplies the reads; it imports nothing from the engine.
 
-import { targetRepo, walkCommands, type CommandContext } from './target-repo/target.ts'
+import { targetRepo, walkCommands, type CommandContext, type ShellTrail } from './target-repo/target.ts'
 
 declare const repoSlugBrand: unique symbol
 declare const issueNumberBrand: unique symbol
@@ -184,8 +184,8 @@ function editsOf(words: readonly string[], context: CommandContext<RepoSlug>): R
 }
 
 /** Every ticket the call adds `ready-for-agent` to; empty when it is not such a `gh issue edit`. */
-export function readyLabelEdits(command: string): ReadyLabelEdit[] {
-  return walkCommands(simpleCommands(command), optionalRepo, editsOf).flat()
+export function readyLabelEdits(command: string, trail?: ShellTrail): ReadyLabelEdit[] {
+  return walkCommands(simpleCommands(command), optionalRepo, editsOf, trail).flat()
 }
 
 /** The tickets a body's Blocked by names, as written `#n`, `owner/repo#n` or an issue URL; `repo` qualifies a bare `#n`. */
@@ -199,9 +199,9 @@ export function namedBlockers(body: string, repo: RepoSlug): IssueRef[] {
 }
 
 /** `null` when the call may run; otherwise the text that denies it. */
-async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
+async function denyReadyLabel(command: string, tracker: Tracker, trail?: ShellTrail): Promise<string | null> {
   const denials: string[] = []
-  for (const edit of readyLabelEdits(command)) {
+  for (const edit of readyLabelEdits(command, trail)) {
     const repo =
       edit.repo ??
       (await targetRepo({ ...edit.context, environment: () => tracker.environmentRepo(), session: () => tracker.currentRepo() }))
@@ -227,10 +227,10 @@ async function denyReadyLabel(command: string, tracker: Tracker): Promise<string
 /** What the guard says of a call: it runs, it is denied with a reason, or it runs with a warning. */
 export type Verdict = { kind: 'allow' } | { kind: 'deny'; reason: string } | { kind: 'warn'; warning: string }
 
-/** The verdict on `command`; a tracker that cannot be read warns instead of blocking. */
-export async function checkReadyLabel(command: string, tracker: Tracker): Promise<Verdict> {
+/** The verdict on `command`; a tracker that cannot be read warns instead of blocking. `trail` is the session's record of earlier calls' `cd`s. */
+export async function checkReadyLabel(command: string, tracker: Tracker, trail?: ShellTrail): Promise<Verdict> {
   try {
-    const reason = await denyReadyLabel(command, tracker)
+    const reason = await denyReadyLabel(command, tracker, trail)
     return reason === null ? { kind: 'allow' } : { kind: 'deny', reason }
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error)

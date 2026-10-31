@@ -120,6 +120,17 @@ describe('walkCommands', () => {
   })
 })
 
+describe('walkCommands, across calls', () => {
+  it('carries a cd from one call to the next through the trail', () => {
+    const trail = { moved: false }
+    const moved = () => (_words: readonly string[], context: { moved: boolean }) => context.moved
+    assert.deepEqual(walkCommands([['ls']], parse, moved(), trail), [false])
+    assert.deepEqual(walkCommands([['cd', 'x']], parse, moved(), trail), [false])
+    assert.deepEqual(walkCommands([['gh']], parse, moved(), trail), [true])
+    assert.equal(trail.moved, true)
+  })
+})
+
 describe('environmentRepo', () => {
   it('reads and parses GH_REPO, host and all', async () => {
     assert.equal(await environmentRepo(async () => ({ exitCode: 0, stdout: 'github.com/acme/x\n' }), parse), 'acme/x')

@@ -205,6 +205,26 @@ describe('checkReadyLabel, the repo of a call naming none', () => {
     }
   })
 
+  it('denies a ready-for-agent edit in a later call once an earlier call ran cd, asking for --repo', async () => {
+    const trail = { moved: false }
+    assert.deepEqual(await checkReadyLabel('cd ../other', blocked(), trail), { kind: 'allow' })
+    const verdict = await checkReadyLabel(ADD, blocked(), trail)
+    assert.equal(verdict.kind, 'deny')
+    assert.match(verdict.kind === 'deny' ? verdict.reason : '', /--repo/)
+  })
+
+  it('still reads the environment and an explicit repo in a call after a cd', async () => {
+    const trail = { moved: false }
+    await checkReadyLabel('cd ../other', blocked(), trail)
+    assert.match((await denyReadyLabel(ADD, blocked(ELSEWHERE), trail)) ?? '', /acme\/elsewhere#7/)
+  })
+
+  it('judges a later call against the session while no call has run cd', async () => {
+    const trail = { moved: false }
+    await checkReadyLabel('ls', blocked(), trail)
+    assert.match((await denyReadyLabel(ADD, blocked(), trail)) ?? '', /acme\/pilot#7/)
+  })
+
   it('does not deny a cd with no ready-for-agent edit after it', async () => {
     assert.equal(await denyReadyLabel('cd ../other && gh issue view 7', blocked()), null)
   })
