@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh label list *)",
+      "Bash(wsl.exe --version)"
+    ]
+  }
+}
