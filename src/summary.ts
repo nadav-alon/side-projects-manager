@@ -1228,11 +1228,16 @@ function settledMergesSection(settledMerges: SettledMerge[]): string | undefined
   if (settledMerges.length === 0) {
     return undefined;
   }
-  const lines = settledMerges.map(({ pullRequest, merge }) =>
-    merge.kind === "merged"
-      ? `- ${pullRequest}: merged, its checks having finished green.`
-      : `- ${pullRequest}:${mergeGateNote(pullRequest, merge)}`,
-  );
+  const lines = settledMerges.map(({ pullRequest, merge }) => {
+    switch (merge.kind) {
+      case "merged":
+        return `- ${pullRequest}: merged, its checks having finished green.`;
+      case "withdrawn":
+        return `- ${pullRequest}: not merged, put back to draft since the merge was deferred.`;
+      case "left-for-human":
+        return `- ${pullRequest}:${mergeGateNote(pullRequest, merge)}`;
+    }
+  });
   return ["## Merges settled", ...lines].join("\n");
 }
 

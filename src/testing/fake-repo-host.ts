@@ -173,6 +173,20 @@ export class FakeRepoHost implements RepoHost {
     this.#pullRequestStates.set(pullRequest, state);
   }
 
+  readonly #draftPullRequests = new Set<PullRequestUrl>();
+
+  /**
+   * Sets what `isPullRequestDraft` answers for `pullRequest`. Not a draft,
+   * unless a test says otherwise.
+   */
+  setPullRequestDraft(pullRequest: PullRequestUrl, isDraft: boolean): void {
+    if (isDraft) {
+      this.#draftPullRequests.add(pullRequest);
+    } else {
+      this.#draftPullRequests.delete(pullRequest);
+    }
+  }
+
   readonly #openPullRequests = new Map<RepoSlug, OpenPullRequest[]>();
 
   /**
@@ -471,6 +485,10 @@ export class FakeRepoHost implements RepoHost {
 
   async pullRequestState(pullRequest: PullRequestUrl): Promise<PullRequestState> {
     return this.#pullRequestStates.get(pullRequest) ?? "open";
+  }
+
+  async isPullRequestDraft(pullRequest: PullRequestUrl): Promise<boolean> {
+    return this.#draftPullRequests.has(pullRequest);
   }
 
   async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {

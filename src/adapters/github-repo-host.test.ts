@@ -1773,6 +1773,27 @@ describe("marking a pull request ready for review", () => {
   });
 });
 
+describe("reading whether a pull request is a draft", () => {
+  const PULL_REQUEST = pullRequestUrl(
+    "https://github.com/nadav-alon/pilot/pull/7",
+  );
+
+  it("answers true for a draft", async (t) => {
+    await recordingGh(t, `if [ "$2" = view ]; then echo true; fi`);
+    assert.equal(await githubRepoHost().isPullRequestDraft(PULL_REQUEST), true);
+  });
+
+  it("answers false for a pull request that is not a draft", async (t) => {
+    await recordingGh(t, `if [ "$2" = view ]; then echo false; fi`);
+    assert.equal(await githubRepoHost().isPullRequestDraft(PULL_REQUEST), false);
+  });
+
+  it("refuses an answer that is neither true nor false", async (t) => {
+    await recordingGh(t, `if [ "$2" = view ]; then echo maybe; fi`);
+    await assert.rejects(githubRepoHost().isPullRequestDraft(PULL_REQUEST), /isDraft/);
+  });
+});
+
 describe("demoting a pull request's closing reference", () => {
   const PULL_REQUEST = pullRequestUrl(
     "https://github.com/nadav-alon/pilot/pull/7",

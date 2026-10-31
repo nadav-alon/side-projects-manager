@@ -758,7 +758,7 @@ from the first pending read, so green merges and failing leaves it for the devel
 after 3 minutes leaves it neither merged nor labelled: the merge is recorded pending in
 `state.json`, and read once more at each later iteration, and at the start of the next invocation,
 until the checks settle — merged if green and mergeable, `ready-for-human` otherwise, or after 24
-hours pending (ADR 0015). A declined thread, open or not, is never asked about. Stacked pull
+hours pending (ADR 0015); a pull request the developer puts back to draft in the meantime drops the merge, unmerged and unlabelled, and the summary names it under Merges settled. A declined thread, open or not, is never asked about. Stacked pull
 requests are out of scope until that is specced. When the gate declines a grant — the label came too
 late, or fell inside a run span — the summary names its own reason in the review sentence, so the developer knows their grant
 did not count, and a grant that fell inside a run span also gets a Waiting-on-you line saying so

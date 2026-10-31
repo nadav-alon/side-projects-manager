@@ -26,6 +26,8 @@ at the start of the next invocation:
   gate would have.
 - **Pending for 24 hours** is labelled `ready-for-human` too, so a check that never reports does not
   hold the pull request for ever.
+- **A pull request put back to draft** withdraws the developer's consent: dropped without merging or
+  labelling, and named under "Merges settled".
 - **A pull request closed or merged by hand**, or whose implementation ticket is no longer open,
   settles quietly: not merged, not labelled.
 
@@ -37,5 +39,6 @@ invocation that deferred it says "Not merged yet".
 - The sweep runs at the top of a loop turn. When the apply-review was the last work, the loop ends
   with the merge still pending and the next invocation reads it, so the merge can lag by one
   invocation interval.
-- A developer who removes `turboable`, or puts the pull request back to draft, after the deferral
-  does not stop the merge: consent is not re-read.
+- A developer who removes `turboable` after the deferral does not stop the merge: the implementation
+  ticket was handed back, and its grant labels stripped, before the merge was deferred, so there is no
+  label left to re-read. Putting the pull request back to draft is the withdrawal.

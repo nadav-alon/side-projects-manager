@@ -626,6 +626,25 @@ export function githubRepoHost(
       );
     },
 
+    async isPullRequestDraft(pullRequest: PullRequestUrl): Promise<boolean> {
+      const { stdout } = await run("gh", [
+        "pr",
+        "view",
+        pullRequest,
+        "--json",
+        "isDraft",
+        "--jq",
+        ".isDraft",
+      ]);
+      const answer = stdout.trim();
+      if (answer !== "true" && answer !== "false") {
+        throw new Error(
+          `gh pr view ${pullRequest}: "isDraft" was neither true nor false: ${JSON.stringify(answer)}`,
+        );
+      }
+      return answer === "true";
+    },
+
     async listOpenPullRequests(repo: RepoSlug): Promise<OpenPullRequest[]> {
       const { stdout } = await run("gh", [
         "pr",

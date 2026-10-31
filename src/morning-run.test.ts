@@ -5414,6 +5414,24 @@ describe("morningLoop", () => {
           }
         });
 
+        it("drops the merge, naming it in the summary, once the pull request is back to draft", async () => {
+          const ports = fakePorts();
+          queuedPendingMerge(ports);
+          ports.repoHost.setPullRequestDraft(PULL_REQUEST, true);
+
+          await morningLoop(ports);
+
+          assert.deepEqual(ports.repoHost.merged, []);
+          assert.deepEqual(ports.store.pendingMerges(), []);
+          assert.deepEqual(readyForHumanLabels(ports), []);
+          assert.ok(
+            ports.tracker.summaries
+              .map((summary) => summary.body)
+              .join("\n")
+              .includes(`## Merges settled\n- ${PULL_REQUEST}: not merged, put back to draft`),
+          );
+        });
+
         it("labels the pull request ready-for-human once its checks have run pending for longer than a merge may", async () => {
           const ports = fakePorts();
           queuedPendingMerge(ports, new Date(FROZEN_NOW.getTime() - PENDING_MERGE_LIMIT));
