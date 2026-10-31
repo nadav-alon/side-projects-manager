@@ -1,0 +1,5 @@
+{
+  "name": "budget-band",
+  "version": "0.1.0",
+  "description": "Draws a band above the prompt showing the 5-hour window's usage against the loop's reserve."
+}
