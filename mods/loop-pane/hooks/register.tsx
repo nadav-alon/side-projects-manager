@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { LoopSnapshot } from '../types'
+import { compactCount, percentOf } from './format'
 import { managerHome, readSnapshot } from './snapshot'
 
 const PANE = 'loop-pane'
@@ -90,7 +91,7 @@ export const register: Register = on => {
         )}
         {usage !== null && (
           <Text>
-            5-hour spend of the loop's own runs: {usage.tokensUsed} of {usage.spendable} spendable tokens
+            5-hour spend of the loop's own runs: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
           </Text>
         )}
         {failure !== null && <Text color="red">{failure}</Text>}
