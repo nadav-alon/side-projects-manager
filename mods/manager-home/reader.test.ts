@@ -127,7 +127,7 @@ describe("the 5-hour window's usage", () => {
     const budget = { fiveHourAllowance: 1000, fiveHourReserveFraction: 0.25 }
     const usage = await reader({ ...stateFile, [`${HOME}/budget.json`]: JSON.stringify(budget) }).fiveHourUsage(now)
 
-    assert.deepEqual(usage, { tokensUsed: 120, allowance: 1000, reserveFraction: 0.25 })
+    assert.deepEqual(usage, { tokensUsed: 120, allowance: 1000, reserveFraction: 0.25, reserveReached: false })
   })
 
   it('falls back to the default budget when there is no budget document', async () => {
@@ -135,6 +135,7 @@ describe("the 5-hour window's usage", () => {
       tokensUsed: 120,
       allowance: DEFAULT_FIVE_HOUR_ALLOWANCE,
       reserveFraction: DEFAULT_FIVE_HOUR_RESERVE_FRACTION,
+      reserveReached: false,
     })
   })
 
@@ -300,4 +301,19 @@ describe("the 5-hour window's usage with an observed reset", () => {
       assert.equal(await withReset(observed).fiveHourUsage(now), undefined)
     })
   }
+})
+
+describe("the 5-hour window's reserve", () => {
+  const now = new Date('2026-01-02T12:00:00.000Z')
+  const usedWith = (budget: object, tokensUsed: number) =>
+    reader({
+      [`${HOME}/state.json`]: JSON.stringify({ projects: { 'o/a': { runs: [{ at: '2026-01-02T11:00:00.000Z', tokensUsed }] } } }),
+      [`${HOME}/budget.json`]: JSON.stringify(budget),
+    }).fiveHourUsage(now)
+
+  it('is reached only once the tokens used exceed the allowance less the reserve rounded up', async () => {
+    const budget = { fiveHourAllowance: 1001, fiveHourReserveFraction: 0.5 } // spendable: 1001 - 501 = 500
+    assert.equal((await usedWith(budget, 500))?.reserveReached, false)
+    assert.equal((await usedWith(budget, 501))?.reserveReached, true)
+  })
 })

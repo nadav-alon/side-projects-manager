@@ -67,6 +67,8 @@ export interface FiveHourUsage {
   tokensUsed: TokenCount
   allowance: TokenCount
   reserveFraction: ReserveFraction
+  /** Whether `tokensUsed` already exceeds what the window may spend once its reserve is held back: the gate's own "reserve reached". */
+  reserveReached: boolean
 }
 
 /** The manager's default 5-hour allowance and reserve, for a budget document that names neither. */
@@ -176,7 +178,7 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
       if (sessionLogs === undefined) {
         const since = now.getTime() - FIVE_HOURS_MS
         const own = runs.filter(run => run.at.getTime() > since && run.at.getTime() <= now.getTime())
-        return { tokensUsed: tokenCount(sum(own)), ...figures }
+        return withVerdict(tokenCount(sum(own)), figures)
       }
 
       const entries = await readLogEntries(fs, sessionLogs)
@@ -186,7 +188,7 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
       const openedAt = fiveHourBlockOpenedAt(entries, now, observedResetAt)
       const developer = openedAt === undefined ? 0 : roundedSum(entries.filter(entry => entry.at.getTime() >= openedAt.getTime()))
       const own = runs.filter(run => run.at.getTime() >= (openedAt ?? now).getTime())
-      return { tokensUsed: tokenCount(developer + sum(own)), ...figures }
+      return withVerdict(tokenCount(developer + sum(own)), figures)
     },
 
     async recentTriggerLog(limit = DEFAULT_TRIGGER_LOG_LINES) {
@@ -219,6 +221,15 @@ interface OwnRun {
 interface LogEntry {
   at: Date
   weighted: number
+}
+
+/**
+ * `tokensUsed` against `figures`, with the gate's verdict. The reserve is rounded up and held back
+ * whole, as the gate's `spendableOf` does, so a fractional reserve never shrinks.
+ */
+function withVerdict(tokensUsed: TokenCount, figures: { allowance: TokenCount; reserveFraction: ReserveFraction }): FiveHourUsage {
+  const spendable = figures.allowance - Math.ceil(figures.allowance * figures.reserveFraction)
+  return { tokensUsed, ...figures, reserveReached: tokensUsed > spendable }
 }
 
 function sum(items: readonly { tokensUsed: number }[]): number {
