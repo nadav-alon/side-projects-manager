@@ -59,3 +59,11 @@ jobs:
         env:
           TZ: Asia/Jerusalem
           GH_TOKEN: ${{ github.token }}
+
+      # Hook tests written with claude-code/testing run only under the claude
+      # binary, so npm test cannot reach them.
+      - name: Mod hook tests
+        if: always()
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          scripts/test-mods.sh

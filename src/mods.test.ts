@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 
 const lib = resolve(import.meta.dirname, "../scripts/mods.sh");
 
@@ -58,5 +58,61 @@ describe("mods.sh", () => {
     assert.match(out, /skipped: session mod beta/);
     assert.doesNotMatch(out, /skipped: session mod alpha/);
     assert.equal(JSON.parse(readFileSync(settings, "utf8")).env.CLAUDE_CODE_PLUGIN_DIRS, `${root}/alpha`);
+  });
+});
+
+describe("test-mods.sh", () => {
+  const script = resolve(import.meta.dirname, "../scripts/test-mods.sh");
+
+  function modsWithFakeClaude(...tests: Array<[name: string, source: string]>): string {
+    const root = mkdtempSync(join(tmpdir(), "test-mods-"));
+    roots.push(root);
+    for (const [name, source] of tests) {
+      mkdirSync(join(root, name, ".claude-plugin"), { recursive: true });
+      writeFileSync(join(root, name, ".claude-plugin", "plugin.json"), "{}");
+      mkdirSync(join(root, name, "hooks"));
+      writeFileSync(join(root, name, "hooks", "a.test.ts"), source);
+    }
+    const fake = join(root, "fake-claude");
+    writeFileSync(
+      fake,
+      `#!/usr/bin/env bash\necho "$1 $2 $3" >> "${join(root, "calls")}"\n[[ "$3" != */bad ]]\n`,
+      { mode: 0o755 },
+    );
+    return root;
+  }
+
+  function run(root: string): { status: number | null; stderr: string; calls: string } {
+    const out = spawnSync("bash", [script, root], {
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE: join(root, "fake-claude") },
+    });
+    const calls = join(root, "calls");
+    return { status: out.status, stderr: out.stderr, calls: existsSync(calls) ? readFileSync(calls, "utf8") : "" };
+  }
+
+  const hook = "import { test } from 'claude-code/testing'";
+  const plain = "import { it } from 'node:test'";
+  const roots: string[] = [];
+  after(() => {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  });
+
+  it("tests each mod written with claude-code/testing, skips the rest, and fails when one fails", () => {
+    const root = modsWithFakeClaude(["good", hook], ["bad", hook], ["plain", plain]);
+    mkdirSync(join(root, "no-tests"));
+    const { status, stderr, calls } = run(root);
+    assert.equal(status, 1);
+    assert.equal(calls, `plugin test ${root}/bad\nplugin test ${root}/good\n`);
+    assert.match(stderr, /Hook tests failed: bad/);
+  });
+
+  it("passes when every mod's tests pass", () => {
+    assert.equal(run(modsWithFakeClaude(["good", hook], ["fine", hook])).status, 0);
+  });
+
+  it("fails when the mods directory is missing or no mod was tested", () => {
+    assert.equal(run(join(modsWithFakeClaude(), "missing")).status, 1);
+    assert.equal(run(modsWithFakeClaude(["plain", plain])).status, 1);
   });
 });
