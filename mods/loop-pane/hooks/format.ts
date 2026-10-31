@@ -17,3 +17,16 @@ export function percentOf(part: number, whole: number): string {
   const percent = (part / whole) * 100
   return `${percent >= 10 || percent === 0 ? percent.toFixed(0) : percent >= 1 ? percent.toFixed(1) : percent.toFixed(2)}%`
 }
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** The wall-clock time of `at` in the local zone, as `19:30`. */
+export function localTime(at: Date): string {
+  return `${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
+
+/** A span in whole minutes, as `12m` or `1h 05m`; never negative. */
+export function elapsed(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000))
+  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${pad(minutes % 60)}m`
+}

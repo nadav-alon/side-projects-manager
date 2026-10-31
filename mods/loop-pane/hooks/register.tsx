@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { LoopSnapshot } from '../types'
-import { compactCount, percentOf } from './format'
+import { compactCount, elapsed, localTime, percentOf } from './format'
 import { managerHome, readSnapshot } from './snapshot'
 
 const PANE = 'loop-pane'
@@ -63,6 +63,7 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const { inFlight, usage } = await read($, snapshot)
     const failure = await read($, notice)
+    const now = await $.clock.now()
     const home = managerHome($.plugin.root)
 
     return (
@@ -71,7 +72,7 @@ export const register: Register = on => {
           <Text dimColor>No invocation is running.</Text>
         ) : (
           <Box flexDirection="column">
-            <Text>Invocation open since {inFlight.openedAt}</Text>
+            <Text>Running since {localTime(new Date(inFlight.openedAt))} ({elapsed(now - Date.parse(inFlight.openedAt))})</Text>
             {!inFlight.alive && (
               <Text color="red">Process {inFlight.pid} has died without closing its record; nothing below is running.</Text>
             )}

@@ -172,3 +172,11 @@ test('stop runs the stop command once the person agrees', async ($, on) => {
   await ui.press({ key: 'stop' })
   expect(ran).toEqual([{ argv: ['npm', 'run', '--silent', 'stop'], cwd: HOME }])
 })
+
+test('the pane shows when the invocation opened in local time, and for how long', async ($, on) => {
+  engine(on, home)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const opened = new Date(now - 60_000)
+  const local = `${String(opened.getHours()).padStart(2, '0')}:${String(opened.getMinutes()).padStart(2, '0')}`
+  expect(await texts(await mount($))).toContain(`Running since ${local} (1m)`)
+})
