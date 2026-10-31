@@ -8,13 +8,19 @@
 // kept byte-identical to these by `copies.test.ts`.
 
 import {
+  isIssueNumber,
   isProcessId,
+  isRepoSlug,
   isReserveFraction,
+  isTicketKind,
   isTokenCount,
   reserveFraction,
   tokenCount,
+  type IssueNumber,
   type ProcessId,
+  type RepoSlug,
   type ReserveFraction,
+  type TicketKind,
   type TokenCount,
 } from './types.ts'
 
@@ -22,6 +28,17 @@ import {
 export interface HomeFs {
   read(path: string): Promise<string>
   list(path: string): Promise<readonly { name: string }[]>
+}
+
+/** A ticket, as the journal names one. */
+export interface JournaledTicket {
+  repo: RepoSlug
+  number: IssueNumber
+}
+
+/** A run in progress, as the journal records one: its project, ticket and kind (`implementation`, `review`, …). */
+export interface RunInProgress extends JournaledTicket {
+  kind: TicketKind
 }
 
 /** The invocation the journal records as still open. */
@@ -33,6 +50,10 @@ export interface InFlightInvocation {
    * come off the record when their iteration ends, so this is a lower bound on the iterations so far.
    */
   workedTodayEntries: number
+  /** The runs in progress the open record names; empty when it names none or none can be read. */
+  runs: RunInProgress[]
+  /** The worked-today entries the open record names as freed from invocations that died; empty when none. */
+  freed: JournaledTicket[]
 }
 
 /** The usage of the 5-hour window, and what the budget document allows of it. */
@@ -102,7 +123,13 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       if (openedAt === undefined || typeof pid !== 'number' || !isProcessId(pid)) return undefined
 
       const state = await readJson(fs, at('state.json'))
-      return { openedAt, pid, workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid) }
+      return {
+        openedAt,
+        pid,
+        workedTodayEntries: workedTodayEntriesRecordedBy(state, openedAt, pid),
+        runs: listOf(open.runs).flatMap(runInProgress),
+        freed: listOf(open.freed).flatMap(journaledTicket),
+      }
     },
 
     async fiveHourUsage(now) {
@@ -148,6 +175,23 @@ export function managerHomeReader(fs: HomeFs, home: string): ManagerHomeReader {
       return files.sort()
     },
   }
+}
+
+function listOf(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function journaledTicket(value: unknown): JournaledTicket[] {
+  if (!isRecord(value)) return []
+  const { repo, number } = value
+  if (typeof repo !== 'string' || !isRepoSlug(repo) || typeof number !== 'number' || !isIssueNumber(number)) return []
+  return [{ repo, number }]
+}
+
+function runInProgress(value: unknown): RunInProgress[] {
+  const ticket = journaledTicket(value)[0]
+  const kind = isRecord(value) ? value.kind : undefined
+  return ticket === undefined || typeof kind !== 'string' || !isTicketKind(kind) ? [] : [{ ...ticket, kind }]
 }
 
 /** How many worked-today entries `state` records as recorded by the invocation opened at `openedAt` by `pid`. */
