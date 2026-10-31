@@ -794,11 +794,13 @@ export type MergeGate =
 /**
  * A pending merge a later sweep settled: the pull request, and what came of
  * its merge — `merged`, or `left-for-human` where the checks failed, the merge
- * was refused or the merge had been pending longer than it may.
+ * was refused or the merge had been pending longer than it may; or
+ * `withdrawn`, where the developer put the pull request back to draft and the
+ * sweep dropped the merge, unmerged and unlabelled.
  */
 export interface SettledMerge {
   pullRequest: PullRequestUrl;
-  merge: Extract<MergeGate, { kind: "merged" | "left-for-human" }>;
+  merge: Extract<MergeGate, { kind: "merged" | "left-for-human" }> | { kind: "withdrawn" };
 }
 
 /**

@@ -2607,7 +2607,9 @@ async function mergeGate(
  * unreadable pull request — labels the pull request `ready-for-human`, as
  * the gate would have, as does one pending for longer than
  * `PENDING_MERGE_LIMIT`. A pull request closed or merged by hand settles
- * quietly, unmerged and unlabelled. A merge that was already pending when the sweep was
+ * quietly, unmerged and unlabelled, as does one whose pull request the
+ * developer has put back to draft, which withdraws their consent to the merge;
+ * the summary names that drop. A merge that was already pending when the sweep was
  * built, or at its previous call, is read; one recorded since is left for the
  * next call, so the checks it was just waited on are not read straight away.
  * Its implementation ticket no longer open settles it without a read. Never
@@ -2627,6 +2629,11 @@ function pendingMergeSweep(
     for (const pending of due) {
       try {
         if ((await ports.repoHost.pullRequestState(pending.pullRequest)) !== "open") {
+          await state.settleMerge(pending);
+          continue;
+        }
+        if (await ports.repoHost.isPullRequestDraft(pending.pullRequest)) {
+          settled.push({ pullRequest: pending.pullRequest, merge: { kind: "withdrawn" } });
           await state.settleMerge(pending);
           continue;
         }
