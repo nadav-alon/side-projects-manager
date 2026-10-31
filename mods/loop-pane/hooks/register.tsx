@@ -23,6 +23,26 @@ const BUTTONS = [
   { key: 'stop', label: 'Stop', script: 'stop', confirm: 'Stop the morning loop?' },
 ] as const
 
+/** What a pane element holds: elements, or the `false` a skipped condition leaves behind. */
+type Child = JSX.Element | false | null
+type Children = Child | readonly Child[]
+
+/** The pane's building blocks, as the host resolves them. */
+type Parts = {
+  Box: (props: { flexDirection?: 'column'; marginTop?: number; children?: Children }) => JSX.Element
+  Text: (props: { bold?: boolean; underline?: boolean; children?: string }) => JSX.Element
+}
+
+/** A titled block of the pane, set apart from the one above it. */
+function Section({ Box, Text, title, children }: Parts & { title: string; children?: Children }) {
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold underline>{title}</Text>
+      {children}
+    </Box>
+  )
+}
+
 export const register: Register = on => {
   let tick: { cancel(): void } | undefined
 
@@ -66,28 +86,27 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const home = managerHome($.plugin.root)
 
-    const Section = ({ title, children }: { title: string; children?: unknown }) => (
-      <Box flexDirection="column" marginTop={1}>
-        <Text bold underline>{title}</Text>
-        {children as never}
-      </Box>
-    )
+    const parts = { Box, Text }
     const running = inFlight !== null && inFlight.alive
+    const opened = inFlight === null ? null : new Date(inFlight.openedAt)
+    const span = opened === null ? '' : `${localTime(opened)} (${elapsed(opened, new Date(now))}`
 
     return (
       <Box flexDirection="column">
-        <Section title="Status">
+        <Section {...parts} title="Status">
           {inFlight === null ? (
             <Text dimColor>No invocation is running.</Text>
+          ) : running ? (
+            <Text>Running since {span})</Text>
           ) : (
-            <Text>Running since {localTime(new Date(inFlight.openedAt))} ({elapsed(now - Date.parse(inFlight.openedAt))})</Text>
+            <Text>Opened at {span} ago), process died</Text>
           )}
           {inFlight !== null && !inFlight.alive && (
             <Text color="red">Process {inFlight.pid} has died without closing its record; nothing below is running.</Text>
           )}
         </Section>
         {inFlight !== null && (
-          <Section title="Current runs">
+          <Section {...parts} title="Current runs">
             {running && inFlight.runs.length === 0 && <Text dimColor>No run is in progress.</Text>}
             {running && inFlight.runs.map(run => (
               <Box gap={1}>
@@ -107,13 +126,13 @@ export const register: Register = on => {
           </Section>
         )}
         {usage !== null && (
-          <Section title="5-hour spend">
+          <Section {...parts} title="5-hour spend">
             <Text>
-              5-hour spend of the loop's own runs: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
+              Loop's own runs: {compactCount(usage.tokensUsed)} / {compactCount(usage.spendable)} spendable tokens ({percentOf(usage.tokensUsed, usage.spendable)})
             </Text>
           </Section>
         )}
-        <Section title="Controls">
+        <Section {...parts} title="Controls">
           {failure !== null && <Text color="red">{failure}</Text>}
           <Box gap={1}>
             {BUTTONS.map(button => (

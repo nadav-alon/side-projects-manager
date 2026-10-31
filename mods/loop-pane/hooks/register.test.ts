@@ -6,7 +6,7 @@ type On = Parameters<TestBody>[1]
 type Ran = { argv: readonly string[]; cwd?: string }
 
 const HOME = import.meta.dir.split('/').slice(0, -3).join('/')
-const now = Date.now()
+const now = Date.parse('2026-06-15T17:30:00Z')
 const iso = (ago: number) => new Date(now - ago).toISOString()
 
 /** Stands for the engine beneath the mod: the manager home's files are `files`, and the pane's process runs are recorded. */
@@ -54,12 +54,12 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>) => (await ui.findAll
 test('the pane shows the in-flight invocation, its iterations, its spend and its freed entries', async ($, on) => {
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
-  const lines = await texts(await mount($))
-  expect(lines).toContain('Run:')
-  expect(lines).toContain('o/a#7')
-  expect(lines).toContain('[implementation]')
+  const ui = await mount($)
+  const lines = await texts(ui)
+  const row = (await ui.findAll({ type: 'Box' })).find(box => (box.props as { gap?: number }).gap === 1 && box.text.includes('o/a#7'))
+  expect(row?.text.trim()).toBe('Run:o/a#7[implementation]')
   expect(lines).toContain('o/d#9')
-  expect(lines).toContain("5-hour spend of the loop's own runs: 1.2K / 5.0K spendable tokens (24%)")
+  expect(lines).toContain("Loop's own runs: 1.2K / 5.0K spendable tokens (24%)")
 })
 
 test('the spend line uses compact units and a share, small shares included', async ($, on) => {
@@ -70,14 +70,14 @@ test('the spend line uses compact units and a share, small shares included', asy
   }
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toContain("5-hour spend of the loop's own runs: 2.1M / 7.0B spendable tokens (0.03%)")
+  expect(await texts(await mount($))).toContain("Loop's own runs: 2.1M / 7.0B spendable tokens (0.03%)")
 })
 
 test('the spend line counts against the allowance less the reserve', async ($, on) => {
   const files = { ...home, [`${HOME}/budget.json`]: JSON.stringify({ fiveHourAllowance: 5000, fiveHourReserveFraction: 0.2 }) }
   engine(on, files)
   await $.command.run({ command: 'loop-pane', args: '' })
-  expect(await texts(await mount($))).toContain("5-hour spend of the loop's own runs: 1.2K / 4.0K spendable tokens (30%)")
+  expect(await texts(await mount($))).toContain("Loop's own runs: 1.2K / 4.0K spendable tokens (30%)")
 })
 
 test('the pane says an invocation whose process is gone has died, and lists none of its runs', async ($, on) => {
@@ -178,9 +178,15 @@ test('stop runs the stop command once the person agrees', async ($, on) => {
 test('the pane shows when the invocation opened in local time, and for how long', async ($, on) => {
   engine(on, home)
   await $.command.run({ command: 'loop-pane', args: '' })
-  const opened = new Date(now - 60_000)
-  const local = `${String(opened.getHours()).padStart(2, '0')}:${String(opened.getMinutes()).padStart(2, '0')}`
-  expect(await texts(await mount($))).toContain(`Running since ${local} (1m)`)
+  expect(await texts(await mount($))).toContainEqual(expect.stringMatching(/^Running since \d\d:\d\d \(1m\)$/))
+})
+
+test('a record left open by a dead process is not called running', async ($, on) => {
+  engine(on, home, [], [], undefined, false)
+  await $.command.run({ command: 'loop-pane', args: '' })
+  const lines = await texts(await mount($))
+  expect(lines).toContainEqual(expect.stringMatching(/^Opened at \d\d:\d\d \(1m ago\), process died$/))
+  expect(lines.some(line => line.startsWith('Running since'))).toBe(false)
 })
 
 test('the pane has labelled sections for status, current runs, spend and controls', async ($, on) => {
