@@ -88,6 +88,11 @@ async function main(): Promise<void> {
     stream.on("error", () => {});
   }
 
+  // The invocation's first word, ahead of every step that could fail or print
+  // a line of its own, so a log of several invocations splits cleanly here.
+  const progress = terminalProgress();
+  notify(progress, { kind: "invocation-started" });
+
   // At invocation start, ahead of every other invocation-start step: nothing
   // below opens a transcript or discoveries directory of its own yet, so
   // nothing this invocation is about to write can be mistaken for old.
@@ -106,7 +111,6 @@ async function main(): Promise<void> {
 
   const store = documentStore();
   const opened = await openJournalRecord(store, systemClock.now());
-  const progress = terminalProgress();
 
   const report = await morningLoop(
     {

@@ -35,8 +35,16 @@ export function terminalProgress(): Progress {
   return {
     note(event: ProgressEvent): void {
       switch (event.kind) {
+        case "invocation-started":
+          line("Invocation started.");
+          return;
         case "iteration-selected":
           line(`Working ${event.ticket.repo} #${event.ticket.number}.`);
+          return;
+        case "iteration-failed":
+          line(
+            `Failed ${event.ticket.repo} #${event.ticket.number}: ${oneLine(event.reason)}.`,
+          );
           return;
         case "stood-down":
           line(
@@ -100,4 +108,9 @@ function abandoningLine(running: Running[]): string {
     .map((run) => `${run.repo} #${run.number} (${run.checkout})`)
     .join(", ");
   return `Stopping now: abandoning ${named} — their containers and clones are left behind.`;
+}
+
+/** `text` on one line with no closing full stop, so the line it is written into stays parseable. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim().replace(/\.$/, "");
 }

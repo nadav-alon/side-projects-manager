@@ -9,6 +9,7 @@ import type {
 import { isBlockingDiscoveryKind } from "./discovery-routing.ts";
 import type { DiscoveryReport, DiscoveryRouting } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
+import { uniformFilesTouchedPhrase } from "./failure-reason.ts";
 import type {
   SpecReviewSweepLink,
   SpecReviewSweepOutcome,
@@ -44,7 +45,6 @@ import {
   type Rebased,
   type Reviewed,
   type SpecReviewed,
-  type UniformFilesTouched,
   type UxReviewed,
 } from "./iteration-outcome.ts";
 import { modelProblem } from "./model-resolution.ts";
@@ -2042,15 +2042,6 @@ function timelineUnreadablePhrase(error: string): string {
  */
 function timelineUnreadableWaitingLine(repo: RepoSlug, pullRequest: PullRequestUrl, error: string): string {
   return `- ${repo}: ${pullRequest} — ${timelineUnreadablePhrase(error)}`;
-}
-
-/**
- * The phrase a uniform-files-touched failure reads as: shared by
- * `waitingOnFailure` and `stoppedBecause`, so a wording change touches one
- * place.
- */
-function uniformFilesTouchedPhrase(failure: UniformFilesTouched): string {
-  return `its diff touched ${failure.files.join(", ")}, which the manager keeps uniform across every project, so no pull request was opened`;
 }
 
 /** How the developer grants a ticket turboable so the merge gate counts it. */

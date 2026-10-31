@@ -122,12 +122,14 @@ import {
   type RoutedDiscoveries,
 } from "./discovery-routing.ts";
 import { errorMessage } from "./error-message.ts";
+import { failureReason } from "./failure-reason.ts";
 import {
   budgetExhaustedReviewOutcome,
   budgetExhaustedRunOutcome,
   cutOffOf,
   cutOffReviewOutcome,
   cutOffRunOutcome,
+  failureOf,
   type AheadOfGateFailure,
   type AppliedReview,
   type BlockedOnExisting,
@@ -547,6 +549,7 @@ export async function morningLoop(
               // re-applies ready-for-agent the same day gets a later firing
               // rather than silence.
               state.iterationEnded(ticket, iteration);
+              noteFailure(ports, ticket, iteration);
 
               // A cut-off run — a limit refusal or a provider failure,
               // direct or carried by a discovery-blocked iteration whose run
@@ -575,6 +578,11 @@ export async function morningLoop(
             },
             (error: unknown) => {
               thrown.push(error);
+              notify(ports.progress, {
+                kind: "iteration-failed",
+                ticket,
+                reason: errorMessage(error),
+              });
             },
           )
           .finally(() => inProgress.delete(completion));
@@ -677,7 +685,20 @@ async function handBackAheadOfGate(
   const handedBack = await handBack(ports, ticket, ending);
   const iteration: Failed = { kind: "failed", failure: ending, handedBack };
   invocation.iterationEnded(ticket, iteration);
+  noteFailure(ports, ticket, iteration);
   return { repo, ticket, ...iteration };
+}
+
+/** Announces `iteration` if it failed, naming why, the instant it ends. */
+function noteFailure(ports: MorningLoopPorts, ticket: Ticket, iteration: Iteration): void {
+  const failure = failureOf(iteration);
+  if (failure !== undefined) {
+    notify(ports.progress, {
+      kind: "iteration-failed",
+      ticket,
+      reason: failureReason(ticket, failure),
+    });
+  }
 }
 
 /** The `transcript` field a `handBack` ending wants, present only when `transcript` is. */

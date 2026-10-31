@@ -10049,6 +10049,66 @@ describe("morningLoop", () => {
       assert.equal(ports.sandbox.uxReviews[0]?.image, prepared);
     });
 
+    it("announces a failed iteration with the ticket and why, including a refused image build", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+      ports.sandbox.prepareResult = () =>
+        Promise.reject(new Error("the sandbox image for nadav-alon/pilot could not be built"));
+
+      await morningLoop(ports);
+
+      const failed = progress.events.filter((event) => event.kind === "iteration-failed");
+      assert.equal(failed.length, 1);
+      assert.deepEqual(
+        failed.map((event) => (event.kind === "iteration-failed" ? event.ticket.number : 0)),
+        [issueNumber(7)],
+      );
+      assert.deepEqual(
+        failed.map((event) => (event.kind === "iteration-failed" ? event.reason : "")),
+        ["the sandbox image for nadav-alon/pilot could not be built"],
+      );
+    });
+
+    it("names the ticket of an iteration that throws, with the error as why", async (t) => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      ports.sandbox.result = () => ({
+        kind: "finished",
+        branch: branch("issue-7-add-the-thing"),
+        commits: [commitSha("c0ffee1")],
+        output: "",
+        tokensUsed: tokenCount(42_000),
+      });
+      t.mock.method(ports.repoHost, "openDraftPullRequest", async () => {
+        throw new Error("the host broke its contract");
+      });
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      const report = await morningLoop(ports);
+
+      assert.match(report.message, /broke its contract/);
+
+      const failed = progress.events.filter((event) => event.kind === "iteration-failed");
+      assert.deepEqual(
+        failed.map((event) => (event.kind === "iteration-failed" ? [event.ticket.number, event.reason] : [])),
+        [[issueNumber(7), "the host broke its contract"]],
+      );
+    });
+
+    it("announces no failure for an iteration that did not fail", async () => {
+      const ports = fakePorts();
+      readyToWork(ports);
+      const progress = new FakeProgress();
+      ports.progress = progress;
+
+      await morningLoop(ports);
+
+      assert.equal(progress.events.some((event) => event.kind === "iteration-failed"), false);
+    });
+
     it("announces no container, and runs nothing, when the project's image is refused", async () => {
       const ports = fakePorts();
       readyToWork(ports);
@@ -10179,7 +10239,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["iteration-selected", "container-started", "run-ended"],
+        ["iteration-selected", "container-started", "run-ended", "iteration-failed"],
       );
       const ended = progress.events.find((event) => event.kind === "run-ended");
       assert.equal(ended?.tokensUsed, 0);
@@ -10198,7 +10258,7 @@ describe("morningLoop", () => {
 
       assert.deepEqual(
         progress.events.map((event) => event.kind),
-        ["iteration-selected"],
+        ["iteration-selected", "iteration-failed"],
       );
     });
 
