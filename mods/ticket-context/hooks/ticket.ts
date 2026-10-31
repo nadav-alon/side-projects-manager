@@ -51,13 +51,16 @@ export function issueRef(repo: RepoSlug, number: IssueNumber): IssueRef {
 }
 
 // A reference is `owner/repo#n`; the lookbehind keeps a bare `#n` from matching inside a word or a path.
+// The harness writes a pasted image into the prompt as `[Image #n]`; that `#n` numbers the image, not a ticket.
+const imagePlaceholderPattern = /\[Image #\d+\]/g
+
 const referencePattern = /(?<![\w/.-])(?:([\w.-]+\/[\w.-]+))?#(\d+)\b/g
 
 /** The tickets `text` names, each once, in the order they first appear. */
 export function referencesIn(text: string): Reference[] {
   const seen = new Set<string>()
   const found: Reference[] = []
-  for (const [, slug, digits] of text.matchAll(referencePattern)) {
+  for (const [, slug, digits] of text.replace(imagePlaceholderPattern, ' ').matchAll(referencePattern)) {
     const number = Number(digits)
     if (!isIssueNumber(number)) continue
     const repo = slug === undefined ? null : repoSlug(slug)
