@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { failureKey, repeatingFailures } from './failures'
+import { failureKey, repeatingFailures, type FailureKey } from './failures'
 import { managerHomeReader } from './manager-home/reader'
 
 /** The manager home: the plugin sits at `<home>/mods/<name>`, so the home is two levels up. */
@@ -18,21 +18,21 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const reader = managerHomeReader({ read: path => $.fs.read(path), list: path => $.fs.list(path) }, managerHome($.plugin.root))
 
-    // The failures currently toasted for. One that stops repeating leaves the set, so it toasts
-    // again if it starts again.
-    let announced = new Set<string>()
+    // The failures currently toasted for. One whose streak the log shows ended leaves the set, so it toasts
+    // again if it starts again; one the window merely stops showing stays.
+    let announced = new Set<FailureKey>()
 
     const refresh = async () => {
       const lines = await reader.recentTriggerLog(LOG_LINES)
       // An unreadable log is nothing known: keep what has been toasted.
       if (lines === undefined) return
-      const repeating = repeatingFailures(lines)
+      const { repeating, ended } = repeatingFailures(lines)
       for (const failure of repeating) {
         if (!announced.has(failureKey(failure))) {
           $.ui.toast(`${failure.repo} #${failure.number} keeps failing: ${failure.reason}`)
         }
       }
-      announced = new Set(repeating.map(failureKey))
+      announced = new Set([...announced].filter(key => !ended(key)).concat(repeating.map(failureKey)))
     }
 
     await refresh()
