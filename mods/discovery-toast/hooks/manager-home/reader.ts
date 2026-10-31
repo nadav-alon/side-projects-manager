@@ -61,13 +61,18 @@ export interface FiveHourUsage {
   /**
    * What the manager's gate counts against the window: the session logs' usage since the block
    * opened, which includes the developer's interactive use, plus the manager's own runs recorded in
-   * the state document since then. With no session logs to read, the own runs of the five hours up
-   * to `now`.
+   * the state document since then. With no session logs to read, only an estimate: the own runs
+   * over a rolling look-back of the five hours up to `now`. That look-back is not the window: it
+   * ignores the developer's interactive use and `observedResetAt` — so it can undercount the gate.
    */
   tokensUsed: TokenCount
   allowance: TokenCount
   reserveFraction: ReserveFraction
-  /** Whether `tokensUsed` already exceeds what the window may spend once its reserve is held back: the gate's own "reserve reached". */
+  /**
+   * Whether `tokensUsed` already exceeds what the window may spend once its reserve is held back,
+   * worked out as the gate works out "reserve reached". It is the gate's verdict only when `tokensUsed`
+   * is the gate's figure; with no session logs it judges the loop-only estimate and can read lower.
+   */
   reserveReached: boolean
 }
 
@@ -91,10 +96,14 @@ const BUDGET_FIELDS: readonly string[] = [
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000
 
-/** An ISO 8601 instant ends in a zone; the manager refuses an `observedResetAt` that does not. */
+/** An ISO 8601 instant ends in a zone; the manager refuses an `observedResetAt` that does not (`HAS_ZONE` in `src/adapters/document-store.ts`). */
 const HAS_ZONE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/
 
-/** The provider's price ratios to a fresh input token, as the manager weighs a session log line's usage. */
+/**
+ * The provider's price ratios to a fresh input token, as the manager weighs a session log line's usage.
+ * Copies of the weights in `src/ports/token-count.ts`: a mod cannot import `src/`, so a change there is
+ * to be made here too.
+ */
 const INPUT_WEIGHT = 1
 const CACHE_CREATION_WEIGHT = 1.25
 const CACHE_READ_WEIGHT = 0.1
@@ -225,7 +234,7 @@ interface LogEntry {
 
 /**
  * `tokensUsed` against `figures`, with the gate's verdict. The reserve is rounded up and held back
- * whole, as the gate's `spendableOf` does, so a fractional reserve never shrinks.
+ * whole, as `spendableOf` in `src/budget-gate.ts` does, so a fractional reserve never shrinks.
  */
 function withVerdict(tokensUsed: TokenCount, figures: { allowance: TokenCount; reserveFraction: ReserveFraction }): FiveHourUsage {
   const spendable = figures.allowance - Math.ceil(figures.allowance * figures.reserveFraction)
@@ -316,7 +325,8 @@ function logEntry(line: string): LogEntry | undefined {
  * is 5 hours past the one that opened it. `undefined` when no block is open — none ever began, or
  * the last one has ended. `observedResetAt`, a boundary the developer read off the provider, is believed
  * ahead of the logs: one still to come states the open block outright; one already past drops the
- * messages before it from the inference.
+ * messages before it from the inference. A copy of the block inference in
+ * `src/adapters/usage-ledger/parse-usage-windows.ts`; keep the two in step.
  */
 function fiveHourBlockOpenedAt(entries: readonly LogEntry[], now: Date, observedResetAt?: Date): Date | undefined {
   if (observedResetAt !== undefined && observedResetAt.getTime() > now.getTime()) {
