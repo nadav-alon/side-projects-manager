@@ -78,7 +78,7 @@ export function repeatingFailures(lines: readonly string[], threshold = REPEAT_T
   const { invocations, failures } = readFailures(lines)
   const windows = [invocations.slice(-threshold), invocations.slice(-threshold - 1, -1)]
   const repeating = [...failures]
-    .filter(([key]) => windows.some(window => window.length === threshold && window.every(names => names.has(key))))
+    .filter(([key]) => windows.some(window => window.length === threshold && window.every(invocationFailures => invocationFailures.has(key))))
     .map(([, failure]) => failure)
   const lastComplete = invocations.at(-2)
   return { repeating, ended: key => lastComplete !== undefined && !lastComplete.has(key) }
