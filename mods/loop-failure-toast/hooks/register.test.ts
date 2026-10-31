@@ -15,11 +15,13 @@ function engine(on: On, log: string[]) {
   let ticked = new Promise<void>(resolve => (release = resolve))
 
   on('session.start', () => ({ cwd: '/session' }))
-  on('fs.read', () => ({ value: log.join('\n') }) as never)
+  on('fs.read', () => {
+    polled()
+    return { value: log.join('\n') } as never
+  })
   on('clock.every', async () => {
     await ticked
     ticked = new Promise<void>(resolve => (release = resolve))
-    polled()
     return { value: undefined } as never
   })
   on('ui.toast', (_$, e) => {
@@ -28,10 +30,11 @@ function engine(on: On, log: string[]) {
   })
   return {
     toasts,
-    tick: () => {
+    tick: async () => {
       const done = new Promise<void>(resolve => (polled = resolve))
       release()
-      return done
+      await done
+      await new Promise(resolve => setTimeout(resolve, 0))
     },
   }
 }
@@ -71,4 +74,26 @@ test('differing failures do not toast', async ($, on) => {
   await $.session.start({ cwd: '/session' } as never)
 
   expect(toasts).toEqual([])
+})
+
+test('the same ticket failing for different reasons does not toast', async ($, on) => {
+  const other = (reason: string) => ['Invocation started.', `Failed a/b #7: ${reason}.`]
+  const { toasts } = engine(on, [...other('one'), ...other('two'), ...other('three')])
+  await $.session.start({ cwd: '/session' } as never)
+
+  expect(toasts).toEqual([])
+})
+
+test('a streak whose start scrolls out of the window toasts once, not again when it fails again', async ($, on) => {
+  const long = (...tail: string[]) => ['Invocation started.', ...Array.from({ length: 150 }, () => 'Working a/b #1.'), ...tail]
+  const failed = long('Failed a/b #7: the sandbox image could not build.')
+  const log = [...failed, ...failed, ...failed]
+  const { toasts, tick } = engine(on, log)
+  await $.session.start({ cwd: '/session' } as never)
+
+  log.push('Invocation started.', ...Array.from({ length: 100 }, () => 'Working a/b #1.'))
+  await tick()
+  log.push('Failed a/b #7: the sandbox image could not build.')
+  await tick()
+  expect(toasts.length).toBe(1)
 })

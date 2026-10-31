@@ -14,6 +14,11 @@ export interface LoopFailure {
   reason: string
 }
 
+declare const failureKeyBrand: unique symbol
+
+/** What makes two failures the same, as `failureKey` writes it. */
+export type FailureKey = string & { readonly [failureKeyBrand]: true }
+
 const INVOCATION_STARTED = 'Invocation started.'
 const FAILED = /^Failed (\S+) #(\d+): (.+)\.$/
 
@@ -22,46 +27,59 @@ export function parseFailure(line: string): LoopFailure | undefined {
   const match = FAILED.exec(line.trim())
   if (match === null) return undefined
   const [, repo, number, reason] = match
-  if (!isRepoSlug(repo!) || !isIssueNumber(Number(number))) return undefined
-  return { repo: repo, number: Number(number) as IssueNumber, reason: reason! }
+  const issue = Number(number)
+  if (!isRepoSlug(repo!) || !isIssueNumber(issue)) return undefined
+  return { repo, number: issue, reason: reason! }
 }
 
 /** What makes two failures the same: the same ticket failing for the same reason. */
-export function failureKey(failure: LoopFailure): string {
-  return JSON.stringify([failure.repo, failure.number, failure.reason])
+export function failureKey(failure: LoopFailure): FailureKey {
+  return JSON.stringify([failure.repo, failure.number, failure.reason]) as FailureKey
 }
 
 /**
- * The failures of each invocation in `lines`, oldest first, as keys. Lines before the first
- * invocation marker belong to an invocation whose start the log no longer holds, and are left out.
+ * What `lines` hold of the failures: each invocation's failure keys, oldest first, and every
+ * failure by its key. Lines before the first invocation marker belong to an invocation whose start
+ * the log no longer holds, and are left out of the invocations.
  */
-function failuresByInvocation(lines: readonly string[]): Set<string>[] {
-  const invocations: Set<string>[] = []
+function readFailures(lines: readonly string[]) {
+  const invocations: Set<FailureKey>[] = []
+  const failures = new Map<FailureKey, LoopFailure>()
   for (const line of lines) {
     if (line.trim() === INVOCATION_STARTED) {
       invocations.push(new Set())
       continue
     }
     const failure = parseFailure(line)
-    if (failure !== undefined) invocations.at(-1)?.add(failureKey(failure))
+    if (failure === undefined) continue
+    const key = failureKey(failure)
+    failures.set(key, failure)
+    invocations.at(-1)?.add(key)
   }
-  return invocations
+  return { invocations, failures }
+}
+
+/** The failures that repeat, and which failures' streaks `lines` show ended. */
+export interface Repeats {
+  repeating: LoopFailure[]
+  /** Whether the latest complete invocation, one a later one has followed, ran without `key`. */
+  ended: (key: FailureKey) => boolean
 }
 
 /**
  * The failures that repeat: those named by each of `threshold` consecutive invocations ending at
- * the latest, or ending just before it — the latest may still be running and not yet have failed,
- * which does not end a streak. They come in the order the log first names them.
+ * the latest, or ending just before it — the latest may still be running, whatever it has logged
+ * so far, which does not end a streak. They come in the order the log first names them.
+ *
+ * A streak is `ended` only by a complete invocation that ran without it. A log too short to show
+ * the whole streak proves nothing, so it does not end one.
  */
-export function repeatingFailures(lines: readonly string[], threshold = REPEAT_THRESHOLD): LoopFailure[] {
-  const invocations = failuresByInvocation(lines)
+export function repeatingFailures(lines: readonly string[], threshold = REPEAT_THRESHOLD): Repeats {
+  const { invocations, failures } = readFailures(lines)
   const windows = [invocations.slice(-threshold), invocations.slice(-threshold - 1, -1)]
-  const failures = new Map<string, LoopFailure>()
-  for (const line of lines) {
-    const failure = parseFailure(line)
-    if (failure !== undefined) failures.set(failureKey(failure), failure)
-  }
-  return [...failures]
+  const repeating = [...failures]
     .filter(([key]) => windows.some(window => window.length === threshold && window.every(names => names.has(key))))
     .map(([, failure]) => failure)
+  const lastComplete = invocations.at(-2)
+  return { repeating, ended: key => lastComplete !== undefined && !lastComplete.has(key) }
 }
