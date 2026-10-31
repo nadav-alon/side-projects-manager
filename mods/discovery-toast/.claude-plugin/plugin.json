@@ -1,0 +1,5 @@
+{
+  "name": "discovery-toast",
+  "version": "0.1.0",
+  "description": "Toasts each new discovery in the manager's discoveries folder and shows how many are pending in the status line."
+}
