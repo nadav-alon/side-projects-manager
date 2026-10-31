@@ -187,7 +187,7 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
       if (sessionLogs === undefined) {
         const since = now.getTime() - FIVE_HOURS_MS
         const own = runs.filter(run => run.at.getTime() > since && run.at.getTime() <= now.getTime())
-        return withVerdict(tokenCount(sum(own)), figures)
+        return withVerdict(ownSpend(own), figures)
       }
 
       const entries = await readLogEntries(fs, sessionLogs)
@@ -195,9 +195,9 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
       // A reset more than five hours ahead names a block that cannot be open yet; the manager refuses it.
       if (observedResetAt !== undefined && observedResetAt.getTime() - now.getTime() > FIVE_HOURS_MS) return undefined
       const openedAt = fiveHourBlockOpenedAt(entries, now, observedResetAt)
-      const developer = openedAt === undefined ? 0 : roundedSum(entries.filter(entry => entry.at.getTime() >= openedAt.getTime()))
+      const developer = openedAt === undefined ? tokenCount(0) : loggedSpend(entries.filter(entry => entry.at.getTime() >= openedAt.getTime()))
       const own = runs.filter(run => run.at.getTime() >= (openedAt ?? now).getTime())
-      return withVerdict(tokenCount(developer + sum(own)), figures)
+      return withVerdict(tokenCount(developer + ownSpend(own)), figures)
     },
 
     async recentTriggerLog(limit = DEFAULT_TRIGGER_LOG_LINES) {
@@ -223,10 +223,13 @@ export function managerHomeReader(fs: HomeFs, home: string, sessionLogs?: string
 /** A run the state document records, reduced to what the window's spend needs. */
 interface OwnRun {
   at: Date
-  tokensUsed: number
+  tokensUsed: TokenCount
 }
 
-/** One assistant line of a session log carrying usage; `weighted` is left unrounded so a window rounds once. */
+/**
+ * One assistant line of a session log carrying usage. `weighted` is fractional (the cache weights are
+ * not whole), so it is no `TokenCount`, which is whole; it is left unrounded so a window rounds once.
+ */
 interface LogEntry {
   at: Date
   weighted: number
@@ -236,17 +239,19 @@ interface LogEntry {
  * `tokensUsed` against `figures`, with the gate's verdict. The reserve is rounded up and held back
  * whole, as `spendableOf` in `src/budget-gate.ts` does, so a fractional reserve never shrinks.
  */
-function withVerdict(tokensUsed: TokenCount, figures: { allowance: TokenCount; reserveFraction: ReserveFraction }): FiveHourUsage {
-  const spendable = figures.allowance - Math.ceil(figures.allowance * figures.reserveFraction)
+function withVerdict(tokensUsed: TokenCount, figures: Omit<BudgetFigures, 'observedResetAt'>): FiveHourUsage {
+  const spendable: TokenCount = tokenCount(figures.allowance - Math.ceil(figures.allowance * figures.reserveFraction))
   return { tokensUsed, ...figures, reserveReached: tokensUsed > spendable }
 }
 
-function sum(items: readonly { tokensUsed: number }[]): number {
-  return items.reduce((total, item) => total + item.tokensUsed, 0)
+/** What the manager's own `runs` spent. */
+function ownSpend(runs: readonly OwnRun[]): TokenCount {
+  return tokenCount(runs.reduce((total, run) => total + run.tokensUsed, 0))
 }
 
-function roundedSum(entries: readonly LogEntry[]): number {
-  return Math.max(0, Math.round(entries.reduce((total, entry) => total + entry.weighted, 0)))
+/** What the session log `entries` spent, rounded once over the whole window. */
+function loggedSpend(entries: readonly LogEntry[]): TokenCount {
+  return tokenCount(Math.max(0, Math.round(entries.reduce((total, entry) => total + entry.weighted, 0))))
 }
 
 /**
