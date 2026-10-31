@@ -15,9 +15,25 @@ function pendingStatus(pending: number): string | undefined {
   return pending === 0 ? undefined : `${pending} pending discover${pending === 1 ? 'y' : 'ies'}`
 }
 
+/** What a discovery is called: its `<kind>: <title>`, or `undefined` when its file cannot be read as one. */
+async function describe(read: (path: string) => Promise<string>, home: string, discovery: string) {
+  try {
+    const document: unknown = JSON.parse(await read(`${home}/discoveries/${discovery}`))
+    if (typeof document === 'object' && document !== null) {
+      const { kind, title } = document as Record<string, unknown>
+      if (typeof kind === 'string' && typeof title === 'string') return `${kind}: ${title}`
+    }
+  } catch {
+    // Unreadable or unparseable: the caller names the discovery by its path.
+  }
+  return undefined
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const reader = managerHomeReader({ read: path => $.fs.read(path), list: path => $.fs.list(path) }, managerHome($.plugin.root))
+    const home = managerHome($.plugin.root)
+    const read = (path: string) => $.fs.read(path)
+    const reader = managerHomeReader({ read, list: path => $.fs.list(path) }, home)
 
     // Every discovery the session has seen: the ones present at start are never toasted, and one
     // that goes and comes back is not toasted twice.
@@ -32,7 +48,10 @@ export const register: Register = on => {
       // An unreadable folder is nothing known: leave the status as it stands.
       if (pending === undefined) return
       for (const discovery of pending) {
-        if (!seen.has(discovery) && !isBaseline) $.ui.toast(`New discovery: ${discovery}`)
+        if (!seen.has(discovery) && !isBaseline) {
+          const name = await describe(read, home, discovery)
+          $.ui.toast(name ?? `New discovery: ${discovery}`)
+        }
         seen.add(discovery)
       }
       $.ui.status(pendingStatus(pending.length))

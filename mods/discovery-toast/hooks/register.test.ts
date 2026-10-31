@@ -7,7 +7,12 @@ type On = Parameters<TestBody>[1]
  * names), `tick()` fires one poll of the mod's timer and resolves once the poll has set the status, and the status entries and toasts the mod
  * makes are collected.
  */
-function engine(on: On, files: Record<string, string[]>, unreadable = { isSo: false }) {
+function engine(
+  on: On,
+  files: Record<string, string[]>,
+  unreadable = { isSo: false },
+  contents: Record<string, string> = {},
+) {
   const seen = { statuses: [] as (string | undefined)[], toasts: [] as string[] }
   let release = () => {}
   let polled = () => {}
@@ -19,6 +24,11 @@ function engine(on: On, files: Record<string, string[]>, unreadable = { isSo: fa
     const inside = parts.at(-2) === 'discoveries' ? files[parts.at(-1)!] : parts.at(-1) === 'discoveries' ? Object.keys(files) : undefined
     if (inside === undefined || unreadable.isSo) throw new Error('missing')
     return { value: inside.map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })) } as never
+  })
+  on('fs.read', (_$, e) => {
+    const text = contents[e.path.split('/').slice(-2).join('/')]
+    if (text === undefined) throw new Error('missing')
+    return { value: text } as never
   })
   on('clock.every', async () => {
     await ticked
@@ -71,6 +81,32 @@ test('a discovery that appears while the session is open toasts once, naming it'
 
   await tick()
   expect(seen.toasts).toEqual(['New discovery: run-a/2.json'])
+})
+
+test('a new discovery toasts its kind and title', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': ['1.json'] }
+  const contents = { 'run-a/2.json': JSON.stringify({ kind: 'suggestion', title: 'Cache the lookup', body: 'x' }) }
+  const { seen, tick } = engine(on, files, undefined, contents)
+  await $.session.start({ cwd: '/session' } as never)
+
+  files['run-a']!.push('2.json')
+  await tick()
+  expect(seen.toasts).toEqual(['suggestion: Cache the lookup'])
+})
+
+test('a new discovery that cannot be read as one toasts its path', async ($, on) => {
+  const files: Record<string, string[]> = { 'run-a': [] }
+  const contents = { 'run-a/1.json': 'not json', 'run-a/2.json': JSON.stringify({ kind: 'nit' }) }
+  const { seen, tick } = engine(on, files, undefined, contents)
+  await $.session.start({ cwd: '/session' } as never)
+
+  files['run-a'] = ['1.json', '2.json', '3.json']
+  await tick()
+  expect(seen.toasts).toEqual([
+    'New discovery: run-a/1.json',
+    'New discovery: run-a/2.json',
+    'New discovery: run-a/3.json',
+  ])
 })
 
 test('the status clears when the pending discoveries are read away', async ($, on) => {
