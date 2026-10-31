@@ -4,6 +4,7 @@ import { flagRepo, foldedRepoSlug, sizingReminder } from './reminder'
 import { environmentRepo, type ShellTrail } from './target-repo/target'
 
 export const register: Register = on => {
+  // One trail per loaded mod: it must outlive each call, but a hot reload forgets a `cd` from before it.
   const trail: ShellTrail = { moved: false }
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     // Read the repo alongside the call; the reminder is only attached once the call has run.

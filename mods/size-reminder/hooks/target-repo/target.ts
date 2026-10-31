@@ -68,13 +68,15 @@ export interface CommandContext<Repo extends string> {
 
 /**
  * What a session's Bash calls have done to the shell so far. The persisted shell keeps a `cd` into the
- * next call, so once `moved` is set the session's directory is no longer where `gh` runs.
+ * next call, so once `moved` is set the session's directory is no longer where `gh` runs. It records the
+ * `cd`s that were seen, not ones that ran: a denied call, a failed `cd` or one in a subshell still count,
+ * and nothing resets it. That errs toward "unknown".
  */
 export interface ShellTrail {
   moved: boolean
 }
 
-/** Each simple command's `visit`, given its context; the results `visit` returns (not null), in order. `trail` carries the shell's moves from one call to the next. */
+/** Each simple command's `visit`, given its context; the results `visit` returns (not null), in order. `trail` carries the shell's moves from one call to the next, and is updated in place, once, after the last command. */
 export function walkCommands<Repo extends string, T>(
   commands: readonly (readonly string[])[],
   parse: (value: string) => Repo | null,
@@ -89,8 +91,8 @@ export function walkCommands<Repo extends string, T>(
     if (result !== null) results.push(result)
     moved ||= movesShell(words)
     environmentChanged ||= changesEnvironment(words)
-    trail.moved = moved
   }
+  trail.moved = moved
   return results
 }
 

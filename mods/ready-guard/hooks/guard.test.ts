@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import { checkReadyLabel, issueRef, repoSlug, type IssueRef, type RepoSlug, type Tracker } from './guard.ts'
+import type { ShellTrail } from './target-repo/target.ts'
 
 const REPO = repoSlug('acme/pilot')
 
@@ -32,8 +33,8 @@ function unreadableTracker(message = 'unread'): Tracker {
 }
 
 /** The text that denies `command`, or null when it runs; a warning fails the test. */
-async function denyReadyLabel(command: string, tracker: Tracker): Promise<string | null> {
-  const verdict = await checkReadyLabel(command, tracker)
+async function denyReadyLabel(command: string, tracker: Tracker, trail?: ShellTrail): Promise<string | null> {
+  const verdict = await checkReadyLabel(command, tracker, trail)
   assert.notEqual(verdict.kind, 'warn')
   return verdict.kind === 'deny' ? verdict.reason : null
 }

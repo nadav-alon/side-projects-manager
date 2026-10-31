@@ -41,6 +41,7 @@ function ghTracker(run: (argv: string[]) => Promise<{ exitCode: number; stdout: 
 }
 
 export const register: Register = on => {
+  // One trail per loaded mod: it must outlive each call, but a hot reload forgets a `cd` from before it.
   const trail: ShellTrail = { moved: false }
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const verdict = await checkReadyLabel(e.command, ghTracker(argv => $.process.run(argv)), trail)

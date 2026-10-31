@@ -123,10 +123,10 @@ describe('walkCommands', () => {
 describe('walkCommands, across calls', () => {
   it('carries a cd from one call to the next through the trail', () => {
     const trail = { moved: false }
-    const moved = () => (_words: readonly string[], context: { moved: boolean }) => context.moved
-    assert.deepEqual(walkCommands([['ls']], parse, moved(), trail), [false])
-    assert.deepEqual(walkCommands([['cd', 'x']], parse, moved(), trail), [false])
-    assert.deepEqual(walkCommands([['gh']], parse, moved(), trail), [true])
+    const moved = (_words: readonly string[], context: { moved: boolean }) => context.moved
+    assert.deepEqual(walkCommands([['ls']], parse, moved, trail), [false])
+    assert.deepEqual(walkCommands([['cd', 'x']], parse, moved, trail), [false])
+    assert.deepEqual(walkCommands([['gh']], parse, moved, trail), [true])
     assert.equal(trail.moved, true)
   })
 })
