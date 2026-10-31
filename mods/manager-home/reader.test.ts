@@ -257,3 +257,47 @@ describe("the 5-hour window's usage with the session logs", () => {
     assert.equal(await lonely.fiveHourUsage(now), undefined)
   })
 })
+
+describe("the 5-hour window's usage with an observed reset", () => {
+  const now = new Date('2026-01-02T12:00:00.000Z')
+  const LOGS = '/logs'
+  const line = (at: string) => JSON.stringify({ type: 'assistant', timestamp: at, message: { usage: { input_tokens: 10, output_tokens: 0 } } })
+  const state = { projects: { 'o/a': { runs: [{ at: '2026-01-02T08:00:00.000Z', tokensUsed: 1000 }] } } }
+  const withReset = (observedResetAt: string) =>
+    managerHomeReader(
+      fakeFs(
+        {
+          [`${HOME}/state.json`]: JSON.stringify(state),
+          [`${HOME}/budget.json`]: JSON.stringify({ observedResetAt }),
+          // One block from 07:00; a message at 09:00 and one at 11:00 fall in it.
+          [`${LOGS}/p/s.jsonl`]: [line('2026-01-02T07:00:00.000Z'), line('2026-01-02T09:00:00.000Z'), line('2026-01-02T11:00:00.000Z')].join('\n'),
+        },
+        { [LOGS]: ['p'], [`${LOGS}/p`]: ['s.jsonl'] },
+      ),
+      HOME,
+      LOGS,
+    )
+
+  it('takes a reset still to come as the end of the open block', async () => {
+    // The block opened at 08:00 (13:00 less 5 hours): 09:00 and 11:00 messages, and the 08:00 run.
+    const usage = await withReset('2026-01-02T13:00:00Z').fiveHourUsage(now)
+    assert.equal(usage?.tokensUsed, 1020)
+    assert.equal('observedResetAt' in (usage ?? {}), false)
+  })
+
+  it('drops the messages before a reset already past', async () => {
+    // Only the 09:00 message and later count; the block opens at 09:00, so the 08:00 run is before it.
+    const usage = await withReset('2026-01-02T08:30:00Z').fiveHourUsage(now)
+    assert.equal(usage?.tokensUsed, 20)
+  })
+
+  for (const [what, observed] of [
+    ['more than five hours ahead', '2026-01-02T17:00:01Z'],
+    ['without a zone', '2026-01-02T13:00:00'],
+    ['not an instant', 'soon'],
+  ] as const) {
+    it(`is nothing known when the reset is ${what}`, async () => {
+      assert.equal(await withReset(observed).fiveHourUsage(now), undefined)
+    })
+  }
+})
