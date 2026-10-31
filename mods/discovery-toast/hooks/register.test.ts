@@ -82,6 +82,16 @@ test('the status names the newest pending discovery by its kind and title', asyn
   expect(seen.statuses.at(-1)).toBe('1 pending discovery (newest: nit: Old)')
 })
 
+test('a long title is truncated to one line in the status', async ($, on) => {
+  const title = `${'long '.repeat(30)}\nsecond line`
+  const { seen } = engine(on, { 'run-a': ['1.json'] }, undefined, { 'run-a/1.json': JSON.stringify({ kind: 'nit', title }) })
+  await $.session.start({ cwd: '/session' } as never)
+
+  const status = seen.statuses.at(-1)!
+  expect(status).toBe(`1 pending discovery (newest: nit: ${'long '.repeat(9)}long…)`)
+  expect(status).not.toContain('\n')
+})
+
 test('no discoveries leave the status clear', async ($, on) => {
   const { seen } = engine(on, {})
   await $.session.start({ cwd: '/session' } as never)

@@ -17,13 +17,22 @@ function pendingStatus(pending: number, newest: string | undefined): string | un
   return newest === undefined ? count : `${count} (newest: ${newest})`
 }
 
+/** The longest title shown whole; a longer one is cut to this many characters, ending in an ellipsis. */
+const MAX_TITLE = 50
+
+/** `title`, cut to `MAX_TITLE` characters and kept to one line. */
+function oneLine(title: string): string {
+  const line = title.replace(/\s+/g, ' ').trim()
+  return line.length <= MAX_TITLE ? line : `${line.slice(0, MAX_TITLE - 1)}…`
+}
+
 /** What a discovery is called: its `<kind>: <title>`, or `undefined` when its file cannot be read as one. */
 async function describe(read: (path: string) => Promise<string>, home: string, discovery: string) {
   try {
     const document: unknown = JSON.parse(await read(`${home}/discoveries/${discovery}`))
     if (typeof document === 'object' && document !== null) {
       const { kind, title } = document as Record<string, unknown>
-      if (typeof kind === 'string' && typeof title === 'string') return `${kind}: ${title}`
+      if (typeof kind === 'string' && typeof title === 'string') return `${kind}: ${oneLine(title)}`
     }
   } catch {
     // Unreadable or unparseable: the caller names the discovery by its path.
