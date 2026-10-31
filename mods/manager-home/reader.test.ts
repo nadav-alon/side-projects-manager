@@ -253,9 +253,21 @@ describe("the 5-hour window's usage with the session logs", () => {
     assert.equal((await home().fiveHourUsage(later))?.tokensUsed, 0)
   })
 
-  it('is nothing known when the session logs cannot be listed', async () => {
+  it('counts only the own runs when the session logs folder is missing, as the gate does', async () => {
     const lonely = managerHomeReader(fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state) }), HOME, LOGS)
-    assert.equal(await lonely.fiveHourUsage(now), undefined)
+    assert.equal((await lonely.fiveHourUsage(now))?.tokensUsed, 0)
+  })
+
+  it('is nothing known when a session log cannot be read for any other reason', async () => {
+    const base = fakeFs({ [`${HOME}/state.json`]: JSON.stringify(state), ...logs }, directories)
+    const denied: HomeFs = {
+      list: base.list,
+      read: async path => {
+        if (path.endsWith('s1.jsonl')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        return base.read(path)
+      },
+    }
+    assert.equal(await managerHomeReader(denied, HOME, LOGS).fiveHourUsage(now), undefined)
   })
 })
 

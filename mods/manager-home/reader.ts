@@ -242,25 +242,51 @@ function roundedSum(entries: readonly LogEntry[]): number {
 
 /**
  * Every usage-bearing line of every session log under `sessionLogs`, read as the manager's ledger
- * reads them: lines that are not a well-formed assistant message with usage are skipped. A log that
- * vanishes between listing and reading is skipped; a logs folder that cannot be listed is `undefined`.
+ * (`session-log-usage-ledger.ts`) reads them: lines that are not a well-formed assistant message with
+ * usage are skipped. A folder or log that is missing is no entries; a failure of any other kind (a
+ * permission error, say) leaves the usage `undefined` rather than a figure short of the gate's.
  */
 async function readLogEntries(fs: HomeFs, sessionLogs: string): Promise<LogEntry[] | undefined> {
   const root = sessionLogs.replace(/\/+$/, '')
-  const projects = await attempt(() => fs.list(root))
-  if (projects === undefined) return undefined
-  const entries: LogEntry[] = []
-  for (const project of projects) {
-    const files = (await attempt(() => fs.list(`${root}/${project.name}`))) ?? []
-    for (const file of files.filter(file => file.name.endsWith('.jsonl'))) {
-      const text = await attempt(() => fs.read(`${root}/${project.name}/${file.name}`))
-      for (const line of (text ?? '').split('\n')) {
-        const entry = logEntry(line)
-        if (entry !== undefined) entries.push(entry)
+  try {
+    const entries: LogEntry[] = []
+    for (const project of await listIfPresent(fs, root)) {
+      const files = await listIfPresent(fs, `${root}/${project.name}`)
+      for (const file of files.filter(file => file.name.endsWith('.jsonl'))) {
+        const text = await readIfPresent(fs, `${root}/${project.name}/${file.name}`)
+        for (const line of (text ?? '').split('\n')) {
+          const entry = logEntry(line)
+          if (entry !== undefined) entries.push(entry)
+        }
       }
     }
+    return entries
+  } catch {
+    return undefined
   }
-  return entries
+}
+
+/** Whether `error` says the path is not there, as Node's `ENOENT` does. */
+function isMissing(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 'ENOENT' || String((error as Error | null)?.message ?? error).startsWith('ENOENT')
+}
+
+async function listIfPresent(fs: HomeFs, path: string): Promise<readonly { name: string }[]> {
+  try {
+    return await fs.list(path)
+  } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
+}
+
+async function readIfPresent(fs: HomeFs, path: string): Promise<string | undefined> {
+  try {
+    return await fs.read(path)
+  } catch (error) {
+    if (isMissing(error)) return undefined
+    throw error
+  }
 }
 
 function logEntry(line: string): LogEntry | undefined {
