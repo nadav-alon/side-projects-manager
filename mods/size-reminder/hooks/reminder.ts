@@ -2,7 +2,7 @@
 // sized one step larger than a project's. Pure over a current-repo reader, so a mod's hook only
 // supplies the read; it imports nothing from the engine.
 
-import { commandWordIndex, targetRepo, walkCommands, type CommandContext } from './target-repo/target.ts'
+import { commandWordIndex, targetRepo, walkCommands, type CommandContext, type ShellTrail } from './target-repo/target.ts'
 
 declare const foldedRepoSlugBrand: unique symbol
 
@@ -158,21 +158,23 @@ function sizingCallOf(words: readonly string[], context: CommandContext<FoldedRe
 }
 
 /** Every ticket creation or sizing the call makes; empty when it makes none. */
-function sizingCalls(command: string): SizingCall[] {
-  return walkCommands(simpleCommands(command), flagRepo, sizingCallOf)
+function sizingCalls(command: string, trail?: ShellTrail): SizingCall[] {
+  return walkCommands(simpleCommands(command), flagRepo, sizingCallOf, trail)
 }
 
 /**
  * The reminder when `command` creates or sizes a ticket in this repo, else null. A call naming no repo
  * is in the repo `targetRepo` works out from its `GH_REPO=` prefix, `environmentRepo` and `currentRepo`;
- * one whose repo is unknown is taken as another repo.
+ * one whose repo is unknown is taken as another repo, as is one after a `cd` in `command` or, through
+ * `trail`, in an earlier call of the session.
  */
 export async function sizingReminder(
   command: string,
   currentRepo: () => Promise<FoldedRepoSlug>,
   environmentRepo: () => Promise<FoldedRepoSlug | null>,
+  trail?: ShellTrail,
 ): Promise<string | null> {
-  for (const call of sizingCalls(command)) {
+  for (const call of sizingCalls(command, trail)) {
     const repo =
       call.repo ??
       (await targetRepo({ ...call.context, environment: environmentRepo, session: currentRepo }).catch(() => null))
