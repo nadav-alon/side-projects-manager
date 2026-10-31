@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Runs `claude plugin test` on each mod under MODS_DIR (default: mods/ beside this script) whose
 # tests are written with claude-code/testing, and exits 1 when any of them fails. A mod without such
-# a test is skipped: its tests, if any, run under `npm test`. CLAUDE names the binary (default: claude).
+# a test is skipped: its tests, if any, run under `npm test`. `claude plugin test` takes a folder and
+# runs every test file in it, so it is given a copy of the mod holding only the files that import
+# claude-code/testing; a node:test file would fail there on its import. CLAUDE names the binary (default: claude).
 # It also exits 1 when MODS_DIR is missing or no mod was tested, so a renamed directory cannot pass.
 set -uo pipefail
 
@@ -11,6 +13,8 @@ mods_dir="${1:-$here/../mods}"
 claude="${CLAUDE:-claude}"
 failed=()
 tested=0
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
 
 if [[ ! -d "$mods_dir" ]]; then
   echo "No mods directory: $mods_dir" >&2
@@ -22,7 +26,12 @@ while IFS= read -r dir; do
     "claude-code/testing" "$dir" || continue
   echo "== ${dir##*/}"
   tested=$((tested + 1))
-  "$claude" plugin test "$dir" || failed+=("${dir##*/}")
+  copy="$scratch/${dir##*/}"
+  cp -R "$dir" "$copy"
+  while IFS= read -r file; do
+    grep -q "claude-code/testing" "$file" || rm "$file"
+  done < <(find "$copy" -name node_modules -prune -o \( -name '*.test.ts' -o -name '*.test.tsx' \) -print)
+  "$claude" plugin test "$copy" || failed+=("${dir##*/}")
 done < <(_mods_with_manifest "$mods_dir")
 
 if ((tested == 0)); then

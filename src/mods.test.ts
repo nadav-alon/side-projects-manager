@@ -76,7 +76,7 @@ describe("test-mods.sh", () => {
     const fake = join(root, "fake-claude");
     writeFileSync(
       fake,
-      `#!/usr/bin/env bash\necho "$1 $2 $3" >> "${join(root, "calls")}"\n[[ "$3" != */bad ]]\n`,
+      `#!/usr/bin/env bash\necho "$1 $2 \${3##*/}" >> "${join(root, "calls")}"\n(cd "$3" && find . -name '*.test.ts' | sort) >> "${join(root, "files")}"\n[[ "$3" != */bad ]]\n`,
       { mode: 0o755 },
     );
     return root;
@@ -103,8 +103,16 @@ describe("test-mods.sh", () => {
     mkdirSync(join(root, "no-tests"));
     const { status, stderr, calls } = run(root);
     assert.equal(status, 1);
-    assert.equal(calls, `plugin test ${root}/bad\nplugin test ${root}/good\n`);
+    assert.equal(calls, `plugin test bad\nplugin test good\n`);
     assert.match(stderr, /Hook tests failed: bad/);
+  });
+
+  it("hands claude plugin test only the test files written with claude-code/testing", () => {
+    const root = modsWithFakeClaude(["mixed", hook]);
+    writeFileSync(join(root, "mixed", "hooks", "plain.test.ts"), plain);
+    assert.equal(run(root).status, 0);
+    assert.equal(readFileSync(join(root, "files"), "utf8"), "./hooks/a.test.ts\n");
+    assert.ok(existsSync(join(root, "mixed", "hooks", "plain.test.ts")));
   });
 
   it("passes when every mod's tests pass", () => {
